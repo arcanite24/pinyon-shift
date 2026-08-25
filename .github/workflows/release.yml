@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   package:
+    if: github.event.repository.visibility == 'public'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
