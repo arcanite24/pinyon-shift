@@ -1,4 +1,4 @@
-// Pinyon Shift - private experimental ReXGlue host
+// Pinyon Shift - native ReXGlue host
 
 #include "pinyon_shift_init.h"
 

@@ -21,9 +21,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Launcher publish failed.' }
 
 $include = @(
     'CMakeLists.txt', 'CMakePresets.json', 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md',
-    'cmake', 'config/release-toolchain.json', 'config/supported-dumps.json',
+    'cmake', 'config/release.json', 'config/release-toolchain.json', 'config/supported-dumps.json',
     'config/rexglue', 'patches/rexglue', 'src',
-    'tools/build-preview.ps1', 'tools/install-build-tools.ps1',
+    'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
     'tools/setup-preview.ps1', 'tools/verify-game.ps1'

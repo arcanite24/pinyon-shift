@@ -1,7 +1,11 @@
-import hashlib
+import getpass
 import json
 import pathlib
+import shutil
+import subprocess
+import tempfile
 import unittest
+import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -36,11 +40,70 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_launcher_payload_has_every_required_script(self):
         required = {
-            "build-preview.ps1", "install-build-tools.ps1", "launch-preview.ps1",
+            "build-preview.ps1", "create-crash-report.ps1", "install-build-tools.ps1", "launch-preview.ps1",
             "prepare-rexglue.ps1", "provision-toolchain.ps1", "release-common.ps1",
             "setup-preview.ps1", "verify-game.ps1",
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
+
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_crash_report_redacts_paths_and_excludes_sensitive_files(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-report-") as temporary:
+            root = pathlib.Path(temporary)
+            state = root / "state"
+            executable = root / "pinyon_shift.exe"
+            executable.write_bytes(b"public-test-executable")
+            (state / "logs").mkdir(parents=True)
+            (state / "crashes").mkdir(parents=True)
+            private_path = str(root / "private" / getpass.getuser())
+            (state / "logs" / "runtime.log").write_text(
+                f"game path: {private_path}\nlast useful line\n", encoding="utf-8"
+            )
+            (state / "logs" / "session.jsonl").write_text(
+                json.dumps({"event": "process.start", "path": private_path}) + "\n",
+                encoding="utf-8",
+            )
+            crash = state / "crashes" / "test-unhandled.txt"
+            crash.write_text(
+                "Pinyon Shift unhandled exception\n"
+                "code=0xC0000005 address=0000000012345678 thread=7\n"
+                "session=test\n"
+                "fault_module=pinyon_shift.exe fault_offset=0x1234\n"
+                "#0 0x0000000012345678 TestFunction+0x4\n"
+                f"source={private_path}\n",
+                encoding="utf-8",
+            )
+            (state / "crashes" / "test-unhandled.dmp").write_bytes(b"private-memory")
+
+            completed = subprocess.run(
+                [
+                    "powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", str(ROOT / "tools/create-crash-report.ps1"),
+                    "-StateRoot", str(state), "-Executable", str(executable),
+                    "-StartedUtc", "2000-01-01T00:00:00Z", "-ProcessId", "7",
+                    "-ExitCode", "-1073741819", "-Json",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)
+            with zipfile.ZipFile(result["bundle"]) as archive:
+                names = set(archive.namelist())
+                self.assertIn("report.json", names)
+                self.assertIn("crash.txt", names)
+                self.assertFalse(any(name.lower().endswith(".dmp") for name in names))
+                combined = "\n".join(
+                    archive.read(name).decode("utf-8") for name in names
+                )
+            self.assertNotIn(str(root), combined)
+            self.assertNotIn(getpass.getuser().lower(), combined.lower())
+            self.assertTrue("<USER_PROFILE>" in combined or "<USERNAME>" in combined)
+            with zipfile.ZipFile(result["bundle"]) as archive:
+                manifest = json.loads(archive.read("report.json"))
+            self.assertFalse(manifest["privacy"]["memory_dump_included"])
+            self.assertEqual(manifest["exception"]["fault_offset"], "0x1234")
 
 
 if __name__ == "__main__":

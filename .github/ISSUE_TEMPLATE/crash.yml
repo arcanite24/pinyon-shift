@@ -1,0 +1,49 @@
+name: Game crash
+description: Report an unexpected game exit with a launcher-generated diagnostic ZIP
+title: "[Crash] "
+labels: [crash]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The launcher normally opens a prefilled report and selects the correct diagnostic ZIP. Drag that ZIP into the attachment field below. It excludes game files, saves, generated code, input capture, and memory dumps.
+  - type: input
+    attributes:
+      label: Crash ID
+      description: Starts with pscrash-v1- and is shown by the launcher.
+      placeholder: pscrash-v1-00000000000000000000
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened immediately before the crash?
+      description: Include the screen, event, car, and action when known.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Launch the preview
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Frequency
+      options: [Every time, Often, Sometimes, Once]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Diagnostic ZIP
+      description: Drag the PinyonShift-pscrash ZIP selected by the launcher here.
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Safety check
+      options:
+        - label: I am attaching only the launcher-generated ZIP, not game files, generated code, saves, executables, or a memory dump.
+          required: true

@@ -39,6 +39,16 @@ Update the GPU driver and confirm that the GPU supports DirectX 12. Remove
 software may also quarantine a newly compiled unsigned executable; restore it
 only after confirming it was produced by your local checkout.
 
+## The game crashes
+
+Leave the launcher open while playing. It will prepare a sanitized ZIP under
+`.local/preview/reports`, select that file in Explorer, and open a prefilled
+GitHub issue. Attach the ZIP and describe the last actions before the crash.
+
+Memory dumps under `.local/preview/crashes` may contain process-memory fragments
+and are never placed in the public report. Keep them local unless a maintainer
+arranges a private transfer for a specific investigation.
+
 ## Start over
 
 Close the launcher and delete `.local` and `out` from the repository or the

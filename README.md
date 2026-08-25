@@ -46,6 +46,20 @@ This is a public preview, not a finished remaster. Please report reproducible
 problems using the issue template and do not attach game files or generated
 code.
 
+## Reporting crashes and bugs
+
+Keep the launcher open while playing. If the game exits unexpectedly, the
+launcher catches the exit, creates a sanitized diagnostic ZIP, and offers one
+button to open a prefilled GitHub issue with that ZIP selected in Explorer.
+Attach the selected ZIP and add the shortest reliable reproduction steps.
+
+The public report includes build hashes, a stable crash ID, exception details,
+the end of the runtime log, runtime settings, Windows build, CPU, GPU, and driver
+versions. It excludes the game, saves, generated code, input capture, local
+paths, and memory dumps. A fuller dump stays on the player's computer and should
+only be shared privately if a maintainer requests it. Non-crash bugs can be
+reported with **Report a problem** in the launcher.
+
 ## Build from source
 
 From a PowerShell terminal in a repository checkout:

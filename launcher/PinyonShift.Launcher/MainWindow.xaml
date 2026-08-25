@@ -151,6 +151,46 @@
                 </Grid>
             </Border>
 
+            <Border Grid.Row="3" x:Name="CrashPanel" Background="#201714" BorderBrush="{StaticResource RedBrush}"
+                    BorderThickness="1" CornerRadius="5" Margin="0,18,0,0" Visibility="Collapsed"
+                    AutomationProperties.Name="Crash report ready">
+                <Grid Margin="24,20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="The game closed unexpectedly." FontFamily="Bahnschrift SemiCondensed"
+                               FontSize="24" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Row="1" Margin="0,8,0,0" Foreground="#C8B7AF" TextWrapping="Wrap"
+                               LineHeight="20"
+                               Text="We caught the crash and prepared a privacy-safe diagnostic ZIP. One click opens a prefilled GitHub report and selects the file you need to attach."/>
+                    <Border Grid.Row="2" Background="#15110F" BorderBrush="#573C35" BorderThickness="1"
+                            CornerRadius="4" Padding="16,12" Margin="0,17,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.1*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="CRASH ID" FontSize="10" Foreground="#C8B7AF"/>
+                                <TextBlock x:Name="CrashIdText" Text="pscrash-v1-pending" FontFamily="Cascadia Mono, Consolas"
+                                           FontSize="13" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="SAFE TO ATTACH" FontSize="10" Foreground="#C8B7AF"/>
+                                <TextBlock Text="No game files, saves, generated code, or memory dump"
+                                           FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <TextBlock Grid.Row="3" Margin="0,15,0,0" VerticalAlignment="Top" Foreground="#C8B7AF"
+                               FontSize="11" TextWrapping="Wrap"
+                               Text="The local crash dump stays on this computer. Maintainers may request it privately if the sanitized report is not enough."/>
+                </Grid>
+            </Border>
+
             <Grid Grid.Row="4" Margin="0,22,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -161,6 +201,9 @@
                     <TextBlock Text="I own this copy and dumped it from my own disc." TextWrapping="Wrap"/>
                 </CheckBox>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="ReportProblemButton" Content="REPORT A PROBLEM" Style="{StaticResource QuietButton}"
+                            Margin="0,0,12,0" Click="ReportProblemButton_Click"
+                            AutomationProperties.HelpText="Open the Pinyon Shift bug report form on GitHub."/>
                     <Button x:Name="OpenLogsButton" Content="OPEN LOGS" Style="{StaticResource QuietButton}"
                             Visibility="Collapsed" Margin="0,0,12,0" Click="OpenLogsButton_Click"/>
                     <Button x:Name="PrimaryButton" Content="VERIFY &amp; BUILD" Style="{StaticResource ActionButton}"

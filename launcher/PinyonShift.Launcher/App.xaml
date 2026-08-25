@@ -38,7 +38,9 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Shell" Background="{TemplateBinding Background}" CornerRadius="3">
+                        <Border x:Name="Shell" Background="{TemplateBinding Background}" CornerRadius="3"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -47,6 +49,10 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Shell" Property="BorderBrush" Value="{StaticResource FogBrush}"/>
+                                <Setter TargetName="Shell" Property="BorderThickness" Value="2"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Shell" Property="Background" Value="#555B55"/>

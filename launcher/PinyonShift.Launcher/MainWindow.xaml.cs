@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Media;
 
@@ -23,6 +24,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cancellation;
     private string? _repositoryRoot;
     private string? _gameExecutable;
+    private CrashReport? _pendingReport;
     private bool _busy;
 
     private static readonly Brush WaitingBrush = new SolidColorBrush(Color.FromRgb(57, 64, 57));
@@ -45,8 +47,10 @@ public partial class MainWindow : Window
         try
         {
             _repositoryRoot = await ResolveRepositoryRootAsync();
+            BuildLocationText.Text = Path.Combine(_repositoryRoot, ".local");
             AppendLog($"Release source: {_repositoryRoot}");
             DetectExistingBuild();
+            DetectPendingReport();
         }
         catch (Exception ex)
         {
@@ -76,9 +80,14 @@ public partial class MainWindow : Window
 
     private async void PrimaryButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_pendingReport is not null)
+        {
+            ReportCrash();
+            return;
+        }
         if (_gameExecutable is not null && File.Exists(_gameExecutable))
         {
-            LaunchGame();
+            await LaunchGameAsync();
             return;
         }
 
@@ -211,17 +220,159 @@ public partial class MainWindow : Window
         }
     }
 
-    private void LaunchGame()
+    private async Task LaunchGameAsync()
     {
         if (_repositoryRoot is null || _gameExecutable is null) return;
-        var launcher = Path.Combine(_repositoryRoot, "tools", "launch-preview.ps1");
+        if (_busy) return;
+
+        _busy = true;
+        PrimaryButton.IsEnabled = false;
+        PrimaryButton.Content = "GAME RUNNING";
+        EyebrowText.Text = "PREVIEW RUNNING";
+        HeadlineText.Text = "Enjoy the drive.";
+        StatusText.Text = "WATCHING FOR CRASHES";
+        StatusDot.Fill = ActiveBrush;
+        ReportProblemButton.IsEnabled = false;
+        AppendLog("Game started. The launcher is watching for an unexpected exit.");
+
+        try
+        {
+            var launcher = Path.Combine(_repositoryRoot, "tools", "launch-preview.ps1");
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                WorkingDirectory = _repositoryRoot,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (var argument in new[]
+            {
+                "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcher,
+                "-Configuration", "Release", "-Json"
+            }) startInfo.ArgumentList.Add(argument);
+
+            using var watcher = Process.Start(startInfo) ??
+                throw new InvalidOperationException("Windows could not start the preview watcher.");
+            var outputTask = watcher.StandardOutput.ReadToEndAsync();
+            var errorTask = watcher.StandardError.ReadToEndAsync();
+            await watcher.WaitForExitAsync();
+            var output = await outputTask;
+            var error = await errorTask;
+
+            var result = ParseLaunchResult(output);
+            if (watcher.ExitCode == 0 && string.Equals(result?.Result, "normal-exit", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLog("The game closed normally.");
+                SetComplete();
+                return;
+            }
+
+            DetectPendingReport();
+            if (_pendingReport is null && result is not null &&
+                !string.IsNullOrWhiteSpace(result.CrashId) &&
+                !string.IsNullOrWhiteSpace(result.Bundle) &&
+                !string.IsNullOrWhiteSpace(result.IssueUrl))
+            {
+                SetPendingReport(new CrashReport(result.CrashId, result.Bundle, result.IssueUrl,
+                    $"0x{unchecked((uint)result.ExitCode):X8}"));
+            }
+            if (_pendingReport is null)
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
+                    ? "The game exited unexpectedly, but its diagnostic report could not be prepared."
+                    : error.Trim());
+        }
+        catch (Exception ex)
+        {
+            SetFailure("PREVIEW STOPPED", ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+            ReportProblemButton.IsEnabled = true;
+            UpdatePrimaryButton();
+        }
+    }
+
+    private static LaunchResult? ParseLaunchResult(string output)
+    {
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Reverse())
+        {
+            try
+            {
+                var result = JsonSerializer.Deserialize<LaunchResult>(line, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                if (result is not null) return result;
+            }
+            catch (JsonException) { }
+        }
+        return null;
+    }
+
+    private void DetectPendingReport()
+    {
+        if (_repositoryRoot is null) return;
+        var reportsRoot = Path.GetFullPath(Path.Combine(_repositoryRoot, ".local", "preview", "reports"));
+        var marker = Path.Combine(reportsRoot, "pending-report.json");
+        if (!File.Exists(marker)) return;
+        try
+        {
+            var report = JsonSerializer.Deserialize<CrashReport>(File.ReadAllText(marker), new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            if (report is null || string.IsNullOrWhiteSpace(report.CrashId) ||
+                string.IsNullOrWhiteSpace(report.Bundle) || string.IsNullOrWhiteSpace(report.IssueUrl)) return;
+            var bundle = Path.GetFullPath(report.Bundle);
+            var reportsPrefix = reportsRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!bundle.StartsWith(reportsPrefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(bundle)) return;
+            if (!Uri.TryCreate(report.IssueUrl, UriKind.Absolute, out var issueUri) ||
+                issueUri.Scheme != Uri.UriSchemeHttps || issueUri.Host != "github.com" ||
+                !issueUri.AbsolutePath.StartsWith("/arcanite24/pinyon-shift/issues/new", StringComparison.OrdinalIgnoreCase)) return;
+            SetPendingReport(report with { Bundle = bundle, IssueUrl = issueUri.AbsoluteUri });
+        }
+        catch (IOException) { }
+        catch (JsonException) { }
+    }
+
+    private void SetPendingReport(CrashReport report)
+    {
+        _pendingReport = report;
+        for (var i = 0; i < _steps.Count; i++)
+            _steps[i].SetState(i == _steps.Count - 1 ? StepState.Failed : StepState.Complete,
+                WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
+        EyebrowText.Text = "CRASH REPORT READY";
+        HeadlineText.Text = "We caught the crash.";
+        StatusText.Text = "REPORT READY";
+        StatusDot.Fill = FailedBrush;
+        CrashIdText.Text = report.CrashId;
+        CrashPanel.Visibility = Visibility.Visible;
+        LogPanel.Visibility = Visibility.Collapsed;
+        OwnershipCheckBox.Visibility = Visibility.Collapsed;
+        ReportProblemButton.Visibility = Visibility.Collapsed;
+        OpenLogsButton.Content = "OPEN REPORT FOLDER";
+        OpenLogsButton.Visibility = Visibility.Visible;
+        PrimaryButton.Content = "REPORT CRASH";
+        PrimaryButton.IsEnabled = true;
+    }
+
+    private void ReportCrash()
+    {
+        if (_pendingReport is null || _repositoryRoot is null) return;
         Process.Start(new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            WorkingDirectory = _repositoryRoot,
+            FileName = "explorer.exe",
             UseShellExecute = true,
-            Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{launcher}\" -Configuration Release"
+            Arguments = $"/select,\"{_pendingReport.Bundle}\""
         });
+        Process.Start(new ProcessStartInfo(_pendingReport.IssueUrl) { UseShellExecute = true });
+        var marker = Path.Combine(_repositoryRoot, ".local", "preview", "reports", "pending-report.json");
+        try { if (File.Exists(marker)) File.Delete(marker); } catch (IOException) { }
+        StatusText.Text = "GITHUB OPENED";
+        PrimaryButton.Content = "OPEN GITHUB AGAIN";
     }
 
     private async Task<string> ResolveRepositoryRootAsync()
@@ -265,6 +416,7 @@ public partial class MainWindow : Window
 
     private void SetComplete()
     {
+        _pendingReport = null;
         foreach (var step in _steps)
             step.SetState(StepState.Complete, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         ProgressText.Text = "100%";
@@ -273,6 +425,8 @@ public partial class MainWindow : Window
         StatusText.Text = "READY TO PLAY";
         StatusDot.Fill = CompleteBrush;
         PrimaryButton.Content = "PLAY PINYON SHIFT";
+        CrashPanel.Visibility = Visibility.Collapsed;
+        ReportProblemButton.Visibility = Visibility.Visible;
         OpenLogsButton.Visibility = Visibility.Visible;
         OwnershipCheckBox.Visibility = Visibility.Collapsed;
         AppendLog("Build complete. Generated files remain on this computer.");
@@ -295,15 +449,18 @@ public partial class MainWindow : Window
     private void ResetRoute()
     {
         _gameExecutable = null;
+        _pendingReport = null;
         foreach (var step in _steps)
             step.SetState(StepState.Waiting, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         PrimaryButton.Content = "VERIFY & BUILD";
+        CrashPanel.Visibility = Visibility.Collapsed;
+        ReportProblemButton.Visibility = Visibility.Visible;
         OwnershipCheckBox.Visibility = Visibility.Visible;
     }
 
     private void UpdatePrimaryButton()
     {
-        PrimaryButton.IsEnabled = !_busy && (_gameExecutable is not null ||
+        PrimaryButton.IsEnabled = !_busy && (_pendingReport is not null || _gameExecutable is not null ||
             (_repositoryRoot is not null && File.Exists(IsoPathTextBox.Text) && OwnershipCheckBox.IsChecked == true));
     }
 
@@ -319,10 +476,36 @@ public partial class MainWindow : Window
     private void OpenLogsButton_Click(object sender, RoutedEventArgs e)
     {
         if (_repositoryRoot is null) return;
+        if (_pendingReport is not null)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                UseShellExecute = true,
+                Arguments = $"/select,\"{_pendingReport.Bundle}\""
+            });
+            return;
+        }
         var logs = Path.Combine(_repositoryRoot, ".local", "logs");
         Directory.CreateDirectory(logs);
         Process.Start(new ProcessStartInfo("explorer.exe", logs) { UseShellExecute = true });
     }
 
+    private void ReportProblemButton_Click(object sender, RoutedEventArgs e) =>
+        Process.Start(new ProcessStartInfo(
+            "https://github.com/arcanite24/pinyon-shift/issues/new?template=bug.yml")
+        { UseShellExecute = true });
+
     private sealed record ProgressMessage(string? Stage, int Percent, string? Message);
+    private sealed record LaunchResult(
+        [property: JsonPropertyName("result")] string? Result,
+        [property: JsonPropertyName("crash_id")] string? CrashId,
+        [property: JsonPropertyName("bundle")] string? Bundle,
+        [property: JsonPropertyName("issue_url")] string? IssueUrl,
+        [property: JsonPropertyName("exit_code")] long ExitCode);
+    private sealed record CrashReport(
+        [property: JsonPropertyName("crash_id")] string CrashId,
+        [property: JsonPropertyName("bundle")] string Bundle,
+        [property: JsonPropertyName("issue_url")] string IssueUrl,
+        [property: JsonPropertyName("exit_code_hex")] string? ExitCodeHex);
 }

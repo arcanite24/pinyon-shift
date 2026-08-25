@@ -38,7 +38,8 @@ std::atomic_flag g_access_fault_reported = ATOMIC_FLAG_INIT;
 
 constexpr MINIDUMP_TYPE kCrashDumpType = static_cast<MINIDUMP_TYPE>(
     MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules |
-    MiniDumpWithIndirectlyReferencedMemory);
+    MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithFullMemoryInfo |
+    MiniDumpWithHandleData);
 
 std::string UtcTimestamp(bool filename_safe) {
   const auto now = std::chrono::system_clock::now();
@@ -206,6 +207,36 @@ void WriteNativeContext(HANDLE file, const CONTEXT& context) {
   }
 }
 
+void WriteFaultModule(HANDLE file, const void* address) {
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         reinterpret_cast<LPCWSTR>(address), &module) ||
+      !module) {
+    WriteHandle(file, "fault_module=unknown fault_offset=unknown\r\n");
+    return;
+  }
+
+  std::wstring buffer(32768, L'\0');
+  const DWORD length =
+      GetModuleFileNameW(module, buffer.data(), static_cast<DWORD>(buffer.size()));
+  if (length == 0 || length >= buffer.size()) {
+    WriteHandle(file, "fault_module=unknown fault_offset=unknown\r\n");
+    return;
+  }
+  buffer.resize(length);
+  const std::string name = std::filesystem::path(buffer).filename().string();
+  const auto offset = reinterpret_cast<uintptr_t>(address) -
+                      reinterpret_cast<uintptr_t>(module);
+  char line[512]{};
+  const int line_length = std::snprintf(
+      line, sizeof(line), "fault_module=%s fault_offset=0x%llX\r\n", name.c_str(),
+      static_cast<unsigned long long>(offset));
+  if (line_length > 0) {
+    WriteHandle(file, std::string_view(line, static_cast<size_t>(line_length)));
+  }
+}
+
 LONG WINAPI UnhandledExceptionReporter(EXCEPTION_POINTERS* exception) {
   EXCEPTION_RECORD exception_record = *exception->ExceptionRecord;
   CONTEXT context = *exception->ContextRecord;
@@ -239,6 +270,7 @@ LONG WINAPI UnhandledExceptionReporter(EXCEPTION_POINTERS* exception) {
     if (length > 0) {
       WriteHandle(text, std::string_view(header, static_cast<size_t>(length)));
     }
+    WriteFaultModule(text, exception->ExceptionRecord->ExceptionAddress);
     WriteNativeContext(text, *exception->ContextRecord);
     WriteSymbolizedStack(text, exception);
     CloseHandle(text);
@@ -288,6 +320,7 @@ void WriteAccessViolationSnapshot(EXCEPTION_POINTERS* exception) {
     if (length > 0) {
       WriteHandle(text, std::string_view(header, static_cast<size_t>(length)));
     }
+    WriteFaultModule(text, exception->ExceptionRecord->ExceptionAddress);
     WriteNativeContext(text, *exception->ContextRecord);
     CloseHandle(text);
   }
