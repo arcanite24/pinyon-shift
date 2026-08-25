@@ -1,0 +1,7 @@
+# The Speech facade's only non-forced analysis failure is a six-instruction
+# argument-shuffle thunk at 0x890E2FA0. It is the direct target of the adjacent
+# thunk at 0x890E2FB8 and tail-branches to the PDATA-owned function at
+# 0x890A6308. The instruction stream and neighboring PDATA entries were
+# reviewed during M1's isolated facade probe.
+[functions."890E2FA0"]
+size = 0x18

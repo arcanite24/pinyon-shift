@@ -1,0 +1,96 @@
+diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
+index ca9fafa5ef78d59ae2ebbf5caad2a4f8dce9daca..54b4d9c0ce9156e7f882e31c1612edfe3553169f 100644
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <array>
+ #include <atomic>
+ #include <cstdlib>
+ #include <cstring>
+@@ -82,6 +83,75 @@ bool IsSpeculativeDiscoveryEntry(uint32_t address) {
+   return false;
+ }
+ 
++struct ReentryStackFrame {
++  uint32_t stack_pointer;
++  uint32_t caller_stack_pointer;
++  uint32_t saved_lr;
++  bool registered;
++};
++
++void LogMissingReentryStackContinuations(memory::Memory* memory,
++                                         runtime::FunctionDispatcher* dispatcher,
++                                         PPCContext* context, const X_KTHREAD* kthread) {
++  constexpr size_t kMaxFrames = 128;
++  std::array<ReentryStackFrame, kMaxFrames> frames{};
++  size_t frame_count = 0;
++  bool has_unregistered_continuation = false;
++  const uint32_t stack_limit = kthread->stack_limit;
++  const uint32_t stack_base = kthread->stack_base;
++  uint32_t stack_pointer = context->r1.u32;
++  const char* stop_reason = "frame-limit";
++
++  while (frame_count < frames.size()) {
++    if ((stack_pointer & 0xF) || stack_pointer < stack_limit ||
++        stack_pointer > stack_base - sizeof(uint32_t)) {
++      stop_reason = "invalid-stack-pointer";
++      break;
++    }
++
++    const uint32_t caller_stack_pointer = memory::load_and_swap<uint32_t>(
++        memory->TranslateVirtual(stack_pointer));
++    if ((caller_stack_pointer & 0xF) || caller_stack_pointer <= stack_pointer ||
++        caller_stack_pointer > stack_base ||
++        caller_stack_pointer - 8 < stack_limit) {
++      stop_reason = "end-of-back-chain";
++      break;
++    }
++
++    const uint32_t saved_lr = memory::load_and_swap<uint32_t>(
++        memory->TranslateVirtual(caller_stack_pointer - 8));
++    const bool registered = dispatcher->GetFunction(saved_lr) != nullptr;
++    frames[frame_count++] = {
++        stack_pointer,
++        caller_stack_pointer,
++        saved_lr,
++        registered,
++    };
++    has_unregistered_continuation |= !registered;
++    stack_pointer = caller_stack_pointer;
++  }
++
++  if (!has_unregistered_continuation) {
++    return;
++  }
++
++  REXSYS_INFO(
++      "M5_TRACE stack.reentry.snapshot.begin entry={:08X} sp={:08X} limit={:08X} "
++      "base={:08X} frames={} stop={}",
++      static_cast<uint32_t>(context->lr), context->r1.u32, stack_limit, stack_base,
++      frame_count, stop_reason);
++  for (size_t depth = 0; depth < frame_count; ++depth) {
++    const auto& frame = frames[depth];
++    REXSYS_INFO(
++        "M5_TRACE stack.reentry.snapshot.frame depth={} sp={:08X} caller_sp={:08X} "
++        "saved_lr={:08X} registered={}",
++        depth, frame.stack_pointer, frame.caller_stack_pointer, frame.saved_lr,
++        frame.registered ? 1 : 0);
++  }
++  REXSYS_INFO("M5_TRACE stack.reentry.snapshot.end entry={:08X}",
++              static_cast<uint32_t>(context->lr));
++}
++
+ }  // namespace
+ 
+ XThread::XThread(KernelState* kernel_state)
+@@ -678,6 +748,7 @@ void XThread::Execute() {
+   if (setjmp(reentry_jmp_buf_) != 0) {
+     continue_reentry = true;
+     next_address = reentry_address_;
++    LogMissingReentryStackContinuations(memory, dispatcher, ctx, guest_object<X_KTHREAD>());
+   }
+ 
+   while (next_address != 0) {

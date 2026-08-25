@@ -1,0 +1,10 @@
+# The XMedia facade's final PDATA function is a virtual-call thunk. Automatic
+# gap fill extends it into trailing padding; this explicit boundary was reviewed
+# during M1's clean, non-forced facade probe.
+[functions."88055B80"]
+size = 0x10
+
+# Runtime reaches this address immediately after the facade is registered. It
+# occupies the otherwise-unowned 16-byte slot ending at the next PDATA function.
+[functions."882435D8"]
+size = 0x10

@@ -1,0 +1,13 @@
+diff --git a/src/graphics/flags.cpp b/src/graphics/flags.cpp
+index e2983a4ee6d39f3db7ac77dccf83c17d3ccbd878..60693b162e99652a5a8f7b276e5bb2f975d5707f 100644
+--- a/src/graphics/flags.cpp
++++ b/src/graphics/flags.cpp
+@@ -13,7 +13,7 @@
+ #include <rex/logging.h>
+ #include <rex/ui/renderdoc_api.h>
+ 
+-REXCVAR_DEFINE_BOOL(gpu_allow_invalid_fetch_constants, false, "GPU",
++REXCVAR_DEFINE_BOOL(gpu_allow_invalid_fetch_constants, true, "GPU",
+                     "Allow invalid fetch constants");
+ REXCVAR_DEFINE_BOOL(native_2x_msaa, true, "GPU", "Enable native 2x MSAA");
+ REXCVAR_DEFINE_BOOL(depth_float24_round, false, "GPU", "Round float24 depth values");

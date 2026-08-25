@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  public-source:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository boundary
+        shell: powershell
+        run: .\tools\check-repository-boundary.ps1
+      - name: Test release tooling
+        run: python -m unittest discover -s tools/tests -p "test_*.py"
+      - name: Build launcher
+        run: dotnet build launcher/PinyonShift.Launcher/PinyonShift.Launcher.csproj -c Release

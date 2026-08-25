@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+
+# Patch exports preserve the rebased source diffs byte-for-byte, including
+# whitespace-only added lines. Do not normalize or flag those payload lines.
+patches/rexglue/*.patch -text whitespace=-blank-at-eol,-blank-at-eof

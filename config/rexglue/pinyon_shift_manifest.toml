@@ -1,0 +1,27 @@
+# Pinyon Shift manifest for the pinned ReXGlue 0.9.0 candidate.
+# Game inputs and translated output deliberately resolve into ignored .local paths.
+
+[project]
+name = "pinyon_shift"
+sdk_version = "0.9.0"
+game_root = "../../.local/game/base"
+
+[entrypoint]
+file_path = "../../.local/game/base/default.xex"
+out_directory_path = "../../.local/generated/default"
+includes = ["analysis/main-xex.toml"]
+
+# M4 route trace 20260714T163417Z proves the campaign loads SpeechFacade and
+# immediately dispatches its registered code. M2 trace 20260713T210328Z proved
+# the same behavior for XMediaFacade during front-end video playback.
+[[modules]]
+guest_path = "SpeechFacade_default.xex"
+file_path = "../../.local/game/base/SpeechFacade_default.xex"
+out_directory_path = "../../.local/generated/speech"
+includes = ["analysis/speech-facade.toml"]
+
+[[modules]]
+guest_path = "XMediaFacade_default.xex"
+file_path = "../../.local/game/base/XMediaFacade_default.xex"
+out_directory_path = "../../.local/generated/xmedia"
+includes = ["analysis/xmedia-facade.toml"]

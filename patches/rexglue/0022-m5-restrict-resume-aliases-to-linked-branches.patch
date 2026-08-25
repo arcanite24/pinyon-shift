@@ -1,0 +1,54 @@
+diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
+index 441b757e9851b4b4b37613906e6b27bfda79f23b..17fcb2d766c0bfd67d20b473a8979446fc976f44 100644
+--- a/src/codegen/function_graph.cpp
++++ b/src/codegen/function_graph.cpp
+@@ -357,7 +357,13 @@ std::vector<uint32_t> FunctionNode::resumableReturnAddresses(const BinaryView& b
+ 
+     for (uint32_t address = block.base; address < block.end(); address += 4) {
+       const uint32_t instruction = load_and_swap<uint32_t>(blockData + address - block.base);
+-      if (!PPC_BL(instruction)) {
++      const uint32_t opcode = PPC_OP(instruction);
++      const uint32_t extendedOpcode = PPC_XOP(instruction);
++      const bool isLinkedBranch =
++          PPC_BL(instruction) &&
++          (opcode == PPC_OP_B || opcode == PPC_OP_BC ||
++           (opcode == PPC_OP_CTR && (extendedOpcode == 16 || extendedOpcode == 528)));
++      if (!isLinkedBranch) {
+         continue;
+       }
+ 
+diff --git a/tests/unit/codegen/resume_entry_test.cpp b/tests/unit/codegen/resume_entry_test.cpp
+index bfb4eaba15f82339f188f4efa05f8c3f86385b62..b49154fe676622cd86114c08840b8ad2cbe66e39 100644
+--- a/tests/unit/codegen/resume_entry_test.cpp
++++ b/tests/unit/codegen/resume_entry_test.cpp
+@@ -17,9 +17,10 @@
+ TEST_CASE("FunctionNode: linked-call return PC emits an interior resume entry",
+           "[codegen][resume]") {
+   constexpr uint32_t kBase = 0x82010000u;
+-  std::array<uint32_t, 3> words = {
+-      __builtin_bswap32(0x48000009u),  // bl kBase + 8
++  std::array<uint32_t, 4> words = {
++      __builtin_bswap32(0x4800000Du),  // bl kBase + 12
+       __builtin_bswap32(0x60000000u),  // nop (saved LR resumes here)
++      __builtin_bswap32(0x60000001u),  // ori with bit 0 set is not a linked branch
+       __builtin_bswap32(0x4E800020u),  // blr
+   };
+ 
+@@ -30,7 +31,7 @@ TEST_CASE("FunctionNode: linked-call return PC emits an interior resume entry",
+   auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
+ 
+   rex::codegen::AnalyzeTestBinary(
+-      ctx, "resume", {{kBase, "test_owner"}, {kBase + 8, "test_callee"}}, kBase,
++      ctx, "resume", {{kBase, "test_owner"}, {kBase + 12, "test_callee"}}, kBase,
+       reinterpret_cast<const uint8_t*>(words.data()), sizeof(words));
+ 
+   const auto* owner = ctx.graph.getFunction(kBase);
+@@ -38,7 +39,7 @@ TEST_CASE("FunctionNode: linked-call return PC emits an interior resume entry",
+   CHECK(owner->resumableReturnAddresses(ctx.binary()) == std::vector<uint32_t>{kBase + 4});
+ 
+   rex::codegen::EmitContext emit{
+-      ctx.binary(), ctx.Config(), ctx.graph, kBase + 8, nullptr};
++      ctx.binary(), ctx.Config(), ctx.graph, kBase + 12, nullptr};
+   const std::string output = owner->emitCpp(emit);
+   CHECK(output.find("case 0x82010004: goto loc_82010004;") != std::string::npos);
+   CHECK(output.find("loc_82010004:") != std::string::npos);

@@ -1,0 +1,40 @@
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index 333becb84c048ee55085bda13426345314b5684d..0577858f588288465fa6194619486d16d9eab5f6 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -298,14 +298,28 @@ void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool inv
+     WatchNode* node = watch_buckets_[i];
+     while (node != nullptr) {
+       WatchRange* range = node->range;
+-      // Store the next node now since when the callback is triggered, the links
+-      // will be broken.
+-      node = node->bucket_node_next;
+-      if (page_first <= range->page_last && page_last >= range->page_first) {
+-        range->callback(global_lock, range->callback_context, range->callback_data,
+-                        range->callback_argument, invalidated_by_gpu);
+-        UnlinkWatchRange(range);
++      if (page_first > range->page_last || page_last < range->page_first) {
++        node = node->bucket_node_next;
++        continue;
+       }
++
++      // Retire a one-shot watch before invoking it. The global critical region
++      // is recursive, and a callback may indirectly invalidate shared memory
++      // again. Leaving the watch linked during the callback would let nested
++      // FireWatches calls dispatch the same watch recursively until the host
++      // thread exhausts its stack.
++      WatchCallback callback = range->callback;
++      void* callback_context = range->callback_context;
++      void* callback_data = range->callback_data;
++      uint64_t callback_argument = range->callback_argument;
++      UnlinkWatchRange(range);
++      callback(global_lock, callback_context, callback_data, callback_argument,
++               invalidated_by_gpu);
++
++      // UnlinkWatchRange recycles every node owned by the range, and a nested
++      // callback may recycle other nodes too. Restart from the live bucket head
++      // rather than following a potentially recycled pointer.
++      node = watch_buckets_[i];
+     }
+   }
+ }

@@ -1,0 +1,49 @@
+diff --git a/resources/templates/codegen/init_cpp.inja b/resources/templates/codegen/init_cpp.inja
+index c379117a5bf7232d430563eeda4ec9e0fde1d71c..28ee493571b19796c4a054d9dfbda726c9f204a2 100644
+--- a/resources/templates/codegen/init_cpp.inja
++++ b/resources/templates/codegen/init_cpp.inja
+@@ -21,5 +21,7 @@ const rex::PPCImageInfo PPCImageConfig = {
+ 
+ PPCFuncMapping PPCFuncMappings[] = {
+ {% for fn in functions %}{% if not fn.below_code_base or fn.is_import %}	{ {{ fn.address }}, {{ fn.name }} },
++{% for alias in fn.resume_aliases %}	{ {{ alias }}, {{ fn.name }} },
++{% endfor %}
+ {% endif %}{% endfor %}	{ 0, nullptr }
+ };
+diff --git a/tests/unit/codegen/template_registry_test.cpp b/tests/unit/codegen/template_registry_test.cpp
+index 7ea4a4b8056e016a1e6af05e5e62ac8dabd10283..bd51b87658d37995226ce5770fe27b822cc7c5a9 100644
+--- a/tests/unit/codegen/template_registry_test.cpp
++++ b/tests/unit/codegen/template_registry_test.cpp
+@@ -195,6 +195,32 @@ TEST_CASE("TemplateRegistry: register_cpp maps resumable return aliases to their
+   CHECK(result.find("SetFunction(0x82010010, sub_82010000)") != std::string::npos);
+ }
+ 
++TEST_CASE("TemplateRegistry: init_cpp maps resumable return aliases for the entrypoint image",
++          "[TemplateRegistry][resume]") {
++  rex::codegen::TemplateRegistry registry;
++  std::string json = R"({
++    "project": "test_proj",
++    "image_base": "0x82000000",
++    "image_size": "0x1000000",
++    "code_base": "0x82010000",
++    "code_size": "0x100000",
++    "rexcrt_heap": 0,
++    "has_dll_modules": false,
++    "is_dll": false,
++    "functions": [{
++      "address": "0x82010000",
++      "name": "sub_82010000",
++      "below_code_base": false,
++      "is_import": false,
++      "resume_aliases": ["0x82010004", "0x82010010"]
++    }]
++  })";
++  std::string result = registry.render("codegen/init_cpp", json);
++  CHECK(result.find("{ 0x82010000, sub_82010000 }") != std::string::npos);
++  CHECK(result.find("{ 0x82010004, sub_82010000 }") != std::string::npos);
++  CHECK(result.find("{ 0x82010010, sub_82010000 }") != std::string::npos);
++}
++
+ TEST_CASE("TemplateRegistry: cmake_var callback works", "[TemplateRegistry]") {
+   rex::codegen::TemplateRegistry registry;
+   std::string result = registry.renderString("{{ cmake_var(\"FOO\") }}", "{}");

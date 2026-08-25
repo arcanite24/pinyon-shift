@@ -1,0 +1,30 @@
+name: Launcher release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify public source boundary
+        shell: powershell
+        run: .\tools\check-repository-boundary.ps1
+      - name: Package launcher
+        shell: powershell
+        run: .\tools\package-launcher.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PinyonShift-Launcher
+          path: .artifacts/PinyonShift-Launcher.zip
+      - name: Attach tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" .artifacts/PinyonShift-Launcher.zip --generate-notes --verify-tag

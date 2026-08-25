@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "match": "exact_sha256_and_size",
+    "unknown_dump_action": "reject",
+    "system_update_extraction": "skip",
+    "original_input_mutation": "never"
+  },
+  "dumps": [
+    {
+      "id": "forza-horizon-usa-ms-2505-retail-base",
+      "status": "locally_verified_not_redump_hash_matched",
+      "platform": "Xbox 360",
+      "region": "USA",
+      "serial": "MS-2505",
+      "title_id": "4D5309C9",
+      "languages": [
+        "English",
+        "Japanese",
+        "French",
+        "German",
+        "Spanish",
+        "Italian",
+        "Dutch",
+        "Portuguese",
+        "Swedish",
+        "Norwegian",
+        "Danish",
+        "Finnish",
+        "Chinese",
+        "Korean",
+        "Polish",
+        "Russian",
+        "Czech",
+        "Hungarian"
+      ],
+      "iso": {
+        "size_bytes": 8738846720,
+        "sha256": "83DFC7D0B58B804232385DE6F794D9ACB92B89A37CF13DA14B824B286C824490"
+      },
+      "extraction": {
+        "tool": "extract-xiso",
+        "skip_system_update": true,
+        "file_count": 2400,
+        "size_bytes": 7221319555
+      },
+      "executables": [
+        {
+          "guest_path": "default.xex",
+          "role": "entrypoint",
+          "size_bytes": 20856832,
+          "sha256": "DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C"
+        },
+        {
+          "guest_path": "SpeechFacade_default.xex",
+          "role": "candidate_module",
+          "size_bytes": 2138112,
+          "sha256": "D54F6AAE6AE2FD6DA9B8C37D48F0A6BB295CAA18AD82D0D9DF66026141A41594"
+        },
+        {
+          "guest_path": "XMediaFacade_default.xex",
+          "role": "candidate_module",
+          "size_bytes": 2662400,
+          "sha256": "ED285BEEFEAFCDC90CF64D6085D19C874E3F1E15072C12CDF9BA2237C88E2CE5"
+        }
+      ]
+    }
+  ]
+}

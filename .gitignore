@@ -1,0 +1,48 @@
+# Copyrighted game inputs and locally derived artifacts.
+*.iso
+*.xex
+*.live
+*.pirs
+*.stfs
+TU_*
+assets/
+game/
+generated/
+
+# Developer-local research, extracted data, SDKs, and feasibility spikes.
+.local/
+references/
+sdk/
+.legal/
+private/
+
+# Build output and tooling state.
+build/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+.cache/
+__pycache__/
+*.py[cod]
+.vs/
+.vscode/
+.idea/
+*.log
+*.exe
+*.dll
+*.pdb
+*.dmp
+*.etl
+*.trace
+*.obj
+*.lib
+.artifacts/
+launcher/**/bin/
+launcher/**/obj/
+.env
+.env.*
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+*~

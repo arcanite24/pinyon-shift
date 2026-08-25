@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "max_public_file_bytes": 5242880,
+  "forbidden_extensions": [
+    ".iso",
+    ".xex",
+    ".live",
+    ".pirs",
+    ".stfs",
+    ".exe",
+    ".dll",
+    ".pdb",
+    ".dmp",
+    ".etl",
+    ".trace",
+    ".obj",
+    ".lib",
+    ".zip"
+  ],
+  "forbidden_path_segments": [
+    ".local",
+    ".legal",
+    "private",
+    "references",
+    "assets",
+    "game",
+    "generated",
+    "sdk",
+    "build",
+    "out"
+  ],
+  "forbidden_file_name_patterns": [
+    "^TU_"
+  ],
+  "forbidden_magic_ascii": [
+    "XEX2",
+    "MZ"
+  ],
+  "allowed_large_files": []
+}

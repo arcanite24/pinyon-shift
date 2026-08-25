@@ -1,0 +1,153 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 09ac897839907d8e3c1cba948e20b53322eaa98a..81f439146bb688decd9f588f514ebddbba527d65 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -164,7 +164,7 @@ set(REXGLUE_FLOOR_VERSION
+ 
+ # Generate version header -- must run after REX_PLATFORM is set
+ # Timestamp is set at configure time -- intentionally not updated on every rebuild
+-string(TIMESTAMP REXGLUE_BUILD_TIMESTAMP "%Y%m%d_%H%M")
++string(TIMESTAMP REXGLUE_BUILD_TIMESTAMP "%Y%m%d_%H%M" UTC)
+ configure_file(
+     ${CMAKE_CURRENT_SOURCE_DIR}/include/rex/version.h.in
+     ${CMAKE_CURRENT_BINARY_DIR}/include/rex/version.h
+diff --git a/include/rex/hook.h b/include/rex/hook.h
+index f628e518d46c41cc1672beacfaa8c7af2a0b6da6..eda8ad70b8bcd83e03999491a49c13a4f0a41c38 100644
+--- a/include/rex/hook.h
++++ b/include/rex/hook.h
+@@ -11,6 +11,7 @@
+ 
+ #pragma once
+ 
++#include <atomic>
+ #include <cstring>
+ #include <tuple>
+ #include <type_traits>
+@@ -31,16 +32,31 @@
+ // Hook a recompiled function with an auto-marshaled native C++ function.
+ // The native function uses plain types (u32, mapped_u32, etc.) and
+ // HostToGuestFunction handles register translation automatically.
++#ifdef REXGLUE_TRACE_IMPORTS
++#define REX_TRACE_IMPORT_REACH(subroutine)                                              \
++  do {                                                                                 \
++    static std::atomic_flag rex_import_seen_ = ATOMIC_FLAG_INIT;                       \
++    if (!rex_import_seen_.test_and_set(std::memory_order_relaxed)) {                   \
++      REXKRNL_INFO("M2_TRACE import.first name={} lr={:08X}", #subroutine,              \
++                   static_cast<uint32_t>(ctx.lr));                                     \
++    }                                                                                  \
++  } while (0)
++#else
++#define REX_TRACE_IMPORT_REACH(subroutine) ((void)0)
++#endif
++
+ #ifdef REXGLUE_ENABLE_PROFILING
+ #include <tracy/Tracy.hpp>
+ #define REX_HOOK(subroutine, function)                  \
+   extern "C" REX_FUNC(subroutine) {                     \
+     ZoneNamedN(___tracy_hook_zone, #subroutine, true);  \
++    REX_TRACE_IMPORT_REACH(subroutine);                 \
+     rex::ppc::HostToGuestFunction<function>(ctx, base); \
+   }
+ #else
+ #define REX_HOOK(subroutine, function)                  \
+   extern "C" REX_FUNC(subroutine) {                     \
++    REX_TRACE_IMPORT_REACH(subroutine);                 \
+     rex::ppc::HostToGuestFunction<function>(ctx, base); \
+   }
+ #endif
+@@ -52,18 +68,21 @@
+ #define REX_STUB(subroutine)              \
+   extern "C" REX_FUNC(subroutine) {       \
+     (void)base;                           \
++    REX_TRACE_IMPORT_REACH(subroutine);   \
+     REXKRNL_WARN("{} STUB", #subroutine); \
+   }
+ 
+ #define REX_STUB_LOG(subroutine, msg)               \
+   extern "C" REX_FUNC(subroutine) {                 \
+     (void)base;                                     \
++    REX_TRACE_IMPORT_REACH(subroutine);             \
+     REXKRNL_WARN("{} STUB - {}", #subroutine, msg); \
+   }
+ 
+ #define REX_STUB_RETURN(subroutine, value)                                                \
+   extern "C" REX_FUNC(subroutine) {                                                       \
+     (void)base;                                                                           \
++    REX_TRACE_IMPORT_REACH(subroutine);                                                   \
+     REXKRNL_WARN("{} STUB - returning {:#x}", #subroutine, static_cast<uint32_t>(value)); \
+     ctx.r3.u64 = (value);                                                                 \
+   }
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index f191b0298803a756c19e3fccc136e3db952a9f36..751e207ce6f731b23f1c3c4a0fb81f593f060897 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -885,7 +885,9 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+ 
+   assert_true(x0 < x1 && y0 < y1);
+   if (x0 >= x1 || y0 >= y1) {
+-    REXGPU_ERROR("Resolve region is empty");
++    REXGPU_ERROR(
++        "M2_TRACE resolve.empty x0={} x1={} y0={} y1={} scale_x={} scale_y={}", x0, x1, y0,
++        y1, draw_resolution_scale_x, draw_resolution_scale_y);
+     return false;
+   }
+ 
+diff --git a/src/kernel/xam/apps/xam_app.cpp b/src/kernel/xam/apps/xam_app.cpp
+index 7f10ecedc6b521b958d17012b434e3a828786942..b1c0399804d7e8193fbd1b7eaa996de3e8f4026b 100644
+--- a/src/kernel/xam/apps/xam_app.cpp
++++ b/src/kernel/xam/apps/xam_app.cpp
+@@ -27,6 +27,8 @@ XamApp::XamApp(KernelState* kernel_state) : App(kernel_state, 0xFE) {}
+ 
+ X_HRESULT XamApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+                                       uint32_t buffer_length) {
++  REXKRNL_INFO("M2_TRACE xam.dispatch message={:08X} buffer={:08X} length={}", message,
++               buffer_ptr, buffer_length);
+   // NOTE: buffer_length may be zero or valid.
+   auto buffer = memory_->TranslateVirtual(buffer_ptr);
+   switch (message) {
+@@ -99,6 +101,22 @@ X_HRESULT XamApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+                     (uint32_t)data->unk_04);
+       return X_E_SUCCESS;
+     }
++    case 0x0002B003: {
++      // Used by Forza Horizon during the controller-card transition. The title
++      // passes a three-qword input payload while reporting a zero buffer length.
++      struct message_data {
++        rex::be<uint64_t> unk_00;
++        rex::be<uint64_t> unk_08;
++        rex::be<uint64_t> unk_10;
++      }* data = reinterpret_cast<message_data*>(buffer);
++      if (!data) {
++        return X_E_INVALIDARG;
++      }
++      REXKRNL_DEBUG("XamApp(0x0002B003)({:016X}, {:016X}, {:016X})",
++                    (uint64_t)data->unk_00, (uint64_t)data->unk_08,
++                    (uint64_t)data->unk_10);
++      return X_E_SUCCESS;
++    }
+   }
+   REXKRNL_ERROR(
+       "Unimplemented XAM message app={:08X}, msg={:08X}, arg1={:08X}, "
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_modules.cpp b/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
+index dcd2001bb14c23353dda47844c9134c74fc4db9f..233c3cb36f53a37bf24498b4d45b6b8405bb937c 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
+@@ -85,6 +85,8 @@ u32 XexGetModuleSection_entry(mapped_void hmodule, mapped_string name, mapped_u3
+ 
+ u32 XexLoadImage_entry(mapped_string module_name, u32 module_flags, u32 min_version,
+                        mapped_u32 hmodule_ptr) {
++  REXKRNL_INFO("M2_TRACE module.load.request name={:?} flags={:#x} min_version={:#x}",
++               module_name.value(), module_flags, min_version);
+   X_STATUS result = X_STATUS_NO_SUCH_FILE;
+ 
+   uint32_t hmodule = 0;
+@@ -118,6 +120,9 @@ u32 XexLoadImage_entry(mapped_string module_name, u32 module_flags, u32 min_vers
+ 
+   *hmodule_ptr = hmodule;
+ 
++  REXKRNL_INFO("M2_TRACE module.load.result name={:?} status={:08X} hmodule={:08X}",
++               module_name.value(), result, hmodule);
++
+   return result;
+ }
+ 

@@ -1,0 +1,18 @@
+diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
+index 67f7070132832ad48c5cb217e5060bd31fa6d396..6ba20aa48f42af388cd070a86f025d59c1b44450 100644
+--- a/src/system/function_dispatcher.cpp
++++ b/src/system/function_dispatcher.cpp
+@@ -35,8 +35,11 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
+ }  // namespace
+ 
+ static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
+-  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
+-            ctx.last_indirect_target);
++  REX_FATAL(
++      "M3_TRACE indirect.unregistered target=0x{:08X} lr=0x{:08X} ctr=0x{:08X} "
++      "r1=0x{:08X} r3=0x{:08X} r4=0x{:08X}",
++      ctx.last_indirect_target, static_cast<uint32_t>(ctx.lr), ctx.ctr.u32, ctx.r1.u32, ctx.r3.u32,
++      ctx.r4.u32);
+ }
+ 
+ PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {

@@ -1,0 +1,582 @@
+# Manual main-XEX analysis facts for the verified MS-2505 default.xex.
+# Evidence and the rationale for every entry are recorded in the milestone
+# boundary reports under docs/research/.
+
+# Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
+# longjmp restores the host-side PPCContext captured at the setjmp call site.
+setjmp_address = 0x82A81E80
+longjmp_address = 0x82A81950
+
+# Complete XMedia movies through the title's normal end-of-stream path when
+# the opt-in test shortcut is enabled.
+[[midasm_hook]]
+address = 0x82E5D8AC
+name = "PinyonShiftCompleteOpeningMovie"
+registers = ["r3", "r30", "r31"]
+
+# Observe the two reviewed out-of-range CTR cases without changing control
+# flow. Each hook logs only when the following bdz will actually take the
+# guarded return path (CTR is 1 before the decrement).
+[[midasm_hook]]
+address = 0x82AD8138
+name = "PinyonShiftTraceBdz82AD8138"
+registers = ["ctr"]
+
+[[midasm_hook]]
+address = 0x82AD813C
+name = "PinyonShiftTraceBdz82AD813C"
+registers = ["ctr"]
+
+# M3 teardown-race diagnostics. These hooks observe the main-loop exit and the
+# pointer handoff that follows it without changing guest registers or control
+# flow. They remain narrowly scoped to the runtime-proven failing path.
+[[midasm_hook]]
+address = 0x823EE584
+name = "PinyonShiftTraceMainLoopExit"
+registers = ["r29", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82482264
+name = "PinyonShiftTraceCleanupPointerCheck"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x8247D534
+name = "PinyonShiftTraceCleanupPointerWait"
+registers = ["r31"]
+
+# The geometry lookup consumes at least three byte indices before it consults
+# the entry count and later reloads the entry pointer. Preserve readable
+# triplets; otherwise redirect the entry to a process-lifetime zero-index
+# buffer large enough for the full uint8 count.
+[[midasm_hook]]
+address = 0x82D3CD58
+name = "PinyonShiftValidateGeometryOutput"
+registers = ["r4", "r5", "r6"]
+
+[[midasm_hook]]
+address = 0x82D3CD80
+name = "PinyonShiftValidateGeometryLookup"
+registers = ["r4", "r5", "r6", "r11"]
+
+# Geometry blobs contain a count and a relocated byte-index-list pointer. A
+# continuation may expose an entry whose count is nonzero while the complete
+# list range is unreadable. Normalize only that invalid pair to an empty list
+# before the loop condition; the host hook records every repair.
+[[midasm_hook]]
+address = 0x82D3DB54
+name = "PinyonShiftValidateGeometryIndexList"
+registers = ["r8", "r29", "r31"]
+
+# The same serialized 12-byte entry carries a sibling byte-index list at +0
+# and its count at +8. Validate this pair independently after the count load so
+# a primary-list repair cannot fall through to an equivalent unreadable lbzx.
+[[midasm_hook]]
+address = 0x82D3DBF4
+name = "PinyonShiftValidateGeometrySecondaryIndexList"
+registers = ["r6", "r29", "r31"]
+
+# M4 repeated geometry-list AV diagnostic. This hook observes the list pointer
+# immediately before the faulting lbzx in 0x82D3DB00. It does not suppress or
+# redirect the read; the normal crash evidence path remains authoritative.
+[[midasm_hook]]
+address = 0x82D3DB6C
+name = "PinyonShiftTraceGeometryIndex"
+registers = ["r9", "r11", "r29", "r30", "r31"]
+
+# Opt-in M4 route telemetry seed. The hook is rate-limited to 5 Hz and performs
+# read-only observation only when PINYON_SHIFT_M4_TELEMETRY=1. The frame-loop
+# fields observed here are consumed by the instruction stream immediately after
+# this address; vehicle pointer/transform offsets remain discovery outputs.
+[[midasm_hook]]
+address = 0x823EDA10
+name = "PinyonShiftTraceFrameTelemetry"
+registers = ["r28", "r31"]
+
+# Player-vehicle presentation stabilization and authoritative M4 pose telemetry.
+# Runtime write-watch evidence maps
+# this address to the instruction immediately after the active transform slot's
+# position and forward vectors have been stored by sub_82BC5870. The hook always
+# suppresses isolated implausible presentation transforms; structured telemetry
+# remains opt-in and rate-limited in the host implementation.
+[[midasm_hook]]
+address = 0x82BC5A3C
+name = "PinyonShiftTraceVehiclePose"
+registers = ["r1", "r30", "r31"]
+
+# M4 markerless-exit classification. PID 25180 produced an unhandled read AV
+# in sub_826E1B10 after a readable object yielded vtable 0x0000487C. Observe
+# the object assignment immediately before the vtable+8 read; do not repair or
+# suppress it, so the normal crash dump remains authoritative.
+[[midasm_hook]]
+address = 0x826E1B3C
+name = "PinyonShiftTraceRetainVtable"
+registers = ["r4", "r11", "r30", "r31"]
+
+# M5 persisted-profile diagnostics. These continuations are the first
+# title-owned decision points after the secure ForzaProfile/PlayerDatabase
+# reads complete. The hooks are read-only and emit events only when
+# PINYON_SHIFT_M5_SAVE_TRACE=1.
+[[midasm_hook]]
+address = 0x825195F4
+name = "PinyonShiftTracePersistedProfileOwner"
+registers = ["r3", "r26", "r28", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82568490
+name = "PinyonShiftTracePersistedProfileResult"
+registers = ["r3", "r31"]
+
+[[midasm_hook]]
+address = 0x824ED444
+name = "PinyonShiftTraceFrontEndProfileResult"
+registers = ["r3", "r31"]
+
+[[midasm_hook]]
+address = 0x827A1DC4
+name = "PinyonShiftTraceFrontEndStateResult"
+registers = ["r3", "r29", "r31"]
+
+# Capture the title's plaintext profile/database body immediately before the
+# secure stream wrapper encrypts and writes it. The runtime hook is gated by
+# PINYON_SHIFT_M5_SAVE_TRACE=1 and accepts only the two established save-body
+# sizes, so normal preview runs remain unchanged.
+[[midasm_hook]]
+address = 0x82C79D2C
+name = "PinyonShiftTraceSavePayload"
+registers = ["r4", "r5", "r12"]
+after_instruction = true
+
+# The secure stream transform receives the original serialized body here;
+# capture it before the wrapper forwards encrypted bytes to 0x82C79D28.
+[[midasm_hook]]
+address = 0x82C78240
+name = "PinyonShiftTraceSaveStreamPayload"
+registers = ["r4", "r5", "r12"]
+after_instruction = true
+
+# sub_82C665F8 has accumulated the serialized body at r4/r5 here and has not
+# yet entered the in-place XeKeysAesCbcUsingKey call at 0x82C666D0.
+[[midasm_hook]]
+address = 0x82C666D0
+name = "PinyonShiftTraceSavePreEncryption"
+registers = ["r4", "r5"]
+
+# sub_828E2898 is about to read the non-durable per-profile career eligibility
+# byte through sub_8252AA48. Repair the actual byte for a valid durable
+# checkpoint so later progression gates observe the restored eligibility too.
+[[midasm_hook]]
+address = 0x828E292C
+name = "PinyonShiftRestoreCareerEligibility"
+registers = ["r3", "r4", "r31"]
+
+# Retain the post-read guard for older saves and emit the established restore
+# marker whether the pre-read repair or this final return override admitted the
+# valid first-time-career activity.
+[[midasm_hook]]
+address = 0x828E2930
+name = "PinyonShiftRestoreCareerCheckpointGate"
+registers = ["r3", "r31"]
+
+# sub_828D7EB0 has just advanced the live onboarding state from the Viper to
+# the Corrado drive. Persist that same stage in the activity before the next
+# ordinary profile save so a complete process exit can resume here.
+[[midasm_hook]]
+address = 0x828D7ED4
+name = "PinyonShiftPersistPostViperCheckpoint"
+registers = ["r31"]
+after_instruction = true
+
+# M4 source-slot classification. PID 31612's malformed-vtable event came from
+# this specific sub_82C6DEF0 call site with source slot 0x43D29E00. Observe
+# only that call immediately before the shared retain helper; do not alter its
+# arguments or the title's normal failure behavior.
+[[midasm_hook]]
+address = 0x82C6DFA8
+name = "PinyonShiftTraceRetainSourceSlot"
+registers = ["r3", "r4", "r26", "r27", "r29", "r31"]
+
+# Six adjacent compiler-generated adjustment/thunk functions. ReXGlue's gap
+# fill initially coalesces most of this range into one function.
+[functions."82B1ABD0"]
+size = 0x10
+
+[functions."82B1ABE8"]
+size = 0x08
+
+[functions."82B1ABF0"]
+size = 0x08
+
+[functions."82B1ABF8"]
+size = 0x08
+
+[functions."82B1AC00"]
+size = 0x08
+
+[functions."82B1AC08"]
+size = 0x0C
+
+# Leaf/tail thunks reached by the adjustment thunks above. Gap fill initially
+# treats the whole 0x82B3B8A8-0x82B3B8DC range as one sparse function.
+[functions."82B3B8B0"]
+size = 0x08
+
+[functions."82B3B8B8"]
+size = 0x08
+
+[functions."82B3B8C0"]
+size = 0x08
+
+[functions."82B3B8C8"]
+size = 0x14
+
+# Tail-adjustor thunk between adjacent PDATA functions.
+[functions."82CF87F8"]
+size = 0x08
+
+# Complete leaf routines whose out-of-line cases were split by gap fill.
+[functions."82F5CC68"]
+size = 0x90
+
+[functions."82F76188"]
+size = 0x88
+
+[functions."82F762A0"]
+size = 0x88
+
+# Tail-adjustor thunk with two known callers.
+[functions."82F1ED30"]
+size = 0x18
+
+# Context-restore routine following a separate KeBugCheck noreturn path.
+[functions."830ED910"]
+size = 0x40C
+
+# M4 runtime-proven indirect target reached from the callback dispatcher at
+# 0x829C9528 (outer LR 0x829C4058) during run 97. The target is the middle
+# entry of the three-address table at 0x8328C134. It is omitted from PDATA but
+# has complete internal conditional paths and returns at 0x829CB074; the next
+# table target begins exactly at 0x829CB078.
+[functions."829CB048"]
+size = 0x30
+
+# M3 vtable targets omitted from PDATA. Six are 8-byte adjustment/tail
+# thunks; the final entry is a coherent multi-path leaf/tail dispatcher ending
+# before the zero word at 0x830B53E4. See M3_FUNCTION_BOUNDARIES.md.
+[functions."830B52B8"]
+size = 0x08
+
+[functions."830B52C8"]
+size = 0x08
+
+[functions."830B52D0"]
+size = 0x08
+
+[functions."830B52D8"]
+size = 0x08
+
+[functions."830B52E0"]
+size = 0x08
+
+[functions."830B52E8"]
+size = 0x08
+
+[functions."830B52F0"]
+size = 0xF4
+
+# M3 runtime-proven vtable target in the exact 8-byte slot between adjacent
+# PDATA functions. See M3_FUNCTION_BOUNDARIES.md.
+[functions."82F502C0"]
+size = 0x08
+
+# M3 vtable cluster reached after audio render startup. Nine entries are exact
+# 8-byte adjustment/tail thunks. The final entry ends at its last reachable
+# bctr; the standalone unreferenced blr at 0x830B666C is compiler padding.
+[functions."830B6520"]
+size = 0x08
+
+[functions."830B6528"]
+size = 0x08
+
+[functions."830B6538"]
+size = 0x08
+
+[functions."830B6540"]
+size = 0x08
+
+[functions."830B6548"]
+size = 0x08
+
+[functions."830B6550"]
+size = 0x08
+
+[functions."830B6558"]
+size = 0x08
+
+[functions."830B6560"]
+size = 0x08
+
+[functions."830B6568"]
+size = 0x08
+
+[functions."830B6570"]
+size = 0xFC
+
+# M3 runtime-proven vtable target. This six-instruction indirect tail thunk is
+# bounded exactly by the existing 0x830B6C38 twin and PDATA function 0x830B6C68.
+# See M3_FUNCTION_BOUNDARIES.md.
+[functions."830B6C50"]
+size = 0x18
+
+# M3 runtime-proven deleting-destructor adjustment thunk. It is the 8-byte
+# sibling of registered 0x830FEC88 and ends at PDATA function 0x830FEC98.
+[functions."830FEC90"]
+size = 0x08
+
+# M3 runtime-proven callback adapter. Its last reachable instruction is bctr at
+# 0x8249C658; 0x8249C65C is zero padding before PDATA function 0x8249C660.
+[functions."8249C648"]
+size = 0x14
+
+# M3 runtime-proven vtable cluster. A complete audit of the table at
+# 0x822B4490 found only these three unregistered two-instruction tail thunks.
+[functions."830B0050"]
+size = 0x08
+
+[functions."830B0058"]
+size = 0x08
+
+[functions."830B00B8"]
+size = 0x08
+
+# M3 runtime-proven callback adapter, explicitly materialized at 0x8249CCC4.
+# Its bctr ends at 0x8249CC60; zero padding precedes PDATA function 0x8249CC68.
+[functions."8249CC50"]
+size = 0x14
+
+# M3 callback-family audit. Each address is explicitly materialized as the
+# callback argument to 0x823F4FE8, ends at bctr, and is bounded by a registered
+# sibling, the next adapter, or PDATA. See M3_FUNCTION_BOUNDARIES.md.
+[functions."8249BE98"]
+size = 0x18
+
+[functions."8249C430"]
+size = 0x10
+
+[functions."8249C440"]
+size = 0x10
+
+[functions."8249C450"]
+size = 0x10
+
+[functions."8249C460"]
+size = 0x14
+
+[functions."8249C8C0"]
+size = 0x18
+
+[functions."8249CA10"]
+size = 0x10
+
+[functions."8249CA20"]
+size = 0x10
+
+[functions."8249CA30"]
+size = 0x10
+
+[functions."8249CA40"]
+size = 0x10
+
+[functions."8249CA50"]
+size = 0x10
+
+[functions."8249CA60"]
+size = 0x10
+
+[functions."8249CA70"]
+size = 0x10
+
+[functions."8249CA80"]
+size = 0x10
+
+[functions."8249CA90"]
+size = 0x10
+
+[functions."8249CAA0"]
+size = 0x18
+
+[functions."8249D2E0"]
+size = 0x14
+
+[functions."8249D378"]
+size = 0x14
+
+[functions."8249D410"]
+size = 0x14
+
+[functions."8249D4A8"]
+size = 0x14
+
+[functions."8249D650"]
+size = 0x10
+
+[functions."8249D660"]
+size = 0x14
+
+# M3 generalized callback-registration audit. The reusable audit tool finds
+# 47 remaining explicitly registered, linear bctr adapters outside the 0x8249
+# family. All following boundaries are callback starts, registered functions,
+# or zero padding bounded by PDATA.
+[functions."824516D0"]
+size = 0x24
+
+[functions."824705E0"]
+size = 0x10
+
+[functions."824705F0"]
+size = 0x1C
+
+[functions."8247A5B8"]
+size = 0x10
+
+[functions."8247A5C8"]
+size = 0x18
+
+[functions."8247A5E0"]
+size = 0x18
+
+[functions."8257C970"]
+size = 0x24
+
+[functions."8257D340"]
+size = 0x18
+
+[functions."8257D4B0"]
+size = 0x10
+
+[functions."8257EE88"]
+size = 0x14
+
+[functions."8257F870"]
+size = 0x18
+
+[functions."8257F910"]
+size = 0x14
+
+[functions."8257F9A8"]
+size = 0x10
+
+[functions."8257F9B8"]
+size = 0x14
+
+[functions."82582C00"]
+size = 0x18
+
+[functions."82583E00"]
+size = 0x10
+
+[functions."82583E10"]
+size = 0x18
+
+[functions."825840B8"]
+size = 0x18
+
+[functions."82587E00"]
+size = 0x1C
+
+[functions."825880F0"]
+size = 0x1C
+
+[functions."82BB9858"]
+size = 0x14
+
+[functions."82C48130"]
+size = 0x20
+
+[functions."82C48150"]
+size = 0x2C
+
+[functions."82DB8B08"]
+size = 0x10
+
+[functions."82DBBFA0"]
+size = 0x14
+
+[functions."82DBC0E0"]
+size = 0x14
+
+[functions."82DBC390"]
+size = 0x20
+
+[functions."82DBC3B0"]
+size = 0x14
+
+[functions."82DBC3E0"]
+size = 0x18
+
+[functions."82DBC3F8"]
+size = 0x18
+
+[functions."82DBC410"]
+size = 0x2C
+
+[functions."82DBC4C8"]
+size = 0x10
+
+[functions."82DBC4E8"]
+size = 0x10
+
+[functions."82DBC4F8"]
+size = 0x28
+
+[functions."82DBC520"]
+size = 0x14
+
+[functions."82DBC568"]
+size = 0x14
+
+[functions."82DBC5D0"]
+size = 0x14
+
+[functions."82DBC730"]
+size = 0x14
+
+[functions."82DBC7E0"]
+size = 0x20
+
+[functions."82DBC800"]
+size = 0x1C
+
+[functions."82DBCE80"]
+size = 0x18
+
+[functions."82DBCF20"]
+size = 0x14
+
+[functions."82DBCF50"]
+size = 0x14
+
+[functions."82DBCF80"]
+size = 0x18
+
+[functions."82DBCF98"]
+size = 0x14
+
+[functions."82DBCFC8"]
+size = 0x14
+
+[functions."82DBD148"]
+size = 0x14
+
+# M3 runtime-proven sole missing member of the vtable at 0x8227A648. The body
+# has complete return paths and ends at registered sibling 0x82F567D0.
+[functions."82F56798"]
+size = 0x38
+
+# M4 runtime-proven address-taken leaf in the PDATA range beginning at
+# 0x83141150. The sole static reference is the function table at 0x832DE99C,
+# and the observed virtual call reaches it from 0x83144F30. Its complete body
+# performs an atomic increment, loops only within the body, returns at
+# 0x8314120C, and ends immediately before PDATA function 0x83141210.
+[functions."831411E8"]
+size = 0x28

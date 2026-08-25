@@ -1,0 +1,246 @@
+diff --git a/include/rex/codegen/function_graph.h b/include/rex/codegen/function_graph.h
+index 171eb67c975cde3301e85cea2fd0f7f545fcad7c..ec1d1b9612e2f1cf8b80fcc59eb2c2b67219f3a9 100644
+--- a/include/rex/codegen/function_graph.h
++++ b/include/rex/codegen/function_graph.h
+@@ -164,8 +164,10 @@ class FunctionGraph {
+   // Set the memory reader for null-dword checking
+   void setMemoryReader(MemoryReader reader) { memoryReader_ = std::move(reader); }
+ 
+-  // Register a chunk (address range claimed by config, blocks vacancy)
+-  void registerChunk(uint32_t base, uint32_t size);
++  // Register a chunk (address range claimed by config, blocks vacancy).
++  // Parent ownership also distinguishes an internal branch into the chunk
++  // from a genuine tail call to the chunk's separately callable entry.
++  void registerChunk(uint32_t base, uint32_t size, uint32_t parent);
+ 
+   // Check if a region is vacant for absorption
+   // fromAddr: the address we're expanding from (to check for null boundary)
+@@ -181,18 +183,26 @@ class FunctionGraph {
+ 
+   // Classify a branch target for code generation.
+   // target: address being branched to
+-  // callerAddr: address of the branch instruction
++  // caller: exact function currently being emitted (important when configured
++  // functions overlap a PDATA function)
+   // isCallInstruction: true for bl (expects return), false for b (no return)
+   // Returns how the target should be treated during code generation.
+-  TargetKind classifyTarget(uint32_t target, uint32_t callerAddr, bool isCallInstruction) const;
++  TargetKind classifyTarget(uint32_t target, const FunctionNode& caller,
++                            bool isCallInstruction) const;
+ 
+  private:
++  struct ChunkInfo {
++    uint32_t base;
++    uint32_t size;
++    uint32_t parent;
++  };
++
+   std::vector<CodeBuffer> codeBuffers_;
+   std::unordered_map<uint32_t, std::unique_ptr<FunctionNode>> functions_;
+   std::map<uint32_t, FunctionNode*>
+       functionsByBase_;  // sorted by base for O(log f) interval lookup
+   std::unordered_map<uint32_t, bool> functionHasXrefs_;  // entry -> hasXrefs
+-  std::vector<std::pair<uint32_t, uint32_t>> chunks_;    // base, size pairs
++  std::vector<ChunkInfo> chunks_;
+   MemoryReader memoryReader_;
+ 
+   // Notify all PENDING functions that a new function was added
+diff --git a/src/codegen/builders/context.cpp b/src/codegen/builders/context.cpp
+index 6eae29de29ff77bb24eec2a032f9463a9540b521..5c40fff50b996e431e910b2abf174e6bba17168b 100644
+--- a/src/codegen/builders/context.cpp
++++ b/src/codegen/builders/context.cpp
+@@ -253,7 +253,7 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
+ 
+   // Use classifyTarget for consistent branch classification
+   // false = branch instruction (not a call), so own-base means loop back
+-  auto kind = graph().classifyTarget(target, base, false);
++  auto kind = graph().classifyTarget(target, fn, false);
+ 
+   switch (kind) {
+     case TargetKind::InternalLabel:
+diff --git a/src/codegen/builders/control_flow.cpp b/src/codegen/builders/control_flow.cpp
+index 102a5386f1fe93a49b84eaa278bb345e4f7e6cdb..2d2c5a991138c8b011629c091394c98dadd9fbb2 100644
+--- a/src/codegen/builders/control_flow.cpp
++++ b/src/codegen/builders/control_flow.cpp
+@@ -29,7 +29,7 @@ bool build_b(BuilderContext& ctx) {
+ 
+   // Use graph to classify the target - handles thunks that branch to nearby functions
+   // false = branch instruction (not a call), so own-base means loop back
+-  auto kind = ctx.graph().classifyTarget(target, ctx.base, false);
++  auto kind = ctx.graph().classifyTarget(target, ctx.fn, false);
+ 
+   switch (kind) {
+     case TargetKind::InternalLabel:
+@@ -67,7 +67,7 @@ bool build_bl(BuilderContext& ctx) {
+ 
+   // Use graph to classify the target
+   // true = call instruction, so own-base means recursive call (not loop back)
+-  auto kind = ctx.graph().classifyTarget(target, ctx.base, true);
++  auto kind = ctx.graph().classifyTarget(target, ctx.fn, true);
+ 
+   switch (kind) {
+     case TargetKind::InternalLabel:
+@@ -138,7 +138,7 @@ bool build_bctr(BuilderContext& ctx) {
+         continue;
+       }
+ 
+-      auto kind = ctx.graph().classifyTarget(label, ctx.base, false);
++      auto kind = ctx.graph().classifyTarget(label, ctx.fn, false);
+       switch (kind) {
+         case TargetKind::InternalLabel:
+           ctx.println("\t\tgoto loc_{:X};", label);
+diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
+index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453a4339a44 100644
+--- a/src/codegen/function_graph.cpp
++++ b/src/codegen/function_graph.cpp
+@@ -932,6 +932,23 @@ void FunctionGraph::addUnresolvedJumpToFunction(uint32_t entry, uint32_t site, u
+   if (!node)
+     return;
+ 
++  // A configured chunk is both a callable entry and an internal block of its
++  // owning function. Keep an owning function's branch unresolved until the
++  // merge phase, where internal labels are deliberately checked before
++  // function entries. Other callers still resolve the chunk as a tail call.
++  if (!isCall) {
++    const bool isOwnedChunk = std::ranges::any_of(chunks_, [&](const ChunkInfo& chunk) {
++      return chunk.base == target && chunk.parent == entry;
++    });
++    if (isOwnedChunk) {
++      node->addUnresolvedJump(site, target, false, conditional);
++      REXCODEGEN_TRACE(
++          "FunctionGraph: deferred owned-chunk jump 0x{:08X}->0x{:08X} in function 0x{:08X}",
++          site, target, entry);
++      return;
++    }
++  }
++
+   // Try immediate resolution against existing functions/imports
+   if (auto* targetFn = getFunction(target)) {
+     // Target is a known function - resolve as call or tail call
+@@ -1109,9 +1126,10 @@ void FunctionGraph::sealAll() {
+ // Vacancy Checking
+ //=============================================================================
+ 
+-void FunctionGraph::registerChunk(uint32_t base, uint32_t size) {
+-  chunks_.emplace_back(base, size);
+-  REXCODEGEN_TRACE("FunctionGraph: registered chunk 0x{:08X}-0x{:08X}", base, base + size);
++void FunctionGraph::registerChunk(uint32_t base, uint32_t size, uint32_t parent) {
++  chunks_.push_back({base, size, parent});
++  REXCODEGEN_TRACE("FunctionGraph: registered chunk 0x{:08X}-0x{:08X} parent=0x{:08X}",
++                   base, base + size, parent);
+ }
+ 
+ bool FunctionGraph::isVacant(uint32_t fromAddr, uint32_t targetAddr) const {
+@@ -1129,10 +1147,10 @@ bool FunctionGraph::isVacant(uint32_t fromAddr, uint32_t targetAddr) const {
+   }
+ 
+   // Rule 2: Check if any chunk claims the target region
+-  for (const auto& [chunkBase, chunkSize] : chunks_) {
+-    if (targetAddr >= chunkBase && targetAddr < chunkBase + chunkSize) {
++  for (const auto& chunk : chunks_) {
++    if (targetAddr >= chunk.base && targetAddr < chunk.base + chunk.size) {
+       REXCODEGEN_TRACE("FunctionGraph::isVacant: chunk 0x{:08X}-0x{:08X} claims 0x{:08X}",
+-                       chunkBase, chunkBase + chunkSize, targetAddr);
++                       chunk.base, chunk.base + chunk.size, targetAddr);
+       return false;
+     }
+   }
+@@ -1171,37 +1189,45 @@ bool FunctionGraph::isMergeableEntryPoint(uint32_t addr) const {
+   return node->authority() == FunctionAuthority::GAP_FILL;
+ }
+ 
+-TargetKind FunctionGraph::classifyTarget(uint32_t target, uint32_t callerAddr,
++TargetKind FunctionGraph::classifyTarget(uint32_t target, const FunctionNode& caller,
+                                          bool isCallInstruction) const {
+-  // Find the caller's function
+-  const FunctionNode* callerFn = getFunctionContaining(callerAddr);
+-
+   // Case 1: Target is an import - always a call/tail-call
+   if (isImport(target)) {
+     return TargetKind::Import;
+   }
+ 
+   // Case 2: Target is the caller's own entry point
+-  if (callerFn && target == callerFn->base()) {
++  if (target == caller.base()) {
+     // bl to own base = recursive call (Function)
+     // b to own base = loop back to start (InternalLabel)
+     return isCallInstruction ? TargetKind::Function : TargetKind::InternalLabel;
+   }
+ 
+-  // Case 3: Target is a DIFFERENT function's entry point - this is a call/tail-call
++  // Case 3: A branch into a configured chunk owned by this exact function is
++  // internal. The chunk remains a callable function for all other callers.
++  if (!isCallInstruction) {
++    const bool isOwnedChunk = std::ranges::any_of(chunks_, [&](const ChunkInfo& chunk) {
++      return chunk.base == target && chunk.parent == caller.base();
++    });
++    if (isOwnedChunk && caller.containsAddress(target)) {
++      return TargetKind::InternalLabel;
++    }
++  }
++
++  // Case 4: Target is a DIFFERENT function's entry point - this is a call/tail-call
+   // This handles cases where a small thunk function branches to another function
+   // whose entry point happens to fall within the thunk's address range
+   if (isEntryPoint(target)) {
+     return TargetKind::Function;
+   }
+ 
+-  // Case 4: Target is inside caller's function -> InternalLabel
++  // Case 5: Target is inside caller's function -> InternalLabel
+   // For bl, this would be a rare PIC code pattern
+-  if (callerFn && callerFn->containsAddress(target)) {
++  if (caller.containsAddress(target)) {
+     return TargetKind::InternalLabel;
+   }
+ 
+-  // Case 5: Unknown target
++  // Case 6: Unknown target
+   return TargetKind::Unknown;
+ }
+ 
+diff --git a/src/codegen/function_scanner.cpp b/src/codegen/function_scanner.cpp
+index d7ba51942f9001745122e6c6f2e711c004a63e67..c93a482012db2fa3d936d4c48e01eb2eea832056 100644
+--- a/src/codegen/function_scanner.cpp
++++ b/src/codegen/function_scanner.cpp
+@@ -1006,8 +1006,15 @@ FunctionBlocks FunctionScanner::discover_blocks(rex::guest_addr_t entry_point,
+         guest_addr_t target = instr.branch_target.value();
+         block.successors.push_back(target);
+ 
+-        // Check known_callables_ FIRST (gathered before discovery)
+-        bool is_tail_call = known_callables_.contains(static_cast<uint32_t>(target));
++        // A chunk owned by this function remains an internal block even though
++        // its entry is also registered as a callable continuation target.
++        const bool is_owned_chunk =
++            isWithinChunk(static_cast<uint32_t>(target), static_cast<uint32_t>(entry_point));
++
++        // Check known_callables_ FIRST (gathered before discovery), except for
++        // an explicitly parent-owned chunk of the function being scanned.
++        bool is_tail_call =
++            !is_owned_chunk && known_callables_.contains(static_cast<uint32_t>(target));
+ 
+         // Backward branch to unknown = probably tail call
+         if (!is_tail_call && target < entry_point) {
+@@ -1036,7 +1043,7 @@ FunctionBlocks FunctionScanner::discover_blocks(rex::guest_addr_t entry_point,
+ 
+         // CRITICAL: Check if target looks like a function entry (has prologue)
+         // If branching to a prologue, it's definitely a tail call to another function
+-        if (!is_tail_call && is_prologue_pattern(target)) {
++        if (!is_tail_call && !is_owned_chunk && is_prologue_pattern(target)) {
+           REXCODEGEN_TRACE("discover_blocks: target 0x{:08X} has prologue pattern (TAIL CALL)",
+                            target);
+           is_tail_call = true;
+diff --git a/src/codegen/phase_register.cpp b/src/codegen/phase_register.cpp
+index 648785363da96bf268b824001079a43ccc6ee2b8..a5f5371f8900318e0df84cd3ea66d799ca2609ff 100644
+--- a/src/codegen/phase_register.cpp
++++ b/src/codegen/phase_register.cpp
+@@ -555,7 +555,7 @@ VoidResult registerEntryPoints(CodegenContext& ctx) {
+     configFuncs++;
+ 
+     if (cfg.isChunk()) {
+-      graph.registerChunk(address, size);
++      graph.registerChunk(address, size, cfg.parent);
+       configChunks++;
+     }
+   }

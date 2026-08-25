@@ -1,0 +1,69 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_FLAGS": "-msse4.1",
+        "CMAKE_CXX_FLAGS": "-msse4.1",
+        "PINYON_SHIFT_CPU_BASELINE": "sse4.1",
+        "REXSDK_DIR": "${sourceDir}/.local/rexglue",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated/default"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "win-amd64-debug",
+      "displayName": "Windows AMD64 Debug",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "win-amd64-relwithdebinfo",
+      "displayName": "Windows AMD64 RelWithDebInfo",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "win-amd64-release",
+      "displayName": "Windows AMD64 Release",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win-amd64-debug",
+      "configurePreset": "win-amd64-debug"
+    },
+    {
+      "name": "win-amd64-relwithdebinfo",
+      "configurePreset": "win-amd64-relwithdebinfo"
+    },
+    {
+      "name": "win-amd64-release",
+      "configurePreset": "win-amd64-release"
+    }
+  ]
+}

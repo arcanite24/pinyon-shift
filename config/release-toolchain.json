@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "platform": "windows-x64",
+  "minimum_windows_build": 19041,
+  "visual_studio": {
+    "bootstrap_url": "https://aka.ms/vs/17/release/vs_BuildTools.exe",
+    "bootstrap_signer": "Microsoft Corporation",
+    "workload": "Microsoft.VisualStudio.Workload.VCTools",
+    "required_component": "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+  },
+  "git": {
+    "version": "2.55.0.5",
+    "url": "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/MinGit-2.55.0.5-64-bit.zip",
+    "sha256": "56D7B226B7693196CFC71FEF26568F536C4A021AB6C37FF2DB4287BED908E96E",
+    "install_path": ".local/toolchain/mingit-2.55.0.5",
+    "executable": "cmd/git.exe"
+  },
+  "llvm": {
+    "version": "20.1.8",
+    "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",
+    "sha256": "F229769F11D6A6EDC8ADA599C0CDA964B7DEE6AB1A08C6CF9DD7F513E85B107F",
+    "install_path": ".local/toolchain/llvm-20.1.8",
+    "executable": "bin/clang-cl.exe"
+  },
+  "extract_xiso": {
+    "version": "2.7.1",
+    "url": "https://github.com/XboxDev/extract-xiso/releases/download/build-202505152050/extract-xiso-Win64_Release.zip",
+    "sha256": "FEC88D03C7EFD6205AB09BE4ABBA70C0AFD0EB27A5709F0A6235B828BA5AC11E",
+    "install_path": ".local/toolchain/extract-xiso-2.7.1",
+    "executable": "artifacts/extract-xiso.exe"
+  },
+  "rexglue": {
+    "repository": "https://github.com/rexglue/rexglue-sdk.git",
+    "base_commit": "3eb9b511b4140d2769e27be63eae57d41bfa2afa",
+    "path": ".local/rexglue",
+    "patch_directory": "patches/rexglue"
+  }
+}

@@ -1,0 +1,35 @@
+name: Preview problem
+description: Report a launcher, build, crash, audio, graphics, or gameplay problem
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Safety check
+      options:
+        - label: I have not attached game files, generated source, executables, or dumps.
+          required: true
+        - label: I used a personally dumped supported disc.
+          required: true
+  - type: dropdown
+    attributes:
+      label: Area
+      options: [Launcher, Verification, Tool installation, Extraction, Build, Startup, Graphics, Audio, Input, Gameplay, Save data]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include exact steps, expected result, and actual result.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: System
+      description: Windows version, CPU, GPU, GPU driver, and available disk space.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Relevant log lines
+      description: Paste only the smallest relevant text section. Remove personal paths.
