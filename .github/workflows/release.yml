@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   package:
-    runs-on: windows-2025
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify public source boundary

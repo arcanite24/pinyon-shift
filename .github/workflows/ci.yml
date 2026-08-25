@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   public-source:
-    runs-on: windows-2025
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Check repository boundary
