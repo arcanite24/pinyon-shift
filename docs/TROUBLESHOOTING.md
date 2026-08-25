@@ -13,6 +13,13 @@ Elevation is needed only when the Microsoft C++ Build Tools are absent. The
 launcher itself, downloads, disc extraction, generation, build, saves, and logs
 remain in user-writable folders.
 
+## Windows warns about an unrecognized app
+
+Preview launchers are not code-signed yet, so Microsoft Defender SmartScreen may
+show an unrecognized-app warning. Download only from this repository's Releases
+page and compare the ZIP's SHA-256 with the value published in the release notes
+before deciding whether to run it.
+
 ## A download fails
 
 Check the internet connection and run the launcher again. Partially downloaded

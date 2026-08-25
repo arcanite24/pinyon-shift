@@ -19,6 +19,10 @@ executable.
    the preview. The first build can take 20–60 minutes and requires roughly
    25 GB of free disk space.
 
+The preview launcher is not code-signed yet, so Windows may identify it as an
+unrecognized app. Use only the archive attached to this repository's release
+and verify its published SHA-256.
+
 The launcher verifies the image before reading it. Unsupported or modified
 images are rejected. Your image and extracted game files stay on your machine.
 The launcher downloads build tools and the pinned ReXGlue source, extracts the
