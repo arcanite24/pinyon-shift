@@ -8,7 +8,13 @@ performance and graphical-correctness signals into reproducible fixes.
 - [x] Gate high-volume `M3_TRACE`, `M4_TRACE`, and `M5_TRACE` reentry diagnostics in release gameplay behind `PINYON_SHIFT_REENTRY_TRACE=1`, with a single opt-in activation marker for verification.
 - [x] Capture session-specific per-frame performance CSVs in Release builds, including frame time, FPS, draw calls, command-buffer stalls, and texture/pipeline cache hit rates.
 - [x] Add defensive geometry-list repairs that normalize invalid relocated-entry counts while preserving the existing range and readability crash guards.
-- [ ] Investigate the captured geometry-index corruption signatures, especially oversized lists with counts above the eight-entry limit and unreadable secondary-list pointers; correlate repairs with visible glitches and remove the underlying cause.
+- [x] Suppress per-frame VIZ-query INFO logging; the controlled capture reduced runtime logging from about 60 to 4.6 lines per second without materially changing sustained heavy-scene frame times.
+- [ ] Reproduce and fix the startup fail-fast at unregistered indirect target `0x820239A8` (`lr=0x82DE7360`, crash ID `pscrash-v1-abc5dbd98776afc369e4`), including a regression test for the missing target or discovery path.
+- [ ] Investigate the captured geometry-index corruption signatures, including counts as high as `0xFF` and unreadable secondary-list pointers; correlate the repair bursts with the startup crash and visible glitches, then remove the underlying ownership or relocation defect.
+- [ ] Instrument and optimize the texture-cache miss/upload path. Separate lookup, decode, upload, fence wait, and eviction time, and cover cold-start spikes such as the 1.18-second frame with 266 texture misses.
+- [ ] Explain why the renderer queue remains at its maximum depth of eight during gameplay by adding bounded CPU submission, GPU completion, fence-wait, and present timing; use that evidence to identify the actual backpressure point.
+- [ ] After the cache and queue measurements are actionable, reduce representative heavy-scene cost (currently roughly 2,000 draw calls and one million vertices per frame) through measured batching or redundant-state elimination without changing rendering correctness.
+- [ ] Run a repeatable five-minute-or-longer A/B route from the same save with cold/warm phases and scene markers; use the performance summarizer to gate median, p95/p99, frames over 100/250 ms, and visual-baseline regressions.
 - [x] Record the exact Pinyon Shift commit, ReXGlue commit, applied patch-set identity, source-payload identity, and executable hash in build metadata and structured diagnostics so future soak-test evidence is attributable to a reproducible build.
 
 ## Quick wins
