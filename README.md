@@ -41,7 +41,6 @@ Supported today: the USA retail base disc, serial `MS-2505`, title ID
   fallback: Space or left click acts as Xbox A, and Enter acts as Start.
 - Gameplay audio is incomplete, although cutscene audio works.
 - The player car may shake or jitter.
-- Vehicle collisions can behave incorrectly.
 - The camera may jump to an aerial view during the Mustang versus Mustang event.
 
 This is a public preview, not a finished remaster. Please report reproducible

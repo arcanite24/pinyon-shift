@@ -1,0 +1,260 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Brandon G. Neri" <arcaniteamp@gmail.com>
+Date: Wed, 26 Aug 2026 15:38:29 -0600
+Subject: [PATCH] v0.10 match Xenon vmsum QNaN overflow behavior
+
+---
+ include/rex/ppc/intrinsics.h             | 49 +++++++++++++++
+ src/codegen/builders/vector.cpp          | 15 ++---
+ tests/ppc/asm/instr_vmsum3fp128.s        | 10 +++
+ tests/ppc/asm/instr_vmsum4fp128.s        | 10 +++
+ tests/unit/CMakeLists.txt                 |  1 +
+ tests/unit/ppc/vector_math_test.cpp       | 85 ++++++++++++++++++++++++
+ 6 files changed, 163 insertions(+), 7 deletions(-)
+ create mode 100644 tests/unit/ppc/vector_math_test.cpp
+
+diff --git a/include/rex/ppc/intrinsics.h b/include/rex/ppc/intrinsics.h
+index 3c2fe09..f24632d 100644
+--- a/include/rex/ppc/intrinsics.h
++++ b/include/rex/ppc/intrinsics.h
+@@ -13,8 +13,10 @@
+ 
+ #pragma once
+ 
++#include <bit>
+ #include <climits>
+ #include <cmath>
++#include <cstdint>
+ #include <cstring>
+ 
+ #include <simde/x86/avx.h>
+@@ -116,6 +118,53 @@ inline uint8_t VectorShiftTableR[] = {
+ // SIMD Helper Functions
+ //=============================================================================
+ 
++// Xenon vmsum3fp128/vmsum4fp128 return QNaN when a dot product of finite
++// inputs overflows its single-precision result. simde_mm_dp_ps instead returns
++// +/-infinity, which changes ordered comparisons in guest collision code.
++inline float simde_mm_vmsum_narrow_result(double accumulator) noexcept {
++  const float result = static_cast<float>(accumulator);
++  if (std::isinf(result) && !std::isinf(accumulator)) {
++    return std::bit_cast<float>(uint32_t{0x7FC00000});
++  }
++
++  // The generated instruction path runs with FTZ/DAZ enabled. Keep the same
++  // output behavior when the scalar-double implementation produces a denormal.
++  const uint32_t result_bits = std::bit_cast<uint32_t>(result);
++  if ((result_bits & 0x7FFFFFFFu) != 0 && (result_bits & 0x7F800000u) == 0) {
++    return std::bit_cast<float>(result_bits & 0x80000000u);
++  }
++  return result;
++}
++
++// Guest vector elements are reversed relative to host lanes. Accumulate exact
++// float products in double and preserve Xenia's hardware-verified reduction
++// order: (x + z) + y for vmsum3fp128.
++inline simde__m128 simde_mm_vmsum3fp128(simde__m128 a, simde__m128 b) noexcept {
++  alignas(16) float a_lanes[4];
++  alignas(16) float b_lanes[4];
++  simde_mm_store_ps(a_lanes, a);
++  simde_mm_store_ps(b_lanes, b);
++
++  const double x = static_cast<double>(a_lanes[3]) * static_cast<double>(b_lanes[3]);
++  const double y = static_cast<double>(a_lanes[2]) * static_cast<double>(b_lanes[2]);
++  const double z = static_cast<double>(a_lanes[1]) * static_cast<double>(b_lanes[1]);
++  return simde_mm_set1_ps(simde_mm_vmsum_narrow_result((x + z) + y));
++}
++
++// vmsum4fp128 uses the pairwise reduction (x + z) + (y + w).
++inline simde__m128 simde_mm_vmsum4fp128(simde__m128 a, simde__m128 b) noexcept {
++  alignas(16) float a_lanes[4];
++  alignas(16) float b_lanes[4];
++  simde_mm_store_ps(a_lanes, a);
++  simde_mm_store_ps(b_lanes, b);
++
++  const double x = static_cast<double>(a_lanes[3]) * static_cast<double>(b_lanes[3]);
++  const double y = static_cast<double>(a_lanes[2]) * static_cast<double>(b_lanes[2]);
++  const double z = static_cast<double>(a_lanes[1]) * static_cast<double>(b_lanes[1]);
++  const double w = static_cast<double>(a_lanes[0]) * static_cast<double>(b_lanes[0]);
++  return simde_mm_set1_ps(simde_mm_vmsum_narrow_result((x + z) + (y + w)));
++}
++
+ // Unsigned 32-bit saturating add
+ inline simde__m128i simde_mm_adds_epu32(simde__m128i a, simde__m128i b) {
+   return simde_mm_add_epi32(
+diff --git a/src/codegen/builders/vector.cpp b/src/codegen/builders/vector.cpp
+index cbdd7f7..9a9510c 100644
+--- a/src/codegen/builders/vector.cpp
++++ b/src/codegen/builders/vector.cpp
+@@ -184,22 +184,23 @@ bool build_vlogefp(BuilderContext& ctx) {
+ //=============================================================================
+ 
+ bool build_vmsum3fp128(BuilderContext& ctx) {
+-  // 3-element dot product accounting for guest->host vector element reversal
+-  // 0xEF = dot(yzw) with result broadcast to all elements (see constants doc)
++  // Use the Xenon-compatible reduction and overflow behavior. simde_mm_dp_ps
++  // returns infinity for finite overflow, while the guest instruction returns
++  // QNaN and therefore remains unordered in comparisons.
+   ctx.emit_set_flush_mode(true);
+   ctx.println(
+-      "\tsimde_mm_store_ps({}.f32, simde_mm_dp_ps(simde_mm_load_ps({}.f32), "
+-      "simde_mm_load_ps({}.f32), 0xEF));",
++      "\tsimde_mm_store_ps({}.f32, rex::ppc::simde_mm_vmsum3fp128("
++      "simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));",
+       ctx.v(ctx.insn.operands[0]), ctx.v(ctx.insn.operands[1]), ctx.v(ctx.insn.operands[2]));
+   return true;
+ }
+ 
+ bool build_vmsum4fp128(BuilderContext& ctx) {
+-  // 4-element dot product: 0xFF = all 4 elements, result to all (see constants doc)
++  // As above, with all four vector elements participating.
+   ctx.emit_set_flush_mode(true);
+   ctx.println(
+-      "\tsimde_mm_store_ps({}.f32, simde_mm_dp_ps(simde_mm_load_ps({}.f32), "
+-      "simde_mm_load_ps({}.f32), 0xFF));",
++      "\tsimde_mm_store_ps({}.f32, rex::ppc::simde_mm_vmsum4fp128("
++      "simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));",
+       ctx.v(ctx.insn.operands[0]), ctx.v(ctx.insn.operands[1]), ctx.v(ctx.insn.operands[2]));
+   return true;
+ }
+diff --git a/tests/ppc/asm/instr_vmsum3fp128.s b/tests/ppc/asm/instr_vmsum3fp128.s
+index f88cf8a..47e4c77 100644
+--- a/tests/ppc/asm/instr_vmsum3fp128.s
++++ b/tests/ppc/asm/instr_vmsum3fp128.s
+@@ -8,3 +8,13 @@ test_vmsum3fp128_1:
+   #_ REGISTER_OUT v3 [3f800000, 3fc00000, 3f8ccccd, 01020304]
+   #_ REGISTER_OUT v4 [40000000, 40700000, 4013d70a, 01020304]
+   #_ REGISTER_OUT v5 [4122A7F0, 4122A7F0, 4122A7F0, 4122A7F0]
++
++test_vmsum3fp128_finite_overflow:
++  # Finite inputs overflow the single-precision result to canonical QNaN.
++  #_ REGISTER_IN v3 [FF7FFFFF, FF7FFFFF, FF7FFFFF, 00000000]
++  #_ REGISTER_IN v4 [FF7FFFFF, FF7FFFFF, FF7FFFFF, 00000000]
++  vmsum3fp128 v5, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [FF7FFFFF, FF7FFFFF, FF7FFFFF, 00000000]
++  #_ REGISTER_OUT v4 [FF7FFFFF, FF7FFFFF, FF7FFFFF, 00000000]
++  #_ REGISTER_OUT v5 [7FC00000, 7FC00000, 7FC00000, 7FC00000]
+diff --git a/tests/ppc/asm/instr_vmsum4fp128.s b/tests/ppc/asm/instr_vmsum4fp128.s
+index 4243dd0..d4b2040 100644
+--- a/tests/ppc/asm/instr_vmsum4fp128.s
++++ b/tests/ppc/asm/instr_vmsum4fp128.s
+@@ -6,3 +6,13 @@ test_vmsum4fp128_1:
+   #_ REGISTER_OUT v3 [3f800000, 3fc00000, 3f8ccccd, 3ff33333]
+   #_ REGISTER_OUT v4 [40000000, 40700000, 4013d70a, 40b051eb]
+   #_ REGISTER_OUT v5 [41A5147B, 41A5147B, 41A5147B, 41A5147B]
++
++test_vmsum4fp128_finite_overflow:
++  # Finite inputs overflow the single-precision result to canonical QNaN.
++  #_ REGISTER_IN v3 [FF7FFFFF, FF7FFFFF, FF7FFFFF, FF7FFFFF]
++  #_ REGISTER_IN v4 [FF7FFFFF, FF7FFFFF, FF7FFFFF, FF7FFFFF]
++  vmsum4fp128 v5, v3, v4
++  blr
++  #_ REGISTER_OUT v3 [FF7FFFFF, FF7FFFFF, FF7FFFFF, FF7FFFFF]
++  #_ REGISTER_OUT v4 [FF7FFFFF, FF7FFFFF, FF7FFFFF, FF7FFFFF]
++  #_ REGISTER_OUT v5 [7FC00000, 7FC00000, 7FC00000, 7FC00000]
+diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
+index 2294919..7b640eb 100644
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -13,6 +13,7 @@ add_executable(unit_tests
+     codegen/resume_template_test.cpp
+     ppc/import_function_test.cpp
+     ppc/stack_test.cpp
++    ppc/vector_math_test.cpp
+     system/guest_path_test.cpp
+     system/achievement_manager_test.cpp
+     system/function_dispatcher_test.cpp
+diff --git a/tests/unit/ppc/vector_math_test.cpp b/tests/unit/ppc/vector_math_test.cpp
+new file mode 100644
+index 0000000..319d4a3
+--- /dev/null
++++ b/tests/unit/ppc/vector_math_test.cpp
+@@ -0,0 +1,85 @@
++/**
++ * Tests for Xenon-compatible vector dot-product edge behavior.
++ */
++
++#include <bit>
++#include <cmath>
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++
++#include <catch2/catch_test_macros.hpp>
++
++#include <rex/ppc/intrinsics.h>
++
++namespace {
++
++uint32_t lane_bits(simde__m128 value, size_t lane = 0) {
++  alignas(16) float lanes[4];
++  simde_mm_store_ps(lanes, value);
++  return std::bit_cast<uint32_t>(lanes[lane]);
++}
++
++void check_broadcast(simde__m128 value, uint32_t expected) {
++  for (size_t lane = 0; lane < 4; ++lane) {
++    CHECK(lane_bits(value, lane) == expected);
++  }
++}
++
++}  // namespace
++
++TEST_CASE("vmsum finite overflow becomes canonical QNaN", "[ppc][vector][vmsum]") {
++  const simde__m128 max = simde_mm_set1_ps(-std::numeric_limits<float>::max());
++
++  check_broadcast(rex::ppc::simde_mm_vmsum3fp128(max, max), 0x7FC00000u);
++  check_broadcast(rex::ppc::simde_mm_vmsum4fp128(max, max), 0x7FC00000u);
++}
++
++TEST_CASE("vmsum preserves infinite inputs and propagates NaN", "[ppc][vector][vmsum]") {
++  const float infinity = std::numeric_limits<float>::infinity();
++  const float qnan = std::bit_cast<float>(uint32_t{0x7FC00000});
++  const simde__m128 multiplier = simde_mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f);
++
++  check_broadcast(
++      rex::ppc::simde_mm_vmsum3fp128(simde_mm_set_ps(infinity, 0.0f, 0.0f, 0.0f), multiplier),
++      0x7F800000u);
++  check_broadcast(
++      rex::ppc::simde_mm_vmsum3fp128(simde_mm_set_ps(-infinity, 0.0f, 0.0f, 0.0f), multiplier),
++      0xFF800000u);
++
++  const simde__m128 nan_result =
++      rex::ppc::simde_mm_vmsum3fp128(simde_mm_set_ps(qnan, 0.0f, 0.0f, 0.0f), multiplier);
++  alignas(16) float lanes[4];
++  simde_mm_store_ps(lanes, nan_result);
++  for (float lane : lanes) {
++    CHECK(std::isnan(lane));
++  }
++}
++
++TEST_CASE("vmsum flushes denormal outputs with their sign", "[ppc][vector][vmsum]") {
++  const double denormal = static_cast<double>(std::numeric_limits<float>::denorm_min());
++
++  CHECK(std::bit_cast<uint32_t>(rex::ppc::simde_mm_vmsum_narrow_result(denormal)) == 0x00000000u);
++  CHECK(std::bit_cast<uint32_t>(rex::ppc::simde_mm_vmsum_narrow_result(-denormal)) == 0x80000000u);
++}
++
++TEST_CASE("vmsum overflow detection occurs after narrowing", "[ppc][vector][vmsum]") {
++  const double max_float = static_cast<double>(std::numeric_limits<float>::max());
++  const double rounds_to_max = max_float + std::ldexp(1.0, 102);
++  const double overflows_float = max_float + std::ldexp(1.0, 104);
++
++  CHECK(std::bit_cast<uint32_t>(rex::ppc::simde_mm_vmsum_narrow_result(rounds_to_max)) ==
++        0x7F7FFFFFu);
++  CHECK(std::bit_cast<uint32_t>(rex::ppc::simde_mm_vmsum_narrow_result(overflows_float)) ==
++        0x7FC00000u);
++}
++
++TEST_CASE("vmsum uses the guest reduction order", "[ppc][vector][vmsum]") {
++  const simde__m128 ones = simde_mm_set1_ps(1.0f);
++  const simde__m128 terms = simde_mm_set_ps(1.0e20f, 3.0f, -1.0e20f, 4.0f);
++
++  // vmsum3 excludes w and reduces (x + z) + y: (1e20 - 1e20) + 3.
++  check_broadcast(rex::ppc::simde_mm_vmsum3fp128(ones, terms), 0x40400000u);
++  // vmsum4 reduces (x + z) + (y + w): 0 + (3 + 4).
++  check_broadcast(rex::ppc::simde_mm_vmsum4fp128(ones, terms), 0x40E00000u);
++}
+-- 
+2.51.0.windows.1

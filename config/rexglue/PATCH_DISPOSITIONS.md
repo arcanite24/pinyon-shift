@@ -59,11 +59,19 @@ The patch assigns each alias to one deterministic owner, preserving the
 previous last-owner behavior without runtime replacement warnings, and adds a
 full-writer regression test for overlapping functions.
 
+`0033-v0.10-match-vmsum-qnan-overflow` replaces the host SSE dot-product
+lowering for `vmsum3fp128` and `vmsum4fp128` with the Xenon-compatible
+double-precision reduction and final narrowing behavior. Finite dot products
+that overflow the guest single-precision result now become canonical QNaN,
+while infinite inputs, NaN propagation, reduction order, and signed denormal
+flushing are preserved. Focused helper tests cover every edge and PPC fixtures
+cover the observed finite-overflow instruction behavior.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.
-- 1,458/1,458 PPC instruction tests passed.
-- The 223-test unit suite passed after the two ported test-data corrections and
+- 1,460/1,460 PPC instruction tests passed.
+- The 228-test unit suite passed after the two ported test-data corrections and
   the direct-tail assertion correction (four pre-existing BitStream write cases
   remain explicitly skipped by upstream).
 - No conflict markers, reject files, or binary patch payloads are present.
