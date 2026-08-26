@@ -73,6 +73,41 @@ function Invoke-PinyonDownload {
     }
 }
 
+function Expand-PinyonTarXz {
+    param(
+        [Parameter(Mandatory)] [string]$Archive,
+        [Parameter(Mandatory)] [string]$Destination,
+        [Parameter(Mandatory)] [string]$XzPath
+    )
+    $archive = [IO.Path]::GetFullPath($Archive)
+    $destination = [IO.Path]::GetFullPath($Destination)
+    $xzPath = [IO.Path]::GetFullPath($XzPath)
+    $tarArchive = Join-Path (Split-Path $archive -Parent) `
+        ([IO.Path]::GetFileNameWithoutExtension($archive))
+    if (-not $archive.EndsWith('.tar.xz', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Expected a .tar.xz archive: $archive"
+    }
+    if (-not (Test-Path -LiteralPath $xzPath -PathType Leaf)) {
+        throw "The pinned XZ extractor is missing: $xzPath"
+    }
+    if (Test-Path -LiteralPath $tarArchive) {
+        Remove-Item -LiteralPath $tarArchive -Force
+    }
+    try {
+        & $xzPath --decompress --keep --force -- $archive
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tarArchive -PathType Leaf)) {
+            throw 'Unable to decompress the LLVM toolchain archive.'
+        }
+        & tar.exe -xf $tarArchive -C $destination
+        if ($LASTEXITCODE -ne 0) { throw 'Unable to extract the LLVM toolchain.' }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tarArchive) {
+            Remove-Item -LiteralPath $tarArchive -Force
+        }
+    }
+}
+
 function Get-PinyonVisualStudioRoot {
     param([switch]$AllowMissing)
     $config = Get-PinyonReleaseToolchain
