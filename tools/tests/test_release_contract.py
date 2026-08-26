@@ -35,7 +35,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(len(patches), 33)
         self.assertEqual(
             patches[-1].name,
-            "0033-v0.10-match-vmsum-qnan-overflow.patch",
+            "0033-gate-high-volume-reentry-tracing.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:

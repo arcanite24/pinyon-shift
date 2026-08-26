@@ -908,6 +908,10 @@ void PinyonShiftValidateGeometryIndexList(PPCRegister& r8, PPCRegister& r29,
   // empty rather than preserving an arbitrary prefix of corrupted geometry.
   constexpr uint32_t kMaximumResultCount = 8u;
   if (count > kMaximumResultCount) {
+    // Persist the repair in the transient relocated entry. Register-only
+    // suppression leaves the invalid pair live and caused the same entry to be
+    // repaired repeatedly during the long-play soak test.
+    StoreGuestU8(r29.u32 + 9u, 0u);
     r8.u64 = 0;
     pinyon_shift::diagnostics::RecordEvent(
         "geometry.index.oversized_list_repair",
@@ -915,9 +919,11 @@ void PinyonShiftValidateGeometryIndexList(PPCRegister& r8, PPCRegister& r29,
          {"consumer", "82D3DB6C"},
          {"owner", Hex32(r31.u32)},
          {"entry", Hex32(r29.u32)},
+         {"count_address", Hex32(r29.u32 + 9u)},
          {"count", Hex32(count)},
          {"maximum", Hex32(kMaximumResultCount)},
-         {"list", Hex32(list)}});
+         {"list", Hex32(list)},
+         {"repair", "entry_count_zeroed"}});
     return;
   }
 
@@ -925,15 +931,18 @@ void PinyonShiftValidateGeometryIndexList(PPCRegister& r8, PPCRegister& r29,
     return;
   }
 
+  StoreGuestU8(r29.u32 + 9u, 0u);
   r8.u64 = 0;
   pinyon_shift::diagnostics::RecordEvent(
       "geometry.index.unreadable_list_repair",
       {{"address", "82D3DB54"},
        {"consumer", "82D3DB6C"},
-       {"owner", Hex32(r31.u32)},
-       {"entry", Hex32(r29.u32)},
-       {"count", Hex32(count)},
-       {"list", Hex32(list)}});
+        {"owner", Hex32(r31.u32)},
+        {"entry", Hex32(r29.u32)},
+        {"count_address", Hex32(r29.u32 + 9u)},
+        {"count", Hex32(count)},
+        {"list", Hex32(list)},
+        {"repair", "entry_count_zeroed"}});
 }
 
 void PinyonShiftValidateGeometrySecondaryIndexList(PPCRegister& r6,
@@ -954,15 +963,20 @@ void PinyonShiftValidateGeometrySecondaryIndexList(PPCRegister& r6,
     return;
   }
 
+  // Make the repaired invariant durable for every consumer of this relocated
+  // entry, rather than suppressing only the current loop iteration.
+  StoreGuestU8(r29.u32 + 8u, 0u);
   r6.u64 = 0;
   pinyon_shift::diagnostics::RecordEvent(
       "geometry.index.unreadable_secondary_list_repair",
       {{"address", "82D3DBF4"},
        {"consumer", "82D3DC1C"},
-       {"owner", Hex32(r31.u32)},
-       {"entry", Hex32(r29.u32)},
-       {"count", Hex32(count)},
-       {"list", Hex32(list)}});
+        {"owner", Hex32(r31.u32)},
+        {"entry", Hex32(r29.u32)},
+        {"count_address", Hex32(r29.u32 + 8u)},
+        {"count", Hex32(count)},
+        {"list", Hex32(list)},
+        {"repair", "entry_count_zeroed"}});
 }
 
 void PinyonShiftTraceGeometryIndex(PPCRegister& r9, PPCRegister& r11,

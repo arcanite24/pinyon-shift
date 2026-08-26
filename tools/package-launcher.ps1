@@ -86,6 +86,24 @@ foreach ($relative in $include) {
     }
 }
 
+$git = Get-Command git.exe -ErrorAction Stop
+$sourceCommit = @(& $git.Source -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
+if ($sourceCommit.Count -ne 1 -or $sourceCommit[0] -notmatch '^[0-9a-fA-F]{40}$') {
+    throw 'Unable to record the Pinyon Shift source commit for the launcher payload.'
+}
+$sourceCommit = $sourceCommit[0].ToLowerInvariant()
+$sourceDirty = @(& $git.Source -C $root status --porcelain).Count -ne 0
+$sourceProvenance = [ordered]@{
+    schema_version = 1
+    repository = 'https://github.com/arcanite24/pinyon-shift'
+    commit = $sourceCommit
+    dirty = $sourceDirty
+}
+$sourceProvenancePath = Join-Path $payloadRoot 'config/source-provenance.json'
+[IO.File]::WriteAllText($sourceProvenancePath,
+    ($sourceProvenance | ConvertTo-Json) + [Environment]::NewLine,
+    [Text.UTF8Encoding]::new($false))
+
 Get-ChildItem -LiteralPath $payloadRoot -Recurse -File | Where-Object {
     $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex')
 } | ForEach-Object { throw "Forbidden file entered launcher payload: $($_.FullName)" }

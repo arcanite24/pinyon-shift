@@ -99,14 +99,63 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw 'Compilation completed without producing pinyon_shift.exe.'
 }
 $manifestPath = Resolve-PinyonLocalPath -RelativePath '.local/build.json'
+$git = Get-PinyonGit
+$sourceProvenancePath = Join-Path $root 'config/source-provenance.json'
+$sourceCommit = $null
+$sourceDirty = $false
+$gitCommit = @(& $git -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
+if ($gitCommit.Count -eq 1 -and $gitCommit[0] -match '^[0-9a-fA-F]{40}$') {
+    $sourceCommit = $gitCommit[0].ToLowerInvariant()
+    $sourceDirty = @(& $git -C $root status --porcelain).Count -ne 0
+}
+elseif (Test-Path -LiteralPath $sourceProvenancePath -PathType Leaf) {
+    $sourceProvenance = Get-Content -LiteralPath $sourceProvenancePath -Raw | ConvertFrom-Json
+    if ($sourceProvenance.commit -match '^[0-9a-fA-F]{40}$') {
+        $sourceCommit = $sourceProvenance.commit.ToLowerInvariant()
+        $sourceDirty = [bool]$sourceProvenance.dirty
+    }
+}
+if (-not $sourceCommit) {
+    throw 'Build provenance requires an exact Pinyon Shift commit.'
+}
+
+$patchMarkerPath = Join-Path $sdkRoot '.pinyon-patches.json'
+if (-not (Test-Path -LiteralPath $patchMarkerPath -PathType Leaf)) {
+    throw 'Build provenance requires the applied ReXGlue patch marker.'
+}
+$patchMarker = Get-Content -LiteralPath $patchMarkerPath -Raw | ConvertFrom-Json
+$rexglueCommit = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+if ($rexglueCommit.Count -ne 1 -or
+    $rexglueCommit[0] -notmatch '^[0-9a-fA-F]{40}$' -or
+    $rexglueCommit[0] -ne $config.rexglue.base_commit -or
+    $patchMarker.base_commit -ne $config.rexglue.base_commit) {
+    throw 'The prepared ReXGlue revision does not match the pinned build configuration.'
+}
+$rexglueCommit = $rexglueCommit[0].ToLowerInvariant()
+$payloadMarkerPath = Join-Path $root '.pinyon-source-sha256'
+$payloadSha256 = if (Test-Path -LiteralPath $payloadMarkerPath -PathType Leaf) {
+    (Get-Content -LiteralPath $payloadMarkerPath -Raw).Trim().ToUpperInvariant()
+} else { '' }
+$executableSha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
+$patchSetSha256 = (Get-FileHash -LiteralPath $patchMarkerPath -Algorithm SHA256).Hash
 $result = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     created_utc = [DateTime]::UtcNow.ToString('o')
     executable = 'out/build/win-amd64-release/pinyon_shift.exe'
-    executable_sha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
+    executable_sha256 = $executableSha256
     generated_locally = $true
+    pinyon_shift_commit = $sourceCommit
+    pinyon_shift_dirty = $sourceDirty.ToString().ToLowerInvariant()
+    pinyon_shift_source_payload_sha256 = $payloadSha256
+    rexglue_commit = $rexglueCommit
+    rexglue_patch_set_sha256 = $patchSetSha256
+    rexglue_patch_count = @($patchMarker.patches).Count.ToString()
 }
-[IO.File]::WriteAllText($manifestPath, ($result | ConvertTo-Json) + [Environment]::NewLine,
+$resultJson = ($result | ConvertTo-Json) + [Environment]::NewLine
+[IO.File]::WriteAllText($manifestPath, $resultJson,
+    [Text.UTF8Encoding]::new($false))
+$runtimeManifestPath = Join-Path (Split-Path $executable -Parent) 'pinyon_shift_build.json'
+[IO.File]::WriteAllText($runtimeManifestPath, $resultJson,
     [Text.UTF8Encoding]::new($false))
 Write-PinyonEvent build 96 'Local compilation completed successfully.' -JsonEvents:$JsonEvents
 $result

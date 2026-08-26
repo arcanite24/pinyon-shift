@@ -24,6 +24,8 @@
 
 REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 4, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
+REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
+                    "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
@@ -49,6 +51,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "keybind_a = \"LMB,Space\"\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
+              "pinyon_shift_capture_performance = true\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n"
               "anisotropic_override = 3\n"
@@ -219,7 +222,12 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
 }
 
 void PinyonShiftApp::OnPostInitLogging() {
-  const std::string perf_csv = rex::cvar::GetFlagByName("perf_log_csv");
+  std::string perf_csv = rex::cvar::GetFlagByName("perf_log_csv");
+  if (perf_csv.empty() && REXCVAR_GET(pinyon_shift_capture_performance)) {
+    perf_csv = (pinyon_shift::diagnostics::StateRoot() / "logs" /
+                (pinyon_shift::diagnostics::SessionId() + ".perf.csv"))
+                   .string();
+  }
   if (!perf_csv.empty()) {
     rex::perf::SetCsvLogPath(perf_csv);
   }

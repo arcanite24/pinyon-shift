@@ -5,10 +5,11 @@
 Use the 2026-08-25 long-play installation evidence to turn the current
 performance and graphical-correctness signals into reproducible fixes.
 
-- [ ] Gate or demote high-volume `M3_TRACE`, `M4_TRACE`, and `M5_TRACE` reentry diagnostics so release builds do not synchronously write thousands of info-level lines during gameplay; compare performance before and after.
-- [ ] Enable automatic per-frame performance CSV capture for diagnostic playthroughs, including frame time, FPS, draw calls, command-buffer stalls, and texture/pipeline cache hit rates.
+- [x] Gate high-volume `M3_TRACE`, `M4_TRACE`, and `M5_TRACE` reentry diagnostics in release gameplay behind `PINYON_SHIFT_REENTRY_TRACE=1`, with a single opt-in activation marker for verification.
+- [x] Capture session-specific per-frame performance CSVs in Release builds, including frame time, FPS, draw calls, command-buffer stalls, and texture/pipeline cache hit rates.
+- [x] Add defensive geometry-list repairs that normalize invalid relocated-entry counts while preserving the existing range and readability crash guards.
 - [ ] Investigate the captured geometry-index corruption signatures, especially oversized lists with counts above the eight-entry limit and unreadable secondary-list pointers; correlate repairs with visible glitches and remove the underlying cause.
-- [ ] Record the exact Pinyon Shift commit, ReXGlue commit, applied patch-set identity, and executable hash in build metadata and structured diagnostics so future soak-test evidence is attributable to a reproducible build.
+- [x] Record the exact Pinyon Shift commit, ReXGlue commit, applied patch-set identity, source-payload identity, and executable hash in build metadata and structured diagnostics so future soak-test evidence is attributable to a reproducible build.
 
 ## Quick wins
 

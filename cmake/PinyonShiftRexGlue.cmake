@@ -12,6 +12,15 @@ set_property(CACHE PINYON_SHIFT_CPU_BASELINE PROPERTY STRINGS "sse4.1")
 # network/profiler footprint.
 set(REXGLUE_ENABLE_TRACY OFF CACHE BOOL
     "Disable Tracy networking in Pinyon Shift builds" FORCE)
+set(PINYON_SHIFT_CAPTURE_PERFORMANCE ON CACHE BOOL
+    "Capture lightweight per-frame performance counters in preview builds")
+
+if(PINYON_SHIFT_CAPTURE_PERFORMANCE)
+    # ReXGlue keeps lightweight counters out of Release by default even when
+    # their sources are present. Pinyon Shift preview builds need those
+    # counters for session CSVs, independently of Tracy's profiler/networking.
+    add_compile_definitions(REXGLUE_ENABLE_PERF_COUNTERS)
+endif()
 
 if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     if(NOT PINYON_SHIFT_CPU_BASELINE STREQUAL "sse4.1")

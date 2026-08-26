@@ -147,6 +147,7 @@ try {
         'pinyon_shift_config_schema', 'input_backend', 'hid_mappings_file',
         'mnk_mode', 'keybind_start',
         'd3d12_allow_variable_refresh_rate_and_tearing',
+        'pinyon_shift_capture_performance',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
         'draw_resolution_scale_x', 'draw_resolution_scale_y'
@@ -181,6 +182,10 @@ try {
             $binaryHashes[$name] = Get-FileSha256 $path
         }
     }
+    $buildProvenancePath = Join-Path $runtimeDirectory 'pinyon_shift_build.json'
+    $buildProvenance = if (Test-Path -LiteralPath $buildProvenancePath -PathType Leaf) {
+        Get-Content -LiteralPath $buildProvenancePath -Raw | ConvertFrom-Json
+    } else { $null }
     $dumpRecords = @($crashFiles | Where-Object Extension -eq '.dmp' | ForEach-Object {
         [ordered]@{
             name = $_.Name
@@ -200,7 +205,10 @@ try {
             exit_code_hex = ('0x{0:X8}' -f ([uint32]($ExitCode -band 0xFFFFFFFFL)))
         }
         exception = $details
-        build = $binaryHashes
+        build = [ordered]@{
+            binaries = $binaryHashes
+            provenance = $buildProvenance
+        }
         release = [ordered]@{
             version = if ($release) { $release.version } else { $null }
             channel = if ($release) { $release.channel } else { $null }
