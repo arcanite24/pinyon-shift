@@ -21,7 +21,7 @@
 REXCVAR_DEFINE_BOOL(pinyon_shift_skip_opening_movies, false, "Pinyon Shift",
                     "Complete XMedia-backed movies immediately");
 REXCVAR_DEFINE_BOOL(
-    pinyon_shift_stabilize_vehicle_presentation, true, "Pinyon Shift",
+    pinyon_shift_stabilize_vehicle_presentation, false, "Pinyon Shift",
     "Suppress isolated implausible player-vehicle presentation transforms");
 
 namespace {
