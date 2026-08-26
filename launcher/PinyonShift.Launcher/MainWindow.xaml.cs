@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace PinyonShift.Launcher;
@@ -48,6 +49,7 @@ public partial class MainWindow : Window
         try
         {
             _repositoryRoot = await ResolveRepositoryRootAsync();
+            GraphicsSettingsButton.Visibility = Visibility.Visible;
             BuildLocationText.Text = Path.Combine(_repositoryRoot, ".local");
             AppendLog($"Release source: {_repositoryRoot}");
             StageControllerMappings();
@@ -97,6 +99,7 @@ public partial class MainWindow : Window
             return;
 
         _busy = true;
+        GraphicsSettingsButton.IsEnabled = false;
         _cancellation = new CancellationTokenSource();
         BrowseButton.IsEnabled = false;
         OwnershipCheckBox.IsEnabled = false;
@@ -169,6 +172,7 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
+            GraphicsSettingsButton.IsEnabled = true;
             BrowseButton.IsEnabled = true;
             OwnershipCheckBox.IsEnabled = true;
             UpdatePrimaryButton();
@@ -228,6 +232,7 @@ public partial class MainWindow : Window
         if (_busy) return;
 
         _busy = true;
+        GraphicsSettingsButton.IsEnabled = false;
         PrimaryButton.IsEnabled = false;
         PrimaryButton.Content = "GAME RUNNING";
         EyebrowText.Text = "PREVIEW RUNNING";
@@ -293,6 +298,7 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
+            GraphicsSettingsButton.IsEnabled = true;
             ReportProblemButton.IsEnabled = true;
             UpdatePrimaryButton();
         }
@@ -353,6 +359,7 @@ public partial class MainWindow : Window
         StatusDot.Fill = FailedBrush;
         CrashIdText.Text = report.CrashId;
         CrashPanel.Visibility = Visibility.Visible;
+        GraphicsPanel.Visibility = Visibility.Collapsed;
         LogPanel.Visibility = Visibility.Collapsed;
         OwnershipCheckBox.Visibility = Visibility.Collapsed;
         ReportProblemButton.Visibility = Visibility.Collapsed;
@@ -452,6 +459,7 @@ public partial class MainWindow : Window
         StatusDot.Fill = CompleteBrush;
         PrimaryButton.Content = "PLAY PINYON SHIFT";
         CrashPanel.Visibility = Visibility.Collapsed;
+        GraphicsPanel.Visibility = Visibility.Collapsed;
         ReportProblemButton.Visibility = Visibility.Visible;
         OpenLogsButton.Visibility = Visibility.Visible;
         OwnershipCheckBox.Visibility = Visibility.Collapsed;
@@ -468,6 +476,7 @@ public partial class MainWindow : Window
         StatusDot.Fill = FailedBrush;
         PrimaryButton.Content = "TRY AGAIN";
         LogPanel.Visibility = Visibility.Visible;
+        GraphicsPanel.Visibility = Visibility.Collapsed;
         OpenLogsButton.Visibility = Visibility.Visible;
         AppendLog($"ERROR: {message}");
     }
@@ -480,6 +489,7 @@ public partial class MainWindow : Window
             step.SetState(StepState.Waiting, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         PrimaryButton.Content = "VERIFY & BUILD";
         CrashPanel.Visibility = Visibility.Collapsed;
+        GraphicsPanel.Visibility = Visibility.Collapsed;
         ReportProblemButton.Visibility = Visibility.Visible;
         OwnershipCheckBox.Visibility = Visibility.Visible;
     }
@@ -522,6 +532,138 @@ public partial class MainWindow : Window
             "https://github.com/arcanite24/pinyon-shift/issues/new?template=bug.yml")
         { UseShellExecute = true });
 
+    private async void GraphicsSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_repositoryRoot is null || _busy || _pendingReport is not null) return;
+        LogPanel.Visibility = Visibility.Collapsed;
+        CrashPanel.Visibility = Visibility.Collapsed;
+        GraphicsPanel.Visibility = Visibility.Visible;
+        GraphicsStatusText.Text = "Loading current settings…";
+        try
+        {
+            ApplyGraphicsResult(await RunGraphicsSettingsToolAsync("Get"));
+            GraphicsStatusText.Text = "Current settings loaded. Saving a change requires a preview restart.";
+        }
+        catch (Exception ex)
+        {
+            GraphicsStatusText.Text = $"Settings could not be loaded: {ex.Message}";
+        }
+    }
+
+    private void CloseGraphicsButton_Click(object sender, RoutedEventArgs e)
+    {
+        GraphicsPanel.Visibility = Visibility.Collapsed;
+        LogPanel.Visibility = Visibility.Visible;
+    }
+
+    private async void SaveGraphicsButton_Click(object sender, RoutedEventArgs e) =>
+        await ChangeGraphicsSettingsAsync("Apply", "Settings saved. Restart the preview to apply them.");
+
+    private async void ResetGraphicsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this,
+                "Reset only the Pinyon Shift runtime settings? Your current pinyon_shift.toml will be backed up first.",
+                "Reset runtime settings", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            return;
+        await ChangeGraphicsSettingsAsync("Reset", "Runtime settings reset. Restart the preview to apply them.",
+            revealBackup: true);
+    }
+
+    private async void RestoreGraphicsButton_Click(object sender, RoutedEventArgs e) =>
+        await ChangeGraphicsSettingsAsync("Restore", "Latest settings backup restored. Restart the preview to apply it.");
+
+    private async Task ChangeGraphicsSettingsAsync(string action, string success, bool revealBackup = false)
+    {
+        SetGraphicsControlsEnabled(false);
+        GraphicsStatusText.Text = action == "Apply" ? "Saving validated settings…" : "Updating runtime settings…";
+        try
+        {
+            var result = await RunGraphicsSettingsToolAsync(action);
+            ApplyGraphicsResult(result);
+            GraphicsStatusText.Text = success;
+            if (revealBackup && !string.IsNullOrWhiteSpace(result.BackupPath) && File.Exists(result.BackupPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    UseShellExecute = true,
+                    Arguments = $"/select,\"{result.BackupPath}\""
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            GraphicsStatusText.Text = $"No settings were changed: {ex.Message}";
+        }
+        finally
+        {
+            SetGraphicsControlsEnabled(true);
+        }
+    }
+
+    private async Task<GraphicsResult> RunGraphicsSettingsToolAsync(string action)
+    {
+        if (_repositoryRoot is null) throw new InvalidOperationException("Release source is not ready.");
+        var script = Path.Combine(_repositoryRoot, "tools", "set-graphics-experiment.ps1");
+        if (!File.Exists(script)) throw new FileNotFoundException("The graphics settings tool is missing.", script);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            WorkingDirectory = _repositoryRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        foreach (var argument in new[]
+        {
+            "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+            "-Action", action, "-StateRoot", Path.Combine(_repositoryRoot, ".local", "preview"),
+            "-Anisotropy", SelectedTag(AnisotropyComboBox), "-PostEffect", SelectedTag(PostEffectComboBox),
+            "-ResolutionScale", SelectedTag(ResolutionComboBox), "-Json"
+        }) startInfo.ArgumentList.Add(argument);
+        using var process = Process.Start(startInfo) ??
+            throw new InvalidOperationException("Windows could not start the graphics settings tool.");
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var output = await outputTask;
+        var error = await errorTask;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "The settings tool stopped." : error.Trim());
+        var result = JsonSerializer.Deserialize<GraphicsResult>(output.Trim(), new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+        return result ?? throw new InvalidDataException("The settings tool returned an invalid result.");
+    }
+
+    private static string SelectedTag(ComboBox comboBox) =>
+        (comboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? throw new InvalidOperationException("Choose a setting first.");
+
+    private void ApplyGraphicsResult(GraphicsResult result)
+    {
+        SelectTag(AnisotropyComboBox, result.Settings.Anisotropy.ToString());
+        SelectTag(PostEffectComboBox, result.Settings.PostEffect);
+        SelectTag(ResolutionComboBox, result.Settings.ResolutionScale.ToString());
+    }
+
+    private static void SelectTag(ComboBox comboBox, string value)
+    {
+        comboBox.SelectedItem = comboBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SetGraphicsControlsEnabled(bool enabled)
+    {
+        AnisotropyComboBox.IsEnabled = enabled;
+        PostEffectComboBox.IsEnabled = enabled;
+        ResolutionComboBox.IsEnabled = enabled;
+        SaveGraphicsButton.IsEnabled = enabled;
+        ResetGraphicsButton.IsEnabled = enabled;
+        RestoreGraphicsButton.IsEnabled = enabled;
+    }
+
     private sealed record ProgressMessage(string? Stage, int Percent, string? Message);
     private sealed record LaunchResult(
         [property: JsonPropertyName("result")] string? Result,
@@ -534,4 +676,12 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("bundle")] string Bundle,
         [property: JsonPropertyName("issue_url")] string IssueUrl,
         [property: JsonPropertyName("exit_code_hex")] string? ExitCodeHex);
+    private sealed record GraphicsResult(
+        [property: JsonPropertyName("backup_path")] string? BackupPath,
+        [property: JsonPropertyName("settings")] GraphicsSettings Settings,
+        [property: JsonPropertyName("restart_required")] bool RestartRequired);
+    private sealed record GraphicsSettings(
+        [property: JsonPropertyName("anisotropy")] int Anisotropy,
+        [property: JsonPropertyName("post_effect")] string PostEffect,
+        [property: JsonPropertyName("resolution_scale")] int ResolutionScale);
 }

@@ -65,7 +65,8 @@ $include = @(
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
-    'tools/setup-preview.ps1', 'tools/verify-game.ps1'
+    'tools/set-graphics-experiment.ps1', 'tools/setup-preview.ps1',
+    'tools/verify-codegen-log.py', 'tools/verify-game.ps1'
 )
 foreach ($relative in $include) {
     $source = Join-Path $root $relative

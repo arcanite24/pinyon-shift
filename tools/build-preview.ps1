@@ -39,6 +39,7 @@ if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
 
 Write-PinyonEvent build 72 'Translating the verified game code locally.' -JsonEvents:$JsonEvents
 $generatedTrees = @('default', 'speech', 'xmedia')
+$codegenLog = Join-Path $logs 'codegen.log'
 if ($CleanGenerated -and (Test-Path -LiteralPath $generatedRoot)) {
     Remove-Item -LiteralPath $generatedRoot -Recurse -Force
 }
@@ -51,13 +52,24 @@ foreach ($tree in $generatedTrees) {
 }
 if ($requiresBootstrap) {
     [void](New-Item -ItemType Directory -Force -Path $generatedRoot)
-    & $rexglueExe --log-level info --log-file (Join-Path $logs 'codegen.log') codegen $manifest
+    if (Test-Path -LiteralPath $codegenLog) {
+        Remove-Item -LiteralPath $codegenLog -Force
+    }
+    & $rexglueExe --log-level info --log-file $codegenLog codegen $manifest
     if ($LASTEXITCODE -ne 0) {
         foreach ($tree in $generatedTrees) {
             $stamp = Join-Path $generatedRoot "$tree/codegen.build.stamp"
             if (Test-Path -LiteralPath $stamp) { Remove-Item -LiteralPath $stamp -Force }
         }
         throw 'Local code generation failed; incomplete generation stamps were removed.'
+    }
+    & python (Join-Path $PSScriptRoot 'verify-codegen-log.py') $codegenLog
+    if ($LASTEXITCODE -ne 0) {
+        foreach ($tree in $generatedTrees) {
+            $stamp = Join-Path $generatedRoot "$tree/codegen.build.stamp"
+            if (Test-Path -LiteralPath $stamp) { Remove-Item -LiteralPath $stamp -Force }
+        }
+        throw 'Code generation emitted an unreviewed warning; generation stamps were removed.'
     }
 }
 else {

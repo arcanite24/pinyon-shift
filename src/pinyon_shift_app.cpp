@@ -9,6 +9,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -21,12 +22,12 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 3, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 4, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 3;
+constexpr uint32_t kConfigSchema = 4;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -49,7 +50,11 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
-              "pinyon_shift_skip_opening_movies = false\n";
+              "pinyon_shift_skip_opening_movies = false\n"
+              "anisotropic_override = 3\n"
+              "swap_post_effect = \"none\"\n"
+              "draw_resolution_scale_x = 1\n"
+              "draw_resolution_scale_y = 1\n";
     created = true;
     return output.good();
   }
@@ -73,7 +78,17 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema != 1 && schema != 2) {
+    if (schema < 1 || schema > 3) {
+      return false;
+    }
+
+    std::filesystem::path backup = path;
+    backup += L".schema" + std::to_wstring(schema) + L".bak";
+    std::error_code backup_error;
+    std::filesystem::copy_file(path, backup,
+                               std::filesystem::copy_options::skip_existing,
+                               backup_error);
+    if (backup_error && backup_error != std::errc::file_exists) {
       return false;
     }
 
@@ -106,6 +121,23 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         migrated_text.push_back('\n');
       }
       migrated_text += "keybind_a = \"LMB,Space\"\n";
+    }
+
+    const std::pair<const char*, const char*> graphics_settings[] = {
+        {"anisotropic_override", "anisotropic_override = 3\n"},
+        {"swap_post_effect", "swap_post_effect = \"none\"\n"},
+        {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
+        {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
+    };
+    for (const auto& [name, line] : graphics_settings) {
+      const std::regex setting_pattern("(?:^|\\n)\\s*" + std::string(name) +
+                                       "\\s*=", std::regex::icase);
+      if (!std::regex_search(migrated_text, setting_pattern)) {
+        if (!migrated_text.empty() && migrated_text.back() != '\n') {
+          migrated_text.push_back('\n');
+        }
+        migrated_text += line;
+      }
     }
 
     std::filesystem::path temporary = path;
@@ -206,6 +238,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
                         {"draw_resolution_scale_y",
                          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+                        {"anisotropic_override",
+                         rex::cvar::GetFlagByName("anisotropic_override")},
+                        {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
                         {"perf_csv_enabled", perf_csv.empty() ? "0" : "1"},
                         {"perf_csv", perf_csv}});
 }

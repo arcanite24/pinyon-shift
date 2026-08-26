@@ -148,7 +148,8 @@ try {
         'mnk_mode', 'keybind_start',
         'd3d12_allow_variable_refresh_rate_and_tearing',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
-        'resolution', 'vsync', 'draw_resolution_scale_x', 'draw_resolution_scale_y'
+        'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
+        'draw_resolution_scale_x', 'draw_resolution_scale_y'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}

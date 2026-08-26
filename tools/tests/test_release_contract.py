@@ -32,10 +32,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 30)
+        self.assertEqual(len(patches), 32)
         self.assertEqual(
             patches[-1].name,
-            "0030-v0.10-deduplicate-resume-alias-registrations.patch",
+            "0032-memexport-coherency-counters.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -103,9 +103,30 @@ class ReleaseContractTests(unittest.TestCase):
         required = {
             "build-preview.ps1", "create-crash-report.ps1", "install-build-tools.ps1", "launch-preview.ps1",
             "prepare-rexglue.ps1", "provision-toolchain.ps1", "release-common.ps1",
-            "setup-preview.ps1", "verify-game.ps1",
+            "set-graphics-experiment.ps1", "setup-preview.ps1", "verify-game.ps1",
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
+        package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
+        for shipped in ("set-graphics-experiment.ps1", "verify-codegen-log.py"):
+            self.assertIn(shipped, package_script)
+
+    def test_graphics_schema_and_diagnostics_contract(self):
+        app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
+        self.assertIn("constexpr uint32_t kConfigSchema = 4", app)
+        self.assertIn(".schema", app)
+        for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
+            self.assertIn(setting, app)
+            self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+
+    def test_renderer_and_stub_instrumentation_is_bounded(self):
+        stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
+        self.assertIn("kMaximumStubReachabilityEntries = 128", stub_patch)
+        self.assertIn("SDK_STUB first module={}", stub_patch)
+        self.assertIn("SDK_STUB summary", stub_patch)
+        memexport_patch = (ROOT / "patches/rexglue/0032-memexport-coherency-counters.patch").read_text(encoding="utf-8")
+        for counter in ("memexport_draws", "memexport_bytes", "memexport_sync_fallbacks",
+                        "memexport_queue_waits", "memexport_fence_waits"):
+            self.assertIn(counter, memexport_patch)
 
     def test_runtime_config_migrates_vehicle_stabilization_and_menu_accept_input(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
@@ -113,11 +134,11 @@ class ReleaseContractTests(unittest.TestCase):
         launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 3;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*3,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 4;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*4,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema != 1 && schema != 2", app)
+        self.assertIn("schema < 1 || schema > 3", app)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,

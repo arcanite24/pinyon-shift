@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "policy": "fail_on_unrecognized_warning_and_missing_expected_warning",
+  "warnings": [
+    {
+      "id": "oversized-function-8241A370",
+      "pattern": "^Function 0x8241A370 is [0-9]+ bytes, exceeds max_file_size_bytes \\([0-9]+\\)$",
+      "reason": "Known deterministic large translation unit; tracked until the function boundary or sharding configuration is deliberately changed."
+    },
+    {
+      "id": "bdz-outside-function-82AD8138",
+      "pattern": "^bdz at 82AD8138 branches outside function to 82AD836C$",
+      "reason": "Known branch to the inferred function boundary; the analysis configuration documents this address."
+    },
+    {
+      "id": "bdz-outside-function-82AD813C",
+      "pattern": "^bdz at 82AD813C branches outside function to 82AD836C$",
+      "reason": "Known branch to the inferred function boundary; the analysis configuration documents this address."
+    }
+  ]
+}
