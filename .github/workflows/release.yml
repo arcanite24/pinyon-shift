@@ -20,7 +20,7 @@ jobs:
       - name: Package launcher
         shell: powershell
         run: .\tools\package-launcher.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: PinyonShift-Launcher
           path: .artifacts/PinyonShift-Launcher.zip
