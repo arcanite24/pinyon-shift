@@ -1,3 +1,4 @@
+
 # Copyrighted game inputs and locally derived artifacts.
 *.iso
 *.xex
@@ -50,3 +51,5 @@ launcher/**/obj/
 .DS_Store
 Thumbs.db
 *~
+
+BACKLOG.md
