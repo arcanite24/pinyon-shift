@@ -1,5 +1,5 @@
 diff --git a/src/graphics/flags.cpp b/src/graphics/flags.cpp
-index e2983a4ee6d39f3db7ac77dccf83c17d3ccbd878..60693b162e99652a5a8f7b276e5bb2f975d5707f 100644
+index e2983a4..60693b1 100644
 --- a/src/graphics/flags.cpp
 +++ b/src/graphics/flags.cpp
 @@ -13,7 +13,7 @@

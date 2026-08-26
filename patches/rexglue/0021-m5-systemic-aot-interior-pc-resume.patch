@@ -1,5 +1,5 @@
 diff --git a/include/rex/codegen/function_node.h b/include/rex/codegen/function_node.h
-index a335b37eb8e1aab88dafa996e557a0af6339a6cb..b6f7b2bc3fe25041ec64ccde42620b66362002df 100644
+index 569acf2..c21fe83 100644
 --- a/include/rex/codegen/function_node.h
 +++ b/include/rex/codegen/function_node.h
 @@ -98,6 +98,10 @@ class FunctionNode {
@@ -14,10 +14,10 @@ index a335b37eb8e1aab88dafa996e557a0af6339a6cb..b6f7b2bc3fe25041ec64ccde42620b66
    // Instruction access (valid after discover)
    //=========================================================================
 diff --git a/include/rex/ppc/context.h b/include/rex/ppc/context.h
-index 2d571e3d5b75b9f4a0ea54c37a56a89b59a4c0e8..51e85e08db56e2a9681227f9fb96e517e03152a2 100644
+index 0ede542..d05dbde 100644
 --- a/include/rex/ppc/context.h
 +++ b/include/rex/ppc/context.h
-@@ -306,6 +306,13 @@ struct alignas(0x40) PPCContext {
+@@ -278,6 +278,13 @@ struct alignas(0x40) PPCContext {
     */
    uint32_t last_indirect_target = 0;
  
@@ -32,7 +32,7 @@ index 2d571e3d5b75b9f4a0ea54c37a56a89b59a4c0e8..51e85e08db56e2a9681227f9fb96e517
    PPCRegister f1;
    PPCRegister f2;
 diff --git a/resources/templates/codegen/_indirect_call.inja b/resources/templates/codegen/_indirect_call.inja
-index d4b1830b277014fec9c9395a091b779d20298abd..54efdd437d420f158209bcd4dd36dd6e5caee93e 100644
+index d4b1830..54efdd4 100644
 --- a/resources/templates/codegen/_indirect_call.inja
 +++ b/resources/templates/codegen/_indirect_call.inja
 @@ -34,5 +34,7 @@
@@ -44,7 +44,7 @@ index d4b1830b277014fec9c9395a091b779d20298abd..54efdd437d420f158209bcd4dd36dd6e
 +    ctx.dispatch_address = 0;                                                              \
    } while (0)
 diff --git a/resources/templates/codegen/register_cpp.inja b/resources/templates/codegen/register_cpp.inja
-index 0be31c412f32f30dac0b0622da00189f084c98b0..9c8fc7cb31c2e4a7b01ee3157ea7219fc441154c 100644
+index 0be31c4..9c8fc7c 100644
 --- a/resources/templates/codegen/register_cpp.inja
 +++ b/resources/templates/codegen/register_cpp.inja
 @@ -18,6 +18,8 @@ void ReXModule_Register(rex::runtime::IModuleRegistrar* registrar) {
@@ -57,10 +57,10 @@ index 0be31c412f32f30dac0b0622da00189f084c98b0..9c8fc7cb31c2e4a7b01ee3157ea7219f
  
  {% if is_dll %}
 diff --git a/src/codegen/codegen_writer.cpp b/src/codegen/codegen_writer.cpp
-index 44efad4c9226f592061085c28e878fb843df6e20..28ff3daf389839fc374bb08f2715ca2ff0be5d4b 100644
+index a0484fb..85d52f3 100644
 --- a/src/codegen/codegen_writer.cpp
 +++ b/src/codegen/codegen_writer.cpp
-@@ -67,12 +67,23 @@ nlohmann::json buildTemplateData(const rex::codegen::CodegenContext& ctx,
+@@ -70,12 +70,23 @@ nlohmann::json buildTemplateData(const rex::codegen::CodegenContext& ctx,
        funcName = fmt::format("sub_{:08X}", fn->base());
      }
  
@@ -85,7 +85,7 @@ index 44efad4c9226f592061085c28e878fb843df6e20..28ff3daf389839fc374bb08f2715ca2f
    }
  
 diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
-index 04510193f82e095c008f2ce5a13a8622af728db7..441b757e9851b4b4b37613906e6b27bfda79f23b 100644
+index 4dbf23b..c0d3b97 100644
 --- a/src/codegen/function_graph.cpp
 +++ b/src/codegen/function_graph.cpp
 @@ -346,6 +346,33 @@ void emit_print(std::string& out, fmt::format_string<Args...> fmt, Args&&... arg
@@ -154,27 +154,22 @@ index 04510193f82e095c008f2ce5a13a8622af728db7..441b757e9851b4b4b37613906e6b27bf
    std::unordered_set<size_t> emittedLabels;
  
 diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
-index faa4847b2cccd78160acc1ac2a93615955303233..2cc6305f22d7542672ede2bc24a97e774b38e22f 100644
+index 1ddafd0..50adcdd 100644
 --- a/src/core/CMakeLists.txt
 +++ b/src/core/CMakeLists.txt
-@@ -88,7 +88,9 @@ target_include_directories(rexcore PRIVATE
+@@ -98,7 +98,9 @@ target_include_directories(rexcore PRIVATE
      ${PROJECT_SOURCE_DIR}/thirdparty/cli11/include
  )
  
--if(UNIX)
+-if(APPLE)
 +if(WIN32)
 +    target_link_libraries(rexcore PUBLIC ws2_32)
-+elseif(UNIX)
++elseif(APPLE)
+     target_link_libraries(rexcore PRIVATE pthread)
+ elseif(UNIX)
      target_link_libraries(rexcore PRIVATE pthread rt dl)
- endif()
- 
-@@ -122,4 +124,3 @@ if(REXGLUE_ENABLE_PERF_COUNTERS)
-     target_compile_definitions(rexcore PUBLIC
-         $<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>)
- endif()
--
 diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
-index d22f57cc0c55eb3e866972e19f39665320200e25..5d0fb10e59267a88039e4869989490da4848f38d 100644
+index 298e984..6ae4e37 100644
 --- a/src/system/function_dispatcher.cpp
 +++ b/src/system/function_dispatcher.cpp
 @@ -82,7 +82,9 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
@@ -188,7 +183,7 @@ index d22f57cc0c55eb3e866972e19f39665320200e25..5d0fb10e59267a88039e4869989490da
    ctx->lr = previous_lr;
    ctx->r1.u64 += 64 + 112;
 diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
-index 54b4d9c0ce9156e7f882e31c1612edfe3553169f..6b3fd18eafd3409fd5045ea2c96a66a7a6fe7d1f 100644
+index 622701a..ff1a720 100644
 --- a/src/system/xthread.cpp
 +++ b/src/system/xthread.cpp
 @@ -776,7 +776,9 @@ void XThread::Execute() {
@@ -203,23 +198,24 @@ index 54b4d9c0ce9156e7f882e31c1612edfe3553169f..6b3fd18eafd3409fd5045ea2c96a66a7
  
      if (continue_reentry) {
 diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
-index 16c8a53e0b63fb1c924a672875e121a38d5f2270..095c3411cdcbd84e209368cf3789e2901695cb78 100644
+index 7bd264b..d168e26 100644
 --- a/tests/unit/CMakeLists.txt
 +++ b/tests/unit/CMakeLists.txt
-@@ -10,6 +10,7 @@ add_executable(unit_tests
-     core/byte_order_test.cpp
+@@ -10,6 +10,8 @@ add_executable(unit_tests
+     core/hash_test.cpp
+     core/stream_test.cpp
      core/chrono_test.cpp
-     codegen/config_test.cpp
 +    codegen/resume_entry_test.cpp
-     codegen/template_registry_test.cpp
++    codegen/resume_template_test.cpp
      ppc/import_function_test.cpp
      ppc/stack_test.cpp
+     system/guest_path_test.cpp
 diff --git a/tests/unit/codegen/resume_entry_test.cpp b/tests/unit/codegen/resume_entry_test.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..bfb4eaba15f82339f188f4efa05f8c3f86385b62
+index 0000000..d0a0674
 --- /dev/null
 +++ b/tests/unit/codegen/resume_entry_test.cpp
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,78 @@
 +/**
 + * @file        tests/unit/codegen/resume_entry_test.cpp
 + * @brief       Synthetic coverage for interior-PC AOT resume entries
@@ -266,33 +262,71 @@ index 0000000000000000000000000000000000000000..bfb4eaba15f82339f188f4efa05f8c3f
 +  CHECK(output.find("loc_82010004:") != std::string::npos);
 +  CHECK(output.find("ctx.dispatch_address = 0;") != std::string::npos);
 +}
-diff --git a/tests/unit/codegen/template_registry_test.cpp b/tests/unit/codegen/template_registry_test.cpp
-index 32ed1d093949a64e312ab3621a2ff17684b6af71..7ea4a4b8056e016a1e6af05e5e62ac8dabd10283 100644
---- a/tests/unit/codegen/template_registry_test.cpp
-+++ b/tests/unit/codegen/template_registry_test.cpp
-@@ -160,6 +160,41 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
-   CHECK(result.find("[[likely]]") != std::string::npos);
- }
- 
++
++TEST_CASE("FunctionNode: direct guest branches emit guaranteed tail calls",
++          "[codegen][tail-call]") {
++  constexpr uint32_t kBase = 0x82020000u;
++  std::array<uint32_t, 3> words = {
++      __builtin_bswap32(0x48000008u),  // b kBase + 8
++      __builtin_bswap32(0x60000000u),  // padding
++      __builtin_bswap32(0x4E800020u),  // callee blr
++  };
++
++  rex::codegen::TestModule module;
++  module.Load(kBase, reinterpret_cast<const uint8_t*>(words.data()), sizeof(words));
++  auto binary = rex::codegen::BinaryView::fromModule(module);
++  rex::codegen::RecompilerConfig config;
++  auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
++
++  rex::codegen::AnalyzeTestBinary(
++      ctx, "tail", {{kBase, "test_caller"}, {kBase + 8, "test_callee"}}, kBase,
++      reinterpret_cast<const uint8_t*>(words.data()), sizeof(words));
++
++  auto* caller = ctx.graph.getFunction(kBase);
++  auto* callee = ctx.graph.getFunction(kBase + 8);
++  REQUIRE(caller != nullptr);
++  REQUIRE(callee != nullptr);
++  ctx.graph.addTailCallToFunction(kBase, kBase, rex::codegen::CallTarget::function(callee));
++
++  rex::codegen::EmitContext emit{
++      ctx.binary(), ctx.Config(), ctx.graph, kBase + 8, nullptr};
++  const std::string output = caller->emitCpp(emit);
++  CHECK(output.find("REX_TAIL_CALL(tail_82020008);") != std::string::npos);
++  CHECK(output.find("tail_82020008(ctx, base);\n\treturn;") == std::string::npos);
++}
+diff --git a/tests/unit/codegen/resume_template_test.cpp b/tests/unit/codegen/resume_template_test.cpp
+new file mode 100644
+index 0000000..84ef561
+--- /dev/null
++++ b/tests/unit/codegen/resume_template_test.cpp
+@@ -0,0 +1,41 @@
++/**
++ * @file        tests/unit/codegen/resume_template_test.cpp
++ * @brief       Template coverage for resumable AOT dispatch entries
++ */
++
++#include <catch2/catch_test_macros.hpp>
++
++#include <rex/codegen/template_registry.h>
++
 +TEST_CASE("TemplateRegistry: indirect dispatch carries and clears the requested guest address",
-+          "[TemplateRegistry][resume]") {
++          "[codegen][resume]") {
 +  rex::codegen::TemplateRegistry registry;
-+  std::string json = R"({
++  const std::string result = registry.render("codegen/_indirect_call", R"({
 +    "image_base": "0x82000000",
 +    "image_size": "0x1000000",
 +    "code_base": "0x82010000",
 +    "code_size": "0x100000",
 +    "thunk_reserve_size": "0x1000"
-+  })";
-+  std::string result = registry.render("codegen/_indirect_call", json);
++  })");
 +  CHECK(result.find("ctx.dispatch_address = rex_indirect_target_") != std::string::npos);
 +  CHECK(result.find("ctx.dispatch_address = 0") != std::string::npos);
 +}
 +
-+TEST_CASE("TemplateRegistry: register_cpp maps resumable return aliases to their owner",
-+          "[TemplateRegistry][resume]") {
++TEST_CASE("TemplateRegistry: register_cpp maps resumable aliases to their owner",
++          "[codegen][resume]") {
 +  rex::codegen::TemplateRegistry registry;
-+  std::string json = R"({
++  const std::string result = registry.render("codegen/register_cpp", R"({
 +    "project": "test_proj",
 +    "is_dll": false,
 +    "functions": [{
@@ -302,29 +336,16 @@ index 32ed1d093949a64e312ab3621a2ff17684b6af71..7ea4a4b8056e016a1e6af05e5e62ac8d
 +      "is_import": false,
 +      "resume_aliases": ["0x82010004", "0x82010010"]
 +    }]
-+  })";
-+  std::string result = registry.render("codegen/register_cpp", json);
++  })");
 +  CHECK(result.find("SetFunction(0x82010000, sub_82010000)") != std::string::npos);
 +  CHECK(result.find("SetFunction(0x82010004, sub_82010000)") != std::string::npos);
 +  CHECK(result.find("SetFunction(0x82010010, sub_82010000)") != std::string::npos);
 +}
-+
- TEST_CASE("TemplateRegistry: cmake_var callback works", "[TemplateRegistry]") {
-   rex::codegen::TemplateRegistry registry;
-   std::string result = registry.renderString("{{ cmake_var(\"FOO\") }}", "{}");
 diff --git a/tests/unit/system/function_dispatcher_test.cpp b/tests/unit/system/function_dispatcher_test.cpp
-index 7721c40033a4f29c4316c1dcadb628e45ed64572..608d7c88da6a6c6f7c0cac89f967911a98949318 100644
+index e11715b..554e9bc 100644
 --- a/tests/unit/system/function_dispatcher_test.cpp
 +++ b/tests/unit/system/function_dispatcher_test.cpp
-@@ -15,6 +15,7 @@
- #include <rex/ppc/context.h>
- #include <rex/system/export_resolver.h>
- #include <rex/system/function_dispatcher.h>
-+#include <rex/system/thread_state.h>
- #include <rex/system/xmemory.h>
- 
- namespace {
-@@ -32,6 +33,11 @@ rex::memory::Memory& GetTestMemory() {
+@@ -27,6 +27,11 @@ using rex::testing::GetTestMemory;
  
  void DummyFn(PPCContext&, uint8_t*) {}
  void OtherDummyFn(PPCContext&, uint8_t*) {}
@@ -336,9 +357,9 @@ index 7721c40033a4f29c4316c1dcadb628e45ed64572..608d7c88da6a6c6f7c0cac89f967911a
  
  }  // namespace
  
-@@ -202,3 +208,23 @@ TEST_CASE("FunctionDispatcher: UnregisterModule on unknown id returns nullopt",
-   rex::runtime::FunctionDispatcher dispatcher(&memory, &resolver);
-   CHECK_FALSE(dispatcher.UnregisterModule("nope").has_value());
+@@ -301,3 +306,23 @@ TEST_CASE("PPCContext: restoring a zeroed fpscr leaves host FP exception masks i
+   CHECK((ctx.fpscr.getcsr() & ~kGuestMask) == (host_before & ~kGuestMask));
+   CHECK(ctx.fpscr.csr == ctx.fpscr.getcsr());
  }
 +
 +TEST_CASE("FunctionDispatcher: Execute carries the requested guest entry address",

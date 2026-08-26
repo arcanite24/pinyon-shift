@@ -1,0 +1,80 @@
+# ReXGlue 0.10.0 project patch dispositions
+
+This record covers every patch in the ReXGlue 0.9.0 series that was present at
+project revision `b00fcfe40b544d09cec034fc432fa05cf418d286`. The replacement
+series is based on the exact upstream `v0.10.0` commit
+`f5337cdc947ff6d4c4196737e2c807a48f2a1fc2`.
+
+| Original | Disposition | 0.10.0 evidence |
+| --- | --- | --- |
+| `0000` Windows migration-test stabilization | Retire | Both patched files, `migration_scan.cpp` and `template_registry_test.cpp`, were removed by upstream. Current template, output-stamp, codegen-writer, and focused project tests cover the surviving requirements without restoring obsolete test scaffolding. |
+| `0001` runtime tracing | Port | Retained project triage events and merged import-reach tracing with upstream's Tracy-started guard. |
+| `0002` indirect-dispatch telemetry | Keep unchanged | Applies to the same dispatcher fallback and remains part of crash triage. |
+| `0003` first graphics-failure capture | Port | Retained bounded first-failure capture on the reorganized 0.10 graphics path. |
+| `0004` input-path telemetry | Port | Adapted to 0.10 `DeviceId`, device enumeration/state APIs, modifier alternatives, and lost-focus/mouse-capture behavior. |
+| `0005` context reentry | Keep unchanged | The reentry guard still protects the same guest-context invariant. |
+| `0006` owned-chunk control flow | Keep unchanged | The ownership correction remains necessary and its codegen path is unchanged semantically. |
+| `0007` configured fallthrough tail calls | Keep unchanged | The configured fallthrough behavior remains distinct from upstream defaults. |
+| `0008` XStudio request telemetry | Keep unchanged | Still used for bounded project diagnostics. |
+| `0009` module-local thunk reuse | Port | Rebased onto 0.10 dispatcher/module ownership. Unit coverage verifies caller-module routing, reuse, rejection, and unregister cleanup. |
+| `0010` reentrant primitive-cache lock | Keep unchanged | Upstream did not replace the nested-lock requirement. |
+| `0011` unload recompiled module by name | Keep unchanged | Still required by the project module lifecycle. |
+| `0012` retire shared memory watch before callback | Keep unchanged | Ordering remains necessary to prevent callback reentry against a live watch. |
+| `0013` direct guest tail calls | Port | Moved the macro to 0.10's generated PCH, taught per-file declaration tracking about tail targets, preserved nonvolatile register publication for SEH funclets, and covered direct branches with a generated-code regression test. |
+| `0014` invalid fetch constants | Keep unchanged | The compatibility relaxation remains required and does not overlap a 0.10 replacement. |
+| `0015` heap-release failure telemetry | Keep unchanged | Retained bounded diagnostics on the same failure path. |
+| `0016` preserve shared XEX heap allocations | Keep unchanged | The shared-allocation lifetime invariant is unchanged. |
+| `0017` retire exhausted XMA input | Keep unchanged | Still complements 0.10 audio changes by retiring the project-observed exhausted-input state. |
+| `0018` save lifecycle tracing | Keep unchanged | Retained for save/cache runtime qualification. |
+| `0019` save file-I/O tracing | Keep unchanged | Retained for save/cache runtime qualification. |
+| `0020` snapshot reentry stack continuations | Keep unchanged | Still supplies the runtime half of restored continuation state. |
+| `0021` systemic interior-PC resume | Port | Reconciled dispatch-address handling, register preservation, entry aliases, and current function-dispatcher APIs; focused tests cover nested direct/indirect resumable PCs and invalid dispatcher addresses. |
+| `0022` restrict resume aliases | Port | Revalidated as part of the atomic continuation series so aliases remain limited to linked branch/call evidence. |
+| `0023` continuation tests | Port | Moved coverage out of deleted upstream test scaffolding into current codegen/output tests and corrected depfile escaping assertions. |
+| `0024` entrypoint resume aliases | Port | Adapted the current `init_cpp` template and added focused template coverage. |
+| `0025` writable guest cache | Port | Merged with 0.10's filesystem/runtime and Windows link changes; focused cache-mount coverage verifies transient guest writes. |
+| `0026` isolate consumer artifacts | Keep unchanged | Source/output separation and version reporting remain required; the prepared SDK retains its own outputs while consumer artifacts stay in the project build tree. |
+
+The replacement series also adds `0027-v0.10-propagate-xxhash-public-headers`.
+ReXGlue 0.10.0 exposes `xxhash.h` through public `rex/hash.h`, but kept the
+dependency private. Propagating it through `rexcore` and the exported runtime
+fixes clean Windows/Clang SDK tests and downstream consumers.
+
+`0028-v0.10-declare-split-fallthrough-tail-targets` closes a declaration gap
+found by the first full consumer build. Configured function splits can emit a
+synthetic fallthrough tail call after instruction emission; the patch records
+that target in the per-file declaration set and extends the full-writer test to
+recognize `REX_TAIL_CALL` references.
+
+`0029-v0.10-make-sdk-version-stamping-idempotent` fixes the no-change build
+contract. ReXGlue previously replaced the manifest even when `sdk_version`
+already matched, leaving it newer than `codegen.build.stamp` and forcing full
+analysis on every Ninja invocation. The patch preserves the manifest and its
+timestamp when no version edit is needed, with a focused filesystem test.
+
+`0030-v0.10-deduplicate-resume-alias-registrations` resolves a runtime finding
+from the first playable 0.10 session. Overlapping/discontinuous function nodes
+could expose the same safe return PC and emit duplicate dispatcher mappings.
+The patch assigns each alias to one deterministic owner, preserving the
+previous last-owner behavior without runtime replacement warnings, and adds a
+full-writer regression test for overlapping functions.
+
+Validation performed on the rebased SDK:
+
+- `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.
+- 1,458/1,458 PPC instruction tests passed.
+- The 223-test unit suite passed after the two ported test-data corrections and
+  the direct-tail assertion correction (four pre-existing BitStream write cases
+  remain explicitly skipped by upstream).
+- No conflict markers, reject files, or binary patch payloads are present.
+
+## Rollback
+
+The last known-good ReXGlue 0.9.0 project revision is
+`b00fcfe40b544d09cec034fc432fa05cf418d286`. To roll back before this migration
+is merged, use that project revision or abandon this migration branch. After a
+merge, revert the migration commit as one unit; do not restore only the version
+pin because the 0.10.0 patch series and generated-build contract are atomic.
+Then remove the developer-local `.local/rexglue`, `.local/generated`, and
+`out/build/win-amd64-release` trees and run the normal setup/build workflow so
+the 0.9.0 SDK, generated sources, and consumer binaries are recreated together.

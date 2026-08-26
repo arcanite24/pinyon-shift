@@ -1,8 +1,8 @@
 diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
-index 333becb84c048ee55085bda13426345314b5684d..0577858f588288465fa6194619486d16d9eab5f6 100644
+index ec0df7c..a784ad1 100644
 --- a/src/graphics/shared_memory.cpp
 +++ b/src/graphics/shared_memory.cpp
-@@ -298,14 +298,28 @@ void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool inv
+@@ -242,14 +242,28 @@ void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool inv
      WatchNode* node = watch_buckets_[i];
      while (node != nullptr) {
        WatchRange* range = node->range;

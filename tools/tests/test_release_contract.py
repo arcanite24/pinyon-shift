@@ -27,16 +27,63 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertTrue(item["url"].startswith("https://"))
             self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
         self.assertTrue(data["visual_studio"]["bootstrap_url"].startswith("https://"))
+        self.assertEqual(data["rexglue"]["tag"], "v0.10.0")
         self.assertRegex(data["rexglue"]["base_commit"], r"^[0-9a-f]{40}$")
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertGreater(len(patches), 0)
+        self.assertEqual(len(patches), 30)
+        self.assertEqual(
+            patches[-1].name,
+            "0030-v0.10-deduplicate-resume-alias-registrations.patch",
+        )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
             text = path.read_text(encoding="utf-8", errors="strict")
             self.assertIn("diff --git", text)
             self.assertNotIn("GIT binary patch", text)
+
+    def test_rexglue_010_version_and_patch_migration_contract(self):
+        toolchain = json.loads((ROOT / "config/release-toolchain.json").read_text())
+        self.assertEqual(toolchain["rexglue"]["tag"], "v0.10.0")
+        self.assertEqual(
+            toolchain["rexglue"]["base_commit"],
+            "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
+        )
+        manifest = (ROOT / "config/rexglue/pinyon_shift_manifest.toml").read_text()
+        integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
+        self.assertIn('sdk_version = "0.10.0"', manifest)
+        self.assertIn("find_package(rexglue 0.10.0 EXACT", integration)
+        self.assertNotIn("ReXGlue SDK 0.9.0", integration)
+
+        dispositions = (ROOT / "config/rexglue/PATCH_DISPOSITIONS.md").read_text()
+        for number in range(27):
+            self.assertIn(f"`{number:04d}`", dispositions)
+        self.assertIn(
+            "`0000` Windows migration-test stabilization | Retire", dispositions
+        )
+        self.assertFalse(
+            (ROOT / "patches/rexglue/0000-v0.9-windows-migration-test-stabilization.patch").exists()
+        )
+
+    def test_rexglue_codegen_is_dependency_tracked_and_explicitly_cleanable(self):
+        build = (ROOT / "tools/build-preview.ps1").read_text()
+        integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
+        self.assertIn("[switch]$CleanGenerated", build)
+        self.assertIn("$requiresBootstrap", build)
+        self.assertIn("codegen.build.stamp", build)
+        self.assertIn("DEPFILE", integration)
+        self.assertIn("-fasync-exceptions", integration)
+        self.assertIn("target_precompile_headers", integration)
+        self.assertIn("_recomp OBJECT", integration)
+        self.assertIn("--ignore-stamp", integration)
+        self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
+        self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
+
+        package_script = (ROOT / "tools/package-launcher.ps1").read_text()
+        self.assertIn("$_.Name -ne 'generated'", package_script)
+        self.assertIn("function New-DeterministicZip", package_script)
+        self.assertIn("FromUnixTimeSeconds", package_script)
 
     def test_launcher_payload_has_every_required_script(self):
         required = {

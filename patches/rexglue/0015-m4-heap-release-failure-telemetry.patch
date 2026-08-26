@@ -1,8 +1,8 @@
 diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
-index ca7f4e86b31d7a591a326bd7f10c352820499139..4062b020907a623cc9a5096c0893ff013f23002f 100644
+index 76cc877..a1e0608 100644
 --- a/src/system/xmemory.cpp
 +++ b/src/system/xmemory.cpp
-@@ -23,6 +23,7 @@
+@@ -27,6 +27,7 @@
  #include <rex/stream.h>
  #include <rex/system/function_dispatcher.h>
  #include <rex/system/mmio_handler.h>
@@ -10,7 +10,7 @@ index ca7f4e86b31d7a591a326bd7f10c352820499139..4062b020907a623cc9a5096c0893ff01
  #include <rex/system/xmemory.h>
  #include <rex/thread.h>
  
-@@ -1326,7 +1327,23 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
+@@ -1592,7 +1593,23 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
    uint32_t base_page_number = (base_address - heap_base_) >> page_size_shift_;
    auto base_page_entry = page_table_[base_page_number];
    if (base_page_entry.base_address != base_page_number) {

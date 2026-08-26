@@ -15,6 +15,10 @@ references/
 sdk/
 .legal/
 private/
+/docs/*
+!/docs/BUILDING.md
+!/docs/LEGAL.md
+!/docs/TROUBLESHOOTING.md
 
 # Build output and tooling state.
 build/

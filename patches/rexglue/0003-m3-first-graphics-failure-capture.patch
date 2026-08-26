@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/util/draw.h b/include/rex/graphics/util/draw.h
-index b6c914d49b6424ac818168e95bf14bfc3f923e39..af485568cbca3313e1be4990878b622886d54d74 100644
+index 3da182d..0f68a0b 100644
 --- a/include/rex/graphics/util/draw.h
 +++ b/include/rex/graphics/util/draw.h
-@@ -288,6 +288,10 @@ struct Scissor {
+@@ -287,6 +287,10 @@ struct Scissor {
  };
  void GetScissor(const RegisterFile& regs, Scissor& scissor_out, bool clamp_to_surface_pitch = true);
  
@@ -14,7 +14,7 @@ index b6c914d49b6424ac818168e95bf14bfc3f923e39..af485568cbca3313e1be4990878b6228
  // account which color targets are written to by the pixel shader, as well as
  // components that don't exist in the formats of the render targets (render
 diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
-index 60efcd3ae8ebdedd2ce346dd8a6af734447b14a8..4b2d8385ddb909b70e11f7390dbace686d771997 100644
+index a744375..a31f314 100644
 --- a/src/graphics/command_processor.cpp
 +++ b/src/graphics/command_processor.cpp
 @@ -10,6 +10,7 @@
@@ -25,7 +25,7 @@ index 60efcd3ae8ebdedd2ce346dd8a6af734447b14a8..4b2d8385ddb909b70e11f7390dbace68
  #include <cinttypes>
  #include <cmath>
  #include <cstring>
-@@ -1529,6 +1530,22 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+@@ -1384,6 +1385,22 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
          auto vgt_output_path_cntl = register_file_->Get<reg::VGT_OUTPUT_PATH_CNTL>();
          auto vgt_hos_cntl = register_file_->Get<reg::VGT_HOS_CNTL>();
          auto rb_modecontrol = register_file_->Get<reg::RB_MODECONTROL>();
@@ -49,11 +49,11 @@ index 60efcd3ae8ebdedd2ce346dd8a6af734447b14a8..4b2d8385ddb909b70e11f7390dbace68
              "{}({}, {}, {}): Failed in backend "
              "(major_mode={}, explicit_major={}, path_select={}, tess_mode={}, edram_mode={})",
 diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
-index 8e269c46dcfeb71de7b1ef487c35d755e1e24789..48776e10528172d1be6ec6acb887b465cb83eac8 100644
+index dd321a5..4dc1d43 100644
 --- a/src/graphics/d3d12/render_target_cache.cpp
 +++ b/src/graphics/d3d12/render_target_cache.cpp
-@@ -1179,6 +1179,7 @@ bool D3D12RenderTargetCache::Resolve(const memory::Memory& memory, D3D12SharedMe
-   if (!draw_util::GetResolveInfo(register_file(), memory, trace_writer_, draw_resolution_scale_x(),
+@@ -1172,6 +1172,7 @@ bool D3D12RenderTargetCache::Resolve(const memory::Memory& memory, D3D12SharedMe
+   if (!draw_util::GetResolveInfo(register_file(), memory, draw_resolution_scale_x(),
                                   draw_resolution_scale_y(), fixed_16_truncated_to_minus_1_to_1,
                                   fixed_16_truncated_to_minus_1_to_1, resolve_info)) {
 +    draw_util::LogResolveFailureState(register_file(), memory);
@@ -61,7 +61,7 @@ index 8e269c46dcfeb71de7b1ef487c35d755e1e24789..48776e10528172d1be6ec6acb887b465
    }
  
 diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
-index 751e207ce6f731b23f1c3c4a0fb81f593f060897..c97c700d59fa7aab90648c2dc0e03692aa8af99d 100644
+index 90c742c..b13ba72 100644
 --- a/src/graphics/util/draw.cpp
 +++ b/src/graphics/util/draw.cpp
 @@ -10,7 +10,9 @@
@@ -146,7 +146,7 @@ index 751e207ce6f731b23f1c3c4a0fb81f593f060897..c97c700d59fa7aab90648c2dc0e03692
  bool IsRasterizationPotentiallyDone(const RegisterFile& regs, bool primitive_polygonal) {
    // TODO(Triang3l): Investigate EdramMode::kNoOperation better, with respect to
    // sample counting. Let's assume sample counting is a part of depth / stencil,
-@@ -883,6 +950,14 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+@@ -882,6 +949,14 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
      y1 = y0 + int32_t(xenos::kMaxResolveSize);
    }
  
@@ -162,11 +162,11 @@ index 751e207ce6f731b23f1c3c4a0fb81f593f060897..c97c700d59fa7aab90648c2dc0e03692
    if (x0 >= x1 || y0 >= y1) {
      REXGPU_ERROR(
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 05d1e5c15a51d9fcb7cfa0f2681ab48fed156952..a4c51000403e147f6a78b8cde6bb6c3ad235eb58 100644
+index 0298f06..7f61de9 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
-@@ -1341,6 +1341,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
-   if (!draw_util::GetResolveInfo(register_file(), memory, trace_writer_, draw_resolution_scale_x(),
+@@ -1137,6 +1137,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   if (!draw_util::GetResolveInfo(register_file(), memory, draw_resolution_scale_x(),
                                   draw_resolution_scale_y(), IsFixedRG16TruncatedToMinus1To1(),
                                   IsFixedRGBA16TruncatedToMinus1To1(), resolve_info)) {
 +    draw_util::LogResolveFailureState(register_file(), memory);

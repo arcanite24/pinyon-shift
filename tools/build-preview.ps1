@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1, 32)] [int]$Parallel = [Math]::Max(2, [Math]::Min(16, [Environment]::ProcessorCount - 1)),
+    [switch]$CleanGenerated,
     [switch]$JsonEvents
 )
 
@@ -36,14 +37,38 @@ if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
 }
 
 Write-PinyonEvent build 72 'Translating the verified game code locally.' -JsonEvents:$JsonEvents
-if (Test-Path -LiteralPath $generatedRoot) { Remove-Item -LiteralPath $generatedRoot -Recurse -Force }
-[void](New-Item -ItemType Directory -Force -Path $generatedRoot)
-& $rexglueExe --log-level info --log-file (Join-Path $logs 'codegen.log') codegen $manifest
-if ($LASTEXITCODE -ne 0) { throw 'Local code generation failed.' }
-foreach ($tree in @('default', 'speech', 'xmedia')) {
+$generatedTrees = @('default', 'speech', 'xmedia')
+if ($CleanGenerated -and (Test-Path -LiteralPath $generatedRoot)) {
+    Remove-Item -LiteralPath $generatedRoot -Recurse -Force
+}
+$requiresBootstrap = $CleanGenerated -or
+    -not (Test-Path -LiteralPath (Join-Path $generatedRoot 'default/codegen.build.stamp') -PathType Leaf)
+foreach ($tree in $generatedTrees) {
+    if (-not (Test-Path -LiteralPath (Join-Path $generatedRoot "$tree/sources.cmake") -PathType Leaf)) {
+        $requiresBootstrap = $true
+    }
+}
+if ($requiresBootstrap) {
+    [void](New-Item -ItemType Directory -Force -Path $generatedRoot)
+    & $rexglueExe --log-level info --log-file (Join-Path $logs 'codegen.log') codegen $manifest
+    if ($LASTEXITCODE -ne 0) {
+        foreach ($tree in $generatedTrees) {
+            $stamp = Join-Path $generatedRoot "$tree/codegen.build.stamp"
+            if (Test-Path -LiteralPath $stamp) { Remove-Item -LiteralPath $stamp -Force }
+        }
+        throw 'Local code generation failed; incomplete generation stamps were removed.'
+    }
+}
+else {
+    Write-PinyonEvent build 74 'Generated trees are present; checking dependency stamps during the build.' -JsonEvents:$JsonEvents
+}
+foreach ($tree in $generatedTrees) {
     if (-not (Test-Path -LiteralPath (Join-Path $generatedRoot "$tree/sources.cmake") -PathType Leaf)) {
         throw "Generated source tree is incomplete: $tree"
     }
+}
+if (-not (Test-Path -LiteralPath (Join-Path $generatedRoot 'default/codegen.build.stamp') -PathType Leaf)) {
+    throw 'Generated source tree is incomplete: default/codegen.build.stamp'
 }
 
 Write-PinyonEvent build 82 'Compiling the playable preview. This is the longest step.' -JsonEvents:$JsonEvents

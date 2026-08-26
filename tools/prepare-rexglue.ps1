@@ -20,6 +20,7 @@ $patchRecords = @($patches | ForEach-Object {
 })
 $expectedMarker = [ordered]@{
     schema_version = 1
+    tag = $config.rexglue.tag
     base_commit = $config.rexglue.base_commit
     patches = $patchRecords
 }
@@ -77,6 +78,13 @@ if (Test-Path -LiteralPath $sdkRoot) {
 Write-PinyonEvent tools 34 'Downloading the pinned ReXGlue source.' -JsonEvents:$JsonEvents
 & $git -c core.symlinks=false clone --recursive --no-tags $config.rexglue.repository $sdkRoot
 if ($LASTEXITCODE -ne 0) { throw 'Unable to download ReXGlue and its dependencies.' }
+& $git -C $sdkRoot fetch --no-tags origin `
+    "refs/tags/$($config.rexglue.tag):refs/tags/$($config.rexglue.tag)"
+if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch the pinned ReXGlue release tag.' }
+$tagCommit = (& $git -C $sdkRoot rev-list -n 1 $config.rexglue.tag).Trim()
+if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $config.rexglue.base_commit) {
+    throw "ReXGlue tag $($config.rexglue.tag) does not resolve to the pinned commit."
+}
 & $git -C $sdkRoot checkout --detach $config.rexglue.base_commit
 if ($LASTEXITCODE -ne 0) { throw 'Unable to check out the pinned ReXGlue revision.' }
 & $git -C $sdkRoot submodule update --init --recursive --jobs 8

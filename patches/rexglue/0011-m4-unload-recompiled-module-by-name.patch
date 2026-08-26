@@ -1,5 +1,5 @@
 diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
-index 27cc7a5759daebba0f638d99ae73a22f25e89d8b..c87f9d144b5fff475e0e8e2644153bbc40a077f0 100644
+index 697399c..cb8270f 100644
 --- a/src/system/kernel_state.cpp
 +++ b/src/system/kernel_state.cpp
 @@ -854,6 +854,12 @@ void KernelState::UnloadUserModule(const object_ref<UserModule>& module, bool ca

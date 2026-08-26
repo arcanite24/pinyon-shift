@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 09ac897839907d8e3c1cba948e20b53322eaa98a..81f439146bb688decd9f588f514ebddbba527d65 100644
+index 9b3cdf5..5e33dd8 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -164,7 +164,7 @@ set(REXGLUE_FLOOR_VERSION
+@@ -215,7 +215,7 @@ rex_version_channel(REXGLUE_VERSION_CHANNEL VERSION "${REXGLUE_FULL_VERSION}")
  
  # Generate version header -- must run after REX_PLATFORM is set
  # Timestamp is set at configure time -- intentionally not updated on every rebuild
@@ -12,7 +12,7 @@ index 09ac897839907d8e3c1cba948e20b53322eaa98a..81f439146bb688decd9f588f514ebddb
      ${CMAKE_CURRENT_SOURCE_DIR}/include/rex/version.h.in
      ${CMAKE_CURRENT_BINARY_DIR}/include/rex/version.h
 diff --git a/include/rex/hook.h b/include/rex/hook.h
-index f628e518d46c41cc1672beacfaa8c7af2a0b6da6..eda8ad70b8bcd83e03999491a49c13a4f0a41c38 100644
+index 4ce4f9b..9cc2abf 100644
 --- a/include/rex/hook.h
 +++ b/include/rex/hook.h
 @@ -11,6 +11,7 @@
@@ -42,11 +42,11 @@ index f628e518d46c41cc1672beacfaa8c7af2a0b6da6..eda8ad70b8bcd83e03999491a49c13a4
 +
  #ifdef REXGLUE_ENABLE_PROFILING
  #include <tracy/Tracy.hpp>
- #define REX_HOOK(subroutine, function)                  \
-   extern "C" REX_FUNC(subroutine) {                     \
-     ZoneNamedN(___tracy_hook_zone, #subroutine, true);  \
-+    REX_TRACE_IMPORT_REACH(subroutine);                 \
-     rex::ppc::HostToGuestFunction<function>(ctx, base); \
+ #define REX_HOOK(subroutine, function)                           \
+   extern "C" REX_FUNC(subroutine) {                              \
+     ZoneNamedN(___tracy_hook_zone, #subroutine, TracyIsStarted); \
++    REX_TRACE_IMPORT_REACH(subroutine);                          \
+     rex::ppc::HostToGuestFunction<function>(ctx, base);          \
    }
  #else
  #define REX_HOOK(subroutine, function)                  \
@@ -78,10 +78,10 @@ index f628e518d46c41cc1672beacfaa8c7af2a0b6da6..eda8ad70b8bcd83e03999491a49c13a4
      ctx.r3.u64 = (value);                                                                 \
    }
 diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
-index f191b0298803a756c19e3fccc136e3db952a9f36..751e207ce6f731b23f1c3c4a0fb81f593f060897 100644
+index 305380e..90c742c 100644
 --- a/src/graphics/util/draw.cpp
 +++ b/src/graphics/util/draw.cpp
-@@ -885,7 +885,9 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+@@ -884,7 +884,9 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
  
    assert_true(x0 < x1 && y0 < y1);
    if (x0 >= x1 || y0 >= y1) {
@@ -93,7 +93,7 @@ index f191b0298803a756c19e3fccc136e3db952a9f36..751e207ce6f731b23f1c3c4a0fb81f59
    }
  
 diff --git a/src/kernel/xam/apps/xam_app.cpp b/src/kernel/xam/apps/xam_app.cpp
-index 7f10ecedc6b521b958d17012b434e3a828786942..b1c0399804d7e8193fbd1b7eaa996de3e8f4026b 100644
+index 7f10ece..b1c0399 100644
 --- a/src/kernel/xam/apps/xam_app.cpp
 +++ b/src/kernel/xam/apps/xam_app.cpp
 @@ -27,6 +27,8 @@ XamApp::XamApp(KernelState* kernel_state) : App(kernel_state, 0xFE) {}
@@ -129,7 +129,7 @@ index 7f10ecedc6b521b958d17012b434e3a828786942..b1c0399804d7e8193fbd1b7eaa996de3
    REXKRNL_ERROR(
        "Unimplemented XAM message app={:08X}, msg={:08X}, arg1={:08X}, "
 diff --git a/src/kernel/xboxkrnl/xboxkrnl_modules.cpp b/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
-index dcd2001bb14c23353dda47844c9134c74fc4db9f..233c3cb36f53a37bf24498b4d45b6b8405bb937c 100644
+index dcd2001..233c3cb 100644
 --- a/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
 +++ b/src/kernel/xboxkrnl/xboxkrnl_modules.cpp
 @@ -85,6 +85,8 @@ u32 XexGetModuleSection_entry(mapped_void hmodule, mapped_string name, mapped_u3

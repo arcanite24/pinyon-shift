@@ -1,8 +1,8 @@
 diff --git a/src/system/CMakeLists.txt b/src/system/CMakeLists.txt
-index a1d8258a5b34d4e9dc057978d9596bcc5a40b2df..3181fa04d4477bba2836bb723e2d8ea30cc9b1c9 100644
+index fc46d86..d1139cd 100644
 --- a/src/system/CMakeLists.txt
 +++ b/src/system/CMakeLists.txt
-@@ -89,7 +89,10 @@ if(REXGLUE_ENABLE_PERF_COUNTERS)
+@@ -106,7 +106,10 @@ if(REXGLUE_ENABLE_PERF_COUNTERS)
  endif()
  
  if(WIN32)
@@ -11,14 +11,14 @@ index a1d8258a5b34d4e9dc057978d9596bcc5a40b2df..3181fa04d4477bba2836bb723e2d8ea3
 +    # helpers when built with clang's GNU-style driver. oldnames provides the
 +    # canonical aliases and keeps clean Windows links reproducible.
 +    target_link_libraries(rexruntime PRIVATE ws2_32 oldnames)
+     target_link_libraries(rexruntime PUBLIC dxgi dxguid)
      target_compile_definitions(rexruntime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
  endif()
- 
 diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
-index c1f4e060892827fee368d5a121b0b87eb091d012..84d6cfb67b4bc3e0f73e5587e2aa2a5cac78f744 100644
+index c10694c..4174fb9 100644
 --- a/src/system/runtime.cpp
 +++ b/src/system/runtime.cpp
-@@ -330,6 +330,27 @@ bool Runtime::SetupVfs() {
+@@ -336,6 +336,27 @@ bool Runtime::SetupVfs() {
      }
    }
  
@@ -46,7 +46,7 @@ index c1f4e060892827fee368d5a121b0b87eb091d012..84d6cfb67b4bc3e0f73e5587e2aa2a5c
    // Setup NullDevice for raw HDD partition accesses
    // Cache/STFC code baked into games tries reading/writing to these
    // Using a NullDevice returns success to all IO requests, allowing games
-@@ -344,10 +365,6 @@ bool Runtime::SetupVfs() {
+@@ -350,10 +371,6 @@ bool Runtime::SetupVfs() {
      REXSYS_DEBUG("  Registered NullDevice for \\Device\\Harddisk0\\{{Partition0,Cache0,Cache1}}");
    }
  
@@ -58,20 +58,20 @@ index c1f4e060892827fee368d5a121b0b87eb091d012..84d6cfb67b4bc3e0f73e5587e2aa2a5c
  }
  
 diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
-index 095c3411cdcbd84e209368cf3789e2901695cb78..bc9ddc0325b4fb2d59ea429451d280f075311daf 100644
+index d168e26..4ea2538 100644
 --- a/tests/unit/CMakeLists.txt
 +++ b/tests/unit/CMakeLists.txt
-@@ -17,6 +17,7 @@ add_executable(unit_tests
-     system/guest_path_test.cpp
-     system/achievement_manager_test.cpp
-     system/function_dispatcher_test.cpp
+@@ -21,6 +21,7 @@ add_executable(unit_tests
+     codegen/codegen_writer_test.cpp
+     codegen/output_partition_test.cpp
+     codegen/output_stamp_test.cpp
 +    filesystem/cache_mount_test.cpp
-     codegen/manifest_test.cpp
-     rexglue/migration_scan_test.cpp
-     rexglue/ui_test.cpp
+ )
+ 
+ target_sources(unit_tests PRIVATE
 diff --git a/tests/unit/filesystem/cache_mount_test.cpp b/tests/unit/filesystem/cache_mount_test.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..36d6fdcd7a9994182608b5d9ff0866fae0f6e716
+index 0000000..36d6fdc
 --- /dev/null
 +++ b/tests/unit/filesystem/cache_mount_test.cpp
 @@ -0,0 +1,62 @@

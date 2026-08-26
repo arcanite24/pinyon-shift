@@ -10,6 +10,44 @@ $publish = Join-Path $artifacts 'publish'
 $payloadRoot = Join-Path $artifacts 'payload'
 $payloadZip = Join-Path $publish 'pinyon-shift-source.zip'
 $releaseZip = Join-Path $root '.artifacts/PinyonShift-Launcher.zip'
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function New-DeterministicZip {
+    param(
+        [Parameter(Mandatory)] [string]$SourceDirectory,
+        [Parameter(Mandatory)] [string]$DestinationPath
+    )
+
+    if (Test-Path -LiteralPath $DestinationPath) {
+        Remove-Item -LiteralPath $DestinationPath -Force
+    }
+    $fixedTimestamp = [DateTimeOffset]::FromUnixTimeSeconds(1784764800)
+    $archive = [IO.Compression.ZipFile]::Open(
+        $DestinationPath, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File |
+            Sort-Object { $_.FullName.Substring($SourceDirectory.Length).Replace([char]92, [char]47) } |
+            ForEach-Object {
+                $entryName = $_.FullName.Substring($SourceDirectory.Length).TrimStart([char]92, [char]47).Replace([char]92, [char]47)
+                $entry = $archive.CreateEntry(
+                    $entryName, [IO.Compression.CompressionLevel]::Optimal)
+                $entry.LastWriteTime = $fixedTimestamp
+                $sourceStream = [IO.File]::OpenRead($_.FullName)
+                $entryStream = $entry.Open()
+                try {
+                    $sourceStream.CopyTo($entryStream)
+                }
+                finally {
+                    $entryStream.Dispose()
+                    $sourceStream.Dispose()
+                }
+            }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 foreach ($path in @($publish, $payloadRoot)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
     [void](New-Item -ItemType Directory -Force -Path $path)
@@ -34,7 +72,11 @@ foreach ($relative in $include) {
     $destination = Join-Path $payloadRoot $relative
     if (Test-Path -LiteralPath $source -PathType Container) {
         [void](New-Item -ItemType Directory -Force -Path $destination)
-        Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $destination -Recurse -Force
+        $children = Get-ChildItem -LiteralPath $source -Force
+        if ($relative -eq 'config/rexglue') {
+            $children = $children | Where-Object { $_.Name -ne 'generated' }
+        }
+        $children | Copy-Item -Destination $destination -Recurse -Force
     }
     else {
         [void](New-Item -ItemType Directory -Force -Path (Split-Path $destination -Parent))
@@ -46,9 +88,8 @@ Get-ChildItem -LiteralPath $payloadRoot -Recurse -File | Where-Object {
     $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex')
 } | ForEach-Object { throw "Forbidden file entered launcher payload: $($_.FullName)" }
 
-Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $payloadZip -CompressionLevel Optimal
-if (Test-Path -LiteralPath $releaseZip) { Remove-Item -LiteralPath $releaseZip -Force }
-Compress-Archive -Path (Join-Path $publish '*') -DestinationPath $releaseZip -CompressionLevel Optimal
+New-DeterministicZip -SourceDirectory $payloadRoot -DestinationPath $payloadZip
+New-DeterministicZip -SourceDirectory $publish -DestinationPath $releaseZip
 
 [pscustomobject]@{
     launcher = Join-Path $publish 'PinyonShiftLauncher.exe'

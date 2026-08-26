@@ -1,5 +1,5 @@
 diff --git a/src/kernel/xam/xam_misc.cpp b/src/kernel/xam/xam_misc.cpp
-index ff6cb56adcb39e8c999e190917de4c9ded87790c..5d3bcbb6aefa1623ac1cb61e40853904ddb9380a 100644
+index ff6cb56..5d3bcbb 100644
 --- a/src/kernel/xam/xam_misc.cpp
 +++ b/src/kernel/xam/xam_misc.cpp
 @@ -11,6 +11,22 @@

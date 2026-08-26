@@ -1,5 +1,5 @@
 diff --git a/include/rex/system/xthread.h b/include/rex/system/xthread.h
-index c5f3de72a69f2545bf64d05080b3e58381e4aa84..94135af6e7854fdd72b150a177a0f084023f4dd5 100644
+index a72911e..894b81a 100644
 --- a/include/rex/system/xthread.h
 +++ b/include/rex/system/xthread.h
 @@ -11,6 +11,7 @@
@@ -10,7 +10,7 @@ index c5f3de72a69f2545bf64d05080b3e58381e4aa84..94135af6e7854fdd72b150a177a0f084
  #include <condition_variable>
  #include <mutex>
  #include <string>
-@@ -341,6 +342,10 @@ class XThread : public XObject {
+@@ -343,6 +344,10 @@ class XThread : public XObject {
  
    virtual void Execute();
  
@@ -21,7 +21,7 @@ index c5f3de72a69f2545bf64d05080b3e58381e4aa84..94135af6e7854fdd72b150a177a0f084
    rex::thread::Fiber* main_fiber() const { return main_fiber_; }
    void set_main_fiber(rex::thread::Fiber* fiber) { main_fiber_ = fiber; }
  
-@@ -430,6 +435,9 @@ class XThread : public XObject {
+@@ -432,6 +437,9 @@ class XThread : public XObject {
    std::condition_variable suspend_cv_;
  #endif
  
@@ -32,7 +32,7 @@ index c5f3de72a69f2545bf64d05080b3e58381e4aa84..94135af6e7854fdd72b150a177a0f084
  
    rex::thread::global_critical_region global_critical_region_;
 diff --git a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
-index 6d0a6295342b0a9551879bc88c4bdc195b0ecbfa..22fe01fff86cec247ffccd04cebc978fd5632fd8 100644
+index 57fd161..bcb15ab 100644
 --- a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
 +++ b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
 @@ -254,6 +254,8 @@ u32 NtSuspendThread_entry(u32 handle, mapped_u32 suspend_count_ptr) {
@@ -71,7 +71,7 @@ index 6d0a6295342b0a9551879bc88c4bdc195b0ecbfa..22fe01fff86cec247ffccd04cebc978f
  
  u32 KeSetAffinityThread_entry(mapped_void thread_ptr, u32 affinity,
 diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
-index e6766c87ed4557d436a35c2645188d5b47e10ba9..ca9fafa5ef78d59ae2ebbf5caad2a4f8dce9daca 100644
+index 77bce25..7f96ce7 100644
 --- a/src/system/xthread.cpp
 +++ b/src/system/xthread.cpp
 @@ -11,6 +11,7 @@
