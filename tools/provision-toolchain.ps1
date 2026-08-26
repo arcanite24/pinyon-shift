@@ -51,6 +51,16 @@ if ($null -eq (Get-Command git.exe -ErrorAction SilentlyContinue)) {
 }
 
 Write-PinyonEvent tools 26 'Preparing the pinned LLVM compiler.' -JsonEvents:$JsonEvents
+$xzRoot = [IO.Path]::GetFullPath((Join-Path $root $config.xz.install_path))
+$xzExe = Join-Path $xzRoot $config.xz.executable
+if (-not (Test-Path -LiteralPath $xzExe -PathType Leaf)) {
+    $archive = Join-Path $downloads "xz-$($config.xz.version)-windows.zip"
+    Invoke-PinyonDownload -Uri $config.xz.url -Destination $archive -Sha256 $config.xz.sha256
+    if (Test-Path -LiteralPath $xzRoot) { Remove-Item -LiteralPath $xzRoot -Recurse -Force }
+    [void](New-Item -ItemType Directory -Force -Path $xzRoot)
+    Expand-Archive -LiteralPath $archive -DestinationPath $xzRoot -Force
+}
+
 $llvmRoot = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
 $llvmExe = Join-Path $llvmRoot $config.llvm.executable
 if (-not (Test-Path -LiteralPath $llvmExe -PathType Leaf)) {
@@ -59,8 +69,7 @@ if (-not (Test-Path -LiteralPath $llvmExe -PathType Leaf)) {
     $staging = Resolve-PinyonLocalPath -RelativePath ".local/toolchain/llvm-$($config.llvm.version)-staging"
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
     [void](New-Item -ItemType Directory -Force -Path $staging)
-    & tar.exe -xf $archive -C $staging
-    if ($LASTEXITCODE -ne 0) { throw 'Unable to extract the LLVM toolchain.' }
+    Expand-PinyonTarXz -Archive $archive -Destination $staging -XzPath $xzExe
     $children = @(Get-ChildItem -LiteralPath $staging -Directory)
     if ($children.Count -ne 1) { throw 'The LLVM archive layout is not recognized.' }
     if (Test-Path -LiteralPath $llvmRoot) { Remove-Item -LiteralPath $llvmRoot -Recurse -Force }
@@ -83,6 +92,7 @@ $environment = Enter-PinyonBuildEnvironment
 $git = Get-PinyonGit
 foreach ($required in @(
     @{ Name = 'Git'; Path = $git },
+    @{ Name = 'XZ'; Path = $xzExe },
     @{ Name = 'CMake'; Path = $environment.CMake },
     @{ Name = 'Ninja'; Path = $environment.Ninja },
     @{ Name = 'LLVM'; Path = $llvmExe },

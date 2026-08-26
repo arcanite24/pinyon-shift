@@ -15,6 +15,13 @@
     "install_path": ".local/toolchain/mingit-2.55.0.5",
     "executable": "cmd/git.exe"
   },
+  "xz": {
+    "version": "5.8.3",
+    "url": "https://github.com/tukaani-project/xz/releases/download/v5.8.3/xz-5.8.3-windows.zip",
+    "sha256": "8D0048EE51177B11EF1613959C2A268C951F4E7F6FB3706E681E00E34BB6D5E3",
+    "install_path": ".local/toolchain/xz-5.8.3",
+    "executable": "bin_x86-64/xz.exe"
+  },
   "llvm": {
     "version": "20.1.8",
     "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",

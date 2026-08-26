@@ -22,7 +22,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_downloads_are_https_and_sha256_pinned(self):
         data = json.loads((ROOT / "config/release-toolchain.json").read_text())
-        for key in ("git", "llvm", "extract_xiso"):
+        for key in ("git", "xz", "llvm", "extract_xiso"):
             item = data[key]
             self.assertTrue(item["url"].startswith("https://"))
             self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
@@ -92,6 +92,17 @@ class ReleaseContractTests(unittest.TestCase):
             "setup-preview.ps1", "verify-game.ps1",
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
+
+    def test_vehicle_presentation_stabilization_is_migrated_to_opt_in(self):
+        app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
+        hooks = (ROOT / "src/pinyon_shift_runtime_hooks.cpp").read_text(encoding="utf-8")
+        self.assertIn("constexpr uint32_t kConfigSchema = 2;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*2,")
+        self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
+        self.assertRegex(
+            hooks,
+            r"pinyon_shift_stabilize_vehicle_presentation,\s*false,",
+        )
 
     def test_8bitdo_ultimate_2c_wired_mapping_is_shipped(self):
         mappings = (ROOT / "config/gamecontrollerdb.txt").read_text(encoding="utf-8")
