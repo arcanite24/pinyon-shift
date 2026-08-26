@@ -64,6 +64,12 @@ class ReleaseContractTests(unittest.TestCase):
         package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
         self.assertIn("config/gamecontrollerdb.txt", package_script)
 
+        launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(".pinyon-source-sha256", launcher)
+        self.assertIn("StageControllerMappings", launcher)
+
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_crash_report_redacts_paths_and_excludes_sensitive_files(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-report-") as temporary:

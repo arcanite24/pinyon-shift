@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
@@ -49,6 +50,7 @@ public partial class MainWindow : Window
             _repositoryRoot = await ResolveRepositoryRootAsync();
             BuildLocationText.Text = Path.Combine(_repositoryRoot, ".local");
             AppendLog($"Release source: {_repositoryRoot}");
+            StageControllerMappings();
             DetectExistingBuild();
             DetectPendingReport();
         }
@@ -396,14 +398,37 @@ public partial class MainWindow : Window
         var version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "dev";
         var destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PinyonShift", "source", version);
-        if (!IsRoot(destination))
+        var payloadHash = await Task.Run(async () =>
+        {
+            await using var stream = File.OpenRead(payload);
+            return Convert.ToHexString(await SHA256.HashDataAsync(stream));
+        });
+        var payloadMarker = Path.Combine(destination, ".pinyon-source-sha256");
+        var installedHash = File.Exists(payloadMarker)
+            ? (await File.ReadAllTextAsync(payloadMarker)).Trim()
+            : string.Empty;
+        if (!IsRoot(destination) || !string.Equals(installedHash, payloadHash,
+                StringComparison.OrdinalIgnoreCase))
         {
             Directory.CreateDirectory(destination);
             await Task.Run(() => ZipFile.ExtractToDirectory(payload, destination, overwriteFiles: true));
+            await File.WriteAllTextAsync(payloadMarker, payloadHash + Environment.NewLine);
         }
         if (!IsRoot(destination))
             throw new InvalidDataException("The release source payload is incomplete.");
         return destination;
+    }
+
+    private void StageControllerMappings()
+    {
+        if (_repositoryRoot is null) return;
+        var source = Path.Combine(_repositoryRoot, "config", "gamecontrollerdb.txt");
+        var executable = Path.Combine(_repositoryRoot, "out", "build", "win-amd64-release",
+            "pinyon_shift.exe");
+        if (!File.Exists(source) || !File.Exists(executable)) return;
+        var destination = Path.Combine(Path.GetDirectoryName(executable)!, "gamecontrollerdb.txt");
+        File.Copy(source, destination, overwrite: true);
+        AppendLog("Controller compatibility mappings are current.");
     }
 
     private void SetReadyState()
