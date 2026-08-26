@@ -21,15 +21,17 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 1, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 2, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 1;
+constexpr uint32_t kConfigSchema = 2;
 
-bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
+bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
+                           bool& migrated) {
   created = false;
+  migrated = false;
   if (!std::filesystem::exists(path)) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) {
@@ -45,7 +47,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
               "mnk_mode = true\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
-              "pinyon_shift_stabilize_vehicle_presentation = true\n"
+              "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n";
     created = true;
     return output.good();
@@ -57,6 +59,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
   }
   std::ostringstream contents;
   contents << input.rdbuf();
+  input.close();
   const std::string config_text = contents.str();
   const std::regex schema_pattern(
       R"((?:^|\n)\s*pinyon_shift_config_schema\s*=\s*([0-9]+)\s*(?:#.*)?(?:\r?\n|$))");
@@ -65,7 +68,54 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
     return false;
   }
   try {
-    return std::stoul(match[1].str()) == kConfigSchema;
+    const uint32_t schema = std::stoul(match[1].str());
+    if (schema == kConfigSchema) {
+      return true;
+    }
+    if (schema != 1) {
+      return false;
+    }
+
+    std::string migrated_text = config_text;
+    migrated_text.replace(static_cast<size_t>(match.position(1)),
+                          static_cast<size_t>(match.length(1)),
+                          std::to_string(kConfigSchema));
+    const std::regex stabilization_pattern(
+        R"((?:^|\n)\s*pinyon_shift_stabilize_vehicle_presentation\s*=\s*(true|false)\s*(?:#.*)?(?:\r?\n|$))");
+    std::smatch stabilization_match;
+    if (std::regex_search(migrated_text, stabilization_match,
+                          stabilization_pattern)) {
+      migrated_text.replace(
+          static_cast<size_t>(stabilization_match.position(1)),
+          static_cast<size_t>(stabilization_match.length(1)), "false");
+    } else {
+      if (!migrated_text.empty() && migrated_text.back() != '\n') {
+        migrated_text.push_back('\n');
+      }
+      migrated_text +=
+          "pinyon_shift_stabilize_vehicle_presentation = false\n";
+    }
+
+    std::filesystem::path temporary = path;
+    temporary += L".migrating";
+    {
+      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+      if (!output) {
+        return false;
+      }
+      output << migrated_text;
+      if (!output.good()) {
+        return false;
+      }
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+      std::error_code error;
+      std::filesystem::remove(temporary, error);
+      return false;
+    }
+    migrated = true;
+    return true;
   } catch (const std::exception&) {
     return false;
   }
@@ -94,7 +144,9 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   paths.config_path = state_root / "config" / "pinyon_shift.toml";
 
   bool config_created = false;
-  if (!EnsureSupportedConfig(paths.config_path, config_created)) {
+  bool config_migrated = false;
+  if (!EnsureSupportedConfig(paths.config_path, config_created,
+                             config_migrated)) {
     diagnostics::RecordEvent("config.unsupported",
                              {{"path", paths.config_path.string()},
                               {"required_schema", std::to_string(kConfigSchema)}});
@@ -118,6 +170,7 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
        {"config", paths.config_path.string()},
        {"config_schema", std::to_string(kConfigSchema)},
        {"config_created", config_created ? "1" : "0"},
+       {"config_migrated", config_migrated ? "1" : "0"},
        {"log", REXCVAR_GET(log_file)}});
 }
 

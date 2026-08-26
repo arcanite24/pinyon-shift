@@ -97,8 +97,8 @@ registers = ["r28", "r31"]
 # Runtime write-watch evidence maps
 # this address to the instruction immediately after the active transform slot's
 # position and forward vectors have been stored by sub_82BC5870. The hook always
-# suppresses isolated implausible presentation transforms; structured telemetry
-# remains opt-in and rate-limited in the host implementation.
+# can suppress isolated implausible presentation transforms when explicitly
+# enabled; structured telemetry remains opt-in and rate-limited in the host.
 [[midasm_hook]]
 address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"
