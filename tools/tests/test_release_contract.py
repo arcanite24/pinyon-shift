@@ -22,7 +22,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_downloads_are_https_and_sha256_pinned(self):
         data = json.loads((ROOT / "config/release-toolchain.json").read_text())
-        for key in ("git", "llvm", "extract_xiso"):
+        for key in ("git", "xz", "llvm", "extract_xiso"):
             item = data[key]
             self.assertTrue(item["url"].startswith("https://"))
             self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
