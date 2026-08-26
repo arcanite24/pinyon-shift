@@ -8,13 +8,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 class SoakEpicContractTests(unittest.TestCase):
     def test_release_builds_suppress_per_frame_viz_query_logging(self):
         patch = (
-            ROOT / "patches/rexglue/0034-suppress-high-volume-viz-query-logging.patch"
+            ROOT / "patches/rexglue/0035-suppress-high-volume-viz-query-logging.patch"
         ).read_text(encoding="utf-8")
         self.assertIn('-    REXGPU_INFO("Begin viz query ID {:02X}", id);', patch)
         self.assertIn('-    REXGPU_INFO("End viz query ID {:02X}", id);', patch)
 
     def test_release_reentry_tracing_is_explicitly_opt_in(self):
-        patch = (ROOT / "patches/rexglue/0033-gate-high-volume-reentry-tracing.patch").read_text(
+        patch = (ROOT / "patches/rexglue/0034-gate-high-volume-reentry-tracing.patch").read_text(
             encoding="utf-8"
         )
         self.assertIn("PINYON_SHIFT_REENTRY_TRACE", patch)
