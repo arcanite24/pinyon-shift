@@ -144,7 +144,8 @@ try {
     }
 
     $allowedSettings = @(
-        'pinyon_shift_config_schema', 'mnk_mode', 'keybind_start',
+        'pinyon_shift_config_schema', 'input_backend', 'hid_mappings_file',
+        'mnk_mode', 'keybind_start',
         'd3d12_allow_variable_refresh_rate_and_tearing',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'draw_resolution_scale_x', 'draw_resolution_scale_y'

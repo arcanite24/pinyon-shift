@@ -46,6 +46,24 @@ class ReleaseContractTests(unittest.TestCase):
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
 
+    def test_8bitdo_ultimate_2c_wired_mapping_is_shipped(self):
+        mappings = (ROOT / "config/gamecontrollerdb.txt").read_text(encoding="utf-8")
+        matching = [
+            line for line in mappings.splitlines()
+            if line and not line.startswith("#") and "c82d00001d300000" in line.lower()
+        ]
+        self.assertEqual(len(matching), 2)
+        for line in matching:
+            for binding in (
+                "a:b0", "b:b1", "lefttrigger:a3", "righttrigger:a4",
+                "leftx:a0", "lefty:a1", "rightx:a2", "righty:a5",
+                "start:b11", "platform:Windows",
+            ):
+                self.assertIn(binding, line)
+
+        package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
+        self.assertIn("config/gamecontrollerdb.txt", package_script)
+
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_crash_report_redacts_paths_and_excludes_sensitive_files(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-report-") as temporary:

@@ -39,6 +39,18 @@ Update the GPU driver and confirm that the GPU supports DirectX 12. Remove
 software may also quarantine a newly compiled unsigned executable; restore it
 only after confirming it was produced by your local checkout.
 
+## A controller is not recognized
+
+Connect the controller before starting the game. Pinyon Shift uses SDL mappings
+for DirectInput devices and includes an explicit mapping for the 8BitDo Ultimate
+2C Wired Controller (`2dc8:301d`). If that model still does not respond, confirm
+that `gamecontrollerdb.txt` is beside `pinyon_shift.exe`, close Steam or other
+controller-remapping software temporarily, reconnect the controller, and relaunch.
+
+When reporting another unsupported controller, include its exact name, USB
+vendor/product IDs, button count, axis count, and a screenshot from a gamepad
+tester. Do not attach input recordings.
+
 ## The game crashes
 
 Leave the launcher open while playing. It will prepare a sanitized ZIP under

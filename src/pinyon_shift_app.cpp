@@ -40,6 +40,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
               "# Controller support with keyboard emulation as a fallback.\n"
               "pinyon_shift_config_schema = "
            << kConfigSchema << "\n"
+              "input_backend = \"sdl\"\n"
+              "hid_mappings_file = \"gamecontrollerdb.txt\"\n"
               "mnk_mode = true\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"

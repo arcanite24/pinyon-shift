@@ -27,6 +27,17 @@ endif()
 
 pinyon_shift_attach_rexglue(pinyon_shift)
 
+# ReXGlue's SDL backend loads project overrides from the executable directory.
+# Keep this as an always-built staging target so mapping-only updates do not
+# require relinking the game host.
+add_custom_target(pinyon_shift_stage_controller_mappings ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/gamecontrollerdb.txt"
+        "$<TARGET_FILE_DIR:pinyon_shift>/gamecontrollerdb.txt"
+    DEPENDS pinyon_shift "${CMAKE_CURRENT_SOURCE_DIR}/config/gamecontrollerdb.txt"
+    COMMENT "Staging project gamepad mappings beside pinyon_shift"
+    VERBATIM)
+
 if(WIN32)
     target_link_libraries(pinyon_shift PRIVATE dbghelp)
 endif()

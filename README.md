@@ -35,8 +35,9 @@ Supported today: the USA retail base disc, serial `MS-2505`, title ID
 
 ## Preview limitations
 
-- Xbox-compatible controllers are recommended; keyboard emulation is available
-  as a fallback and has not been exhaustively tested.
+- Xbox-compatible controllers and SDL-mapped DirectInput controllers are
+  supported. This release includes a mapping for the 8BitDo Ultimate 2C Wired
+  Controller (`2dc8:301d`). Keyboard emulation remains available as a fallback.
 - Gameplay audio is incomplete, although cutscene audio works.
 - The player car may shake or jitter.
 - Vehicle collisions can behave incorrectly.
