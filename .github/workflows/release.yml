@@ -14,9 +14,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Verify public source boundary
         shell: powershell
         run: .\tools\check-repository-boundary.ps1
+      - name: Test release tooling
+        run: python -m unittest discover -s tools/tests -p "test_*.py"
+      - name: Verify release tag and main ancestry
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python tools/verify-release-tag.py --tag "${{ github.ref_name }}"
       - name: Package launcher
         shell: powershell
         run: .\tools\package-launcher.ps1
