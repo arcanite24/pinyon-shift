@@ -12,4 +12,7 @@
 - Added resilient ReXGlue/submodule download retries, disabled SDL's optional
   libusb probe on Windows, and made Xbox menu acceptance accessible through
   Space or left click with an in-launcher control hint.
-- Documented current gameplay limitations and support workflow.
+- Restored motion blur around the player car and removed the stale gameplay
+  limitation list after the latest compatibility fixes.
+- Added launcher controls for validated graphics experiments, including 2x
+  resolution scaling, anisotropic filtering, and post-effect selection.
