@@ -231,11 +231,12 @@ public partial class MainWindow : Window
         PrimaryButton.IsEnabled = false;
         PrimaryButton.Content = "GAME RUNNING";
         EyebrowText.Text = "PREVIEW RUNNING";
-        HeadlineText.Text = "Enjoy the drive.";
+        HeadlineText.Text = "Controller A, Space, or left click.";
         StatusText.Text = "WATCHING FOR CRASHES";
         StatusDot.Fill = ActiveBrush;
         ReportProblemButton.IsEnabled = false;
         AppendLog("Game started. The launcher is watching for an unexpected exit.");
+        AppendLog("Controls: use controller A, Space, or left click for the selected Xbox menu item; press Enter for Start.");
 
         try
         {

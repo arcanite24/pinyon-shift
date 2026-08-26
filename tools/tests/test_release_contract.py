@@ -82,8 +82,22 @@ class ReleaseContractTests(unittest.TestCase):
 
         package_script = (ROOT / "tools/package-launcher.ps1").read_text()
         self.assertIn("$_.Name -ne 'generated'", package_script)
+        self.assertIn("Add-Type -AssemblyName System.IO.Compression\n", package_script)
         self.assertIn("function New-DeterministicZip", package_script)
         self.assertIn("FromUnixTimeSeconds", package_script)
+
+    def test_rexglue_downloads_retry_and_windows_skips_optional_libusb(self):
+        prepare = (ROOT / "tools/prepare-rexglue.ps1").read_text(encoding="utf-8")
+        build = (ROOT / "tools/build-preview.ps1").read_text(encoding="utf-8")
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("function Invoke-PinyonGitWithRetry", prepare)
+        self.assertIn("$maximumAttempts = 3", prepare)
+        self.assertIn("http.version=HTTP/1.1", prepare)
+        self.assertIn("submodule', 'update', '--init', '--recursive'", prepare)
+        self.assertNotIn("clone --recursive", prepare)
+        self.assertIn("-DSDL_HIDAPI_LIBUSB=OFF", build)
+        self.assertIn("set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL", cmake)
 
     def test_launcher_payload_has_every_required_script(self):
         required = {
@@ -93,12 +107,18 @@ class ReleaseContractTests(unittest.TestCase):
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
 
-    def test_vehicle_presentation_stabilization_is_migrated_to_opt_in(self):
+    def test_runtime_config_migrates_vehicle_stabilization_and_menu_accept_input(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
         hooks = (ROOT / "src/pinyon_shift_runtime_hooks.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 2;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*2,")
+        launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("constexpr uint32_t kConfigSchema = 3;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*3,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
+        self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
+        self.assertIn("schema != 1 && schema != 2", app)
+        self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
             r"pinyon_shift_stabilize_vehicle_presentation,\s*false,",

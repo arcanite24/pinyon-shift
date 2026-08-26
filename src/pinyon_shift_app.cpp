@@ -21,12 +21,12 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 2, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 3, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 2;
+constexpr uint32_t kConfigSchema = 3;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -45,6 +45,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "input_backend = \"sdl\"\n"
               "hid_mappings_file = \"gamecontrollerdb.txt\"\n"
               "mnk_mode = true\n"
+              "keybind_a = \"LMB,Space\"\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
@@ -72,7 +73,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema != 1) {
+    if (schema != 1 && schema != 2) {
       return false;
     }
 
@@ -80,20 +81,31 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     migrated_text.replace(static_cast<size_t>(match.position(1)),
                           static_cast<size_t>(match.length(1)),
                           std::to_string(kConfigSchema));
-    const std::regex stabilization_pattern(
-        R"((?:^|\n)\s*pinyon_shift_stabilize_vehicle_presentation\s*=\s*(true|false)\s*(?:#.*)?(?:\r?\n|$))");
-    std::smatch stabilization_match;
-    if (std::regex_search(migrated_text, stabilization_match,
-                          stabilization_pattern)) {
-      migrated_text.replace(
-          static_cast<size_t>(stabilization_match.position(1)),
-          static_cast<size_t>(stabilization_match.length(1)), "false");
-    } else {
+    if (schema == 1) {
+      const std::regex stabilization_pattern(
+          R"((?:^|\n)\s*pinyon_shift_stabilize_vehicle_presentation\s*=\s*(true|false)\s*(?:#.*)?(?:\r?\n|$))");
+      std::smatch stabilization_match;
+      if (std::regex_search(migrated_text, stabilization_match,
+                            stabilization_pattern)) {
+        migrated_text.replace(
+            static_cast<size_t>(stabilization_match.position(1)),
+            static_cast<size_t>(stabilization_match.length(1)), "false");
+      } else {
+        if (!migrated_text.empty() && migrated_text.back() != '\n') {
+          migrated_text.push_back('\n');
+        }
+        migrated_text +=
+            "pinyon_shift_stabilize_vehicle_presentation = false\n";
+      }
+    }
+
+    const std::regex accept_binding_pattern(
+        R"((?:^|\n)\s*keybind_a\s*=\s*\"[^\"]*\"\s*(?:#.*)?(?:\r?\n|$))");
+    if (!std::regex_search(migrated_text, accept_binding_pattern)) {
       if (!migrated_text.empty() && migrated_text.back() != '\n') {
         migrated_text.push_back('\n');
       }
-      migrated_text +=
-          "pinyon_shift_stabilize_vehicle_presentation = false\n";
+      migrated_text += "keybind_a = \"LMB,Space\"\n";
     }
 
     std::filesystem::path temporary = path;

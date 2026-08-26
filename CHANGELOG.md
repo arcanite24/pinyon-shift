@@ -9,4 +9,7 @@
 - Added a graphical launcher that verifies a supported disc and performs the
   complete local toolchain, extraction, generation, and build workflow.
 - Added reproducible dependency pins and a public-source repository boundary.
+- Added resilient ReXGlue/submodule download retries, disabled SDL's optional
+  libusb probe on Windows, and made Xbox menu acceptance accessible through
+  Space or left click with an in-launcher control hint.
 - Documented current gameplay limitations and support workflow.

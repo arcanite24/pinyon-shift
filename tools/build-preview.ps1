@@ -26,7 +26,8 @@ $env:SOURCE_DATE_EPOCH = '1784764800'
 Write-PinyonEvent build 62 'Building the local code generator.' -JsonEvents:$JsonEvents
 Push-Location $sdkRoot
 try {
-    & $environment.CMake --preset win-amd64 -DREXGLUE_ENABLE_TRACY=OFF
+    & $environment.CMake --preset win-amd64 `
+        -DREXGLUE_ENABLE_TRACY=OFF -DSDL_HIDAPI_LIBUSB=OFF
     if ($LASTEXITCODE -ne 0) { throw 'ReXGlue configuration failed.' }
     & $environment.CMake --build --preset win-amd64-release --target rexglue --parallel $Parallel
     if ($LASTEXITCODE -ne 0) { throw 'ReXGlue code-generator build failed.' }

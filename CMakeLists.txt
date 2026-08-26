@@ -7,6 +7,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# SDL uses native Windows HID and XInput backends here. Its optional libusb
+# probe is for platforms/controllers that need direct USB access and should not
+# make a normal Windows build look like it has a missing dependency.
+if(WIN32)
+    set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL "Disable optional libusb HID backend on Windows" FORCE)
+endif()
+
 include(cmake/PinyonShiftRexGlue.cmake)
 
 if(WIN32)

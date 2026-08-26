@@ -11,6 +11,7 @@ $payloadRoot = Join-Path $artifacts 'payload'
 $payloadZip = Join-Path $publish 'pinyon-shift-source.zip'
 $releaseZip = Join-Path $root '.artifacts/PinyonShift-Launcher.zip'
 
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 function New-DeterministicZip {
     param(

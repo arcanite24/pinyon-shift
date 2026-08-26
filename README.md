@@ -37,7 +37,8 @@ Supported today: the USA retail base disc, serial `MS-2505`, title ID
 
 - Xbox-compatible controllers and SDL-mapped DirectInput controllers are
   supported. This release includes a mapping for the 8BitDo Ultimate 2C Wired
-  Controller (`2dc8:301d`). Keyboard emulation remains available as a fallback.
+  Controller (`2dc8:301d`). Keyboard/mouse emulation remains available as a
+  fallback: Space or left click acts as Xbox A, and Enter acts as Start.
 - Gameplay audio is incomplete, although cutscene audio works.
 - The player car may shake or jitter.
 - Vehicle collisions can behave incorrectly.
