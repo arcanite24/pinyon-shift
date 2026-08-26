@@ -20,10 +20,37 @@ $patchRecords = @($patches | ForEach-Object {
 })
 $expectedMarker = [ordered]@{
     schema_version = 1
+    tag = $config.rexglue.tag
     base_commit = $config.rexglue.base_commit
     patches = $patchRecords
 }
 $expectedJson = $expectedMarker | ConvertTo-Json -Depth 5
+
+function Invoke-PinyonGitWithRetry {
+    param(
+        [Parameter(Mandatory)] [string]$Activity,
+        [Parameter(Mandatory)] [string[]]$Arguments,
+        [scriptblock]$BeforeAttempt
+    )
+
+    $maximumAttempts = 3
+    for ($attempt = 1; $attempt -le $maximumAttempts; $attempt++) {
+        if ($null -ne $BeforeAttempt) {
+            & $BeforeAttempt $attempt
+        }
+        & $git @Arguments
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        if ($attempt -lt $maximumAttempts) {
+            Write-PinyonEvent tools 35 `
+                "$Activity failed (attempt $attempt of $maximumAttempts); retrying." `
+                -JsonEvents:$JsonEvents
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    throw "$Activity failed after $maximumAttempts attempts. Check the build log for the Git error."
+}
 
 function Repair-MaterializedLinks {
     param([Parameter(Mandatory)] [string]$RepositoryRoot)
@@ -64,23 +91,42 @@ if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
     }
 }
 
+$resolved = [IO.Path]::GetFullPath($sdkRoot)
+$allowed = [IO.Path]::GetFullPath((Join-Path $root '.local'))
+if (-not $resolved.StartsWith($allowed.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to replace ReXGlue outside $allowed"
+}
 if (Test-Path -LiteralPath $sdkRoot) {
-    $resolved = [IO.Path]::GetFullPath($sdkRoot)
-    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.local'))
-    if (-not $resolved.StartsWith($allowed.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar,
-            [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to replace ReXGlue outside $allowed"
-    }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 
 Write-PinyonEvent tools 34 'Downloading the pinned ReXGlue source.' -JsonEvents:$JsonEvents
-& $git -c core.symlinks=false clone --recursive --no-tags $config.rexglue.repository $sdkRoot
-if ($LASTEXITCODE -ne 0) { throw 'Unable to download ReXGlue and its dependencies.' }
+Invoke-PinyonGitWithRetry -Activity 'Downloading the ReXGlue repository' -Arguments @(
+    '-c', 'core.symlinks=false', '-c', 'http.version=HTTP/1.1',
+    'clone', '--no-checkout', '--no-tags', $config.rexglue.repository, $sdkRoot
+) -BeforeAttempt {
+    param($attempt)
+    if ($attempt -gt 1 -and (Test-Path -LiteralPath $resolved)) {
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+}
+Invoke-PinyonGitWithRetry -Activity 'Fetching the pinned ReXGlue release tag' -Arguments @(
+    '-c', 'http.version=HTTP/1.1', '-C', $sdkRoot, 'fetch', '--no-tags', 'origin',
+    "refs/tags/$($config.rexglue.tag):refs/tags/$($config.rexglue.tag)"
+)
+$tagCommit = (& $git -C $sdkRoot rev-list -n 1 $config.rexglue.tag).Trim()
+if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $config.rexglue.base_commit) {
+    throw "ReXGlue tag $($config.rexglue.tag) does not resolve to the pinned commit."
+}
 & $git -C $sdkRoot checkout --detach $config.rexglue.base_commit
 if ($LASTEXITCODE -ne 0) { throw 'Unable to check out the pinned ReXGlue revision.' }
-& $git -C $sdkRoot submodule update --init --recursive --jobs 8
-if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare ReXGlue dependencies.' }
+& $git -C $sdkRoot submodule sync --recursive
+if ($LASTEXITCODE -ne 0) { throw 'Unable to synchronize ReXGlue dependency URLs.' }
+Invoke-PinyonGitWithRetry -Activity 'Downloading ReXGlue dependencies' -Arguments @(
+    '-c', 'http.version=HTTP/1.1', '-C', $sdkRoot,
+    'submodule', 'update', '--init', '--recursive', '--jobs', '8'
+)
 
 Write-PinyonEvent tools 37 'Applying the Pinyon Shift compatibility patches.' -JsonEvents:$JsonEvents
 foreach ($patch in $patches) {

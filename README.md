@@ -33,16 +33,6 @@ Tools must be installed.
 Supported today: the USA retail base disc, serial `MS-2505`, title ID
 `4D5309C9`. Windows 10/11 x64 and a DirectX 12-capable GPU are required.
 
-## Preview limitations
-
-- Xbox-compatible controllers and SDL-mapped DirectInput controllers are
-  supported. This release includes a mapping for the 8BitDo Ultimate 2C Wired
-  Controller (`2dc8:301d`). Keyboard emulation remains available as a fallback.
-- Gameplay audio is incomplete, although cutscene audio works.
-- The player car may shake or jitter.
-- Vehicle collisions can behave incorrectly.
-- The camera may jump to an aerial view during the Mustang versus Mustang event.
-
 This is a public preview, not a finished remaster. Please report reproducible
 problems using the issue template and do not attach game files or generated
 code.

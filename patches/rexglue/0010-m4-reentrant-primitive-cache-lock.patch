@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/primitive_processor.h b/include/rex/graphics/primitive_processor.h
-index eed9e1b3b72887cecbbda794cf6ec168207a1646..90f49f81899eb5af14b5e81e9670618d72d26aad 100644
+index 2945731..afd527b 100644
 --- a/include/rex/graphics/primitive_processor.h
 +++ b/include/rex/graphics/primitive_processor.h
-@@ -790,7 +790,11 @@ class PrimitiveProcessor {
+@@ -785,7 +785,11 @@ class PrimitiveProcessor {
  
    void* memory_invalidation_callback_handle_ = nullptr;
  
@@ -15,7 +15,7 @@ index eed9e1b3b72887cecbbda794cf6ec168207a1646..90f49f81899eb5af14b5e81e9670618d
    // Modified by both the processor and the invalidation callback.
    std::unordered_map<CacheKey, size_t, CacheKey::Hasher> cache_map_;
    // The conversion is performed while the lock is released since it may take a
-@@ -813,7 +817,7 @@ class PrimitiveProcessor {
+@@ -808,7 +812,7 @@ class PrimitiveProcessor {
    // Must be called in a global critical region.
    void UpdateCacheBucketsNonEmptyL2(
        uint32_t bucket_index_div_64,
@@ -25,10 +25,10 @@ index eed9e1b3b72887cecbbda794cf6ec168207a1646..90f49f81899eb5af14b5e81e9670618d
          cache_buckets_non_empty_l2_[bucket_index_div_64 >> 6];
      uint64_t cache_buckets_non_empty_l2_bit = uint64_t(1) << (bucket_index_div_64 & 63);
 diff --git a/src/graphics/primitive_processor.cpp b/src/graphics/primitive_processor.cpp
-index 19ee54ac4af1fe047a8dd513a9285928a5f2cbd8..8015fc9bc828c17f2a5143ea65675be59a863613 100644
+index d49e9c3..ab61560 100644
 --- a/src/graphics/primitive_processor.cpp
 +++ b/src/graphics/primitive_processor.cpp
-@@ -250,7 +250,7 @@ void PrimitiveProcessor::ShutdownCommon() {
+@@ -249,7 +249,7 @@ void PrimitiveProcessor::ShutdownCommon() {
      // Clear the cache if it has ever been used and unregister the invalidation
      // callback.
      {
@@ -37,7 +37,7 @@ index 19ee54ac4af1fe047a8dd513a9285928a5f2cbd8..8015fc9bc828c17f2a5143ea65675be5
        cache_map_.clear();
        cache_bucket_free_first_entry_ = SIZE_MAX;
        std::memset(cache_buckets_non_empty_l1_, 0, sizeof(cache_buckets_non_empty_l1_));
-@@ -267,7 +267,7 @@ void PrimitiveProcessor::ClearPerFrameCache() {
+@@ -266,7 +266,7 @@ void PrimitiveProcessor::ClearPerFrameCache() {
      // Only do clearing if cache has ever been used.
      return;
    }
@@ -46,7 +46,7 @@ index 19ee54ac4af1fe047a8dd513a9285928a5f2cbd8..8015fc9bc828c17f2a5143ea65675be5
    for (const std::pair<CacheKey, size_t>& cache_map_entry : cache_map_) {
      cache_entry_pool_[cache_map_entry.second].free_next = cache_bucket_free_first_entry_;
      cache_bucket_free_first_entry_ = cache_map_entry.second;
-@@ -1351,7 +1351,7 @@ PrimitiveProcessor::CacheTransaction::CacheTransaction(PrimitiveProcessor& proce
+@@ -1339,7 +1339,7 @@ PrimitiveProcessor::CacheTransaction::CacheTransaction(PrimitiveProcessor& proce
        (key_.format == xenos::IndexFormat::kInt16 ? sizeof(uint16_t) : sizeof(uint32_t)) *
        key_.count;
    {
@@ -55,7 +55,7 @@ index 19ee54ac4af1fe047a8dd513a9285928a5f2cbd8..8015fc9bc828c17f2a5143ea65675be5
      auto cache_map_it = processor_.cache_map_.find(key_);
      if (cache_map_it != processor_.cache_map_.end()) {
        result_ = processor_.cache_entry_pool_[cache_map_it->second].result;
-@@ -1382,7 +1382,7 @@ PrimitiveProcessor::CacheTransaction::~CacheTransaction() {
+@@ -1370,7 +1370,7 @@ PrimitiveProcessor::CacheTransaction::~CacheTransaction() {
      return;
    }
  
@@ -64,7 +64,7 @@ index 19ee54ac4af1fe047a8dd513a9285928a5f2cbd8..8015fc9bc828c17f2a5143ea65675be5
  
    processor_.cache_currently_processing_base_ = 0;
    processor_.cache_currently_processing_size_bytes_ = 0;
-@@ -1455,7 +1455,7 @@ std::pair<uint32_t, uint32_t> PrimitiveProcessor::MemoryInvalidationCallback(
+@@ -1443,7 +1443,7 @@ std::pair<uint32_t, uint32_t> PrimitiveProcessor::MemoryInvalidationCallback(
    uint32_t bucket_l1_bits_index_last = bucket_index_last >> 6;
    uint32_t bucket_l2_bits_index_first = bucket_index_first >> 12;
    uint32_t bucket_l2_bits_index_last = bucket_index_last >> 12;

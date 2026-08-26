@@ -1,5 +1,5 @@
 diff --git a/src/kernel/xboxkrnl/xboxkrnl_io.cpp b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
-index 3f1a85205cb085953a9e4f65d653a9161644ec58..f6a36bf4afb8b7099a751cec9bece0c3c915c03f 100644
+index 3f1a852..f6a36bf 100644
 --- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
 +++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
 @@ -32,6 +32,47 @@

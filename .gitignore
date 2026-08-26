@@ -1,3 +1,4 @@
+
 # Copyrighted game inputs and locally derived artifacts.
 *.iso
 *.xex
@@ -15,6 +16,10 @@ references/
 sdk/
 .legal/
 private/
+/docs/*
+!/docs/BUILDING.md
+!/docs/LEGAL.md
+!/docs/TROUBLESHOOTING.md
 
 # Build output and tooling state.
 build/
@@ -46,3 +51,5 @@ launcher/**/obj/
 .DS_Store
 Thumbs.db
 *~
+
+BACKLOG.md

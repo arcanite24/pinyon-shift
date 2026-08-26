@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
   workflow_dispatch:
 
@@ -20,5 +20,7 @@ jobs:
         run: .\tools\check-repository-boundary.ps1
       - name: Test release tooling
         run: python -m unittest discover -s tools/tests -p "test_*.py"
+      - name: Check tracked Markdown links
+        run: python tools/check-markdown-links.py
       - name: Build launcher
         run: dotnet build launcher/PinyonShift.Launcher/PinyonShift.Launcher.csproj -c Release

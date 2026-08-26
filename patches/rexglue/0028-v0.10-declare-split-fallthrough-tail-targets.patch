@@ -1,0 +1,35 @@
+diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
+index 00f889b..9c79cbd 100644
+--- a/src/codegen/function_graph.cpp
++++ b/src/codegen/function_graph.cpp
+@@ -667,6 +667,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
+       const bool hasExplicitTransfer =
+           (opcode == PPC_OP_B || opcode == PPC_OP_CTR) && !PPC_BL(lastInstruction);
+       if (!hasExplicitTransfer) {
++        ctx.reference(fallthroughTarget->name());
+         emit_println(body, "\tREX_TAIL_CALL({});", fallthroughTarget->name());
+       }
+     }
+diff --git a/tests/unit/codegen/codegen_writer_test.cpp b/tests/unit/codegen/codegen_writer_test.cpp
+index 9b4b90c..162778c 100644
+--- a/tests/unit/codegen/codegen_writer_test.cpp
++++ b/tests/unit/codegen/codegen_writer_test.cpp
+@@ -224,6 +224,7 @@ TEST_CASE("Every name a recomp file calls is declared in its header", "[codegen_
+   REQUIRE(writer.write(false));
+ 
+   static const std::regex callRe(R"(\b([A-Za-z_][A-Za-z0-9_]*)\(ctx, base\))");
++  static const std::regex tailCallRe(R"(REX_TAIL_CALL\(([A-Za-z_][A-Za-z0-9_]*)\))");
+   static const std::regex declRe(R"(DECLARE_REX_FUNC\(([A-Za-z_][A-Za-z0-9_]*)\))");
+ 
+   for (const auto& entry : fs::directory_iterator(fx.outputDir())) {
+@@ -250,5 +251,10 @@ TEST_CASE("Every name a recomp file calls is declared in its header", "[codegen_
+       INFO("file " << name << " calls " << called << " with no declaration");
+       CHECK(declared.contains(called));
+     }
++    for (std::sregex_iterator it(body.begin(), body.end(), tailCallRe), end; it != end; ++it) {
++      auto called = (*it)[1].str();
++      INFO("file " << name << " tail-calls " << called << " with no declaration");
++      CHECK(declared.contains(called));
++    }
+   }
+ }

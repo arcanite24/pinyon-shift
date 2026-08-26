@@ -38,7 +38,8 @@
   },
   "rexglue": {
     "repository": "https://github.com/rexglue/rexglue-sdk.git",
-    "base_commit": "3eb9b511b4140d2769e27be63eae57d41bfa2afa",
+    "tag": "v0.10.0",
+    "base_commit": "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
     "path": ".local/rexglue",
     "patch_directory": "patches/rexglue"
   }

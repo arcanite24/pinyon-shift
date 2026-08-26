@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iomanip>
 #include <mutex>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -101,6 +102,54 @@ std::filesystem::path ExecutableDirectory() {
   }
   buffer.resize(length);
   return std::filesystem::path(buffer).parent_path();
+}
+
+struct BuildProvenance {
+  std::string schema = "unknown";
+  std::string pinyon_shift_commit = "unknown";
+  std::string pinyon_shift_dirty = "unknown";
+  std::string source_payload_sha256 = "unknown";
+  std::string rexglue_commit = "unknown";
+  std::string rexglue_patch_set_sha256 = "unknown";
+  std::string rexglue_patch_count = "unknown";
+  std::string executable_sha256 = "unknown";
+};
+
+std::string JsonStringField(const std::string& json, std::string_view key) {
+  const std::regex pattern("\"" + std::string(key) + "\"\\s*:\\s*\"([^\"]*)\"");
+  std::smatch match;
+  return std::regex_search(json, match, pattern) && match.size() == 2
+             ? match[1].str()
+             : "unknown";
+}
+
+BuildProvenance LoadBuildProvenance() {
+  BuildProvenance result;
+  std::ifstream input(ExecutableDirectory() / "pinyon_shift_build.json",
+                      std::ios::binary);
+  if (!input) {
+    return result;
+  }
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  const std::string json = contents.str();
+  result.schema = JsonStringField(json, "schema_version");
+  // schema_version is numeric in the manifest; retain a useful value without
+  // introducing a general JSON parser solely for trusted flat build metadata.
+  if (result.schema == "unknown" &&
+      std::regex_search(json, std::regex(R"("schema_version"\s*:\s*2)"))) {
+    result.schema = "2";
+  }
+  result.pinyon_shift_commit = JsonStringField(json, "pinyon_shift_commit");
+  result.pinyon_shift_dirty = JsonStringField(json, "pinyon_shift_dirty");
+  result.source_payload_sha256 =
+      JsonStringField(json, "pinyon_shift_source_payload_sha256");
+  result.rexglue_commit = JsonStringField(json, "rexglue_commit");
+  result.rexglue_patch_set_sha256 =
+      JsonStringField(json, "rexglue_patch_set_sha256");
+  result.rexglue_patch_count = JsonStringField(json, "rexglue_patch_count");
+  result.executable_sha256 = JsonStringField(json, "executable_sha256");
+  return result;
 }
 
 bool CpuHasSse41() {
@@ -381,9 +430,18 @@ bool InitializeEarly() {
   SetUnhandledExceptionFilter(UnhandledExceptionReporter);
   AddVectoredExceptionHandler(1, AccessViolationReporter);
   const std::string features = CpuFeatureSummary();
+  const BuildProvenance build = LoadBuildProvenance();
   RecordEvent("process.start",
               {{"diagnostics_schema", "1"},
                {"build_config", REXGLUE_BUILD_CONFIG},
+               {"build_manifest_schema", build.schema},
+               {"pinyon_shift_commit", build.pinyon_shift_commit},
+               {"pinyon_shift_dirty", build.pinyon_shift_dirty},
+               {"pinyon_shift_source_payload_sha256", build.source_payload_sha256},
+               {"rexglue_commit", build.rexglue_commit},
+               {"rexglue_patch_set_sha256", build.rexglue_patch_set_sha256},
+               {"rexglue_patch_count", build.rexglue_patch_count},
+               {"executable_sha256", build.executable_sha256},
                {"cpu_baseline", PINYON_SHIFT_CPU_BASELINE},
                {"cpu_features", features},
                {"state_root", g_state_root.string()}});

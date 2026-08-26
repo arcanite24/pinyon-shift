@@ -1,8 +1,8 @@
 diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
-index d36dc6fec037d56fd00a51ab15e1d805870512e6..7014e8ebced385323342b479af98d753b9871b19 100644
+index 11b83be..345a488 100644
 --- a/src/audio/xma_context.cpp
 +++ b/src/audio/xma_context.cpp
-@@ -563,6 +563,16 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -572,6 +572,16 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
    if (packet_index == -1) {
      REXAPU_ERROR("XmaContext {}: Invalid packet index. Input read offset: {}", id(),
                   static_cast<uint32_t>(data->input_buffer_read_offset));

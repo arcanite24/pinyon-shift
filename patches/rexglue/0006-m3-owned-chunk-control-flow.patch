@@ -1,5 +1,5 @@
 diff --git a/include/rex/codegen/function_graph.h b/include/rex/codegen/function_graph.h
-index 171eb67c975cde3301e85cea2fd0f7f545fcad7c..ec1d1b9612e2f1cf8b80fcc59eb2c2b67219f3a9 100644
+index c64271b..bef2515 100644
 --- a/include/rex/codegen/function_graph.h
 +++ b/include/rex/codegen/function_graph.h
 @@ -164,8 +164,10 @@ class FunctionGraph {
@@ -15,7 +15,7 @@ index 171eb67c975cde3301e85cea2fd0f7f545fcad7c..ec1d1b9612e2f1cf8b80fcc59eb2c2b6
  
    // Check if a region is vacant for absorption
    // fromAddr: the address we're expanding from (to check for null boundary)
-@@ -181,18 +183,26 @@ class FunctionGraph {
+@@ -185,18 +187,26 @@ class FunctionGraph {
  
    // Classify a branch target for code generation.
    // target: address being branched to
@@ -46,10 +46,10 @@ index 171eb67c975cde3301e85cea2fd0f7f545fcad7c..ec1d1b9612e2f1cf8b80fcc59eb2c2b6
  
    // Notify all PENDING functions that a new function was added
 diff --git a/src/codegen/builders/context.cpp b/src/codegen/builders/context.cpp
-index 6eae29de29ff77bb24eec2a032f9463a9540b521..5c40fff50b996e431e910b2abf174e6bba17168b 100644
+index f78e0d8..3db3321 100644
 --- a/src/codegen/builders/context.cpp
 +++ b/src/codegen/builders/context.cpp
-@@ -253,7 +253,7 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
+@@ -281,7 +281,7 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
  
    // Use classifyTarget for consistent branch classification
    // false = branch instruction (not a call), so own-base means loop back
@@ -59,7 +59,7 @@ index 6eae29de29ff77bb24eec2a032f9463a9540b521..5c40fff50b996e431e910b2abf174e6b
    switch (kind) {
      case TargetKind::InternalLabel:
 diff --git a/src/codegen/builders/control_flow.cpp b/src/codegen/builders/control_flow.cpp
-index 102a5386f1fe93a49b84eaa278bb345e4f7e6cdb..2d2c5a991138c8b011629c091394c98dadd9fbb2 100644
+index 26957fc..605ab0f 100644
 --- a/src/codegen/builders/control_flow.cpp
 +++ b/src/codegen/builders/control_flow.cpp
 @@ -29,7 +29,7 @@ bool build_b(BuilderContext& ctx) {
@@ -90,10 +90,10 @@ index 102a5386f1fe93a49b84eaa278bb345e4f7e6cdb..2d2c5a991138c8b011629c091394c98d
          case TargetKind::InternalLabel:
            ctx.println("\t\tgoto loc_{:X};", label);
 diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
-index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453a4339a44 100644
+index fc918bb..073b985 100644
 --- a/src/codegen/function_graph.cpp
 +++ b/src/codegen/function_graph.cpp
-@@ -932,6 +932,23 @@ void FunctionGraph::addUnresolvedJumpToFunction(uint32_t entry, uint32_t site, u
+@@ -934,6 +934,23 @@ void FunctionGraph::addUnresolvedJumpToFunction(uint32_t entry, uint32_t site, u
    if (!node)
      return;
  
@@ -117,7 +117,7 @@ index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453
    // Try immediate resolution against existing functions/imports
    if (auto* targetFn = getFunction(target)) {
      // Target is a known function - resolve as call or tail call
-@@ -1109,9 +1126,10 @@ void FunctionGraph::sealAll() {
+@@ -1111,9 +1128,10 @@ void FunctionGraph::sealAll() {
  // Vacancy Checking
  //=============================================================================
  
@@ -131,7 +131,7 @@ index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453
  }
  
  bool FunctionGraph::isVacant(uint32_t fromAddr, uint32_t targetAddr) const {
-@@ -1129,10 +1147,10 @@ bool FunctionGraph::isVacant(uint32_t fromAddr, uint32_t targetAddr) const {
+@@ -1131,10 +1149,10 @@ bool FunctionGraph::isVacant(uint32_t fromAddr, uint32_t targetAddr) const {
    }
  
    // Rule 2: Check if any chunk claims the target region
@@ -145,7 +145,7 @@ index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453
        return false;
      }
    }
-@@ -1171,37 +1189,45 @@ bool FunctionGraph::isMergeableEntryPoint(uint32_t addr) const {
+@@ -1249,37 +1267,45 @@ bool FunctionGraph::isMergeableEntryPoint(uint32_t addr) const {
    return node->authority() == FunctionAuthority::GAP_FILL;
  }
  
@@ -201,7 +201,7 @@ index 0c0d1be462abf82861a5c8d1a700c819b4d969da..66af5346fd608454129e5d8541106453
  }
  
 diff --git a/src/codegen/function_scanner.cpp b/src/codegen/function_scanner.cpp
-index d7ba51942f9001745122e6c6f2e711c004a63e67..c93a482012db2fa3d936d4c48e01eb2eea832056 100644
+index d7ba519..c93a482 100644
 --- a/src/codegen/function_scanner.cpp
 +++ b/src/codegen/function_scanner.cpp
 @@ -1006,8 +1006,15 @@ FunctionBlocks FunctionScanner::discover_blocks(rex::guest_addr_t entry_point,
@@ -232,10 +232,10 @@ index d7ba51942f9001745122e6c6f2e711c004a63e67..c93a482012db2fa3d936d4c48e01eb2e
                             target);
            is_tail_call = true;
 diff --git a/src/codegen/phase_register.cpp b/src/codegen/phase_register.cpp
-index 648785363da96bf268b824001079a43ccc6ee2b8..a5f5371f8900318e0df84cd3ea66d799ca2609ff 100644
+index 7d1fa44..ffaa51c 100644
 --- a/src/codegen/phase_register.cpp
 +++ b/src/codegen/phase_register.cpp
-@@ -555,7 +555,7 @@ VoidResult registerEntryPoints(CodegenContext& ctx) {
+@@ -558,7 +558,7 @@ VoidResult registerEntryPoints(CodegenContext& ctx) {
      configFuncs++;
  
      if (cfg.isChunk()) {

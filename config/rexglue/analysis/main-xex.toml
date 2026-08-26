@@ -61,8 +61,9 @@ registers = ["r4", "r5", "r6", "r11"]
 
 # Geometry blobs contain a count and a relocated byte-index-list pointer. A
 # continuation may expose an entry whose count is nonzero while the complete
-# list range is unreadable. Normalize only that invalid pair to an empty list
-# before the loop condition; the host hook records every repair.
+# list range is unreadable. Normalize that invalid pair to an empty list in the
+# relocated entry before the loop condition, so sibling consumers cannot
+# repeatedly observe the same corrupt count; the host hook records the repair.
 [[midasm_hook]]
 address = 0x82D3DB54
 name = "PinyonShiftValidateGeometryIndexList"
@@ -71,6 +72,7 @@ registers = ["r8", "r29", "r31"]
 # The same serialized 12-byte entry carries a sibling byte-index list at +0
 # and its count at +8. Validate this pair independently after the count load so
 # a primary-list repair cannot fall through to an equivalent unreadable lbzx.
+# Invalid pairs are normalized in the relocated entry for subsequent consumers.
 [[midasm_hook]]
 address = 0x82D3DBF4
 name = "PinyonShiftValidateGeometrySecondaryIndexList"
@@ -97,8 +99,8 @@ registers = ["r28", "r31"]
 # Runtime write-watch evidence maps
 # this address to the instruction immediately after the active transform slot's
 # position and forward vectors have been stored by sub_82BC5870. The hook always
-# suppresses isolated implausible presentation transforms; structured telemetry
-# remains opt-in and rate-limited in the host implementation.
+# can suppress isolated implausible presentation transforms when explicitly
+# enabled; structured telemetry remains opt-in and rate-limited in the host.
 [[midasm_hook]]
 address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"

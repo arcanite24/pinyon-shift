@@ -1,0 +1,14 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1612,10 +1612,8 @@ bool CommandProcessor::ExecutePacketType3_VIZ_QUERY(memory::RingBuffer* reader,
+     // is different to the register)
+     WriteRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, VIZQUERY_START);
+-    REXGPU_INFO("Begin viz query ID {:02X}", id);
+   } else {
+     // end the viz query
+     WriteRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, VIZQUERY_END);
+-    REXGPU_INFO("End viz query ID {:02X}", id);
+     // The scan converter writes the internal result back to the register here.
+     // We just fake it and say it was visible in case it is read back.
+     if (id < 32) {

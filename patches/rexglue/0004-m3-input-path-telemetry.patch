@@ -1,8 +1,8 @@
 diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
-index d4188dff2bca16f039d39876d093fdb68fe10c8e..c10488cba2f2c62f8f0d8df9c75c4e846e71831f 100644
+index c8751b7..f67fc45 100644
 --- a/include/rex/input/mnk/mnk_input_driver.h
 +++ b/include/rex/input/mnk/mnk_input_driver.h
-@@ -63,6 +63,9 @@ class MnkInputDriver final : public InputDriver,
+@@ -75,6 +75,9 @@ class MnkInputDriver final : public InputDriver,
  
    std::mutex state_mutex_;
    bool key_down_[256] = {};
@@ -10,10 +10,10 @@ index d4188dff2bca16f039d39876d093fdb68fe10c8e..c10488cba2f2c62f8f0d8df9c75c4e84
 +  // it. Without this, a short host key tap may begin and end between polls.
 +  uint16_t latched_buttons_ = 0;
  
-   // Mouse delta tracking
-   int32_t mouse_dx_ = 0;
+   // Mouse delta tracking. Fractional because relative motion arrives in
+   // fractions of a pixel, and truncating each event drops slow movement.
 diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
-index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed2553b25ec0 100644
+index 3f9422d..6990d11 100644
 --- a/src/input/mnk/mnk_input_driver.cpp
 +++ b/src/input/mnk/mnk_input_driver.cpp
 @@ -18,6 +18,7 @@
@@ -22,9 +22,9 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
  #include <algorithm>
 +#include <atomic>
  #include <cmath>
+ #include <cstdlib>
  #include <cstring>
- 
-@@ -57,6 +58,19 @@ namespace rex::input::mnk {
+@@ -149,6 +150,19 @@ bool IsMouseLookActive() {
  
  using rex::ui::VirtualKey;
  
@@ -44,15 +44,28 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
  MnkInputDriver::MnkInputDriver(rex::ui::Window* window, size_t window_z_order)
      : InputDriver(window, window_z_order) {}
  
-@@ -111,6 +125,31 @@ static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_v
-   return idx < 256 && key_down[idx];
+@@ -219,6 +233,44 @@ static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_v
+   return false;
  }
  
-+static uint16_t GetButtonsForKey(uint16_t vk) {
++static uint16_t GetButtonsForKey(const bool (&key_down)[256], uint16_t vk) {
++  const uint8_t live_mods = LiveModifiers(key_down);
 +  uint16_t buttons = 0;
-+  auto add_if_bound = [vk, &buttons](const std::string& binding, uint16_t button) {
-+    if (static_cast<uint16_t>(rex::ui::ParseVirtualKey(binding)) == vk) {
-+      buttons |= button;
++  auto add_if_bound = [&](const std::string& binding, uint16_t button) {
++    std::string_view rest(binding);
++    while (!rest.empty()) {
++      const size_t comma = rest.find(',');
++      std::string_view token = TrimSpaces(rest.substr(0, comma));
++      if (comma == std::string_view::npos) {
++        rest = {};
++      } else {
++        rest.remove_prefix(comma + 1);
++      }
++      const uint8_t wanted_mods = TakeModifiers(token);
++      if (wanted_mods == live_mods &&
++          static_cast<uint16_t>(rex::ui::ParseVirtualKey(token)) == vk) {
++        buttons |= button;
++      }
 +    }
 +  };
 +  add_if_bound(REXCVAR_GET(keybind_a), X_INPUT_GAMEPAD_A);
@@ -73,31 +86,30 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
 +  return buttons;
 +}
 +
- X_RESULT MnkInputDriver::GetCapabilities(uint32_t user_index, uint32_t flags,
-                                          X_INPUT_CAPABILITIES* out_caps) {
-   if (!IsEnabled() || user_index != UserIndex()) {
-@@ -135,6 +174,20 @@ X_RESULT MnkInputDriver::GetCapabilities(uint32_t user_index, uint32_t flags,
+ void MnkInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
+   // Disabled means no device at all, so it never occupies a guest user slot.
+   if (!IsEnabled()) {
+@@ -255,6 +307,19 @@ X_RESULT MnkInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
  }
  
- X_RESULT MnkInputDriver::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
 +  bool expected = false;
 +  if (g_m3_key_observed.load(std::memory_order_acquire) &&
 +      g_m3_logged_first_post_key_poll.compare_exchange_strong(expected, true)) {
-+    REXLOG_INFO("M3_TRACE input.poll.after_key user={} enabled={} active={} focus={}", user_index,
-+                IsEnabled(), is_active(), has_focus_);
++    REXLOG_INFO("M3_TRACE input.poll.after_key enabled={} active={} focus={}", IsEnabled(),
++                is_active(), has_focus_.load(std::memory_order_relaxed));
 +  }
 +  expected = false;
 +  if (g_m3_logged_first_poll.compare_exchange_strong(expected, true)) {
 +    REXLOG_INFO(
-+        "M3_TRACE input.poll.first enabled={} user={} configured_user={} active={} focus={} "
-+        "start_bind=\"{}\"",
-+        IsEnabled(), user_index, UserIndex(), is_active(), has_focus_, REXCVAR_GET(keybind_start));
++        "M3_TRACE input.poll.first enabled={} active={} focus={} start_bind=\"{}\"",
++        IsEnabled(), is_active(), has_focus_.load(std::memory_order_relaxed),
++        REXCVAR_GET(keybind_start));
 +  }
-+
-   if (!IsEnabled() || user_index != UserIndex()) {
+   if (!IsEnabled() || id != kMnkDevice) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
    }
-@@ -183,6 +236,15 @@ X_RESULT MnkInputDriver::GetState(uint32_t user_index, X_INPUT_STATE* out_state)
+@@ -306,6 +371,15 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
    if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_right)))
      buttons |= X_INPUT_GAMEPAD_DPAD_RIGHT;
  
@@ -106,14 +118,14 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
 +
 +  expected = false;
 +  if (buttons != 0 && g_m3_logged_first_buttons.compare_exchange_strong(expected, true)) {
-+    REXLOG_INFO("M3_TRACE input.buttons.first user={} buttons={:04X} packet={}", user_index,
-+                buttons, packet_number_);
++    REXLOG_INFO("M3_TRACE input.buttons.first buttons={:04X} packet={}", buttons,
++                packet_number_);
 +  }
 +
    uint8_t lt = IsBindPressed(key_down_, REXCVAR_GET(keybind_left_trigger)) ? 0xFF : 0;
    uint8_t rt = IsBindPressed(key_down_, REXCVAR_GET(keybind_right_trigger)) ? 0xFF : 0;
  
-@@ -306,11 +368,30 @@ void MnkInputDriver::SetKeyState(uint16_t vk, bool down) {
+@@ -481,11 +555,31 @@ void MnkInputDriver::SetKeyState(uint16_t vk, bool down) {
  }
  
  void MnkInputDriver::OnKeyDown(rex::ui::KeyEvent& e) {
@@ -122,7 +134,8 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
 +    REXLOG_INFO(
 +        "M3_TRACE input.key.first vk={:04X} enabled={} focus={} start_vk={:04X} "
 +        "start_bind=\"{}\"",
-+        static_cast<uint16_t>(e.virtual_key()), IsEnabled(), has_focus_,
++        static_cast<uint16_t>(e.virtual_key()), IsEnabled(),
++        has_focus_.load(std::memory_order_relaxed),
 +        static_cast<uint16_t>(rex::ui::ParseVirtualKey(REXCVAR_GET(keybind_start))),
 +        REXCVAR_GET(keybind_start));
 +  }
@@ -133,7 +146,7 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
 +  bool newly_pressed = vk < 256 && !key_down_[vk];
    SetKeyState(vk, true);
 +  if (newly_pressed) {
-+    latched_buttons_ |= GetButtonsForKey(vk);
++    latched_buttons_ |= GetButtonsForKey(key_down_, vk);
 +  }
 +  g_m3_key_observed.store(true, std::memory_order_release);
 +  expected = false;
@@ -144,23 +157,22 @@ index cff5b1ae521fc590750caf48453f35cac15da9d1..f4540b8c96b482e885cb10f22db9ed25
  }
  
  void MnkInputDriver::OnKeyUp(rex::ui::KeyEvent& e) {
-@@ -373,8 +454,13 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
+@@ -565,7 +659,12 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
+   mouse_capture_requested_.store(false, std::memory_order_relaxed);
+   {
+     std::lock_guard lock(state_mutex_);
++    bool expected = false;
++    if (g_m3_logged_first_lost_focus.compare_exchange_strong(expected, true)) {
++      REXLOG_INFO("M3_TRACE input.focus.lost.first latched_buttons={:04X}", latched_buttons_);
++    }
+     std::memset(key_down_, 0, sizeof(key_down_));
++    latched_buttons_ = 0;
+     mouse_dx_ = 0.0f;
+     mouse_dy_ = 0.0f;
+   }
+@@ -576,6 +675,10 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
  
- void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
-   std::lock_guard lock(state_mutex_);
-+  bool expected = false;
-+  if (g_m3_logged_first_lost_focus.compare_exchange_strong(expected, true)) {
-+    REXLOG_INFO("M3_TRACE input.focus.lost.first latched_buttons={:04X}", latched_buttons_);
-+  }
-   has_focus_ = false;
-   std::memset(key_down_, 0, sizeof(key_down_));
-+  latched_buttons_ = 0;
-   mouse_dx_ = 0;
-   mouse_dy_ = 0;
-   if (mouse_captured_ && attached_window_) {
-@@ -387,6 +473,10 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
  void MnkInputDriver::OnGotFocus(rex::ui::UISetupEvent&) {
-   std::lock_guard lock(state_mutex_);
    has_focus_ = true;
 +  bool expected = false;
 +  if (g_m3_logged_first_focus.compare_exchange_strong(expected, true)) {

@@ -1,9 +1,9 @@
-# Pinyon Shift manifest for the pinned ReXGlue 0.9.0 candidate.
+# Pinyon Shift manifest for the pinned ReXGlue 0.10.0 release.
 # Game inputs and translated output deliberately resolve into ignored .local paths.
 
 [project]
 name = "pinyon_shift"
-sdk_version = "0.9.0"
+sdk_version = "0.10.0"
 game_root = "../../.local/game/base"
 
 [entrypoint]

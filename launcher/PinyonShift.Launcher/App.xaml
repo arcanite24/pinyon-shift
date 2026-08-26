@@ -81,5 +81,13 @@
             <Setter Property="Padding" Value="14,12"/>
             <Setter Property="CaretBrush" Value="{StaticResource AmberBrush}"/>
         </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="FontFamily" Value="Bahnschrift, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}"/>
+            <Setter Property="Background" Value="{StaticResource FogBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+            <Setter Property="Padding" Value="8,6"/>
+        </Style>
     </Application.Resources>
 </Application>

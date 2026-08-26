@@ -1,5 +1,5 @@
 diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
-index 67f7070132832ad48c5cb217e5060bd31fa6d396..6ba20aa48f42af388cd070a86f025d59c1b44450 100644
+index bd43109..8b0927d 100644
 --- a/src/system/function_dispatcher.cpp
 +++ b/src/system/function_dispatcher.cpp
 @@ -35,8 +35,11 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {

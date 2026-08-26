@@ -22,8 +22,10 @@ before deciding whether to run it.
 
 ## A download fails
 
-Check the internet connection and run the launcher again. Partially downloaded
-files are not trusted; every pinned archive is SHA-256 verified before use.
+Check the internet connection and run the launcher again. ReXGlue and its
+submodules are retried automatically after transient GitHub/network failures.
+Partially downloaded files are not trusted; every pinned archive is SHA-256
+verified before use.
 
 ## The build fails
 
@@ -50,6 +52,13 @@ controller-remapping software temporarily, reconnect the controller, and relaunc
 When reporting another unsupported controller, include its exact name, USB
 vendor/product IDs, button count, axis count, and a screenshot from a gamepad
 tester. Do not attach input recordings.
+
+## A selected Xbox menu item does not respond
+
+Xbox menus do not use Windows pointer targeting. Use controller A or Space to
+activate the selected item. Pinyon Shift also maps a left click to controller A,
+so clicking while `SIGN IN` or another row is selected activates that row.
+Press Enter for the Xbox Start button.
 
 ## The game crashes
 

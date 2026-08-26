@@ -9,6 +9,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -21,15 +22,19 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 1, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 4, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
+REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
+                    "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 1;
+constexpr uint32_t kConfigSchema = 4;
 
-bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
+bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
+                           bool& migrated) {
   created = false;
+  migrated = false;
   if (!std::filesystem::exists(path)) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) {
@@ -43,10 +48,16 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
               "input_backend = \"sdl\"\n"
               "hid_mappings_file = \"gamecontrollerdb.txt\"\n"
               "mnk_mode = true\n"
+              "keybind_a = \"LMB,Space\"\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
-              "pinyon_shift_stabilize_vehicle_presentation = true\n"
-              "pinyon_shift_skip_opening_movies = false\n";
+              "pinyon_shift_capture_performance = true\n"
+              "pinyon_shift_stabilize_vehicle_presentation = false\n"
+              "pinyon_shift_skip_opening_movies = false\n"
+              "anisotropic_override = 3\n"
+              "swap_post_effect = \"none\"\n"
+              "draw_resolution_scale_x = 1\n"
+              "draw_resolution_scale_y = 1\n";
     created = true;
     return output.good();
   }
@@ -57,6 +68,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
   }
   std::ostringstream contents;
   contents << input.rdbuf();
+  input.close();
   const std::string config_text = contents.str();
   const std::regex schema_pattern(
       R"((?:^|\n)\s*pinyon_shift_config_schema\s*=\s*([0-9]+)\s*(?:#.*)?(?:\r?\n|$))");
@@ -65,7 +77,92 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created) {
     return false;
   }
   try {
-    return std::stoul(match[1].str()) == kConfigSchema;
+    const uint32_t schema = std::stoul(match[1].str());
+    if (schema == kConfigSchema) {
+      return true;
+    }
+    if (schema < 1 || schema > 3) {
+      return false;
+    }
+
+    std::filesystem::path backup = path;
+    backup += L".schema" + std::to_wstring(schema) + L".bak";
+    std::error_code backup_error;
+    std::filesystem::copy_file(path, backup,
+                               std::filesystem::copy_options::skip_existing,
+                               backup_error);
+    if (backup_error && backup_error != std::errc::file_exists) {
+      return false;
+    }
+
+    std::string migrated_text = config_text;
+    migrated_text.replace(static_cast<size_t>(match.position(1)),
+                          static_cast<size_t>(match.length(1)),
+                          std::to_string(kConfigSchema));
+    if (schema == 1) {
+      const std::regex stabilization_pattern(
+          R"((?:^|\n)\s*pinyon_shift_stabilize_vehicle_presentation\s*=\s*(true|false)\s*(?:#.*)?(?:\r?\n|$))");
+      std::smatch stabilization_match;
+      if (std::regex_search(migrated_text, stabilization_match,
+                            stabilization_pattern)) {
+        migrated_text.replace(
+            static_cast<size_t>(stabilization_match.position(1)),
+            static_cast<size_t>(stabilization_match.length(1)), "false");
+      } else {
+        if (!migrated_text.empty() && migrated_text.back() != '\n') {
+          migrated_text.push_back('\n');
+        }
+        migrated_text +=
+            "pinyon_shift_stabilize_vehicle_presentation = false\n";
+      }
+    }
+
+    const std::regex accept_binding_pattern(
+        R"((?:^|\n)\s*keybind_a\s*=\s*\"[^\"]*\"\s*(?:#.*)?(?:\r?\n|$))");
+    if (!std::regex_search(migrated_text, accept_binding_pattern)) {
+      if (!migrated_text.empty() && migrated_text.back() != '\n') {
+        migrated_text.push_back('\n');
+      }
+      migrated_text += "keybind_a = \"LMB,Space\"\n";
+    }
+
+    const std::pair<const char*, const char*> graphics_settings[] = {
+        {"anisotropic_override", "anisotropic_override = 3\n"},
+        {"swap_post_effect", "swap_post_effect = \"none\"\n"},
+        {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
+        {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
+    };
+    for (const auto& [name, line] : graphics_settings) {
+      const std::regex setting_pattern("(?:^|\\n)\\s*" + std::string(name) +
+                                       "\\s*=", std::regex::icase);
+      if (!std::regex_search(migrated_text, setting_pattern)) {
+        if (!migrated_text.empty() && migrated_text.back() != '\n') {
+          migrated_text.push_back('\n');
+        }
+        migrated_text += line;
+      }
+    }
+
+    std::filesystem::path temporary = path;
+    temporary += L".migrating";
+    {
+      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+      if (!output) {
+        return false;
+      }
+      output << migrated_text;
+      if (!output.good()) {
+        return false;
+      }
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+      std::error_code error;
+      std::filesystem::remove(temporary, error);
+      return false;
+    }
+    migrated = true;
+    return true;
   } catch (const std::exception&) {
     return false;
   }
@@ -94,7 +191,9 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   paths.config_path = state_root / "config" / "pinyon_shift.toml";
 
   bool config_created = false;
-  if (!EnsureSupportedConfig(paths.config_path, config_created)) {
+  bool config_migrated = false;
+  if (!EnsureSupportedConfig(paths.config_path, config_created,
+                             config_migrated)) {
     diagnostics::RecordEvent("config.unsupported",
                              {{"path", paths.config_path.string()},
                               {"required_schema", std::to_string(kConfigSchema)}});
@@ -118,11 +217,17 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
        {"config", paths.config_path.string()},
        {"config_schema", std::to_string(kConfigSchema)},
        {"config_created", config_created ? "1" : "0"},
+       {"config_migrated", config_migrated ? "1" : "0"},
        {"log", REXCVAR_GET(log_file)}});
 }
 
 void PinyonShiftApp::OnPostInitLogging() {
-  const std::string perf_csv = rex::cvar::GetFlagByName("perf_log_csv");
+  std::string perf_csv = rex::cvar::GetFlagByName("perf_log_csv");
+  if (perf_csv.empty() && REXCVAR_GET(pinyon_shift_capture_performance)) {
+    perf_csv = (pinyon_shift::diagnostics::StateRoot() / "logs" /
+                (pinyon_shift::diagnostics::SessionId() + ".perf.csv"))
+                   .string();
+  }
   if (!perf_csv.empty()) {
     rex::perf::SetCsvLogPath(perf_csv);
   }
@@ -141,6 +246,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
                         {"draw_resolution_scale_y",
                          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+                        {"anisotropic_override",
+                         rex::cvar::GetFlagByName("anisotropic_override")},
+                        {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
                         {"perf_csv_enabled", perf_csv.empty() ? "0" : "1"},
                         {"perf_csv", perf_csv}});
 }

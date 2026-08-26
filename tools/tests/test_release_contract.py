@@ -27,24 +27,123 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertTrue(item["url"].startswith("https://"))
             self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
         self.assertTrue(data["visual_studio"]["bootstrap_url"].startswith("https://"))
+        self.assertEqual(data["rexglue"]["tag"], "v0.10.0")
         self.assertRegex(data["rexglue"]["base_commit"], r"^[0-9a-f]{40}$")
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertGreater(len(patches), 0)
+        self.assertEqual(len(patches), 35)
+        self.assertEqual(
+            patches[-1].name,
+            "0035-suppress-high-volume-viz-query-logging.patch",
+        )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
             text = path.read_text(encoding="utf-8", errors="strict")
             self.assertIn("diff --git", text)
             self.assertNotIn("GIT binary patch", text)
 
+    def test_rexglue_010_version_and_patch_migration_contract(self):
+        toolchain = json.loads((ROOT / "config/release-toolchain.json").read_text())
+        self.assertEqual(toolchain["rexglue"]["tag"], "v0.10.0")
+        self.assertEqual(
+            toolchain["rexglue"]["base_commit"],
+            "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
+        )
+        manifest = (ROOT / "config/rexglue/pinyon_shift_manifest.toml").read_text()
+        integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
+        self.assertIn('sdk_version = "0.10.0"', manifest)
+        self.assertIn("find_package(rexglue 0.10.0 EXACT", integration)
+        self.assertNotIn("ReXGlue SDK 0.9.0", integration)
+
+        dispositions = (ROOT / "config/rexglue/PATCH_DISPOSITIONS.md").read_text()
+        for number in range(27):
+            self.assertIn(f"`{number:04d}`", dispositions)
+        self.assertIn(
+            "`0000` Windows migration-test stabilization | Retire", dispositions
+        )
+        self.assertFalse(
+            (ROOT / "patches/rexglue/0000-v0.9-windows-migration-test-stabilization.patch").exists()
+        )
+
+    def test_rexglue_codegen_is_dependency_tracked_and_explicitly_cleanable(self):
+        build = (ROOT / "tools/build-preview.ps1").read_text()
+        integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
+        self.assertIn("[switch]$CleanGenerated", build)
+        self.assertIn("$requiresBootstrap", build)
+        self.assertIn("codegen.build.stamp", build)
+        self.assertIn("DEPFILE", integration)
+        self.assertIn("-fasync-exceptions", integration)
+        self.assertIn("target_precompile_headers", integration)
+        self.assertIn("_recomp OBJECT", integration)
+        self.assertIn("--ignore-stamp", integration)
+        self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
+        self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
+
+        package_script = (ROOT / "tools/package-launcher.ps1").read_text()
+        self.assertIn("$_.Name -ne 'generated'", package_script)
+        self.assertIn("Add-Type -AssemblyName System.IO.Compression\n", package_script)
+        self.assertIn("function New-DeterministicZip", package_script)
+        self.assertIn("FromUnixTimeSeconds", package_script)
+
+    def test_rexglue_downloads_retry_and_windows_skips_optional_libusb(self):
+        prepare = (ROOT / "tools/prepare-rexglue.ps1").read_text(encoding="utf-8")
+        build = (ROOT / "tools/build-preview.ps1").read_text(encoding="utf-8")
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("function Invoke-PinyonGitWithRetry", prepare)
+        self.assertIn("$maximumAttempts = 3", prepare)
+        self.assertIn("http.version=HTTP/1.1", prepare)
+        self.assertIn("submodule', 'update', '--init', '--recursive'", prepare)
+        self.assertNotIn("clone --recursive", prepare)
+        self.assertIn("-DSDL_HIDAPI_LIBUSB=OFF", build)
+        self.assertIn("set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL", cmake)
+
     def test_launcher_payload_has_every_required_script(self):
         required = {
             "build-preview.ps1", "create-crash-report.ps1", "install-build-tools.ps1", "launch-preview.ps1",
             "prepare-rexglue.ps1", "provision-toolchain.ps1", "release-common.ps1",
-            "setup-preview.ps1", "verify-game.ps1",
+            "set-graphics-experiment.ps1", "setup-preview.ps1", "verify-game.ps1",
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
+        package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
+        for shipped in ("set-graphics-experiment.ps1", "verify-codegen-log.py"):
+            self.assertIn(shipped, package_script)
+
+    def test_graphics_schema_and_diagnostics_contract(self):
+        app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
+        self.assertIn("constexpr uint32_t kConfigSchema = 4", app)
+        self.assertIn(".schema", app)
+        for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
+            self.assertIn(setting, app)
+            self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+
+    def test_renderer_and_stub_instrumentation_is_bounded(self):
+        stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
+        self.assertIn("kMaximumStubReachabilityEntries = 128", stub_patch)
+        self.assertIn("SDK_STUB first module={}", stub_patch)
+        self.assertIn("SDK_STUB summary", stub_patch)
+        memexport_patch = (ROOT / "patches/rexglue/0032-memexport-coherency-counters.patch").read_text(encoding="utf-8")
+        for counter in ("memexport_draws", "memexport_bytes", "memexport_sync_fallbacks",
+                        "memexport_queue_waits", "memexport_fence_waits"):
+            self.assertIn(counter, memexport_patch)
+
+    def test_runtime_config_migrates_vehicle_stabilization_and_menu_accept_input(self):
+        app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
+        hooks = (ROOT / "src/pinyon_shift_runtime_hooks.cpp").read_text(encoding="utf-8")
+        launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("constexpr uint32_t kConfigSchema = 4;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*4,")
+        self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
+        self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
+        self.assertIn("schema < 1 || schema > 3", app)
+        self.assertIn("Controller A, Space, or left click.", launcher)
+        self.assertRegex(
+            hooks,
+            r"pinyon_shift_stabilize_vehicle_presentation,\s*false,",
+        )
 
     def test_8bitdo_ultimate_2c_wired_mapping_is_shipped(self):
         mappings = (ROOT / "config/gamecontrollerdb.txt").read_text(encoding="utf-8")

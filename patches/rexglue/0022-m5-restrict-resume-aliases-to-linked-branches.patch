@@ -1,5 +1,5 @@
 diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
-index 441b757e9851b4b4b37613906e6b27bfda79f23b..17fcb2d766c0bfd67d20b473a8979446fc976f44 100644
+index c0d3b97..00f889b 100644
 --- a/src/codegen/function_graph.cpp
 +++ b/src/codegen/function_graph.cpp
 @@ -357,7 +357,13 @@ std::vector<uint32_t> FunctionNode::resumableReturnAddresses(const BinaryView& b
@@ -18,7 +18,7 @@ index 441b757e9851b4b4b37613906e6b27bfda79f23b..17fcb2d766c0bfd67d20b473a8979446
        }
  
 diff --git a/tests/unit/codegen/resume_entry_test.cpp b/tests/unit/codegen/resume_entry_test.cpp
-index bfb4eaba15f82339f188f4efa05f8c3f86385b62..b49154fe676622cd86114c08840b8ad2cbe66e39 100644
+index d0a0674..bfde72e 100644
 --- a/tests/unit/codegen/resume_entry_test.cpp
 +++ b/tests/unit/codegen/resume_entry_test.cpp
 @@ -17,9 +17,10 @@

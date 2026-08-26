@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 81f439146bb688decd9f588f514ebddbba527d65..9c39c7167d8b8a669373f23b15546ba48566d2be 100644
+index 5e33dd8..41e610e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -139,7 +139,8 @@ add_compile_definitions(REXGLUE_BUILD_CONFIG="$<CONFIG>")
+@@ -188,7 +188,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_pch.cmake)
  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_version.cmake)
  rex_resolve_version(REXGLUE_FULL_VERSION
      FLOOR_MAJOR ${PROJECT_VERSION_MAJOR}
@@ -12,7 +12,7 @@ index 81f439146bb688decd9f588f514ebddbba527d65..9c39c7167d8b8a669373f23b15546ba4
  
  # Strip the -id trailer (if any) for the numeric-only version.
  string(REGEX REPLACE "-.*$" "" REXGLUE_NUMERIC_VERSION "${REXGLUE_FULL_VERSION}")
-@@ -172,9 +173,11 @@ configure_file(
+@@ -223,9 +224,11 @@ configure_file(
  )
  
  # Output directories (multi-config appends /<Config>/ automatically)

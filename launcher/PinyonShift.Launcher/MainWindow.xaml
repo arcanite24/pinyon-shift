@@ -191,6 +191,84 @@
                 </Grid>
             </Border>
 
+            <Border Grid.Row="1" Grid.RowSpan="3" x:Name="GraphicsPanel" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5"
+                    Margin="0,18,0,0" Visibility="Collapsed"
+                    AutomationProperties.Name="Experimental graphics settings">
+                <Grid Margin="24,20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="BACK" Style="{StaticResource QuietButton}"
+                                Click="CloseGraphicsButton_Click" AutomationProperties.Name="Close graphics settings"/>
+                        <StackPanel>
+                            <TextBlock Text="EXPERIMENTAL GRAPHICS" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{StaticResource AmberBrush}"/>
+                            <TextBlock Text="Tune the translated renderer." FontFamily="Bahnschrift SemiCondensed"
+                                       FontSize="25" FontWeight="SemiBold" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock Grid.Row="1" Margin="0,10,0,16" Foreground="{StaticResource MutedBrush}"
+                               TextWrapping="Wrap" LineHeight="19"
+                               Text="Changes are validated and backed up before they are saved. Restart the preview to apply them."/>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="TEXTURE FILTERING" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox x:Name="AnisotropyComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      AutomationProperties.Name="Texture filtering">
+                                <ComboBoxItem Tag="4"><TextBlock Text="4× anisotropic" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="8"><TextBlock Text="8× anisotropic" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="16"><TextBlock Text="16× anisotropic" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="EDGE SMOOTHING" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox x:Name="PostEffectComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      AutomationProperties.Name="Edge smoothing">
+                                <ComboBoxItem Tag="none"><TextBlock Text="Off" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="fxaa"><TextBlock Text="FXAA" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="fxaa_extreme"><TextBlock Text="FXAA Extreme" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="INTERNAL RESOLUTION" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox x:Name="ResolutionComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      AutomationProperties.Name="Internal resolution">
+                                <ComboBoxItem Tag="1"><TextBlock Text="Native · 1×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="2"><TextBlock Text="Experimental · 2×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                    <Border Grid.Row="3" Background="#171B17" BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="1" CornerRadius="4" Padding="14,11" Margin="0,17,0,0">
+                        <TextBlock x:Name="GraphicsStatusText" Text="Loading current settings…" TextWrapping="Wrap"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="11"
+                                   AutomationProperties.LiveSetting="Polite"/>
+                    </Border>
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                        <Button x:Name="RestoreGraphicsButton" Content="RESTORE BACKUP" Style="{StaticResource QuietButton}"
+                                Margin="0,0,10,0" Click="RestoreGraphicsButton_Click"/>
+                        <Button x:Name="ResetGraphicsButton" Content="RESET DEFAULTS" Style="{StaticResource QuietButton}"
+                                Margin="0,0,10,0" Click="ResetGraphicsButton_Click"/>
+                        <Button x:Name="SaveGraphicsButton" Content="SAVE SETTINGS" Style="{StaticResource ActionButton}"
+                                Click="SaveGraphicsButton_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
             <Grid Grid.Row="4" Margin="0,22,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -201,6 +279,9 @@
                     <TextBlock Text="I own this copy and dumped it from my own disc." TextWrapping="Wrap"/>
                 </CheckBox>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="GraphicsSettingsButton" Content="GRAPHICS" Style="{StaticResource QuietButton}"
+                            Visibility="Collapsed" Margin="0,0,12,0" Click="GraphicsSettingsButton_Click"
+                            AutomationProperties.HelpText="Open validated experimental graphics settings."/>
                     <Button x:Name="ReportProblemButton" Content="REPORT A PROBLEM" Style="{StaticResource QuietButton}"
                             Margin="0,0,12,0" Click="ReportProblemButton_Click"
                             AutomationProperties.HelpText="Open the Pinyon Shift bug report form on GitHub."/>

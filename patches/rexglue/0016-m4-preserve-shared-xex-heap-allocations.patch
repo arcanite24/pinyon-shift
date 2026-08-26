@@ -1,5 +1,5 @@
 diff --git a/src/system/xex_module.cpp b/src/system/xex_module.cpp
-index f3c57595849282caeac194259b93520e70d8c9f4..6361b12543bbd194534a26c0541a21cca195b8c5 100644
+index 0726516..7ca1eaa 100644
 --- a/src/system/xex_module.cpp
 +++ b/src/system/xex_module.cpp
 @@ -460,7 +460,11 @@ int XexModule::ReadImage(const void* xex_addr, size_t xex_length, bool use_dev_k

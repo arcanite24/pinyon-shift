@@ -1,5 +1,5 @@
 diff --git a/src/kernel/xam/xam_content.cpp b/src/kernel/xam/xam_content.cpp
-index 1fb1e16a952e9737260805e1a9fc9cf90d30e74a..b7787dbff5f790f06b26a72083658fe1276e1662 100644
+index 1fb1e16..b7787db 100644
 --- a/src/kernel/xam/xam_content.cpp
 +++ b/src/kernel/xam/xam_content.cpp
 @@ -88,6 +88,10 @@ u32 XamContentCreateEnumerator_entry(u32 user_index, u32 device_id, u32 content_
