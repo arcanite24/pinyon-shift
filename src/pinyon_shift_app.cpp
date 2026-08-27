@@ -18,6 +18,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xthread.h>
 
+#include "native_renderer/graphics_hooks.h"
 #include "pinyon_shift_diagnostics.h"
 
 #include <cstdio>
@@ -298,6 +299,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                          rex::cvar::GetFlagByName("disable_motion_blur")},
                         {"disable_depth_of_field",
                          rex::cvar::GetFlagByName("disable_depth_of_field")},
+                        {"native_renderer_census",
+                         rex::cvar::GetFlagByName(
+                             "pinyon_shift_native_renderer_census")},
                         {"occlusion_query", rex::cvar::GetFlagByName("occlusion_query")},
                         {"zpd_end_policy", rex::cvar::GetFlagByName("zpd_end_policy")},
                         {"zpd_end_fallback", rex::cvar::GetFlagByName("zpd_end_fallback")},
@@ -331,6 +335,8 @@ void PinyonShiftApp::OnPostLoadXexImage() {
 
 void PinyonShiftApp::OnPostSetup() {
   pinyon_shift::diagnostics::RefreshCrashReporter();
+  pinyon_shift::native_renderer::InstallDrawCensus(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::diagnostics::RecordEvent(
       "runtime.setup.complete",
       {{"memory", runtime() && runtime()->memory() ? "1" : "0"},
@@ -365,6 +371,8 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
 }
 
 void PinyonShiftApp::OnShutdown() {
+  pinyon_shift::native_renderer::UninstallDrawCensus(
+      runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
 }
 

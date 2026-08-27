@@ -24,9 +24,46 @@ class NativeRendererContractTests(unittest.TestCase):
         )
         self.assertIn("pinyon_shift_native_renderer_census, false", source)
         self.assertIn("kFrameSummaryInterval = 300", source)
+        self.assertIn("kSignatureCapacity = 4096", source)
+        self.assertIn("kSummaryLimit = 16", source)
+        self.assertIn("unique_signature_count", source)
+        self.assertIn("overflow_draw_count", source)
+        self.assertIn("kRequiresRestart", source)
         self.assertIn('"mode", "pass_through"', source)
         self.assertNotIn("REX_STORE", source)
         self.assertNotIn("GuestPtr", source)
+
+    def test_draw_observer_is_read_only_and_contains_no_payload(self):
+        patch = (ROOT / "patches/rexglue/0044-graphics-draw-observer.patch").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("GraphicsDrawObservation", patch)
+        self.assertIn("auto draw_observer = graphics_system_->draw_observer();", patch)
+        self.assertIn("if (draw_observer) {", patch)
+        self.assertIn("draw_observer(observation);", patch)
+        self.assertLess(
+            patch.index("draw_observer(observation);"),
+            patch.index("draw_succeeded = IssueDraw"),
+        )
+        self.assertLess(
+            patch.index("if (draw_observer) {"),
+            patch.index("GraphicsDrawObservation observation;"),
+        )
+        self.assertIn("vertex_shader_hash", patch)
+        self.assertIn("pixel_shader_hash", patch)
+        self.assertIn("vertex_memexport", patch)
+        for forbidden in ("shader_code", "texture_data", "vertex_data", "payload"):
+            self.assertNotIn(forbidden, patch)
+
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        signature = source.split("DrawSignature(", 1)[1].split(
+            "EmitDrawCensusWindow", 1
+        )[0]
+        self.assertIn("observation.primitive_type", signature)
+        self.assertIn("observation.source_select", signature)
+        self.assertNotIn("observation.initiator", signature)
 
     def test_first_pr_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
