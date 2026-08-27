@@ -1,8 +1,8 @@
 diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
-index 4861e40..fe3126c 100644
+index 4861e40..3ed2da2 100644
 --- a/include/rex/audio/xma/context.h
 +++ b/include/rex/audio/xma/context.h
-@@ -205,6 +205,35 @@ struct AssembledXmaPayload {
+@@ -205,6 +205,36 @@ struct AssembledXmaPayload {
    bool valid() const { return status == XmaPayloadStatus::kValid; }
  };
  
@@ -21,7 +21,7 @@ index 4861e40..fe3126c 100644
 +// can be tested without an FFmpeg decoder or guest-memory fixture.
 +class XmaStallTracker {
 + public:
-+  static bool ShouldLogSummary(uint32_t consecutive_count);
++  static bool ShouldLogSummary(uint64_t total_count);
 +
 +  bool NoteNoSpaceStall();
 +  bool NoteNoProgressStall();
@@ -33,12 +33,13 @@ index 4861e40..fe3126c 100644
 +
 + private:
 +  XmaStallMetrics metrics_;
++  bool recovery_log_pending_ = false;
 +};
 +
  // Resolves a logical packet number relative to starting_buffer_index. Packet
  // numbers at or beyond current_buffer_packet_count continue in the alternate
  // guest buffer without losing their index within that buffer.
-@@ -257,6 +286,10 @@ class XmaContext {
+@@ -257,6 +287,10 @@ class XmaContext {
                                               std::span<uint8_t> destination);
    static bool IsValidFrameSize(uint32_t frame_size);
  
@@ -49,7 +50,7 @@ index 4861e40..fe3126c 100644
    void Enable();
    bool Block(bool poll);
    void Clear();
-@@ -306,6 +339,15 @@ class XmaContext {
+@@ -306,6 +340,15 @@ class XmaContext {
    void WarnPacketResolution(const XmaPacketHandle& packet_handle, uint32_t logical_packet_index);
    void WarnPayloadAssembly(const AssembledXmaPayload& payload, uint32_t first_logical_packet,
                             uint32_t frame_offset_in_packet, uint32_t bits_required);
@@ -65,7 +66,7 @@ index 4861e40..fe3126c 100644
  
    void Decode(XMA_CONTEXT_DATA* data);
    void Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA* data);
-@@ -368,6 +410,7 @@ class XmaContext {
+@@ -368,6 +411,7 @@ class XmaContext {
    // context lifetime rather than once per Work() re-entry.
    uint32_t packet_warning_mask_ = 0;
    uint32_t payload_warning_mask_ = 0;
@@ -108,7 +109,7 @@ index 3541c18..5053a69 100644
  #define PROFILE_VERTICES(n)
  #define PROFILE_CMD_BUFFER_STALL()
 diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
-index e723215..16f40a9 100644
+index e723215..26396f0 100644
 --- a/src/audio/xma_context.cpp
 +++ b/src/audio/xma_context.cpp
 @@ -15,9 +15,11 @@
@@ -134,26 +135,30 @@ index e723215..16f40a9 100644
  // Credits for most of this code goes to:
  // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
  
-@@ -43,6 +49,45 @@ using stream::BitStream;
+@@ -43,6 +49,52 @@ using stream::BitStream;
  const uint32_t XmaContext::kBitsPerPacketHeader;
  const uint32_t XmaContext::kOutputMaxSizeBytes;
  
-+bool XmaStallTracker::ShouldLogSummary(uint32_t consecutive_count) {
-+  return consecutive_count == 1 || consecutive_count == 8 ||
-+         consecutive_count == 64 ||
-+         (consecutive_count >= 256 && consecutive_count % 256 == 0);
++bool XmaStallTracker::ShouldLogSummary(uint64_t total_count) {
++  return total_count == 1 || total_count == 8 || total_count == 64 ||
++         (total_count >= 256 && total_count % 256 == 0);
 +}
 +
 +bool XmaStallTracker::NoteNoSpaceStall() {
 +  ++metrics_.consecutive_no_space_stalls;
 +  ++metrics_.total_no_space_stalls;
-+  return ShouldLogSummary(metrics_.consecutive_no_space_stalls);
++  const bool should_log = ShouldLogSummary(metrics_.total_no_space_stalls);
++  recovery_log_pending_ |= should_log;
++  return should_log;
 +}
 +
 +bool XmaStallTracker::NoteNoProgressStall() {
 +  ++metrics_.consecutive_no_progress_stalls;
 +  ++metrics_.total_no_progress_stalls;
-+  return ShouldLogSummary(metrics_.consecutive_no_progress_stalls);
++  const bool should_log =
++      ShouldLogSummary(metrics_.total_no_progress_stalls);
++  recovery_log_pending_ |= should_log;
++  return should_log;
 +}
 +
 +bool XmaStallTracker::NoteProgress(uint32_t input_offset,
@@ -164,23 +169,26 @@ index e723215..16f40a9 100644
 +  if (recovered) {
 +    ++metrics_.total_recoveries;
 +  }
++  const bool should_log_recovery = recovered && recovery_log_pending_;
 +  metrics_.consecutive_no_space_stalls = 0;
 +  metrics_.consecutive_no_progress_stalls = 0;
++  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = input_offset;
 +  metrics_.last_progress_output_read_offset = output_read_offset;
 +  metrics_.last_progress_output_write_offset = output_write_offset;
-+  return recovered;
++  return should_log_recovery;
 +}
 +
 +void XmaStallTracker::Reset(uint32_t initial_input_offset) {
 +  metrics_ = {};
++  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = initial_input_offset;
 +}
 +
  XmaPacketHandle ResolvePacket(const XMA_CONTEXT_DATA& data, uint32_t starting_buffer_index,
                                uint32_t logical_packet_index, uint32_t current_buffer_packet_count) {
    XmaPacketHandle result;
-@@ -82,7 +127,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
+@@ -82,7 +134,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
  }
  
  XmaContext::XmaContext()
@@ -191,7 +199,7 @@ index e723215..16f40a9 100644
  
  XmaContext::~XmaContext() {
    if (av_context_) {
-@@ -162,18 +209,46 @@ bool XmaContext::Work() {
+@@ -162,18 +216,46 @@ bool XmaContext::Work() {
    // Minimum free blocks needed before attempting a decode.
    // Use subframe_decode_count (clamped to 1) instead of full frame size.
    const uint32_t effective_sdc = std::max(static_cast<uint32_t>(1), data.subframe_decode_count);
@@ -239,7 +247,7 @@ index e723215..16f40a9 100644
      if (!data.IsAnyInputBufferValid() || data.error_status == 4) {
        break;
      }
-@@ -249,11 +324,13 @@ void XmaContext::ResetDecoderState() {
+@@ -249,11 +331,13 @@ void XmaContext::ResetDecoderState() {
    loop_start_skip_pending_ = false;
    packet_warning_mask_ = 0;
    payload_warning_mask_ = 0;
@@ -253,7 +261,7 @@ index e723215..16f40a9 100644
  }
  
  void XmaContext::Release() {
-@@ -266,6 +343,85 @@ void XmaContext::Release() {
+@@ -266,6 +350,85 @@ void XmaContext::Release() {
    std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
  }
  
@@ -339,7 +347,7 @@ index e723215..16f40a9 100644
  void XmaContext::SwapInputBuffer(XMA_CONTEXT_DATA* data) {
    if (data->current_buffer == 0) {
      data->input_buffer_0_valid = 0;
-@@ -615,7 +771,10 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -615,7 +778,10 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
                                      << data->is_stereo;
      const uint8_t consumed = total_subframes - current_frame_remaining_subframes_;
      if (consumed >= loop_frame_output_limit_) {
@@ -351,7 +359,7 @@ index e723215..16f40a9 100644
        current_frame_remaining_subframes_ = 0;
        loop_frame_output_limit_ = 0;
        return;
-@@ -643,9 +802,13 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -643,9 +809,13 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
    output_rb->Write(raw_frame_.data() + (kOutputBytesPerBlock * raw_frame_read_offset),
                     subframes_to_write * kOutputBytesPerBlock);
  
@@ -368,7 +376,7 @@ index e723215..16f40a9 100644
  
    remaining_subframe_blocks_in_output_buffer_ -= subframes_to_write + headroom;
    current_frame_remaining_subframes_ -= subframes_to_write;
-@@ -657,6 +820,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
+@@ -657,6 +827,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
    uint32_t channels = is_two_channel ? 2 : 1;
    if (av_context_->sample_rate != sample_rate ||
        av_context_->channels != static_cast<int>(channels)) {
@@ -405,469 +413,212 @@ index 7bbe847..fc7c7b7 100644
      false,  // kBufferQueueDepth  (set each frame)
      false,  // kFunctionsDispatched
 diff --git a/tests/unit/audio/xma_packet_test.cpp b/tests/unit/audio/xma_packet_test.cpp
-deleted file mode 100644
-index a9db54d..0000000
+index a9db54d..834e6b0 100644
 --- a/tests/unit/audio/xma_packet_test.cpp
-+++ /dev/null
-@@ -1,461 +0,0 @@
--/**
-- * @file        xma_packet_test.cpp
-- * @brief       XMA cross-buffer packet traversal regression tests
-- * @copyright   Copyright (c) 2026 Tom Clay
-- * @license     BSD 3-Clause License
-- */
--
--#include <algorithm>
--#include <array>
--#include <cstring>
--
--#include <catch2/catch_test_macros.hpp>
--
--#include <rex/audio/xma/context.h>
--#include <rex/system/xmemory.h>
--
--#include "test_memory.h"
--
--namespace {
--
--using rex::audio::ResolvePacket;
--using rex::audio::XMA_CONTEXT_DATA;
--using rex::audio::XmaContext;
--using rex::audio::XmaPacketStatus;
--using rex::audio::XmaPayloadStatus;
--
--std::array<uint8_t, sizeof(XMA_CONTEXT_DATA)> EmptyGuestContext() {
--  return {};
--}
--
--XMA_CONTEXT_DATA MakeTwoBufferContext(uint32_t current_buffer = 0) {
--  auto raw = EmptyGuestContext();
--  XMA_CONTEXT_DATA data(raw.data());
--  data.current_buffer = current_buffer;
--  data.input_buffer_0_valid = 1;
--  data.input_buffer_1_valid = 1;
--  data.input_buffer_0_ptr = 0x10000;
--  data.input_buffer_1_ptr = 0x20000;
--  data.input_buffer_0_packet_count = 3;
--  data.input_buffer_1_packet_count = 4;
--  return data;
--}
--
--void SetPacketHeader(uint8_t* packet, uint8_t frame_count,
--                     uint32_t first_frame_offset, uint8_t skip_count) {
--  const uint32_t encoded_offset =
--      first_frame_offset - XmaContext::kBitsPerPacketHeader;
--  packet[0] = static_cast<uint8_t>((frame_count << 2) |
--                                   ((encoded_offset >> 13) & 0x3));
--  packet[1] = static_cast<uint8_t>(encoded_offset >> 5);
--  packet[2] = static_cast<uint8_t>((encoded_offset << 3) | 1);
--  packet[3] = skip_count;
--}
--
--void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
--                                 uint32_t first_payload_bit, uint32_t value,
--                                 uint32_t bit_count) {
--  for (uint32_t i = 0; i < bit_count; ++i) {
--    const uint32_t assembled_bit = first_payload_bit + i;
--    const uint32_t logical_packet =
--        assembled_bit / XmaContext::kBitsPerPacketData;
--    const uint32_t packet_bit =
--        assembled_bit % XmaContext::kBitsPerPacketData;
--    uint8_t* packet =
--        logical_packet == 0
--            ? current
--            : alternate +
--                  (logical_packet - 1) * XmaContext::kBytesPerPacket;
--    uint8_t& byte =
--        packet[XmaContext::kBytesPerPacketHeader + packet_bit / 8];
--    const uint8_t mask = static_cast<uint8_t>(1u << (7 - packet_bit % 8));
--    if (value & (1u << (bit_count - i - 1))) {
--      byte |= mask;
--    } else {
--      byte &= static_cast<uint8_t>(~mask);
--    }
--  }
--}
--
--}  // namespace
--
--TEST_CASE("XMA packet resolution preserves cross-buffer packet indices", "[audio][xma]") {
--  XMA_CONTEXT_DATA data = MakeTwoBufferContext();
--
--  SECTION("current buffer packet zero") {
--    const auto packet = ResolvePacket(data, 0, 0, 3);
--    CHECK(packet.valid());
--    CHECK(packet.buffer_index == 0);
--    CHECK(packet.packet_index == 0);
--  }
--
--  SECTION("current buffer last packet") {
--    const auto packet = ResolvePacket(data, 0, 2, 3);
--    CHECK(packet.valid());
--    CHECK(packet.buffer_index == 0);
--    CHECK(packet.packet_index == 2);
--  }
--
--  SECTION("alternate buffer packet zero") {
--    const auto packet = ResolvePacket(data, 0, 3, 3);
--    CHECK(packet.valid());
--    CHECK(packet.buffer_index == 1);
--    CHECK(packet.packet_index == 0);
--  }
--
--  SECTION("alternate buffer packet one and beyond") {
--    const auto packet = ResolvePacket(data, 0, 5, 3);
--    CHECK(packet.valid());
--    CHECK(packet.buffer_index == 1);
--    CHECK(packet.packet_index == 2);
--  }
--
--  SECTION("starting from buffer one") {
--    const auto packet = ResolvePacket(data, 1, 5, 4);
--    CHECK(packet.valid());
--    CHECK(packet.buffer_index == 0);
--    CHECK(packet.packet_index == 1);
--  }
--}
--
--TEST_CASE("XMA packet resolution rejects unavailable guest packets", "[audio][xma]") {
--  XMA_CONTEXT_DATA data = MakeTwoBufferContext();
--
--  SECTION("alternate buffer invalid") {
--    data.input_buffer_1_valid = 0;
--    CHECK(ResolvePacket(data, 0, 3, 3).status == XmaPacketStatus::kBufferInvalid);
--  }
--
--  SECTION("alternate buffer has null address") {
--    data.input_buffer_1_ptr = 0;
--    CHECK(ResolvePacket(data, 0, 3, 3).status == XmaPacketStatus::kNullAddress);
--  }
--
--  SECTION("alternate buffer is shorter than the requested packet") {
--    data.input_buffer_1_packet_count = 1;
--    const auto packet = ResolvePacket(data, 0, 4, 3);
--    CHECK(packet.status == XmaPacketStatus::kPacketOutOfRange);
--    CHECK(packet.buffer_index == 1);
--    CHECK(packet.packet_index == 1);
--  }
--
--  SECTION("caller packet count disagrees with context") {
--    CHECK(ResolvePacket(data, 0, 0, 2).status == XmaPacketStatus::kInvalidContext);
--  }
--}
--
--TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
--  auto& memory = rex::testing::GetTestMemory();
--  auto* virtual_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
--  auto* physical_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
--  REQUIRE(virtual_heap != nullptr);
--  REQUIRE(physical_heap != nullptr);
--
--  constexpr uint32_t kReadWrite =
--      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
--  constexpr uint32_t kReserveCommit =
--      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit;
--  uint32_t context_address = 0;
--  uint32_t current_address = 0;
--  uint32_t alternate_address = 0;
--  uint32_t output_address = 0;
--  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &context_address));
--  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &current_address));
--  REQUIRE(physical_heap->Alloc(8192, 4096, kReserveCommit, kReadWrite, false, &alternate_address));
--  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &output_address));
--
--  uint8_t* current = memory.TranslatePhysical(current_address);
--  uint8_t* alternate = memory.TranslatePhysical(alternate_address);
--  std::memset(current, 0, 4096);
--  std::memset(alternate, 0, 8192);
--  std::memset(current + XmaContext::kBytesPerPacketHeader, 0x11, XmaContext::kBytesPerPacketData);
--  for (uint32_t packet = 0; packet < 3; ++packet) {
--    std::memset(
--        alternate + packet * XmaContext::kBytesPerPacket + XmaContext::kBytesPerPacketHeader,
--        0x22 + packet, XmaContext::kBytesPerPacketData);
--  }
--
--  auto* context_ptr = memory.TranslateVirtual(context_address);
--  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
--  XMA_CONTEXT_DATA data(context_ptr);
--  data.current_buffer = 0;
--  data.input_buffer_0_valid = 1;
--  data.input_buffer_1_valid = 1;
--  data.input_buffer_0_ptr = current_address;
--  data.input_buffer_1_ptr = alternate_address;
--  data.input_buffer_0_packet_count = 1;
--  data.input_buffer_1_packet_count = 3;
--
--  XmaContext context;
--  REQUIRE(context.Setup(2, &memory, context_address) == 0);
--  context.set_is_allocated(true);
--  std::array<uint8_t, XmaContext::kBytesPerPacketData * XmaContext::kMaxAssembledPackets> assembled;
--
--  SECTION("one packet") {
--    const auto result =
--        context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacketHeader, 8, assembled);
--    CHECK(result.valid());
--    CHECK(result.packet_count == 1);
--    CHECK(result.valid_bits == XmaContext::kBitsPerPacketData);
--    CHECK(assembled.front() == 0x11);
--    CHECK(assembled[XmaContext::kBytesPerPacketData] == 0);
--  }
--
--  SECTION("two packets with a split header") {
--    const auto result = context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket - 7,
--                                                       XmaContext::kBitsPerFrameHeader, assembled);
--    CHECK(result.valid());
--    CHECK(result.packet_count == 2);
--    CHECK(assembled.front() == 0x11);
--    CHECK(assembled[XmaContext::kBytesPerPacketData] == 0x22);
--  }
--
--  SECTION("three packets from a late frame start") {
--    const auto result =
--        context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket - 7,
--                                       XmaContext::kBitsPerPacketData + 16, assembled);
--    CHECK(result.valid());
--    CHECK(result.packet_count == 3);
--    CHECK(assembled[XmaContext::kBytesPerPacketData] == 0x22);
--    CHECK(assembled[XmaContext::kBytesPerPacketData * 2] == 0x23);
--  }
--
--  SECTION("four packets cross alternate packet zero and later packets") {
--    const auto result = context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket - 1,
--                                                       0x7FFE, assembled);
--    CHECK(result.valid());
--    CHECK(result.packet_count == 4);
--    CHECK(assembled.front() == 0x11);
--    CHECK(assembled[XmaContext::kBytesPerPacketData] == 0x22);
--    CHECK(assembled[XmaContext::kBytesPerPacketData * 2] == 0x23);
--    CHECK(assembled[XmaContext::kBytesPerPacketData * 3] == 0x24);
--  }
--
--  SECTION("missing continuation buffer is rejected and zero-filled") {
--    data.input_buffer_1_valid = 0;
--    assembled.fill(0xAA);
--    const auto result =
--        context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket - 7, 16, assembled);
--    CHECK(result.status == XmaPayloadStatus::kPacketUnavailable);
--    CHECK(result.failed_packet.status == XmaPacketStatus::kBufferInvalid);
--    CHECK(
--        std::all_of(assembled.begin(), assembled.end(), [](uint8_t value) { return value == 0; }));
--  }
--
--  SECTION("short alternate buffer is rejected") {
--    data.input_buffer_1_packet_count = 1;
--    const auto result =
--        context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket - 7,
--                                       XmaContext::kBitsPerPacketData + 16, assembled);
--    CHECK(result.status == XmaPayloadStatus::kPacketUnavailable);
--    CHECK(result.failed_packet.status == XmaPacketStatus::kPacketOutOfRange);
--    CHECK(result.failed_packet.packet_index == 1);
--  }
--
--  SECTION("requests beyond scratch capacity are rejected") {
--    const auto result = context.AssemblePacketPayloads(
--        &data, 0, 1, XmaContext::kBitsPerPacket - 1, XmaContext::kBitsPerPacketData * 4, assembled);
--    CHECK(result.status == XmaPayloadStatus::kCapacityExceeded);
--    CHECK(result.packet_count == 5);
--  }
--
--  SECTION("zero length and invalid offsets are rejected") {
--    CHECK(
--        context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacketHeader, 0, assembled)
--            .status == XmaPayloadStatus::kZeroLength);
--    CHECK(context.AssemblePacketPayloads(&data, 0, 1, 31, 8, assembled).status ==
--          XmaPayloadStatus::kInvalidFrameOffset);
--    CHECK(context.AssemblePacketPayloads(&data, 0, 1, XmaContext::kBitsPerPacket, 8, assembled)
--              .status == XmaPayloadStatus::kInvalidFrameOffset);
--  }
--
--  SECTION("synthetic three-packet frame decodes and advances") {
--    constexpr uint32_t kFrameOffset = XmaContext::kBitsPerPacket - 7;
--    constexpr uint32_t kFrameSize = XmaContext::kBitsPerPacketData + 16;
--    SetPacketHeader(current, 1, kFrameOffset, 2);
--    SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 2, 1,
--                    XmaContext::kBitsPerPacketHeader, 0xFF);
--    SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
--                    XmaContext::kBitsPerPacketHeader, 0xFF);
--    WriteCrossBufferPayloadBits(
--        current, alternate,
--        kFrameOffset - XmaContext::kBitsPerPacketHeader, kFrameSize,
--        XmaContext::kBitsPerFrameHeader);
--
--    data.input_buffer_1_packet_count = 4;
--    data.input_buffer_read_offset = kFrameOffset;
--    data.output_buffer_valid = 1;
--    data.output_buffer_ptr = output_address;
--    data.output_buffer_block_count = 4;
--    data.output_buffer_write_offset = 1;
--    data.subframe_decode_count = 1;
--    data.Store(context_ptr);
--
--    context.Enable();
--    CHECK(context.Work());
--    XMA_CONTEXT_DATA advanced(context_ptr);
--    CHECK(advanced.error_status == 0);
--    CHECK_FALSE(advanced.IsAnyInputBufferValid());
--    CHECK(advanced.current_buffer == 0);
--    CHECK(advanced.input_buffer_read_offset ==
--          XmaContext::kBitsPerPacketHeader);
--  }
--
--  SECTION("synthetic four-packet frame decodes and advances") {
--    constexpr uint32_t kFrameOffset = XmaContext::kBitsPerPacket - 1;
--    constexpr uint32_t kFrameSize = 0x7FFE;
--    SetPacketHeader(current, 1, kFrameOffset, 3);
--    SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
--                    XmaContext::kBitsPerPacketHeader, 0xFF);
--    WriteCrossBufferPayloadBits(
--        current, alternate,
--        kFrameOffset - XmaContext::kBitsPerPacketHeader, kFrameSize,
--        XmaContext::kBitsPerFrameHeader);
--
--    data.input_buffer_1_packet_count = 4;
--    data.input_buffer_read_offset = kFrameOffset;
--    data.output_buffer_valid = 1;
--    data.output_buffer_ptr = output_address;
--    data.output_buffer_block_count = 4;
--    data.output_buffer_write_offset = 1;
--    data.subframe_decode_count = 1;
--    data.Store(context_ptr);
--
--    context.Enable();
--    CHECK(context.Work());
--    XMA_CONTEXT_DATA advanced(context_ptr);
--    CHECK(advanced.error_status == 0);
--    CHECK_FALSE(advanced.IsAnyInputBufferValid());
--    CHECK(advanced.current_buffer == 0);
--    CHECK(advanced.input_buffer_read_offset ==
--          XmaContext::kBitsPerPacketHeader);
--  }
--
--  context.Release();
--  physical_heap->Release(output_address, nullptr);
--  physical_heap->Release(alternate_address, nullptr);
--  physical_heap->Release(current_address, nullptr);
--  virtual_heap->Release(context_address, nullptr);
--}
--
--TEST_CASE("XMA frame size rejects zero and the sentinel", "[audio][xma]") {
--  CHECK_FALSE(XmaContext::IsValidFrameSize(0));
--  CHECK(XmaContext::IsValidFrameSize(1));
--  CHECK(XmaContext::IsValidFrameSize(0x7FFE));
--  CHECK_FALSE(XmaContext::IsValidFrameSize(0x7FFF));
--}
--
--TEST_CASE("XMA exhausted input retires to a clean idle state", "[audio][xma]") {
--  auto& memory = rex::testing::GetTestMemory();
--  auto* heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
--  REQUIRE(heap != nullptr);
--
--  uint32_t context_address = 0;
--  REQUIRE(heap->Alloc(
--      4096, 4096, rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
--      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, false, &context_address));
--
--  auto* context_ptr = memory.TranslateVirtual(context_address);
--  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
--  XMA_CONTEXT_DATA data(context_ptr);
--  data.input_buffer_0_valid = 1;
--  data.input_buffer_0_ptr = 0x10000;
--  data.input_buffer_0_packet_count = 1;
--  data.input_buffer_read_offset = XmaContext::kBitsPerPacket;
--  data.output_buffer_valid = 1;
--  data.output_buffer_ptr = 0x30000;
--  data.output_buffer_block_count = 4;
--  data.output_buffer_write_offset = 1;
--  data.subframe_decode_count = 1;
--  data.Store(context_ptr);
--
--  XmaContext context;
--  REQUIRE(context.Setup(0, &memory, context_address) == 0);
--  context.set_is_allocated(true);
--  context.Enable();
--  CHECK(context.Work());
--
--  XMA_CONTEXT_DATA retired(context_ptr);
--  CHECK_FALSE(retired.input_buffer_0_valid);
--  CHECK_FALSE(retired.input_buffer_1_valid);
--  CHECK(retired.current_buffer == 1);
--  CHECK(retired.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
--
--  // Re-entry remains idle and leaves the retired state unchanged.
--  context.Enable();
--  CHECK(context.Work());
--  XMA_CONTEXT_DATA idle(context_ptr);
--  CHECK_FALSE(idle.IsAnyInputBufferValid());
--  CHECK(idle.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
--
--  context.Release();
--  heap->Release(context_address, nullptr);
--}
--
--TEST_CASE("XMA full-packet skip crosses to an alternate packet beyond zero", "[audio][xma]") {
--  auto& memory = rex::testing::GetTestMemory();
--  auto* virtual_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
--  auto* physical_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
--  REQUIRE(virtual_heap != nullptr);
--  REQUIRE(physical_heap != nullptr);
--
--  constexpr uint32_t kReadWrite =
--      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
--  constexpr uint32_t kReserveCommit =
--      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit;
--  uint32_t context_address = 0;
--  uint32_t current_address = 0;
--  uint32_t alternate_address = 0;
--  uint32_t output_address = 0;
--  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &context_address));
--  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &current_address));
--  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &alternate_address));
--  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &output_address));
--
--  uint8_t* current = memory.TranslatePhysical(current_address);
--  uint8_t* alternate = memory.TranslatePhysical(alternate_address);
--  std::memset(current, 0, XmaContext::kBytesPerPacket);
--  std::memset(alternate, 0, XmaContext::kBytesPerPacket * 2);
--  current[3] = 0xFF;
--
--  // Packet 0 has an invalid first-frame offset, forcing the scan to packet 1.
--  alternate[0] = 0x03;
--  alternate[1] = 0xFF;
--  alternate[2] = 0xF8;
--  alternate[XmaContext::kBytesPerPacket + 3] = 0xFF;
--
--  auto* context_ptr = memory.TranslateVirtual(context_address);
--  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
--  XMA_CONTEXT_DATA data(context_ptr);
--  data.input_buffer_0_valid = 1;
--  data.input_buffer_1_valid = 1;
--  data.input_buffer_0_ptr = current_address;
--  data.input_buffer_1_ptr = alternate_address;
--  data.input_buffer_0_packet_count = 1;
--  data.input_buffer_1_packet_count = 2;
--  data.input_buffer_read_offset = XmaContext::kBitsPerPacketHeader;
--  data.output_buffer_valid = 1;
--  data.output_buffer_ptr = output_address;
--  data.output_buffer_block_count = 4;
--  data.output_buffer_write_offset = 1;
--  data.subframe_decode_count = 1;
--  data.Store(context_ptr);
--
--  XmaContext context;
--  REQUIRE(context.Setup(1, &memory, context_address) == 0);
--  context.set_is_allocated(true);
--  context.Enable();
--  CHECK(context.Work());
--
--  XMA_CONTEXT_DATA retired(context_ptr);
--  CHECK_FALSE(retired.IsAnyInputBufferValid());
--  CHECK(retired.current_buffer == 0);
--  CHECK(retired.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
--  CHECK(retired.error_status == 0);
--
--  context.Release();
--  physical_heap->Release(output_address, nullptr);
--  physical_heap->Release(alternate_address, nullptr);
--  physical_heap->Release(current_address, nullptr);
--  virtual_heap->Release(context_address, nullptr);
--}
++++ b/tests/unit/audio/xma_packet_test.cpp
+@@ -12,6 +12,7 @@
+ #include <catch2/catch_test_macros.hpp>
+ 
+ #include <rex/audio/xma/context.h>
++#include <rex/cvar.h>
+ #include <rex/system/xmemory.h>
+ 
+ #include "test_memory.h"
+@@ -23,6 +24,13 @@ using rex::audio::XMA_CONTEXT_DATA;
+ using rex::audio::XmaContext;
+ using rex::audio::XmaPacketStatus;
+ using rex::audio::XmaPayloadStatus;
++using rex::audio::XmaStallTracker;
++
++struct ResetRelaxedPaddingAdmission {
++  ~ResetRelaxedPaddingAdmission() {
++    rex::cvar::SetFlagByName("xma_relaxed_padding_admission", "false");
++  }
++};
+ 
+ std::array<uint8_t, sizeof(XMA_CONTEXT_DATA)> EmptyGuestContext() {
+   return {};
+@@ -79,6 +87,183 @@ void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
+ 
+ }  // namespace
+ 
++TEST_CASE("XMA stall diagnostics remain bounded across transient episodes",
++          "[audio][xma][stall]") {
++  XmaStallTracker tracker;
++  tracker.Reset(XmaContext::kBitsPerPacketHeader);
++
++  uint32_t summary_count = 0;
++  uint32_t recovery_log_count = 0;
++  for (uint64_t total = 1; total <= 300; ++total) {
++    const bool expected_summary =
++        total == 1 || total == 8 || total == 64 || total == 256;
++    const bool summary = tracker.NoteNoSpaceStall();
++    INFO("stall total " << total);
++    CHECK(summary == expected_summary);
++    summary_count += summary ? 1 : 0;
++
++    const bool recovery_log = tracker.NoteProgress(
++        static_cast<uint32_t>(total), 0, static_cast<uint8_t>(total));
++    CHECK(recovery_log == expected_summary);
++    recovery_log_count += recovery_log ? 1 : 0;
++  }
++
++  CHECK(summary_count == 4);
++  CHECK(recovery_log_count == 4);
++  CHECK(tracker.metrics().total_no_space_stalls == 300);
++  CHECK(tracker.metrics().total_recoveries == 300);
++  CHECK(tracker.metrics().consecutive_no_space_stalls == 0);
++
++  tracker.Reset(77);
++  CHECK(tracker.metrics().total_no_space_stalls == 0);
++  CHECK(tracker.metrics().total_recoveries == 0);
++  CHECK(tracker.metrics().last_progress_input_offset == 77);
++}
++
++TEST_CASE("XMA strict padding admission reports no-space and recovers",
++          "[audio][xma][stall]") {
++  ResetRelaxedPaddingAdmission reset_padding;
++  REQUIRE(rex::cvar::SetFlagByName("xma_relaxed_padding_admission",
++                                   "false"));
++
++  auto& memory = rex::testing::GetTestMemory();
++  auto* virtual_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  auto* physical_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
++  REQUIRE(virtual_heap != nullptr);
++  REQUIRE(physical_heap != nullptr);
++
++  constexpr uint32_t kReadWrite =
++      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
++  constexpr uint32_t kReserveCommit =
++      rex::memory::kMemoryAllocationReserve |
++      rex::memory::kMemoryAllocationCommit;
++  uint32_t context_address = 0;
++  uint32_t input_address = 0;
++  uint32_t output_address = 0;
++  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                              &context_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &input_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &output_address));
++
++  uint8_t* input = memory.TranslatePhysical(input_address);
++  std::memset(input, 0, XmaContext::kBytesPerPacket);
++  input[3] = 0xFF;
++
++  auto* context_ptr = memory.TranslateVirtual(context_address);
++  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
++  XMA_CONTEXT_DATA data(context_ptr);
++  data.input_buffer_0_valid = 1;
++  data.input_buffer_0_ptr = input_address;
++  data.input_buffer_0_packet_count = 1;
++  data.input_buffer_read_offset = XmaContext::kBitsPerPacketHeader;
++  data.output_buffer_valid = 1;
++  data.output_buffer_ptr = output_address;
++  data.output_buffer_block_count = 8;
++  data.output_buffer_read_offset = 0;
++  data.output_buffer_write_offset = 4;
++  data.subframe_decode_count = 4;
++  data.output_buffer_padding = 2;
++  data.Store(context_ptr);
++
++  XmaContext context;
++  REQUIRE(context.Setup(0, &memory, context_address) == 0);
++  context.set_is_allocated(true);
++  context.Enable();
++  CHECK(context.Work());
++  CHECK(context.stall_metrics().total_no_space_stalls == 1);
++  CHECK(context.stall_metrics().total_recoveries == 0);
++
++  REQUIRE(rex::cvar::SetFlagByName("xma_relaxed_padding_admission", "true"));
++  context.Enable();
++  CHECK(context.Work());
++  CHECK(context.stall_metrics().total_no_space_stalls == 1);
++  CHECK(context.stall_metrics().total_recoveries == 1);
++
++  context.Clear();
++  CHECK(context.stall_metrics().total_no_space_stalls == 0);
++  CHECK(context.stall_metrics().total_recoveries == 0);
++  context.Release();
++  physical_heap->Release(output_address, nullptr);
++  physical_heap->Release(input_address, nullptr);
++  virtual_heap->Release(context_address, nullptr);
++}
++
++TEST_CASE("XMA no-progress diagnostics identify and recover malformed input",
++          "[audio][xma][stall]") {
++  auto& memory = rex::testing::GetTestMemory();
++  auto* virtual_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  auto* physical_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
++  REQUIRE(virtual_heap != nullptr);
++  REQUIRE(physical_heap != nullptr);
++
++  constexpr uint32_t kReadWrite =
++      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
++  constexpr uint32_t kReserveCommit =
++      rex::memory::kMemoryAllocationReserve |
++      rex::memory::kMemoryAllocationCommit;
++  uint32_t context_address = 0;
++  uint32_t input_address = 0;
++  uint32_t output_address = 0;
++  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                              &context_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &input_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &output_address));
++
++  uint8_t* input = memory.TranslatePhysical(input_address);
++  std::memset(input, 0, XmaContext::kBytesPerPacket);
++
++  auto* context_ptr = memory.TranslateVirtual(context_address);
++  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
++  XMA_CONTEXT_DATA data(context_ptr);
++  data.input_buffer_0_valid = 1;
++  data.input_buffer_0_ptr = input_address;
++  data.input_buffer_0_packet_count = 1;
++  data.input_buffer_read_offset = XmaContext::kBitsPerPacketHeader;
++  data.output_buffer_valid = 1;
++  data.output_buffer_ptr = output_address;
++  data.output_buffer_block_count = 8;
++  data.subframe_decode_count = 1;
++  data.Store(context_ptr);
++
++  XmaContext context;
++  REQUIRE(context.Setup(1, &memory, context_address) == 0);
++  context.set_is_allocated(true);
++  context.Enable();
++  CHECK(context.Work());
++  CHECK(context.stall_metrics().total_no_progress_stalls == 1);
++  CHECK(context.stall_metrics().total_recoveries == 0);
++  XMA_CONTEXT_DATA malformed(context_ptr);
++  CHECK(malformed.error_status == 4);
++
++  input[3] = 0xFF;
++  malformed.error_status = 0;
++  malformed.output_buffer_valid = 1;
++  malformed.Store(context_ptr);
++  context.Enable();
++  CHECK(context.Work());
++  XMA_CONTEXT_DATA recovered(context_ptr);
++  CAPTURE(context.stall_metrics().total_no_progress_stalls,
++          context.stall_metrics().total_recoveries,
++          recovered.input_buffer_0_valid, recovered.input_buffer_1_valid,
++          recovered.current_buffer, recovered.input_buffer_read_offset,
++          recovered.error_status);
++  CHECK(context.stall_metrics().total_no_progress_stalls == 1);
++  CHECK(context.stall_metrics().total_recoveries == 1);
++
++  context.Release();
++  physical_heap->Release(output_address, nullptr);
++  physical_heap->Release(input_address, nullptr);
++  virtual_heap->Release(context_address, nullptr);
++}
++
+ TEST_CASE("XMA packet resolution preserves cross-buffer packet indices", "[audio][xma]") {
+   XMA_CONTEXT_DATA data = MakeTwoBufferContext();
+ 

@@ -22,9 +22,11 @@ The ReXGlue patch changes:
 
 Each XMA context tracks consecutive and total output-space and no-progress
 stalls, recovery count, last successful input offset, and last successful
-output read/write offsets. Warning summaries are emitted only at consecutive
-counts 1, 8, 64, and every 256 thereafter. Progress after either stall class
-emits one recovery warning and clears only the consecutive runs.
+output read/write offsets. Warning summaries are emitted only when the
+per-context lifetime total for a stall class reaches 1, 8, 64, and every 256
+thereafter. Every recovered stall episode is counted, while a recovery warning
+is emitted only when that episode emitted a stall summary. Progress clears only
+the consecutive runs.
 
 Context metrics reset on clear, disable, release, and established-stream codec
 reinitialization. Process-level performance counters remain independent of
@@ -51,11 +53,12 @@ encoded or decoded audio payload.
 ## Tests, dependencies, and rollback
 
 Deterministic unit coverage forces output-space stalls, verifies the bounded
-1/8/64/256 reporting schedule, observes exactly one recovery, forces a
-no-progress failure with its buffer and offset preserved, checks lifecycle
-reset behavior, and proves relaxed padding changes admission only when the
-flag is enabled. Project tests cover schema migration, default-off settings,
-performance aggregation, and sanitized support-report totals.
+1/8/64/256 lifetime reporting schedule across transient stall episodes while
+preserving exact recovery totals, forces a no-progress failure with its buffer
+and offset preserved, checks lifecycle reset behavior, and proves relaxed
+padding changes admission only when the flag is enabled. Project tests cover
+schema migration, default-off settings, performance aggregation, and sanitized
+support-report totals.
 
 This patch depends on `0036` packet handles and `0037` multi-packet frame
 assembly. Rollback is removal of patch `0038` and the associated schema-5,

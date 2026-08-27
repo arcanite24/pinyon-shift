@@ -85,8 +85,9 @@ decoder without removing `0036`.
 
 `0038-m4-xma-stall-diagnostics` adapts the low-noise diagnostic design from
 Xenia Canary PR `#974`, without enabling its uncertain padding change by
-default. Per-context no-space and no-progress runs log at counts 1, 8, 64, and
-every 256, with one recovery event when work resumes. Session performance
+  default. Per-context no-space and no-progress lifetime totals log at counts
+  1, 8, 64, and every 256, with recovery logs only for episodes that emitted a
+  stall summary. Session performance
 counters preserve exact aggregate stall and recovery totals for sanitized
 support reports. The optional relaxed-padding admission path is controlled by
 `xma_relaxed_padding_admission = false`; removing `0038` restores strict
