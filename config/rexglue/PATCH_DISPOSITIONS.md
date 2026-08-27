@@ -125,11 +125,18 @@ Shipping 1×, delayed Experimental 2×, and opt-in Accurate showroom presets.
 Removing `0041` removes telemetry only; selecting Shipping 1× remains the
 immediate runtime rollback to `readback_resolve = "none"`.
 
+`0042-ppc-partial-vector-store-regression-tests` imports only the semantic
+test intent from Xenia Canary commit `30ac9d7`, not its x64 JIT implementation.
+Generated native code is checked at offsets 0, 1, 4, 8, 12, and 15 for guest
+byte order and preserved destination bytes, with address aliases, unaligned
+memcpy head/tail sequences, and 512 seeded randomized differential cases.
+The patch changes no runtime lowering; removing it removes test coverage only.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.
-- 1,460/1,460 PPC instruction tests passed.
-- The 234-test unit suite passed: 230 tests passed and four pre-existing
+- 1,480/1,480 PPC instruction tests passed with 6,549 assertions.
+- The 246-test unit suite passed: 242 tests passed and four pre-existing
   BitStream write cases remain explicitly skipped by upstream.
 - No conflict markers, reject files, or binary patch payloads are present.
 
