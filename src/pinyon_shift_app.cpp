@@ -22,14 +22,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 6, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 7, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 6;
+constexpr uint32_t kConfigSchema = 7;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -59,7 +59,9 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "swap_post_effect = \"none\"\n"
               "draw_resolution_scale_x = 1\n"
               "draw_resolution_scale_y = 1\n"
-              "occlusion_query = \"legacy\"\n";
+              "occlusion_query = \"legacy\"\n"
+              "zpd_end_policy = \"report_layout\"\n"
+              "zpd_end_fallback = \"pairwise_sentinel\"\n";
     created = true;
     return output.good();
   }
@@ -83,7 +85,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 5) {
+    if (schema < 1 || schema > 6) {
       return false;
     }
 
@@ -136,6 +138,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
         {"occlusion_query", "occlusion_query = \"legacy\"\n"},
+        {"zpd_end_policy", "zpd_end_policy = \"report_layout\"\n"},
+        {"zpd_end_fallback", "zpd_end_fallback = \"pairwise_sentinel\"\n"},
     };
     for (const auto& [name, line] : graphics_settings) {
       const std::regex setting_pattern("(?:^|\\n)\\s*" + std::string(name) +
@@ -255,6 +259,8 @@ void PinyonShiftApp::OnPostInitLogging() {
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
                         {"occlusion_query", rex::cvar::GetFlagByName("occlusion_query")},
+                        {"zpd_end_policy", rex::cvar::GetFlagByName("zpd_end_policy")},
+                        {"zpd_end_fallback", rex::cvar::GetFlagByName("zpd_end_fallback")},
                         {"xma_relaxed_padding_admission",
                          rex::cvar::GetFlagByName(
                              "xma_relaxed_padding_admission")},

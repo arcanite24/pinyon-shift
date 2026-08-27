@@ -56,6 +56,11 @@ ZPD_COLUMNS = (
     "zpd_fake_fallbacks",
     "zpd_malformed_records",
     "zpd_stale_result_rejections",
+    "zpd_classified_begins",
+    "zpd_classified_ends",
+    "zpd_classified_orphaned_ends",
+    "zpd_policy_fallbacks",
+    "zpd_watchdog_recoveries",
 )
 
 
