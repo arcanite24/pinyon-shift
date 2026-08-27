@@ -24,6 +24,22 @@ FIELDS = [
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_emits_complete_optional_xma_stall_totals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            capture.write_text(
+                "frame_time_us,fps,draw_calls,command_buffer_stalls,texture_cache_hits,texture_cache_misses,"
+                "pipeline_cache_hits,pipeline_cache_misses,xma_no_space_stalls,"
+                "xma_no_progress_stalls,xma_stall_recoveries\n"
+                "10000,100,1,0,1,0,1,0,2,1,0\n"
+                "11000,90,1,0,1,0,1,0,3,0,1\n",
+                encoding="utf-8",
+            )
+            result = MODULE.summarize(capture)
+            self.assertEqual(5, result["xma_stall_counters"]["xma_no_space_stalls"])
+            self.assertEqual(1, result["xma_stall_counters"]["xma_no_progress_stalls"])
+            self.assertEqual(1, result["xma_stall_counters"]["xma_stall_recoveries"])
+
     def test_emits_complete_optional_memexport_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"

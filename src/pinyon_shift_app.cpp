@@ -22,14 +22,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 4, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 5, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 4;
+constexpr uint32_t kConfigSchema = 5;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -52,6 +52,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
               "pinyon_shift_capture_performance = true\n"
+              "xma_relaxed_padding_admission = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n"
               "anisotropic_override = 3\n"
@@ -81,7 +82,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 3) {
+    if (schema < 1 || schema > 4) {
       return false;
     }
 
@@ -127,6 +128,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     }
 
     const std::pair<const char*, const char*> graphics_settings[] = {
+        {"xma_relaxed_padding_admission",
+         "xma_relaxed_padding_admission = false\n"},
         {"anisotropic_override", "anisotropic_override = 3\n"},
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
@@ -249,6 +252,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"anisotropic_override",
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
+                        {"xma_relaxed_padding_admission",
+                         rex::cvar::GetFlagByName(
+                             "xma_relaxed_padding_admission")},
                         {"perf_csv_enabled", perf_csv.empty() ? "0" : "1"},
                         {"perf_csv", perf_csv}});
 }

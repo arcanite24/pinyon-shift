@@ -143,10 +143,36 @@ try {
         [void](Write-SanitizedTail $eventLog.FullName (Join-Path $stagingRoot 'session-events.jsonl') 1000 $replacements)
     }
 
+    $xmaStallColumns = @(
+        'xma_no_space_stalls', 'xma_no_progress_stalls', 'xma_stall_recoveries'
+    )
+    $xmaStalls = [ordered]@{
+        available = $false
+        no_space = [uint64]0
+        no_progress = [uint64]0
+        recoveries = [uint64]0
+    }
+    $perfLog = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.perf.csv' -File `
+        -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) } |
+        Sort-Object LastWriteTimeUtc | Select-Object -Last 1
+    if ($null -ne $perfLog) {
+        $header = @(Get-Content -LiteralPath $perfLog.FullName -TotalCount 1 -ErrorAction SilentlyContinue)
+        $columns = if ($header.Count -eq 1) { @($header[0].Split(',')) } else { @() }
+        if (@($xmaStallColumns | Where-Object { $_ -notin $columns }).Count -eq 0) {
+            foreach ($row in Import-Csv -LiteralPath $perfLog.FullName) {
+                $xmaStalls.no_space += [uint64]$row.xma_no_space_stalls
+                $xmaStalls.no_progress += [uint64]$row.xma_no_progress_stalls
+                $xmaStalls.recoveries += [uint64]$row.xma_stall_recoveries
+            }
+            $xmaStalls.available = $true
+        }
+    }
+
     $allowedSettings = @(
         'pinyon_shift_config_schema', 'input_backend', 'hid_mappings_file',
         'mnk_mode', 'keybind_start',
         'd3d12_allow_variable_refresh_rate_and_tearing',
+        'xma_relaxed_padding_admission',
         'pinyon_shift_capture_performance',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
@@ -224,6 +250,9 @@ try {
             gpu = $gpus
         }
         settings = $settings
+        audio = [ordered]@{
+            xma_stalls = $xmaStalls
+        }
         local_dumps = $dumpRecords
         privacy = [ordered]@{
             paths_redacted = $true
@@ -232,6 +261,7 @@ try {
             generated_code_included = $false
             memory_dump_included = $false
             input_capture_included = $false
+            audio_payload_included = $false
         }
     }
     [IO.File]::WriteAllText((Join-Path $stagingRoot 'report.json'),
