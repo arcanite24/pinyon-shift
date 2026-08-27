@@ -13,6 +13,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_release_workflow_publishes_only_preview_channels_as_prereleases(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("$release.channel -eq 'preview'", workflow)
+        self.assertIn("$release.channel -ne 'stable'", workflow)
+        self.assertIn("$arguments += '--prerelease'", workflow)
+        self.assertNotIn(
+            "--generate-notes --prerelease --verify-tag",
+            workflow,
+        )
+
     def test_supported_dump_uses_exact_hash_and_size(self):
         data = json.loads((ROOT / "config/supported-dumps.json").read_text())
         self.assertEqual(data["policy"]["match"], "exact_sha256_and_size")

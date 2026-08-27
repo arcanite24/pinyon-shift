@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-26
 
 - First Windows public playable preview.
 - Updated the pinned ReXGlue SDK from 0.9.0 to 0.10.0, including its threading,
