@@ -1,0 +1,304 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Brandon G. Neri" <arcaniteamp@gmail.com>
+Date: Thu, 27 Aug 2026 14:35:00 -0600
+Subject: [PATCH] ppc verify partial vector store semantics
+
+Derived from the semantic regression cases in Xenia Canary commit
+30ac9d7be69bf7d9e9cc5d92d126cc62c58b8f48. This patch does not copy the
+Xenia x64 JIT implementation. It extends ReXGlue's generated-host-code PPC
+tests with deterministic offsets, untouched-byte sentinels, guest byte-order
+checks, address aliases, unaligned memcpy head and tail sequences, and two
+seeded 256-case differential tests.
+
+Files touched:
+- resources/templates/test/ppc_test_cases_cpp.inja
+- src/rexglue/commands/test_recompiler.cpp
+- tests/ppc/asm/instr_partial_vector_store.s
+
+Behavioral intent: verify existing stvlx/stvrx lowering without changing it.
+Dependencies: ReXGlue v0.10.0 test-recompiler and PPC test pipeline.
+Rollback: remove this patch; runtime behavior is unchanged.
+---
+ resources/templates/test/ppc_test_cases_cpp.inja |  47 ++++++
+ src/rexglue/commands/test_recompiler.cpp         |   9 ++
+ tests/ppc/asm/instr_partial_vector_store.s       | 179 +++++++++++++++++++++++
+ 3 files changed, 235 insertions(+)
+ create mode 100644 tests/ppc/asm/instr_partial_vector_store.s
+
+diff --git a/resources/templates/test/ppc_test_cases_cpp.inja b/resources/templates/test/ppc_test_cases_cpp.inja
+index ebc731b..aeff1bd 100644
+--- a/resources/templates/test/ppc_test_cases_cpp.inja
++++ b/resources/templates/test/ppc_test_cases_cpp.inja
+@@ -2,6 +2,7 @@
+ // DO NOT EDIT - this file is auto-generated
+ 
+ #include <catch2/catch_test_macros.hpp>
++#include <array>
+ #include <cstdint>
+ #include <cstring>
+ #include <stdexcept>
+@@ -31,6 +32,13 @@ static rex::memory::Memory& get_memory() {
+     return memory;
+ }
+ 
++static uint32_t partial_store_random(uint32_t& state) {
++    state ^= state << 13;
++    state ^= state >> 17;
++    state ^= state << 5;
++    return state;
++}
++
+ ## for test in tests
+ TEST_CASE("{{ test.name }}", "[ppc][{{ test.category }}][{{ test.stem }}]") {
+     auto& mem = get_memory();
+@@ -91,4 +99,43 @@ TEST_CASE("{{ test.name }}", "[ppc][{{ test.category }}][{{ test.stem }}]") {
+ ## endfor
+ }
+ 
++## if test.partial_store_differential
++TEST_CASE("{{ test.name }}.randomized_differential",
++          "[ppc][memory][partial_vector_store][differential]") {
++    auto& mem = get_memory();
++    uint8_t* memory = mem.virtual_membase();
++    constexpr uint32_t kBaseAddress = 0x10002000;
++    constexpr uint32_t kIterations = 256;
++    uint32_t random_state = 0x5EED07A1;
++
++    for (uint32_t iteration = 0; iteration < kIterations; ++iteration) {
++        PPCContext ctx{};
++        ctx.fpscr.loadFromHost();
++        std::array<uint8_t, 16> source{};
++        std::array<uint8_t, 16> expected{};
++        for (size_t i = 0; i < expected.size(); ++i) {
++            source[i] = static_cast<uint8_t>(partial_store_random(random_state));
++            expected[i] = static_cast<uint8_t>(partial_store_random(random_state));
++            memory[kBaseAddress + i] = expected[i];
++            ctx.v5.u8[15 - i] = source[i];
++        }
++        const uint32_t offset = partial_store_random(random_state) & 0xF;
++        ctx.r4.u64 = kBaseAddress;
++        ctx.r6.u64 = offset;
++
++## if test.partial_store_kind == "left"
++        for (uint32_t i = offset; i < 16; ++i)
++            expected[i] = source[i - offset];
++## else
++        for (uint32_t i = 0; i < offset; ++i)
++            expected[i] = source[16 - offset + i];
++## endif
++
++        {{ test.symbol }}(ctx, memory);
++        INFO("seed=0x5EED07A1 iteration=" << iteration << " offset=" << offset);
++        REQUIRE(std::memcmp(memory + kBaseAddress, expected.data(), expected.size()) == 0);
++    }
++}
++## endif
++
+ ## endfor
+diff --git a/src/rexglue/commands/test_recompiler.cpp b/src/rexglue/commands/test_recompiler.cpp
+index 179b2df..a1014d4 100644
+--- a/src/rexglue/commands/test_recompiler.cpp
++++ b/src/rexglue/commands/test_recompiler.cpp
+@@ -432,6 +432,15 @@ bool RecompileTests(std::string_view binDir, std::string_view asmDir, std::strin
+       testJson["inputs"]["memory"] = SerializeMemory(spec.mem_inputs);
+       testJson["outputs"]["registers"] = SerializeRegisters(spec.outputs);
+       testJson["outputs"]["memory"] = SerializeMemory(spec.mem_outputs);
++      if (spec.name == "test_stvlx_differential") {
++        testJson["partial_store_differential"] = true;
++        testJson["partial_store_kind"] = "left";
++      } else if (spec.name == "test_stvrx_differential") {
++        testJson["partial_store_differential"] = true;
++        testJson["partial_store_kind"] = "right";
++      } else {
++        testJson["partial_store_differential"] = false;
++      }
+       templateData["tests"].push_back(testJson);
+       ++totalTests;
+     }
+diff --git a/tests/ppc/asm/instr_partial_vector_store.s b/tests/ppc/asm/instr_partial_vector_store.s
+new file mode 100644
+index 0000000..99d110b
+--- /dev/null
++++ b/tests/ppc/asm/instr_partial_vector_store.s
+@@ -0,0 +1,179 @@
++# Generated-code regression coverage for Xbox 360 partial vector stores.
++# The source vector is guest bytes 00..0F and destination sentinels are A0..AF.
++
++test_stvlx_offset_0:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 0
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 00010203 04050607 08090A0B 0C0D0E0F
++
++test_stvlx_offset_1:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 1
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0000102 03040506 0708090A 0B0C0D0E
++
++test_stvlx_offset_4:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 4
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 00010203 04050607 08090A0B
++
++test_stvlx_offset_8:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 8
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 A4A5A6A7 00010203 04050607
++
++test_stvlx_offset_12:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 12
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB 00010203
++
++test_stvlx_offset_15:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 15
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAE00
++
++test_stvrx_offset_0:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 0
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++
++test_stvrx_offset_1:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 1
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 0FA1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++
++test_stvrx_offset_4:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 4
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 0C0D0E0F A4A5A6A7 A8A9AAAB ACADAEAF
++
++test_stvrx_offset_8:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 8
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 08090A0B 0C0D0E0F A8A9AAAB ACADAEAF
++
++test_stvrx_offset_12:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 12
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 04050607 08090A0B 0C0D0E0F ACADAEAF
++
++test_stvrx_offset_15:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 15
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 01020304 05060708 090A0B0C 0D0E0FAF
++
++# RA and RB alias. Their sum is 0x10002004, exercising address calculation
++# before the source vector is consumed by generated native code.
++test_stvlx_address_alias:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x08001002
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r4
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 00010203 04050607 08090A0B
++
++test_stvrx_address_alias:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x08001002
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r4
++  blr
++  #_ MEMORY_OUT 10002000 0C0D0E0F A4A5A6A7 A8A9AAAB ACADAEAF
++
++# Optimized memcpy head: assemble 16 guest bytes from an unaligned source,
++# then write only the destination bytes from its unaligned head onward.
++test_stvlx_memcpy_head:
++  #_ MEMORY_IN 10002100 00010203 04050607 08090A0B 0C0D0E0F 10111213 14151617 18191A1B 1C1D1E1F
++  #_ MEMORY_IN 10002200 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002101
++  #_ REGISTER_IN r5 0x1000220C
++  lvsl v2, r4, r0
++  lvx v3, r4, r0
++  addi r7, r4, 16
++  lvx v4, r7, r0
++  vperm v5, v3, v4, v2
++  stvlx v5, r5, r0
++  blr
++  #_ MEMORY_OUT 10002200 A0A1A2A3 A4A5A6A7 A8A9AAAB 01020304
++
++# Optimized memcpy tail: use the same unaligned source assembly and store the
++# final four bytes before the destination boundary while preserving its tail.
++test_stvrx_memcpy_tail:
++  #_ MEMORY_IN 10002100 00010203 04050607 08090A0B 0C0D0E0F 10111213 14151617 18191A1B 1C1D1E1F
++  #_ MEMORY_IN 10002200 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002101
++  #_ REGISTER_IN r5 0x10002204
++  lvsl v2, r4, r0
++  lvx v3, r4, r0
++  addi r7, r4, 16
++  lvx v4, r7, r0
++  vperm v5, v3, v4, v2
++  stvrx v5, r5, r0
++  blr
++  #_ MEMORY_OUT 10002200 0D0E0F10 A4A5A6A7 A8A9AAAB ACADAEAF
++
++# These labels opt into the generated, seeded randomized differential harness.
++test_stvlx_differential:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 8
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvlx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 A0A1A2A3 A4A5A6A7 00010203 04050607
++
++test_stvrx_differential:
++  #_ MEMORY_IN 10002000 A0A1A2A3 A4A5A6A7 A8A9AAAB ACADAEAF
++  #_ REGISTER_IN r4 0x10002000
++  #_ REGISTER_IN r6 8
++  #_ REGISTER_IN v5 [00010203, 04050607, 08090A0B, 0C0D0E0F]
++  stvrx v5, r4, r6
++  blr
++  #_ MEMORY_OUT 10002000 08090A0B 0C0D0E0F A8A9AAAB ACADAEAF
+-- 
+2.51.0.windows.1

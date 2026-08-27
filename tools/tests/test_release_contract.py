@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 41)
+        self.assertEqual(len(patches), 42)
         self.assertEqual(
             patches[-1].name,
-            "0041-fh1-resolve-readback-counters.patch",
+            "0042-ppc-partial-vector-store-regression-tests.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -183,6 +183,22 @@ class ReleaseContractTests(unittest.TestCase):
         for counter in ("resolve_readback_requests", "resolve_readback_bytes",
                         "resolve_readback_full_waits", "resolve_readback_wait_time_ns"):
             self.assertIn(counter, resolve_text)
+
+    def test_partial_vector_store_qualification_contract(self):
+        patch = ROOT / "patches/rexglue/0042-ppc-partial-vector-store-regression-tests.patch"
+        self.assertTrue(patch.is_file())
+        patch_text = patch.read_text(encoding="utf-8")
+        for marker in ("test_stvlx_offset_0", "test_stvlx_offset_15",
+                       "test_stvrx_offset_0", "test_stvrx_offset_15",
+                       "test_stvlx_memcpy_head", "test_stvrx_memcpy_tail",
+                       "randomized_differential", "0x5EED07A1"):
+            self.assertIn(marker, patch_text)
+        qualifier = (ROOT / "tools/qualify-partial-vector-store.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pinyon-shift.partial-vector-store-qualification.v1", qualifier)
+        self.assertIn("ordered_patches", qualifier)
+        self.assertIn("generated_functions_sha256", qualifier)
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
         stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
