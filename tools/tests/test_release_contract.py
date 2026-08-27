@@ -1,5 +1,6 @@
 import getpass
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -98,6 +99,46 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("clone --recursive", prepare)
         self.assertIn("-DSDL_HIDAPI_LIBUSB=OFF", build)
         self.assertIn("set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL", cmake)
+
+    def test_release_setup_uses_pinned_git_and_normalizes_command_path(self):
+        common = (ROOT / "tools/release-common.ps1").read_text(encoding="utf-8")
+        provision = (ROOT / "tools/provision-toolchain.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        get_git = common.split("function Get-PinyonGit", 1)[1]
+        self.assertNotIn("Get-Command git.exe", get_git)
+        self.assertIn("$config.git.install_path", get_git)
+        self.assertNotIn("Get-Command git.exe", provision)
+        self.assertIn("$config.git.install_path", provision)
+        self.assertIn("ConvertTo-PinyonCommandPath", common)
+        self.assertIn("$inheritedPath = $env:PATH", common)
+
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_command_path_removes_entry_quotes_without_losing_parentheses(self):
+        command = (
+            ". ./tools/release-common.ps1; "
+            "[Console]::Out.Write((ConvertTo-PinyonCommandPath "
+            "-PathValue $env:PINYON_TEST_PATH))"
+        )
+        environment = os.environ.copy()
+        environment["PINYON_TEST_PATH"] = (
+            'C:\\Windows;"C:\\Program Files (x86)\\Steam\\ext\\bin";'
+            "C:\\Tools"
+        )
+        completed = subprocess.run(
+            ["powershell", "-NoLogo", "-NoProfile", "-Command", command],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout,
+            "C:\\Windows;C:\\Program Files (x86)\\Steam\\ext\\bin;C:\\Tools",
+        )
 
     def test_launcher_payload_has_every_required_script(self):
         required = {

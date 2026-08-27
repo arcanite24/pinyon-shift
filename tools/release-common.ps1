@@ -123,12 +123,33 @@ function Get-PinyonVisualStudioRoot {
     $root
 }
 
+function ConvertTo-PinyonCommandPath {
+    param([AllowEmptyString()] [string]$PathValue)
+
+    $entries = @($PathValue -split ';' | ForEach-Object {
+        $entry = $_.Trim()
+        if ($entry.Length -ge 2 -and $entry.StartsWith('"') -and $entry.EndsWith('"')) {
+            $entry = $entry.Substring(1, $entry.Length - 2).Trim()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($entry)) { $entry }
+    })
+    $entries -join ';'
+}
+
 function Enter-PinyonBuildEnvironment {
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
     $vsRoot = Get-PinyonVisualStudioRoot
     $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
-    $lines = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set")
+    $inheritedPath = $env:PATH
+    try {
+        # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
+        $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
+        $lines = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set")
+    }
+    finally {
+        $env:PATH = $inheritedPath
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the Microsoft x64 build environment.' }
     foreach ($line in $lines) {
         $separator = $line.IndexOf('=')
@@ -148,8 +169,6 @@ function Enter-PinyonBuildEnvironment {
 }
 
 function Get-PinyonGit {
-    $system = Get-Command git.exe -ErrorAction SilentlyContinue
-    if ($null -ne $system) { return $system.Source }
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
     $candidate = Join-Path (Join-Path $root $config.git.install_path) $config.git.executable

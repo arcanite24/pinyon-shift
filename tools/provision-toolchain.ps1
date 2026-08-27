@@ -39,15 +39,13 @@ if ([string]::IsNullOrWhiteSpace($vsRoot)) {
 }
 
 Write-PinyonEvent tools 23 'Preparing Git.' -JsonEvents:$JsonEvents
-if ($null -eq (Get-Command git.exe -ErrorAction SilentlyContinue)) {
-    $gitRoot = [IO.Path]::GetFullPath((Join-Path $root $config.git.install_path))
-    $gitExe = Join-Path $gitRoot $config.git.executable
-    if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
-        $archive = Join-Path $downloads "mingit-$($config.git.version).zip"
-        Invoke-PinyonDownload -Uri $config.git.url -Destination $archive -Sha256 $config.git.sha256
-        [void](New-Item -ItemType Directory -Force -Path $gitRoot)
-        Expand-Archive -LiteralPath $archive -DestinationPath $gitRoot -Force
-    }
+$gitRoot = [IO.Path]::GetFullPath((Join-Path $root $config.git.install_path))
+$gitExe = Join-Path $gitRoot $config.git.executable
+if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
+    $archive = Join-Path $downloads "mingit-$($config.git.version).zip"
+    Invoke-PinyonDownload -Uri $config.git.url -Destination $archive -Sha256 $config.git.sha256
+    [void](New-Item -ItemType Directory -Force -Path $gitRoot)
+    Expand-Archive -LiteralPath $archive -DestinationPath $gitRoot -Force
 }
 
 Write-PinyonEvent tools 26 'Preparing the pinned LLVM compiler.' -JsonEvents:$JsonEvents
