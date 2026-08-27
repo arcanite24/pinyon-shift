@@ -20,6 +20,8 @@ private/
 !/docs/BUILDING.md
 !/docs/LEGAL.md
 !/docs/TROUBLESHOOTING.md
+!/docs/native-renderer/
+!/docs/native-renderer/**
 
 # Build output and tooling state.
 build/
