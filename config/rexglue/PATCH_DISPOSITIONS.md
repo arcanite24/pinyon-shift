@@ -106,6 +106,17 @@ all EPIC-04 counters are exported, and `occlusion_query = "legacy"` remains the
 shipping default and immediate rollback path. Removing `0039` restores the
 previous synchronous D3D12 query implementation.
 
+`0040-fh1-zpd-end-policy-and-telemetry` isolates the END-classification signal
+reported in Xenia Canary issue `#1099` and commit `8a49c03`. It adds
+report-layout, pairwise-sentinel, and relaxed-sentinel policies; an optional
+fallback; bounded pre-clear observations; and a final unchanged-sentinel
+watchdog. Title-scoped `auto` selects report layout plus pairwise fallback only
+for FH1 title ID `4D5309C9`; the project separately gates the supported retail
+executable hash. The legacy query path is unchanged and remains the shipping
+default until the six-run matrix and ten-cold-boot admission gate pass.
+Removing `0040` restores EPIC-04 classification behavior without removing its
+logical/physical report lifecycle.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.

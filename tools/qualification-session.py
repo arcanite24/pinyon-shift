@@ -6,7 +6,17 @@ import argparse, hashlib, json, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-MARKERS = ("cold-boot", "menu", "race", "save", "clean-exit", "relaunch", "reload")
+MARKERS = (
+    "cold-boot",
+    "intro-movie-complete",
+    "controller-layout-displayed",
+    "first-interactive-frame",
+    "race",
+    "save",
+    "clean-exit",
+    "relaunch",
+    "reload",
+)
 
 def utc() -> str: return datetime.now(timezone.utc).isoformat()
 def digest(path: Path) -> str: return hashlib.sha256(path.read_bytes()).hexdigest()

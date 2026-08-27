@@ -10,6 +10,10 @@ param(
     [int]$ResolutionScale = 1,
     [ValidateSet('legacy', 'fake', 'fast', 'strict')]
     [string]$OcclusionQuery = 'legacy',
+    [ValidateSet('report_layout', 'pairwise_sentinel', 'relaxed_sentinel')]
+    [string]$ZpdEndPolicy = 'report_layout',
+    [ValidateSet('none', 'pairwise_sentinel', 'relaxed_sentinel')]
+    [string]$ZpdEndFallback = 'pairwise_sentinel',
     [string]$StateRoot,
     [switch]$Json
 )
@@ -30,8 +34,8 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 6 adds conservative ZPD lifecycle selection.
-pinyon_shift_config_schema = 6
+# Schema 7 adds FH1 ZPD END-policy qualification.
+pinyon_shift_config_schema = 7
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -46,6 +50,8 @@ swap_post_effect = "none"
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 occlusion_query = "legacy"
+zpd_end_policy = "report_layout"
+zpd_end_fallback = "pairwise_sentinel"
 '@
 }
 
@@ -108,6 +114,8 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
             resolution_scale = [int](Get-TomlValue $Text 'draw_resolution_scale_x' '1')
             occlusion_query = Get-TomlValue $Text 'occlusion_query' 'legacy'
+            zpd_end_policy = Get-TomlValue $Text 'zpd_end_policy' 'report_layout'
+            zpd_end_fallback = Get-TomlValue $Text 'zpd_end_fallback' 'pairwise_sentinel'
         }
         restart_required = $Operation -ne 'Get'
     }
@@ -121,7 +129,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -138,7 +146,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -146,9 +154,9 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '6'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '7'
         if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
         }
@@ -161,6 +169,8 @@ switch ($Action) {
         $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$ResolutionScale)
         $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$ResolutionScale)
         $text = Set-TomlValue $text 'occlusion_query' ('"' + $OcclusionQuery + '"')
+        $text = Set-TomlValue $text 'zpd_end_policy' ('"' + $ZpdEndPolicy + '"')
+        $text = Set-TomlValue $text 'zpd_end_fallback' ('"' + $ZpdEndFallback + '"')
         Write-Config $text
     }
 }

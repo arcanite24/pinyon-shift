@@ -8,11 +8,24 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/set-graphics-experiment.ps1"
+QUALIFY_ZPD = ROOT / "tools/qualify-zpd.ps1"
 POWERSHELL = shutil.which("powershell")
 
 
 @unittest.skipUnless(POWERSHELL, "Windows PowerShell is required")
 class GraphicsSettingsTests(unittest.TestCase):
+    def test_zpd_qualification_plan_covers_required_matrix(self):
+        completed = subprocess.run(
+            [POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(QUALIFY_ZPD), "-Action", "Plan", "-Json"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        plan = json.loads(completed.stdout)
+        self.assertEqual(len(plan["matrix"]), 6)
+        self.assertEqual(plan["admission"]["required_cold_boots"], 10)
+        self.assertEqual(plan["matrix"][2]["label"], "fast-layout")
+
     def run_tool(self, state, *arguments):
         completed = subprocess.run(
             [POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -33,13 +46,17 @@ class GraphicsSettingsTests(unittest.TestCase):
                 state, "-Action", "Apply", "-Anisotropy", "16",
                 "-PostEffect", "fxaa", "-ResolutionScale", "2",
                 "-OcclusionQuery", "fast",
+                "-ZpdEndPolicy", "pairwise_sentinel",
+                "-ZpdEndFallback", "none",
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 6", updated)
+            self.assertIn("pinyon_shift_config_schema = 7", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertEqual(result["settings"]["occlusion_query"], "fast")
             self.assertIn('occlusion_query = "fast"', updated)
+            self.assertEqual(result["settings"]["zpd_end_policy"], "pairwise_sentinel")
+            self.assertEqual(result["settings"]["zpd_end_fallback"], "none")
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
@@ -58,6 +75,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn("draw_resolution_scale_x = 1", text)
             self.assertIn("xma_relaxed_padding_admission = false", text)
             self.assertIn('occlusion_query = "legacy"', text)
+            self.assertIn('zpd_end_policy = "report_layout"', text)
+            self.assertIn('zpd_end_fallback = "pairwise_sentinel"', text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
 

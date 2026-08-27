@@ -157,7 +157,10 @@ try {
         'zpd_same_slot_reuse', 'zpd_fast_speculative_writes',
         'zpd_async_result_patches', 'zpd_strict_waits',
         'zpd_strict_wait_time_ns', 'zpd_retire_timeouts', 'zpd_fake_fallbacks',
-        'zpd_malformed_records', 'zpd_stale_result_rejections'
+        'zpd_malformed_records', 'zpd_stale_result_rejections',
+        'zpd_classified_begins', 'zpd_classified_ends',
+        'zpd_classified_orphaned_ends', 'zpd_policy_fallbacks',
+        'zpd_watchdog_recoveries'
     )
     $zpdCounters = [ordered]@{ available = $false }
     foreach ($column in $zpdColumns) { $zpdCounters[$column] = [uint64]0 }
@@ -193,7 +196,8 @@ try {
         'pinyon_shift_capture_performance',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
-        'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query'
+        'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query',
+        'zpd_end_policy', 'zpd_end_fallback'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}
