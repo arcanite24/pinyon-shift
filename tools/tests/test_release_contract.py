@@ -237,6 +237,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("DisableDepthOfFieldCheckBox", launcher_xaml)
         self.assertIn('Environment.GetEnvironmentVariable("PINYON_SHIFT_STATE_ROOT")', launcher)
         self.assertIn('"-StateRoot", _stateRoot', launcher)
+        self.assertIn("DetectPendingReport();\n            UpdatePrimaryButton();", launcher)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
