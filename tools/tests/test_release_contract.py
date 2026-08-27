@@ -163,7 +163,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 8", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 9", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
@@ -223,21 +223,34 @@ class ReleaseContractTests(unittest.TestCase):
         launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 8;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*8,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 9;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*9,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 7", app)
+        self.assertIn("schema < 1 || schema > 8", app)
         self.assertIn('"occlusion_query = \\"legacy\\"\\n"', app)
         self.assertIn('"zpd_end_policy = \\"report_layout\\"\\n"', app)
         self.assertIn('"readback_resolve = \\"none\\"\\n"', app)
         self.assertIn('"clear_memory_page_state = true\\n"', app)
         self.assertIn("Accurate showroom", launcher_xaml)
+        self.assertIn("DisableMotionBlurCheckBox", launcher_xaml)
+        self.assertIn("DisableDepthOfFieldCheckBox", launcher_xaml)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
             r"pinyon_shift_stabilize_vehicle_presentation,\s*false,",
         )
+
+    def test_exact_hash_post_processing_substitutions_are_shipped(self):
+        patch = (ROOT / "config/rexglue/analysis/fh1-post-processing.toml").read_text(
+            encoding="utf-8"
+        )
+        for address in ("0x82D7894C", "0x8245B494", "0x8245846C", "0x8245849C"):
+            self.assertIn(address, patch)
+        self.assertIn("DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C", patch)
+        build = (ROOT / "tools/build-preview.ps1").read_text(encoding="utf-8")
+        self.assertIn("guest_codegen_patch_set_sha256", build)
+        self.assertIn("does not match the exact supported EPIC-08 patch target", build)
 
     def test_8bitdo_ultimate_2c_wired_mapping_is_shipped(self):
         mappings = (ROOT / "config/gamecontrollerdb.txt").read_text(encoding="utf-8")

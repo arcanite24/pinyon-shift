@@ -1,0 +1,34 @@
+# Generated substitutions for the exact supported MS-2505 retail base XEX.
+#
+# Source: xenia-canary/game-patches, hash D48ABF1704CE5C4A. The Pinyon Shift
+# build pipeline independently requires default.xex SHA-256
+# DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C.
+# These hooks preserve the original generated instructions when their runtime
+# settings are false. When true, they reproduce the upstream PPC replacements
+# without attempting to patch guest memory after static code generation.
+
+# Upstream replacement 0x60000000 (nop): skip the original instruction.
+[[midasm_hook]]
+address = 0x82D7894C
+name = "PinyonShiftDisableMotionBlur"
+jump_address_on_true = 0x82D78950
+
+# Upstream replacement 0x39600000 (li r11, 0): set r11 and skip the original
+# load at each depth-of-field decision point.
+[[midasm_hook]]
+address = 0x8245B494
+name = "PinyonShiftDisableDepthOfField"
+registers = ["r11"]
+jump_address_on_true = 0x8245B498
+
+[[midasm_hook]]
+address = 0x8245846C
+name = "PinyonShiftDisableDepthOfField"
+registers = ["r11"]
+jump_address_on_true = 0x82458470
+
+[[midasm_hook]]
+address = 0x8245849C
+name = "PinyonShiftDisableDepthOfField"
+registers = ["r11"]
+jump_address_on_true = 0x824584A0

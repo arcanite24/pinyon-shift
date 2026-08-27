@@ -22,14 +22,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 8, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 9, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 8;
+constexpr uint32_t kConfigSchema = 9;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -60,6 +60,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "pinyon_shift_skip_opening_movies = false\n"
               "anisotropic_override = 3\n"
               "swap_post_effect = \"none\"\n"
+              "disable_motion_blur = false\n"
+              "disable_depth_of_field = false\n"
               "draw_resolution_scale_x = 1\n"
               "draw_resolution_scale_y = 1\n"
               "clear_memory_page_state = true\n"
@@ -93,7 +95,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 7) {
+    if (schema < 1 || schema > 8) {
       return false;
     }
 
@@ -143,6 +145,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
          "xma_relaxed_padding_admission = false\n"},
         {"anisotropic_override", "anisotropic_override = 3\n"},
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
+        {"disable_motion_blur", "disable_motion_blur = false\n"},
+        {"disable_depth_of_field", "disable_depth_of_field = false\n"},
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
         {"vsync", "vsync = true\n"},
@@ -290,6 +294,10 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"anisotropic_override",
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
+                        {"disable_motion_blur",
+                         rex::cvar::GetFlagByName("disable_motion_blur")},
+                        {"disable_depth_of_field",
+                         rex::cvar::GetFlagByName("disable_depth_of_field")},
                         {"occlusion_query", rex::cvar::GetFlagByName("occlusion_query")},
                         {"zpd_end_policy", rex::cvar::GetFlagByName("zpd_end_policy")},
                         {"zpd_end_fallback", rex::cvar::GetFlagByName("zpd_end_fallback")},

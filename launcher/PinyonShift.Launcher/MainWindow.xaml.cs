@@ -678,7 +678,10 @@ public partial class MainWindow : Window
             "-Anisotropy", SelectedTag(AnisotropyComboBox), "-PostEffect", SelectedTag(PostEffectComboBox),
             "-ResolutionScale", SelectedTag(ResolutionComboBox),
             "-Preset", SelectedTag(GraphicsPresetComboBox),
-            "-ReadbackResolve", SelectedTag(ReadbackResolveComboBox), "-Json"
+            "-ReadbackResolve", SelectedTag(ReadbackResolveComboBox),
+            "-DisableMotionBlur", DisableMotionBlurCheckBox.IsChecked == true ? "true" : "false",
+            "-DisableDepthOfField", DisableDepthOfFieldCheckBox.IsChecked == true ? "true" : "false",
+            "-Json"
         }) startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo) ??
             throw new InvalidOperationException("Windows could not start the graphics settings tool.");
@@ -709,6 +712,8 @@ public partial class MainWindow : Window
             SelectTag(GraphicsPresetComboBox, result.Settings.Preset);
             SelectTag(ResolutionComboBox, result.Settings.ResolutionScale.ToString());
             SelectTag(ReadbackResolveComboBox, result.Settings.ReadbackResolve);
+            DisableMotionBlurCheckBox.IsChecked = result.Settings.DisableMotionBlur;
+            DisableDepthOfFieldCheckBox.IsChecked = result.Settings.DisableDepthOfField;
         }
         finally
         {
@@ -730,6 +735,8 @@ public partial class MainWindow : Window
         ResolutionComboBox.IsEnabled = enabled;
         GraphicsPresetComboBox.IsEnabled = enabled;
         ReadbackResolveComboBox.IsEnabled = enabled;
+        DisableMotionBlurCheckBox.IsEnabled = enabled;
+        DisableDepthOfFieldCheckBox.IsEnabled = enabled;
         SaveGraphicsButton.IsEnabled = enabled;
         ResetGraphicsButton.IsEnabled = enabled;
         RestoreGraphicsButton.IsEnabled = enabled;
@@ -754,6 +761,8 @@ public partial class MainWindow : Window
     private sealed record GraphicsSettings(
         [property: JsonPropertyName("anisotropy")] int Anisotropy,
         [property: JsonPropertyName("post_effect")] string PostEffect,
+        [property: JsonPropertyName("disable_motion_blur")] bool DisableMotionBlur,
+        [property: JsonPropertyName("disable_depth_of_field")] bool DisableDepthOfField,
         [property: JsonPropertyName("preset")] string Preset,
         [property: JsonPropertyName("resolution_scale")] int ResolutionScale,
         [property: JsonPropertyName("readback_resolve")] string ReadbackResolve,

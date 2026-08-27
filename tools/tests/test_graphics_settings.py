@@ -65,10 +65,12 @@ class GraphicsSettingsTests(unittest.TestCase):
                 "-ZpdEndFallback", "none",
                 "-PresentationFps", "30",
                 "-Preset", "experimental_2x",
+                "-DisableMotionBlur", "true",
+                "-DisableDepthOfField", "true",
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 8", updated)
+            self.assertIn("pinyon_shift_config_schema = 9", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertEqual(result["settings"]["occlusion_query"], "fast")
             self.assertIn('occlusion_query = "fast"', updated)
@@ -76,6 +78,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertEqual(result["settings"]["zpd_end_fallback"], "none")
             self.assertEqual(result["settings"]["host_present_fps_limit"], 30)
             self.assertTrue(result["settings"]["host_present_sleep_spin"])
+            self.assertTrue(result["settings"]["disable_motion_blur"])
+            self.assertTrue(result["settings"]["disable_depth_of_field"])
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertEqual(result["settings"]["preset"], "experimental_2x")
@@ -94,6 +98,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             result = self.run_tool(state, "-Action", "Reset")
             text = config.read_text(encoding="utf-8")
             self.assertIn("swap_post_effect = \"none\"", text)
+            self.assertIn("disable_motion_blur = false", text)
+            self.assertIn("disable_depth_of_field = false", text)
             self.assertIn("draw_resolution_scale_x = 1", text)
             self.assertIn("xma_relaxed_padding_admission = false", text)
             self.assertIn('occlusion_query = "legacy"', text)
@@ -112,7 +118,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             state = pathlib.Path(temporary)
             config = state / "config/pinyon_shift.toml"
             config.parent.mkdir(parents=True)
-            config.write_text("pinyon_shift_config_schema = 8\nreadback_resolve = \"none\"\n", encoding="utf-8")
+            config.write_text("pinyon_shift_config_schema = 9\nreadback_resolve = \"none\"\n", encoding="utf-8")
             result = self.run_tool(state, "-Action", "Apply", "-Preset", "accurate_showroom")
             text = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["preset"], "accurate_showroom")
