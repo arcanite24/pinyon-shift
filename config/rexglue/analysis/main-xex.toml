@@ -4,6 +4,14 @@
 
 includes = ["fh1-post-processing.toml"]
 
+# NR-00 graphics-hook owner. This is the sole title call to VdSwap, observed
+# immediately before the import without changing registers or control flow.
+# Future graphics hooks must dispatch through src/native_renderer/ rather than
+# acquiring a second owner in the general runtime-hooks translation unit.
+[[midasm_hook]]
+address = 0x829EFEB8
+name = "PinyonShiftObserveGraphicsFrame"
+
 # Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
 # longjmp restores the host-side PPCContext captured at the setjmp call site.
 setjmp_address = 0x82A81E80
