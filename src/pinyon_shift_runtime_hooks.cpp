@@ -24,6 +24,10 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_skip_opening_movies, false, "Pinyon Shift",
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_stabilize_vehicle_presentation, false, "Pinyon Shift",
     "Suppress isolated implausible player-vehicle presentation transforms");
+REXCVAR_DEFINE_BOOL(disable_motion_blur, false, "Pinyon Shift",
+                    "Disable Forza Horizon motion blur");
+REXCVAR_DEFINE_BOOL(disable_depth_of_field, false, "Pinyon Shift",
+                    "Disable Forza Horizon depth of field");
 
 namespace {
 
@@ -325,6 +329,18 @@ bool OpeningMovieSkipRequested() {
 }
 
 }  // namespace
+
+bool PinyonShiftDisableMotionBlur() {
+  return REXCVAR_GET(disable_motion_blur);
+}
+
+bool PinyonShiftDisableDepthOfField(PPCRegister& r11) {
+  if (!REXCVAR_GET(disable_depth_of_field)) {
+    return false;
+  }
+  r11.u64 = 0;
+  return true;
+}
 
 void PinyonShiftCompleteOpeningMovie(PPCRegister& r3, PPCRegister& r30,
                                      PPCRegister& r31) {

@@ -233,6 +233,7 @@ try {
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'host_present_fps_limit',
         'host_present_sleep_spin', 'anisotropic_override', 'swap_post_effect',
+        'disable_motion_blur', 'disable_depth_of_field',
         'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query',
         'zpd_end_policy', 'zpd_end_fallback', 'clear_memory_page_state',
         'readback_resolve', 'readback_resolve_half_pixel_offset',
