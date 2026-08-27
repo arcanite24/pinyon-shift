@@ -1,0 +1,152 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 9853ec2..137274e 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -275,6 +275,8 @@ class CommandProcessor {
+ 
+   Shader* active_vertex_shader_ = nullptr;
+   Shader* active_pixel_shader_ = nullptr;
++  uint64_t observation_frame_sequence_ = 1;
++  uint64_t observation_draw_sequence_ = 0;
+ 
+   bool paused_ = false;
+ 
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index ac6b056..2f92ddc 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -70,6 +70,12 @@ class GraphicsSystem : public system::IGraphicsSystem {
+ 
+   RegisterFile* register_file() { return &register_file_; }
+   CommandProcessor* command_processor() const { return command_processor_.get(); }
++  void SetDrawObserver(system::GraphicsDrawObserver observer) override {
++    draw_observer_.store(observer, std::memory_order_release);
++  }
++  system::GraphicsDrawObserver draw_observer() const {
++    return draw_observer_.load(std::memory_order_acquire);
++  }
+ 
+   void InitializeRingBuffer(uint32_t ptr, uint32_t size_log2) override;
+   void EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_size_log2) override;
+@@ -129,6 +135,8 @@ class GraphicsSystem : public system::IGraphicsSystem {
+  private:
+   std::unique_ptr<::rex::ui::Presenter> presenter_;
+ 
++  std::atomic<system::GraphicsDrawObserver> draw_observer_{nullptr};
++
+   std::atomic_flag host_gpu_loss_reported_;
+ };
+ 
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index d54df86..fb8a3c1 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -31,6 +31,31 @@ class KernelState;
+ 
+ namespace rex::system {
+ 
++struct GraphicsDrawObservation {
++  uint64_t frame_sequence = 0;
++  uint64_t draw_sequence = 0;
++  uint64_t vertex_shader_hash = 0;
++  uint64_t pixel_shader_hash = 0;
++  uint32_t packet = 0;
++  uint32_t initiator = 0;
++  uint32_t primitive_type = 0;
++  uint32_t index_count = 0;
++  uint32_t source_select = 0;
++  uint32_t index_buffer_address = 0;
++  uint32_t index_buffer_length = 0;
++  uint32_t surface_info = 0;
++  uint32_t color_info[4] = {};
++  uint32_t depth_info = 0;
++  uint32_t window_scissor_tl = 0;
++  uint32_t window_scissor_br = 0;
++  uint32_t rb_modecontrol = 0;
++  bool indexed = false;
++  bool major_mode_explicit = false;
++  bool vertex_memexport = false;
++};
++
++using GraphicsDrawObserver = void (*)(const GraphicsDrawObservation& observation);
++
+ class IGraphicsSystem {
+  public:
+   virtual ~IGraphicsSystem() = default;
+@@ -57,6 +82,12 @@ class IGraphicsSystem {
+   virtual ui::GraphicsProvider* provider() const { return nullptr; }
+   virtual ui::Presenter* presenter() const { return nullptr; }
+ 
++  // Optional read-only command-stream observation. Backends invoke this
++  // before draw submission and observers cannot alter draw behavior.
++  virtual void SetDrawObserver(GraphicsDrawObserver observer) {
++    (void)observer;
++  }
++
+   // Guest GPU services reached from the xboxkrnl Vd* exports.
+   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {
+     (void)callback;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 03b0ac2..48c7421 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -25,6 +25,7 @@
+ #include <rex/graphics/command_processor.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/graphics_system.h>
++#include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/sampler_info.h>
+ #include <rex/graphics/xenos.h>
+@@ -979,6 +980,9 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ 
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
++  ++observation_frame_sequence_;
++  observation_draw_sequence_ = 0;
++
+   ++counter_;
+   return true;
+ }
+@@ -1471,6 +1475,41 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+ 
+       bool major_mode_explicit =
+           xenos::IsMajorModeExplicit(vgt_draw_initiator.major_mode, vgt_draw_initiator.prim_type);
++      auto draw_observer = graphics_system_->draw_observer();
++      if (draw_observer) {
++        system::GraphicsDrawObservation observation;
++        observation.frame_sequence = observation_frame_sequence_;
++        observation.draw_sequence = ++observation_draw_sequence_;
++        observation.vertex_shader_hash =
++            active_vertex_shader_ ? active_vertex_shader_->ucode_data_hash() : 0;
++        observation.pixel_shader_hash =
++            active_pixel_shader_ ? active_pixel_shader_->ucode_data_hash() : 0;
++        observation.packet = packet;
++        observation.initiator = vgt_draw_initiator.value;
++        observation.primitive_type = uint32_t(vgt_draw_initiator.prim_type);
++        observation.index_count = vgt_draw_initiator.num_indices;
++        observation.source_select = uint32_t(vgt_draw_initiator.source_select);
++        observation.indexed = is_indexed;
++        observation.major_mode_explicit = major_mode_explicit;
++        observation.vertex_memexport =
++            active_vertex_shader_ && !active_vertex_shader_->memexport_stream_constants().empty();
++        if (is_indexed) {
++          observation.index_buffer_address = index_buffer_info.guest_base;
++          observation.index_buffer_length = uint32_t(index_buffer_info.length);
++        }
++        observation.surface_info = register_file_->Get<reg::RB_SURFACE_INFO>().value;
++        for (uint32_t i = 0; i < 4; ++i) {
++          observation.color_info[i] =
++              (*register_file_)[reg::RB_COLOR_INFO::rt_register_indices[i]];
++        }
++        observation.depth_info = register_file_->Get<reg::RB_DEPTH_INFO>().value;
++        observation.window_scissor_tl =
++            register_file_->Get<reg::PA_SC_WINDOW_SCISSOR_TL>().value;
++        observation.window_scissor_br =
++            register_file_->Get<reg::PA_SC_WINDOW_SCISSOR_BR>().value;
++        observation.rb_modecontrol = register_file_->Get<reg::RB_MODECONTROL>().value;
++        draw_observer(observation);
++      }
+       draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+                                  is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
+       if (!draw_succeeded) {

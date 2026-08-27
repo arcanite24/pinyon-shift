@@ -8,7 +8,7 @@ a trace or disassembly proves them.
 
 - Pinyon Shift `dev`: `cafc7233fef9e039f163d11023f40eccb22e8fc1`
 - ReXGlue: `v0.10.0` at `f5337cdc947ff6d4c4196737e2c807a48f2a1fc2`
-- ReXGlue patch stack: `0001` through `0043`
+- ReXGlue patch stack: `0001` through `0044`
 - `default.xex` SHA-256:
   `DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C`
 
@@ -36,6 +36,44 @@ or presentation changes. The only setting is
 | Xenos swap packet | ReXGlue `CommandProcessor::ExecutePacketType3_XE_SWAP` | Consumes the `VdSwap` packet and calls backend `IssueSwap` | ReXGlue snapshots/reset per-frame counters before decoding the packet payload | Verified runtime boundary |
 | Draw packet | ReXGlue `PM4_DRAW_INDX` / `PM4_DRAW_INDX_2` | Generic command processor decodes the packet before backend `IssueDraw` | Register-derived draw state is consumed by the backend | Backend boundary verified; title wrapper unknown |
 | Resolve/copy | ReXGlue backend `IssueCopy` | Triggered by the Xenos copy path | Render-target and guest-memory dependencies may be produced | Backend boundary verified; title wrapper unknown |
+
+## Bounded draw observation
+
+Patch `0044-graphics-draw-observer.patch` adds an optional, backend-neutral
+observer immediately before `IssueDraw`. The observer is not registered unless
+`pinyon_shift_native_renderer_census` is enabled before startup. The default-off
+path performs one null observer check and leaves draw submission unchanged.
+
+Each observation contains sequence numbers, primitive/index metadata, shader
+hashes, render-target/depth/scissor register values, and a memexport flag. It
+does not contain shader code, constants, texture data, vertex/index contents,
+or any other guest payload.
+
+Pinyon hashes those fields into a fixed 4096-entry table. Element count remains
+in each sample but is excluded from the signature so repeated geometry using
+the same pipeline and target groups into one pass identity. Every 300 emulated
+frames it emits one window record and at most the 16 most frequent signatures.
+The window record reports both `unique_signatures` and explicit
+`overflow_draws`; saturation never causes an unbounded allocation or per-draw
+log stream. This is census evidence only and does not classify or suppress a
+draw.
+
+### Local qualification snapshot — 2026-08-27
+
+The census-enabled Release build was launched through `launch-preview.ps1`
+against the installed `0.1.0` AppData save and exited normally. Two consecutive
+open-world windows produced:
+
+| Frames | Draws | Unique signatures | Overflow draws |
+|---:|---:|---:|---:|
+| 301–600 | 922,750 | 686 | 0 |
+| 601–900 | 1,006,435 | 458 | 0 |
+
+Each window emitted exactly the configured maximum of 16 ranked summaries, no
+crash/error/GPU-loss event was recorded, and Xenos remained the only renderer.
+An earlier 256-entry prototype that hashed raw draw initiators saturated in the
+same route; the recorded result above validates the coarser pass identity and
+4096-entry fixed capacity that replaced it.
 
 The frame hook has no register parameters and no conditional jump target. When
 the census is enabled it emits only frame 1 and every 300th frame, containing a
