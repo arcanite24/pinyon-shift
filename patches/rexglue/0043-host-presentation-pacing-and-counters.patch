@@ -1,0 +1,347 @@
+diff --git a/include/rex/perf/counter.h b/include/rex/perf/counter.h
+--- a/include/rex/perf/counter.h
++++ b/include/rex/perf/counter.h
+@@ -87,5 +87,16 @@ enum class CounterId : uint16_t {
+   kZpdPolicyFallbacks,
+   kZpdWatchdogRecoveries,
+ 
++  // Guest timing and host presentation pacing
++  kGuestVblankCount,
++  kGuestVblankDeltaNs,
++  kSimulationTickCount,
++  kPresentCount,
++  kPresentDeltaNs,
++  kPresentQueueDepth,
++  kPresentDeadlineMisses,
++  kDuplicatePresentCount,
++  kDroppedPresentCount,
++
+   kCount  // sentinel -- must be last
+ };
+@@ -222,5 +233,14 @@ class Profiler {
+ #define PROFILE_RESOLVE_READBACK_CACHE_MISS() PERF_counter_inc(kResolveReadbackCacheMisses)
+ #define PROFILE_RESOLVE_READBACK_FULL_WAIT() PERF_counter_inc(kResolveReadbackFullWaits)
+ #define PROFILE_RESOLVE_READBACK_WAIT_TIME_NS(n) PERF_counter_add(kResolveReadbackWaitTimeNs, n)
++#define PROFILE_GUEST_VBLANK() PERF_counter_inc(kGuestVblankCount)
++#define PROFILE_GUEST_VBLANK_DELTA_NS(value) PERF_counter_set(kGuestVblankDeltaNs, value)
++#define PROFILE_SIMULATION_TICK() PERF_counter_inc(kSimulationTickCount)
++#define PROFILE_PRESENT() PERF_counter_inc(kPresentCount)
++#define PROFILE_PRESENT_DELTA_NS(value) PERF_counter_set(kPresentDeltaNs, value)
++#define PROFILE_PRESENT_QUEUE_DEPTH(value) PERF_counter_set(kPresentQueueDepth, value)
++#define PROFILE_PRESENT_DEADLINE_MISS(n) PERF_counter_add(kPresentDeadlineMisses, n)
++#define PROFILE_DUPLICATE_PRESENT() PERF_counter_inc(kDuplicatePresentCount)
++#define PROFILE_DROPPED_PRESENT() PERF_counter_inc(kDroppedPresentCount)
+ 
+ #else
+@@ -276,5 +296,14 @@ class Profiler {
+ #define PROFILE_TEXTURE_CACHE_MISS()
+ #define PROFILE_PIPELINE_CACHE_HIT()
+ #define PROFILE_PIPELINE_CACHE_MISS()
++#define PROFILE_GUEST_VBLANK()
++#define PROFILE_GUEST_VBLANK_DELTA_NS(value)
++#define PROFILE_SIMULATION_TICK()
++#define PROFILE_PRESENT()
++#define PROFILE_PRESENT_DELTA_NS(value)
++#define PROFILE_PRESENT_QUEUE_DEPTH(value)
++#define PROFILE_PRESENT_DEADLINE_MISS(n)
++#define PROFILE_DUPLICATE_PRESENT()
++#define PROFILE_DROPPED_PRESENT()
+ 
+ #endif
+diff --git a/include/rex/ui/presentation_pacer.h b/include/rex/ui/presentation_pacer.h
+new file mode 100644
+--- /dev/null
++++ b/include/rex/ui/presentation_pacer.h
+@@ -0,0 +1,59 @@
++#pragma once
++
++#include <algorithm>
++#include <cstdint>
++
++namespace rex::ui {
++
++struct PresentationPacingDecision {
++  int64_t deadline_ns = 0;
++  int64_t wait_ns = 0;
++  uint64_t missed_deadlines = 0;
++};
++
++// Monotonic fixed-rate deadline scheduler. The caller owns the clock and wait
++// strategy so this remains deterministic and independently testable.
++class PresentationDeadlineScheduler {
++ public:
++  PresentationPacingDecision Plan(int64_t now_ns, uint32_t fps_limit) {
++    if (!fps_limit) {
++      Reset();
++      return {};
++    }
++
++    const int64_t interval_ns =
++        std::max<int64_t>(1, 1000000000LL / int64_t(fps_limit));
++    if (!initialized_ || interval_ns != interval_ns_) {
++      initialized_ = true;
++      interval_ns_ = interval_ns;
++      next_deadline_ns_ = now_ns;
++    }
++
++    PresentationPacingDecision decision;
++    decision.deadline_ns = next_deadline_ns_;
++    if (now_ns < next_deadline_ns_) {
++      decision.wait_ns = next_deadline_ns_ - now_ns;
++      next_deadline_ns_ += interval_ns_;
++      return decision;
++    }
++
++    const int64_t lateness_ns = now_ns - next_deadline_ns_;
++    decision.missed_deadlines = uint64_t(lateness_ns / interval_ns_);
++    next_deadline_ns_ +=
++        int64_t(decision.missed_deadlines + 1) * interval_ns_;
++    return decision;
++  }
++
++  void Reset() {
++    initialized_ = false;
++    interval_ns_ = 0;
++    next_deadline_ns_ = 0;
++  }
++
++ private:
++  bool initialized_ = false;
++  int64_t interval_ns_ = 0;
++  int64_t next_deadline_ns_ = 0;
++};
++
++}  // namespace rex::ui
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -31,6 +31,7 @@
+ #include <rex/platform.h>
+ #include <rex/types.h>
+ #include <rex/ui/flags.h>
++#include <rex/ui/presentation_pacer.h>
+ #include <rex/ui/surface.h>
+ #include <rex/ui/ui_drawer.h>
+ 
+@@ -951,6 +952,7 @@ class Presenter {
+   // These two images can be accessed by painting in parallel, in an unordered
+   // way, with guest output refreshing.
+   std::atomic<uint32_t> guest_output_mailbox_acquired_and_ready_{0};
++  std::atomic<uint64_t> guest_output_refresh_sequence_{0};
+   // The "writable" image is different than both "acquired" and "ready" and is
+   // accessible only by the guest output refreshing - it's the image that the
+   // refresher may write to.
+@@ -972,6 +974,13 @@ class Presenter {
+   // happens as part of painting.
+   std::mutex guest_output_mailbox_consumer_mutex_;
+ 
++  // Presentation can originate on the UI or guest-output thread. Serialize
++  // host pacing state without coupling it to guest vblank or mailbox timing.
++  std::mutex presentation_pacing_mutex_;
++  PresentationDeadlineScheduler presentation_deadline_scheduler_;
++  uint64_t last_presented_refresh_sequence_ = UINT64_MAX;
++  int64_t last_present_time_ns_ = 0;
++
+   std::array<GuestOutputProperties, kGuestOutputMailboxSize> guest_output_properties_;
+   // Accessible only by refreshing, whether the last refresh contained an image
+   // rather than being blank.
+diff --git a/src/core/perf/counter.cpp b/src/core/perf/counter.cpp
+--- a/src/core/perf/counter.cpp
++++ b/src/core/perf/counter.cpp
+@@ -95,4 +95,13 @@ constexpr const char* kCounterNames[] = {
+     "zpd_classified_orphaned_ends",
+     "zpd_policy_fallbacks",
+     "zpd_watchdog_recoveries",
++    "guest_vblank_count",
++    "guest_vblank_delta_ns",
++    "simulation_tick_count",
++    "present_count",
++    "present_delta_ns",
++    "present_queue_depth",
++    "present_deadline_misses",
++    "duplicate_present_count",
++    "dropped_present_count",
+ };
+@@ -158,4 +167,13 @@ constexpr bool kIsGauge[] = {
+     false,  // kZpdClassifiedOrphanedEnds
+     false,  // kZpdPolicyFallbacks
+     false,  // kZpdWatchdogRecoveries
++    false,  // kGuestVblankCount
++    false,  // kGuestVblankDeltaNs
++    false,  // kSimulationTickCount
++    false,  // kPresentCount
++    false,  // kPresentDeltaNs
++    false,  // kPresentQueueDepth
++    false,  // kPresentDeadlineMisses
++    false,  // kDuplicatePresentCount
++    false,  // kDroppedPresentCount
+ };
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -13,3 +13,4 @@
+ #include <algorithm>
+ #include <cctype>
++#include <chrono>
+ #include <cstdint>
+@@ -24,4 +25,5 @@
+ #include <rex/graphics/flags.h>
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/logging.h>
++#include <rex/perf/counter.h>
+ #include <rex/stream.h>
+@@ -320,4 +322,15 @@ void GraphicsSystem::MarkVblank() {
+   // TODO: Enable profiling once ported
+   // SCOPE_profile_cpu_f("gpu");
+ 
++  using VblankClock = std::chrono::steady_clock;
++  static std::atomic<int64_t> last_vblank_ns{0};
++  const int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
++                             VblankClock::now().time_since_epoch())
++                             .count();
++  const int64_t previous_ns = last_vblank_ns.exchange(now_ns, std::memory_order_relaxed);
++  PROFILE_GUEST_VBLANK();
++  if (previous_ns) {
++    PROFILE_GUEST_VBLANK_DELTA_NS(now_ns - previous_ns);
++  }
++
+   // Increment vblank counter (so the game sees us making progress).
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -12,9 +12,12 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
++#include <chrono>
++#include <thread>
+ #include <utility>
+ 
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
++#include <rex/perf/counter.h>
+ #include <rex/platform.h>
+@@ -29,4 +32,11 @@
+ REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
+                     "Allow presentation from non-UI thread");
+ 
++REXCVAR_DEFINE_INT32(host_present_fps_limit, 60, "UI/Presenter",
++                     "Host presentation FPS limit (0 disables pacing)")
++    .range(0, 240);
++
++REXCVAR_DEFINE_BOOL(host_present_sleep_spin, true, "UI/Presenter",
++                    "Use a sleep/yield hybrid for host presentation pacing");
++
+ REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
+@@ -592,4 +602,11 @@ bool Presenter::RefreshGuestOutput(
+       last_acquired_and_ready,
+       (last_acquired_and_ready & 3) | (guest_output_mailbox_writable_ << 2),
+       std::memory_order_acq_rel, std::memory_order_relaxed)) {}
++  const uint32_t published_acquired = last_acquired_and_ready & 3;
++  const uint32_t replaced_ready = (last_acquired_and_ready >> 2) & 3;
++  if (replaced_ready != published_acquired) {
++    PROFILE_DROPPED_PRESENT();
++  }
++  guest_output_refresh_sequence_.fetch_add(1, std::memory_order_release);
++  PROFILE_PRESENT_QUEUE_DEPTH(1);
+   // Now, it's known that `ready == writable` on the host presentation side.
+@@ -839,4 +856,5 @@ std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(
+     desired_acquired_and_ready =
+         (old_acquired_and_ready & ~uint32_t(3)) | (old_acquired_and_ready >> 2);
+   }
++  PROFILE_PRESENT_QUEUE_DEPTH(0);
+   uint32_t mailbox_index = desired_acquired_and_ready & 3;
+@@ -1497,5 +1515,45 @@ bool Presenter::InSurfaceOnMonitorFromUIThread() const {
+ Presenter::PaintResult Presenter::PaintAndPresent(bool execute_ui_drawers) {
+   assert_false(execute_ui_drawers && !is_in_ui_thread_paint_);
+   assert_true(surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedPaintable);
++  std::lock_guard<std::mutex> pacing_lock(presentation_pacing_mutex_);
++  using PresentationClock = std::chrono::steady_clock;
++  auto now = PresentationClock::now();
++  const int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
++                             now.time_since_epoch())
++                             .count();
++  const auto pacing = presentation_deadline_scheduler_.Plan(
++      now_ns, uint32_t(REXCVAR_GET(host_present_fps_limit)));
++  if (pacing.missed_deadlines) {
++    PROFILE_PRESENT_DEADLINE_MISS(int64_t(pacing.missed_deadlines));
++  }
++  if (pacing.wait_ns > 0) {
++    auto deadline = PresentationClock::time_point(
++        std::chrono::nanoseconds(pacing.deadline_ns));
++    if (REXCVAR_GET(host_present_sleep_spin) && pacing.wait_ns > 500000) {
++      std::this_thread::sleep_until(deadline - std::chrono::microseconds(500));
++      while (PresentationClock::now() < deadline) {
++        std::this_thread::yield();
++      }
++    } else {
++      std::this_thread::sleep_until(deadline);
++    }
++  }
+   PaintResult result = PaintAndPresentImpl(execute_ui_drawers);
++  if (result == PaintResult::kPresented || result == PaintResult::kPresentedSuboptimal) {
++    const int64_t present_time_ns =
++        std::chrono::duration_cast<std::chrono::nanoseconds>(
++            PresentationClock::now().time_since_epoch())
++            .count();
++    PROFILE_PRESENT();
++    if (last_present_time_ns_) {
++      PROFILE_PRESENT_DELTA_NS(present_time_ns - last_present_time_ns_);
++    }
++    last_present_time_ns_ = present_time_ns;
++    const uint64_t refresh_sequence =
++        guest_output_refresh_sequence_.load(std::memory_order_acquire);
++    if (refresh_sequence == last_presented_refresh_sequence_) {
++      PROFILE_DUPLICATE_PRESENT();
++    }
++    last_presented_refresh_sequence_ = refresh_sequence;
++  }
+   switch (result) {
+diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -25,3 +25,4 @@ add_executable(unit_tests
+     filesystem/cache_mount_test.cpp
+     graphics/zpd_lifecycle_test.cpp
++    ui/presentation_pacer_test.cpp
+ )
+diff --git a/tests/unit/ui/presentation_pacer_test.cpp b/tests/unit/ui/presentation_pacer_test.cpp
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/ui/presentation_pacer_test.cpp
+@@ -0,0 +1,34 @@
++#include <catch2/catch_test_macros.hpp>
++
++#include <rex/ui/presentation_pacer.h>
++
++TEST_CASE("presentation pacer advances fixed monotonic deadlines", "[ui][pacing]") {
++  rex::ui::PresentationDeadlineScheduler scheduler;
++  auto first = scheduler.Plan(1000000000LL, 60);
++  REQUIRE(first.wait_ns == 0);
++  REQUIRE(first.missed_deadlines == 0);
++
++  auto second = scheduler.Plan(1005000000LL, 60);
++  REQUIRE(second.deadline_ns == 1016666666LL);
++  REQUIRE(second.wait_ns == 11666666LL);
++  REQUIRE(second.missed_deadlines == 0);
++}
++
++TEST_CASE("presentation pacer reports skipped deadlines without drift", "[ui][pacing]") {
++  rex::ui::PresentationDeadlineScheduler scheduler;
++  scheduler.Plan(0, 60);
++  auto late = scheduler.Plan(50000000LL, 60);
++  REQUIRE(late.missed_deadlines == 2);
++  REQUIRE(late.wait_ns == 0);
++  auto recovered = scheduler.Plan(60000000LL, 60);
++  REQUIRE(recovered.deadline_ns == 66666664LL);
++  REQUIRE(recovered.wait_ns == 6666664LL);
++}
++
++TEST_CASE("presentation pacer supports 30 fps and disabling", "[ui][pacing]") {
++  rex::ui::PresentationDeadlineScheduler scheduler;
++  scheduler.Plan(2000000000LL, 30);
++  REQUIRE(scheduler.Plan(2010000000LL, 30).wait_ns == 23333333LL);
++  REQUIRE(scheduler.Plan(2020000000LL, 0).wait_ns == 0);
++  REQUIRE(scheduler.Plan(2020000000LL, 60).wait_ns == 0);
++}

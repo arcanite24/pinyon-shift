@@ -63,6 +63,7 @@ class GraphicsSettingsTests(unittest.TestCase):
                 "-OcclusionQuery", "fast",
                 "-ZpdEndPolicy", "pairwise_sentinel",
                 "-ZpdEndFallback", "none",
+                "-PresentationFps", "30",
                 "-Preset", "experimental_2x",
             )
             updated = config.read_text(encoding="utf-8")
@@ -73,6 +74,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('occlusion_query = "fast"', updated)
             self.assertEqual(result["settings"]["zpd_end_policy"], "pairwise_sentinel")
             self.assertEqual(result["settings"]["zpd_end_fallback"], "none")
+            self.assertEqual(result["settings"]["host_present_fps_limit"], 30)
+            self.assertTrue(result["settings"]["host_present_sleep_spin"])
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertEqual(result["settings"]["preset"], "experimental_2x")
@@ -99,6 +102,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('readback_resolve = "none"', text)
             self.assertIn('readback_resolve_half_pixel_offset = false', text)
             self.assertIn('clear_memory_page_state = true', text)
+            self.assertIn('host_present_fps_limit = 60', text)
+            self.assertIn('host_present_sleep_spin = true', text)
             self.assertEqual(result["settings"]["preset"], "shipping_1x")
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 

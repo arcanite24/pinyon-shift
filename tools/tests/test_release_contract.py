@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 42)
+        self.assertEqual(len(patches), 43)
         self.assertEqual(
             patches[-1].name,
-            "0042-ppc-partial-vector-store-regression-tests.patch",
+            "0043-host-presentation-pacing-and-counters.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -167,6 +167,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
+            self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+        for setting in ("host_present_fps_limit", "host_present_sleep_spin"):
+            self.assertIn(setting, app)
+            self.assertIn(setting, (ROOT / "tools/set-graphics-experiment.ps1").read_text(encoding="utf-8"))
             self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
         self.assertIn("xma_relaxed_padding_admission = false", app)
         self.assertIn("xma_no_space_stalls", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))

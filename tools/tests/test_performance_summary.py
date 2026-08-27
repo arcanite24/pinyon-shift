@@ -24,6 +24,35 @@ FIELDS = [
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_emits_presentation_cadence_and_totals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            presentation_columns = list(MODULE.PRESENTATION_COLUMNS)
+            fields = FIELDS + presentation_columns
+            with capture.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                base = dict.fromkeys(fields, 0)
+                writer.writerow(base | {
+                    "frame_time_us": 20_000, "guest_vblank_count": 1,
+                    "guest_vblank_delta_ns": 16_666_666,
+                    "simulation_tick_count": 1, "present_count": 1,
+                    "present_delta_ns": 33_333_333,
+                })
+                writer.writerow(base | {
+                    "frame_time_us": 20_000, "guest_vblank_count": 1,
+                    "guest_vblank_delta_ns": 16_666_666,
+                    "simulation_tick_count": 1, "present_count": 1,
+                    "present_delta_ns": 33_333_333,
+                    "present_deadline_misses": 1,
+                })
+            pacing = MODULE.summarize(capture)["presentation"]
+            self.assertEqual(pacing["cadence_hz"]["guest_vblank"], 50.0)
+            self.assertEqual(pacing["cadence_hz"]["simulation_tick"], 50.0)
+            self.assertEqual(pacing["cadence_hz"]["present"], 50.0)
+            self.assertEqual(pacing["mean_delta_ms"]["present"], 33.333)
+            self.assertEqual(pacing["counters"]["present_deadline_misses"], 1)
+
     def test_emits_complete_optional_resolve_readback_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"
