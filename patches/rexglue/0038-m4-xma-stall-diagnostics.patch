@@ -1,8 +1,8 @@
 diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
-index 4861e40..3ed2da2 100644
+index 4861e40..221cd6a 100644
 --- a/include/rex/audio/xma/context.h
 +++ b/include/rex/audio/xma/context.h
-@@ -205,6 +205,36 @@ struct AssembledXmaPayload {
+@@ -205,6 +205,56 @@ struct AssembledXmaPayload {
    bool valid() const { return status == XmaPayloadStatus::kValid; }
  };
  
@@ -17,56 +17,71 @@ index 4861e40..3ed2da2 100644
 +  uint8_t last_progress_output_write_offset = 0;
 +};
 +
++struct XmaNoSpaceObservation {
++  uint32_t input_offset = 0;
++  int32_t remaining_blocks = 0;
++  int32_t required_blocks = 0;
++  uint8_t current_buffer = 0;
++  uint8_t output_read_offset = 0;
++  uint8_t output_write_offset = 0;
++  bool input_buffer_0_valid = false;
++  bool input_buffer_1_valid = false;
++
++  bool Matches(const XmaNoSpaceObservation& other) const;
++};
++
++struct XmaNoSpaceObservationResult {
++  bool repeated = false;
++  bool log_recovery = false;
++};
++
 +// State-only helper so the bounded reporting cadence and recovery semantics
 +// can be tested without an FFmpeg decoder or guest-memory fixture.
 +class XmaStallTracker {
 + public:
 +  static bool ShouldLogSummary(uint64_t total_count);
 +
++  XmaNoSpaceObservationResult ObserveNoSpace(const XmaNoSpaceObservation& observation);
 +  bool NoteNoSpaceStall();
 +  bool NoteNoProgressStall();
-+  bool NoteProgress(uint32_t input_offset, uint8_t output_read_offset,
-+                    uint8_t output_write_offset);
++  bool NoteProgress(uint32_t input_offset, uint8_t output_read_offset, uint8_t output_write_offset);
 +  void Reset(uint32_t initial_input_offset);
 +
 +  const XmaStallMetrics& metrics() const { return metrics_; }
 +
 + private:
 +  XmaStallMetrics metrics_;
++  XmaNoSpaceObservation no_space_observation_;
++  bool has_no_space_observation_ = false;
 +  bool recovery_log_pending_ = false;
 +};
 +
  // Resolves a logical packet number relative to starting_buffer_index. Packet
  // numbers at or beyond current_buffer_packet_count continue in the alternate
  // guest buffer without losing their index within that buffer.
-@@ -257,6 +287,10 @@ class XmaContext {
+@@ -257,6 +307,8 @@ class XmaContext {
                                               std::span<uint8_t> destination);
    static bool IsValidFrameSize(uint32_t frame_size);
  
-+  const XmaStallMetrics& stall_metrics() const {
-+    return stall_tracker_.metrics();
-+  }
++  const XmaStallMetrics& stall_metrics() const { return stall_tracker_.metrics(); }
 +
    void Enable();
    bool Block(bool poll);
    void Clear();
-@@ -306,6 +340,15 @@ class XmaContext {
+@@ -306,6 +358,12 @@ class XmaContext {
    void WarnPacketResolution(const XmaPacketHandle& packet_handle, uint32_t logical_packet_index);
    void WarnPayloadAssembly(const AssembledXmaPayload& payload, uint32_t first_logical_packet,
                             uint32_t frame_offset_in_packet, uint32_t bits_required);
-+  void NoteNoSpaceStall(const XMA_CONTEXT_DATA& data,
-+                        int32_t minimum_subframe_decode_count);
++  void NoteNoSpaceStall(const XMA_CONTEXT_DATA& data, int32_t minimum_subframe_decode_count);
 +  void NoteNoProgressStall(const XMA_CONTEXT_DATA& data);
-+  void NoteProgress(const XMA_CONTEXT_DATA& data,
-+                    const memory::RingBuffer& output_rb,
++  void NoteProgress(const XMA_CONTEXT_DATA& data, const memory::RingBuffer& output_rb,
 +                    uint32_t previous_input_offset);
 +  void ResetStallMetrics();
-+  static uint8_t GetOutputPaddingHeadroom(uint8_t requested_padding,
-+                                          int32_t remaining_after_write);
++  static uint8_t GetOutputPaddingHeadroom(uint8_t requested_padding, int32_t remaining_after_write);
  
    void Decode(XMA_CONTEXT_DATA* data);
    void Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA* data);
-@@ -368,6 +411,7 @@ class XmaContext {
+@@ -368,6 +426,7 @@ class XmaContext {
    // context lifetime rather than once per Work() re-entry.
    uint32_t packet_warning_mask_ = 0;
    uint32_t payload_warning_mask_ = 0;
@@ -109,7 +124,7 @@ index 3541c18..5053a69 100644
  #define PROFILE_VERTICES(n)
  #define PROFILE_CMD_BUFFER_STALL()
 diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
-index e723215..26396f0 100644
+index e723215..7007c97 100644
 --- a/src/audio/xma_context.cpp
 +++ b/src/audio/xma_context.cpp
 @@ -15,9 +15,11 @@
@@ -135,13 +150,35 @@ index e723215..26396f0 100644
  // Credits for most of this code goes to:
  // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
  
-@@ -43,6 +49,52 @@ using stream::BitStream;
+@@ -43,6 +49,74 @@ using stream::BitStream;
  const uint32_t XmaContext::kBitsPerPacketHeader;
  const uint32_t XmaContext::kOutputMaxSizeBytes;
  
 +bool XmaStallTracker::ShouldLogSummary(uint64_t total_count) {
 +  return total_count == 1 || total_count == 8 || total_count == 64 ||
 +         (total_count >= 256 && total_count % 256 == 0);
++}
++
++bool XmaNoSpaceObservation::Matches(const XmaNoSpaceObservation& other) const {
++  return input_offset == other.input_offset && remaining_blocks == other.remaining_blocks &&
++         required_blocks == other.required_blocks && current_buffer == other.current_buffer &&
++         output_read_offset == other.output_read_offset &&
++         output_write_offset == other.output_write_offset &&
++         input_buffer_0_valid == other.input_buffer_0_valid &&
++         input_buffer_1_valid == other.input_buffer_1_valid;
++}
++
++XmaNoSpaceObservationResult XmaStallTracker::ObserveNoSpace(
++    const XmaNoSpaceObservation& observation) {
++  if (has_no_space_observation_ && no_space_observation_.Matches(observation)) {
++    return {.repeated = true, .log_recovery = false};
++  }
++
++  const bool log_recovery = NoteProgress(observation.input_offset, observation.output_read_offset,
++                                         observation.output_write_offset);
++  no_space_observation_ = observation;
++  has_no_space_observation_ = true;
++  return {.repeated = false, .log_recovery = log_recovery};
 +}
 +
 +bool XmaStallTracker::NoteNoSpaceStall() {
@@ -155,23 +192,22 @@ index e723215..26396f0 100644
 +bool XmaStallTracker::NoteNoProgressStall() {
 +  ++metrics_.consecutive_no_progress_stalls;
 +  ++metrics_.total_no_progress_stalls;
-+  const bool should_log =
-+      ShouldLogSummary(metrics_.total_no_progress_stalls);
++  const bool should_log = ShouldLogSummary(metrics_.total_no_progress_stalls);
 +  recovery_log_pending_ |= should_log;
 +  return should_log;
 +}
 +
-+bool XmaStallTracker::NoteProgress(uint32_t input_offset,
-+                                   uint8_t output_read_offset,
++bool XmaStallTracker::NoteProgress(uint32_t input_offset, uint8_t output_read_offset,
 +                                   uint8_t output_write_offset) {
-+  const bool recovered = metrics_.consecutive_no_space_stalls != 0 ||
-+                         metrics_.consecutive_no_progress_stalls != 0;
++  const bool recovered =
++      metrics_.consecutive_no_space_stalls != 0 || metrics_.consecutive_no_progress_stalls != 0;
 +  if (recovered) {
 +    ++metrics_.total_recoveries;
 +  }
 +  const bool should_log_recovery = recovered && recovery_log_pending_;
 +  metrics_.consecutive_no_space_stalls = 0;
 +  metrics_.consecutive_no_progress_stalls = 0;
++  has_no_space_observation_ = false;
 +  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = input_offset;
 +  metrics_.last_progress_output_read_offset = output_read_offset;
@@ -181,6 +217,7 @@ index e723215..26396f0 100644
 +
 +void XmaStallTracker::Reset(uint32_t initial_input_offset) {
 +  metrics_ = {};
++  has_no_space_observation_ = false;
 +  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = initial_input_offset;
 +}
@@ -188,26 +225,26 @@ index e723215..26396f0 100644
  XmaPacketHandle ResolvePacket(const XMA_CONTEXT_DATA& data, uint32_t starting_buffer_index,
                                uint32_t logical_packet_index, uint32_t current_buffer_packet_count) {
    XmaPacketHandle result;
-@@ -82,7 +134,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
+@@ -81,8 +155,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
+   return frame_size != 0 && frame_size != xma::kMaxFrameLength;
  }
  
- XmaContext::XmaContext()
+-XmaContext::XmaContext()
 -    : work_completion_event_(rex::thread::Event::CreateAutoResetEvent(false)) {}
-+    : work_completion_event_(rex::thread::Event::CreateAutoResetEvent(false)) {
++XmaContext::XmaContext() : work_completion_event_(rex::thread::Event::CreateAutoResetEvent(false)) {
 +  ResetStallMetrics();
 +}
  
  XmaContext::~XmaContext() {
    if (av_context_) {
-@@ -162,18 +216,46 @@ bool XmaContext::Work() {
+@@ -162,18 +237,43 @@ bool XmaContext::Work() {
    // Minimum free blocks needed before attempting a decode.
    // Use subframe_decode_count (clamped to 1) instead of full frame size.
    const uint32_t effective_sdc = std::max(static_cast<uint32_t>(1), data.subframe_decode_count);
 +  const bool relaxed_padding = REXCVAR_GET(xma_relaxed_padding_admission);
    const int32_t minimum_subframe_decode_count =
 -      static_cast<int32_t>(effective_sdc) + data.output_buffer_padding;
-+      static_cast<int32_t>(effective_sdc) +
-+      (relaxed_padding ? 0 : data.output_buffer_padding);
++      static_cast<int32_t>(effective_sdc) + (relaxed_padding ? 0 : data.output_buffer_padding);
  
    if (minimum_subframe_decode_count > remaining_subframe_blocks_in_output_buffer_) {
 +    NoteNoSpaceStall(data, minimum_subframe_decode_count);
@@ -222,21 +259,19 @@ index e723215..26396f0 100644
 +    const uint8_t previous_current_buffer = data.current_buffer;
 +    const bool previous_buffer_0_valid = data.input_buffer_0_valid != 0;
 +    const bool previous_buffer_1_valid = data.input_buffer_1_valid != 0;
-+    const uint8_t previous_remaining_subframes =
-+        current_frame_remaining_subframes_;
++    const uint8_t previous_remaining_subframes = current_frame_remaining_subframes_;
 +
      Decode(&data);
      Consume(&output_rb, &data);
  
 +    const uint8_t current_output_write_offset =
 +        static_cast<uint8_t>(output_rb.write_offset() / kOutputBytesPerBlock);
-+    const bool made_progress =
-+        data.input_buffer_read_offset != previous_input_offset ||
-+        current_output_write_offset != previous_output_write_offset ||
-+        current_frame_remaining_subframes_ != previous_remaining_subframes ||
-+        data.current_buffer != previous_current_buffer ||
-+        (data.input_buffer_0_valid != 0) != previous_buffer_0_valid ||
-+        (data.input_buffer_1_valid != 0) != previous_buffer_1_valid;
++    const bool made_progress = data.input_buffer_read_offset != previous_input_offset ||
++                               current_output_write_offset != previous_output_write_offset ||
++                               current_frame_remaining_subframes_ != previous_remaining_subframes ||
++                               data.current_buffer != previous_current_buffer ||
++                               (data.input_buffer_0_valid != 0) != previous_buffer_0_valid ||
++                               (data.input_buffer_1_valid != 0) != previous_buffer_1_valid;
 +    if (made_progress) {
 +      NoteProgress(data, output_rb, previous_input_offset);
 +    } else {
@@ -247,7 +282,7 @@ index e723215..26396f0 100644
      if (!data.IsAnyInputBufferValid() || data.error_status == 4) {
        break;
      }
-@@ -249,11 +331,13 @@ void XmaContext::ResetDecoderState() {
+@@ -249,11 +349,13 @@ void XmaContext::ResetDecoderState() {
    loop_start_skip_pending_ = false;
    packet_warning_mask_ = 0;
    payload_warning_mask_ = 0;
@@ -261,13 +296,37 @@ index e723215..26396f0 100644
  }
  
  void XmaContext::Release() {
-@@ -266,6 +350,85 @@ void XmaContext::Release() {
+@@ -266,6 +368,98 @@ void XmaContext::Release() {
    std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
  }
  
-+void XmaContext::NoteNoSpaceStall(
-+    const XMA_CONTEXT_DATA& data,
-+    int32_t minimum_subframe_decode_count) {
++void XmaContext::NoteNoSpaceStall(const XMA_CONTEXT_DATA& data,
++                                  int32_t minimum_subframe_decode_count) {
++  const auto previous = stall_tracker_.metrics();
++  const XmaNoSpaceObservation observation = {
++      .input_offset = data.input_buffer_read_offset,
++      .remaining_blocks = remaining_subframe_blocks_in_output_buffer_,
++      .required_blocks = minimum_subframe_decode_count,
++      .current_buffer = data.current_buffer,
++      .output_read_offset = data.output_buffer_read_offset,
++      .output_write_offset = data.output_buffer_write_offset,
++      .input_buffer_0_valid = data.input_buffer_0_valid != 0,
++      .input_buffer_1_valid = data.input_buffer_1_valid != 0,
++  };
++  const auto observation_result = stall_tracker_.ObserveNoSpace(observation);
++  if (observation_result.log_recovery) {
++    PROFILE_XMA_STALL_RECOVERY();
++    REXAPU_WARN(
++        "XmaContext {}: recovered after stalls (no-space {}, no-progress "
++        "{}): buffer {}, input {}, output {}/{}",
++        id(), previous.consecutive_no_space_stalls, previous.consecutive_no_progress_stalls,
++        data.current_buffer, data.input_buffer_read_offset, data.output_buffer_read_offset,
++        data.output_buffer_write_offset);
++  }
++  if (!observation_result.repeated) {
++    return;
++  }
++
 +  PROFILE_XMA_NO_SPACE_STALL();
 +  if (!stall_tracker_.NoteNoSpaceStall()) {
 +    return;
@@ -277,16 +336,12 @@ index e723215..26396f0 100644
 +      "XmaContext {}: output-space stall x{} (total {}): need {} blocks, "
 +      "have {}, buffer {}, input {}, output {}/{}, sdc {}, padding {}, "
 +      "relaxed {}, last progress input {} output {}/{}",
-+      id(), metrics.consecutive_no_space_stalls,
-+      metrics.total_no_space_stalls, minimum_subframe_decode_count,
-+      remaining_subframe_blocks_in_output_buffer_, data.current_buffer,
-+      data.input_buffer_read_offset, data.output_buffer_read_offset,
-+      data.output_buffer_write_offset, data.subframe_decode_count,
-+      data.output_buffer_padding,
-+      REXCVAR_GET(xma_relaxed_padding_admission) ? 1 : 0,
-+      metrics.last_progress_input_offset,
-+      metrics.last_progress_output_read_offset,
-+      metrics.last_progress_output_write_offset);
++      id(), metrics.consecutive_no_space_stalls, metrics.total_no_space_stalls,
++      minimum_subframe_decode_count, remaining_subframe_blocks_in_output_buffer_,
++      data.current_buffer, data.input_buffer_read_offset, data.output_buffer_read_offset,
++      data.output_buffer_write_offset, data.subframe_decode_count, data.output_buffer_padding,
++      REXCVAR_GET(xma_relaxed_padding_admission) ? 1 : 0, metrics.last_progress_input_offset,
++      metrics.last_progress_output_read_offset, metrics.last_progress_output_write_offset);
 +}
 +
 +void XmaContext::NoteNoProgressStall(const XMA_CONTEXT_DATA& data) {
@@ -298,23 +353,18 @@ index e723215..26396f0 100644
 +  REXAPU_WARN(
 +      "XmaContext {}: no-progress stall x{} (total {}): buffer {}, input {}, "
 +      "output {}/{}, error {}, last progress input {} output {}/{}",
-+      id(), metrics.consecutive_no_progress_stalls,
-+      metrics.total_no_progress_stalls, data.current_buffer,
-+      data.input_buffer_read_offset, data.output_buffer_read_offset,
-+      data.output_buffer_write_offset, data.error_status,
-+      metrics.last_progress_input_offset,
-+      metrics.last_progress_output_read_offset,
-+      metrics.last_progress_output_write_offset);
++      id(), metrics.consecutive_no_progress_stalls, metrics.total_no_progress_stalls,
++      data.current_buffer, data.input_buffer_read_offset, data.output_buffer_read_offset,
++      data.output_buffer_write_offset, data.error_status, metrics.last_progress_input_offset,
++      metrics.last_progress_output_read_offset, metrics.last_progress_output_write_offset);
 +}
 +
-+void XmaContext::NoteProgress(const XMA_CONTEXT_DATA& data,
-+                              const memory::RingBuffer& output_rb,
++void XmaContext::NoteProgress(const XMA_CONTEXT_DATA& data, const memory::RingBuffer& output_rb,
 +                              uint32_t previous_input_offset) {
 +  const auto previous = stall_tracker_.metrics();
 +  const uint8_t output_write_offset =
 +      static_cast<uint8_t>(output_rb.write_offset() / kOutputBytesPerBlock);
-+  if (!stall_tracker_.NoteProgress(data.input_buffer_read_offset,
-+                                   data.output_buffer_read_offset,
++  if (!stall_tracker_.NoteProgress(data.input_buffer_read_offset, data.output_buffer_read_offset,
 +                                   output_write_offset)) {
 +    return;
 +  }
@@ -322,9 +372,8 @@ index e723215..26396f0 100644
 +  REXAPU_WARN(
 +      "XmaContext {}: recovered after stalls (no-space {}, no-progress {}): "
 +      "buffer {}, input {} -> {}, output {}/{}",
-+      id(), previous.consecutive_no_space_stalls,
-+      previous.consecutive_no_progress_stalls, data.current_buffer,
-+      previous_input_offset, data.input_buffer_read_offset,
++      id(), previous.consecutive_no_space_stalls, previous.consecutive_no_progress_stalls,
++      data.current_buffer, previous_input_offset, data.input_buffer_read_offset,
 +      data.output_buffer_read_offset, output_write_offset);
 +}
 +
@@ -332,34 +381,32 @@ index e723215..26396f0 100644
 +  stall_tracker_.Reset(kBitsPerPacketHeader);
 +}
 +
-+uint8_t XmaContext::GetOutputPaddingHeadroom(
-+    uint8_t requested_padding, int32_t remaining_after_write) {
++uint8_t XmaContext::GetOutputPaddingHeadroom(uint8_t requested_padding,
++                                             int32_t remaining_after_write) {
 +  if (!REXCVAR_GET(xma_relaxed_padding_admission)) {
 +    return requested_padding;
 +  }
 +  if (remaining_after_write <= 0) {
 +    return 0;
 +  }
-+  return static_cast<uint8_t>(std::min<int32_t>(requested_padding,
-+                                                remaining_after_write));
++  return static_cast<uint8_t>(std::min<int32_t>(requested_padding, remaining_after_write));
 +}
 +
  void XmaContext::SwapInputBuffer(XMA_CONTEXT_DATA* data) {
    if (data->current_buffer == 0) {
      data->input_buffer_0_valid = 0;
-@@ -615,7 +778,10 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -615,7 +809,9 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
                                      << data->is_stereo;
      const uint8_t consumed = total_subframes - current_frame_remaining_subframes_;
      if (consumed >= loop_frame_output_limit_) {
 -      remaining_subframe_blocks_in_output_buffer_ -= data->output_buffer_padding;
 +      remaining_subframe_blocks_in_output_buffer_ -=
-+          GetOutputPaddingHeadroom(
-+              static_cast<uint8_t>(data->output_buffer_padding),
-+              remaining_subframe_blocks_in_output_buffer_);
++          GetOutputPaddingHeadroom(static_cast<uint8_t>(data->output_buffer_padding),
++                                   remaining_subframe_blocks_in_output_buffer_);
        current_frame_remaining_subframes_ = 0;
        loop_frame_output_limit_ = 0;
        return;
-@@ -643,9 +809,13 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -643,9 +839,12 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
    output_rb->Write(raw_frame_.data() + (kOutputBytesPerBlock * raw_frame_read_offset),
                     subframes_to_write * kOutputBytesPerBlock);
  
@@ -370,13 +417,12 @@ index e723215..26396f0 100644
 +      (current_frame_remaining_subframes_ - subframes_to_write == 0)
 +          ? static_cast<int8_t>(GetOutputPaddingHeadroom(
 +                static_cast<uint8_t>(data->output_buffer_padding),
-+                remaining_subframe_blocks_in_output_buffer_ -
-+                    subframes_to_write))
++                remaining_subframe_blocks_in_output_buffer_ - subframes_to_write))
 +          : 0;
  
    remaining_subframe_blocks_in_output_buffer_ -= subframes_to_write + headroom;
    current_frame_remaining_subframes_ -= subframes_to_write;
-@@ -657,6 +827,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
+@@ -657,6 +856,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
    uint32_t channels = is_two_channel ? 2 : 1;
    if (av_context_->sample_rate != sample_rate ||
        av_context_->channels != static_cast<int>(channels)) {
@@ -413,7 +459,7 @@ index 7bbe847..fc7c7b7 100644
      false,  // kBufferQueueDepth  (set each frame)
      false,  // kFunctionsDispatched
 diff --git a/tests/unit/audio/xma_packet_test.cpp b/tests/unit/audio/xma_packet_test.cpp
-index a9db54d..834e6b0 100644
+index a9db54d..1a87e45 100644
 --- a/tests/unit/audio/xma_packet_test.cpp
 +++ b/tests/unit/audio/xma_packet_test.cpp
 @@ -12,6 +12,7 @@
@@ -424,8 +470,11 @@ index a9db54d..834e6b0 100644
  #include <rex/system/xmemory.h>
  
  #include "test_memory.h"
-@@ -23,6 +24,13 @@ using rex::audio::XMA_CONTEXT_DATA;
+@@ -21,8 +22,16 @@ namespace {
+ using rex::audio::ResolvePacket;
+ using rex::audio::XMA_CONTEXT_DATA;
  using rex::audio::XmaContext;
++using rex::audio::XmaNoSpaceObservation;
  using rex::audio::XmaPacketStatus;
  using rex::audio::XmaPayloadStatus;
 +using rex::audio::XmaStallTracker;
@@ -438,27 +487,71 @@ index a9db54d..834e6b0 100644
  
  std::array<uint8_t, sizeof(XMA_CONTEXT_DATA)> EmptyGuestContext() {
    return {};
-@@ -79,6 +87,183 @@ void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
+@@ -41,33 +50,25 @@ XMA_CONTEXT_DATA MakeTwoBufferContext(uint32_t current_buffer = 0) {
+   return data;
+ }
+ 
+-void SetPacketHeader(uint8_t* packet, uint8_t frame_count,
+-                     uint32_t first_frame_offset, uint8_t skip_count) {
+-  const uint32_t encoded_offset =
+-      first_frame_offset - XmaContext::kBitsPerPacketHeader;
+-  packet[0] = static_cast<uint8_t>((frame_count << 2) |
+-                                   ((encoded_offset >> 13) & 0x3));
++void SetPacketHeader(uint8_t* packet, uint8_t frame_count, uint32_t first_frame_offset,
++                     uint8_t skip_count) {
++  const uint32_t encoded_offset = first_frame_offset - XmaContext::kBitsPerPacketHeader;
++  packet[0] = static_cast<uint8_t>((frame_count << 2) | ((encoded_offset >> 13) & 0x3));
+   packet[1] = static_cast<uint8_t>(encoded_offset >> 5);
+   packet[2] = static_cast<uint8_t>((encoded_offset << 3) | 1);
+   packet[3] = skip_count;
+ }
+ 
+-void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
+-                                 uint32_t first_payload_bit, uint32_t value,
+-                                 uint32_t bit_count) {
++void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate, uint32_t first_payload_bit,
++                                 uint32_t value, uint32_t bit_count) {
+   for (uint32_t i = 0; i < bit_count; ++i) {
+     const uint32_t assembled_bit = first_payload_bit + i;
+-    const uint32_t logical_packet =
+-        assembled_bit / XmaContext::kBitsPerPacketData;
+-    const uint32_t packet_bit =
+-        assembled_bit % XmaContext::kBitsPerPacketData;
+-    uint8_t* packet =
+-        logical_packet == 0
+-            ? current
+-            : alternate +
+-                  (logical_packet - 1) * XmaContext::kBytesPerPacket;
+-    uint8_t& byte =
+-        packet[XmaContext::kBytesPerPacketHeader + packet_bit / 8];
++    const uint32_t logical_packet = assembled_bit / XmaContext::kBitsPerPacketData;
++    const uint32_t packet_bit = assembled_bit % XmaContext::kBitsPerPacketData;
++    uint8_t* packet = logical_packet == 0
++                          ? current
++                          : alternate + (logical_packet - 1) * XmaContext::kBytesPerPacket;
++    uint8_t& byte = packet[XmaContext::kBytesPerPacketHeader + packet_bit / 8];
+     const uint8_t mask = static_cast<uint8_t>(1u << (7 - packet_bit % 8));
+     if (value & (1u << (bit_count - i - 1))) {
+       byte |= mask;
+@@ -79,6 +80,212 @@ void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
  
  }  // namespace
  
-+TEST_CASE("XMA stall diagnostics remain bounded across transient episodes",
-+          "[audio][xma][stall]") {
++TEST_CASE("XMA stall diagnostics remain bounded across transient episodes", "[audio][xma][stall]") {
 +  XmaStallTracker tracker;
 +  tracker.Reset(XmaContext::kBitsPerPacketHeader);
 +
 +  uint32_t summary_count = 0;
 +  uint32_t recovery_log_count = 0;
 +  for (uint64_t total = 1; total <= 300; ++total) {
-+    const bool expected_summary =
-+        total == 1 || total == 8 || total == 64 || total == 256;
++    const bool expected_summary = total == 1 || total == 8 || total == 64 || total == 256;
 +    const bool summary = tracker.NoteNoSpaceStall();
 +    INFO("stall total " << total);
 +    CHECK(summary == expected_summary);
 +    summary_count += summary ? 1 : 0;
 +
-+    const bool recovery_log = tracker.NoteProgress(
-+        static_cast<uint32_t>(total), 0, static_cast<uint8_t>(total));
++    const bool recovery_log =
++        tracker.NoteProgress(static_cast<uint32_t>(total), 0, static_cast<uint8_t>(total));
 +    CHECK(recovery_log == expected_summary);
 +    recovery_log_count += recovery_log ? 1 : 0;
 +  }
@@ -475,34 +568,67 @@ index a9db54d..834e6b0 100644
 +  CHECK(tracker.metrics().last_progress_input_offset == 77);
 +}
 +
-+TEST_CASE("XMA strict padding admission reports no-space and recovers",
-+          "[audio][xma][stall]") {
++TEST_CASE("XMA output backpressure must repeat before becoming a stall", "[audio][xma][stall]") {
++  XmaStallTracker tracker;
++  tracker.Reset(XmaContext::kBitsPerPacketHeader);
++
++  XmaNoSpaceObservation observation = {
++      .input_offset = XmaContext::kBitsPerPacketHeader,
++      .remaining_blocks = 2,
++      .required_blocks = 6,
++      .current_buffer = 0,
++      .output_read_offset = 0,
++      .output_write_offset = 4,
++      .input_buffer_0_valid = true,
++      .input_buffer_1_valid = false,
++  };
++
++  auto result = tracker.ObserveNoSpace(observation);
++  CHECK_FALSE(result.repeated);
++  CHECK_FALSE(result.log_recovery);
++  CHECK(tracker.metrics().total_no_space_stalls == 0);
++
++  result = tracker.ObserveNoSpace(observation);
++  CHECK(result.repeated);
++  CHECK_FALSE(result.log_recovery);
++  CHECK(tracker.NoteNoSpaceStall());
++  CHECK(tracker.metrics().total_no_space_stalls == 1);
++
++  ++observation.output_read_offset;
++  ++observation.remaining_blocks;
++  result = tracker.ObserveNoSpace(observation);
++  CHECK_FALSE(result.repeated);
++  CHECK(result.log_recovery);
++  CHECK(tracker.metrics().total_recoveries == 1);
++
++  ++observation.output_read_offset;
++  ++observation.remaining_blocks;
++  result = tracker.ObserveNoSpace(observation);
++  CHECK_FALSE(result.repeated);
++  CHECK_FALSE(result.log_recovery);
++  CHECK(tracker.metrics().total_no_space_stalls == 1);
++}
++
++TEST_CASE("XMA strict padding admission reports no-space and recovers", "[audio][xma][stall]") {
 +  ResetRelaxedPaddingAdmission reset_padding;
-+  REQUIRE(rex::cvar::SetFlagByName("xma_relaxed_padding_admission",
-+                                   "false"));
++  REQUIRE(rex::cvar::SetFlagByName("xma_relaxed_padding_admission", "false"));
 +
 +  auto& memory = rex::testing::GetTestMemory();
-+  auto* virtual_heap =
-+      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
-+  auto* physical_heap =
-+      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
++  auto* virtual_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  auto* physical_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
 +  REQUIRE(virtual_heap != nullptr);
 +  REQUIRE(physical_heap != nullptr);
 +
 +  constexpr uint32_t kReadWrite =
 +      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
 +  constexpr uint32_t kReserveCommit =
-+      rex::memory::kMemoryAllocationReserve |
-+      rex::memory::kMemoryAllocationCommit;
++      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit;
 +  uint32_t context_address = 0;
 +  uint32_t input_address = 0;
 +  uint32_t output_address = 0;
-+  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                              &context_address));
-+  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                               &input_address));
-+  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                               &output_address));
++  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &context_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &input_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &output_address));
 +
 +  uint8_t* input = memory.TranslatePhysical(input_address);
 +  std::memset(input, 0, XmaContext::kBytesPerPacket);
@@ -529,6 +655,11 @@ index a9db54d..834e6b0 100644
 +  context.set_is_allocated(true);
 +  context.Enable();
 +  CHECK(context.Work());
++  CHECK(context.stall_metrics().total_no_space_stalls == 0);
++  CHECK(context.stall_metrics().total_recoveries == 0);
++
++  context.Enable();
++  CHECK(context.Work());
 +  CHECK(context.stall_metrics().total_no_space_stalls == 1);
 +  CHECK(context.stall_metrics().total_recoveries == 0);
 +
@@ -550,27 +681,21 @@ index a9db54d..834e6b0 100644
 +TEST_CASE("XMA no-progress diagnostics identify and recover malformed input",
 +          "[audio][xma][stall]") {
 +  auto& memory = rex::testing::GetTestMemory();
-+  auto* virtual_heap =
-+      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
-+  auto* physical_heap =
-+      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
++  auto* virtual_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  auto* physical_heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
 +  REQUIRE(virtual_heap != nullptr);
 +  REQUIRE(physical_heap != nullptr);
 +
 +  constexpr uint32_t kReadWrite =
 +      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
 +  constexpr uint32_t kReserveCommit =
-+      rex::memory::kMemoryAllocationReserve |
-+      rex::memory::kMemoryAllocationCommit;
++      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit;
 +  uint32_t context_address = 0;
 +  uint32_t input_address = 0;
 +  uint32_t output_address = 0;
-+  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                              &context_address));
-+  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                               &input_address));
-+  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
-+                               &output_address));
++  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &context_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &input_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false, &output_address));
 +
 +  uint8_t* input = memory.TranslatePhysical(input_address);
 +  std::memset(input, 0, XmaContext::kBytesPerPacket);
@@ -606,10 +731,9 @@ index a9db54d..834e6b0 100644
 +  CHECK(context.Work());
 +  XMA_CONTEXT_DATA recovered(context_ptr);
 +  CAPTURE(context.stall_metrics().total_no_progress_stalls,
-+          context.stall_metrics().total_recoveries,
-+          recovered.input_buffer_0_valid, recovered.input_buffer_1_valid,
-+          recovered.current_buffer, recovered.input_buffer_read_offset,
-+          recovered.error_status);
++          context.stall_metrics().total_recoveries, recovered.input_buffer_0_valid,
++          recovered.input_buffer_1_valid, recovered.current_buffer,
++          recovered.input_buffer_read_offset, recovered.error_status);
 +  CHECK(context.stall_metrics().total_no_progress_stalls == 1);
 +  CHECK(context.stall_metrics().total_recoveries == 1);
 +
@@ -622,3 +746,49 @@ index a9db54d..834e6b0 100644
  TEST_CASE("XMA packet resolution preserves cross-buffer packet indices", "[audio][xma]") {
    XMA_CONTEXT_DATA data = MakeTwoBufferContext();
  
+@@ -277,10 +484,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+                     XmaContext::kBitsPerPacketHeader, 0xFF);
+     SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
+                     XmaContext::kBitsPerPacketHeader, 0xFF);
+-    WriteCrossBufferPayloadBits(
+-        current, alternate,
+-        kFrameOffset - XmaContext::kBitsPerPacketHeader, kFrameSize,
+-        XmaContext::kBitsPerFrameHeader);
++    WriteCrossBufferPayloadBits(current, alternate, kFrameOffset - XmaContext::kBitsPerPacketHeader,
++                                kFrameSize, XmaContext::kBitsPerFrameHeader);
+ 
+     data.input_buffer_1_packet_count = 4;
+     data.input_buffer_read_offset = kFrameOffset;
+@@ -297,8 +502,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+     CHECK(advanced.error_status == 0);
+     CHECK_FALSE(advanced.IsAnyInputBufferValid());
+     CHECK(advanced.current_buffer == 0);
+-    CHECK(advanced.input_buffer_read_offset ==
+-          XmaContext::kBitsPerPacketHeader);
++    CHECK(advanced.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
+   }
+ 
+   SECTION("synthetic four-packet frame decodes and advances") {
+@@ -307,10 +511,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+     SetPacketHeader(current, 1, kFrameOffset, 3);
+     SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
+                     XmaContext::kBitsPerPacketHeader, 0xFF);
+-    WriteCrossBufferPayloadBits(
+-        current, alternate,
+-        kFrameOffset - XmaContext::kBitsPerPacketHeader, kFrameSize,
+-        XmaContext::kBitsPerFrameHeader);
++    WriteCrossBufferPayloadBits(current, alternate, kFrameOffset - XmaContext::kBitsPerPacketHeader,
++                                kFrameSize, XmaContext::kBitsPerFrameHeader);
+ 
+     data.input_buffer_1_packet_count = 4;
+     data.input_buffer_read_offset = kFrameOffset;
+@@ -327,8 +529,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+     CHECK(advanced.error_status == 0);
+     CHECK_FALSE(advanced.IsAnyInputBufferValid());
+     CHECK(advanced.current_buffer == 0);
+-    CHECK(advanced.input_buffer_read_offset ==
+-          XmaContext::kBitsPerPacketHeader);
++    CHECK(advanced.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
+   }
+ 
+   context.Release();

@@ -22,7 +22,11 @@ The ReXGlue patch changes:
 
 Each XMA context tracks consecutive and total output-space and no-progress
 stalls, recovery count, last successful input offset, and last successful
-output read/write offsets. Warning summaries are emitted only when the
+output read/write offsets. An output-full observation is first treated as
+ordinary decoder backpressure. It becomes a no-space stall only when the next
+work attempt sees the same buffer, input offset, output offsets, admission
+requirement, and remaining capacity. Any changed state is progress and primes
+a new observation instead. Warning summaries are emitted only when the
 per-context lifetime total for a stall class reaches 1, 8, 64, and every 256
 thereafter. Every recovered stall episode is counted, while a recovery warning
 is emitted only when that episode emitted a stall summary. Progress clears only
@@ -54,7 +58,8 @@ encoded or decoded audio payload.
 
 Deterministic unit coverage forces output-space stalls, verifies the bounded
 1/8/64/256 lifetime reporting schedule across transient stall episodes while
-preserving exact recovery totals, forces a no-progress failure with its buffer
+preserving exact recovery totals, proves that changing output state is normal
+backpressure rather than a stall, forces a no-progress failure with its buffer
 and offset preserved, checks lifecycle reset behavior, and proves relaxed
 padding changes admission only when the flag is enabled. Project tests cover
 schema migration, default-off settings, performance aggregation, and sanitized
