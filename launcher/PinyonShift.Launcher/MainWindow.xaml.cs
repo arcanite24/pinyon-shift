@@ -25,6 +25,7 @@ public partial class MainWindow : Window
 
     private CancellationTokenSource? _cancellation;
     private string? _repositoryRoot;
+    private string? _stateRoot;
     private string? _gameExecutable;
     private CrashReport? _pendingReport;
     private bool _busy;
@@ -50,9 +51,11 @@ public partial class MainWindow : Window
         try
         {
             _repositoryRoot = await ResolveRepositoryRootAsync();
+            _stateRoot = ResolveStateRoot(_repositoryRoot);
             GraphicsSettingsButton.Visibility = Visibility.Visible;
-            BuildLocationText.Text = Path.Combine(_repositoryRoot, ".local");
+            BuildLocationText.Text = _stateRoot;
             AppendLog($"Release source: {_repositoryRoot}");
+            AppendLog($"Preview state: {_stateRoot}");
             StageControllerMappings();
             DetectExistingBuild();
             DetectPendingReport();
@@ -229,7 +232,7 @@ public partial class MainWindow : Window
 
     private async Task LaunchGameAsync()
     {
-        if (_repositoryRoot is null || _gameExecutable is null) return;
+        if (_repositoryRoot is null || _stateRoot is null || _gameExecutable is null) return;
         if (_busy) return;
 
         _busy = true;
@@ -259,7 +262,7 @@ public partial class MainWindow : Window
             foreach (var argument in new[]
             {
                 "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcher,
-                "-Configuration", "Release", "-Json"
+                "-Configuration", "Release", "-StateRoot", _stateRoot, "-Json"
             }) startInfo.ArgumentList.Add(argument);
 
             using var watcher = Process.Start(startInfo) ??
@@ -324,8 +327,8 @@ public partial class MainWindow : Window
 
     private void DetectPendingReport()
     {
-        if (_repositoryRoot is null) return;
-        var reportsRoot = Path.GetFullPath(Path.Combine(_repositoryRoot, ".local", "preview", "reports"));
+        if (_stateRoot is null) return;
+        var reportsRoot = Path.GetFullPath(Path.Combine(_stateRoot, "reports"));
         var marker = Path.Combine(reportsRoot, "pending-report.json");
         if (!File.Exists(marker)) return;
         try
@@ -372,7 +375,7 @@ public partial class MainWindow : Window
 
     private void ReportCrash()
     {
-        if (_pendingReport is null || _repositoryRoot is null) return;
+        if (_pendingReport is null || _stateRoot is null) return;
         Process.Start(new ProcessStartInfo
         {
             FileName = "explorer.exe",
@@ -380,7 +383,7 @@ public partial class MainWindow : Window
             Arguments = $"/select,\"{_pendingReport.Bundle}\""
         });
         Process.Start(new ProcessStartInfo(_pendingReport.IssueUrl) { UseShellExecute = true });
-        var marker = Path.Combine(_repositoryRoot, ".local", "preview", "reports", "pending-report.json");
+        var marker = Path.Combine(_stateRoot, "reports", "pending-report.json");
         try { if (File.Exists(marker)) File.Delete(marker); } catch (IOException) { }
         StatusText.Text = "GITHUB OPENED";
         PrimaryButton.Content = "OPEN GITHUB AGAIN";
@@ -426,6 +429,14 @@ public partial class MainWindow : Window
         if (!IsRoot(destination))
             throw new InvalidDataException("The release source payload is incomplete.");
         return destination;
+    }
+
+    private static string ResolveStateRoot(string repositoryRoot)
+    {
+        var configured = Environment.GetEnvironmentVariable("PINYON_SHIFT_STATE_ROOT");
+        return Path.GetFullPath(string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(repositoryRoot, ".local", "preview")
+            : configured);
     }
 
     private void StageControllerMappings()
@@ -512,7 +523,7 @@ public partial class MainWindow : Window
 
     private void OpenLogsButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_repositoryRoot is null) return;
+        if (_stateRoot is null) return;
         if (_pendingReport is not null)
         {
             Process.Start(new ProcessStartInfo
@@ -523,7 +534,7 @@ public partial class MainWindow : Window
             });
             return;
         }
-        var logs = Path.Combine(_repositoryRoot, ".local", "logs");
+        var logs = Path.Combine(_stateRoot, "logs");
         Directory.CreateDirectory(logs);
         Process.Start(new ProcessStartInfo("explorer.exe", logs) { UseShellExecute = true });
     }
@@ -659,7 +670,8 @@ public partial class MainWindow : Window
 
     private async Task<GraphicsResult> RunGraphicsSettingsToolAsync(string action)
     {
-        if (_repositoryRoot is null) throw new InvalidOperationException("Release source is not ready.");
+        if (_repositoryRoot is null || _stateRoot is null)
+            throw new InvalidOperationException("Release source is not ready.");
         var script = Path.Combine(_repositoryRoot, "tools", "set-graphics-experiment.ps1");
         if (!File.Exists(script)) throw new FileNotFoundException("The graphics settings tool is missing.", script);
         var startInfo = new ProcessStartInfo
@@ -674,7 +686,7 @@ public partial class MainWindow : Window
         foreach (var argument in new[]
         {
             "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-            "-Action", action, "-StateRoot", Path.Combine(_repositoryRoot, ".local", "preview"),
+            "-Action", action, "-StateRoot", _stateRoot,
             "-Anisotropy", SelectedTag(AnisotropyComboBox), "-PostEffect", SelectedTag(PostEffectComboBox),
             "-ResolutionScale", SelectedTag(ResolutionComboBox),
             "-Preset", SelectedTag(GraphicsPresetComboBox),

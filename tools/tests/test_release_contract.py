@@ -235,6 +235,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("Accurate showroom", launcher_xaml)
         self.assertIn("DisableMotionBlurCheckBox", launcher_xaml)
         self.assertIn("DisableDepthOfFieldCheckBox", launcher_xaml)
+        self.assertIn('Environment.GetEnvironmentVariable("PINYON_SHIFT_STATE_ROOT")', launcher)
+        self.assertIn('"-StateRoot", _stateRoot', launcher)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
