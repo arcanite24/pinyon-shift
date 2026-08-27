@@ -8,6 +8,10 @@ param(
     [string]$PostEffect = 'none',
     [ValidateSet(1, 2)]
     [int]$ResolutionScale = 1,
+    [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'accurate_showroom')]
+    [string]$Preset = 'custom',
+    [ValidateSet('none', 'fast', 'some', 'full')]
+    [string]$ReadbackResolve = 'none',
     [ValidateSet('legacy', 'fake', 'fast', 'strict')]
     [string]$OcclusionQuery = 'legacy',
     [ValidateSet('report_layout', 'pairwise_sentinel', 'relaxed_sentinel')]
@@ -34,14 +38,15 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 7 adds FH1 ZPD END-policy qualification.
-pinyon_shift_config_schema = 7
+# Schema 8 adds FH1 resolve-readback presets.
+pinyon_shift_config_schema = 8
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
 keybind_a = "LMB,Space"
 keybind_start = "Return"
 d3d12_allow_variable_refresh_rate_and_tearing = false
+vsync = true
 pinyon_shift_stabilize_vehicle_presentation = false
 pinyon_shift_skip_opening_movies = false
 xma_relaxed_padding_admission = false
@@ -49,6 +54,11 @@ anisotropic_override = 3
 swap_post_effect = "none"
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
+clear_memory_page_state = true
+readback_resolve = "none"
+readback_resolve_half_pixel_offset = false
+readback_memexport = true
+readback_memexport_fast = true
 occlusion_query = "legacy"
 zpd_end_policy = "report_layout"
 zpd_end_fallback = "pairwise_sentinel"
@@ -104,15 +114,41 @@ function Write-Config([string]$Text) {
 function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operation) {
     $override = [int](Get-TomlValue $Text 'anisotropic_override' '3')
     $anisotropyValue = switch ($override) { 3 { 4 } 4 { 8 } 5 { 16 } default { 4 } }
+    $resolutionScale = [int](Get-TomlValue $Text 'draw_resolution_scale_x' '1')
+    $readbackResolve = Get-TomlValue $Text 'readback_resolve' 'none'
+    $halfPixel = (Get-TomlValue $Text 'readback_resolve_half_pixel_offset' 'false') -eq 'true'
+    $clearPageState = (Get-TomlValue $Text 'clear_memory_page_state' 'true') -eq 'true'
+    $memexport = (Get-TomlValue $Text 'readback_memexport' 'true') -eq 'true'
+    $memexportFast = (Get-TomlValue $Text 'readback_memexport_fast' 'true') -eq 'true'
+    $vsyncEnabled = (Get-TomlValue $Text 'vsync' 'true') -eq 'true'
+    $presetName = if ($clearPageState -and $readbackResolve -eq 'full') {
+        'accurate_showroom'
+    } elseif ($clearPageState -and $resolutionScale -eq 2 -and
+        $readbackResolve -eq 'fast' -and $halfPixel) {
+        'experimental_2x'
+    } elseif ($clearPageState -and $resolutionScale -eq 1 -and
+        $readbackResolve -eq 'none' -and -not $halfPixel -and $memexport -and
+        $memexportFast -and $vsyncEnabled) {
+        'shipping_1x'
+    } else {
+        'custom'
+    }
     [ordered]@{
-        schema = 'pinyon-shift.graphics-settings.v1'
+        schema = 'pinyon-shift.graphics-settings.v2'
         operation = $Operation.ToLowerInvariant()
         config_path = $configPath
         backup_path = $BackupPath
         settings = [ordered]@{
             anisotropy = $anisotropyValue
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
-            resolution_scale = [int](Get-TomlValue $Text 'draw_resolution_scale_x' '1')
+            preset = $presetName
+            resolution_scale = $resolutionScale
+            readback_resolve = $readbackResolve
+            readback_resolve_half_pixel_offset = $halfPixel
+            clear_memory_page_state = $clearPageState
+            readback_memexport = $memexport
+            readback_memexport_fast = $memexportFast
+            vsync = $vsyncEnabled
             occlusion_query = Get-TomlValue $Text 'occlusion_query' 'legacy'
             zpd_end_policy = Get-TomlValue $Text 'zpd_end_policy' 'report_layout'
             zpd_end_fallback = Get-TomlValue $Text 'zpd_end_fallback' 'pairwise_sentinel'
@@ -129,7 +165,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -146,7 +182,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -154,20 +190,42 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '7'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '8'
         if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
         }
         if (-not [regex]::IsMatch($text, '(?m)^\s*occlusion_query\s*=')) {
             $text = Set-TomlValue $text 'occlusion_query' '"legacy"'
         }
+        $effectiveResolution = switch ($Preset) {
+            'shipping_1x' { 1 }
+            'experimental_2x' { 2 }
+            'accurate_showroom' { 1 }
+            default { $ResolutionScale }
+        }
+        $effectiveReadback = switch ($Preset) {
+            'shipping_1x' { 'none' }
+            'experimental_2x' { 'fast' }
+            'accurate_showroom' { 'full' }
+            default { $ReadbackResolve }
+        }
+        $effectiveHalfPixel = $Preset -eq 'experimental_2x' -or
+            ($Preset -eq 'custom' -and $effectiveResolution -eq 2 -and
+                $effectiveReadback -ne 'none')
+        $effectiveHalfPixelText = if ($effectiveHalfPixel) { 'true' } else { 'false' }
         $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }
         $text = Set-TomlValue $text 'anisotropic_override' ([string]$override)
         $text = Set-TomlValue $text 'swap_post_effect' ('"' + $PostEffect + '"')
-        $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$ResolutionScale)
-        $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$ResolutionScale)
+        $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$effectiveResolution)
+        $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$effectiveResolution)
+        $text = Set-TomlValue $text 'vsync' 'true'
+        $text = Set-TomlValue $text 'clear_memory_page_state' 'true'
+        $text = Set-TomlValue $text 'readback_resolve' ('"' + $effectiveReadback + '"')
+        $text = Set-TomlValue $text 'readback_resolve_half_pixel_offset' $effectiveHalfPixelText
+        $text = Set-TomlValue $text 'readback_memexport' 'true'
+        $text = Set-TomlValue $text 'readback_memexport_fast' 'true'
         $text = Set-TomlValue $text 'occlusion_query' ('"' + $OcclusionQuery + '"')
         $text = Set-TomlValue $text 'zpd_end_policy' ('"' + $ZpdEndPolicy + '"')
         $text = Set-TomlValue $text 'zpd_end_fallback' ('"' + $ZpdEndFallback + '"')
