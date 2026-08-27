@@ -18,3 +18,5 @@
   limitation list after the latest compatibility fixes.
 - Added launcher controls for validated graphics experiments, including 2x
   resolution scaling, anisotropic filtering, and post-effect selection.
+- Fixed launcher-package builds that completed translation but failed while
+  probing absent Git metadata, and removed Python from warning verification.
