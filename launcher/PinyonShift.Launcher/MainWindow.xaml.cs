@@ -59,6 +59,7 @@ public partial class MainWindow : Window
             StageControllerMappings();
             DetectExistingBuild();
             DetectPendingReport();
+            UpdatePrimaryButton();
         }
         catch (Exception ex)
         {
