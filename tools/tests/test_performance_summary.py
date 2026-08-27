@@ -24,6 +24,20 @@ FIELDS = [
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_emits_complete_optional_zpd_totals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            zpd_columns = list(MODULE.ZPD_COLUMNS)
+            fields = FIELDS + zpd_columns
+            with capture.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerow(dict.fromkeys(fields, 1) | {"frame_time_us": 10_000})
+                writer.writerow(dict.fromkeys(fields, 2) | {"frame_time_us": 11_000})
+            result = MODULE.summarize(capture)
+            self.assertEqual(3, result["zpd_counters"]["zpd_reports_started"])
+            self.assertEqual(3, result["zpd_counters"]["zpd_stale_result_rejections"])
+
     def test_emits_complete_optional_xma_stall_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"

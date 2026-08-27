@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 38)
+        self.assertEqual(len(patches), 39)
         self.assertEqual(
             patches[-1].name,
-            "0038-m4-xma-stall-diagnostics.patch",
+            "0039-gpu-zpd-report-lifecycle-d3d12.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -163,13 +163,17 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 5", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 6", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
             self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
         self.assertIn("xma_relaxed_padding_admission = false", app)
         self.assertIn("xma_no_space_stalls", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+        self.assertIn("zpd_stale_result_rejections", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+        zpd_patch = ROOT / "patches/rexglue/0039-gpu-zpd-report-lifecycle-d3d12.patch"
+        self.assertTrue(zpd_patch.is_file())
+        self.assertIn("ZPDLifecycle", zpd_patch.read_text(encoding="utf-8"))
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
         stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
@@ -187,11 +191,12 @@ class ReleaseContractTests(unittest.TestCase):
         launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 5;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*5,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 6;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*6,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 4", app)
+        self.assertIn("schema < 1 || schema > 5", app)
+        self.assertIn('"occlusion_query = \\"legacy\\"\\n"', app)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,

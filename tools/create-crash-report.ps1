@@ -152,6 +152,15 @@ try {
         no_progress = [uint64]0
         recoveries = [uint64]0
     }
+    $zpdColumns = @(
+        'zpd_reports_started', 'zpd_reports_ended', 'zpd_report_segments',
+        'zpd_same_slot_reuse', 'zpd_fast_speculative_writes',
+        'zpd_async_result_patches', 'zpd_strict_waits',
+        'zpd_strict_wait_time_ns', 'zpd_retire_timeouts', 'zpd_fake_fallbacks',
+        'zpd_malformed_records', 'zpd_stale_result_rejections'
+    )
+    $zpdCounters = [ordered]@{ available = $false }
+    foreach ($column in $zpdColumns) { $zpdCounters[$column] = [uint64]0 }
     $perfLog = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.perf.csv' -File `
         -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) } |
         Sort-Object LastWriteTimeUtc | Select-Object -Last 1
@@ -166,6 +175,14 @@ try {
             }
             $xmaStalls.available = $true
         }
+        if (@($zpdColumns | Where-Object { $_ -notin $columns }).Count -eq 0) {
+            foreach ($row in Import-Csv -LiteralPath $perfLog.FullName) {
+                foreach ($column in $zpdColumns) {
+                    $zpdCounters[$column] += [uint64]$row.$column
+                }
+            }
+            $zpdCounters.available = $true
+        }
     }
 
     $allowedSettings = @(
@@ -176,7 +193,7 @@ try {
         'pinyon_shift_capture_performance',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
-        'draw_resolution_scale_x', 'draw_resolution_scale_y'
+        'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}
@@ -252,6 +269,9 @@ try {
         settings = $settings
         audio = [ordered]@{
             xma_stalls = $xmaStalls
+        }
+        graphics = [ordered]@{
+            zpd = $zpdCounters
         }
         local_dumps = $dumpRecords
         privacy = [ordered]@{

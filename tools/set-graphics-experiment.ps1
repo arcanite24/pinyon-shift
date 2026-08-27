@@ -8,6 +8,8 @@ param(
     [string]$PostEffect = 'none',
     [ValidateSet(1, 2)]
     [int]$ResolutionScale = 1,
+    [ValidateSet('legacy', 'fake', 'fast', 'strict')]
+    [string]$OcclusionQuery = 'legacy',
     [string]$StateRoot,
     [switch]$Json
 )
@@ -28,8 +30,8 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 5 adds default-off XMA padding qualification.
-pinyon_shift_config_schema = 5
+# Schema 6 adds conservative ZPD lifecycle selection.
+pinyon_shift_config_schema = 6
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -43,6 +45,7 @@ anisotropic_override = 3
 swap_post_effect = "none"
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
+occlusion_query = "legacy"
 '@
 }
 
@@ -104,6 +107,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             anisotropy = $anisotropyValue
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
             resolution_scale = [int](Get-TomlValue $Text 'draw_resolution_scale_x' '1')
+            occlusion_query = Get-TomlValue $Text 'occlusion_query' 'legacy'
         }
         restart_required = $Operation -ne 'Get'
     }
@@ -117,7 +121,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -134,7 +138,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -142,17 +146,21 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '5'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '6'
         if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
+        }
+        if (-not [regex]::IsMatch($text, '(?m)^\s*occlusion_query\s*=')) {
+            $text = Set-TomlValue $text 'occlusion_query' '"legacy"'
         }
         $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }
         $text = Set-TomlValue $text 'anisotropic_override' ([string]$override)
         $text = Set-TomlValue $text 'swap_post_effect' ('"' + $PostEffect + '"')
         $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$ResolutionScale)
         $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$ResolutionScale)
+        $text = Set-TomlValue $text 'occlusion_query' ('"' + $OcclusionQuery + '"')
         Write-Config $text
     }
 }

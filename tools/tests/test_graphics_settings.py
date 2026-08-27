@@ -32,11 +32,14 @@ class GraphicsSettingsTests(unittest.TestCase):
             result = self.run_tool(
                 state, "-Action", "Apply", "-Anisotropy", "16",
                 "-PostEffect", "fxaa", "-ResolutionScale", "2",
+                "-OcclusionQuery", "fast",
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 5", updated)
+            self.assertIn("pinyon_shift_config_schema = 6", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
+            self.assertEqual(result["settings"]["occlusion_query"], "fast")
+            self.assertIn('occlusion_query = "fast"', updated)
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
@@ -54,6 +57,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn("swap_post_effect = \"none\"", text)
             self.assertIn("draw_resolution_scale_x = 1", text)
             self.assertIn("xma_relaxed_padding_admission = false", text)
+            self.assertIn('occlusion_query = "legacy"', text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
 
