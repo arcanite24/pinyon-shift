@@ -1,8 +1,8 @@
 diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
-index 4861e40..221cd6a 100644
+index 4861e40..7fe1b57 100644
 --- a/include/rex/audio/xma/context.h
 +++ b/include/rex/audio/xma/context.h
-@@ -205,6 +205,56 @@ struct AssembledXmaPayload {
+@@ -205,6 +205,58 @@ struct AssembledXmaPayload {
    bool valid() const { return status == XmaPayloadStatus::kValid; }
  };
  
@@ -39,6 +39,7 @@ index 4861e40..221cd6a 100644
 +// can be tested without an FFmpeg decoder or guest-memory fixture.
 +class XmaStallTracker {
 + public:
++  static constexpr uint32_t kNoSpaceConfirmationObservations = 8;
 +  static bool ShouldLogSummary(uint64_t total_count);
 +
 +  XmaNoSpaceObservationResult ObserveNoSpace(const XmaNoSpaceObservation& observation);
@@ -52,6 +53,7 @@ index 4861e40..221cd6a 100644
 + private:
 +  XmaStallMetrics metrics_;
 +  XmaNoSpaceObservation no_space_observation_;
++  uint32_t no_space_observation_count_ = 0;
 +  bool has_no_space_observation_ = false;
 +  bool recovery_log_pending_ = false;
 +};
@@ -59,7 +61,7 @@ index 4861e40..221cd6a 100644
  // Resolves a logical packet number relative to starting_buffer_index. Packet
  // numbers at or beyond current_buffer_packet_count continue in the alternate
  // guest buffer without losing their index within that buffer.
-@@ -257,6 +307,8 @@ class XmaContext {
+@@ -257,6 +309,8 @@ class XmaContext {
                                               std::span<uint8_t> destination);
    static bool IsValidFrameSize(uint32_t frame_size);
  
@@ -68,7 +70,7 @@ index 4861e40..221cd6a 100644
    void Enable();
    bool Block(bool poll);
    void Clear();
-@@ -306,6 +358,12 @@ class XmaContext {
+@@ -306,6 +360,12 @@ class XmaContext {
    void WarnPacketResolution(const XmaPacketHandle& packet_handle, uint32_t logical_packet_index);
    void WarnPayloadAssembly(const AssembledXmaPayload& payload, uint32_t first_logical_packet,
                             uint32_t frame_offset_in_packet, uint32_t bits_required);
@@ -81,7 +83,7 @@ index 4861e40..221cd6a 100644
  
    void Decode(XMA_CONTEXT_DATA* data);
    void Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA* data);
-@@ -368,6 +426,7 @@ class XmaContext {
+@@ -368,6 +428,7 @@ class XmaContext {
    // context lifetime rather than once per Work() re-entry.
    uint32_t packet_warning_mask_ = 0;
    uint32_t payload_warning_mask_ = 0;
@@ -124,7 +126,7 @@ index 3541c18..5053a69 100644
  #define PROFILE_VERTICES(n)
  #define PROFILE_CMD_BUFFER_STALL()
 diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
-index e723215..7007c97 100644
+index e723215..5c49db7 100644
 --- a/src/audio/xma_context.cpp
 +++ b/src/audio/xma_context.cpp
 @@ -15,9 +15,11 @@
@@ -150,7 +152,7 @@ index e723215..7007c97 100644
  // Credits for most of this code goes to:
  // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
  
-@@ -43,6 +49,74 @@ using stream::BitStream;
+@@ -43,6 +49,81 @@ using stream::BitStream;
  const uint32_t XmaContext::kBitsPerPacketHeader;
  const uint32_t XmaContext::kOutputMaxSizeBytes;
  
@@ -171,12 +173,17 @@ index e723215..7007c97 100644
 +XmaNoSpaceObservationResult XmaStallTracker::ObserveNoSpace(
 +    const XmaNoSpaceObservation& observation) {
 +  if (has_no_space_observation_ && no_space_observation_.Matches(observation)) {
-+    return {.repeated = true, .log_recovery = false};
++    ++no_space_observation_count_;
++    return {
++        .repeated = no_space_observation_count_ >= kNoSpaceConfirmationObservations,
++        .log_recovery = false,
++    };
 +  }
 +
 +  const bool log_recovery = NoteProgress(observation.input_offset, observation.output_read_offset,
 +                                         observation.output_write_offset);
 +  no_space_observation_ = observation;
++  no_space_observation_count_ = 1;
 +  has_no_space_observation_ = true;
 +  return {.repeated = false, .log_recovery = log_recovery};
 +}
@@ -207,6 +214,7 @@ index e723215..7007c97 100644
 +  const bool should_log_recovery = recovered && recovery_log_pending_;
 +  metrics_.consecutive_no_space_stalls = 0;
 +  metrics_.consecutive_no_progress_stalls = 0;
++  no_space_observation_count_ = 0;
 +  has_no_space_observation_ = false;
 +  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = input_offset;
@@ -217,6 +225,7 @@ index e723215..7007c97 100644
 +
 +void XmaStallTracker::Reset(uint32_t initial_input_offset) {
 +  metrics_ = {};
++  no_space_observation_count_ = 0;
 +  has_no_space_observation_ = false;
 +  recovery_log_pending_ = false;
 +  metrics_.last_progress_input_offset = initial_input_offset;
@@ -225,7 +234,7 @@ index e723215..7007c97 100644
  XmaPacketHandle ResolvePacket(const XMA_CONTEXT_DATA& data, uint32_t starting_buffer_index,
                                uint32_t logical_packet_index, uint32_t current_buffer_packet_count) {
    XmaPacketHandle result;
-@@ -81,8 +155,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
+@@ -81,8 +162,9 @@ bool XmaContext::IsValidFrameSize(uint32_t frame_size) {
    return frame_size != 0 && frame_size != xma::kMaxFrameLength;
  }
  
@@ -237,7 +246,7 @@ index e723215..7007c97 100644
  
  XmaContext::~XmaContext() {
    if (av_context_) {
-@@ -162,18 +237,43 @@ bool XmaContext::Work() {
+@@ -162,18 +244,43 @@ bool XmaContext::Work() {
    // Minimum free blocks needed before attempting a decode.
    // Use subframe_decode_count (clamped to 1) instead of full frame size.
    const uint32_t effective_sdc = std::max(static_cast<uint32_t>(1), data.subframe_decode_count);
@@ -282,7 +291,7 @@ index e723215..7007c97 100644
      if (!data.IsAnyInputBufferValid() || data.error_status == 4) {
        break;
      }
-@@ -249,11 +349,13 @@ void XmaContext::ResetDecoderState() {
+@@ -249,11 +356,13 @@ void XmaContext::ResetDecoderState() {
    loop_start_skip_pending_ = false;
    packet_warning_mask_ = 0;
    payload_warning_mask_ = 0;
@@ -296,7 +305,7 @@ index e723215..7007c97 100644
  }
  
  void XmaContext::Release() {
-@@ -266,6 +368,98 @@ void XmaContext::Release() {
+@@ -266,6 +375,98 @@ void XmaContext::Release() {
    std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
  }
  
@@ -395,7 +404,7 @@ index e723215..7007c97 100644
  void XmaContext::SwapInputBuffer(XMA_CONTEXT_DATA* data) {
    if (data->current_buffer == 0) {
      data->input_buffer_0_valid = 0;
-@@ -615,7 +809,9 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -615,7 +816,9 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
                                      << data->is_stereo;
      const uint8_t consumed = total_subframes - current_frame_remaining_subframes_;
      if (consumed >= loop_frame_output_limit_) {
@@ -406,7 +415,7 @@ index e723215..7007c97 100644
        current_frame_remaining_subframes_ = 0;
        loop_frame_output_limit_ = 0;
        return;
-@@ -643,9 +839,12 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
+@@ -643,9 +846,12 @@ void XmaContext::Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA*
    output_rb->Write(raw_frame_.data() + (kOutputBytesPerBlock * raw_frame_read_offset),
                     subframes_to_write * kOutputBytesPerBlock);
  
@@ -422,7 +431,7 @@ index e723215..7007c97 100644
  
    remaining_subframe_blocks_in_output_buffer_ -= subframes_to_write + headroom;
    current_frame_remaining_subframes_ -= subframes_to_write;
-@@ -657,6 +856,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
+@@ -657,6 +863,11 @@ int XmaContext::PrepareDecoder(int sample_rate, bool is_two_channel) {
    uint32_t channels = is_two_channel ? 2 : 1;
    if (av_context_->sample_rate != sample_rate ||
        av_context_->channels != static_cast<int>(channels)) {
@@ -459,7 +468,7 @@ index 7bbe847..fc7c7b7 100644
      false,  // kBufferQueueDepth  (set each frame)
      false,  // kFunctionsDispatched
 diff --git a/tests/unit/audio/xma_packet_test.cpp b/tests/unit/audio/xma_packet_test.cpp
-index a9db54d..1a87e45 100644
+index a9db54d..c6cf2cd 100644
 --- a/tests/unit/audio/xma_packet_test.cpp
 +++ b/tests/unit/audio/xma_packet_test.cpp
 @@ -12,6 +12,7 @@
@@ -533,7 +542,7 @@ index a9db54d..1a87e45 100644
      const uint8_t mask = static_cast<uint8_t>(1u << (7 - packet_bit % 8));
      if (value & (1u << (bit_count - i - 1))) {
        byte |= mask;
-@@ -79,6 +80,212 @@ void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
+@@ -79,6 +80,220 @@ void WriteCrossBufferPayloadBits(uint8_t* current, uint8_t* alternate,
  
  }  // namespace
  
@@ -583,10 +592,15 @@ index a9db54d..1a87e45 100644
 +      .input_buffer_1_valid = false,
 +  };
 +
-+  auto result = tracker.ObserveNoSpace(observation);
-+  CHECK_FALSE(result.repeated);
-+  CHECK_FALSE(result.log_recovery);
-+  CHECK(tracker.metrics().total_no_space_stalls == 0);
++  rex::audio::XmaNoSpaceObservationResult result;
++  for (uint32_t attempt = 1; attempt < XmaStallTracker::kNoSpaceConfirmationObservations;
++       ++attempt) {
++    result = tracker.ObserveNoSpace(observation);
++    INFO("observation " << attempt);
++    CHECK_FALSE(result.repeated);
++    CHECK_FALSE(result.log_recovery);
++    CHECK(tracker.metrics().total_no_space_stalls == 0);
++  }
 +
 +  result = tracker.ObserveNoSpace(observation);
 +  CHECK(result.repeated);
@@ -653,10 +667,13 @@ index a9db54d..1a87e45 100644
 +  XmaContext context;
 +  REQUIRE(context.Setup(0, &memory, context_address) == 0);
 +  context.set_is_allocated(true);
-+  context.Enable();
-+  CHECK(context.Work());
-+  CHECK(context.stall_metrics().total_no_space_stalls == 0);
-+  CHECK(context.stall_metrics().total_recoveries == 0);
++  for (uint32_t attempt = 1; attempt < XmaStallTracker::kNoSpaceConfirmationObservations;
++       ++attempt) {
++    context.Enable();
++    CHECK(context.Work());
++    CHECK(context.stall_metrics().total_no_space_stalls == 0);
++    CHECK(context.stall_metrics().total_recoveries == 0);
++  }
 +
 +  context.Enable();
 +  CHECK(context.Work());
@@ -746,7 +763,7 @@ index a9db54d..1a87e45 100644
  TEST_CASE("XMA packet resolution preserves cross-buffer packet indices", "[audio][xma]") {
    XMA_CONTEXT_DATA data = MakeTwoBufferContext();
  
-@@ -277,10 +484,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+@@ -277,10 +492,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
                      XmaContext::kBitsPerPacketHeader, 0xFF);
      SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
                      XmaContext::kBitsPerPacketHeader, 0xFF);
@@ -759,7 +776,7 @@ index a9db54d..1a87e45 100644
  
      data.input_buffer_1_packet_count = 4;
      data.input_buffer_read_offset = kFrameOffset;
-@@ -297,8 +502,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+@@ -297,8 +510,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
      CHECK(advanced.error_status == 0);
      CHECK_FALSE(advanced.IsAnyInputBufferValid());
      CHECK(advanced.current_buffer == 0);
@@ -769,7 +786,7 @@ index a9db54d..1a87e45 100644
    }
  
    SECTION("synthetic four-packet frame decodes and advances") {
-@@ -307,10 +511,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+@@ -307,10 +519,8 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
      SetPacketHeader(current, 1, kFrameOffset, 3);
      SetPacketHeader(alternate + XmaContext::kBytesPerPacket * 3, 1,
                      XmaContext::kBitsPerPacketHeader, 0xFF);
@@ -782,7 +799,7 @@ index a9db54d..1a87e45 100644
  
      data.input_buffer_1_packet_count = 4;
      data.input_buffer_read_offset = kFrameOffset;
-@@ -327,8 +529,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
+@@ -327,8 +537,7 @@ TEST_CASE("XMA payload assembly spans up to four packets", "[audio][xma]") {
      CHECK(advanced.error_status == 0);
      CHECK_FALSE(advanced.IsAnyInputBufferValid());
      CHECK(advanced.current_buffer == 0);

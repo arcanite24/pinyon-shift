@@ -22,12 +22,12 @@ The ReXGlue patch changes:
 
 Each XMA context tracks consecutive and total output-space and no-progress
 stalls, recovery count, last successful input offset, and last successful
-output read/write offsets. An output-full observation is first treated as
-ordinary decoder backpressure. It becomes a no-space stall only when the next
-work attempt sees the same buffer, input offset, output offsets, admission
-requirement, and remaining capacity. Any changed state is progress and primes
-a new observation instead. Warning summaries are emitted only when the
-per-context lifetime total for a stall class reaches 1, 8, 64, and every 256
+output read/write offsets. Output-full observations are first treated as
+ordinary decoder backpressure. A no-space stall begins only when eight
+consecutive work attempts see the same buffer, input offset, output offsets,
+admission requirement, and remaining capacity. Any changed state is progress
+and primes a new observation instead. Warning summaries are emitted only when
+the per-context lifetime total for a stall class reaches 1, 8, 64, and every 256
 thereafter. Every recovered stall episode is counted, while a recovery warning
 is emitted only when that episode emitted a stall summary. Progress clears only
 the consecutive runs.
