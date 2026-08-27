@@ -28,8 +28,8 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 4 includes validated experimental graphics settings.
-pinyon_shift_config_schema = 4
+# Schema 5 adds default-off XMA padding qualification.
+pinyon_shift_config_schema = 5
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -38,6 +38,7 @@ keybind_start = "Return"
 d3d12_allow_variable_refresh_rate_and_tearing = false
 pinyon_shift_stabilize_vehicle_presentation = false
 pinyon_shift_skip_opening_movies = false
+xma_relaxed_padding_admission = false
 anisotropic_override = 3
 swap_post_effect = "none"
 draw_resolution_scale_x = 1
@@ -116,7 +117,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -133,7 +134,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -141,9 +142,12 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '4'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '5'
+        if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
+            $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
+        }
         $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }
         $text = Set-TomlValue $text 'anisotropic_override' ([string]$override)
         $text = Set-TomlValue $text 'swap_post_effect' ('"' + $PostEffect + '"')

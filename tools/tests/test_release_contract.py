@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 37)
+        self.assertEqual(len(patches), 38)
         self.assertEqual(
             patches[-1].name,
-            "0037-m4-xma-multipacket-frame-assembly.patch",
+            "0038-m4-xma-stall-diagnostics.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -163,11 +163,13 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 4", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 5", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
             self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+        self.assertIn("xma_relaxed_padding_admission = false", app)
+        self.assertIn("xma_no_space_stalls", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
         stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
@@ -185,11 +187,11 @@ class ReleaseContractTests(unittest.TestCase):
         launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 4;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*4,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 5;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*5,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 3", app)
+        self.assertIn("schema < 1 || schema > 4", app)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
@@ -237,6 +239,11 @@ class ReleaseContractTests(unittest.TestCase):
                 json.dumps({"event": "process.start", "path": private_path}) + "\n",
                 encoding="utf-8",
             )
+            (state / "logs" / "session.perf.csv").write_text(
+                "frame_time_us,xma_no_space_stalls,xma_no_progress_stalls,xma_stall_recoveries\n"
+                "10000,2,1,0\n20000,3,0,1\n",
+                encoding="utf-8",
+            )
             crash = state / "crashes" / "test-unhandled.txt"
             crash.write_text(
                 "Pinyon Shift unhandled exception\n"
@@ -277,6 +284,11 @@ class ReleaseContractTests(unittest.TestCase):
             with zipfile.ZipFile(result["bundle"]) as archive:
                 manifest = json.loads(archive.read("report.json"))
             self.assertFalse(manifest["privacy"]["memory_dump_included"])
+            self.assertFalse(manifest["privacy"]["audio_payload_included"])
+            self.assertTrue(manifest["audio"]["xma_stalls"]["available"])
+            self.assertEqual(manifest["audio"]["xma_stalls"]["no_space"], 5)
+            self.assertEqual(manifest["audio"]["xma_stalls"]["no_progress"], 1)
+            self.assertEqual(manifest["audio"]["xma_stalls"]["recoveries"], 1)
             self.assertEqual(manifest["exception"]["fault_offset"], "0x1234")
 
 

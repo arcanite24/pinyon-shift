@@ -83,6 +83,19 @@ diagnostics, and synthetic coverage exercises one through four packets across
 guest-buffer boundaries. Removing `0037` restores the prior two-payload
 decoder without removing `0036`.
 
+`0038-m4-xma-stall-diagnostics` adapts the low-noise diagnostic design from
+Xenia Canary PR `#974`, without enabling its uncertain padding change by
+default. A no-space event is counted only after the same buffer, input, output,
+and admission state persists for eight consecutive work attempts; a changed
+observation is normal backpressure and progress. Per-context no-space and
+no-progress lifetime
+totals log at counts 1, 8, 64, and every 256, with recovery logs only for
+episodes that emitted a stall summary. Session performance counters preserve
+exact aggregate stall and recovery totals for sanitized support reports. The
+optional relaxed-padding admission path is controlled by
+`xma_relaxed_padding_admission = false`; removing `0038` restores strict
+padding admission and removes only EPIC-03 telemetry and tests.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.

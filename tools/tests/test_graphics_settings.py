@@ -35,7 +35,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 4", updated)
+            self.assertIn("pinyon_shift_config_schema = 5", updated)
+            self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
@@ -47,11 +48,12 @@ class GraphicsSettingsTests(unittest.TestCase):
             state = pathlib.Path(temporary)
             config = state / "config/pinyon_shift.toml"
             config.parent.mkdir(parents=True)
-            config.write_text("pinyon_shift_config_schema = 4\nswap_post_effect = \"fxaa\"\n", encoding="utf-8")
+            config.write_text("pinyon_shift_config_schema = 5\nswap_post_effect = \"fxaa\"\n", encoding="utf-8")
             result = self.run_tool(state, "-Action", "Reset")
             text = config.read_text(encoding="utf-8")
             self.assertIn("swap_post_effect = \"none\"", text)
             self.assertIn("draw_resolution_scale_x = 1", text)
+            self.assertIn("xma_relaxed_padding_admission = false", text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
 
