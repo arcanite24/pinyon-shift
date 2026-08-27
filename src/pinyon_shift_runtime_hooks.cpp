@@ -13,6 +13,7 @@
 #include <rex/cvar.h>
 #include <rex/memory.h>
 #include <rex/ppc/context.h>
+#include <rex/perf/counter.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 
@@ -347,6 +348,7 @@ void PinyonShiftCompleteOpeningMovie(PPCRegister& r3, PPCRegister& r30,
 }
 
 void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
+  PROFILE_SIMULATION_TICK();
   if (r28.u32 == 0) {
     return;
   }

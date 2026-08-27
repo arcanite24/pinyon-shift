@@ -70,6 +70,17 @@ ZPD_COLUMNS = (
     "zpd_policy_fallbacks",
     "zpd_watchdog_recoveries",
 )
+PRESENTATION_COLUMNS = (
+    "guest_vblank_count",
+    "guest_vblank_delta_ns",
+    "simulation_tick_count",
+    "present_count",
+    "present_delta_ns",
+    "present_queue_depth",
+    "present_deadline_misses",
+    "duplicate_present_count",
+    "dropped_present_count",
+)
 
 
 class CaptureError(ValueError):
@@ -129,6 +140,13 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
         if available_zpd and available_zpd != set(ZPD_COLUMNS):
             missing_zpd = sorted(set(ZPD_COLUMNS) - available_zpd)
             raise CaptureError("capture has an incomplete ZPD counter set: " + ", ".join(missing_zpd))
+        available_presentation = columns.intersection(PRESENTATION_COLUMNS)
+        if available_presentation and available_presentation != set(PRESENTATION_COLUMNS):
+            missing_presentation = sorted(set(PRESENTATION_COLUMNS) - available_presentation)
+            raise CaptureError(
+                "capture has an incomplete presentation counter set: "
+                + ", ".join(missing_presentation)
+            )
 
         frame_times: list[float] = []
         totals = {name: 0.0 for name in TOTAL_COLUMNS}
@@ -137,6 +155,14 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                           if available_resolve else None)
         xma_stall_totals = {name: 0.0 for name in XMA_STALL_COLUMNS} if available_xma_stalls else None
         zpd_totals = {name: 0.0 for name in ZPD_COLUMNS} if available_zpd else None
+        presentation_totals = (
+            {name: 0.0 for name in PRESENTATION_COLUMNS}
+            if available_presentation else None
+        )
+        presentation_delta_samples = {
+            "guest_vblank_delta_ns": 0,
+            "present_delta_ns": 0,
+        }
         rows_seen = 0
         for row_number, row in enumerate(reader, start=2):
             rows_seen += 1
@@ -153,6 +179,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                                for name in XMA_STALL_COLUMNS} if xma_stall_totals is not None else {})
             row_zpd = ({name: finite_number(row[name], column=name, row_number=row_number)
                         for name in ZPD_COLUMNS} if zpd_totals is not None else {})
+            row_presentation = ({
+                name: finite_number(row[name], column=name, row_number=row_number)
+                for name in PRESENTATION_COLUMNS
+            } if presentation_totals is not None else {})
             # The runtime writes one initialization row with frame_time_us == 0.
             # It is valid CSV, but not a displayed frame and must not skew latency.
             if frame_time == 0:
@@ -168,6 +198,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 xma_stall_totals[name] += value
             for name, value in row_zpd.items():
                 zpd_totals[name] += value
+            for name, value in row_presentation.items():
+                presentation_totals[name] += value
+                if name in presentation_delta_samples and value > 0:
+                    presentation_delta_samples[name] += 1
 
     if rows_seen == 0:
         raise CaptureError("capture contains a header but no rows")
@@ -219,6 +253,34 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
     if zpd_totals is not None:
         result["zpd_counters"] = {
             name: int(value) if value.is_integer() else value for name, value in zpd_totals.items()
+        }
+    if presentation_totals is not None:
+        duration_seconds = sum(frame_times) / 1_000_000.0
+        counters = {
+            name: int(value) if value.is_integer() else value
+            for name, value in presentation_totals.items()
+        }
+        result["presentation"] = {
+            "counters": counters,
+            "cadence_hz": {
+                "guest_vblank": round(counters["guest_vblank_count"] / duration_seconds, 3),
+                "simulation_tick": round(counters["simulation_tick_count"] / duration_seconds, 3),
+                "present": round(counters["present_count"] / duration_seconds, 3),
+            },
+            "mean_delta_ms": {
+                "guest_vblank": round(
+                    counters["guest_vblank_delta_ns"]
+                    / max(1, presentation_delta_samples["guest_vblank_delta_ns"])
+                    / 1_000_000.0,
+                    3,
+                ),
+                "present": round(
+                    counters["present_delta_ns"]
+                    / max(1, presentation_delta_samples["present_delta_ns"])
+                    / 1_000_000.0,
+                    3,
+                ),
+            },
         }
     return result
 
@@ -280,6 +342,19 @@ def markdown(summary: dict[str, Any]) -> str:
                 f"| {name.replace('_', ' ')} | {values['baseline']:.3f} | "
                 f"{values['candidate']:.3f} | {values['delta_percent']:+.3f}% |"
             )
+    if "presentation" in summary:
+        pacing = summary["presentation"]
+        lines.extend([
+            "",
+            "## Presentation pacing",
+            "",
+            f"- Guest vblank cadence: {pacing['cadence_hz']['guest_vblank']:.3f} Hz",
+            f"- Simulation cadence: {pacing['cadence_hz']['simulation_tick']:.3f} Hz",
+            f"- Host present cadence: {pacing['cadence_hz']['present']:.3f} Hz",
+            f"- Present deadline misses: {pacing['counters']['present_deadline_misses']}",
+            f"- Duplicate presents: {pacing['counters']['duplicate_present_count']}",
+            f"- Dropped presents: {pacing['counters']['dropped_present_count']}",
+        ])
     return "\n".join(lines) + "\n"
 
 

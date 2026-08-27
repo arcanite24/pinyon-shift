@@ -164,6 +164,16 @@ try {
     )
     $zpdCounters = [ordered]@{ available = $false }
     foreach ($column in $zpdColumns) { $zpdCounters[$column] = [uint64]0 }
+    $presentationColumns = @(
+        'guest_vblank_count', 'guest_vblank_delta_ns',
+        'simulation_tick_count', 'present_count', 'present_delta_ns',
+        'present_queue_depth', 'present_deadline_misses',
+        'duplicate_present_count', 'dropped_present_count'
+    )
+    $presentationCounters = [ordered]@{ available = $false }
+    foreach ($column in $presentationColumns) {
+        $presentationCounters[$column] = [uint64]0
+    }
     $perfLog = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.perf.csv' -File `
         -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) } |
         Sort-Object LastWriteTimeUtc | Select-Object -Last 1
@@ -185,6 +195,14 @@ try {
                 }
             }
             $zpdCounters.available = $true
+        }
+        if (@($presentationColumns | Where-Object { $_ -notin $columns }).Count -eq 0) {
+            foreach ($row in Import-Csv -LiteralPath $perfLog.FullName) {
+                foreach ($column in $presentationColumns) {
+                    $presentationCounters[$column] += [uint64]$row.$column
+                }
+            }
+            $presentationCounters.available = $true
         }
     }
     $resolveColumns = @(
@@ -213,7 +231,8 @@ try {
         'xma_relaxed_padding_admission',
         'pinyon_shift_capture_performance',
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
-        'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
+        'resolution', 'vsync', 'host_present_fps_limit',
+        'host_present_sleep_spin', 'anisotropic_override', 'swap_post_effect',
         'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query',
         'zpd_end_policy', 'zpd_end_fallback', 'clear_memory_page_state',
         'readback_resolve', 'readback_resolve_half_pixel_offset',
@@ -297,6 +316,7 @@ try {
         graphics = [ordered]@{
             zpd = $zpdCounters
             resolve_readback = $resolveCounters
+            presentation = $presentationCounters
         }
         local_dumps = $dumpRecords
         privacy = [ordered]@{

@@ -52,6 +52,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
               "vsync = true\n"
+              "host_present_fps_limit = 60\n"
+              "host_present_sleep_spin = true\n"
               "pinyon_shift_capture_performance = true\n"
               "xma_relaxed_padding_admission = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
@@ -144,6 +146,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
         {"vsync", "vsync = true\n"},
+        {"host_present_fps_limit", "host_present_fps_limit = 60\n"},
+        {"host_present_sleep_spin", "host_present_sleep_spin = true\n"},
         {"clear_memory_page_state", "clear_memory_page_state = true\n"},
         {"readback_resolve", "readback_resolve = \"none\"\n"},
         {"readback_resolve_half_pixel_offset",
@@ -264,6 +268,10 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"renderer", "d3d12"},
                         {"resolution", rex::cvar::GetFlagByName("resolution")},
                         {"vsync", rex::cvar::GetFlagByName("vsync")},
+                        {"host_present_fps_limit",
+                         rex::cvar::GetFlagByName("host_present_fps_limit")},
+                        {"host_present_sleep_spin",
+                         rex::cvar::GetFlagByName("host_present_sleep_spin")},
                         {"draw_resolution_scale_x",
                          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
                         {"draw_resolution_scale_y",

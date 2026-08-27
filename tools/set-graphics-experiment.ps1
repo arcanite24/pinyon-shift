@@ -18,6 +18,8 @@ param(
     [string]$ZpdEndPolicy = 'report_layout',
     [ValidateSet('none', 'pairwise_sentinel', 'relaxed_sentinel')]
     [string]$ZpdEndFallback = 'pairwise_sentinel',
+    [ValidateSet(0, 30, 60)]
+    [int]$PresentationFps = 60,
     [string]$StateRoot,
     [switch]$Json
 )
@@ -47,6 +49,8 @@ keybind_a = "LMB,Space"
 keybind_start = "Return"
 d3d12_allow_variable_refresh_rate_and_tearing = false
 vsync = true
+host_present_fps_limit = 60
+host_present_sleep_spin = true
 pinyon_shift_stabilize_vehicle_presentation = false
 pinyon_shift_skip_opening_movies = false
 xma_relaxed_padding_admission = false
@@ -121,6 +125,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
     $memexport = (Get-TomlValue $Text 'readback_memexport' 'true') -eq 'true'
     $memexportFast = (Get-TomlValue $Text 'readback_memexport_fast' 'true') -eq 'true'
     $vsyncEnabled = (Get-TomlValue $Text 'vsync' 'true') -eq 'true'
+    $presentationFps = [int](Get-TomlValue $Text 'host_present_fps_limit' '60')
     $presetName = if ($clearPageState -and $readbackResolve -eq 'full') {
         'accurate_showroom'
     } elseif ($clearPageState -and $resolutionScale -eq 2 -and
@@ -149,6 +154,9 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             readback_memexport = $memexport
             readback_memexport_fast = $memexportFast
             vsync = $vsyncEnabled
+            host_present_fps_limit = $presentationFps
+            host_present_sleep_spin =
+                (Get-TomlValue $Text 'host_present_sleep_spin' 'true') -eq 'true'
             occlusion_query = Get-TomlValue $Text 'occlusion_query' 'legacy'
             zpd_end_policy = Get-TomlValue $Text 'zpd_end_policy' 'report_layout'
             zpd_end_fallback = Get-TomlValue $Text 'zpd_end_fallback' 'pairwise_sentinel'
@@ -221,6 +229,8 @@ switch ($Action) {
         $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$effectiveResolution)
         $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$effectiveResolution)
         $text = Set-TomlValue $text 'vsync' 'true'
+        $text = Set-TomlValue $text 'host_present_fps_limit' ([string]$PresentationFps)
+        $text = Set-TomlValue $text 'host_present_sleep_spin' 'true'
         $text = Set-TomlValue $text 'clear_memory_page_state' 'true'
         $text = Set-TomlValue $text 'readback_resolve' ('"' + $effectiveReadback + '"')
         $text = Set-TomlValue $text 'readback_resolve_half_pixel_offset' $effectiveHalfPixelText
