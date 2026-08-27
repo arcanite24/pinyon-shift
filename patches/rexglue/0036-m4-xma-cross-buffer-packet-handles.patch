@@ -1,0 +1,658 @@
+diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
+index 8426798..efce0ca 100644
+--- a/include/rex/audio/xma/context.h
++++ b/include/rex/audio/xma/context.h
+@@ -170,6 +170,30 @@ struct kPacketInfo {
+   }
+ };
+ 
++enum class XmaPacketStatus : uint8_t {
++  kValid,
++  kInvalidContext,
++  kBufferInvalid,
++  kNullAddress,
++  kPacketOutOfRange,
++};
++
++struct XmaPacketHandle {
++  uint32_t buffer_index = 0;
++  uint32_t packet_index = 0;
++  XmaPacketStatus status = XmaPacketStatus::kInvalidContext;
++
++  bool valid() const { return status == XmaPacketStatus::kValid; }
++};
++
++// Resolves a logical packet number relative to starting_buffer_index. Packet
++// numbers at or beyond current_buffer_packet_count continue in the alternate
++// guest buffer without losing their index within that buffer.
++XmaPacketHandle ResolvePacket(const XMA_CONTEXT_DATA& data,
++                              uint32_t starting_buffer_index,
++                              uint32_t logical_packet_index,
++                              uint32_t current_buffer_packet_count);
++
+ static constexpr int kIdToSampleRate[4] = {24000, 32000, 44100, 48000};
+ 
+ class XmaContext {
+@@ -244,11 +268,19 @@ class XmaContext {
+ 
+   kPacketInfo GetPacketInfo(uint8_t* packet, uint32_t frame_offset);
+   uint32_t GetAmountOfBitsToRead(uint32_t remaining_stream_bits, uint32_t frame_size);
++  const uint8_t* GetPacket(XMA_CONTEXT_DATA* data, const XmaPacketHandle& packet_handle);
+   const uint8_t* GetNextPacket(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
+-                               uint32_t current_input_packet_count);
++                               uint32_t current_input_packet_count,
++                               XmaPacketHandle* packet_handle = nullptr);
+   uint32_t GetNextPacketReadOffset(uint8_t* buffer, uint32_t next_packet_index,
+-                                   uint32_t current_input_packet_count);
+-  uint8_t* GetCurrentInputBuffer(XMA_CONTEXT_DATA* data);
++                                   uint32_t current_input_packet_count,
++                                   uint32_t* resolved_packet_index,
++                                   bool* packet_found);
++  uint32_t GetNextPacketReadOffset(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
++                                   uint32_t current_input_packet_count,
++                                   XmaPacketHandle* packet_handle);
++  void WarnPacketResolution(const XmaPacketHandle& packet_handle,
++                            uint32_t logical_packet_index);
+ 
+   void Decode(XMA_CONTEXT_DATA* data);
+   void Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA* data);
+@@ -306,6 +338,10 @@ class XmaContext {
+   bool carry_valid_ = false;
+   uint8_t pending_output_limit_ = 0;
+   uint8_t pending_start_skip_ = 0;
++
++  // One bit per XmaPacketStatus. Malformed guest input is reported once per
++  // context lifetime rather than once per Work() re-entry.
++  uint32_t packet_warning_mask_ = 0;
+ };
+ 
+ }  // namespace rex::audio
+diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
+index 345a488..93ee67a 100644
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -43,6 +43,42 @@ using stream::BitStream;
+ const uint32_t XmaContext::kBitsPerPacketHeader;
+ const uint32_t XmaContext::kOutputMaxSizeBytes;
+ 
++XmaPacketHandle ResolvePacket(const XMA_CONTEXT_DATA& data,
++                              uint32_t starting_buffer_index,
++                              uint32_t logical_packet_index,
++                              uint32_t current_buffer_packet_count) {
++  XmaPacketHandle result;
++  if (starting_buffer_index > 1 ||
++      current_buffer_packet_count !=
++          data.GetInputBufferPacketCount(static_cast<uint8_t>(starting_buffer_index))) {
++    return result;
++  }
++
++  result.buffer_index = starting_buffer_index;
++  result.packet_index = logical_packet_index;
++  if (logical_packet_index >= current_buffer_packet_count) {
++    result.buffer_index ^= 1;
++    result.packet_index -= current_buffer_packet_count;
++  }
++
++  const auto buffer_index = static_cast<uint8_t>(result.buffer_index);
++  if (!data.IsInputBufferValid(buffer_index)) {
++    result.status = XmaPacketStatus::kBufferInvalid;
++    return result;
++  }
++  if (!data.GetInputBufferAddress(buffer_index)) {
++    result.status = XmaPacketStatus::kNullAddress;
++    return result;
++  }
++  if (result.packet_index >= data.GetInputBufferPacketCount(buffer_index)) {
++    result.status = XmaPacketStatus::kPacketOutOfRange;
++    return result;
++  }
++
++  result.status = XmaPacketStatus::kValid;
++  return result;
++}
++
+ XmaContext::XmaContext()
+     : work_completion_event_(rex::thread::Event::CreateAutoResetEvent(false)) {}
+ 
+@@ -209,6 +245,7 @@ void XmaContext::ResetDecoderState() {
+   current_frame_remaining_subframes_ = 0;
+   loop_frame_output_limit_ = 0;
+   loop_start_skip_pending_ = false;
++  packet_warning_mask_ = 0;
+ }
+ 
+ void XmaContext::Disable() {
+@@ -278,42 +315,64 @@ uint32_t XmaContext::GetCurrentInputBufferSize(XMA_CONTEXT_DATA* data) {
+   return data->GetCurrentInputBufferPacketCount() * kBytesPerPacket;
+ }
+ 
+-uint8_t* XmaContext::GetCurrentInputBuffer(XMA_CONTEXT_DATA* data) {
+-  return memory()->TranslatePhysical(data->GetCurrentInputBufferAddress());
+-}
+-
+ uint32_t XmaContext::GetAmountOfBitsToRead(uint32_t remaining_stream_bits, uint32_t frame_size) {
+   return std::min(remaining_stream_bits, frame_size);
+ }
+ 
+-const uint8_t* XmaContext::GetNextPacket(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
+-                                         uint32_t current_input_packet_count) {
+-  if (next_packet_index < current_input_packet_count) {
+-    return memory()->TranslatePhysical(data->GetCurrentInputBufferAddress()) +
+-           next_packet_index * kBytesPerPacket;
+-  }
+-
+-  const uint8_t next_buffer_index = data->current_buffer ^ 1;
+-  if (!data->IsInputBufferValid(next_buffer_index)) {
++const uint8_t* XmaContext::GetPacket(XMA_CONTEXT_DATA* data,
++                                     const XmaPacketHandle& packet_handle) {
++  if (!packet_handle.valid()) {
+     return nullptr;
+   }
++  const uint32_t buffer_address =
++      data->GetInputBufferAddress(static_cast<uint8_t>(packet_handle.buffer_index));
++  return memory()->TranslatePhysical(buffer_address) +
++         packet_handle.packet_index * kBytesPerPacket;
++}
+ 
+-  const uint32_t next_buffer_address = data->GetInputBufferAddress(next_buffer_index);
+-  if (!next_buffer_address) {
+-    REXAPU_ERROR("XmaContext {}: Buffer marked valid but has null pointer!", id());
+-    return nullptr;
++void XmaContext::WarnPacketResolution(const XmaPacketHandle& packet_handle,
++                                      uint32_t logical_packet_index) {
++  if (packet_handle.status == XmaPacketStatus::kValid ||
++      packet_handle.status == XmaPacketStatus::kBufferInvalid) {
++    return;
+   }
++  const uint32_t warning_bit = 1u << static_cast<uint32_t>(packet_handle.status);
++  if (packet_warning_mask_ & warning_bit) {
++    return;
++  }
++  packet_warning_mask_ |= warning_bit;
++  REXAPU_WARN(
++      "XmaContext {}: cannot resolve logical packet {} (buffer {}, packet {}, status {})",
++      id(), logical_packet_index, packet_handle.buffer_index, packet_handle.packet_index,
++      static_cast<uint32_t>(packet_handle.status));
++}
+ 
+-  return memory()->TranslatePhysical(next_buffer_address);
++const uint8_t* XmaContext::GetNextPacket(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
++                                         uint32_t current_input_packet_count,
++                                         XmaPacketHandle* packet_handle) {
++  XmaPacketHandle resolved = ResolvePacket(*data, data->current_buffer, next_packet_index,
++                                           current_input_packet_count);
++  if (packet_handle) {
++    *packet_handle = resolved;
++  }
++  WarnPacketResolution(resolved, next_packet_index);
++  return GetPacket(data, resolved);
+ }
+ 
+ uint32_t XmaContext::GetNextPacketReadOffset(uint8_t* buffer, uint32_t next_packet_index,
+-                                             uint32_t current_input_packet_count) {
++                                             uint32_t current_input_packet_count,
++                                             uint32_t* resolved_packet_index,
++                                             bool* packet_found) {
++  *packet_found = false;
+   while (next_packet_index < current_input_packet_count) {
+     uint8_t* next_packet = buffer + (next_packet_index * kBytesPerPacket);
+     const uint32_t packet_frame_offset = xma::GetPacketFrameOffset(next_packet);
+ 
+     if (packet_frame_offset <= kMaxFrameSizeinBits) {
++      if (resolved_packet_index) {
++        *resolved_packet_index = next_packet_index;
++      }
++      *packet_found = true;
+       return (next_packet_index * kBitsPerPacket) + packet_frame_offset;
+     }
+     next_packet_index++;
+@@ -322,6 +381,62 @@ uint32_t XmaContext::GetNextPacketReadOffset(uint8_t* buffer, uint32_t next_pack
+   return kBitsPerPacketHeader;
+ }
+ 
++uint32_t XmaContext::GetNextPacketReadOffset(XMA_CONTEXT_DATA* data,
++                                             uint32_t next_packet_index,
++                                             uint32_t current_input_packet_count,
++                                             XmaPacketHandle* packet_handle) {
++  XmaPacketHandle resolved = ResolvePacket(*data, data->current_buffer, next_packet_index,
++                                           current_input_packet_count);
++  if (!resolved.valid()) {
++    WarnPacketResolution(resolved, next_packet_index);
++    *packet_handle = resolved;
++    return kBitsPerPacketHeader;
++  }
++
++  uint32_t resolved_packet_index = resolved.packet_index;
++  bool packet_found = false;
++  uint8_t* buffer = memory()->TranslatePhysical(
++      data->GetInputBufferAddress(static_cast<uint8_t>(resolved.buffer_index)));
++  uint32_t read_offset = GetNextPacketReadOffset(
++      buffer, resolved.packet_index,
++      data->GetInputBufferPacketCount(static_cast<uint8_t>(resolved.buffer_index)),
++      &resolved_packet_index, &packet_found);
++  if (packet_found) {
++    resolved.packet_index = resolved_packet_index;
++    *packet_handle = resolved;
++    return read_offset;
++  }
++
++  // A scan that started in the active buffer may continue in the alternate
++  // buffer. Resolve it explicitly so the returned offset and buffer identity
++  // always describe the same packet.
++  if (resolved.buffer_index == data->current_buffer) {
++    resolved = ResolvePacket(*data, data->current_buffer, current_input_packet_count,
++                             current_input_packet_count);
++    if (!resolved.valid()) {
++      WarnPacketResolution(resolved, current_input_packet_count);
++      *packet_handle = resolved;
++      return kBitsPerPacketHeader;
++    }
++    buffer = memory()->TranslatePhysical(
++        data->GetInputBufferAddress(static_cast<uint8_t>(resolved.buffer_index)));
++    resolved_packet_index = resolved.packet_index;
++    read_offset = GetNextPacketReadOffset(
++        buffer, resolved.packet_index,
++        data->GetInputBufferPacketCount(static_cast<uint8_t>(resolved.buffer_index)),
++        &resolved_packet_index, &packet_found);
++    resolved.packet_index = resolved_packet_index;
++  }
++
++  if (!packet_found) {
++    resolved.status = XmaPacketStatus::kPacketOutOfRange;
++    WarnPacketResolution(resolved, next_packet_index);
++  }
++
++  *packet_handle = resolved;
++  return read_offset;
++}
++
+ memory::RingBuffer XmaContext::PrepareOutputRingBuffer(XMA_CONTEXT_DATA* data) {
+   const uint32_t output_capacity = data->output_buffer_block_count * kOutputBytesPerBlock;
+   const uint32_t output_read_offset = data->output_buffer_read_offset * kOutputBytesPerBlock;
+@@ -543,8 +658,6 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+     }
+   }
+ 
+-  uint8_t* current_input_buffer = GetCurrentInputBuffer(data);
+-
+   input_buffer_.fill(0);
+ 
+   // Loop-end frame: decode it here (output limited to loop_subframe_end),
+@@ -570,14 +683,20 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+   const int16_t packet_index = GetPacketNumber(current_input_size, data->input_buffer_read_offset);
+ 
+   if (packet_index == -1) {
+-    REXAPU_ERROR("XmaContext {}: Invalid packet index. Input read offset: {}", id(),
+-                 static_cast<uint32_t>(data->input_buffer_read_offset));
+-    // A read offset past the active buffer means the guest has consumed the
+-    // final packet but has not yet switched the context to its next buffer.
+-    // Retire the exhausted buffer so Work() can either continue with the
+-    // alternate valid buffer or leave the context cleanly idle. Returning
+-    // without changing state re-enters this branch indefinitely.
+-    if (data->input_buffer_read_offset >= (current_input_size << 3)) {
++    const uint32_t logical_packet_index = data->input_buffer_read_offset / kBitsPerPacket;
++    XmaPacketHandle resolved = ResolvePacket(*data, data->current_buffer,
++                                             logical_packet_index,
++                                             current_input_packet_count);
++    WarnPacketResolution(resolved, logical_packet_index);
++    if (resolved.valid() && resolved.buffer_index != data->current_buffer) {
++      const uint32_t relative_offset = data->input_buffer_read_offset % kBitsPerPacket;
++      SwapInputBuffer(data);
++      data->input_buffer_read_offset =
++          resolved.packet_index * kBitsPerPacket +
++          std::max(kBitsPerPacketHeader, relative_offset);
++    } else if (resolved.status == XmaPacketStatus::kBufferInvalid) {
++      // The active buffer is logically exhausted and no continuation is ready.
++      // Retiring it leaves Work() cleanly idle instead of re-entering forever.
+       SwapInputBuffer(data);
+     } else {
+       data->error_status = 4;
+@@ -585,7 +704,16 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+     return;
+   }
+ 
+-  uint8_t* packet = current_input_buffer + (packet_index * kBytesPerPacket);
++  XmaPacketHandle current_packet = ResolvePacket(*data, data->current_buffer, packet_index,
++                                                 current_input_packet_count);
++  WarnPacketResolution(current_packet, packet_index);
++  uint8_t* packet = const_cast<uint8_t*>(GetPacket(data, current_packet));
++  if (!packet) {
++    data->error_status = 4;
++    return;
++  }
++  uint8_t* current_input_buffer = memory()->TranslatePhysical(
++      data->GetInputBufferAddress(static_cast<uint8_t>(current_packet.buffer_index)));
+   const uint32_t packet_first_frame_offset = xma::GetPacketFrameOffset(packet);
+   uint32_t relative_offset = data->input_buffer_read_offset % kBitsPerPacket;
+ 
+@@ -598,10 +726,17 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+ 
+   // Full packet skip (0xFF) -- no new frames begin in this packet.
+   if (skip_count == 0xFF) {
+-    uint32_t next_input_offset =
+-        GetNextPacketReadOffset(current_input_buffer, packet_index + 1, current_input_packet_count);
+-    if (next_input_offset == kBitsPerPacketHeader) {
++    XmaPacketHandle next_packet;
++    uint32_t next_input_offset = GetNextPacketReadOffset(
++        data, packet_index + 1, current_input_packet_count, &next_packet);
++    if (next_packet.valid() && next_packet.buffer_index != data->current_buffer) {
+       SwapInputBuffer(data);
++    } else if (!next_packet.valid()) {
++      if (next_packet.status == XmaPacketStatus::kBufferInvalid) {
++        SwapInputBuffer(data);
++      } else {
++        data->error_status = 4;
++      }
+     }
+     data->input_buffer_read_offset = next_input_offset;
+     return;
+@@ -613,9 +748,16 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+ 
+   // Frame header split across packet boundary.
+   if (packet_info.current_frame_size_ == 0) {
+-    const uint8_t* next_packet = GetNextPacket(data, next_packet_index, current_input_packet_count);
++    XmaPacketHandle next_packet_handle;
++    const uint8_t* next_packet = GetNextPacket(data, next_packet_index,
++                                               current_input_packet_count,
++                                               &next_packet_handle);
+     if (!next_packet) {
+-      SwapInputBuffer(data);
++      if (next_packet_handle.status == XmaPacketStatus::kBufferInvalid) {
++        SwapInputBuffer(data);
++      } else {
++        data->error_status = 4;
++      }
+       return;
+     }
+     std::memcpy(input_buffer_.data(), packet + kBytesPerPacketHeader, kBytesPerPacketData);
+@@ -647,8 +789,10 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+ 
+   if (packet_info.isLastFrameInPacket()) {
+     if (stream.BitsRemaining() < packet_info.current_frame_size_) {
+-      const uint8_t* next_packet =
+-          GetNextPacket(data, next_packet_index, current_input_packet_count);
++      XmaPacketHandle next_packet_handle;
++      const uint8_t* next_packet = GetNextPacket(data, next_packet_index,
++                                                 current_input_packet_count,
++                                                 &next_packet_handle);
+       if (!next_packet) {
+         data->error_status = 4;
+         return;
+@@ -732,19 +876,17 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+     return;
+   }
+ 
+-  uint32_t next_input_offset =
+-      GetNextPacketReadOffset(current_input_buffer, next_packet_index, current_input_packet_count);
++  XmaPacketHandle next_packet;
++  uint32_t next_input_offset = GetNextPacketReadOffset(
++      data, next_packet_index, current_input_packet_count, &next_packet);
+ 
+-  if (next_input_offset == kBitsPerPacketHeader) {
++  if (next_packet.valid() && next_packet.buffer_index != data->current_buffer) {
+     SwapInputBuffer(data);
+-    if (data->IsAnyInputBufferValid()) {
+-      next_input_offset = xma::GetPacketFrameOffset(
+-          memory()->TranslatePhysical(data->GetCurrentInputBufferAddress()));
+-
+-      if (next_input_offset > kMaxFrameSizeinBits) {
+-        SwapInputBuffer(data);
+-        return;
+-      }
++  } else if (!next_packet.valid()) {
++    if (next_packet.status == XmaPacketStatus::kBufferInvalid) {
++      SwapInputBuffer(data);
++    } else {
++      data->error_status = 4;
+     }
+   }
+   data->input_buffer_read_offset = next_input_offset;
+diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
+index 210ecd2..382e315 100644
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -2,6 +2,7 @@
+ 
+ add_executable(unit_tests
+     test_memory.cpp
++    audio/xma_packet_test.cpp
+     memory/heap_allocation_test.cpp
+     kernel/object_table_test.cpp
+     core/cvar_test.cpp
+diff --git a/tests/unit/audio/xma_packet_test.cpp b/tests/unit/audio/xma_packet_test.cpp
+new file mode 100644
+index 0000000..ad136c9
+--- /dev/null
++++ b/tests/unit/audio/xma_packet_test.cpp
+@@ -0,0 +1,231 @@
++/**
++ * @file        xma_packet_test.cpp
++ * @brief       XMA cross-buffer packet traversal regression tests
++ * @copyright   Copyright (c) 2026 Tom Clay
++ * @license     BSD 3-Clause License
++ */
++
++#include <array>
++#include <cstring>
++
++#include <catch2/catch_test_macros.hpp>
++
++#include <rex/audio/xma/context.h>
++#include <rex/system/xmemory.h>
++
++#include "test_memory.h"
++
++namespace {
++
++using rex::audio::ResolvePacket;
++using rex::audio::XMA_CONTEXT_DATA;
++using rex::audio::XmaContext;
++using rex::audio::XmaPacketStatus;
++
++std::array<uint8_t, sizeof(XMA_CONTEXT_DATA)> EmptyGuestContext() {
++  return {};
++}
++
++XMA_CONTEXT_DATA MakeTwoBufferContext(uint32_t current_buffer = 0) {
++  auto raw = EmptyGuestContext();
++  XMA_CONTEXT_DATA data(raw.data());
++  data.current_buffer = current_buffer;
++  data.input_buffer_0_valid = 1;
++  data.input_buffer_1_valid = 1;
++  data.input_buffer_0_ptr = 0x10000;
++  data.input_buffer_1_ptr = 0x20000;
++  data.input_buffer_0_packet_count = 3;
++  data.input_buffer_1_packet_count = 4;
++  return data;
++}
++
++}  // namespace
++
++TEST_CASE("XMA packet resolution preserves cross-buffer packet indices", "[audio][xma]") {
++  XMA_CONTEXT_DATA data = MakeTwoBufferContext();
++
++  SECTION("current buffer packet zero") {
++    const auto packet = ResolvePacket(data, 0, 0, 3);
++    CHECK(packet.valid());
++    CHECK(packet.buffer_index == 0);
++    CHECK(packet.packet_index == 0);
++  }
++
++  SECTION("current buffer last packet") {
++    const auto packet = ResolvePacket(data, 0, 2, 3);
++    CHECK(packet.valid());
++    CHECK(packet.buffer_index == 0);
++    CHECK(packet.packet_index == 2);
++  }
++
++  SECTION("alternate buffer packet zero") {
++    const auto packet = ResolvePacket(data, 0, 3, 3);
++    CHECK(packet.valid());
++    CHECK(packet.buffer_index == 1);
++    CHECK(packet.packet_index == 0);
++  }
++
++  SECTION("alternate buffer packet one and beyond") {
++    const auto packet = ResolvePacket(data, 0, 5, 3);
++    CHECK(packet.valid());
++    CHECK(packet.buffer_index == 1);
++    CHECK(packet.packet_index == 2);
++  }
++
++  SECTION("starting from buffer one") {
++    const auto packet = ResolvePacket(data, 1, 5, 4);
++    CHECK(packet.valid());
++    CHECK(packet.buffer_index == 0);
++    CHECK(packet.packet_index == 1);
++  }
++}
++
++TEST_CASE("XMA packet resolution rejects unavailable guest packets", "[audio][xma]") {
++  XMA_CONTEXT_DATA data = MakeTwoBufferContext();
++
++  SECTION("alternate buffer invalid") {
++    data.input_buffer_1_valid = 0;
++    CHECK(ResolvePacket(data, 0, 3, 3).status == XmaPacketStatus::kBufferInvalid);
++  }
++
++  SECTION("alternate buffer has null address") {
++    data.input_buffer_1_ptr = 0;
++    CHECK(ResolvePacket(data, 0, 3, 3).status == XmaPacketStatus::kNullAddress);
++  }
++
++  SECTION("alternate buffer is shorter than the requested packet") {
++    data.input_buffer_1_packet_count = 1;
++    const auto packet = ResolvePacket(data, 0, 4, 3);
++    CHECK(packet.status == XmaPacketStatus::kPacketOutOfRange);
++    CHECK(packet.buffer_index == 1);
++    CHECK(packet.packet_index == 1);
++  }
++
++  SECTION("caller packet count disagrees with context") {
++    CHECK(ResolvePacket(data, 0, 0, 2).status == XmaPacketStatus::kInvalidContext);
++  }
++}
++
++TEST_CASE("XMA exhausted input retires to a clean idle state", "[audio][xma]") {
++  auto& memory = rex::testing::GetTestMemory();
++  auto* heap = const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  REQUIRE(heap != nullptr);
++
++  uint32_t context_address = 0;
++  REQUIRE(heap->Alloc(
++      4096, 4096,
++      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
++      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, false,
++      &context_address));
++
++  auto* context_ptr = memory.TranslateVirtual(context_address);
++  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
++  XMA_CONTEXT_DATA data(context_ptr);
++  data.input_buffer_0_valid = 1;
++  data.input_buffer_0_ptr = 0x10000;
++  data.input_buffer_0_packet_count = 1;
++  data.input_buffer_read_offset = XmaContext::kBitsPerPacket;
++  data.output_buffer_valid = 1;
++  data.output_buffer_ptr = 0x30000;
++  data.output_buffer_block_count = 4;
++  data.output_buffer_write_offset = 1;
++  data.subframe_decode_count = 1;
++  data.Store(context_ptr);
++
++  XmaContext context;
++  REQUIRE(context.Setup(0, &memory, context_address) == 0);
++  context.set_is_allocated(true);
++  context.Enable();
++  CHECK(context.Work());
++
++  XMA_CONTEXT_DATA retired(context_ptr);
++  CHECK_FALSE(retired.input_buffer_0_valid);
++  CHECK_FALSE(retired.input_buffer_1_valid);
++  CHECK(retired.current_buffer == 1);
++  CHECK(retired.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
++
++  // Re-entry remains idle and leaves the retired state unchanged.
++  context.Enable();
++  CHECK(context.Work());
++  XMA_CONTEXT_DATA idle(context_ptr);
++  CHECK_FALSE(idle.IsAnyInputBufferValid());
++  CHECK(idle.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
++
++  context.Release();
++  heap->Release(context_address, nullptr);
++}
++
++TEST_CASE("XMA full-packet skip crosses to an alternate packet beyond zero",
++          "[audio][xma]") {
++  auto& memory = rex::testing::GetTestMemory();
++  auto* virtual_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0x10000000));
++  auto* physical_heap =
++      const_cast<rex::memory::BaseHeap*>(memory.LookupHeap(0xA0000000));
++  REQUIRE(virtual_heap != nullptr);
++  REQUIRE(physical_heap != nullptr);
++
++  constexpr uint32_t kReadWrite =
++      rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite;
++  constexpr uint32_t kReserveCommit =
++      rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit;
++  uint32_t context_address = 0;
++  uint32_t current_address = 0;
++  uint32_t alternate_address = 0;
++  uint32_t output_address = 0;
++  REQUIRE(virtual_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                              &context_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &current_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &alternate_address));
++  REQUIRE(physical_heap->Alloc(4096, 4096, kReserveCommit, kReadWrite, false,
++                               &output_address));
++
++  uint8_t* current = memory.TranslatePhysical(current_address);
++  uint8_t* alternate = memory.TranslatePhysical(alternate_address);
++  std::memset(current, 0, XmaContext::kBytesPerPacket);
++  std::memset(alternate, 0, XmaContext::kBytesPerPacket * 2);
++  current[3] = 0xFF;
++
++  // Packet 0 has an invalid first-frame offset, forcing the scan to packet 1.
++  alternate[0] = 0x03;
++  alternate[1] = 0xFF;
++  alternate[2] = 0xF8;
++  alternate[XmaContext::kBytesPerPacket + 3] = 0xFF;
++
++  auto* context_ptr = memory.TranslateVirtual(context_address);
++  std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
++  XMA_CONTEXT_DATA data(context_ptr);
++  data.input_buffer_0_valid = 1;
++  data.input_buffer_1_valid = 1;
++  data.input_buffer_0_ptr = current_address;
++  data.input_buffer_1_ptr = alternate_address;
++  data.input_buffer_0_packet_count = 1;
++  data.input_buffer_1_packet_count = 2;
++  data.input_buffer_read_offset = XmaContext::kBitsPerPacketHeader;
++  data.output_buffer_valid = 1;
++  data.output_buffer_ptr = output_address;
++  data.output_buffer_block_count = 4;
++  data.output_buffer_write_offset = 1;
++  data.subframe_decode_count = 1;
++  data.Store(context_ptr);
++
++  XmaContext context;
++  REQUIRE(context.Setup(1, &memory, context_address) == 0);
++  context.set_is_allocated(true);
++  context.Enable();
++  CHECK(context.Work());
++
++  XMA_CONTEXT_DATA retired(context_ptr);
++  CHECK_FALSE(retired.IsAnyInputBufferValid());
++  CHECK(retired.current_buffer == 0);
++  CHECK(retired.input_buffer_read_offset == XmaContext::kBitsPerPacketHeader);
++  CHECK(retired.error_status == 0);
++
++  context.Release();
++  physical_heap->Release(output_address, nullptr);
++  physical_heap->Release(alternate_address, nullptr);
++  physical_heap->Release(current_address, nullptr);
++  virtual_heap->Release(context_address, nullptr);
++}
