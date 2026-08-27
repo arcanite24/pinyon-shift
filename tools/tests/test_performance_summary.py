@@ -24,6 +24,21 @@ FIELDS = [
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_emits_complete_optional_resolve_readback_totals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            resolve_columns = list(MODULE.RESOLVE_READBACK_COLUMNS)
+            fields = FIELDS + resolve_columns
+            with capture.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerow(dict.fromkeys(fields, 1) | {"frame_time_us": 10_000})
+                writer.writerow(dict.fromkeys(fields, 2) | {"frame_time_us": 11_000})
+            result = MODULE.summarize(capture)
+            counters = result["resolve_readback_counters"]
+            self.assertEqual(3, counters["resolve_readback_requests"])
+            self.assertEqual(3, counters["resolve_readback_wait_time_ns"])
+
     def test_emits_complete_optional_zpd_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"

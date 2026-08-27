@@ -22,14 +22,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 7, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 8, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 7;
+constexpr uint32_t kConfigSchema = 8;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -51,6 +51,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "keybind_a = \"LMB,Space\"\n"
               "keybind_start = \"Return\"\n"
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
+              "vsync = true\n"
               "pinyon_shift_capture_performance = true\n"
               "xma_relaxed_padding_admission = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
@@ -59,6 +60,11 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "swap_post_effect = \"none\"\n"
               "draw_resolution_scale_x = 1\n"
               "draw_resolution_scale_y = 1\n"
+              "clear_memory_page_state = true\n"
+              "readback_resolve = \"none\"\n"
+              "readback_resolve_half_pixel_offset = false\n"
+              "readback_memexport = true\n"
+              "readback_memexport_fast = true\n"
               "occlusion_query = \"legacy\"\n"
               "zpd_end_policy = \"report_layout\"\n"
               "zpd_end_fallback = \"pairwise_sentinel\"\n";
@@ -85,7 +91,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 6) {
+    if (schema < 1 || schema > 7) {
       return false;
     }
 
@@ -137,6 +143,13 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
+        {"vsync", "vsync = true\n"},
+        {"clear_memory_page_state", "clear_memory_page_state = true\n"},
+        {"readback_resolve", "readback_resolve = \"none\"\n"},
+        {"readback_resolve_half_pixel_offset",
+         "readback_resolve_half_pixel_offset = false\n"},
+        {"readback_memexport", "readback_memexport = true\n"},
+        {"readback_memexport_fast", "readback_memexport_fast = true\n"},
         {"occlusion_query", "occlusion_query = \"legacy\"\n"},
         {"zpd_end_policy", "zpd_end_policy = \"report_layout\"\n"},
         {"zpd_end_fallback", "zpd_end_fallback = \"pairwise_sentinel\"\n"},
@@ -255,6 +268,17 @@ void PinyonShiftApp::OnPostInitLogging() {
                          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
                         {"draw_resolution_scale_y",
                          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+                        {"clear_memory_page_state",
+                         rex::cvar::GetFlagByName("clear_memory_page_state")},
+                        {"readback_resolve",
+                         rex::cvar::GetFlagByName("readback_resolve")},
+                        {"readback_resolve_half_pixel_offset",
+                         rex::cvar::GetFlagByName(
+                             "readback_resolve_half_pixel_offset")},
+                        {"readback_memexport",
+                         rex::cvar::GetFlagByName("readback_memexport")},
+                        {"readback_memexport_fast",
+                         rex::cvar::GetFlagByName("readback_memexport_fast")},
                         {"anisotropic_override",
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},

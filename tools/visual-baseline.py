@@ -6,7 +6,7 @@ import argparse, hashlib, json, struct, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCENES = ("front-end", "garage", "open-world-day", "open-world-night", "traffic", "race", "rewind", "ui-heavy")
+SCENES = ("front-end", "garage", "autoshow", "livery", "open-world-day", "open-world-night", "race", "rewind")
 ROOT = Path(__file__).resolve().parents[1]
 
 def fingerprint(executable: Path | None = None) -> dict:

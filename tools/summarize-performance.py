@@ -38,6 +38,14 @@ MEMEXPORT_COLUMNS = (
     "memexport_queue_waits",
     "memexport_fence_waits",
 )
+RESOLVE_READBACK_COLUMNS = (
+    "resolve_readback_requests",
+    "resolve_readback_bytes",
+    "resolve_readback_fast_copies",
+    "resolve_readback_cache_misses",
+    "resolve_readback_full_waits",
+    "resolve_readback_wait_time_ns",
+)
 XMA_STALL_COLUMNS = (
     "xma_no_space_stalls",
     "xma_no_progress_stalls",
@@ -109,6 +117,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
         if available_memexport and available_memexport != set(MEMEXPORT_COLUMNS):
             missing_memexport = sorted(set(MEMEXPORT_COLUMNS) - available_memexport)
             raise CaptureError("capture has an incomplete memexport counter set: " + ", ".join(missing_memexport))
+        available_resolve = columns.intersection(RESOLVE_READBACK_COLUMNS)
+        if available_resolve and available_resolve != set(RESOLVE_READBACK_COLUMNS):
+            missing_resolve = sorted(set(RESOLVE_READBACK_COLUMNS) - available_resolve)
+            raise CaptureError("capture has an incomplete resolve-readback counter set: " + ", ".join(missing_resolve))
         available_xma_stalls = columns.intersection(XMA_STALL_COLUMNS)
         if available_xma_stalls and available_xma_stalls != set(XMA_STALL_COLUMNS):
             missing_xma_stalls = sorted(set(XMA_STALL_COLUMNS) - available_xma_stalls)
@@ -121,6 +133,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
         frame_times: list[float] = []
         totals = {name: 0.0 for name in TOTAL_COLUMNS}
         memexport_totals = {name: 0.0 for name in MEMEXPORT_COLUMNS} if available_memexport else None
+        resolve_totals = ({name: 0.0 for name in RESOLVE_READBACK_COLUMNS}
+                          if available_resolve else None)
         xma_stall_totals = {name: 0.0 for name in XMA_STALL_COLUMNS} if available_xma_stalls else None
         zpd_totals = {name: 0.0 for name in ZPD_COLUMNS} if available_zpd else None
         rows_seen = 0
@@ -133,6 +147,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
             }
             row_memexport = ({name: finite_number(row[name], column=name, row_number=row_number)
                               for name in MEMEXPORT_COLUMNS} if memexport_totals is not None else {})
+            row_resolve = ({name: finite_number(row[name], column=name, row_number=row_number)
+                            for name in RESOLVE_READBACK_COLUMNS} if resolve_totals is not None else {})
             row_xma_stalls = ({name: finite_number(row[name], column=name, row_number=row_number)
                                for name in XMA_STALL_COLUMNS} if xma_stall_totals is not None else {})
             row_zpd = ({name: finite_number(row[name], column=name, row_number=row_number)
@@ -146,6 +162,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 totals[name] += value
             for name, value in row_memexport.items():
                 memexport_totals[name] += value
+            for name, value in row_resolve.items():
+                resolve_totals[name] += value
             for name, value in row_xma_stalls.items():
                 xma_stall_totals[name] += value
             for name, value in row_zpd.items():
@@ -189,6 +207,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
     if memexport_totals is not None:
         result["memexport_counters"] = {
             name: int(value) if value.is_integer() else value for name, value in memexport_totals.items()
+        }
+    if resolve_totals is not None:
+        result["resolve_readback_counters"] = {
+            name: int(value) if value.is_integer() else value for name, value in resolve_totals.items()
         }
     if xma_stall_totals is not None:
         result["xma_stall_counters"] = {

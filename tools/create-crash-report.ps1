@@ -187,6 +187,24 @@ try {
             $zpdCounters.available = $true
         }
     }
+    $resolveColumns = @(
+        'resolve_readback_requests', 'resolve_readback_bytes',
+        'resolve_readback_fast_copies', 'resolve_readback_cache_misses',
+        'resolve_readback_full_waits', 'resolve_readback_wait_time_ns'
+    )
+    $resolveCounters = [ordered]@{ available = $false }
+    foreach ($column in $resolveColumns) { $resolveCounters[$column] = [uint64]0 }
+    if ($perfLog) {
+        $columns = @((Get-Content -LiteralPath $perfLog.FullName -TotalCount 1) -split ',')
+        if (@($resolveColumns | Where-Object { $_ -notin $columns }).Count -eq 0) {
+            foreach ($row in Import-Csv -LiteralPath $perfLog.FullName) {
+                foreach ($column in $resolveColumns) {
+                    $resolveCounters[$column] += [uint64]$row.$column
+                }
+            }
+            $resolveCounters.available = $true
+        }
+    }
 
     $allowedSettings = @(
         'pinyon_shift_config_schema', 'input_backend', 'hid_mappings_file',
@@ -197,7 +215,9 @@ try {
         'pinyon_shift_stabilize_vehicle_presentation', 'pinyon_shift_skip_opening_movies',
         'resolution', 'vsync', 'anisotropic_override', 'swap_post_effect',
         'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query',
-        'zpd_end_policy', 'zpd_end_fallback'
+        'zpd_end_policy', 'zpd_end_fallback', 'clear_memory_page_state',
+        'readback_resolve', 'readback_resolve_half_pixel_offset',
+        'readback_memexport', 'readback_memexport_fast'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}
@@ -276,6 +296,7 @@ try {
         }
         graphics = [ordered]@{
             zpd = $zpdCounters
+            resolve_readback = $resolveCounters
         }
         local_dumps = $dumpRecords
         privacy = [ordered]@{

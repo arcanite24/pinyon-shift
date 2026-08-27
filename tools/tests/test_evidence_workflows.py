@@ -59,4 +59,20 @@ class EvidenceWorkflowTests(unittest.TestCase):
                 (session / variant / "performance-summary.json").write_text(json.dumps(summary))
             self.assertEqual("readback_memexport", renderer.compare(session)["variable"])
 
+    def test_renderer_ab_requires_resolve_counters_and_supports_full(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); fingerprint = root / "build.json"; fingerprint.write_text('{"commit":"abc"}')
+            session = renderer.prepare(root, "readback_resolve", fingerprint, "full")
+            manifest = json.loads((session / "manifest.json").read_text())
+            self.assertEqual("full", manifest["variants"][1]["value"])
+            summary = {"frames": {"frame_time_us": {"median": 1000, "p95": 1200}}}
+            for variant in ("control", "candidate"):
+                (session / variant / "performance-summary.json").write_text(json.dumps(summary))
+                (session / variant / "visual-validation.json").write_text('{"missing":[]}')
+            with self.assertRaises(ValueError): renderer.compare(session)
+            summary["resolve_readback_counters"] = {name: 0 for name in renderer.RESOLVE_COUNTERS}
+            for variant in ("control", "candidate"):
+                (session / variant / "performance-summary.json").write_text(json.dumps(summary))
+            self.assertEqual("readback_resolve", renderer.compare(session)["variable"])
+
 if __name__ == "__main__": unittest.main()

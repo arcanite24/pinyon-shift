@@ -9,11 +9,26 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/set-graphics-experiment.ps1"
 QUALIFY_ZPD = ROOT / "tools/qualify-zpd.ps1"
+QUALIFY_RESOLVE = ROOT / "tools/qualify-resolve.ps1"
 POWERSHELL = shutil.which("powershell")
 
 
 @unittest.skipUnless(POWERSHELL, "Windows PowerShell is required")
 class GraphicsSettingsTests(unittest.TestCase):
+    def test_resolve_qualification_plan_covers_presets_and_scenes(self):
+        completed = subprocess.run(
+            [POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(QUALIFY_RESOLVE), "-Action", "Plan", "-Json"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        plan = json.loads(completed.stdout)
+        self.assertEqual(
+            [item["preset"] for item in plan["profiles"]],
+            ["shipping_1x", "experimental_2x", "accurate_showroom"],
+        )
+        self.assertEqual(len(plan["candidate_scenes"]), 8)
+
     def test_zpd_qualification_plan_covers_required_matrix(self):
         completed = subprocess.run(
             [POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -48,10 +63,11 @@ class GraphicsSettingsTests(unittest.TestCase):
                 "-OcclusionQuery", "fast",
                 "-ZpdEndPolicy", "pairwise_sentinel",
                 "-ZpdEndFallback", "none",
+                "-Preset", "experimental_2x",
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 7", updated)
+            self.assertIn("pinyon_shift_config_schema = 8", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertEqual(result["settings"]["occlusion_query"], "fast")
             self.assertIn('occlusion_query = "fast"', updated)
@@ -59,6 +75,9 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertEqual(result["settings"]["zpd_end_fallback"], "none")
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
+            self.assertEqual(result["settings"]["preset"], "experimental_2x")
+            self.assertEqual(result["settings"]["readback_resolve"], "fast")
+            self.assertTrue(result["settings"]["readback_resolve_half_pixel_offset"])
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
             self.run_tool(state, "-Action", "Restore")
             self.assertEqual(config.read_text(encoding="utf-8"), original)
@@ -77,6 +96,23 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('occlusion_query = "legacy"', text)
             self.assertIn('zpd_end_policy = "report_layout"', text)
             self.assertIn('zpd_end_fallback = "pairwise_sentinel"', text)
+            self.assertIn('readback_resolve = "none"', text)
+            self.assertIn('readback_resolve_half_pixel_offset = false', text)
+            self.assertIn('clear_memory_page_state = true', text)
+            self.assertEqual(result["settings"]["preset"], "shipping_1x")
+            self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
+
+    def test_accurate_showroom_is_explicit_and_preserves_backup(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            config = state / "config/pinyon_shift.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("pinyon_shift_config_schema = 8\nreadback_resolve = \"none\"\n", encoding="utf-8")
+            result = self.run_tool(state, "-Action", "Apply", "-Preset", "accurate_showroom")
+            text = config.read_text(encoding="utf-8")
+            self.assertEqual(result["settings"]["preset"], "accurate_showroom")
+            self.assertEqual(result["settings"]["readback_resolve"], "full")
+            self.assertIn('readback_resolve = "full"', text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
 

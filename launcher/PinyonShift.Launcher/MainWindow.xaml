@@ -201,6 +201,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
@@ -217,7 +219,36 @@
                     <TextBlock Grid.Row="1" Margin="0,10,0,16" Foreground="{StaticResource MutedBrush}"
                                TextWrapping="Wrap" LineHeight="19"
                                Text="Changes are validated and backed up before they are saved. Restart the preview to apply them."/>
-                    <Grid Grid.Row="2">
+                    <Grid Grid.Row="2" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.15*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="FH1 PRESET" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox x:Name="GraphicsPresetComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      SelectionChanged="GraphicsPresetComboBox_SelectionChanged"
+                                      AutomationProperties.Name="Forza Horizon graphics preset">
+                                <ComboBoxItem Tag="shipping_1x"><TextBlock Text="Shipping 1× · balanced" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="experimental_2x"><TextBlock Text="Experimental 2× · fast readback" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="accurate_showroom"><TextBlock Text="Accurate showroom · expensive" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="custom"><TextBlock Text="Custom · manual" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="RESOLVE READBACK" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox x:Name="ReadbackResolveComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      SelectionChanged="GraphicsControl_SelectionChanged"
+                                      AutomationProperties.Name="Resolve readback mode">
+                                <ComboBoxItem Tag="none"><TextBlock Text="Off · normal driving" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="fast"><TextBlock Text="Fast · previous frame" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="some"><TextBlock Text="Some · cache misses" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="full"><TextBlock Text="Full · synchronous" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="3">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="16"/>
@@ -246,19 +277,28 @@
                         <StackPanel Grid.Column="4">
                             <TextBlock Text="INTERNAL RESOLUTION" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
                             <ComboBox x:Name="ResolutionComboBox" Margin="0,8,0,0" SelectedIndex="0"
+                                      SelectionChanged="GraphicsControl_SelectionChanged"
                                       AutomationProperties.Name="Internal resolution">
                                 <ComboBoxItem Tag="1"><TextBlock Text="Native · 1×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                                 <ComboBoxItem Tag="2"><TextBlock Text="Experimental · 2×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                             </ComboBox>
                         </StackPanel>
                     </Grid>
-                    <Border Grid.Row="3" Background="#171B17" BorderBrush="{StaticResource LineBrush}"
+                    <Border Grid.Row="4" x:Name="ShowroomWarning" Background="#241D12"
+                            BorderBrush="{StaticResource AmberBrush}" BorderThickness="1" CornerRadius="4"
+                            Padding="14,10" Margin="0,17,0,0" Visibility="Collapsed"
+                            AutomationProperties.LiveSetting="Polite">
+                        <TextBlock TextWrapping="Wrap" LineHeight="18" Foreground="{StaticResource FogBrush}"
+                                   FontSize="11"
+                                   Text="Accurate showroom uses full synchronous readback. It can sharply reduce frame rate; switch to Shipping 1× before normal driving."/>
+                    </Border>
+                    <Border Grid.Row="5" Background="#171B17" BorderBrush="{StaticResource LineBrush}"
                             BorderThickness="1" CornerRadius="4" Padding="14,11" Margin="0,17,0,0">
                         <TextBlock x:Name="GraphicsStatusText" Text="Loading current settings…" TextWrapping="Wrap"
                                    Foreground="{StaticResource MutedBrush}" FontSize="11"
                                    AutomationProperties.LiveSetting="Polite"/>
                     </Border>
-                    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                    <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
                         <Button x:Name="RestoreGraphicsButton" Content="RESTORE BACKUP" Style="{StaticResource QuietButton}"
                                 Margin="0,0,10,0" Click="RestoreGraphicsButton_Click"/>
                         <Button x:Name="ResetGraphicsButton" Content="RESET DEFAULTS" Style="{StaticResource QuietButton}"

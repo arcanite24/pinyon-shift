@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private string? _gameExecutable;
     private CrashReport? _pendingReport;
     private bool _busy;
+    private bool _applyingGraphicsResult;
 
     private static readonly Brush WaitingBrush = new SolidColorBrush(Color.FromRgb(57, 64, 57));
     private static readonly Brush ActiveBrush = new SolidColorBrush(Color.FromRgb(241, 174, 54));
@@ -559,6 +560,61 @@ public partial class MainWindow : Window
     private async void SaveGraphicsButton_Click(object sender, RoutedEventArgs e) =>
         await ChangeGraphicsSettingsAsync("Apply", "Settings saved. Restart the preview to apply them.");
 
+    private void GraphicsPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingGraphicsResult || GraphicsPresetComboBox.SelectedItem is null ||
+            ResolutionComboBox is null || ReadbackResolveComboBox is null) return;
+        _applyingGraphicsResult = true;
+        try
+        {
+            switch (SelectedTag(GraphicsPresetComboBox))
+            {
+                case "shipping_1x":
+                    SelectTag(ResolutionComboBox, "1");
+                    SelectTag(ReadbackResolveComboBox, "none");
+                    break;
+                case "experimental_2x":
+                    SelectTag(ResolutionComboBox, "2");
+                    SelectTag(ReadbackResolveComboBox, "fast");
+                    break;
+                case "accurate_showroom":
+                    SelectTag(ResolutionComboBox, "1");
+                    SelectTag(ReadbackResolveComboBox, "full");
+                    break;
+            }
+        }
+        finally
+        {
+            _applyingGraphicsResult = false;
+        }
+        UpdateShowroomWarning();
+    }
+
+    private void GraphicsControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingGraphicsResult || ResolutionComboBox?.SelectedItem is null ||
+            ReadbackResolveComboBox?.SelectedItem is null || GraphicsPresetComboBox is null) return;
+        var inferred = (SelectedTag(ResolutionComboBox), SelectedTag(ReadbackResolveComboBox)) switch
+        {
+            ("1", "none") => "shipping_1x",
+            ("2", "fast") => "experimental_2x",
+            (_, "full") => "accurate_showroom",
+            _ => "custom"
+        };
+        _applyingGraphicsResult = true;
+        SelectTag(GraphicsPresetComboBox, inferred);
+        _applyingGraphicsResult = false;
+        UpdateShowroomWarning();
+    }
+
+    private void UpdateShowroomWarning()
+    {
+        if (ShowroomWarning is null || ReadbackResolveComboBox?.SelectedItem is null) return;
+        ShowroomWarning.Visibility = SelectedTag(ReadbackResolveComboBox) == "full"
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private async void ResetGraphicsButton_Click(object sender, RoutedEventArgs e)
     {
         if (MessageBox.Show(this,
@@ -620,7 +676,9 @@ public partial class MainWindow : Window
             "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
             "-Action", action, "-StateRoot", Path.Combine(_repositoryRoot, ".local", "preview"),
             "-Anisotropy", SelectedTag(AnisotropyComboBox), "-PostEffect", SelectedTag(PostEffectComboBox),
-            "-ResolutionScale", SelectedTag(ResolutionComboBox), "-Json"
+            "-ResolutionScale", SelectedTag(ResolutionComboBox),
+            "-Preset", SelectedTag(GraphicsPresetComboBox),
+            "-ReadbackResolve", SelectedTag(ReadbackResolveComboBox), "-Json"
         }) startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo) ??
             throw new InvalidOperationException("Windows could not start the graphics settings tool.");
@@ -643,9 +701,20 @@ public partial class MainWindow : Window
 
     private void ApplyGraphicsResult(GraphicsResult result)
     {
-        SelectTag(AnisotropyComboBox, result.Settings.Anisotropy.ToString());
-        SelectTag(PostEffectComboBox, result.Settings.PostEffect);
-        SelectTag(ResolutionComboBox, result.Settings.ResolutionScale.ToString());
+        _applyingGraphicsResult = true;
+        try
+        {
+            SelectTag(AnisotropyComboBox, result.Settings.Anisotropy.ToString());
+            SelectTag(PostEffectComboBox, result.Settings.PostEffect);
+            SelectTag(GraphicsPresetComboBox, result.Settings.Preset);
+            SelectTag(ResolutionComboBox, result.Settings.ResolutionScale.ToString());
+            SelectTag(ReadbackResolveComboBox, result.Settings.ReadbackResolve);
+        }
+        finally
+        {
+            _applyingGraphicsResult = false;
+        }
+        UpdateShowroomWarning();
     }
 
     private static void SelectTag(ComboBox comboBox, string value)
@@ -659,6 +728,8 @@ public partial class MainWindow : Window
         AnisotropyComboBox.IsEnabled = enabled;
         PostEffectComboBox.IsEnabled = enabled;
         ResolutionComboBox.IsEnabled = enabled;
+        GraphicsPresetComboBox.IsEnabled = enabled;
+        ReadbackResolveComboBox.IsEnabled = enabled;
         SaveGraphicsButton.IsEnabled = enabled;
         ResetGraphicsButton.IsEnabled = enabled;
         RestoreGraphicsButton.IsEnabled = enabled;
@@ -683,5 +754,12 @@ public partial class MainWindow : Window
     private sealed record GraphicsSettings(
         [property: JsonPropertyName("anisotropy")] int Anisotropy,
         [property: JsonPropertyName("post_effect")] string PostEffect,
-        [property: JsonPropertyName("resolution_scale")] int ResolutionScale);
+        [property: JsonPropertyName("preset")] string Preset,
+        [property: JsonPropertyName("resolution_scale")] int ResolutionScale,
+        [property: JsonPropertyName("readback_resolve")] string ReadbackResolve,
+        [property: JsonPropertyName("readback_resolve_half_pixel_offset")] bool ReadbackHalfPixelOffset,
+        [property: JsonPropertyName("clear_memory_page_state")] bool ClearMemoryPageState,
+        [property: JsonPropertyName("readback_memexport")] bool ReadbackMemexport,
+        [property: JsonPropertyName("readback_memexport_fast")] bool ReadbackMemexportFast,
+        [property: JsonPropertyName("vsync")] bool Vsync);
 }

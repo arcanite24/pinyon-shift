@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 40)
+        self.assertEqual(len(patches), 41)
         self.assertEqual(
             patches[-1].name,
-            "0040-fh1-zpd-end-policy-and-telemetry.patch",
+            "0041-fh1-resolve-readback-counters.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -163,7 +163,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 7", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 8", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
@@ -177,6 +177,12 @@ class ReleaseContractTests(unittest.TestCase):
         policy_patch = ROOT / "patches/rexglue/0040-fh1-zpd-end-policy-and-telemetry.patch"
         self.assertTrue(policy_patch.is_file())
         self.assertIn("ZPDClassification", policy_patch.read_text(encoding="utf-8"))
+        resolve_patch = ROOT / "patches/rexglue/0041-fh1-resolve-readback-counters.patch"
+        self.assertTrue(resolve_patch.is_file())
+        resolve_text = resolve_patch.read_text(encoding="utf-8")
+        for counter in ("resolve_readback_requests", "resolve_readback_bytes",
+                        "resolve_readback_full_waits", "resolve_readback_wait_time_ns"):
+            self.assertIn(counter, resolve_text)
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
         stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
@@ -194,13 +200,19 @@ class ReleaseContractTests(unittest.TestCase):
         launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 7;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*7,")
+        launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("constexpr uint32_t kConfigSchema = 8;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*8,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 6", app)
+        self.assertIn("schema < 1 || schema > 7", app)
         self.assertIn('"occlusion_query = \\"legacy\\"\\n"', app)
         self.assertIn('"zpd_end_policy = \\"report_layout\\"\\n"', app)
+        self.assertIn('"readback_resolve = \\"none\\"\\n"', app)
+        self.assertIn('"clear_memory_page_state = true\\n"', app)
+        self.assertIn("Accurate showroom", launcher_xaml)
         self.assertIn("Controller A, Space, or left click.", launcher)
         self.assertRegex(
             hooks,
