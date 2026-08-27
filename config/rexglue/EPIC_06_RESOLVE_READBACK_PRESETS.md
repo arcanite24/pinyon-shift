@@ -23,12 +23,16 @@ Sources:
 | --- | ---: | --- | --- | --- |
 | Shipping 1× | 1× | `none` | off | Normal driving and release default |
 | Experimental 2× | 2× | `fast` | on | Scaled rendering without colored-car artifacts |
+| Experimental 3× | 3× | `fast` | on | 4K-class output on high-end GPUs; qualification required |
 | Accurate showroom | 1× | `full` | off | Garage, autoshow, thumbnails, and liveries |
 
 All presets keep `clear_memory_page_state`, `readback_memexport`,
 `readback_memexport_fast`, and `vsync` enabled. The launcher exposes
 `none`, `fast`, `some`, and `full` for controlled experiments, labels full
 readback as expensive, and preserves backup/reset/restore behavior.
+The 3× preset maps the game's 1280×720 internal target to 3840×2160; it is
+explicitly experimental and is included in the qualification plan rather than
+being presented as part of the existing 2026-08-27 evidence below.
 
 ## Metrics
 

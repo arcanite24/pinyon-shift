@@ -25,7 +25,7 @@ class GraphicsSettingsTests(unittest.TestCase):
         plan = json.loads(completed.stdout)
         self.assertEqual(
             [item["preset"] for item in plan["profiles"]],
-            ["shipping_1x", "experimental_2x", "accurate_showroom"],
+            ["shipping_1x", "experimental_2x", "experimental_3x", "accurate_showroom"],
         )
         self.assertEqual(len(plan["candidate_scenes"]), 8)
 
@@ -112,6 +112,19 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('host_present_sleep_spin = true', text)
             self.assertEqual(result["settings"]["preset"], "shipping_1x")
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
+
+    def test_experimental_3x_writes_4k_class_scale_with_fast_readback(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            result = self.run_tool(
+                state, "-Action", "Apply", "-Preset", "experimental_3x"
+            )
+            text = (state / "config/pinyon_shift.toml").read_text(encoding="utf-8")
+            self.assertEqual(result["settings"]["preset"], "experimental_3x")
+            self.assertEqual(result["settings"]["resolution_scale"], 3)
+            self.assertEqual(result["settings"]["readback_resolve"], "fast")
+            self.assertTrue(result["settings"]["readback_resolve_half_pixel_offset"])
+            self.assertIn("draw_resolution_scale_x = 3", text)
 
     def test_accurate_showroom_is_explicit_and_preserves_backup(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:

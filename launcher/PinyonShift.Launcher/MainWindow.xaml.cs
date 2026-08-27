@@ -589,6 +589,10 @@ public partial class MainWindow : Window
                     SelectTag(ResolutionComboBox, "2");
                     SelectTag(ReadbackResolveComboBox, "fast");
                     break;
+                case "experimental_3x":
+                    SelectTag(ResolutionComboBox, "3");
+                    SelectTag(ReadbackResolveComboBox, "fast");
+                    break;
                 case "accurate_showroom":
                     SelectTag(ResolutionComboBox, "1");
                     SelectTag(ReadbackResolveComboBox, "full");
@@ -610,6 +614,7 @@ public partial class MainWindow : Window
         {
             ("1", "none") => "shipping_1x",
             ("2", "fast") => "experimental_2x",
+            ("3", "fast") => "experimental_3x",
             (_, "full") => "accurate_showroom",
             _ => "custom"
         };

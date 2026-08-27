@@ -6,9 +6,9 @@ param(
     [int]$Anisotropy = 4,
     [ValidateSet('none', 'fxaa', 'fxaa_extreme')]
     [string]$PostEffect = 'none',
-    [ValidateSet(1, 2)]
+    [ValidateSet(1, 2, 3)]
     [int]$ResolutionScale = 1,
-    [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'accurate_showroom')]
+    [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'experimental_3x', 'accurate_showroom')]
     [string]$Preset = 'custom',
     [ValidateSet('none', 'fast', 'some', 'full')]
     [string]$ReadbackResolve = 'none',
@@ -137,6 +137,9 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
     } elseif ($clearPageState -and $resolutionScale -eq 2 -and
         $readbackResolve -eq 'fast' -and $halfPixel) {
         'experimental_2x'
+    } elseif ($clearPageState -and $resolutionScale -eq 3 -and
+        $readbackResolve -eq 'fast' -and $halfPixel) {
+        'experimental_3x'
     } elseif ($clearPageState -and $resolutionScale -eq 1 -and
         $readbackResolve -eq 'none' -and -not $halfPixel -and $memexport -and
         $memexportFast -and $vsyncEnabled) {
@@ -218,17 +221,19 @@ switch ($Action) {
         $effectiveResolution = switch ($Preset) {
             'shipping_1x' { 1 }
             'experimental_2x' { 2 }
+            'experimental_3x' { 3 }
             'accurate_showroom' { 1 }
             default { $ResolutionScale }
         }
         $effectiveReadback = switch ($Preset) {
             'shipping_1x' { 'none' }
             'experimental_2x' { 'fast' }
+            'experimental_3x' { 'fast' }
             'accurate_showroom' { 'full' }
             default { $ReadbackResolve }
         }
-        $effectiveHalfPixel = $Preset -eq 'experimental_2x' -or
-            ($Preset -eq 'custom' -and $effectiveResolution -eq 2 -and
+        $effectiveHalfPixel = $Preset -in @('experimental_2x', 'experimental_3x') -or
+            ($Preset -eq 'custom' -and $effectiveResolution -gt 1 -and
                 $effectiveReadback -ne 'none')
         $effectiveHalfPixelText = if ($effectiveHalfPixel) { 'true' } else { 'false' }
         $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }

@@ -33,6 +33,11 @@ $profiles = @(
         markers = @('garage', 'autoshow', 'livery', 'colored_artifacts_absent')
     },
     [ordered]@{
+        preset = 'experimental_3x'
+        label = 'experimental-3x'
+        markers = @('garage', 'autoshow', 'livery', 'colored_artifacts_absent')
+    },
+    [ordered]@{
         preset = 'accurate_showroom'
         label = 'accurate-showroom'
         markers = @('garage', 'autoshow', 'livery', 'assets_correct')
@@ -115,7 +120,7 @@ try {
             $resolve.resolve_readback_requests -eq 0 -and
                 $resolve.resolve_readback_bytes -eq 0 -and
                 $resolve.resolve_readback_full_waits -eq 0
-        } elseif ($profile.preset -eq 'experimental_2x') {
+        } elseif ($profile.preset -in @('experimental_2x', 'experimental_3x')) {
             $resolve.resolve_readback_requests -gt 0 -and
                 $resolve.resolve_readback_bytes -gt 0 -and
                 $resolve.resolve_readback_fast_copies -gt 0

@@ -32,6 +32,8 @@ Tools must be installed.
 
 Supported today: the USA retail base disc, serial `MS-2505`, title ID
 `4D5309C9`. Windows 10/11 x64 and a DirectX 12-capable GPU are required.
+The launcher includes 2× and experimental 3× (4K-class) internal-resolution
+scaling for capable GPUs.
 
 This is a public preview, not a finished remaster. Please report reproducible
 problems using the issue template and do not attach game files or generated

@@ -233,6 +233,7 @@
                                       AutomationProperties.Name="Forza Horizon graphics preset">
                                 <ComboBoxItem Tag="shipping_1x"><TextBlock Text="Shipping 1× · balanced" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                                 <ComboBoxItem Tag="experimental_2x"><TextBlock Text="Experimental 2× · fast readback" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="experimental_3x"><TextBlock Text="Experimental 3× · 4K class" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                                 <ComboBoxItem Tag="accurate_showroom"><TextBlock Text="Accurate showroom · expensive" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                                 <ComboBoxItem Tag="custom"><TextBlock Text="Custom · manual" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                             </ComboBox>
@@ -282,6 +283,7 @@
                                       AutomationProperties.Name="Internal resolution">
                                 <ComboBoxItem Tag="1"><TextBlock Text="Native · 1×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                                 <ComboBoxItem Tag="2"><TextBlock Text="Experimental · 2×" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                                <ComboBoxItem Tag="3"><TextBlock Text="Experimental · 3× (4K class)" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                             </ComboBox>
                         </StackPanel>
                     </Grid>

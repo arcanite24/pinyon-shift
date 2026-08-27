@@ -20,3 +20,4 @@
   resolution scaling, anisotropic filtering, and post-effect selection.
 - Fixed launcher-package builds that completed translation but failed while
   probing absent Git metadata, and removed Python from warning verification.
+- Added an experimental 3x internal-resolution preset for 4K-class output.
