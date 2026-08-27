@@ -24,7 +24,7 @@ series is based on the exact upstream `v0.10.0` commit
 | `0014` invalid fetch constants | Keep unchanged | The compatibility relaxation remains required and does not overlap a 0.10 replacement. |
 | `0015` heap-release failure telemetry | Keep unchanged | Retained bounded diagnostics on the same failure path. |
 | `0016` preserve shared XEX heap allocations | Keep unchanged | The shared-allocation lifetime invariant is unchanged. |
-| `0017` retire exhausted XMA input | Keep unchanged | Still complements 0.10 audio changes by retiring the project-observed exhausted-input state. |
+| `0017` retire exhausted XMA input | Superseded by `0036` | Its livelock guard is folded into the buffer-aware packet-location state machine, which retires an exhausted active buffer only after its logical read position crosses the buffer boundary. |
 | `0018` save lifecycle tracing | Keep unchanged | Retained for save/cache runtime qualification. |
 | `0019` save file-I/O tracing | Keep unchanged | Retained for save/cache runtime qualification. |
 | `0020` snapshot reentry stack continuations | Keep unchanged | Still supplies the runtime half of restored continuation state. |
@@ -67,13 +67,28 @@ while infinite inputs, NaN propagation, reduction order, and signed denormal
 flushing are preserved. Focused helper tests cover every edge and PPC fixtures
 cover the observed finite-overflow instruction behavior.
 
+`0036-m4-xma-cross-buffer-packet-handles` ports the packet-location model from
+Xenia Canary PR `#983` and extends it with explicit failure states, bounded
+malformed-buffer warnings, and synthetic ReXGlue tests. All current-packet,
+continuation-packet, full-skip, and next-read-offset paths now carry both the
+guest buffer index and the packet index within that buffer. This patch depends
+on `0017`, whose exhausted-input transition it replaces in place; removing
+`0036` restores the independently applicable `0017` behavior.
+
+`0037-m4-xma-multipacket-frame-assembly` adapts the bounded four-payload XMA
+frame assembler from ReXGlue commit `51b601a` and routes every source packet
+through `0036`'s validated logical packet handles. Split headers and frame data
+share one assembly path, invalid sizes and capacity overruns fail with bounded
+diagnostics, and synthetic coverage exercises one through four packets across
+guest-buffer boundaries. Removing `0037` restores the prior two-payload
+decoder without removing `0036`.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.
 - 1,460/1,460 PPC instruction tests passed.
-- The 228-test unit suite passed after the two ported test-data corrections and
-  the direct-tail assertion correction (four pre-existing BitStream write cases
-  remain explicitly skipped by upstream).
+- The 234-test unit suite passed: 230 tests passed and four pre-existing
+  BitStream write cases remain explicitly skipped by upstream.
 - No conflict markers, reject files, or binary patch payloads are present.
 
 ## Rollback

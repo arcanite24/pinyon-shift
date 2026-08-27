@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-26
 
 - First Windows public playable preview.
 - Updated the pinned ReXGlue SDK from 0.9.0 to 0.10.0, including its threading,
@@ -12,6 +12,8 @@
 - Added resilient ReXGlue/submodule download retries, disabled SDL's optional
   libusb probe on Windows, and made Xbox menu acceptance accessible through
   Space or left click with an in-launcher control hint.
+- Made launcher setup ignore quoted `PATH` entry syntax when initializing the
+  Microsoft build environment and always use the verified pinned MinGit.
 - Restored motion blur around the player car and removed the stale gameplay
   limitation list after the latest compatibility fixes.
 - Added launcher controls for validated graphics experiments, including 2x
