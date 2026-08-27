@@ -23,6 +23,23 @@ $logs = Resolve-PinyonLocalPath -RelativePath '.local/logs'
 [void](New-Item -ItemType Directory -Force -Path $logs)
 $env:SOURCE_DATE_EPOCH = '1784764800'
 
+$supportedDumps = Get-Content -LiteralPath (Join-Path $root 'config/supported-dumps.json') -Raw |
+    ConvertFrom-Json
+$supportedXex = $supportedDumps.dumps[0].executables |
+    Where-Object { $_.guest_path -eq 'default.xex' } | Select-Object -First 1
+$gameXex = Resolve-PinyonLocalPath -RelativePath '.local/game/base/default.xex'
+if ($null -eq $supportedXex -or -not (Test-Path -LiteralPath $gameXex -PathType Leaf)) {
+    throw 'The supported default.xex is not available for code generation.'
+}
+$gameXexInfo = Get-Item -LiteralPath $gameXex
+$gameXexSha256 = (Get-FileHash -LiteralPath $gameXex -Algorithm SHA256).Hash
+if ($gameXexInfo.Length -ne [int64]$supportedXex.size_bytes -or
+    $gameXexSha256 -ne $supportedXex.sha256) {
+    throw 'default.xex does not match the exact supported EPIC-08 patch target.'
+}
+$guestPatchPath = Join-Path $root 'config/rexglue/analysis/fh1-post-processing.toml'
+$guestPatchSetSha256 = (Get-FileHash -LiteralPath $guestPatchPath -Algorithm SHA256).Hash
+
 Write-PinyonEvent build 62 'Building the local code generator.' -JsonEvents:$JsonEvents
 Push-Location $sdkRoot
 try {
@@ -150,6 +167,9 @@ $result = [ordered]@{
     rexglue_commit = $rexglueCommit
     rexglue_patch_set_sha256 = $patchSetSha256
     rexglue_patch_count = @($patchMarker.patches).Count.ToString()
+    guest_executable_sha256 = $gameXexSha256
+    guest_codegen_patch_profile = 'fh1-retail-base-post-processing-v1'
+    guest_codegen_patch_set_sha256 = $guestPatchSetSha256
 }
 $resultJson = ($result | ConvertTo-Json) + [Environment]::NewLine
 [IO.File]::WriteAllText($manifestPath, $resultJson,

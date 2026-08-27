@@ -20,6 +20,10 @@ param(
     [string]$ZpdEndFallback = 'pairwise_sentinel',
     [ValidateSet(0, 30, 60)]
     [int]$PresentationFps = 60,
+    [ValidateSet('true', 'false')]
+    [string]$DisableMotionBlur = 'false',
+    [ValidateSet('true', 'false')]
+    [string]$DisableDepthOfField = 'false',
     [string]$StateRoot,
     [switch]$Json
 )
@@ -40,8 +44,8 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 8 adds FH1 resolve-readback presets.
-pinyon_shift_config_schema = 8
+# Schema 9 adds exact-hash FH1 post-processing switches.
+pinyon_shift_config_schema = 9
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -56,6 +60,8 @@ pinyon_shift_skip_opening_movies = false
 xma_relaxed_padding_admission = false
 anisotropic_override = 3
 swap_post_effect = "none"
+disable_motion_blur = false
+disable_depth_of_field = false
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 clear_memory_page_state = true
@@ -146,6 +152,8 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
         settings = [ordered]@{
             anisotropy = $anisotropyValue
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
+            disable_motion_blur = (Get-TomlValue $Text 'disable_motion_blur' 'false') -eq 'true'
+            disable_depth_of_field = (Get-TomlValue $Text 'disable_depth_of_field' 'false') -eq 'true'
             preset = $presetName
             resolution_scale = $resolutionScale
             readback_resolve = $readbackResolve
@@ -173,7 +181,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -190,7 +198,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -198,9 +206,9 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '8'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '9'
         if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
         }
@@ -226,6 +234,8 @@ switch ($Action) {
         $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }
         $text = Set-TomlValue $text 'anisotropic_override' ([string]$override)
         $text = Set-TomlValue $text 'swap_post_effect' ('"' + $PostEffect + '"')
+        $text = Set-TomlValue $text 'disable_motion_blur' $DisableMotionBlur
+        $text = Set-TomlValue $text 'disable_depth_of_field' $DisableDepthOfField
         $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$effectiveResolution)
         $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$effectiveResolution)
         $text = Set-TomlValue $text 'vsync' 'true'

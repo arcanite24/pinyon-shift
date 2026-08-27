@@ -2,6 +2,8 @@
 # Evidence and the rationale for every entry are recorded in the milestone
 # boundary reports under docs/research/.
 
+includes = ["fh1-post-processing.toml"]
+
 # Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
 # longjmp restores the host-side PPCContext captured at the setjmp call site.
 setjmp_address = 0x82A81E80

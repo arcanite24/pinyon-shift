@@ -6,7 +6,8 @@ import argparse, hashlib, json, struct, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCENES = ("front-end", "garage", "autoshow", "livery", "open-world-day", "open-world-night", "race", "rewind")
+SCENES = ("front-end", "garage", "autoshow", "livery", "open-world-day",
+          "open-world-night", "high-speed", "cockpit", "race", "rewind")
 ROOT = Path(__file__).resolve().parents[1]
 
 def fingerprint(executable: Path | None = None) -> dict:
@@ -16,8 +17,11 @@ def fingerprint(executable: Path | None = None) -> dict:
     patch_hasher = hashlib.sha256()
     for patch in sorted((ROOT / "patches" / "rexglue").glob("*.patch")):
         patch_hasher.update(patch.name.encode()); patch_hasher.update(b"\0"); patch_hasher.update(patch.read_bytes())
+    guest_patch = ROOT / "config/rexglue/analysis/fh1-post-processing.toml"
     data = {"repository_commit": git("rev-parse", "HEAD"),
-            "rexglue_patch_set_sha256": patch_hasher.hexdigest()}
+            "rexglue_patch_set_sha256": patch_hasher.hexdigest(),
+            "guest_codegen_patch_profile": "fh1-retail-base-post-processing-v1",
+            "guest_codegen_patch_set_sha256": hashlib.sha256(guest_patch.read_bytes()).hexdigest()}
     try: data["rexglue_commit"] = git("-C", str(ROOT / ".local" / "rexglue"), "rev-parse", "HEAD")
     except (subprocess.CalledProcessError, FileNotFoundError): data["rexglue_commit"] = None
     if executable and executable.is_file():
