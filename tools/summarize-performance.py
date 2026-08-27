@@ -43,6 +43,20 @@ XMA_STALL_COLUMNS = (
     "xma_no_progress_stalls",
     "xma_stall_recoveries",
 )
+ZPD_COLUMNS = (
+    "zpd_reports_started",
+    "zpd_reports_ended",
+    "zpd_report_segments",
+    "zpd_same_slot_reuse",
+    "zpd_fast_speculative_writes",
+    "zpd_async_result_patches",
+    "zpd_strict_waits",
+    "zpd_strict_wait_time_ns",
+    "zpd_retire_timeouts",
+    "zpd_fake_fallbacks",
+    "zpd_malformed_records",
+    "zpd_stale_result_rejections",
+)
 
 
 class CaptureError(ValueError):
@@ -94,11 +108,16 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
         if available_xma_stalls and available_xma_stalls != set(XMA_STALL_COLUMNS):
             missing_xma_stalls = sorted(set(XMA_STALL_COLUMNS) - available_xma_stalls)
             raise CaptureError("capture has an incomplete XMA stall counter set: " + ", ".join(missing_xma_stalls))
+        available_zpd = columns.intersection(ZPD_COLUMNS)
+        if available_zpd and available_zpd != set(ZPD_COLUMNS):
+            missing_zpd = sorted(set(ZPD_COLUMNS) - available_zpd)
+            raise CaptureError("capture has an incomplete ZPD counter set: " + ", ".join(missing_zpd))
 
         frame_times: list[float] = []
         totals = {name: 0.0 for name in TOTAL_COLUMNS}
         memexport_totals = {name: 0.0 for name in MEMEXPORT_COLUMNS} if available_memexport else None
         xma_stall_totals = {name: 0.0 for name in XMA_STALL_COLUMNS} if available_xma_stalls else None
+        zpd_totals = {name: 0.0 for name in ZPD_COLUMNS} if available_zpd else None
         rows_seen = 0
         for row_number, row in enumerate(reader, start=2):
             rows_seen += 1
@@ -111,6 +130,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                               for name in MEMEXPORT_COLUMNS} if memexport_totals is not None else {})
             row_xma_stalls = ({name: finite_number(row[name], column=name, row_number=row_number)
                                for name in XMA_STALL_COLUMNS} if xma_stall_totals is not None else {})
+            row_zpd = ({name: finite_number(row[name], column=name, row_number=row_number)
+                        for name in ZPD_COLUMNS} if zpd_totals is not None else {})
             # The runtime writes one initialization row with frame_time_us == 0.
             # It is valid CSV, but not a displayed frame and must not skew latency.
             if frame_time == 0:
@@ -122,6 +143,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 memexport_totals[name] += value
             for name, value in row_xma_stalls.items():
                 xma_stall_totals[name] += value
+            for name, value in row_zpd.items():
+                zpd_totals[name] += value
 
     if rows_seen == 0:
         raise CaptureError("capture contains a header but no rows")
@@ -165,6 +188,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
     if xma_stall_totals is not None:
         result["xma_stall_counters"] = {
             name: int(value) if value.is_integer() else value for name, value in xma_stall_totals.items()
+        }
+    if zpd_totals is not None:
+        result["zpd_counters"] = {
+            name: int(value) if value.is_integer() else value for name, value in zpd_totals.items()
         }
     return result
 

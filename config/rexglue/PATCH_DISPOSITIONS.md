@@ -96,6 +96,16 @@ optional relaxed-padding admission path is controlled by
 `xma_relaxed_padding_admission = false`; removing `0038` restores strict
 padding admission and removes only EPIC-03 telemetry and tests.
 
+`0039-gpu-zpd-report-lifecycle-d3d12` adapts the D3D12 portion of Xenia Canary
+PR `#1016` at `d35e0b5`. Fixed guest record/slot helpers feed a logical report
+map whose lifetimes may span multiple host query segments and submissions.
+Per-slot sequence IDs reject stale guest writes, per-index generations protect
+the reusable D3D12 heap, fast mode retires asynchronously, and strict mode has
+a 2 ms backstop. Sample counts are normalized for internal-resolution scaling,
+all EPIC-04 counters are exported, and `occlusion_query = "legacy"` remains the
+shipping default and immediate rollback path. Removing `0039` restores the
+previous synchronous D3D12 query implementation.
+
 Validation performed on the rebased SDK:
 
 - `unit_tests` and `ppc_tests` build with the pinned Clang 20.1.8 toolchain.
