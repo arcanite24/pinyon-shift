@@ -20,6 +20,8 @@ private/
 !/docs/BUILDING.md
 !/docs/LEGAL.md
 !/docs/TROUBLESHOOTING.md
+!/docs/upstream/
+!/docs/upstream/*.md
 
 # Build output and tooling state.
 build/
