@@ -63,13 +63,15 @@ if ($requiresBootstrap) {
         }
         throw 'Local code generation failed; incomplete generation stamps were removed.'
     }
-    & python (Join-Path $PSScriptRoot 'verify-codegen-log.py') $codegenLog
-    if ($LASTEXITCODE -ne 0) {
+    try {
+        & (Join-Path $PSScriptRoot 'verify-codegen-log.ps1') -LogPath $codegenLog | Out-Host
+    }
+    catch {
         foreach ($tree in $generatedTrees) {
             $stamp = Join-Path $generatedRoot "$tree/codegen.build.stamp"
             if (Test-Path -LiteralPath $stamp) { Remove-Item -LiteralPath $stamp -Force }
         }
-        throw 'Code generation emitted an unreviewed warning; generation stamps were removed.'
+        throw "Code generation emitted an unreviewed warning; generation stamps were removed. $($_.Exception.Message)"
     }
 }
 else {
@@ -100,24 +102,9 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
 }
 $manifestPath = Resolve-PinyonLocalPath -RelativePath '.local/build.json'
 $git = Get-PinyonGit
-$sourceProvenancePath = Join-Path $root 'config/source-provenance.json'
-$sourceCommit = $null
-$sourceDirty = $false
-$gitCommit = @(& $git -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
-if ($gitCommit.Count -eq 1 -and $gitCommit[0] -match '^[0-9a-fA-F]{40}$') {
-    $sourceCommit = $gitCommit[0].ToLowerInvariant()
-    $sourceDirty = @(& $git -C $root status --porcelain).Count -ne 0
-}
-elseif (Test-Path -LiteralPath $sourceProvenancePath -PathType Leaf) {
-    $sourceProvenance = Get-Content -LiteralPath $sourceProvenancePath -Raw | ConvertFrom-Json
-    if ($sourceProvenance.commit -match '^[0-9a-fA-F]{40}$') {
-        $sourceCommit = $sourceProvenance.commit.ToLowerInvariant()
-        $sourceDirty = [bool]$sourceProvenance.dirty
-    }
-}
-if (-not $sourceCommit) {
-    throw 'Build provenance requires an exact Pinyon Shift commit.'
-}
+$sourceProvenance = Get-PinyonSourceProvenance -Root $root -Git $git
+$sourceCommit = $sourceProvenance.Commit
+$sourceDirty = $sourceProvenance.Dirty
 
 $patchMarkerPath = Join-Path $sdkRoot '.pinyon-patches.json'
 if (-not (Test-Path -LiteralPath $patchMarkerPath -PathType Leaf)) {

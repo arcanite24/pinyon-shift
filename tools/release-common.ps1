@@ -177,3 +177,40 @@ function Get-PinyonGit {
     }
     $candidate
 }
+
+function Get-PinyonSourceProvenance {
+    param(
+        [Parameter(Mandatory)] [string]$Root,
+        [Parameter(Mandatory)] [string]$Git
+    )
+
+    $sourceCommit = $null
+    $sourceDirty = $false
+    # Launcher payloads are source archives, not Git working trees. Avoid
+    # invoking Git there because Windows PowerShell promotes native stderr to a
+    # terminating error before the packaged provenance fallback can run.
+    if (Test-Path -LiteralPath (Join-Path $Root '.git')) {
+        $gitCommit = @(& $Git -C $Root rev-parse HEAD 2>$null | Select-Object -First 1)
+        if ($gitCommit.Count -eq 1 -and $gitCommit[0] -match '^[0-9a-fA-F]{40}$') {
+            $sourceCommit = $gitCommit[0].ToLowerInvariant()
+            $sourceDirty = @(& $Git -C $Root status --porcelain).Count -ne 0
+        }
+    }
+
+    if (-not $sourceCommit) {
+        $sourceProvenancePath = Join-Path $Root 'config/source-provenance.json'
+        if (Test-Path -LiteralPath $sourceProvenancePath -PathType Leaf) {
+            $sourceProvenance = Get-Content -LiteralPath $sourceProvenancePath -Raw |
+                ConvertFrom-Json
+            if ($sourceProvenance.commit -match '^[0-9a-fA-F]{40}$') {
+                $sourceCommit = $sourceProvenance.commit.ToLowerInvariant()
+                $sourceDirty = [bool]$sourceProvenance.dirty
+            }
+        }
+    }
+
+    if (-not $sourceCommit) {
+        throw 'Build provenance requires an exact Pinyon Shift commit.'
+    }
+    [pscustomobject]@{ Commit = $sourceCommit; Dirty = $sourceDirty }
+}

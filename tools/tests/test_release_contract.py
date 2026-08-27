@@ -154,12 +154,36 @@ class ReleaseContractTests(unittest.TestCase):
         required = {
             "build-preview.ps1", "create-crash-report.ps1", "install-build-tools.ps1", "launch-preview.ps1",
             "prepare-rexglue.ps1", "provision-toolchain.ps1", "release-common.ps1",
-            "set-graphics-experiment.ps1", "setup-preview.ps1", "verify-game.ps1",
+            "set-graphics-experiment.ps1", "setup-preview.ps1", "verify-codegen-log.ps1",
+            "verify-game.ps1",
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
         package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
-        for shipped in ("set-graphics-experiment.ps1", "verify-codegen-log.py"):
+        for shipped in ("set-graphics-experiment.ps1", "verify-codegen-log.ps1"):
             self.assertIn(shipped, package_script)
+
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_packaged_source_provenance_does_not_require_a_git_worktree(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-provenance-") as temporary:
+            root = pathlib.Path(temporary)
+            (root / "config").mkdir()
+            commit = "a" * 40
+            (root / "config/source-provenance.json").write_text(
+                json.dumps({"schema_version": 1, "commit": commit, "dirty": False}),
+                encoding="utf-8",
+            )
+            command = (
+                f". '{ROOT / 'tools/release-common.ps1'}'; "
+                f"$result = Get-PinyonSourceProvenance -Root '{root}' "
+                "-Git 'Z:\\missing\\git.exe'; "
+                "[Console]::Out.Write($result.Commit + '|' + $result.Dirty)"
+            )
+            completed = subprocess.run(
+                ["powershell", "-NoLogo", "-NoProfile", "-Command", command],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout, commit + "|False")
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
