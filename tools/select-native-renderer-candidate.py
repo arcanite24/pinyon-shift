@@ -62,6 +62,10 @@ def rejection_reasons(record: dict[str, Any]) -> list[str]:
         reasons.append("vertex_binding_overflow")
     if boolean(record, "vertex_attribute_overflow"):
         reasons.append("vertex_attribute_overflow")
+    if boolean(record, "constant_overflow"):
+        reasons.append("constant_observer_overflow")
+    if boolean(record, "texture_state_overflow"):
+        reasons.append("texture_state_observer_overflow")
     if int(record.get("vertex_binding_count", 0)) != 1:
         reasons.append("vertex_binding_count_not_one")
     if int(record.get("texture_fetch_count", 0)) > 1:
@@ -181,6 +185,22 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
                 ),
                 "vertex_attributes": sample.get("vertex_attributes"),
                 "texture_fetch_count": int(sample.get("texture_fetch_count", 0)),
+                "draw_state_hashes": [
+                    str(record.get("draw_state_hash", "")).upper()
+                    for record in records
+                ],
+                "vertex_float_constant_count": int(
+                    sample.get("vertex_float_constant_count", 0)
+                ),
+                "vertex_float_constants": sample.get("vertex_float_constants"),
+                "pixel_float_constant_count": int(
+                    sample.get("pixel_float_constant_count", 0)
+                ),
+                "pixel_float_constants": sample.get("pixel_float_constants"),
+                "bool_constants": sample.get("bool_constants"),
+                "loop_constants": sample.get("loop_constants"),
+                "texture_state_count": int(sample.get("texture_state_count", 0)),
+                "texture_states": sample.get("texture_states"),
                 "pipeline_state": sample.get("pipeline_state"),
                 "qualification": "metadata_shortlist_only",
             }

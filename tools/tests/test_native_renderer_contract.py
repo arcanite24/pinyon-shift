@@ -344,6 +344,22 @@ class NativeRendererContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, declaration_patch)
 
+        draw_state_patch = (
+            ROOT / "patches/rexglue/0054-graphics-draw-state-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("kGraphicsFloatConstantObservationLimit = 64", draw_state_patch)
+        self.assertIn("constant_register_map", draw_state_patch)
+        self.assertIn("XE_GPU_REG_SHADER_CONSTANT_256_X", draw_state_patch)
+        self.assertIn("kGraphicsTextureFetchObservationLimit = 16", draw_state_patch)
+        self.assertIn("instruction.attributes.mag_filter", draw_state_patch)
+        self.assertIn("texture_state_overflow", draw_state_patch)
+        for forbidden in (
+            "TranslatePhysical",
+            "SetDrawSuppression",
+            "native_guest_output",
+        ):
+            self.assertNotIn(forbidden, draw_state_patch)
+
         planner = (
             ROOT / "tools/build-native-geometry-contract.py"
         ).read_text(encoding="utf-8")
@@ -353,6 +369,16 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"native_draw": False', planner)
         self.assertIn('"suppression_allowed": False', planner)
         self.assertIn('"xenos_authority": True', planner)
+
+        draw_state_planner = (
+            ROOT / "tools/build-native-draw-state-contract.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PHYSICAL_MASK = 0x1FFFFFFF", draw_state_planner)
+        self.assertIn('"guest_resource_payload_read": False', draw_state_planner)
+        self.assertIn('"native_upload": False', draw_state_planner)
+        self.assertIn('"native_draw": False', draw_state_planner)
+        self.assertIn('"suppression_allowed": False', draw_state_planner)
+        self.assertIn('"xenos_authority": True', draw_state_planner)
 
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(

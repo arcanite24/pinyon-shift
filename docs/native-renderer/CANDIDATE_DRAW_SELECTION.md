@@ -129,3 +129,16 @@ recorded in [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md). The candidate remains
 `needs_visual_and_dependency_review`; the new selection proves repeatable
 metadata and an exact shader specialization, not visual suitability or static
 texture provenance.
+
+## NR-02C draw-state extension
+
+Patch `0054` adds the used constant registers and raw texture/sampler inputs to
+each candidate summary. Constant or texture-state overflow is an automatic
+rejection. The selector carries the first bounded snapshot from each inventory
+and its draw-state hash. Decoding and the safety boundary are documented in
+[DRAW_STATE_CONTRACT.md](DRAW_STATE_CONTRACT.md).
+
+Two post-`0054` captures selected candidate `08810649442C4213` as the sole
+bounded match. Its draw-state hash was identical in both captures. This is the
+NR-02C subject going forward; earlier provisional signatures remain historical
+because each observer extension intentionally changes the structural identity.
