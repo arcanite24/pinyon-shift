@@ -65,7 +65,10 @@ bool RenderDiagnosticOutput(
         context, uint32_t((context.submission / 120) & 1));
   } else if (mode == DiagnosticMode::kRetainedPass &&
              context.draw_retained_pass) {
-    rendered = context.draw_retained_pass(context);
+    if (context.frame_sequence &&
+        context.retained_pass_frame_sequence == context.frame_sequence) {
+      rendered = context.draw_retained_pass(context);
+    }
   } else if (mode == DiagnosticMode::kClear && context.clear_color) {
     const bool alternate = ((context.submission / 120) & 1) != 0;
     const float color[4] = {alternate ? 0.04f : 0.85f, 0.16f,
@@ -77,8 +80,13 @@ bool RenderDiagnosticOutput(
       if (callback == 1 || callback % 300 == 0) {
         pinyon_shift::diagnostics::RecordEvent(
             "native_renderer.output.waiting",
-            {{"reason", "retained_pass_unavailable"},
+            {{"reason", context.retained_pass_frame_sequence
+                            ? "retained_pass_stale"
+                            : "retained_pass_unavailable"},
              {"callback", std::to_string(callback)},
+             {"frame", std::to_string(context.frame_sequence)},
+             {"retained_frame",
+              std::to_string(context.retained_pass_frame_sequence)},
              {"fallback", "xenos"},
              {"suppression", "disabled"}});
       }
@@ -101,6 +109,9 @@ bool RenderDiagnosticOutput(
         {{"callback", std::to_string(callback)},
          {"claimed", std::to_string(claimed)},
          {"submission", std::to_string(context.submission)},
+         {"frame", std::to_string(context.frame_sequence)},
+         {"retained_frame",
+          std::to_string(context.retained_pass_frame_sequence)},
          {"guest_width", std::to_string(context.guest_output_width)},
          {"guest_height", std::to_string(context.guest_output_height)},
          {"display_width", std::to_string(context.display_width)},
