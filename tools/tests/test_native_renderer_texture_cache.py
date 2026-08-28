@@ -54,6 +54,36 @@ class NativeRendererTextureCacheContractTests(unittest.TestCase):
         self.assertNotIn("delete ", source)
         self.assertNotIn("Release()", source)
 
+    def test_cache_bounds_resources_and_remembered_state(self):
+        header = (ROOT / "src/native_renderer/texture_cache.h").read_text(
+            encoding="utf-8"
+        )
+        source = (ROOT / "src/native_renderer/texture_cache.cpp").read_text(
+            encoding="utf-8"
+        )
+        bridge = (
+            ROOT / "src/native_renderer/texture_resource_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "maximum_live_bytes",
+            "maximum_live_count",
+            "maximum_state_count",
+            "maximum_evictions_per_maintenance",
+            "normal_idle_frames",
+            "pressure_idle_frames",
+        ):
+            self.assertIn(token, bridge)
+        self.assertIn("size_t Trim", header)
+        self.assertIn("PruneStateLocked", source)
+        self.assertIn("cache_budget_evictions", bridge)
+        self.assertIn("cache_budget_refusals", bridge)
+        self.assertIn(
+            "cache_.Trim(observation.current_submission,", bridge
+        )
+        self.assertNotIn(
+            "cache_.Request(key, observation_count_", bridge
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

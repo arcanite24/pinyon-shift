@@ -15,12 +15,14 @@ void Require(bool condition, const char* message) {
   }
 }
 
-nr::TextureResourceKey MakeKey(nr::PhysicalResourceTracker& tracker) {
+nr::TextureResourceKey MakeKey(nr::PhysicalResourceTracker& tracker,
+                               uint32_t address = 0x94649000,
+                               uint64_t signature =
+                                   UINT64_C(0x747837906D0BF484)) {
   const auto base =
-      nr::PhysicalRange::FromGraphicsAddress(0x94649000, 32768);
+      nr::PhysicalRange::FromGraphicsAddress(address, 32768);
   Require(base.has_value(), "selected DXN range must be valid");
-  return {*base, std::nullopt, UINT64_C(0x747837906D0BF484),
-          tracker.Capture(*base)};
+  return {*base, std::nullopt, signature, tracker.Capture(*base)};
 }
 
 }  // namespace
@@ -130,6 +132,51 @@ int main() {
               !metrics.live_bytes && !metrics.retired_count &&
               !metrics.retired_bytes,
           "texture cache telemetry must describe the complete lifecycle");
+
+  nr::PhysicalResourceTracker budget_tracker;
+  nr::NativeTextureCache budget_cache(
+      budget_tracker, {},
+      {.maximum_live_bytes = 65536,
+       .maximum_live_count = 1,
+       .maximum_state_count = 2,
+       .maximum_evictions_per_maintenance = 1,
+       .normal_idle_frames = 10,
+       .pressure_idle_frames = 3});
+  const auto budget_a = MakeKey(budget_tracker, 0x00130000, 0xA1);
+  const auto budget_b = MakeKey(budget_tracker, 0x00140000, 0xB2);
+  const auto budget_c = MakeKey(budget_tracker, 0x00150000, 0xC3);
+  const auto request_a = budget_cache.Request(budget_a, 1, 1);
+  Require(budget_cache.Complete(request_a.decode_ticket,
+                                nr::TextureDecodeResult::kReady, 601,
+                                65536, 1, 1),
+          "the first texture must fit the configured budget");
+  const auto request_b = budget_cache.Request(budget_b, 5, 2);
+  Require(budget_cache.Complete(request_b.decode_ticket,
+                                nr::TextureDecodeResult::kReady, 602,
+                                65536, 5, 2),
+          "pressure admission must replace an idle texture");
+  Require(budget_cache.Collect(1).empty() &&
+              budget_cache.Collect(2).size() == 1,
+          "evicted texture destruction must wait for its final submission");
+  const auto request_c = budget_cache.Request(budget_c, 6, 3);
+  Require(request_c.state == nr::TextureRequestState::kDecodeRequired &&
+              !budget_cache.Complete(request_c.decode_ticket,
+                                     nr::TextureDecodeResult::kReady, 603,
+                                     65536, 6, 3),
+          "a recent live texture must force strict budget refusal");
+  Require(budget_cache.Request(budget_c, 7, 4).state ==
+              nr::TextureRequestState::kRetryPending,
+          "budget refusal must retry later instead of becoming permanent");
+  Require(budget_cache.Trim(8, 4, false) == 0,
+          "normal maintenance must keep textures within the long idle guard");
+  Require(budget_cache.Trim(9, 5, true) == 1,
+          "pressure maintenance must use the shorter idle guard");
+  const auto budget_metrics = budget_cache.metrics();
+  Require(budget_metrics.budget_evictions == 2 &&
+              budget_metrics.budget_refusals == 1 &&
+              budget_metrics.state_evictions == 2 &&
+              budget_metrics.state_count <= 2,
+          "texture budget, state cap, and eviction telemetry must be bounded");
 
   std::cout << "native renderer texture cache tests passed\n";
   return EXIT_SUCCESS;

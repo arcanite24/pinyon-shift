@@ -4,7 +4,11 @@
 
 namespace pinyon_shift::native_renderer {
 
-NativeBufferCache::NativeBufferCache(PhysicalResourceTracker& tracker) : tracker_(tracker) {}
+NativeBufferCache::NativeBufferCache(PhysicalResourceTracker& tracker,
+                                     NativeResourceCacheBudget budget)
+    : tracker_(tracker), budget_(budget) {
+  budget_.Normalize();
+}
 
 std::optional<BufferCacheAcquireResult> NativeBufferCache::Acquire(
     const BufferResourceKey& key, NativeBufferHandle candidate_handle, uint64_t allocation_bytes,
@@ -22,13 +26,27 @@ std::optional<BufferCacheAcquireResult> NativeBufferCache::Acquire(
     return BufferCacheAcquireResult{existing->second, true};
   }
 
+  ++metrics_.misses;
+  if (allocation_bytes > budget_.maximum_live_bytes) {
+    ++metrics_.budget_refusals;
+    return std::nullopt;
+  }
+  if (!HasCapacityLocked(allocation_bytes)) {
+    EvictLocked(frame, submission, budget_.pressure_idle_frames,
+                budget_.maximum_evictions_per_maintenance, true,
+                allocation_bytes);
+  }
+  if (!HasCapacityLocked(allocation_bytes)) {
+    ++metrics_.budget_refusals;
+    return std::nullopt;
+  }
+
   const uint64_t resource_id = next_resource_id_++;
   BufferCacheEntry entry{resource_id, key, candidate_handle, allocation_bytes, frame, submission};
   live_.emplace(key, entry);
   keys_by_id_.emplace(resource_id, key);
   const TrackedResourceId tracked{TrackedResourceClass::kBuffer, resource_id};
   tracker_.Track(tracked, std::span<const PhysicalRange>(&key.range, 1));
-  ++metrics_.misses;
   ++metrics_.live_count;
   metrics_.live_bytes += allocation_bytes;
   return BufferCacheAcquireResult{entry, false};
@@ -81,6 +99,17 @@ size_t NativeBufferCache::RetireAll(uint64_t current_submission) {
   return retired_count;
 }
 
+size_t NativeBufferCache::Trim(uint64_t frame, uint64_t current_submission,
+                               bool under_pressure) {
+  const std::scoped_lock lock(mutex_);
+  ++metrics_.maintenance_passes;
+  return EvictLocked(
+      frame, current_submission,
+      under_pressure ? budget_.pressure_idle_frames
+                     : budget_.normal_idle_frames,
+      budget_.maximum_evictions_per_maintenance, false, 0);
+}
+
 std::vector<RetiredBuffer> NativeBufferCache::Collect(uint64_t completed_submission) {
   const std::scoped_lock lock(mutex_);
   std::vector<RetiredBuffer> ready;
@@ -114,6 +143,45 @@ void NativeBufferCache::RetireLocked(LiveMap::iterator entry, uint64_t current_s
   metrics_.live_bytes -= resource.allocation_bytes;
   ++metrics_.retired_count;
   metrics_.retired_bytes += resource.allocation_bytes;
+}
+
+size_t NativeBufferCache::EvictLocked(uint64_t frame,
+                                      uint64_t current_submission,
+                                      uint64_t idle_frames,
+                                      size_t maximum_count,
+                                      bool only_until_capacity,
+                                      uint64_t incoming_bytes) {
+  size_t evicted = 0;
+  while (evicted < maximum_count && !live_.empty() &&
+         (!only_until_capacity || !HasCapacityLocked(incoming_bytes))) {
+    auto oldest = live_.end();
+    for (auto candidate = live_.begin(); candidate != live_.end();
+         ++candidate) {
+      if (!IsIdleFor(frame, candidate->second.last_use_frame, idle_frames)) {
+        continue;
+      }
+      if (oldest == live_.end() ||
+          candidate->second.last_use_frame < oldest->second.last_use_frame ||
+          (candidate->second.last_use_frame == oldest->second.last_use_frame &&
+           candidate->second.resource_id < oldest->second.resource_id)) {
+        oldest = candidate;
+      }
+    }
+    if (oldest == live_.end()) {
+      break;
+    }
+    RetireLocked(oldest, current_submission);
+    ++evicted;
+    ++metrics_.budget_evictions;
+  }
+  return evicted;
+}
+
+bool NativeBufferCache::HasCapacityLocked(uint64_t incoming_bytes) const {
+  return incoming_bytes <= budget_.maximum_live_bytes &&
+         metrics_.live_count < budget_.maximum_live_count &&
+         metrics_.live_bytes <=
+             budget_.maximum_live_bytes - incoming_bytes;
 }
 
 }  // namespace pinyon_shift::native_renderer

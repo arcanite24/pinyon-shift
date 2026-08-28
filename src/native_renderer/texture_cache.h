@@ -7,6 +7,7 @@
 #include <span>
 #include <vector>
 
+#include "native_renderer/resource_cache_budget.h"
 #include "native_renderer/resource_identity.h"
 
 namespace pinyon_shift::native_renderer {
@@ -79,6 +80,11 @@ struct TextureCacheMetrics {
   uint64_t live_bytes = 0;
   uint64_t retired_count = 0;
   uint64_t retired_bytes = 0;
+  uint64_t state_count = 0;
+  uint64_t budget_evictions = 0;
+  uint64_t budget_refusals = 0;
+  uint64_t state_evictions = 0;
+  uint64_t maintenance_passes = 0;
 };
 
 // Backend-neutral texture decode and lifetime state. Decode work is requested
@@ -88,7 +94,8 @@ struct TextureCacheMetrics {
 class NativeTextureCache {
  public:
   explicit NativeTextureCache(PhysicalResourceTracker& tracker,
-                              TextureRetryPolicy retry_policy = {});
+                              TextureRetryPolicy retry_policy = {},
+                              NativeResourceCacheBudget budget = {});
 
   [[nodiscard]] TextureCacheRequest Request(const TextureResourceKey& key,
                                             uint64_t frame,
@@ -101,6 +108,9 @@ class NativeTextureCache {
       std::span<const ResourceInvalidation> invalidations,
       const PhysicalRange& written_range, uint64_t current_submission);
   size_t RetireAll(uint64_t current_submission);
+
+  size_t Trim(uint64_t frame, uint64_t current_submission,
+              bool under_pressure = false);
 
   [[nodiscard]] std::vector<RetiredTexture> Collect(
       uint64_t completed_submission);
@@ -125,16 +135,26 @@ class NativeTextureCache {
     uint64_t decode_ticket = 0;
     uint64_t next_retry_frame = 0;
     uint32_t attempt = 0;
+    uint64_t last_request_frame = 0;
     bool decode_in_flight = false;
     bool permanent_failure = false;
   };
 
   [[nodiscard]] Slot* FindSlotLocked(const TextureResourceKey& key);
   void RetireLiveLocked(Slot& slot, uint64_t current_submission);
+  size_t EvictLiveLocked(Slot* protected_slot, uint64_t frame,
+                         uint64_t current_submission, uint64_t idle_frames,
+                         size_t maximum_count, bool only_until_capacity,
+                         uint64_t incoming_bytes);
+  size_t PruneStateLocked(uint64_t frame, uint64_t idle_frames,
+                          size_t maximum_count);
+  [[nodiscard]] bool HasCapacityLocked(const Slot* replacing,
+                                       uint64_t incoming_bytes) const;
   [[nodiscard]] uint64_t RetryDelay(uint32_t attempt) const;
 
   PhysicalResourceTracker& tracker_;
   TextureRetryPolicy retry_policy_;
+  NativeResourceCacheBudget budget_;
   mutable std::mutex mutex_;
   std::vector<Slot> slots_;
   std::vector<RetiredTexture> retired_;

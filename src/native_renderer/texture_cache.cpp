@@ -26,14 +26,16 @@ std::optional<NativeTextureDescriptor> NativeTextureDescriptor::FromFetchWords(
 }
 
 NativeTextureCache::NativeTextureCache(PhysicalResourceTracker& tracker,
-                                       TextureRetryPolicy retry_policy)
-    : tracker_(tracker), retry_policy_(retry_policy) {
+                                       TextureRetryPolicy retry_policy,
+                                       NativeResourceCacheBudget budget)
+    : tracker_(tracker), retry_policy_(retry_policy), budget_(budget) {
   retry_policy_.maximum_attempts =
       std::max(retry_policy_.maximum_attempts, uint32_t(1));
   retry_policy_.base_delay_frames =
       std::max(retry_policy_.base_delay_frames, uint32_t(1));
   retry_policy_.maximum_delay_frames = std::max(
       retry_policy_.maximum_delay_frames, retry_policy_.base_delay_frames);
+  budget_.Normalize();
 }
 
 TextureCacheRequest NativeTextureCache::Request(const TextureResourceKey& key,
@@ -45,9 +47,21 @@ TextureCacheRequest NativeTextureCache::Request(const TextureResourceKey& key,
   const std::scoped_lock lock(mutex_);
   Slot* slot = FindSlotLocked(key);
   if (!slot) {
-    slots_.push_back({key.base, key.mips, key.fetch_signature});
+    if (slots_.size() >= budget_.maximum_state_count) {
+      PruneStateLocked(frame, budget_.pressure_idle_frames,
+                       budget_.maximum_evictions_per_maintenance);
+    }
+    if (slots_.size() >= budget_.maximum_state_count) {
+      ++metrics_.budget_refusals;
+      return {TextureRequestState::kRetryPending};
+    }
+    slots_.push_back(
+        {key.base, key.mips, key.fetch_signature, std::nullopt, std::nullopt,
+         0, 0, 0, frame});
     slot = &slots_.back();
+    metrics_.state_count = slots_.size();
   }
+  slot->last_request_frame = std::max(slot->last_request_frame, frame);
   if (slot->live && slot->live->key == key) {
     slot->live->last_use_frame = std::max(slot->live->last_use_frame, frame);
     slot->live->last_use_submission =
@@ -122,6 +136,24 @@ bool NativeTextureCache::Complete(uint64_t decode_ticket,
     return true;
   }
 
+  if (allocation_bytes > budget_.maximum_live_bytes) {
+    slot.decode_ticket = 0;
+    slot.next_retry_frame = frame + budget_.pressure_idle_frames;
+    ++metrics_.budget_refusals;
+    return false;
+  }
+  if (!HasCapacityLocked(&slot, allocation_bytes)) {
+    EvictLiveLocked(&slot, frame, submission, budget_.pressure_idle_frames,
+                    budget_.maximum_evictions_per_maintenance, true,
+                    allocation_bytes);
+  }
+  if (!HasCapacityLocked(&slot, allocation_bytes)) {
+    slot.decode_ticket = 0;
+    slot.next_retry_frame = frame + budget_.pressure_idle_frames;
+    ++metrics_.budget_refusals;
+    return false;
+  }
+
   if (slot.live) {
     RetireLiveLocked(slot, submission);
   }
@@ -188,6 +220,22 @@ size_t NativeTextureCache::RetireAll(uint64_t current_submission) {
   return count;
 }
 
+size_t NativeTextureCache::Trim(uint64_t frame,
+                                uint64_t current_submission,
+                                bool under_pressure) {
+  const std::scoped_lock lock(mutex_);
+  ++metrics_.maintenance_passes;
+  const uint64_t idle_frames =
+      under_pressure ? budget_.pressure_idle_frames
+                     : budget_.normal_idle_frames;
+  const size_t evicted = EvictLiveLocked(
+      nullptr, frame, current_submission, idle_frames,
+      budget_.maximum_evictions_per_maintenance, false, 0);
+  PruneStateLocked(frame, idle_frames,
+                   budget_.maximum_evictions_per_maintenance);
+  return evicted;
+}
+
 std::vector<RetiredTexture> NativeTextureCache::Collect(
     uint64_t completed_submission) {
   const std::scoped_lock lock(mutex_);
@@ -234,6 +282,81 @@ void NativeTextureCache::RetireLiveLocked(Slot& slot,
   metrics_.live_bytes -= texture.allocation_bytes;
   ++metrics_.retired_count;
   metrics_.retired_bytes += texture.allocation_bytes;
+}
+
+size_t NativeTextureCache::EvictLiveLocked(
+    Slot* protected_slot, uint64_t frame, uint64_t current_submission,
+    uint64_t idle_frames, size_t maximum_count, bool only_until_capacity,
+    uint64_t incoming_bytes) {
+  size_t evicted = 0;
+  while (evicted < maximum_count &&
+         (!only_until_capacity ||
+          !HasCapacityLocked(protected_slot, incoming_bytes))) {
+    Slot* oldest = nullptr;
+    for (Slot& candidate : slots_) {
+      if (&candidate == protected_slot || !candidate.live ||
+          !IsIdleFor(frame, candidate.live->last_use_frame, idle_frames)) {
+        continue;
+      }
+      if (!oldest || candidate.live->last_use_frame <
+                         oldest->live->last_use_frame ||
+          (candidate.live->last_use_frame == oldest->live->last_use_frame &&
+           candidate.live->resource_id < oldest->live->resource_id)) {
+        oldest = &candidate;
+      }
+    }
+    if (!oldest) {
+      break;
+    }
+    RetireLiveLocked(*oldest, current_submission);
+    ++evicted;
+    ++metrics_.budget_evictions;
+  }
+  return evicted;
+}
+
+size_t NativeTextureCache::PruneStateLocked(uint64_t frame,
+                                            uint64_t idle_frames,
+                                            size_t maximum_count) {
+  size_t evicted = 0;
+  while (evicted < maximum_count) {
+    auto oldest = slots_.end();
+    for (auto candidate = slots_.begin(); candidate != slots_.end();
+         ++candidate) {
+      if (candidate->live || candidate->decode_in_flight ||
+          !IsIdleFor(frame, candidate->last_request_frame, idle_frames)) {
+        continue;
+      }
+      if (oldest == slots_.end() ||
+          candidate->last_request_frame < oldest->last_request_frame) {
+        oldest = candidate;
+      }
+    }
+    if (oldest == slots_.end()) {
+      break;
+    }
+    slots_.erase(oldest);
+    ++evicted;
+    ++metrics_.state_evictions;
+  }
+  metrics_.state_count = slots_.size();
+  return evicted;
+}
+
+bool NativeTextureCache::HasCapacityLocked(const Slot* replacing,
+                                           uint64_t incoming_bytes) const {
+  uint64_t replaced_bytes = 0;
+  uint64_t replaced_count = 0;
+  if (replacing && replacing->live) {
+    replaced_bytes = replacing->live->allocation_bytes;
+    replaced_count = 1;
+  }
+  if (incoming_bytes > budget_.maximum_live_bytes ||
+      metrics_.live_count - replaced_count >= budget_.maximum_live_count) {
+    return false;
+  }
+  return metrics_.live_bytes - replaced_bytes <=
+         budget_.maximum_live_bytes - incoming_bytes;
 }
 
 uint64_t NativeTextureCache::RetryDelay(uint32_t attempt) const {
