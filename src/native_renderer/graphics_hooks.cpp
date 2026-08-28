@@ -26,6 +26,7 @@
 #include <rex/system/kernel_state.h>
 
 #include "native_renderer/graphics_hooks.h"
+#include "native_renderer/resource_identity.h"
 #include "pinyon_shift_diagnostics.h"
 
 REXCVAR_DEFINE_BOOL(
@@ -441,10 +442,12 @@ void TryFingerprintCandidateTextures(
       continue;
     }
     const uint64_t base_address =
-        observation.texture_fetch_addresses[fetch] & UINT64_C(0x1FFFFFFF);
+        pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+            observation.texture_fetch_addresses[fetch]);
     const uint64_t base_length = observation.texture_fetch_base_lengths[fetch];
     const uint64_t mip_address =
-        observation.texture_fetch_mip_addresses[fetch] & UINT64_C(0x1FFFFFFF);
+        pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+            observation.texture_fetch_mip_addresses[fetch]);
     const uint64_t mip_length = observation.texture_fetch_mip_lengths[fetch];
     if (!base_length || base_length > kMaximumTextureScanResourceBytes ||
         mip_length > kMaximumTextureScanResourceBytes ||
@@ -569,7 +572,8 @@ void TryScanCandidateIndices(
   const uint64_t required_bytes =
       uint64_t(observation.index_count) * element_bytes;
   const uint64_t physical_address =
-      uint64_t(observation.index_buffer_address & 0x1FFFFFFF);
+      uint64_t(pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+          observation.index_buffer_address));
   if (required_bytes > kMaximumIndexScanBytes ||
       required_bytes > observation.index_buffer_length) {
     reject("index_allocation_too_small");
@@ -783,8 +787,10 @@ void TryCaptureReplaySnapshot(
   const uint64_t vertex_bytes = binding.size;
   constexpr uint64_t kMaximumVertexSnapshotBytes = UINT64_C(64) << 20;
   const uint64_t index_address =
-      uint64_t(observation.index_buffer_address & 0x1FFFFFFF);
-  const uint64_t vertex_address = uint64_t(binding.address & 0x1FFFFFFF);
+      uint64_t(pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+          observation.index_buffer_address));
+  const uint64_t vertex_address =
+      pinyon_shift::native_renderer::CanonicalPhysicalAddress(binding.address);
   if (!vertex_bytes || index_bytes > kMaximumIndexScanBytes ||
       index_bytes > observation.index_buffer_length ||
       vertex_bytes > kMaximumVertexSnapshotBytes ||
@@ -810,9 +816,11 @@ void TryCaptureReplaySnapshot(
         observation.texture_fetch_base_lengths[fetch];
     const uint64_t mip_bytes = observation.texture_fetch_mip_lengths[fetch];
     const uint64_t base_address =
-        observation.texture_fetch_addresses[fetch] & 0x1FFFFFFF;
+        pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+            observation.texture_fetch_addresses[fetch]);
     const uint64_t mip_address =
-        observation.texture_fetch_mip_addresses[fetch] & 0x1FFFFFFF;
+        pinyon_shift::native_renderer::CanonicalPhysicalAddress(
+            observation.texture_fetch_mip_addresses[fetch]);
     if (!base_bytes || base_bytes > kMaximumTextureScanResourceBytes ||
         mip_bytes > kMaximumTextureScanResourceBytes ||
         base_address + base_bytes > kPhysicalApertureSize ||
