@@ -564,6 +564,19 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("observed < 16", texture_bridge)
         self.assertIn("last_summary_submission_ + 300", texture_bridge)
 
+        resolve_resource_patch = (
+            ROOT
+            / "patches/rexglue/0066-d3d12-native-resolve-provenance-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsNativeResolveObserver", resolve_resource_patch)
+        self.assertIn("SetNativeResolveObserver", resolve_resource_patch)
+        self.assertIn("native_resolve_observer", resolve_resource_patch)
+        self.assertIn("guest_row_pitch_bytes", resolve_resource_patch)
+        self.assertIn("copy_observer || native_resolve_observer", resolve_resource_patch)
+        self.assertIn("current_submission", resolve_resource_patch)
+        self.assertIn("completed_submission", resolve_resource_patch)
+        self.assertNotIn("SetDrawSuppression", resolve_resource_patch)
+
         visual_marker_patch = (
             ROOT / "patches/rexglue/0060-d3d12-isolated-draw-debug-markers.patch"
         ).read_text(encoding="utf-8")

@@ -4,6 +4,7 @@
 #include <rex/system/interfaces/graphics.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -13,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "native_renderer/render_target_bridge.h"
 #include "native_renderer/resource_identity.h"
 #include "native_renderer/texture_cache.h"
 #include "pinyon_shift_diagnostics.h"
@@ -25,12 +27,17 @@ namespace {
 
 using NativeObservation = rex::system::GraphicsNativeTextureSetObservation;
 using NativeResource = rex::system::GraphicsNativeTextureResourceObservation;
+using ResolveObservation = rex::system::GraphicsCopyObservation;
 
 constexpr uint32_t kRetainedPassTextureFormat =
     pinyon_shift::native_renderer::kXenosTextureFormatDxn;
 constexpr uint32_t kRetainedPassTextureWidth = 256;
 constexpr uint32_t kRetainedPassTextureHeight = 64;
 constexpr uint32_t kRetainedPassTexturePitch = 256;
+constexpr size_t kResolveRecordLimit = 4096;
+constexpr size_t kProducerResourceLimit = 64;
+constexpr uint64_t kProducerByteLimit = 128 * 1024 * 1024;
+constexpr uint64_t kProducerStaleSubmissions = 600;
 
 uint64_t HashFetchWords(const uint32_t words[6]) {
   uint64_t hash = UINT64_C(14695981039346656037);
@@ -53,15 +60,54 @@ bool IsRetainedPassCandidate(const NativeResource& resource) {
 
 class TextureResourceBridge {
  public:
-  void Observe(const NativeObservation& observation) {
-    bool has_candidate = false;
-    for (uint32_t resource_index = 0; resource_index < observation.resource_count;
-         ++resource_index) {
-      has_candidate |= IsRetainedPassCandidate(observation.resources[resource_index]);
-    }
-    if (!has_candidate && observed_resource_count_.load(std::memory_order_relaxed) >= 16) {
+  void ObserveResolve(const ResolveObservation& observation) {
+    if (!observation.succeeded || !observation.written_length) {
       return;
     }
+    const auto destination =
+        pinyon_shift::native_renderer::PhysicalRange::FromGraphicsAddress(
+            observation.written_address, observation.written_length);
+    if (!destination) {
+      RecordFailureOnce("invalid_resolve_range");
+      return;
+    }
+
+    const std::scoped_lock lock(mutex_);
+    ReleaseCollected(render_target_bridge_.Collect(
+        observation.completed_submission));
+    render_target_bridge_.RecordGpuOutput(*destination,
+                                          observation.current_submission);
+
+    const bool is_depth = (observation.rb_copy_control & 0x7u) >= 4u;
+    auto record = std::find_if(
+        resolve_records_.begin(), resolve_records_.end(),
+        [&](const ResolveRecord& candidate) {
+          return candidate.destination == *destination;
+        });
+    if (record == resolve_records_.end()) {
+      if (resolve_records_.size() >= kResolveRecordLimit) {
+        resolve_records_.erase(resolve_records_.begin());
+        ++resolve_record_evictions_;
+      }
+      resolve_records_.push_back(
+          {*destination, observation.current_submission, is_depth});
+    } else {
+      *record = {*destination, observation.current_submission, is_depth};
+    }
+    ++resolve_observation_count_;
+
+    if (resolve_observation_count_ <= 16) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.resolve_bridge.observed",
+          {{"address", std::to_string(destination->address)},
+           {"bytes", std::to_string(destination->length)},
+           {"attachment", is_depth ? "depth" : "color"},
+           {"submission", std::to_string(observation.current_submission)},
+           {"xenos_resolve", "preserved"}});
+    }
+  }
+
+  void Observe(const NativeObservation& observation) {
     const std::scoped_lock lock(mutex_);
     ++observation_count_;
     if (observation.backend != rex::system::GraphicsNativeTextureBackend::kD3D12) {
@@ -70,6 +116,8 @@ class TextureResourceBridge {
     }
 
     ReleaseCollected(cache_.Collect(observation.completed_submission));
+    ReleaseCollected(
+        render_target_bridge_.Collect(observation.completed_submission));
     for (uint32_t resource_index = 0; resource_index < observation.resource_count;
          ++resource_index) {
       const NativeResource& resource = observation.resources[resource_index];
@@ -88,12 +136,14 @@ class TextureResourceBridge {
       if (IsRetainedPassCandidate(resource)) {
         Retain(resource, observation);
       }
+      ImportResolveProducer(resource, observation);
     }
 
     if (resource_count_ && (!last_summary_submission_ ||
                             observation.current_submission >= last_summary_submission_ + 300)) {
       last_summary_submission_ = observation.current_submission;
       const auto metrics = cache_.metrics();
+      const auto target_metrics = render_target_bridge_.metrics();
       pinyon_shift::diagnostics::RecordEvent(
           "native_renderer.texture_bridge.summary",
           {{"observations", std::to_string(observation_count_)},
@@ -103,6 +153,22 @@ class TextureResourceBridge {
            {"retired", std::to_string(metrics.retired_count)},
            {"hits", std::to_string(metrics.hits)},
            {"misses", std::to_string(metrics.misses)},
+           {"resolve_observations", std::to_string(resolve_observation_count_)},
+           {"producer_publications",
+            std::to_string(target_metrics.resolve_publications)},
+           {"producer_deduplications",
+            std::to_string(producer_deduplications_)},
+           {"producer_budget_evictions",
+            std::to_string(producer_budget_evictions_)},
+           {"producer_budget_refusals",
+            std::to_string(producer_budget_refusals_)},
+           {"producer_hits", std::to_string(target_metrics.bridge_hits)},
+           {"producer_refusals",
+            std::to_string(target_metrics.bridge_refusals)},
+           {"target_live", std::to_string(target_metrics.live_count)},
+           {"target_live_bytes", std::to_string(target_metrics.live_bytes)},
+           {"resolve_record_evictions",
+            std::to_string(resolve_record_evictions_)},
            {"submission", std::to_string(observation.current_submission)},
            {"completed_submission", std::to_string(observation.completed_submission)},
            {"xenos_draw", "preserved"}});
@@ -112,18 +178,36 @@ class TextureResourceBridge {
   void Shutdown() {
     const std::scoped_lock lock(mutex_);
     cache_.RetireAll(0);
+    render_target_bridge_.RetireAll(0);
     ReleaseCollected(cache_.Collect(UINT64_MAX));
+    ReleaseCollected(render_target_bridge_.Collect(UINT64_MAX));
     const auto metrics = cache_.metrics();
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.texture_bridge.stopped",
         {{"observations", std::to_string(observation_count_)},
          {"resources", std::to_string(resource_count_)},
+         {"resolve_observations", std::to_string(resolve_observation_count_)},
+         {"producer_resources", std::to_string(producer_resource_count_)},
          {"live", std::to_string(metrics.live_count)},
          {"retained_refs", std::to_string(RetainedReferenceCount())},
          {"xenos_draw", "preserved"}});
   }
 
  private:
+  struct ResolveRecord {
+    pinyon_shift::native_renderer::PhysicalRange destination;
+    uint64_t submission = 0;
+    bool is_depth = false;
+  };
+
+  struct ProducerResource {
+    pinyon_shift::native_renderer::NativeRenderTargetKey key;
+    pinyon_shift::native_renderer::PhysicalRange destination;
+    uint64_t last_resolve_submission = 0;
+    uint64_t last_seen_submission = 0;
+    uint64_t allocation_bytes = 0;
+  };
+
   struct RetainedReference {
     rex::system::GraphicsNativeTextureRelease release = nullptr;
     uint64_t count = 0;
@@ -197,6 +281,176 @@ class TextureResourceBridge {
     }
   }
 
+  void ImportResolveProducer(const NativeResource& resource,
+                             const NativeObservation& observation) {
+    if (!resource.resource || !resource.retain || !resource.release ||
+        !resource.host_resource_format || !resource.host_allocation_bytes ||
+        !resource.base_length || !resource.guest_row_pitch_bytes ||
+        !resource.guest_width || !resource.guest_height ||
+        !resource.host_width || resource.host_width > UINT32_MAX ||
+        !resource.host_height || resource.host_depth_or_array_size != 1 ||
+        !resource.host_mip_levels) {
+      return;
+    }
+    const auto base =
+        pinyon_shift::native_renderer::PhysicalRange::FromGraphicsAddress(
+            resource.base_address, resource.base_length);
+    if (!base) {
+      return;
+    }
+    const auto resolve = std::find_if(
+        resolve_records_.rbegin(), resolve_records_.rend(),
+        [&](const ResolveRecord& candidate) {
+          return candidate.destination.address <= base->address &&
+                 candidate.destination.end_exclusive() >=
+                     base->end_exclusive();
+        });
+    if (resolve == resolve_records_.rend()) {
+      return;
+    }
+
+    using pinyon_shift::native_renderer::NativeRenderTargetUsage;
+    const NativeRenderTargetUsage attachment =
+        resolve->is_depth ? NativeRenderTargetUsage::kDepth
+                          : NativeRenderTargetUsage::kColor;
+    const pinyon_shift::native_renderer::NativeRenderTargetKey key{
+        resource.host_resource_format, uint32_t(resource.host_width),
+        resource.host_height, 1,
+        attachment | NativeRenderTargetUsage::kShaderResource};
+    const uint64_t handle = reinterpret_cast<uint64_t>(resource.resource);
+    auto existing = producer_resources_.find(handle);
+    if (existing != producer_resources_.end() && existing->second.key == key &&
+        existing->second.allocation_bytes ==
+            resource.host_allocation_bytes &&
+        existing->second.destination == *base &&
+        existing->second.last_resolve_submission >= resolve->submission) {
+      existing->second.last_seen_submission = observation.current_submission;
+      ++producer_deduplications_;
+      return;
+    }
+    if (existing != producer_resources_.end() &&
+        (existing->second.key != key ||
+         existing->second.allocation_bytes !=
+             resource.host_allocation_bytes ||
+         existing->second.destination != *base)) {
+      RetireProducer(handle, observation.current_submission);
+    }
+    PruneProducers(observation.completed_submission,
+                   observation.current_submission, handle,
+                   resource.host_allocation_bytes);
+    existing = producer_resources_.find(handle);
+    if (existing == producer_resources_.end() &&
+        (producer_resources_.size() >= kProducerResourceLimit ||
+         resource.host_allocation_bytes > kProducerByteLimit ||
+         producer_live_bytes_ >
+             kProducerByteLimit - resource.host_allocation_bytes)) {
+      ++producer_budget_refusals_;
+      return;
+    }
+    const auto imported = render_target_bridge_.ImportObserved(
+        key, handle, resource.host_allocation_bytes, observation_count_,
+        observation.current_submission);
+    if (!imported) {
+      RecordFailureOnce("producer_import_failed");
+      return;
+    }
+    if (!imported->hit) {
+      resource.retain(resource.resource);
+      auto& retained = retained_[handle];
+      retained.release = resource.release;
+      ++retained.count;
+      producer_resources_[handle] =
+          {key, *base, 0, observation.current_submission,
+           resource.host_allocation_bytes};
+      producer_live_bytes_ += resource.host_allocation_bytes;
+    }
+
+    const pinyon_shift::native_renderer::NativeResolveRegion region{
+        *base, 0, 0, resource.guest_width, resource.guest_height,
+        resource.guest_row_pitch_bytes, 0, 0};
+    if (!render_target_bridge_.PublishResolve(handle, region,
+                                               resolve->submission) ||
+        !render_target_bridge_.Release(handle,
+                                       observation.current_submission)) {
+      RetireProducer(handle, observation.current_submission);
+      ReleaseCollected(render_target_bridge_.Collect(
+          observation.completed_submission));
+      RecordFailureOnce("producer_publish_failed");
+      return;
+    }
+    ++producer_resource_count_;
+    auto& tracked = producer_resources_[handle];
+    tracked.key = key;
+    tracked.destination = *base;
+    tracked.last_resolve_submission = resolve->submission;
+    tracked.last_seen_submission = observation.current_submission;
+    if (producer_resource_count_ <= 16) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.resolve_bridge.producer",
+          {{"address", std::to_string(base->address)},
+           {"bytes", std::to_string(base->length)},
+           {"host_format", std::to_string(resource.host_resource_format)},
+           {"width", std::to_string(resource.guest_width)},
+           {"height", std::to_string(resource.guest_height)},
+           {"row_pitch", std::to_string(resource.guest_row_pitch_bytes)},
+           {"pool", imported->hit ? "hit" : "miss"},
+           {"ownership", "retained"},
+           {"xenos_draw", "preserved"}});
+    }
+  }
+
+  void PruneProducers(uint64_t completed_submission,
+                      uint64_t current_submission,
+                      uint64_t protected_handle,
+                      uint64_t incoming_bytes) {
+    std::vector<uint64_t> stale;
+    for (const auto& [handle, producer] : producer_resources_) {
+      if (handle != protected_handle &&
+          producer.last_seen_submission + kProducerStaleSubmissions <=
+              completed_submission) {
+        stale.push_back(handle);
+      }
+    }
+    for (uint64_t handle : stale) {
+      RetireProducer(handle, current_submission);
+    }
+    while (!producer_resources_.empty() &&
+           (producer_resources_.size() >= kProducerResourceLimit ||
+            incoming_bytes > kProducerByteLimit ||
+            producer_live_bytes_ > kProducerByteLimit - incoming_bytes)) {
+      auto oldest = producer_resources_.end();
+      for (auto candidate = producer_resources_.begin();
+           candidate != producer_resources_.end(); ++candidate) {
+        if (candidate->first == protected_handle) {
+          continue;
+        }
+        if (oldest == producer_resources_.end() ||
+            candidate->second.last_seen_submission <
+                oldest->second.last_seen_submission) {
+          oldest = candidate;
+        }
+      }
+      if (oldest == producer_resources_.end()) {
+        break;
+      }
+      const uint64_t handle = oldest->first;
+      RetireProducer(handle, current_submission);
+      ++producer_budget_evictions_;
+    }
+  }
+
+  void RetireProducer(uint64_t handle, uint64_t current_submission) {
+    auto producer = producer_resources_.find(handle);
+    if (producer == producer_resources_.end()) {
+      return;
+    }
+    if (!render_target_bridge_.Retire(handle, current_submission)) {
+      RecordFailureOnce("producer_retire_failed");
+    }
+    producer_live_bytes_ -= producer->second.allocation_bytes;
+    producer_resources_.erase(producer);
+  }
+
   void ReleaseCollected(
       const std::vector<pinyon_shift::native_renderer::RetiredTexture>& collected) {
     for (const auto& texture : collected) {
@@ -206,6 +460,22 @@ class TextureResourceBridge {
         continue;
       }
       retained->second.release(reinterpret_cast<void*>(texture.handle));
+      if (!--retained->second.count) {
+        retained_.erase(retained);
+      }
+    }
+  }
+
+  void ReleaseCollected(const std::vector<
+                        pinyon_shift::native_renderer::RetiredRenderTarget>&
+                            collected) {
+    for (const auto& target : collected) {
+      auto retained = retained_.find(target.handle);
+      if (retained == retained_.end() || !retained->second.count) {
+        RecordFailureOnce("missing_target_reference");
+        continue;
+      }
+      retained->second.release(reinterpret_cast<void*>(target.handle));
       if (!--retained->second.count) {
         retained_.erase(retained);
       }
@@ -233,10 +503,21 @@ class TextureResourceBridge {
   std::mutex mutex_;
   pinyon_shift::native_renderer::PhysicalResourceTracker tracker_;
   pinyon_shift::native_renderer::NativeTextureCache cache_{tracker_};
+  pinyon_shift::native_renderer::NativeRenderTargetBridge
+      render_target_bridge_;
   std::unordered_map<uint64_t, RetainedReference> retained_;
+  std::unordered_map<uint64_t, ProducerResource> producer_resources_;
+  std::vector<ResolveRecord> resolve_records_;
   std::atomic<uint64_t> observed_resource_count_{};
   uint64_t observation_count_ = 0;
   uint64_t resource_count_ = 0;
+  uint64_t resolve_observation_count_ = 0;
+  uint64_t producer_resource_count_ = 0;
+  uint64_t producer_live_bytes_ = 0;
+  uint64_t producer_deduplications_ = 0;
+  uint64_t producer_budget_evictions_ = 0;
+  uint64_t producer_budget_refusals_ = 0;
+  uint64_t resolve_record_evictions_ = 0;
   uint64_t last_summary_submission_ = 0;
   bool failure_recorded_ = false;
 };
@@ -246,6 +527,12 @@ std::unique_ptr<TextureResourceBridge> g_texture_resource_bridge;
 void ObserveNativeTextures(const NativeObservation& observation) {
   if (g_texture_resource_bridge) {
     g_texture_resource_bridge->Observe(observation);
+  }
+}
+
+void ObserveNativeResolve(const ResolveObservation& observation) {
+  if (g_texture_resource_bridge) {
+    g_texture_resource_bridge->ObserveResolve(observation);
   }
 }
 
@@ -259,6 +546,7 @@ void InstallTextureResourceBridge(rex::system::IGraphicsSystem* graphics_system)
   }
   g_texture_resource_bridge = std::make_unique<TextureResourceBridge>();
   graphics_system->SetNativeTextureSetObserver(&ObserveNativeTextures);
+  graphics_system->SetNativeResolveObserver(&ObserveNativeResolve);
   diagnostics::RecordEvent("native_renderer.texture_bridge.installed",
                            {{"backend", "d3d12"},
                             {"ownership", "explicit_retain_release"},
@@ -269,6 +557,7 @@ void InstallTextureResourceBridge(rex::system::IGraphicsSystem* graphics_system)
 void UninstallTextureResourceBridge(rex::system::IGraphicsSystem* graphics_system) {
   if (graphics_system) {
     graphics_system->SetNativeTextureSetObserver(nullptr);
+    graphics_system->SetNativeResolveObserver(nullptr);
   }
   if (g_texture_resource_bridge) {
     g_texture_resource_bridge->Shutdown();

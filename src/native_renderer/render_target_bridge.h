@@ -98,6 +98,8 @@ struct RenderTargetBridgeMetrics {
   uint64_t bridge_hits = 0;
   uint64_t bridge_refusals = 0;
   uint64_t resolve_publications = 0;
+  uint64_t gpu_output_records = 0;
+  uint64_t known_output_overflows = 0;
   uint64_t guest_invalidations = 0;
   uint64_t live_count = 0;
   uint64_t live_bytes = 0;
@@ -112,6 +114,8 @@ struct RenderTargetBridgeMetrics {
 // incompatible.
 class NativeRenderTargetBridge {
  public:
+  static constexpr size_t kKnownGpuOutputLimit = 4096;
+
   // candidate_handle and allocation_bytes are consumed only on a pool miss.
   // The backend retains ownership of an unused candidate supplied on a hit.
   [[nodiscard]] std::optional<NativeRenderTargetAcquireResult> Acquire(
@@ -119,6 +123,15 @@ class NativeRenderTargetBridge {
       NativeRenderTargetHandle candidate_handle, uint64_t allocation_bytes,
       uint64_t frame, uint64_t current_submission,
       uint64_t completed_submission);
+
+  // Imports an exact backend-owned allocation. Re-observing the same handle
+  // may check it out again even while an existing mapping pins it because this
+  // is continued use of that allocation, never pool alias reuse. The caller
+  // retains the backend resource only when this returns a miss.
+  [[nodiscard]] std::optional<NativeRenderTargetAcquireResult> ImportObserved(
+      const NativeRenderTargetKey &key,
+      NativeRenderTargetHandle observed_handle, uint64_t allocation_bytes,
+      uint64_t frame, uint64_t current_submission);
 
   bool Release(NativeRenderTargetHandle handle, uint64_t current_submission);
 
@@ -128,6 +141,11 @@ class NativeRenderTargetBridge {
   bool PublishResolve(NativeRenderTargetHandle handle,
                       const NativeResolveRegion &region,
                       uint64_t producer_submission);
+
+  // Records a successful GPU write before its concrete sampled allocation is
+  // observed. Any older overlapping producer becomes stale immediately.
+  bool RecordGpuOutput(const PhysicalRange &range,
+                       uint64_t producer_submission);
 
   [[nodiscard]] NativeProducerLookup LookupProducer(
       const NativeProducerRequest &request, uint64_t frame,
@@ -167,13 +185,14 @@ class NativeRenderTargetBridge {
   void RemoveMappingsForHandleLocked(NativeRenderTargetHandle handle,
                                      bool preserve_known_output);
   void RemoveMappingLocked(size_t mapping_index);
-  void RememberKnownOutputLocked(const PhysicalRange &range);
+  bool RememberKnownOutputLocked(const PhysicalRange &range);
   void ForgetKnownOutputLocked(const PhysicalRange &range);
 
   mutable std::mutex mutex_;
   std::vector<TargetEntry> targets_;
   std::vector<ResolveMapping> mappings_;
   std::vector<PhysicalRange> known_gpu_outputs_;
+  bool known_output_overflow_ = false;
   std::vector<RetiredRenderTarget> retired_;
   RenderTargetBridgeMetrics metrics_;
 };
