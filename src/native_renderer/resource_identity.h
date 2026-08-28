@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -54,6 +55,10 @@ struct BufferResourceKey {
   ResourceFingerprint content;
 
   bool operator==(const BufferResourceKey&) const = default;
+};
+
+struct BufferResourceKeyHash {
+  [[nodiscard]] size_t operator()(const BufferResourceKey& key) const;
 };
 
 struct TextureResourceKey {
