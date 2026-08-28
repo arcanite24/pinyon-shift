@@ -1,0 +1,154 @@
+diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+--- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
++++ b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+@@ -111,7 +111,7 @@ class DxbcShaderTranslator : public ShaderTranslator {
+     // If anything in this is structure is changed in a way not compatible with
+     // the previous layout, invalidate the pipeline storages by increasing this
+     // version number (0xYYYYMMDD)!
+-    static constexpr uint32_t kVersion = 0x20260226;
++    static constexpr uint32_t kVersion = 0x20260827;
+
+     enum class DepthStencilMode : uint32_t {
+       kNoModifiers,
+@@ -307,6 +307,9 @@ class DxbcShaderTranslator : public ShaderTranslator {
+
+     // Whether each texture in fetch constants is resolution-scaled.
+     uint32_t textures_resolution_scaled;
++    // Bit per fetch constant. Normalized fixed-point point samples are rounded
++    // to the 16-fractional-bit precision observed on Xenos.
++    uint32_t textures_normalized_fixed_point;
+     // Log2 of X and Y sample size. Used for alpha to mask, and for MSAA with
+     // ROV, this is used for EDRAM address calculation.
+     uint32_t sample_count_log2[2];
+@@ -414,6 +417,7 @@ class DxbcShaderTranslator : public ShaderTranslator {
+       kTextureSwizzledSigns,
+
+       kTexturesResolutionScaled,
++      kTexturesNormalizedFixedPoint,
+       kSampleCountLog2,
+       kAlphaTestReference,
+
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -121,3 +121,10 @@ class TextureCache {
+     return binding ? binding->swizzled_signs : kSwizzledSignsUnsigned;
+   }
++  bool IsActiveTextureNormalizedFixedPoint(uint32_t fetch_constant_index) const {
++    const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
++    if (!binding || !binding->normalized_fixed_point) {
++      return false;
++    }
++    return true;
++  }
+   bool IsActiveTextureResolutionScaled(uint32_t fetch_constant_index) const {
+@@ -457,2 +464,5 @@ class TextureCache {
+     uint8_t swizzled_signs;
++    // Whether the fetch requests normalized fixed-point output. Float texture
++    // formats are excluded even though their num_format bit is normally zero.
++    bool normalized_fixed_point;
+     // Unsigned version of the texture (or signed if they have the same data).
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3825,6 +3825,7 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+
+   // Texture signedness / gamma.
+   uint32_t textures_resolution_scaled = 0;
++  uint32_t textures_normalized_fixed_point = 0;
+   uint32_t textures_remaining = used_texture_mask;
+   uint32_t texture_index;
+   while (rex::bit_scan_forward(textures_remaining, &texture_index)) {
+@@ -3838,9 +3839,16 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+     texture_signs_uint = (texture_signs_uint & ~texture_signs_mask) | texture_signs_shifted;
+     textures_resolution_scaled |=
+         uint32_t(texture_cache_->IsActiveTextureResolutionScaled(texture_index)) << texture_index;
++    textures_normalized_fixed_point |=
++        uint32_t(texture_cache_->IsActiveTextureNormalizedFixedPoint(texture_index))
++        << texture_index;
+   }
+   dirty |= system_constants_.textures_resolution_scaled != textures_resolution_scaled;
+   system_constants_.textures_resolution_scaled = textures_resolution_scaled;
++  dirty |= system_constants_.textures_normalized_fixed_point !=
++           textures_normalized_fixed_point;
++  system_constants_.textures_normalized_fixed_point =
++      textures_normalized_fixed_point;
+
+   // Log2 of sample count, for alpha to mask and with ROV, for EDRAM address
+   // calculation with MSAA.
+diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
+--- a/src/graphics/pipeline/shader/dxbc_translator.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator.cpp
+@@ -1956,2 +1956,3 @@ const DxbcShaderTranslator::SystemConstantRdef DxbcShaderTranslator::system_cons
+     {"xe_textures_resolution_scaled", ShaderRdefTypeIndex::kUint, sizeof(uint32_t)},
++    {"xe_textures_normalized_fixed_point", ShaderRdefTypeIndex::kUint, sizeof(uint32_t)},
+     {"xe_sample_count_log2", ShaderRdefTypeIndex::kUint2, sizeof(uint32_t) * 2},
+diff --git a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
+--- a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
+@@ -1945,4 +1945,38 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
+     if (signs_temp != UINT32_MAX) {
+       PopSystemTemp();
+     }
++
++    // Xenos exposes normalized fixed-point point samples at 16 fractional
++    // bits. Host UNORM sampling may retain slightly more precision, placing
++    // threshold comparisons on the wrong side (visible as the striped block
++    // below vehicles in Forza Horizon). Keep this deliberately restricted to
++    // explicit point-filter fetches; runtime fetch-constant sampler state has
++    // not been validated for this behavior.
++    if (instr.attributes.mag_filter == xenos::TextureFilter::kPoint &&
++        instr.attributes.min_filter == xenos::TextureFilter::kPoint &&
++        instr.attributes.mip_filter == xenos::TextureFilter::kPoint &&
++        instr.attributes.aniso_filter == xenos::AnisoFilter::kDisabled) {
++      uint32_t normalized_fixed_point_temp = PushSystemTemp();
++      a_.OpAnd(
++          dxbc::Dest::R(normalized_fixed_point_temp, 0b0001),
++          LoadSystemConstant(
++              SystemConstants::Index::kTexturesNormalizedFixedPoint,
++              offsetof(SystemConstants, textures_normalized_fixed_point),
++              dxbc::Src::kXXXX),
++          dxbc::Src::LU(UINT32_C(1) << tfetch_index));
++      a_.OpIf(true,
++              dxbc::Src::R(normalized_fixed_point_temp, dxbc::Src::kXXXX));
++      a_.OpMul(
++          dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
++          dxbc::Src::R(system_temp_result_), dxbc::Src::LF(65536.0f));
++      a_.OpRoundNE(
++          dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
++          dxbc::Src::R(system_temp_result_));
++      a_.OpMul(
++          dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
++          dxbc::Src::R(system_temp_result_),
++          dxbc::Src::LF(1.0f / 65536.0f));
++      a_.OpEndIf();
++      PopSystemTemp();
++    }
+   }
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -494,2 +494,23 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+     BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
++    switch (fetch.format) {
++      case xenos::TextureFormat::k_16_FLOAT:
++      case xenos::TextureFormat::k_16_16_FLOAT:
++      case xenos::TextureFormat::k_16_16_16_16_FLOAT:
++      case xenos::TextureFormat::k_32_FLOAT:
++      case xenos::TextureFormat::k_32_32_FLOAT:
++      case xenos::TextureFormat::k_32_32_32_FLOAT:
++      case xenos::TextureFormat::k_32_32_32_32_FLOAT:
++      case xenos::TextureFormat::k_24_8_FLOAT:
++      case xenos::TextureFormat::k_2_10_10_10_FLOAT_EDRAM:
++        binding.normalized_fixed_point = false;
++        break;
++      default:
++        // Keep the Xenos Q16 point-sample behavior scoped to unsigned fixed
++        // fetches. Signed, biased, gamma and mixed-sign fetches may use the
++        // same num_format encoding but have different conversion semantics.
++        binding.normalized_fixed_point =
++            fetch.num_format == 0 &&
++            binding.swizzled_signs == kSwizzledSignsUnsigned;
++        break;
++    }
+     texture_bindings_in_sync_ |= index_bit;

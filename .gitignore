@@ -22,6 +22,8 @@ private/
 !/docs/TROUBLESHOOTING.md
 !/docs/native-renderer/
 !/docs/native-renderer/**
+!/docs/upstream/
+!/docs/upstream/*.md
 
 # Build output and tooling state.
 build/
