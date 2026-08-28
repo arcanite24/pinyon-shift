@@ -416,6 +416,13 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE", scanner)
         self.assertIn("kMaximumTextureScanTotalBytes", scanner)
         self.assertIn('"bounded_texture_only"', scanner)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE", scanner)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR", scanner)
+        self.assertIn("kMaximumVertexSnapshotBytes", scanner)
+        self.assertIn('"bounded_snapshot_only"', scanner)
+        self.assertIn('"native_upload", "false"', scanner)
+        self.assertIn('"native_draw", "false"', scanner)
+        self.assertIn('"suppression_eligible", "false"', scanner)
         self.assertNotIn("SetDrawSuppression", scanner)
 
         draw_state_planner = (
