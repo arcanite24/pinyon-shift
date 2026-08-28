@@ -97,11 +97,22 @@ that keeps suppression disabled.
 
 ## Qualification status
 
-The implementation and clean-build checks belong to the NR-00D pull request.
-A representative AppData-backed runtime capture must still record resolve and
-dependency counts, zero crash/GPU-loss events, bounded overflow values, and a
-normal exit before this ledger can carry a runtime snapshot.
+The NR-00D implementation was qualified with AppData-backed session
+`20260828T002134Z-p41584` on clean commit `d9a0d60`. The run reached 1,500
+emulated frames and exited normally. Its deterministic inventory reported:
 
-Gate B remains closed after that capture. CPU-read observation, presentation
+- 83,401 observed draws across 11 signatures.
+- 2,802 successful resolves totaling 10,558,832,640 bytes.
+- 1,397 later draws sampling a resolved target.
+- Two distinct resolve-to-texture dependency transitions.
+- Zero draw, target, and page-capacity overflows.
+- Zero crash, GPU-loss, and fatal diagnostic events.
+
+The clean executable SHA-256 was
+`D4A415992CF893553CF6AD6CF4821B8169EC8B741607D553BEE6E78162414662`.
+The machine-readable inventory remains a local evidence artifact because its
+source log contains machine-specific paths and session identifiers.
+
+Gate B remains closed after this capture. CPU-read observation, presentation
 provenance, and semantic classification are separate evidence tasks, not facts
 that may be inferred from the absence of a texture-fetch match.
