@@ -147,6 +147,10 @@ def summarize(
         "query_draws": 0,
         "memexport_draws": 0,
         "draw_overflow": 0,
+        "candidate_windows": 0,
+        "candidate_eligible_signatures": 0,
+        "candidate_eligible_draws": 0,
+        "candidate_overflow": 0,
         "target_overflow": 0,
         "page_overflow": 0,
     }
@@ -156,6 +160,13 @@ def summarize(
         if kind == f"{PREFIX}draw_window":
             totals["draws"] += integer(event, "draws")
             totals["draw_overflow"] += integer(event, "overflow_draws")
+        elif kind == f"{PREFIX}candidate_window":
+            totals["candidate_windows"] += 1
+            totals["candidate_eligible_signatures"] += integer(
+                event, "eligible_signatures"
+            )
+            totals["candidate_eligible_draws"] += integer(event, "eligible_draws")
+            totals["candidate_overflow"] += integer(event, "overflow_draws")
         elif kind == f"{PREFIX}draw_signature":
             key = str(event["signature"])
             record = draw_signatures.get(key)

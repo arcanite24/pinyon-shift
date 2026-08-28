@@ -205,3 +205,43 @@ the mechanical gate, but their render-sized planes and conversion constants
 make them inappropriate for the first authentic world draw. No candidate from
 this qualification advances to PSO construction. Xenos remained authoritative
 throughout both runs, and suppression remains disabled.
+
+## Eligible-first candidate windows
+
+Candidate aggregation retains up to 4,096 structural signatures per 300-frame
+window, but only emits 32 detailed state snapshots. Ranking solely by draw
+count allowed high-frequency post-processing, blended, and resolved-input
+signatures to consume those snapshots before the offline selector could reject
+them.
+
+The census now ranks mechanically eligible signatures before other diagnostic
+records. Eligibility mirrors the cheap, synchronous subset of the offline
+contract: opaque color writes, no query, memexport, observed resolved input, or
+observer overflow, exactly one vertex binding, and one through four texture
+resources. Draw count and signature remain deterministic tie-breakers. The
+window event reports eligible signature and draw totals, and the summarizer
+retains those counters. Full resolve-range exclusion, exact prepared-shader
+correlation, cross-capture stability, bounds validation, and visual review
+remain offline requirements; eligible-first ranking is not a safety verdict.
+
+Two AppData-backed open-world captures validate the ranking change:
+
+- `20260828T064806Z-p41300` recorded 25 candidate windows, 2,796
+  mechanically eligible signature observations, and 1,055,186 eligible draws.
+  Its 7,290-frame performance capture measured 30.563 median FPS and a 19.603
+  FPS one-percent low.
+- `20260828T065210Z-p36920` recorded 22 candidate windows, 1,675
+  mechanically eligible signature observations, and 439,557 eligible draws.
+  Its 6,490-frame performance capture measured 30.589 median FPS and a 19.779
+  FPS one-percent low.
+
+Both runs exited normally. Cross-capture selection found 108 repeated detailed
+signatures and retained 33 after the existing offline gates. In particular,
+`FA45AAFDC22C8625` is a repeatable indexed triangle-list draw with one
+32-byte vertex binding, two float4 attributes, 9,300 uint32 indices, and two
+256-by-64 DXN textures. This is materially more suitable for static-world
+qualification than the previously visible quad-list family, but it does not
+advance to native replay yet: its geometry contract still requires a bounded
+guest index scan, its complete draw-state hashes vary between captures, and it
+has not passed isolated visual review. Xenos remained authoritative and no
+suppression path was enabled.

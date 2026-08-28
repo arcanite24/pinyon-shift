@@ -109,6 +109,13 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "index_buffer_length_min": "20",
             },
             {
+                "event": "native_renderer.census.candidate_window",
+                "session": "new",
+                "eligible_signatures": "7",
+                "eligible_draws": "30",
+                "overflow_draws": "0",
+            },
+            {
                 "event": "native_renderer.census.prepared_shader_pair",
                 "session": "new",
                 "vertex_shader": "1111111111111111",
@@ -160,6 +167,9 @@ class NativeRendererCensusTests(unittest.TestCase):
 
         self.assertEqual("new", result["session"])
         self.assertEqual(100, result["totals"]["draws"])
+        self.assertEqual(1, result["totals"]["candidate_windows"])
+        self.assertEqual(7, result["totals"]["candidate_eligible_signatures"])
+        self.assertEqual(30, result["totals"]["candidate_eligible_draws"])
         self.assertEqual(7, result["totals"]["resolves"])
         self.assertEqual("CANDIDATE", result["draw_candidates"][0]["signature"])
         self.assertEqual("20", result["draw_candidates"][0]["draws"])
