@@ -15,6 +15,66 @@ SPEC.loader.exec_module(MODULE)
 
 
 class NativeRendererCensusTests(unittest.TestCase):
+    def test_classifier_matches_scene_rules_and_bounds_drift(self):
+        events = [
+            {"event": "native_renderer.census.installed", "session": "run"},
+            {
+                "event": "native_renderer.census.scene_marker",
+                "session": "run",
+                "scene": "front_end",
+            },
+            {
+                "event": "native_renderer.census.draw_signature",
+                "session": "run",
+                "signature": "KNOWN",
+                "draws": "99",
+            },
+            {
+                "event": "native_renderer.census.draw_signature",
+                "session": "run",
+                "signature": "DRIFT_B",
+                "draws": "2",
+            },
+            {
+                "event": "native_renderer.census.draw_signature",
+                "session": "run",
+                "signature": "DRIFT_A",
+                "draws": "3",
+            },
+        ]
+        classifier = {
+            "schema": "pinyon-shift.pass-classifier.v1",
+            "maximum_drift_records": 1,
+            "rules": [
+                {
+                    "scene": "front_end",
+                    "family": "front_end_observed",
+                    "confidence": "medium",
+                    "evidence": "test evidence",
+                    "signatures": ["KNOWN"],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / "events.jsonl"
+            manifest = Path(temp) / "classifier.json"
+            log.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            manifest.write_text(json.dumps(classifier), encoding="utf-8")
+            result = MODULE.summarize([log], classifier_path=manifest)
+
+        classification = result["classification"]
+        self.assertEqual("front_end", classification["scene"])
+        self.assertEqual(99, classification["classified_draws"])
+        self.assertEqual(2, classification["drift_count"])
+        self.assertEqual(1, classification["drift_overflow"])
+        self.assertEqual("DRIFT_A", classification["drift"][0]["signature"])
+        self.assertEqual(
+            "retained_unknown", result["draw_signatures"][1]["family"]
+        )
+
     def test_summarizer_selects_latest_session_and_merges_dependencies(self):
         events = [
             {"event": "native_renderer.census.installed", "session": "old"},

@@ -1,0 +1,18 @@
+{
+  "schema": "pinyon-shift.pass-classifier.v1",
+  "maximum_drift_records": 32,
+  "rules": [
+    {
+      "scene": "front_end",
+      "family": "front_end_observed",
+      "confidence": "medium",
+      "evidence": "exact signature observed in qualified front-end capture 20260828T002134Z-p41584",
+      "signatures": [
+        "F891D6525E633C08", "71A4D4F4577B3DE0", "A2347A8A0640CBFA",
+        "87CBF4CFD41E8BBB", "E0A75E386F935963", "CE9ADDC1A08C7468",
+        "EA23250CBAEFD05D", "391909B2C8BCE781", "29619D07A5B2DE0A",
+        "8B9E2E27325048EF", "A415B84D19C8E936"
+      ]
+    }
+  ]
+}

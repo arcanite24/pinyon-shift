@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <type_traits>
@@ -29,6 +30,21 @@ constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
 constexpr uint64_t kGuestPageSize = 4096;
 std::atomic<uint64_t> g_frame_sequence{};
+
+std::string CensusSceneMarker() {
+  const char* value = std::getenv("PINYON_SHIFT_NATIVE_RENDERER_SCENE");
+  if (!value || !*value) {
+    return "unmarked";
+  }
+  std::string marker(value);
+  if (marker.size() > 32 ||
+      !std::all_of(marker.begin(), marker.end(), [](unsigned char character) {
+        return (character >= 'a' && character <= 'z') || character == '_';
+      })) {
+    return "invalid";
+  }
+  return marker;
+}
 
 struct DrawSignatureEntry {
   uint64_t signature = 0;
@@ -611,13 +627,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
   const std::string capacity = std::to_string(kSignatureCapacity);
+  const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
                            {{"signature_capacity", capacity},
                             {"summary_limit", "16"},
                             {"resolve_target_capacity", "4096"},
                             {"resolve_page_capacity", "32768"},
                             {"resolve_summary_limit", "32"},
+                            {"scene", scene},
                             {"mode", "pass_through"}});
+  diagnostics::RecordEvent("native_renderer.census.scene_marker",
+                           {{"scene", scene}, {"source", "operator"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {

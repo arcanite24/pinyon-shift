@@ -51,6 +51,28 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("REX_STORE", source)
         self.assertNotIn("GuestPtr", source)
 
+    def test_scene_markers_and_classifier_are_explicit_and_safe(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
+            encoding="utf-8"
+        )
+        classifier = (
+            ROOT / "config/native-renderer/pass-classifier.json"
+        ).read_text(encoding="utf-8")
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-census.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("native_renderer.census.scene_marker", source)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SCENE", source)
+        self.assertIn("[ValidateSet('unmarked', 'front_end', 'garage'", capture)
+        self.assertIn('"maximum_drift_records": 32', classifier)
+        self.assertIn('"confidence": "medium"', classifier)
+        self.assertIn('"retained_unknown"', summarizer)
+        self.assertIn('"retained_on_xenos"', summarizer)
+
     def test_resolve_dependency_observer_is_passive_and_payload_free(self):
         patch = (
             ROOT
