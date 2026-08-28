@@ -131,6 +131,7 @@ struct DrawSignatureEntry {
   uint32_t min_index_buffer_length = 0;
   uint64_t vertex_specialization_mask = 0;
   uint64_t pixel_specialization_mask = 0;
+  rex::system::GraphicsPreparedDrawObservation prepared_sample;
   bool samples_resolved_target = false;
   rex::system::GraphicsDrawObservation sample;
 };
@@ -242,6 +243,28 @@ void ResetDependencyCensus() {
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
   value += 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
   return hash ^ value;
+}
+
+uint64_t PreparedPipelineHash(
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  uint64_t hash = 0xCBF29CE484222325ull;
+  for (uint64_t value :
+       {uint64_t(prepared.guest_primitive_type),
+        uint64_t(prepared.host_primitive_type),
+        uint64_t(prepared.host_vertex_shader_type),
+        uint64_t(prepared.tessellation_mode),
+        uint64_t(prepared.index_buffer_type),
+        uint64_t(prepared.host_index_format),
+        uint64_t(prepared.host_primitive_reset_enabled),
+        uint64_t(prepared.normalized_depth_control),
+        uint64_t(prepared.normalized_color_mask),
+        uint64_t(prepared.bound_render_target_bits), uint64_t(prepared.flags)}) {
+    hash = HashCombine(hash, value);
+  }
+  for (uint32_t format : prepared.bound_render_target_formats) {
+    hash = HashCombine(hash, format);
+  }
+  return hash ? hash : 1;
 }
 
 uint64_t HashBytes(const uint8_t *data, uint64_t length) {
@@ -891,6 +914,7 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
   uint64_t hash = DrawSignature(observation);
   for (uint64_t value : {prepared.vertex_specialization_mask,
                          prepared.pixel_specialization_mask,
+                         PreparedPipelineHash(prepared),
                          uint64_t(observation.index_format),
                          uint64_t(observation.index_endianness),
                          uint64_t(observation.vertex_index_offset),
@@ -1148,6 +1172,14 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
                     sample.rb_blendcontrol[1], sample.rb_blendcontrol[2],
                     sample.rb_blendcontrol[3], sample.rb_depthcontrol,
                     sample.pa_su_sc_mode_cntl, sample.pa_su_vtx_cntl);
+    const auto &prepared = entry.prepared_sample;
+    const std::string bound_render_target_formats = fmt::format(
+        "{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+        prepared.bound_render_target_formats[0],
+        prepared.bound_render_target_formats[1],
+        prepared.bound_render_target_formats[2],
+        prepared.bound_render_target_formats[3],
+        prepared.bound_render_target_formats[4]);
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.census.draw_candidate",
         {{"rank", std::to_string(++emitted)},
@@ -1202,6 +1234,25 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"texture_state_count", std::to_string(sample.texture_state_count)},
          {"texture_states", SerializeTextureStates(sample)},
          {"pipeline_state", pipeline_state},
+         {"prepared_pipeline_hash",
+          fmt::format("{:016X}", PreparedPipelineHash(prepared))},
+         {"host_primitive", std::to_string(prepared.host_primitive_type)},
+         {"host_vertex_shader_type",
+          std::to_string(prepared.host_vertex_shader_type)},
+         {"tessellation_mode", std::to_string(prepared.tessellation_mode)},
+         {"host_index_buffer_type",
+          std::to_string(prepared.index_buffer_type)},
+         {"host_index_format", std::to_string(prepared.host_index_format)},
+         {"host_primitive_reset",
+          prepared.host_primitive_reset_enabled ? "true" : "false"},
+         {"normalized_depth_control",
+          fmt::format("{:08X}", prepared.normalized_depth_control)},
+         {"normalized_color_mask",
+          fmt::format("{:08X}", prepared.normalized_color_mask)},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", prepared.bound_render_target_bits)},
+         {"bound_render_target_formats", bound_render_target_formats},
+         {"prepared_pipeline_flags", fmt::format("{:08X}", prepared.flags)},
          {"indexed", sample.indexed ? "true" : "false"},
          {"query", query_draw ? "true" : "false"},
          {"memexport", sample.vertex_memexport ? "true" : "false"},
@@ -1476,6 +1527,7 @@ void RecordCandidate(
       entry.vertex_specialization_mask =
           prepared.vertex_specialization_mask;
       entry.pixel_specialization_mask = prepared.pixel_specialization_mask;
+      entry.prepared_sample = prepared;
       entry.samples_resolved_target = samples_resolved_target;
       entry.sample = observation;
       ++g_candidate_census.unique_signature_count;
