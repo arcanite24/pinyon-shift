@@ -253,3 +253,11 @@ the same 9,300-index payload, range 0–1,616, and hash
 51,744-byte allocation. See [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md) for
 the scanner contract and safety boundary. The candidate remains pending visual
 identification and static texture-provenance review before any replay work.
+
+The subsequent exact-signature scan established stable 16 KiB fingerprints
+for both texture fetches across two independent AppData-backed processes. The
+bounded scanner, cross-capture gate, crash-hardening result, and remaining
+visual/dependency restrictions are recorded in
+[TEXTURE_PROVENANCE_CONTRACT.md](TEXTURE_PROVENANCE_CONTRACT.md). This is
+source-content evidence only; it does not enable upload, replay, or
+suppression.

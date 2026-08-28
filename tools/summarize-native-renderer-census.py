@@ -137,6 +137,8 @@ def summarize(
     draw_candidates: dict[str, dict[str, Any]] = {}
     prepared_shader_pairs: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     index_scans: list[dict[str, Any]] = []
+    texture_scans: list[dict[str, Any]] = []
+    texture_fingerprints: list[dict[str, Any]] = []
     dependencies: dict[str, dict[str, Any]] = {}
     resolve_targets: dict[str, dict[str, Any]] = {}
     totals = {
@@ -216,6 +218,10 @@ def summarize(
             prepared_shader_pairs.setdefault(key, dict(event))
         elif kind == f"{PREFIX}index_scan":
             index_scans.append(dict(event))
+        elif kind == f"{PREFIX}texture_scan":
+            texture_scans.append(dict(event))
+        elif kind == f"{PREFIX}texture_fingerprint":
+            texture_fingerprints.append(dict(event))
         elif kind == f"{PREFIX}resolve_window":
             for key in (
                 "resolves",
@@ -285,6 +291,8 @@ def summarize(
             clean(record) for _, record in sorted(prepared_shader_pairs.items())
         ],
         "index_scans": [clean(record) for record in index_scans],
+        "texture_scans": [clean(record) for record in texture_scans],
+        "texture_fingerprints": [clean(record) for record in texture_fingerprints],
         "resolve_dependencies": [
             clean(record) for _, record in sorted(dependencies.items())
         ],
@@ -294,10 +302,24 @@ def summarize(
         "safety": {
             "suppression_allowed": False,
             "guest_cpu_reads": (
-                "bounded_index_payload"
+                "bounded_index_and_texture_payload"
                 if any(
                     record.get("guest_payload_read") == "bounded_index_only"
                     for record in index_scans
+                )
+                and any(
+                    record.get("guest_payload_read") == "bounded_texture_only"
+                    for record in texture_scans + texture_fingerprints
+                )
+                else "bounded_index_payload"
+                if any(
+                    record.get("guest_payload_read") == "bounded_index_only"
+                    for record in index_scans
+                )
+                else "bounded_texture_payload"
+                if any(
+                    record.get("guest_payload_read") == "bounded_texture_only"
+                    for record in texture_scans + texture_fingerprints
                 )
                 else "unknown_uninstrumented"
             ),

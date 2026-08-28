@@ -1,0 +1,33 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -178,6 +178,9 @@ struct GraphicsDrawObservation {
+   uint32_t pa_su_vtx_cntl = 0;
+   uint32_t texture_fetch_addresses[32] = {};
+   uint32_t texture_fetch_mip_addresses[32] = {};
++  uint32_t texture_fetch_base_lengths[32] = {};
++  uint32_t texture_fetch_mip_lengths[32] = {};
++  uint32_t texture_fetch_layout_valid_mask = 0;
+   uint32_t vertex_float_constant_count = 0;
+   GraphicsFloatConstantObservation vertex_float_constants
+       [kGraphicsFloatConstantObservationLimit] = {};
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1676,6 +1676,16 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+             observation.texture_fetch_mask |= uint32_t(1) << fetch_index;
+             observation.texture_fetch_addresses[fetch_index] = fetch.base_address << 12;
+             observation.texture_fetch_mip_addresses[fetch_index] = fetch.mip_address << 12;
++            TextureInfo texture_info;
++            if (fetch.type == xenos::FetchConstantType::kTexture &&
++                TextureInfo::Prepare(fetch, &texture_info)) {
++              observation.texture_fetch_base_lengths[fetch_index] =
++                  texture_info.memory.base_size;
++              observation.texture_fetch_mip_lengths[fetch_index] =
++                  texture_info.memory.mip_size;
++              observation.texture_fetch_layout_valid_mask |=
++                  uint32_t(1) << fetch_index;
++            }
+             const uint32_t state_index = observation.texture_state_count++;
+             if (state_index >= system::kGraphicsTextureFetchObservationLimit) {
+               observation.texture_state_overflow = 1;
