@@ -1,0 +1,570 @@
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index 7b24447..8ae9f12 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -196,6 +196,11 @@ class D3D12CommandProcessor : public CommandProcessor {
+   // Returns the text to display in the GPU backend name in the window title.
+   std::string GetWindowTitleText() const;
+ 
++  bool DrawNativeGuestOutputDiagnosticTriangle(ID3D12Resource* resource,
++                                               uint32_t width,
++                                               uint32_t height,
++                                               uint32_t phase);
++
+  protected:
+   bool SetupContext() override;
+   void ShutdownContext() override;
+@@ -608,6 +613,20 @@ class D3D12CommandProcessor : public CommandProcessor {
+   Microsoft::WRL::ComPtr<ID3D12PipelineState> fxaa_pipeline_;
+   Microsoft::WRL::ComPtr<ID3D12PipelineState> fxaa_extreme_pipeline_;
+ 
++  struct NativeGuestOutputTriangleConstants {
++    uint32_t output_size[2];
++    uint32_t phase;
++  };
++  enum class NativeGuestOutputTriangleRootParameter : uint32_t {
++    kConstants,
++    kOutput,
++    kCount,
++  };
++  Microsoft::WRL::ComPtr<ID3D12RootSignature>
++      native_guest_output_triangle_root_signature_;
++  Microsoft::WRL::ComPtr<ID3D12PipelineState>
++      native_guest_output_triangle_pipeline_;
++
+   struct ResolveDownscaleConstants {
+     uint32_t scale_x;
+     uint32_t scale_y;
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index c28c97c..608436a 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -31,6 +31,8 @@ namespace rex::system {
+ struct NativeGuestOutputRenderContext;
+ using NativeGuestOutputClearColor = bool (*)(
+     const NativeGuestOutputRenderContext& context, const float color[4]);
++using NativeGuestOutputDrawDiagnosticTriangle = bool (*)(
++    const NativeGuestOutputRenderContext& context, uint32_t phase);
+ class KernelState;
+ }
+ 
+@@ -54,6 +56,7 @@ struct NativeGuestOutputRenderContext {
+   void* guest_output = nullptr;
+   uint64_t submission = 0;
+   NativeGuestOutputClearColor clear_color = nullptr;
++  NativeGuestOutputDrawDiagnosticTriangle draw_diagnostic_triangle = nullptr;
+ };
+ 
+ // Returning false yields without modifying guest output. A callback that has
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 62de7a2..f3d92b7 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -58,6 +58,7 @@ namespace shaders {
+ #include "../shaders/bytecode/d3d12_5_1/apply_gamma_table_fxaa_luma_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/fxaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/fxaa_extreme_cs.h"
++#include "../shaders/bytecode/d3d12_5_1/native_guest_output_triangle_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_downscale_cs.h"
+ }  // namespace shaders
+ 
+@@ -2090,6 +2091,112 @@ bool ClearNativeGuestOutput(
+   return true;
+ }
+ 
++bool D3D12CommandProcessor::DrawNativeGuestOutputDiagnosticTriangle(
++    ID3D12Resource* resource, uint32_t width, uint32_t height,
++    uint32_t phase) {
++  if (!resource || !width || !height) {
++    return false;
++  }
++
++  const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
++  ID3D12Device* device = provider.GetDevice();
++  if (!device) {
++    return false;
++  }
++
++  if (!native_guest_output_triangle_root_signature_) {
++    D3D12_ROOT_PARAMETER root_parameters
++        [uint32_t(NativeGuestOutputTriangleRootParameter::kCount)]{};
++    auto& constants = root_parameters
++        [uint32_t(NativeGuestOutputTriangleRootParameter::kConstants)];
++    constants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++    constants.Constants.ShaderRegister = 0;
++    constants.Constants.RegisterSpace = 0;
++    constants.Constants.Num32BitValues =
++        sizeof(NativeGuestOutputTriangleConstants) / sizeof(uint32_t);
++    constants.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    D3D12_DESCRIPTOR_RANGE output_range{};
++    output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
++    output_range.NumDescriptors = 1;
++    output_range.BaseShaderRegister = 0;
++    output_range.RegisterSpace = 0;
++    output_range.OffsetInDescriptorsFromTableStart = 0;
++    auto& output = root_parameters
++        [uint32_t(NativeGuestOutputTriangleRootParameter::kOutput)];
++    output.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++    output.DescriptorTable.NumDescriptorRanges = 1;
++    output.DescriptorTable.pDescriptorRanges = &output_range;
++    output.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    D3D12_ROOT_SIGNATURE_DESC root_signature_desc{};
++    root_signature_desc.NumParameters =
++        uint32_t(NativeGuestOutputTriangleRootParameter::kCount);
++    root_signature_desc.pParameters = root_parameters;
++    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
++    *native_guest_output_triangle_root_signature_.ReleaseAndGetAddressOf() =
++        ui::d3d12::util::CreateRootSignature(provider, root_signature_desc);
++    if (!native_guest_output_triangle_root_signature_) {
++      REXGPU_ERROR("Failed to create the native guest-output triangle root signature");
++      return false;
++    }
++  }
++
++  if (!native_guest_output_triangle_pipeline_) {
++    *native_guest_output_triangle_pipeline_.ReleaseAndGetAddressOf() =
++        ui::d3d12::util::CreateComputePipeline(
++            device, shaders::native_guest_output_triangle_cs,
++            sizeof(shaders::native_guest_output_triangle_cs),
++            native_guest_output_triangle_root_signature_.Get());
++    if (!native_guest_output_triangle_pipeline_) {
++      REXGPU_ERROR("Failed to create the native guest-output triangle pipeline");
++      return false;
++    }
++  }
++
++  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptor;
++  if (!RequestOneUseSingleViewDescriptors(1, &descriptor)) {
++    return false;
++  }
++
++  D3D12_UNORDERED_ACCESS_VIEW_DESC view_desc{};
++  view_desc.Format = ui::d3d12::D3D12Presenter::kGuestOutputFormat;
++  view_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++  device->CreateUnorderedAccessView(resource, nullptr, &view_desc,
++                                    descriptor.first);
++
++  NativeGuestOutputTriangleConstants triangle_constants{{width, height},
++                                                         phase & 1};
++  PushTransitionBarrier(
++      resource, ui::d3d12::D3D12Presenter::kGuestOutputInternalState,
++      D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  deferred_command_list_.D3DSetComputeRootSignature(
++      native_guest_output_triangle_root_signature_.Get());
++  deferred_command_list_.D3DSetComputeRoot32BitConstants(
++      uint32_t(NativeGuestOutputTriangleRootParameter::kConstants),
++      sizeof(triangle_constants) / sizeof(uint32_t), &triangle_constants, 0);
++  deferred_command_list_.D3DSetComputeRootDescriptorTable(
++      uint32_t(NativeGuestOutputTriangleRootParameter::kOutput),
++      descriptor.second);
++  SetExternalPipeline(native_guest_output_triangle_pipeline_.Get());
++  SubmitBarriers();
++  deferred_command_list_.D3DDispatch((width + 7) / 8, (height + 7) / 8, 1);
++  PushTransitionBarrier(resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                        ui::d3d12::D3D12Presenter::kGuestOutputInternalState);
++  return true;
++}
++
++bool InvokeNativeGuestOutputDiagnosticTriangle(
++    const system::NativeGuestOutputRenderContext& context, uint32_t phase) {
++  auto* command_processor =
++      static_cast<D3D12CommandProcessor*>(context.command_context);
++  auto* resource = static_cast<ID3D12Resource*>(context.guest_output);
++  return command_processor &&
++         command_processor->DrawNativeGuestOutputDiagnosticTriangle(
++             resource, context.guest_output_width, context.guest_output_height,
++             phase);
++}
++
+ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                       uint32_t frontbuffer_height) {
+   SCOPE_profile_cpu_f("gpu");
+@@ -2461,6 +2568,8 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
+           native_context.guest_output = guest_output_resource;
+           native_context.submission = submission_current_;
+           native_context.clear_color = &ClearNativeGuestOutput;
++          native_context.draw_diagnostic_triangle =
++              &InvokeNativeGuestOutputDiagnosticTriangle;
+           renderer(native_context);
+         }
+         SubmitBarriers();
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_triangle_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_triangle_cs.h
+new file mode 100644
+index 0000000..e5309e7
+--- /dev/null
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_triangle_cs.h
+@@ -0,0 +1,328 @@
++#if 0
++//
++// Generated by Microsoft (R) HLSL Shader Compiler 10.1
++//
++//
++// Buffer Definitions:
++//
++// cbuffer NativeGuestOutputTriangleConstants
++// {
++//
++//   uint2 output_size;                 // Offset:    0 Size:     8
++//   uint phase;                        // Offset:    8 Size:     4
++//
++// }
++//
++//
++// Resource Bindings:
++//
++// Name                                 Type  Format         Dim      ID      HLSL Bind  Count
++// ------------------------------ ---------- ------- ----------- ------- -------------- ------
++// output_texture                        UAV  float4          2d      U0             u0      1
++// NativeGuestOutputTriangleConstants    cbuffer      NA          NA     CB0            cb0      1
++//
++//
++//
++// Input signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Input
++//
++// Output signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Output
++cs_5_1
++dcl_globalFlags refactoringAllowed
++dcl_constantbuffer CB0[0:0][1], immediateIndexed, space=0
++dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
++dcl_input vThreadID.xy
++dcl_temps 3
++dcl_thread_group 8, 8, 1
++uge r0.xy, vThreadID.xyxx, CB0[0][0].xyxx
++or r0.x, r0.y, r0.x
++if_nz r0.x
++  ret
++endif
++utof r0.xy, vThreadID.xyxx
++add r0.xy, r0.xyxx, l(0.500000, 0.500000, 0.000000, 0.000000)
++utof r0.zw, CB0[0][0].xxxy
++div r0.xy, r0.xyxx, r0.zwzz
++add r1.xyzw, r0.yxyx, l(-0.180000, -0.500000, -0.820000, -0.820000)
++mul r0.zw, r1.yyyw, l(0.000000, 0.000000, 0.640000, -0.640000)
++mad r0.zw, r1.xxxz, l(0.000000, 0.000000, -0.320000, -0.320000), -r0.zzzw
++ge r0.zw, l(0.000000, 0.000000, 0.000000, 0.000000), r0.zzzw
++ge r1.x, l(0.000000), r1.z
++and r0.z, r0.z, r1.x
++and r0.z, r0.w, r0.z
++movc r1.y, CB0[0][0].z, l(0.175000), l(0.105000)
++add_sat r2.x, -r0.y, l(1.200000)
++add r0.xy, r0.xyxx, l(0.150000, 0.100000, 0.000000, 0.000000)
++min r2.yz, r0.xxyx, l(0.000000, 1.000000, 1.000000, 0.000000)
++mov r1.xz, l(0.015000,0,0.055000,0)
++movc r0.xyz, r0.zzzz, r2.xyzx, r1.xyzx
++mov r0.w, l(1.000000)
++store_uav_typed U0[0].xyzw, vThreadID.xyyy, r0.xyzw
++ret
++// Approximately 25 instruction slots used
++#endif
++
++const BYTE native_guest_output_triangle_cs[] =
++{
++     68,  88,  66,  67, 188,  85,
++     12,  19, 161, 190,  36, 158,
++    111,  13,  85, 232, 165, 183,
++     13,  29,   1,   0,   0,   0,
++    240,   5,   0,   0,   5,   0,
++      0,   0,  52,   0,   0,   0,
++    244,   1,   0,   0,   4,   2,
++      0,   0,  20,   2,   0,   0,
++     84,   5,   0,   0,  82,  68,
++     69,  70, 184,   1,   0,   0,
++      1,   0,   0,   0, 192,   0,
++      0,   0,   2,   0,   0,   0,
++     60,   0,   0,   0,   1,   5,
++     83,  67,   0, 133,   0,   0,
++    144,   1,   0,   0,  19,  19,
++     68,  37,  60,   0,   0,   0,
++     24,   0,   0,   0,  40,   0,
++      0,   0,  40,   0,   0,   0,
++     36,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0,
++    140,   0,   0,   0,   4,   0,
++      0,   0,   5,   0,   0,   0,
++      4,   0,   0,   0, 255, 255,
++    255, 255,   0,   0,   0,   0,
++      1,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0, 155,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0,   1,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0, 111, 117, 116, 112,
++    117, 116,  95, 116, 101, 120,
++    116, 117, 114, 101,   0,  78,
++     97, 116, 105, 118, 101,  71,
++    117, 101, 115, 116,  79, 117,
++    116, 112, 117, 116,  84, 114,
++    105,  97, 110, 103, 108, 101,
++     67, 111, 110, 115, 116,  97,
++    110, 116, 115,   0, 171, 171,
++    155,   0,   0,   0,   2,   0,
++      0,   0, 216,   0,   0,   0,
++     16,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     40,   1,   0,   0,   0,   0,
++      0,   0,   8,   0,   0,   0,
++      2,   0,   0,   0,  60,   1,
++      0,   0,   0,   0,   0,   0,
++    255, 255, 255, 255,   0,   0,
++      0,   0, 255, 255, 255, 255,
++      0,   0,   0,   0,  96,   1,
++      0,   0,   8,   0,   0,   0,
++      4,   0,   0,   0,   2,   0,
++      0,   0, 108,   1,   0,   0,
++      0,   0,   0,   0, 255, 255,
++    255, 255,   0,   0,   0,   0,
++    255, 255, 255, 255,   0,   0,
++      0,   0, 111, 117, 116, 112,
++    117, 116,  95, 115, 105, 122,
++    101,   0, 117, 105, 110, 116,
++     50,   0, 171, 171,   1,   0,
++     19,   0,   1,   0,   2,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     52,   1,   0,   0, 112, 104,
++     97, 115, 101,   0, 100, 119,
++    111, 114, 100,   0,   0,   0,
++     19,   0,   1,   0,   1,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++    102,   1,   0,   0,  77, 105,
++     99, 114, 111, 115, 111, 102,
++    116,  32,  40,  82,  41,  32,
++     72,  76,  83,  76,  32,  83,
++    104,  97, 100, 101, 114,  32,
++     67, 111, 109, 112, 105, 108,
++    101, 114,  32,  49,  48,  46,
++     49,   0,  73,  83,  71,  78,
++      8,   0,   0,   0,   0,   0,
++      0,   0,   8,   0,   0,   0,
++     79,  83,  71,  78,   8,   0,
++      0,   0,   0,   0,   0,   0,
++      8,   0,   0,   0,  83,  72,
++     69,  88,  56,   3,   0,   0,
++     81,   0,   5,   0, 206,   0,
++      0,   0, 106,   8,   0,   1,
++     89,   0,   0,   7,  70, 142,
++     48,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   1,   0,   0,   0,
++      0,   0,   0,   0, 156,  24,
++      0,   7,  70, 238,  49,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     85,  85,   0,   0,   0,   0,
++      0,   0,  95,   0,   0,   2,
++     50,   0,   2,   0, 104,   0,
++      0,   2,   3,   0,   0,   0,
++    155,   0,   0,   4,   8,   0,
++      0,   0,   8,   0,   0,   0,
++      1,   0,   0,   0,  80,   0,
++      0,   8,  50,   0,  16,   0,
++      0,   0,   0,   0,  70,   0,
++      2,   0,  70, 128,  48,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     60,   0,   0,   7,  18,   0,
++     16,   0,   0,   0,   0,   0,
++     26,   0,  16,   0,   0,   0,
++      0,   0,  10,   0,  16,   0,
++      0,   0,   0,   0,  31,   0,
++      4,   3,  10,   0,  16,   0,
++      0,   0,   0,   0,  62,   0,
++      0,   1,  21,   0,   0,   1,
++     86,   0,   0,   4,  50,   0,
++     16,   0,   0,   0,   0,   0,
++     70,   0,   2,   0,   0,   0,
++      0,  10,  50,   0,  16,   0,
++      0,   0,   0,   0,  70,   0,
++     16,   0,   0,   0,   0,   0,
++      2,  64,   0,   0,   0,   0,
++      0,  63,   0,   0,   0,  63,
++      0,   0,   0,   0,   0,   0,
++      0,   0,  86,   0,   0,   7,
++    194,   0,  16,   0,   0,   0,
++      0,   0,   6, 132,  48,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     14,   0,   0,   7,  50,   0,
++     16,   0,   0,   0,   0,   0,
++     70,   0,  16,   0,   0,   0,
++      0,   0, 230,  10,  16,   0,
++      0,   0,   0,   0,   0,   0,
++      0,  10, 242,   0,  16,   0,
++      1,   0,   0,   0,  22,   1,
++     16,   0,   0,   0,   0,   0,
++      2,  64,   0,   0, 236,  81,
++     56, 190,   0,   0,   0, 191,
++    133, 235,  81, 191, 133, 235,
++     81, 191,  56,   0,   0,  10,
++    194,   0,  16,   0,   0,   0,
++      0,   0,  86,  13,  16,   0,
++      1,   0,   0,   0,   2,  64,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  10, 215,
++     35,  63,  10, 215,  35, 191,
++     50,   0,   0,  13, 194,   0,
++     16,   0,   0,   0,   0,   0,
++      6,   8,  16,   0,   1,   0,
++      0,   0,   2,  64,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,  10, 215, 163, 190,
++     10, 215, 163, 190, 166,  14,
++     16, 128,  65,   0,   0,   0,
++      0,   0,   0,   0,  29,   0,
++      0,  10, 194,   0,  16,   0,
++      0,   0,   0,   0,   2,  64,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++    166,  14,  16,   0,   0,   0,
++      0,   0,  29,   0,   0,   7,
++     18,   0,  16,   0,   1,   0,
++      0,   0,   1,  64,   0,   0,
++      0,   0,   0,   0,  42,   0,
++     16,   0,   1,   0,   0,   0,
++      1,   0,   0,   7,  66,   0,
++     16,   0,   0,   0,   0,   0,
++     42,   0,  16,   0,   0,   0,
++      0,   0,  10,   0,  16,   0,
++      1,   0,   0,   0,   1,   0,
++      0,   7,  66,   0,  16,   0,
++      0,   0,   0,   0,  58,   0,
++     16,   0,   0,   0,   0,   0,
++     42,   0,  16,   0,   0,   0,
++      0,   0,  55,   0,   0,  11,
++     34,   0,  16,   0,   1,   0,
++      0,   0,  42, 128,  48,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      1,  64,   0,   0,  52,  51,
++     51,  62,   1,  64,   0,   0,
++     61,  10, 215,  61,   0,  32,
++      0,   8,  18,   0,  16,   0,
++      2,   0,   0,   0,  26,   0,
++     16, 128,  65,   0,   0,   0,
++      0,   0,   0,   0,   1,  64,
++      0,   0, 154, 153, 153,  63,
++      0,   0,   0,  10,  50,   0,
++     16,   0,   0,   0,   0,   0,
++     70,   0,  16,   0,   0,   0,
++      0,   0,   2,  64,   0,   0,
++    154, 153,  25,  62, 205, 204,
++    204,  61,   0,   0,   0,   0,
++      0,   0,   0,   0,  51,   0,
++      0,  10,  98,   0,  16,   0,
++      2,   0,   0,   0,   6,   1,
++     16,   0,   0,   0,   0,   0,
++      2,  64,   0,   0,   0,   0,
++      0,   0,   0,   0, 128,  63,
++      0,   0, 128,  63,   0,   0,
++      0,   0,  54,   0,   0,   8,
++     82,   0,  16,   0,   1,   0,
++      0,   0,   2,  64,   0,   0,
++    143, 194, 117,  60,   0,   0,
++      0,   0, 174,  71,  97,  61,
++      0,   0,   0,   0,  55,   0,
++      0,   9, 114,   0,  16,   0,
++      0,   0,   0,   0, 166,  10,
++     16,   0,   0,   0,   0,   0,
++     70,   2,  16,   0,   2,   0,
++      0,   0,  70,   2,  16,   0,
++      1,   0,   0,   0,  54,   0,
++      0,   5, 130,   0,  16,   0,
++      0,   0,   0,   0,   1,  64,
++      0,   0,   0,   0, 128,  63,
++    164,   0,   0,   7, 242, 224,
++     33,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  70,   5,
++      2,   0,  70,  14,  16,   0,
++      0,   0,   0,   0,  62,   0,
++      0,   1,  83,  84,  65,  84,
++    148,   0,   0,   0,  25,   0,
++      0,   0,   3,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0,  10,   0,   0,   0,
++      0,   0,   0,   0,   4,   0,
++      0,   0,   2,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   2,   0,   0,   0,
++      2,   0,   0,   0,   2,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0
++};
+diff --git a/src/graphics/shaders/native_guest_output_triangle.cs.hlsl b/src/graphics/shaders/native_guest_output_triangle.cs.hlsl
+new file mode 100644
+index 0000000..8de31a8
+--- /dev/null
++++ b/src/graphics/shaders/native_guest_output_triangle.cs.hlsl
+@@ -0,0 +1,38 @@
++cbuffer NativeGuestOutputTriangleConstants : register(b0) {
++  uint2 output_size;
++  uint phase;
++};
++
++RWTexture2D<float4> output_texture : register(u0);
++
++float Edge(float2 a, float2 b, float2 sample_position) {
++  float2 edge = b - a;
++  float2 offset = sample_position - a;
++  return edge.x * offset.y - edge.y * offset.x;
++}
++
++[numthreads(8, 8, 1)]
++void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
++  if (any(dispatch_thread_id.xy >= output_size)) {
++    return;
++  }
++
++  float2 sample_position =
++      (float2(dispatch_thread_id.xy) + 0.5f) / float2(output_size);
++  const float2 vertex_a = float2(0.50f, 0.18f);
++  const float2 vertex_b = float2(0.18f, 0.82f);
++  const float2 vertex_c = float2(0.82f, 0.82f);
++  float edge_a = Edge(vertex_a, vertex_b, sample_position);
++  float edge_b = Edge(vertex_b, vertex_c, sample_position);
++  float edge_c = Edge(vertex_c, vertex_a, sample_position);
++  bool inside = edge_a <= 0.0f && edge_b <= 0.0f && edge_c <= 0.0f;
++
++  float pulse = phase == 0 ? 0.08f : 0.15f;
++  float3 background = float3(0.015f, 0.025f + pulse, 0.055f);
++  float3 triangle_color = float3(
++      saturate(1.2f - sample_position.y),
++      saturate(sample_position.x + 0.15f),
++      saturate(sample_position.y + 0.1f));
++  output_texture[dispatch_thread_id.xy] =
++      float4(inside ? triangle_color : background, 1.0f);
++}

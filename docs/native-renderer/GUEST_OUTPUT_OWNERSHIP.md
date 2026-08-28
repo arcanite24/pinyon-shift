@@ -58,3 +58,21 @@ recorded no callback failure, device removal, TDR, validation error, or
 resource-state warning and exited normally. Presentation cadence remained
 60.003 Hz and simulation cadence 29.793 Hz; the two sessions exercised
 different scene durations and therefore are not treated as a performance A/B.
+
+## Diagnostic triangle and recovery
+
+Patch `0049-native-guest-output-diagnostic-triangle.patch` adds one more
+backend-neutral context operation. Its D3D12 implementation lazily creates a
+small compute pipeline, obtains the output UAV descriptor before recording any
+barrier, dispatches into the command processor's deferred list, and restores
+the presenter-owned internal state. Pipeline or descriptor failure therefore
+yields before output is touched; a failure after registration is latched and
+all later frames yield to Xenos.
+
+The `pinyon_shift_native_renderer` setting accepts `xenos`,
+`diagnostic_clear`, or `diagnostic_triangle`; only the safe `xenos` default and
+the triangle qualification mode are exposed in the launcher. The graphics
+panel backs up every change and provides a dedicated **Reset to Xenos** action
+that changes no unrelated setting. Sanitized crash reports record the
+configured mode, last effective mode, bounded claimed-frame count, and any
+fallback reason.

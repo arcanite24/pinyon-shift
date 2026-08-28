@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 48)
+        self.assertEqual(len(patches), 49)
         self.assertEqual(
             patches[-1].name,
-            "0048-round-normalized-point-samples-to-xenos-q16.patch",
+            "0049-native-guest-output-diagnostic-triangle.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -187,7 +187,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 9", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 10", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
@@ -247,11 +247,11 @@ class ReleaseContractTests(unittest.TestCase):
         launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 9;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*9,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 10;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*10,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 8", app)
+        self.assertIn("schema < 1 || schema > 9", app)
         self.assertIn('"occlusion_query = \\"legacy\\"\\n"', app)
         self.assertIn('"zpd_end_policy = \\"report_layout\\"\\n"', app)
         self.assertIn('"readback_resolve = \\"none\\"\\n"', app)
@@ -259,6 +259,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("Accurate showroom", launcher_xaml)
         self.assertIn("DisableMotionBlurCheckBox", launcher_xaml)
         self.assertIn("DisableDepthOfFieldCheckBox", launcher_xaml)
+        self.assertIn("NativeRendererComboBox", launcher_xaml)
+        self.assertIn("ResetRendererButton", launcher_xaml)
         self.assertIn('Environment.GetEnvironmentVariable("PINYON_SHIFT_STATE_ROOT")', launcher)
         self.assertIn('"-StateRoot", _stateRoot', launcher)
         self.assertIn("DetectPendingReport();\n            UpdatePrimaryButton();", launcher)

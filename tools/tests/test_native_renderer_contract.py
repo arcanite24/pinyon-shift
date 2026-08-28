@@ -200,6 +200,36 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('{"fallback", "xenos"}', source)
         self.assertIn("context.clear_color(context, color)", source)
 
+    def test_diagnostic_triangle_and_recovery_remain_backend_owned(self):
+        patch = (
+            ROOT / "patches/rexglue/0049-native-guest-output-diagnostic-triangle.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("NativeGuestOutputDrawDiagnosticTriangle", patch)
+        self.assertIn("native_guest_output_triangle_cs", patch)
+        self.assertIn("D3DSetComputeRootDescriptorTable", patch)
+        self.assertIn("kGuestOutputInternalState", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        source = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('pinyon_shift_native_renderer, "xenos"', source)
+        self.assertIn('mode == "diagnostic_triangle"', source)
+        self.assertIn("context.draw_diagnostic_triangle", source)
+        self.assertIn('"unsupported_mode"', source)
+
+        settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'ResetRenderer'", settings)
+        self.assertIn("pinyon_shift_native_renderer", settings)
+
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("claimed_frames", report)
+        self.assertIn("failure_reason", report)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"

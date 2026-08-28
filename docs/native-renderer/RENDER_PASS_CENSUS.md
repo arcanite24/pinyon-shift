@@ -8,7 +8,7 @@ a trace or disassembly proves them.
 
 - Pinyon Shift `dev`: `cafc7233fef9e039f163d11023f40eccb22e8fc1`
 - ReXGlue: `v0.10.0` at `f5337cdc947ff6d4c4196737e2c807a48f2a1fc2`
-- ReXGlue patch stack: `0001` through `0047`
+- ReXGlue patch stack: `0001` through `0049`
 - `default.xex` SHA-256:
   `DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C`
 

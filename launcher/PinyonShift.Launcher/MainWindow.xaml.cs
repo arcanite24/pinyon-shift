@@ -645,6 +645,10 @@ public partial class MainWindow : Window
     private async void RestoreGraphicsButton_Click(object sender, RoutedEventArgs e) =>
         await ChangeGraphicsSettingsAsync("Restore", "Latest settings backup restored. Restart the preview to apply it.");
 
+    private async void ResetRendererButton_Click(object sender, RoutedEventArgs e) =>
+        await ChangeGraphicsSettingsAsync("ResetRenderer",
+            "Native output reset to Xenos. Restart the preview to apply it.");
+
     private async Task ChangeGraphicsSettingsAsync(string action, string success, bool revealBackup = false)
     {
         SetGraphicsControlsEnabled(false);
@@ -699,6 +703,7 @@ public partial class MainWindow : Window
             "-ReadbackResolve", SelectedTag(ReadbackResolveComboBox),
             "-DisableMotionBlur", DisableMotionBlurCheckBox.IsChecked == true ? "true" : "false",
             "-DisableDepthOfField", DisableDepthOfFieldCheckBox.IsChecked == true ? "true" : "false",
+            "-NativeRenderer", SelectedTag(NativeRendererComboBox),
             "-Json"
         }) startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo) ??
@@ -732,6 +737,7 @@ public partial class MainWindow : Window
             SelectTag(ReadbackResolveComboBox, result.Settings.ReadbackResolve);
             DisableMotionBlurCheckBox.IsChecked = result.Settings.DisableMotionBlur;
             DisableDepthOfFieldCheckBox.IsChecked = result.Settings.DisableDepthOfField;
+            SelectTag(NativeRendererComboBox, result.Settings.NativeRenderer);
         }
         finally
         {
@@ -755,9 +761,11 @@ public partial class MainWindow : Window
         ReadbackResolveComboBox.IsEnabled = enabled;
         DisableMotionBlurCheckBox.IsEnabled = enabled;
         DisableDepthOfFieldCheckBox.IsEnabled = enabled;
+        NativeRendererComboBox.IsEnabled = enabled;
         SaveGraphicsButton.IsEnabled = enabled;
         ResetGraphicsButton.IsEnabled = enabled;
         RestoreGraphicsButton.IsEnabled = enabled;
+        ResetRendererButton.IsEnabled = enabled;
     }
 
     private sealed record ProgressMessage(string? Stage, int Percent, string? Message);
@@ -788,5 +796,6 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("clear_memory_page_state")] bool ClearMemoryPageState,
         [property: JsonPropertyName("readback_memexport")] bool ReadbackMemexport,
         [property: JsonPropertyName("readback_memexport_fast")] bool ReadbackMemexportFast,
-        [property: JsonPropertyName("vsync")] bool Vsync);
+        [property: JsonPropertyName("vsync")] bool Vsync,
+        [property: JsonPropertyName("native_renderer")] string NativeRenderer);
 }

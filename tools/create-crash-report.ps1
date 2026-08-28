@@ -237,7 +237,8 @@ try {
         'draw_resolution_scale_x', 'draw_resolution_scale_y', 'occlusion_query',
         'zpd_end_policy', 'zpd_end_fallback', 'clear_memory_page_state',
         'readback_resolve', 'readback_resolve_half_pixel_offset',
-        'readback_memexport', 'readback_memexport_fast'
+        'readback_memexport', 'readback_memexport_fast',
+        'pinyon_shift_native_renderer'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}
@@ -246,6 +247,32 @@ try {
             if ($line -match '^\s*(?<key>[a-zA-Z0-9_]+)\s*=\s*(?<value>.+?)\s*(?:#.*)?$' -and
                 $Matches.key -in $allowedSettings) {
                 $settings[$Matches.key] = $Matches.value
+            }
+        }
+    }
+
+    $nativeRenderer = [ordered]@{
+        configured = if ($settings.Contains('pinyon_shift_native_renderer')) {
+            ([string]$settings['pinyon_shift_native_renderer']).Trim('"')
+        } else { 'xenos' }
+        effective = 'unknown'
+        claimed_frames = [uint64]0
+        failure_reason = $null
+    }
+    if ($null -ne $eventLog) {
+        foreach ($line in Get-Content -LiteralPath $eventLog.FullName -ErrorAction SilentlyContinue) {
+            try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            switch ($event.event) {
+                'native_renderer.output.state' { $nativeRenderer.effective = [string]$event.mode }
+                'native_renderer.output.installed' { $nativeRenderer.effective = [string]$event.mode }
+                'native_renderer.output.frame' {
+                    $nativeRenderer.effective = [string]$event.mode
+                    $nativeRenderer.claimed_frames = [uint64]$event.claimed
+                }
+                'native_renderer.output.failure' {
+                    $nativeRenderer.effective = 'xenos'
+                    $nativeRenderer.failure_reason = [string]$event.reason
+                }
             }
         }
     }
@@ -315,6 +342,7 @@ try {
             xma_stalls = $xmaStalls
         }
         graphics = [ordered]@{
+            native_renderer = $nativeRenderer
             zpd = $zpdCounters
             resolve_readback = $resolveCounters
             presentation = $presentationCounters

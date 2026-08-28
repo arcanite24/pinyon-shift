@@ -67,10 +67,11 @@ class GraphicsSettingsTests(unittest.TestCase):
                 "-Preset", "experimental_2x",
                 "-DisableMotionBlur", "true",
                 "-DisableDepthOfField", "true",
+                "-NativeRenderer", "diagnostic_triangle",
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 9", updated)
+            self.assertIn("pinyon_shift_config_schema = 10", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertEqual(result["settings"]["occlusion_query"], "fast")
             self.assertIn('occlusion_query = "fast"', updated)
@@ -80,6 +81,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertTrue(result["settings"]["host_present_sleep_spin"])
             self.assertTrue(result["settings"]["disable_motion_blur"])
             self.assertTrue(result["settings"]["disable_depth_of_field"])
+            self.assertEqual(result["settings"]["native_renderer"], "diagnostic_triangle")
+            self.assertIn('pinyon_shift_native_renderer = "diagnostic_triangle"', updated)
             self.assertIn("custom_value = 77", updated)
             self.assertIn("draw_resolution_scale_x = 2", updated)
             self.assertEqual(result["settings"]["preset"], "experimental_2x")
@@ -110,7 +113,26 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('clear_memory_page_state = true', text)
             self.assertIn('host_present_fps_limit = 60', text)
             self.assertIn('host_present_sleep_spin = true', text)
+            self.assertIn('pinyon_shift_native_renderer = "xenos"', text)
             self.assertEqual(result["settings"]["preset"], "shipping_1x")
+            self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
+
+    def test_reset_renderer_preserves_other_settings(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            config = state / "config/pinyon_shift.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                'pinyon_shift_config_schema = 10\n'
+                'pinyon_shift_native_renderer = "diagnostic_triangle"\n'
+                'custom_value = 77\n',
+                encoding="utf-8",
+            )
+            result = self.run_tool(state, "-Action", "ResetRenderer")
+            text = config.read_text(encoding="utf-8")
+            self.assertEqual(result["settings"]["native_renderer"], "xenos")
+            self.assertIn('pinyon_shift_native_renderer = "xenos"', text)
+            self.assertIn("custom_value = 77", text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
     def test_experimental_3x_writes_4k_class_scale_with_fast_readback(self):
