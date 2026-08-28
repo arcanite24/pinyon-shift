@@ -24,6 +24,7 @@ if(WIN32)
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
     )
 else()
@@ -34,6 +35,7 @@ else()
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
     )
 endif()
