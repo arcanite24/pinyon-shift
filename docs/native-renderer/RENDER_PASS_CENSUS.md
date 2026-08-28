@@ -101,3 +101,13 @@ Candidate-specific index, vertex-layout, blend, depth, and raster metadata is
 documented in [`CANDIDATE_DRAW_SELECTION.md`](CANDIDATE_DRAW_SELECTION.md).
 It is a local NR-02 shortlist only and does not change the NR-00 classifier or
 open Gate B.
+
+## NR-02B declaration extension
+
+Patch `0053-graphics-vertex-declaration-observer.patch` adds a 32-attribute
+bound, VGT index range, exact result mapping, and explicit overflow reporting.
+Title-side candidate aggregation preserves minimum/maximum index counts and
+minimum index allocation length across census windows. The deterministic
+contract builder independently decodes and validates the captured declaration
+without reading guest payloads. Qualification details are in
+[`GEOMETRY_CONTRACT.md`](GEOMETRY_CONTRACT.md); Xenos remains authoritative.

@@ -21,9 +21,17 @@ def signature(name: str, **overrides):
         "vertex_shader": "1111111111111111",
         "pixel_shader": "2222222222222222",
         "primitive": "4",
+        "source_select": "2",
+        "index_count_min": "3",
+        "index_count_max": "3",
         "index_state": "format=0;endianness=2",
+        "index_buffer_address": "00180000",
+        "index_buffer_length_min": "6",
+        "vertex_index_range": "offset=0;min=0;max=16777215",
         "vertex_binding_count": "1",
         "vertex_fetches": "0:00100000:4096:8:2",
+        "vertex_attribute_count": "1",
+        "vertex_attributes": "0:0:0:8:6:F:0:0:0:0:F:688:0",
         "texture_fetch_count": "1",
         "pipeline_state": "opaque",
         "indexed": "true",
@@ -32,6 +40,7 @@ def signature(name: str, **overrides):
         "resolved_input": "false",
         "opaque": "true",
         "vertex_overflow": "false",
+        "vertex_attribute_overflow": "false",
     }
     record.update(overrides)
     return record
@@ -96,6 +105,10 @@ class NativeRendererCandidateTests(unittest.TestCase):
         self.assertEqual(1, result["candidate_count"])
         self.assertEqual("GOOD", result["candidates"][0]["signature"])
         self.assertEqual(50, result["candidates"][0]["total_draws"])
+        self.assertEqual(3, result["candidates"][0]["index_count_min"])
+        self.assertEqual(3, result["candidates"][0]["index_count_max"])
+        self.assertEqual(6, result["candidates"][0]["index_buffer_length_min"])
+        self.assertFalse(result["candidates"][0]["indexed"])
         self.assertEqual(
             "AAAAAAAAAAAAAAAA",
             result["candidates"][0]["vertex_specialization_mask"],
@@ -106,6 +119,12 @@ class NativeRendererCandidateTests(unittest.TestCase):
     def test_rejects_dynamic_input(self):
         reasons = MODULE.rejection_reasons(signature("BAD", resolved_input="true"))
         self.assertIn("dynamic_render_target_input", reasons)
+
+    def test_rejects_vertex_attribute_overflow(self):
+        reasons = MODULE.rejection_reasons(
+            signature("BAD", vertex_attribute_overflow="true")
+        )
+        self.assertIn("vertex_attribute_overflow", reasons)
 
 
 if __name__ == "__main__":

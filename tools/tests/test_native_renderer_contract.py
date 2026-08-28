@@ -326,6 +326,34 @@ class NativeRendererContractTests(unittest.TestCase):
         )
         self.assertNotIn("SetDrawSuppression", prepared_patch)
 
+        declaration_patch = (
+            ROOT / "patches/rexglue/0053-graphics-vertex-declaration-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("kGraphicsVertexAttributeObservationLimit = 32", declaration_patch)
+        self.assertIn("VGT_INDX_OFFSET", declaration_patch)
+        self.assertIn("VGT_MIN_VTX_INDX", declaration_patch)
+        self.assertIn("VGT_MAX_VTX_INDX", declaration_patch)
+        self.assertIn("fetch_word_mask", declaration_patch)
+        self.assertIn("vertex_attribute_overflow", declaration_patch)
+        for forbidden in (
+            "vertex_data",
+            "index_data",
+            "TranslatePhysical",
+            "SetDrawSuppression",
+            "IssueDraw",
+        ):
+            self.assertNotIn(forbidden, declaration_patch)
+
+        planner = (
+            ROOT / "tools/build-native-geometry-contract.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PHYSICAL_MASK = 0x1FFFFFFF", planner)
+        self.assertIn('"guest_payload_read": False', planner)
+        self.assertIn('"native_upload": False', planner)
+        self.assertIn('"native_draw": False', planner)
+        self.assertIn('"suppression_allowed": False', planner)
+        self.assertIn('"xenos_authority": True', planner)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"

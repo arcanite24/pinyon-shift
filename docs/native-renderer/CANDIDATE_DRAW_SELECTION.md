@@ -36,6 +36,14 @@ requires one pair to recur in every supplied capture and verifies that exact
 identity exists in the local shader manifest; it never guesses among multiple
 translations of the same guest hash.
 
+Patch `0053-graphics-vertex-declaration-observer.patch` keeps that observer
+passive while adding the bounded declaration needed for NR-02B. It records at
+most 32 vertex attributes plus the VGT index offset/minimum/maximum registers
+and the observed index-count range. Attribute metadata includes the fetch
+constant, word offset and stride, data format, required word mask, result
+mapping, and instruction flags. Overflow is explicit. Neither this patch nor
+the title-side contract builder dereferences a guest address.
+
 ## Repeated-capture shortlist
 
 Capture the same marked scene at least twice while also collecting the local
@@ -64,8 +72,13 @@ input capture. It accepts both indexed and non-indexed authentic draws because
 the NR-02 candidate criteria do not require an index buffer. It rejects missing
 or ambiguous prepared pairs, shader-pack misses, blending, query or memexport
 state, observed resolved-target inputs, more than one vertex binding, more than
-one texture, and bounded-observer overflow. Results are ordered
+one texture, and either bounded-observer overflow. Results are ordered
 deterministically by recurrence and draw count.
+
+The resulting selection can be converted into a metadata-only geometry
+contract as described in [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md). An
+indexed candidate is retained by the selector, but the initial contract marks
+it as requiring a later bounded index scan rather than reading payload data.
 
 ## Local qualification — 2026-08-28
 
@@ -102,3 +115,17 @@ failure to observe a resolved input does not prove that a texture is static.
 The selected draw still requires visual identification, dependency review,
 guest bounds validation, and isolated comparison before NR-02 can advance to
 native execution.
+
+## NR-02B signature revision
+
+Patch `0053` intentionally adds VGT range and full vertex-declaration metadata
+to the candidate signature. Therefore pre-`0053` signatures, including
+`E184D75768958828`, are historical identities and cannot be compared directly
+with new captures.
+
+Two post-`0053` `open_world_day` captures selected one provisional geometry
+candidate, `6263AD066A342AFE`. Its exact declaration and allocation bounds are
+recorded in [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md). The candidate remains
+`needs_visual_and_dependency_review`; the new selection proves repeatable
+metadata and an exact shader specialization, not visual suitability or static
+texture provenance.

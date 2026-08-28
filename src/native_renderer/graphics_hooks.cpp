@@ -58,6 +58,9 @@ struct DrawSignatureEntry {
   uint64_t draw_count = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
+  uint32_t min_index_count = 0;
+  uint32_t max_index_count = 0;
+  uint32_t min_index_buffer_length = 0;
   bool samples_resolved_target = false;
   rex::system::GraphicsDrawObservation sample;
 };
@@ -390,8 +393,13 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
   uint64_t hash = DrawSignature(observation);
   for (uint64_t value : {uint64_t(observation.index_format),
                          uint64_t(observation.index_endianness),
+                         uint64_t(observation.vertex_index_offset),
+                         uint64_t(observation.vertex_index_min),
+                         uint64_t(observation.vertex_index_max),
                          uint64_t(observation.vertex_binding_count),
                          uint64_t(observation.vertex_binding_overflow),
+                         uint64_t(observation.vertex_attribute_count),
+                         uint64_t(observation.vertex_attribute_overflow),
                          uint64_t(observation.viz_query_condition),
                          uint64_t(observation.pa_sc_viz_query),
                          uint64_t(samples_resolved_target),
@@ -415,6 +423,25 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
     hash = HashCombine(hash, binding.size);
     hash = HashCombine(hash, binding.stride_words);
     hash = HashCombine(hash, binding.endianness);
+  }
+  const uint32_t bounded_attribute_count =
+      std::min(observation.vertex_attribute_count,
+               rex::system::kGraphicsVertexAttributeObservationLimit);
+  for (uint32_t i = 0; i < bounded_attribute_count; ++i) {
+    const auto &attribute = observation.vertex_attributes[i];
+    for (uint64_t value :
+         {uint64_t(attribute.binding_index), uint64_t(attribute.fetch_constant),
+          uint64_t(uint32_t(attribute.offset_words)),
+          uint64_t(attribute.stride_words), uint64_t(attribute.data_format),
+          uint64_t(attribute.fetch_word_mask),
+          uint64_t(uint32_t(attribute.exp_adjust)),
+          uint64_t(attribute.signed_rf_mode),
+          uint64_t(attribute.result_storage_target),
+          uint64_t(attribute.result_storage_index),
+          uint64_t(attribute.result_write_mask),
+          uint64_t(attribute.result_components), uint64_t(attribute.flags)}) {
+      hash = HashCombine(hash, value);
+    }
   }
   return hash ? hash : 1;
 }
@@ -525,6 +552,24 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
           "{}:{:08X}:{}:{}:{}", binding.fetch_constant, binding.address,
           binding.size, binding.stride_words, binding.endianness);
     }
+    std::string vertex_attributes;
+    const uint32_t bounded_attribute_count =
+        std::min(sample.vertex_attribute_count,
+                 rex::system::kGraphicsVertexAttributeObservationLimit);
+    for (uint32_t i = 0; i < bounded_attribute_count; ++i) {
+      const auto &attribute = sample.vertex_attributes[i];
+      if (!vertex_attributes.empty()) {
+        vertex_attributes += ";";
+      }
+      vertex_attributes += fmt::format(
+          "{}:{}:{}:{}:{}:{:X}:{}:{}:{}:{}:{:X}:{:X}:{:X}",
+          attribute.binding_index, attribute.fetch_constant,
+          attribute.offset_words, attribute.stride_words, attribute.data_format,
+          attribute.fetch_word_mask, attribute.exp_adjust,
+          attribute.signed_rf_mode, attribute.result_storage_target,
+          attribute.result_storage_index, attribute.result_write_mask,
+          attribute.result_components, attribute.flags);
+    }
     const bool query_draw =
         sample.viz_query_condition || (sample.pa_sc_viz_query & 1);
     const std::string pipeline_state =
@@ -544,11 +589,24 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"vertex_shader", fmt::format("{:016X}", sample.vertex_shader_hash)},
          {"pixel_shader", fmt::format("{:016X}", sample.pixel_shader_hash)},
          {"primitive", std::to_string(sample.primitive_type)},
+         {"source_select", std::to_string(sample.source_select)},
+         {"index_count_min", std::to_string(entry.min_index_count)},
+         {"index_count_max", std::to_string(entry.max_index_count)},
          {"index_state",
           fmt::format("format={};endianness={}", sample.index_format,
                       sample.index_endianness)},
+         {"index_buffer_address",
+          fmt::format("{:08X}", sample.index_buffer_address)},
+         {"index_buffer_length_min",
+          std::to_string(entry.min_index_buffer_length)},
+         {"vertex_index_range",
+          fmt::format("offset={};min={};max={}", sample.vertex_index_offset,
+                      sample.vertex_index_min, sample.vertex_index_max)},
          {"vertex_binding_count", std::to_string(sample.vertex_binding_count)},
          {"vertex_fetches", vertex_fetches},
+         {"vertex_attribute_count",
+          std::to_string(sample.vertex_attribute_count)},
+         {"vertex_attributes", vertex_attributes},
          {"texture_fetch_count",
           std::to_string(std::popcount(sample.texture_fetch_mask))},
          {"pipeline_state", pipeline_state},
@@ -558,6 +616,8 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"resolved_input", entry.samples_resolved_target ? "true" : "false"},
          {"opaque", IsOpaqueColorState(sample) ? "true" : "false"},
          {"vertex_overflow", sample.vertex_binding_overflow ? "true" : "false"},
+         {"vertex_attribute_overflow",
+          sample.vertex_attribute_overflow ? "true" : "false"},
          {"qualification", "metadata_shortlist_only"},
          {"suppression_eligible", "false"}});
   }
@@ -805,6 +865,9 @@ void RecordCandidate(const rex::system::GraphicsDrawObservation &observation,
       entry.draw_count = 1;
       entry.first_frame = observation.frame_sequence;
       entry.last_frame = observation.frame_sequence;
+      entry.min_index_count = observation.index_count;
+      entry.max_index_count = observation.index_count;
+      entry.min_index_buffer_length = observation.index_buffer_length;
       entry.samples_resolved_target = samples_resolved_target;
       entry.sample = observation;
       ++g_candidate_census.unique_signature_count;
@@ -813,6 +876,14 @@ void RecordCandidate(const rex::system::GraphicsDrawObservation &observation,
     if (entry.signature == signature) {
       ++entry.draw_count;
       entry.last_frame = observation.frame_sequence;
+      entry.min_index_count =
+          std::min(entry.min_index_count, observation.index_count);
+      entry.max_index_count =
+          std::max(entry.max_index_count, observation.index_count);
+      if (observation.indexed) {
+        entry.min_index_buffer_length = std::min(
+            entry.min_index_buffer_length, observation.index_buffer_length);
+      }
       return;
     }
     index = (index + 1) % kSignatureCapacity;
