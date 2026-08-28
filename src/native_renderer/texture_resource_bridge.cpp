@@ -5,8 +5,10 @@
 
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -16,6 +18,7 @@
 
 #include "native_renderer/render_target_bridge.h"
 #include "native_renderer/resource_identity.h"
+#include "native_renderer/resource_worker.h"
 #include "native_renderer/texture_cache.h"
 #include "pinyon_shift_diagnostics.h"
 
@@ -58,8 +61,34 @@ bool IsRetainedPassCandidate(const NativeResource& resource) {
          resource.guest_pitch == kRetainedPassTexturePitch && resource.guest_tiled;
 }
 
+std::optional<pinyon_shift::native_renderer::NativePreparedResource>
+PrepareTextureMetadata(
+    pinyon_shift::native_renderer::NativeResourceWorkRequest request,
+    std::stop_token stop_token) {
+  if (stop_token.stop_requested() ||
+      request.payload.size() != sizeof(uint32_t) * 6) {
+    return std::nullopt;
+  }
+  std::array<uint32_t, 6> fetch_words;
+  std::memcpy(fetch_words.data(), request.payload.data(),
+              request.payload.size());
+  if (!pinyon_shift::native_renderer::NativeTextureDescriptor::FromFetchWords(
+          fetch_words)) {
+    return std::nullopt;
+  }
+  return pinyon_shift::native_renderer::NativePreparedResource{
+      request.key, request.priority, std::move(request.payload)};
+}
+
 class TextureResourceBridge {
  public:
+  TextureResourceBridge()
+      : prewarm_worker_({}, &PrepareTextureMetadata) {
+    if (!prewarm_worker_.Start()) {
+      RecordFailureOnce("prewarm_worker_start_failed");
+    }
+  }
+
   void ObserveResolve(const ResolveObservation& observation) {
     if (!observation.succeeded || !observation.written_length) {
       return;
@@ -133,17 +162,22 @@ class TextureResourceBridge {
              {"tiled", resource.guest_tiled ? "1" : "0"},
              {"host_format", std::to_string(resource.host_resource_format)}});
       }
+      SubmitTexturePreparation(resource);
       if (IsRetainedPassCandidate(resource)) {
         Retain(resource, observation);
       }
       ImportResolveProducer(resource, observation);
     }
+    prewarm_worker_.DrainCommits(
+        4, 64 * 1024,
+        [](pinyon_shift::native_renderer::NativePreparedResource) {});
 
     if (resource_count_ && (!last_summary_submission_ ||
                             observation.current_submission >= last_summary_submission_ + 300)) {
       last_summary_submission_ = observation.current_submission;
       const auto metrics = cache_.metrics();
       const auto target_metrics = render_target_bridge_.metrics();
+      const auto worker_metrics = prewarm_worker_.metrics();
       pinyon_shift::diagnostics::RecordEvent(
           "native_renderer.texture_bridge.summary",
           {{"observations", std::to_string(observation_count_)},
@@ -169,6 +203,16 @@ class TextureResourceBridge {
            {"target_live_bytes", std::to_string(target_metrics.live_bytes)},
            {"resolve_record_evictions",
             std::to_string(resolve_record_evictions_)},
+           {"prewarm_submissions",
+            std::to_string(worker_metrics.submissions)},
+           {"prewarm_deduplications",
+            std::to_string(worker_metrics.deduplications)},
+           {"prewarm_prepared", std::to_string(worker_metrics.prepared)},
+           {"prewarm_commits", std::to_string(worker_metrics.commits)},
+           {"prewarm_stale", std::to_string(worker_metrics.stale_results)},
+           {"prewarm_refusals",
+            std::to_string(worker_metrics.capacity_refusals)},
+           {"prewarm_pending", std::to_string(worker_metrics.pending_count)},
            {"submission", std::to_string(observation.current_submission)},
            {"completed_submission", std::to_string(observation.completed_submission)},
            {"xenos_draw", "preserved"}});
@@ -177,17 +221,23 @@ class TextureResourceBridge {
 
   void Shutdown() {
     const std::scoped_lock lock(mutex_);
+    prewarm_worker_.Stop();
     cache_.RetireAll(0);
     render_target_bridge_.RetireAll(0);
     ReleaseCollected(cache_.Collect(UINT64_MAX));
     ReleaseCollected(render_target_bridge_.Collect(UINT64_MAX));
     const auto metrics = cache_.metrics();
+    const auto worker_metrics = prewarm_worker_.metrics();
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.texture_bridge.stopped",
         {{"observations", std::to_string(observation_count_)},
          {"resources", std::to_string(resource_count_)},
          {"resolve_observations", std::to_string(resolve_observation_count_)},
          {"producer_resources", std::to_string(producer_resource_count_)},
+         {"prewarm_submissions", std::to_string(worker_metrics.submissions)},
+         {"prewarm_commits", std::to_string(worker_metrics.commits)},
+         {"prewarm_pending", std::to_string(worker_metrics.pending_count)},
+         {"prewarm_prepared", std::to_string(worker_metrics.prepared_count)},
          {"live", std::to_string(metrics.live_count)},
          {"retained_refs", std::to_string(RetainedReferenceCount())},
          {"xenos_draw", "preserved"}});
@@ -212,6 +262,35 @@ class TextureResourceBridge {
     rex::system::GraphicsNativeTextureRelease release = nullptr;
     uint64_t count = 0;
   };
+
+  void SubmitTexturePreparation(const NativeResource& resource) {
+    if (!resource.base_length) {
+      return;
+    }
+    const auto base =
+        pinyon_shift::native_renderer::PhysicalRange::FromGraphicsAddress(
+            resource.base_address, resource.base_length);
+    if (!base) {
+      return;
+    }
+    const uint64_t fetch_signature = HashFetchWords(resource.fetch_dwords);
+    uint64_t identity = base->address;
+    identity ^= base->length + UINT64_C(0x9E3779B97F4A7C15) +
+                (identity << 6) + (identity >> 2);
+    identity ^= fetch_signature + UINT64_C(0x9E3779B97F4A7C15) +
+                (identity << 6) + (identity >> 2);
+    if (!identity) {
+      identity = 1;
+    }
+    std::vector<uint8_t> payload(sizeof(resource.fetch_dwords));
+    std::memcpy(payload.data(), resource.fetch_dwords, payload.size());
+    prewarm_worker_.Submit(
+        {{pinyon_shift::native_renderer::NativeResourceWorkClass::kTexture,
+          identity, 1},
+         pinyon_shift::native_renderer::NativeResourceWorkPriority::
+             kVisibleMiss,
+         std::move(payload)});
+  }
 
   void Retain(const NativeResource& resource, const NativeObservation& observation) {
     if (!resource.resource || !resource.retain || !resource.release ||
@@ -503,6 +582,7 @@ class TextureResourceBridge {
   std::mutex mutex_;
   pinyon_shift::native_renderer::PhysicalResourceTracker tracker_;
   pinyon_shift::native_renderer::NativeTextureCache cache_{tracker_};
+  pinyon_shift::native_renderer::NativeResourceWorker prewarm_worker_;
   pinyon_shift::native_renderer::NativeRenderTargetBridge
       render_target_bridge_;
   std::unordered_map<uint64_t, RetainedReference> retained_;
