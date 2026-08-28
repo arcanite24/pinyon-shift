@@ -386,6 +386,15 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("texture_fetch_layout_valid_mask", texture_layout_patch)
         self.assertNotIn("TranslatePhysical", texture_layout_patch)
 
+        prepared_pipeline_patch = (
+            ROOT / "patches/rexglue/0057-d3d12-prepared-pipeline-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("normalized_depth_control", prepared_pipeline_patch)
+        self.assertIn("bound_render_target_formats", prepared_pipeline_patch)
+        self.assertIn("host_vertex_shader_type", prepared_pipeline_patch)
+        self.assertNotIn("TranslatePhysical", prepared_pipeline_patch)
+        self.assertNotIn("SetDrawSuppression", prepared_pipeline_patch)
+
         planner = (
             ROOT / "tools/build-native-geometry-contract.py"
         ).read_text(encoding="utf-8")

@@ -45,6 +45,20 @@ def signature(name: str, **overrides):
         "texture_state_count": "1",
         "texture_states": "2:0:0:0:0:0:0:0:0:1:0:1C:0:0:0:0:F:688",
         "pipeline_state": "opaque",
+        "prepared_pipeline_hash": "4444444444444444",
+        "host_primitive": "4",
+        "host_vertex_shader_type": "0",
+        "tessellation_mode": "1",
+        "host_index_buffer_type": "1",
+        "host_index_format": "0",
+        "host_primitive_reset": "false",
+        "normalized_depth_control": "087087E3",
+        "normalized_color_mask": "0000000F",
+        "bound_render_target_bits": "00000003",
+        "bound_render_target_formats": (
+            "00000001:00000003:00000000:00000000:00000000"
+        ),
+        "prepared_pipeline_flags": "00000003",
         "indexed": "true",
         "query": "false",
         "memexport": "false",
@@ -141,12 +155,58 @@ class NativeRendererCandidateTests(unittest.TestCase):
             "AAAAAAAAAAAAAAAA",
             result["candidates"][0]["vertex_specialization_mask"],
         )
+        self.assertEqual(
+            "4444444444444444",
+            result["candidates"][0]["prepared_pipeline_hash"],
+        )
+        self.assertEqual("4", result["candidates"][0]["host_primitive"])
+        self.assertFalse(result["candidates"][0]["host_primitive_reset"])
         self.assertFalse(result["safety"]["suppression_allowed"])
         self.assertTrue(result["safety"]["xenos_authority"])
 
     def test_rejects_dynamic_input(self):
         reasons = MODULE.rejection_reasons(signature("BAD", resolved_input="true"))
         self.assertIn("dynamic_render_target_input", reasons)
+
+    def test_requires_stable_prepared_pipeline_state(self):
+        shader_manifest = {
+            "schema": MODULE.SHADER_SCHEMA,
+            "entries": [
+                {
+                    "stage": stage,
+                    "guest_hash": guest_hash,
+                    "specialization_mask": specialization,
+                }
+                for stage, guest_hash, specialization in (
+                    ("vertex", "1111111111111111", "AAAAAAAAAAAAAAAA"),
+                    ("pixel", "2222222222222222", "BBBBBBBBBBBBBBBB"),
+                )
+            ],
+        }
+        prepared = [{
+            "vertex_shader": "1111111111111111",
+            "pixel_shader": "2222222222222222",
+            "vertex_specialization_mask": "AAAAAAAAAAAAAAAA",
+            "pixel_specialization_mask": "BBBBBBBBBBBBBBBB",
+        }]
+        first = {
+            "schema": MODULE.CENSUS_SCHEMA,
+            "classification": {"scene": "open_world_day"},
+            "draw_candidates": [signature("GOOD")],
+            "prepared_shader_pairs": prepared,
+        }
+        second = {
+            "schema": MODULE.CENSUS_SCHEMA,
+            "classification": {"scene": "open_world_day"},
+            "draw_candidates": [signature("GOOD", host_index_format="1")],
+            "prepared_shader_pairs": prepared,
+        }
+        result = select_documents(first, second, shader_manifest)
+        self.assertEqual(0, result["candidate_count"])
+        self.assertIn(
+            {"reason": "prepared_pipeline_changed_across_captures", "signatures": 1},
+            result["rejections"],
+        )
 
     def test_requires_one_to_four_texture_resources(self):
         self.assertIn(

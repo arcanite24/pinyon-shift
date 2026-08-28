@@ -15,6 +15,20 @@ CENSUS_SCHEMA = "pinyon-shift.native-renderer-census.v1"
 SHADER_SCHEMA = "pinyon-shift.native-shader-pack.v1"
 PHYSICAL_MASK = 0x1FFFFFFF
 MAX_TEXTURE_RESOURCES = 4
+PREPARED_PIPELINE_FIELDS = (
+    "prepared_pipeline_hash",
+    "host_primitive",
+    "host_vertex_shader_type",
+    "tessellation_mode",
+    "host_index_buffer_type",
+    "host_index_format",
+    "host_primitive_reset",
+    "normalized_depth_control",
+    "normalized_color_mask",
+    "bound_render_target_bits",
+    "bound_render_target_formats",
+    "prepared_pipeline_flags",
+)
 
 
 def boolean(record: dict[str, Any], key: str) -> bool:
@@ -132,6 +146,20 @@ def prepared_pairs(census: dict[str, Any]) -> dict[tuple[str, str], set[tuple[st
     return result
 
 
+def prepared_pipeline_identity(record: dict[str, Any]) -> tuple[str, ...] | None:
+    if any(record.get(field) is None for field in PREPARED_PIPELINE_FIELDS):
+        return None
+    pipeline_hash = str(record["prepared_pipeline_hash"]).upper()
+    if len(pipeline_hash) != 16:
+        return None
+    return tuple(
+        str(boolean(record, field))
+        if field == "host_primitive_reset"
+        else str(record[field]).upper()
+        for field in PREPARED_PIPELINE_FIELDS
+    )
+
+
 def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, Any]:
     if len(census_paths) < 2:
         raise ValueError("at least two census inventories are required")
@@ -189,6 +217,13 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
             continue
         if len(set(candidate_specializations)) != 1:
             rejection_counts["specialization_changed_across_captures"] += 1
+            continue
+        prepared_pipelines = [prepared_pipeline_identity(record) for record in records]
+        if any(identity is None for identity in prepared_pipelines):
+            rejection_counts["missing_prepared_pipeline_state"] += 1
+            continue
+        if len(set(prepared_pipelines)) != 1:
+            rejection_counts["prepared_pipeline_changed_across_captures"] += 1
             continue
         vertex_specialization, pixel_specialization = candidate_specializations[0]
         if any(
@@ -259,6 +294,28 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
                 "texture_state_count": int(sample.get("texture_state_count", 0)),
                 "texture_states": sample.get("texture_states"),
                 "pipeline_state": sample.get("pipeline_state"),
+                "prepared_pipeline_hash": sample.get("prepared_pipeline_hash"),
+                "host_primitive": sample.get("host_primitive"),
+                "host_vertex_shader_type": sample.get("host_vertex_shader_type"),
+                "tessellation_mode": sample.get("tessellation_mode"),
+                "host_index_buffer_type": sample.get("host_index_buffer_type"),
+                "host_index_format": sample.get("host_index_format"),
+                "host_primitive_reset": (
+                    boolean(sample, "host_primitive_reset")
+                    if "host_primitive_reset" in sample
+                    else None
+                ),
+                "normalized_depth_control": sample.get(
+                    "normalized_depth_control"
+                ),
+                "normalized_color_mask": sample.get("normalized_color_mask"),
+                "bound_render_target_bits": sample.get(
+                    "bound_render_target_bits"
+                ),
+                "bound_render_target_formats": sample.get(
+                    "bound_render_target_formats"
+                ),
+                "prepared_pipeline_flags": sample.get("prepared_pipeline_flags"),
                 "qualification": "metadata_shortlist_only",
             }
         )
