@@ -230,6 +230,44 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("claimed_frames", report)
         self.assertIn("failure_reason", report)
 
+    def test_shader_capture_is_local_bounded_and_passive(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0050-d3d12-shader-translation-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsShaderTranslationObservation", patch)
+        self.assertIn("translation.translated_binary().data()", patch)
+        self.assertIn("translation.modification()", patch)
+        self.assertIn("if (!translation.is_valid())", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+        self.assertNotIn("SetCopySuppression", patch)
+
+        source = (
+            ROOT / "src/native_renderer/shader_capture.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR", source)
+        self.assertIn("kMaximumEntries = 256", source)
+        self.assertIn("kMaximumBytecodeBytes = 16 * 1024 * 1024", source)
+        self.assertIn("kMaximumCaptureBytes = 128 * 1024 * 1024", source)
+        self.assertIn('component.native() == L".local"', source)
+        self.assertIn('std::memcmp(bytecode.data(), "DXBC", 4)', source)
+        self.assertIn("pinyon-shift.native-shader-pack.v1", source)
+        self.assertIn('{"fallback", "xenos"}', source)
+        self.assertNotIn("guest_hash", source.split(
+            'diagnostics::RecordEvent("native_renderer.shader_capture.installed"', 1
+        )[1])
+
+        launcher = (ROOT / "tools/launch-preview.ps1").read_text(
+            encoding="utf-8"
+        )
+        capture = (
+            ROOT / "tools/capture-native-renderer-shaders.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR", launcher)
+        self.assertIn("-StateRoot $resolvedStateRoot", capture)
+        self.assertIn("ForzaProfile", capture)
+        self.assertIn("repository .local directory", capture)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"

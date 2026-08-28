@@ -118,3 +118,8 @@ exactly one sanitized `validation_failed` event with `fallback=xenos`, then
 recorded Xenos as output authority, claimed no native frame, and exited
 normally without another error signal. Neither qualification run changed or
 copied the AppData save.
+
+Authentic local capture is documented in
+[`CANDIDATE_SHADER_CAPTURE.md`](CANDIDATE_SHADER_CAPTURE.md). The capture writer
+emits this manifest schema directly from validated ReXGlue translations while
+keeping all shader identity and bytecode data under `.local`.

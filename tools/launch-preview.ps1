@@ -4,6 +4,7 @@ param(
     [string]$Configuration = 'Release',
     [string]$GameRoot,
     [string]$StateRoot,
+    [string]$ShaderCaptureDir,
     [switch]$Json,
     [switch]$CrashSelfTest
 )
@@ -47,6 +48,7 @@ $savedStateRoot = $env:PINYON_SHIFT_STATE_ROOT
 $savedGameRoot = $env:PINYON_SHIFT_GAME_ROOT
 $savedTearing = $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING
 $savedCrashTest = $env:PINYON_SHIFT_CRASH_SELF_TEST
+$savedShaderCaptureDir = $env:PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR
 $startedUtc = [DateTime]::UtcNow
 $process = $null
 try {
@@ -54,6 +56,11 @@ try {
     $env:PINYON_SHIFT_GAME_ROOT = $resolvedGameRoot
     $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING = 'false'
     $env:PINYON_SHIFT_CRASH_SELF_TEST = if ($CrashSelfTest) { '1' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR = if ($ShaderCaptureDir) {
+        [IO.Path]::GetFullPath($ShaderCaptureDir)
+    } else {
+        $null
+    }
     $process = Start-Process -FilePath $executable `
         -WorkingDirectory (Split-Path $executable -Parent) -PassThru
     $process.WaitForExit()
@@ -64,6 +71,7 @@ finally {
     $env:PINYON_SHIFT_GAME_ROOT = $savedGameRoot
     $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING = $savedTearing
     $env:PINYON_SHIFT_CRASH_SELF_TEST = $savedCrashTest
+    $env:PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR = $savedShaderCaptureDir
 }
 
 if ($null -eq $process) { throw 'Windows did not start Pinyon Shift.' }

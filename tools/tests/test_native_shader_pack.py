@@ -172,6 +172,7 @@ class NativeShaderPackTests(unittest.TestCase):
             (ROOT / "config/repository-policy.json").read_text(encoding="utf-8")
         )
         self.assertIn(".dxil", policy["forbidden_extensions"])
+        self.assertIn(".dxbc", policy["forbidden_extensions"])
         self.assertIn(".pnsp", policy["forbidden_extensions"])
 
     def test_runtime_load_is_restart_scoped_and_never_changes_xenos_authority(self):

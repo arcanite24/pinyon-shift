@@ -20,6 +20,7 @@
 
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
+#include "native_renderer/shader_capture.h"
 #include "pinyon_shift_diagnostics.h"
 
 #include <cstdio>
@@ -346,6 +347,8 @@ void PinyonShiftApp::OnPostSetup() {
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
+  pinyon_shift::native_renderer::InstallShaderCapture(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::diagnostics::RecordEvent(
       "runtime.setup.complete",
       {{"memory", runtime() && runtime()->memory() ? "1" : "0"},
@@ -375,11 +378,15 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
   // ReXGlue 0.9 deliberately hard-exits after accepting a window-close
   // request, so OnDestroy/OnShutdown are not reached on that path. Record the
   // clean qualification boundary before allowing the SDK to terminate.
+  pinyon_shift::native_renderer::UninstallShaderCapture(
+      runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
   return true;
 }
 
 void PinyonShiftApp::OnShutdown() {
+  pinyon_shift::native_renderer::UninstallShaderCapture(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::UninstallGuestOutputRenderer(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::UninstallGraphicsCensus(

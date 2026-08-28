@@ -6,6 +6,7 @@
 *.pirs
 *.stfs
 *.dxil
+*.dxbc
 *.pnsp
 TU_*
 assets/

@@ -1,0 +1,112 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 608436a..594564d 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -129,6 +129,24 @@ struct GraphicsCopyObservation {
+ 
+ using GraphicsCopyObserver = void (*)(const GraphicsCopyObservation& observation);
+ 
++enum class GraphicsShaderStage : uint32_t {
++  kVertex = 1,
++  kPixel = 2,
++};
++
++// The bytecode view is borrowed for the duration of the callback only. The
++// observer is diagnostic and cannot alter shader translation or draw state.
++struct GraphicsShaderTranslationObservation {
++  GraphicsShaderStage stage = GraphicsShaderStage::kVertex;
++  uint64_t guest_hash = 0;
++  uint64_t specialization_mask = 0;
++  const uint8_t* bytecode = nullptr;
++  size_t bytecode_size = 0;
++};
++
++using GraphicsShaderTranslationObserver = void (*)(
++    const GraphicsShaderTranslationObservation& observation);
++
+ class IGraphicsSystem {
+  public:
+   virtual ~IGraphicsSystem() = default;
+@@ -163,6 +181,10 @@ class IGraphicsSystem {
+   virtual void SetCopyObserver(GraphicsCopyObserver observer) {
+     (void)observer;
+   }
++  virtual void SetShaderTranslationObserver(
++      GraphicsShaderTranslationObserver observer) {
++    (void)observer;
++  }
+   virtual void SetNativeGuestOutputRenderer(NativeGuestOutputRenderer renderer) {
+     (void)renderer;
+   }
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index 5406fd0..f7f84c4 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -82,6 +82,13 @@ class GraphicsSystem : public system::IGraphicsSystem {
+   system::GraphicsCopyObserver copy_observer() const {
+     return copy_observer_.load(std::memory_order_acquire);
+   }
++  void SetShaderTranslationObserver(
++      system::GraphicsShaderTranslationObserver observer) override {
++    shader_translation_observer_.store(observer, std::memory_order_release);
++  }
++  system::GraphicsShaderTranslationObserver shader_translation_observer() const {
++    return shader_translation_observer_.load(std::memory_order_acquire);
++  }
+   void SetNativeGuestOutputRenderer(
+       system::NativeGuestOutputRenderer renderer) override {
+     native_guest_output_renderer_.Set(renderer);
+@@ -154,6 +161,8 @@ class GraphicsSystem : public system::IGraphicsSystem {
+ 
+   std::atomic<system::GraphicsDrawObserver> draw_observer_{nullptr};
+   std::atomic<system::GraphicsCopyObserver> copy_observer_{nullptr};
++  std::atomic<system::GraphicsShaderTranslationObserver>
++      shader_translation_observer_{nullptr};
+   system::NativeGuestOutputRendererRegistration native_guest_output_renderer_;
+ 
+   std::atomic_flag host_gpu_loss_reported_;
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index 8ae9f12..e01eac2 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -61,6 +61,10 @@ class D3D12CommandProcessor : public CommandProcessor {
+     return *static_cast<ui::d3d12::D3D12Provider*>(graphics_system_->provider());
+   }
+ 
++  system::GraphicsShaderTranslationObserver GetShaderTranslationObserver() const {
++    return graphics_system_->shader_translation_observer();
++  }
++
+   // Returns the deferred drawing command list for the currently open
+   // submission.
+   DeferredCommandList& GetDeferredCommandList() {
+diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
+index 8e6b854..cd09ea2 100644
+--- a/src/graphics/d3d12/pipeline_cache.cpp
++++ b/src/graphics/d3d12/pipeline_cache.cpp
+@@ -1229,7 +1229,24 @@ bool PipelineCache::TranslateAnalyzedShader(DxbcShaderTranslator& translator,
+                                                     : "d3d12");
+   }
+ 
+-  return translation.is_valid();
++  if (!translation.is_valid()) {
++    return false;
++  }
++
++  auto shader_translation_observer =
++      command_processor_.GetShaderTranslationObserver();
++  if (shader_translation_observer) {
++    system::GraphicsShaderTranslationObservation observation;
++    observation.stage = shader.type() == xenos::ShaderType::kVertex
++                            ? system::GraphicsShaderStage::kVertex
++                            : system::GraphicsShaderStage::kPixel;
++    observation.guest_hash = shader.ucode_data_hash();
++    observation.specialization_mask = translation.modification();
++    observation.bytecode = translation.translated_binary().data();
++    observation.bytecode_size = translation.translated_binary().size();
++    shader_translation_observer(observation);
++  }
++  return true;
+ }
+ 
+ bool PipelineCache::GetCurrentStateDescription(
