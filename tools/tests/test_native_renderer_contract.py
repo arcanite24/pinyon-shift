@@ -268,6 +268,42 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("'native_renderer.output.waiting'", report)
         self.assertIn("waiting_reason", report)
 
+    def test_retained_pass_requires_current_frame_publication(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0067-d3d12-retained-pass-frame-freshness.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("retained_pass_frame_sequence", patch)
+        self.assertIn("isolated_replay_preview_frame_sequence_", patch)
+        self.assertIn("required_frame_sequence", patch)
+        self.assertIn(
+            "isolated_replay_preview_frame_sequence_ != required_frame_sequence",
+            patch,
+        )
+        self.assertIn(
+            "EndIsolatedReplayTarget(\n+            isolated_draw_request.frame_sequence)",
+            patch,
+        )
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(
+            hooks.count("request.frame_sequence = g_isolated_draw.frame"), 3
+        )
+
+        output = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "context.retained_pass_frame_sequence == context.frame_sequence",
+            output,
+        )
+        self.assertIn('"retained_pass_stale"', output)
+        self.assertIn('{"fallback", "xenos"}', output)
+        self.assertIn('{"suppression", "disabled"}', output)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT

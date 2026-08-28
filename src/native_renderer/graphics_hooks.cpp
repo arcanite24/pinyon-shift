@@ -2240,6 +2240,7 @@ void RequestIsolatedDraw(
       g_isolated_draw.awaiting_pass_follower = true;
       g_isolated_draw.pass_anchor_recorded = g_isolated_draw.completed;
       request.requested = true;
+      request.frame_sequence = g_isolated_draw.frame;
       request.retain_target = true;
       request.reference_marker_requested = true;
       request.completion = g_isolated_draw.completed
@@ -2260,6 +2261,7 @@ void RequestIsolatedDraw(
       return;
     }
     request.requested = true;
+    request.frame_sequence = g_isolated_draw.frame;
     request.reuse_target = true;
     request.reference_marker_requested = true;
     if (!g_isolated_draw.completed) {
@@ -2288,6 +2290,7 @@ void RequestIsolatedDraw(
     // result has been recorded. This path has no readback or completion
     // callback, and the authoritative Xenos draw still follows unmodified.
     request.requested = g_isolated_draw.prepared_candidate_eligible;
+    request.frame_sequence = request.requested ? g_isolated_draw.frame : 0;
     return;
   }
   g_isolated_draw.completed = true;
@@ -2309,6 +2312,7 @@ void RequestIsolatedDraw(
   g_isolated_draw.captured_frame = g_isolated_draw.frame;
   g_isolated_draw.captured_draw = g_isolated_draw.draw;
   request.requested = true;
+  request.frame_sequence = g_isolated_draw.frame;
   request.readback_requested = g_isolated_draw.readback_requested;
   request.completion = &CompleteIsolatedDraw;
   request.readback_completion = g_isolated_draw.readback_requested

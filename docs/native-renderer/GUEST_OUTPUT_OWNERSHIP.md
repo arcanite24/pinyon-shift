@@ -143,3 +143,8 @@ a normal shutdown. Its 4,689 measured frames had 31.033 median FPS, 19.161
 one-percent-low FPS, 59.991 Hz host presentation cadence, and zero presentation
 deadline misses. Every original Xenos draw remained enabled and suppression
 remained disabled for the entire qualification.
+
+NR-04A subsequently tightens this preview with the exact-frame publication
+contract documented in `FRAME_PUBLICATION.md`. A retained pass may now reach
+guest output only when it was reproduced in the same guest frame as the active
+swap; stale targets yield immediately to Xenos.
