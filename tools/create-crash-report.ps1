@@ -257,6 +257,7 @@ try {
         } else { 'xenos' }
         effective = 'unknown'
         claimed_frames = [uint64]0
+        waiting_reason = $null
         failure_reason = $null
     }
     $nativeShaderPack = [ordered]@{
@@ -274,6 +275,11 @@ try {
                 'native_renderer.output.frame' {
                     $nativeRenderer.effective = [string]$event.mode
                     $nativeRenderer.claimed_frames = [uint64]$event.claimed
+                    $nativeRenderer.waiting_reason = $null
+                }
+                'native_renderer.output.waiting' {
+                    $nativeRenderer.effective = 'xenos'
+                    $nativeRenderer.waiting_reason = [string]$event.reason
                 }
                 'native_renderer.output.failure' {
                     $nativeRenderer.effective = 'xenos'

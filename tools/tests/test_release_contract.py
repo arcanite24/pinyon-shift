@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 64)
+        self.assertEqual(len(patches), 65)
         self.assertEqual(
             patches[-1].name,
-            "0064-d3d12-native-texture-resource-observer.patch",
+            "0065-d3d12-retained-pass-preview.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
@@ -90,6 +90,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("--ignore-stamp", integration)
         self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
         self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
+        self.assertIn("$<TARGET_FILE:rexruntime>", integration)
+        self.assertIn("$<TARGET_FILE:rexgpu-xenos>", integration)
+        self.assertIn("DEPENDS ${target_name} rexruntime rexgpu-xenos", integration)
 
         package_script = (ROOT / "tools/package-launcher.ps1").read_text()
         self.assertIn("$_.Name -ne 'generated'", package_script)

@@ -106,3 +106,40 @@ Microsoft Studios sequence, and exited normally. The launcher recovery command
 also created a timestamped configuration backup and reset only
 `pinyon_shift_native_renderer` to `xenos`; all unrelated graphics settings and
 the AppData save remained unchanged.
+
+## Retained authentic-pass preview
+
+Patch `0065-d3d12-retained-pass-preview.patch` adds the first display path for
+authentic native replay pixels. The explicit `diagnostic_retained_pass` mode
+samples the already-qualified top-left 512 by 512 crop of the retained NR-02F
+RGBA16F target and scales it into the guest-output texture with an amber border.
+This is the same private target produced by the indexed anchor and AutoIndex
+follower, not a synthetic triangle or CPU-uploaded screenshot.
+
+The backend accepts only the measured multisampled
+`DXGI_FORMAT_R16G16B16A16_FLOAT` target. It resolves that private target into a
+persistent single-sample texture, transitions the resolved texture to a compute
+SRV, dispatches in the command processor's open submission, and restores the
+source, resolved target, and presenter-owned guest-output states. Until an exact
+retained target exists, the callback returns `false`, records paced waiting
+diagnostics, and leaves the complete Xenos frame visible. The mode is
+default-off, restart-required, and exposed as a developer preview in the
+launcher. It does not suppress any original draw, resolve, query, or
+guest-visible side effect.
+
+## Retained-pass preview qualification
+
+Clean-build AppData-backed session `20260828T205347Z-p35488` first displayed
+the complete Xenos frame while waiting for the qualified anchor/follower pair,
+then switched to the amber-framed native crop after frame 2,656. Visual
+inspection confirmed authentic scene sky, clouds, barriers, Horizon banners,
+and ground geometry in the retained target. A second capture ten seconds later
+remained stable and showed the continuously refreshed pass rather than a
+synthetic or CPU-uploaded image.
+
+The session recorded the isolated two-draw pass, seven paced native-output
+markers, zero native-output failures, zero device-loss/fatal/error markers, and
+a normal shutdown. Its 4,689 measured frames had 31.033 median FPS, 19.161
+one-percent-low FPS, 59.991 Hz host presentation cadence, and zero presentation
+deadline misses. Every original Xenos draw remained enabled and suppression
+remained disabled for the entire qualification.

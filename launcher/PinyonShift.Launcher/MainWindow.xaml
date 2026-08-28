@@ -312,6 +312,7 @@
                                   AutomationProperties.Name="Native output renderer">
                             <ComboBoxItem Tag="xenos"><TextBlock Text="Xenos · safe default" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                             <ComboBoxItem Tag="diagnostic_triangle"><TextBlock Text="Diagnostic triangle · replaces display output" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
+                            <ComboBoxItem Tag="diagnostic_retained_pass"><TextBlock Text="Retained native pass · gameplay preview" Foreground="{StaticResource InkBrush}"/></ComboBoxItem>
                         </ComboBox>
                     </StackPanel>
                     <Border Grid.Row="6" x:Name="ShowroomWarning" Background="#241D12"
