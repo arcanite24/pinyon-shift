@@ -33,6 +33,15 @@ def signature(name: str, **overrides):
         "vertex_attribute_count": "1",
         "vertex_attributes": "0:0:0:8:6:F:0:0:0:0:F:688:0",
         "texture_fetch_count": "1",
+        "draw_state_hash": "3333333333333333",
+        "vertex_float_constant_count": "1",
+        "vertex_float_constants": "0:3F800000:00000000:00000000:3F800000",
+        "pixel_float_constant_count": "1",
+        "pixel_float_constants": "0:3F800000:3F800000:3F800000:3F800000",
+        "bool_constants": "0:00000001:00000001",
+        "loop_constants": "",
+        "texture_state_count": "1",
+        "texture_states": "2:0:0:0:0:0:0:0:0:1:0:1C:0:0:0:0:F:688",
         "pipeline_state": "opaque",
         "indexed": "true",
         "query": "false",
@@ -41,6 +50,8 @@ def signature(name: str, **overrides):
         "opaque": "true",
         "vertex_overflow": "false",
         "vertex_attribute_overflow": "false",
+        "constant_overflow": "false",
+        "texture_state_overflow": "false",
     }
     record.update(overrides)
     return record
@@ -110,6 +121,11 @@ class NativeRendererCandidateTests(unittest.TestCase):
         self.assertEqual(6, result["candidates"][0]["index_buffer_length_min"])
         self.assertFalse(result["candidates"][0]["indexed"])
         self.assertEqual(
+            ["3333333333333333", "3333333333333333"],
+            result["candidates"][0]["draw_state_hashes"],
+        )
+        self.assertEqual(1, result["candidates"][0]["texture_state_count"])
+        self.assertEqual(
             "AAAAAAAAAAAAAAAA",
             result["candidates"][0]["vertex_specialization_mask"],
         )
@@ -125,6 +141,18 @@ class NativeRendererCandidateTests(unittest.TestCase):
             signature("BAD", vertex_attribute_overflow="true")
         )
         self.assertIn("vertex_attribute_overflow", reasons)
+
+    def test_rejects_draw_state_overflow(self):
+        self.assertIn(
+            "constant_observer_overflow",
+            MODULE.rejection_reasons(signature("BAD", constant_overflow="true")),
+        )
+        self.assertIn(
+            "texture_state_observer_overflow",
+            MODULE.rejection_reasons(
+                signature("BAD", texture_state_overflow="true")
+            ),
+        )
 
 
 if __name__ == "__main__":

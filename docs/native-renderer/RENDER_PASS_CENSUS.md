@@ -111,3 +111,10 @@ minimum index allocation length across census windows. The deterministic
 contract builder independently decodes and validates the captured declaration
 without reading guest payloads. Qualification details are in
 [`GEOMETRY_CONTRACT.md`](GEOMETRY_CONTRACT.md); Xenos remains authoritative.
+
+## NR-02C draw-state extension
+
+Used shader constants plus texture-fetch and sampler state are captured by the
+bounded NR-02C observer and decoded as described in
+[`DRAW_STATE_CONTRACT.md`](DRAW_STATE_CONTRACT.md). This state remains
+register-only; the census still performs no guest resource payload reads.

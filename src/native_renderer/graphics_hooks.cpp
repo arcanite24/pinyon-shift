@@ -161,6 +161,125 @@ uint64_t HashCombine(uint64_t hash, uint64_t value) {
   return hash ^ value;
 }
 
+uint64_t DrawStateHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = 0xCBF29CE484222325ull;
+  const auto hash_float_constants = [&](const auto *constants, uint32_t count) {
+    const uint32_t bounded_count = std::min(
+        count, rex::system::kGraphicsFloatConstantObservationLimit);
+    for (uint32_t i = 0; i < bounded_count; ++i) {
+      hash = HashCombine(hash, constants[i].index);
+      for (uint32_t value : constants[i].values) {
+        hash = HashCombine(hash, value);
+      }
+    }
+  };
+  hash_float_constants(observation.vertex_float_constants,
+                       observation.vertex_float_constant_count);
+  hash_float_constants(observation.pixel_float_constants,
+                       observation.pixel_float_constant_count);
+  for (uint32_t i = 0; i < 8; ++i) {
+    hash = HashCombine(hash, observation.bool_constant_bitmap[i]);
+    hash = HashCombine(hash, observation.bool_constant_values[i] &
+                                 observation.bool_constant_bitmap[i]);
+  }
+  hash = HashCombine(hash, observation.loop_constant_bitmap);
+  for (uint32_t i = 0; i < 32; ++i) {
+    if (observation.loop_constant_bitmap & (1u << i)) {
+      hash = HashCombine(hash, observation.loop_constant_values[i]);
+    }
+  }
+  const uint32_t texture_count = std::min(
+      observation.texture_state_count,
+      rex::system::kGraphicsTextureFetchObservationLimit);
+  for (uint32_t i = 0; i < texture_count; ++i) {
+    const auto &state = observation.texture_states[i];
+    for (uint32_t value :
+         {state.stage, state.fetch_constant, state.opcode, state.dimension,
+          state.filters, state.flags, state.lod_bias, state.offsets,
+          state.result_storage_target, state.result_storage_index,
+          state.result_write_mask, state.result_components}) {
+      hash = HashCombine(hash, value);
+    }
+    for (uint32_t value : state.dwords) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  return hash ? hash : 1;
+}
+
+std::string SerializeFloatConstants(
+    const rex::system::GraphicsFloatConstantObservation *constants,
+    uint32_t count) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      count, rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format("{}:{:08X}:{:08X}:{:08X}:{:08X}",
+                          constants[i].index, constants[i].values[0],
+                          constants[i].values[1], constants[i].values[2],
+                          constants[i].values[3]);
+  }
+  return result;
+}
+
+std::string SerializeWordConstants(const uint32_t *bitmap,
+                                   const uint32_t *values,
+                                   uint32_t word_count) {
+  std::string result;
+  for (uint32_t i = 0; i < word_count; ++i) {
+    if (!bitmap[i]) {
+      continue;
+    }
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format("{}:{:08X}:{:08X}", i, bitmap[i], values[i]);
+  }
+  return result;
+}
+
+std::string SerializeLoopConstants(uint32_t bitmap, const uint32_t *values) {
+  std::string result;
+  for (uint32_t i = 0; i < 32; ++i) {
+    if (!(bitmap & (uint32_t(1) << i))) {
+      continue;
+    }
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format("{}:{:08X}", i, values[i]);
+  }
+  return result;
+}
+
+std::string SerializeTextureStates(
+    const rex::system::GraphicsDrawObservation &observation) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      observation.texture_state_count,
+      rex::system::kGraphicsTextureFetchObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    const auto &state = observation.texture_states[i];
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format(
+        "{}:{}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{}:{}:{:06X}:"
+        "{:02X}:{:08X}:{:06X}:{}:{}:{:X}:{:X}",
+        state.stage, state.fetch_constant, state.dwords[0], state.dwords[1],
+        state.dwords[2], state.dwords[3], state.dwords[4], state.dwords[5],
+        state.opcode, state.dimension, state.filters, state.flags,
+        state.lod_bias, state.offsets, state.result_storage_target,
+        state.result_storage_index, state.result_write_mask,
+        state.result_components);
+  }
+  return result;
+}
+
 size_t ResolveTargetIndex(uint32_t address) {
   size_t index = size_t(HashCombine(0xCBF29CE484222325ull, address) %
                         kResolveTargetCapacity);
@@ -400,6 +519,12 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
                          uint64_t(observation.vertex_binding_overflow),
                          uint64_t(observation.vertex_attribute_count),
                          uint64_t(observation.vertex_attribute_overflow),
+                         uint64_t(observation.vertex_float_constant_count),
+                         uint64_t(observation.vertex_float_constant_overflow),
+                         uint64_t(observation.pixel_float_constant_count),
+                         uint64_t(observation.pixel_float_constant_overflow),
+                         uint64_t(observation.texture_state_count),
+                         uint64_t(observation.texture_state_overflow),
                          uint64_t(observation.viz_query_condition),
                          uint64_t(observation.pa_sc_viz_query),
                          uint64_t(samples_resolved_target),
@@ -440,6 +565,23 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
           uint64_t(attribute.result_storage_index),
           uint64_t(attribute.result_write_mask),
           uint64_t(attribute.result_components), uint64_t(attribute.flags)}) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  for (uint32_t value : observation.bool_constant_bitmap) {
+    hash = HashCombine(hash, value);
+  }
+  hash = HashCombine(hash, observation.loop_constant_bitmap);
+  const uint32_t bounded_texture_count = std::min(
+      observation.texture_state_count,
+      rex::system::kGraphicsTextureFetchObservationLimit);
+  for (uint32_t i = 0; i < bounded_texture_count; ++i) {
+    const auto &state = observation.texture_states[i];
+    for (uint32_t value :
+         {state.stage, state.fetch_constant, state.opcode, state.dimension,
+          state.filters, state.flags, state.lod_bias, state.offsets,
+          state.result_storage_target, state.result_storage_index,
+          state.result_write_mask, state.result_components}) {
       hash = HashCombine(hash, value);
     }
   }
@@ -609,6 +751,25 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"vertex_attributes", vertex_attributes},
          {"texture_fetch_count",
           std::to_string(std::popcount(sample.texture_fetch_mask))},
+         {"draw_state_hash", fmt::format("{:016X}", DrawStateHash(sample))},
+         {"vertex_float_constant_count",
+          std::to_string(sample.vertex_float_constant_count)},
+         {"vertex_float_constants",
+          SerializeFloatConstants(sample.vertex_float_constants,
+                                  sample.vertex_float_constant_count)},
+         {"pixel_float_constant_count",
+          std::to_string(sample.pixel_float_constant_count)},
+         {"pixel_float_constants",
+          SerializeFloatConstants(sample.pixel_float_constants,
+                                  sample.pixel_float_constant_count)},
+         {"bool_constants",
+          SerializeWordConstants(sample.bool_constant_bitmap,
+                                 sample.bool_constant_values, 8)},
+         {"loop_constants",
+          SerializeLoopConstants(sample.loop_constant_bitmap,
+                                 sample.loop_constant_values)},
+         {"texture_state_count", std::to_string(sample.texture_state_count)},
+         {"texture_states", SerializeTextureStates(sample)},
          {"pipeline_state", pipeline_state},
          {"indexed", sample.indexed ? "true" : "false"},
          {"query", query_draw ? "true" : "false"},
@@ -618,6 +779,13 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"vertex_overflow", sample.vertex_binding_overflow ? "true" : "false"},
          {"vertex_attribute_overflow",
           sample.vertex_attribute_overflow ? "true" : "false"},
+         {"constant_overflow",
+          (sample.vertex_float_constant_overflow ||
+           sample.pixel_float_constant_overflow)
+              ? "true"
+              : "false"},
+         {"texture_state_overflow",
+          sample.texture_state_overflow ? "true" : "false"},
          {"qualification", "metadata_shortlist_only"},
          {"suppression_eligible", "false"}});
   }
