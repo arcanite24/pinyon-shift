@@ -79,3 +79,18 @@ record fixes the following values:
 The next milestone may copy the selected snapshot's bounded resources into an
 isolated native target. It must preserve these gates until visual and dependency
 comparison is complete.
+
+## Selected authentic-draw state — 2026-08-28
+
+Revised candidate `747837906D0BF484` carries 15 vertex float4 constants, four
+pixel float4 constants, and two pixel texture instructions. The texture
+instructions describe tiled 256 by 64 DXN resources with 256-pixel pitch,
+8-in-16 endianness, linear filtering, and distinct result routes. The two
+selection captures produced different draw-state hashes, as expected for a
+world draw whose transform and lighting values evolve over time.
+
+This variability is not a PSO-key failure. It proves that replay must consume
+the immutable per-draw snapshot and must not reread mutable guest constants on
+the render thread. The contract therefore reports
+`state_stable_across_captures: false` while retaining the same decoded resource
+shape and all no-upload, no-draw, no-suppression safety gates.

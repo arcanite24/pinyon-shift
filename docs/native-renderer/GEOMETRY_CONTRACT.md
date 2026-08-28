@@ -148,3 +148,21 @@ The captures contained 4,134 and 4,364 performance samples, measured 31.885
 and 31.653 median FPS, reported zero presentation deadline misses, and emitted
 no crash, error, or device-loss event. The one-time 37,200-byte diagnostic read
 did not alter Xenos rendering authority.
+
+## Prepared-signature refresh — 2026-08-28
+
+The prepared-pipeline observer intentionally changed the candidate identity.
+Two new AppData-backed captures therefore rescanned revised signature
+`747837906D0BF484` rather than reusing the historical payload result:
+
+| Session | Frame | Index address | Vertex address | Decoded range | Hash |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `20260828T084949Z-p36548` | 2,847 | `1426B30C` | `1425E8EC` | 0–1,616 | `76F4D9C9DFE1E128` |
+| `20260828T085323Z-p43944` | 2,953 | `1428730C` | `1427A8EC` | 0–1,616 | `76F4D9C9DFE1E128` |
+
+Both scans decoded 9,300 uint32 indices from 37,200 bytes, observed no
+primitive-reset marker, and independently reproduced the exact 51,744-byte
+vertex bound. The relocated index and vertex allocations demonstrate that the
+contract is content- and layout-bound rather than tied to one process address.
+Both processes exited normally with no error, crash, or device-loss event.
+Native upload, native drawing, and suppression remained disabled.
