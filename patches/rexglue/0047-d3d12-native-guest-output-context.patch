@@ -1,0 +1,157 @@
+diff --git a/include/rex/graphics/d3d12/deferred_command_list.h b/include/rex/graphics/d3d12/deferred_command_list.h
+index 7f1eb7f..7a7d488 100644
+--- a/include/rex/graphics/d3d12/deferred_command_list.h
++++ b/include/rex/graphics/d3d12/deferred_command_list.h
+@@ -91,6 +91,24 @@ class DeferredCommandList {
+     }
+   }
+ 
++  void D3DClearUnorderedAccessViewFloat(
++      D3D12_GPU_DESCRIPTOR_HANDLE view_gpu_handle_in_current_heap,
++      D3D12_CPU_DESCRIPTOR_HANDLE view_cpu_handle, ID3D12Resource* resource,
++      const FLOAT values[4], UINT num_rects, const D3D12_RECT* rects) {
++    auto args = reinterpret_cast<ClearUnorderedAccessViewHeader*>(
++        WriteCommand(Command::kD3DClearUnorderedAccessViewFloat,
++                     sizeof(ClearUnorderedAccessViewHeader) +
++                         num_rects * sizeof(D3D12_RECT)));
++    args->view_gpu_handle_in_current_heap = view_gpu_handle_in_current_heap;
++    args->view_cpu_handle = view_cpu_handle;
++    args->resource = resource;
++    std::memcpy(args->values_float, values, 4 * sizeof(FLOAT));
++    args->num_rects = num_rects;
++    if (num_rects != 0) {
++      std::memcpy(args + 1, rects, num_rects * sizeof(D3D12_RECT));
++    }
++  }
++
+   void D3DCopyBufferRegion(ID3D12Resource* dst_buffer, UINT64 dst_offset,
+                            ID3D12Resource* src_buffer, UINT64 src_offset, UINT64 num_bytes) {
+     auto& args = *reinterpret_cast<D3DCopyBufferRegionArguments*>(
+@@ -456,6 +474,7 @@ class DeferredCommandList {
+     kD3DClearDepthStencilView,
+     kD3DClearRenderTargetView,
+     kD3DClearUnorderedAccessViewUint,
++    kD3DClearUnorderedAccessViewFloat,
+     kD3DCopyBufferRegion,
+     kD3DCopyResource,
+     kCopyTexture,
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 824daf2..c28c97c 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -27,6 +27,10 @@ class Presenter;
+ class WindowedAppContext;
+ }  // namespace rex::ui
+ namespace rex::system {
++
++struct NativeGuestOutputRenderContext;
++using NativeGuestOutputClearColor = bool (*)(
++    const NativeGuestOutputRenderContext& context, const float color[4]);
+ class KernelState;
+ }
+ 
+@@ -49,6 +53,7 @@ struct NativeGuestOutputRenderContext {
+   void* command_context = nullptr;
+   void* guest_output = nullptr;
+   uint64_t submission = 0;
++  NativeGuestOutputClearColor clear_color = nullptr;
+ };
+ 
+ // Returning false yields without modifying guest output. A callback that has
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index ea0f1cc..62de7a2 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -2057,6 +2057,39 @@ void D3D12CommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_up_to_date_ = false;
+ }
+ 
++bool ClearNativeGuestOutput(
++    const system::NativeGuestOutputRenderContext& context,
++    const float color[4]) {
++  auto* command_processor =
++      static_cast<D3D12CommandProcessor*>(context.command_context);
++  auto* resource = static_cast<ID3D12Resource*>(context.guest_output);
++  auto* device = static_cast<ID3D12Device*>(context.device);
++  if (!command_processor || !resource || !device || !color) {
++    return false;
++  }
++
++  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptor;
++  if (!command_processor->RequestOneUseSingleViewDescriptors(1, &descriptor)) {
++    return false;
++  }
++
++  D3D12_UNORDERED_ACCESS_VIEW_DESC view_desc{};
++  view_desc.Format = ui::d3d12::D3D12Presenter::kGuestOutputFormat;
++  view_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++  device->CreateUnorderedAccessView(resource, nullptr, &view_desc,
++                                    descriptor.first);
++  command_processor->PushTransitionBarrier(
++      resource, ui::d3d12::D3D12Presenter::kGuestOutputInternalState,
++      D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  command_processor->SubmitBarriers();
++  command_processor->GetDeferredCommandList().D3DClearUnorderedAccessViewFloat(
++      descriptor.second, descriptor.first, resource, color, 0, nullptr);
++  command_processor->PushTransitionBarrier(
++      resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++      ui::d3d12::D3D12Presenter::kGuestOutputInternalState);
++  return true;
++}
++
+ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                       uint32_t frontbuffer_height) {
+   SCOPE_profile_cpu_f("gpu");
+@@ -2154,7 +2187,8 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
+   presenter->RefreshGuestOutput(
+       guest_output_width, guest_output_height, display_width, display_height,
+       [this, &swap_texture_srv_desc, frontbuffer_format, swap_texture_resource, guest_output_width,
+-       guest_output_height](ui::Presenter::GuestOutputRefreshContext& context) -> bool {
++       guest_output_height, display_width,
++       display_height](ui::Presenter::GuestOutputRefreshContext& context) -> bool {
+         const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
+         ID3D12Device* device = provider.GetDevice();
+ 
+@@ -2413,6 +2447,23 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
+         // presenter so it can submit its own commands for displaying it to the
+         // queue.
+         SubmitBarriers();
++        if (auto renderer = graphics_system_->native_guest_output_renderer().Get()) {
++          system::NativeGuestOutputRenderContext native_context;
++          native_context.backend = system::NativeGuestOutputBackend::kD3D12;
++          native_context.guest_output_width = guest_output_width;
++          native_context.guest_output_height = guest_output_height;
++          native_context.display_width = display_width;
++          native_context.display_height = display_height;
++          native_context.output_format =
++              uint32_t(ui::d3d12::D3D12Presenter::kGuestOutputFormat);
++          native_context.device = device;
++          native_context.command_context = this;
++          native_context.guest_output = guest_output_resource;
++          native_context.submission = submission_current_;
++          native_context.clear_color = &ClearNativeGuestOutput;
++          renderer(native_context);
++        }
++        SubmitBarriers();
+         EndSubmission(true);
+         return true;
+       });
+diff --git a/src/graphics/d3d12/deferred_command_list.cpp b/src/graphics/d3d12/deferred_command_list.cpp
+index e6d6277..2c208d1 100644
+--- a/src/graphics/d3d12/deferred_command_list.cpp
++++ b/src/graphics/d3d12/deferred_command_list.cpp
+@@ -60,6 +60,14 @@ void DeferredCommandList::Execute(ID3D12GraphicsCommandList* command_list,
+             args.values_uint, args.num_rects,
+             args.num_rects ? reinterpret_cast<const D3D12_RECT*>(&args + 1) : nullptr);
+       } break;
++      case Command::kD3DClearUnorderedAccessViewFloat: {
++        auto& args = *reinterpret_cast<const ClearUnorderedAccessViewHeader*>(stream);
++        command_list->ClearUnorderedAccessViewFloat(
++            args.view_gpu_handle_in_current_heap, args.view_cpu_handle,
++            args.resource, args.values_float, args.num_rects,
++            args.num_rects ? reinterpret_cast<const D3D12_RECT*>(&args + 1)
++                           : nullptr);
++      } break;
+       case Command::kD3DCopyBufferRegion: {
+         auto& args = *reinterpret_cast<const D3DCopyBufferRegionArguments*>(stream);
+         command_list->CopyBufferRegion(args.dst_buffer, args.dst_offset, args.src_buffer,

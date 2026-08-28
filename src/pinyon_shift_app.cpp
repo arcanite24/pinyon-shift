@@ -19,6 +19,7 @@
 #include <rex/system/xthread.h>
 
 #include "native_renderer/graphics_hooks.h"
+#include "native_renderer/guest_output_renderer.h"
 #include "pinyon_shift_diagnostics.h"
 
 #include <cstdio>
@@ -335,6 +336,8 @@ void PinyonShiftApp::OnPostLoadXexImage() {
 
 void PinyonShiftApp::OnPostSetup() {
   pinyon_shift::diagnostics::RefreshCrashReporter();
+  pinyon_shift::native_renderer::InstallGuestOutputRenderer(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::diagnostics::RecordEvent(
@@ -371,6 +374,8 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
 }
 
 void PinyonShiftApp::OnShutdown() {
+  pinyon_shift::native_renderer::UninstallGuestOutputRenderer(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::UninstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
