@@ -77,3 +77,12 @@ returns through a lock-free rejection path unless a texture matches the
 measured 256 by 64 tiled DXN contract. Cache summaries are submission-paced,
 not draw-paced. This keeps the default-off probe bounded even in scenes with
 thousands of draws per frame.
+
+## Render-target provenance
+
+The NR-03E render-target pool and resolve bridge builds on the same canonical
+`PhysicalRange` identity. Its exact allocation, producer lookup, invalidation,
+and deferred-destruction contracts are documented in
+`RENDER_TARGET_BRIDGE.md`. In particular, a known GPU-produced range without a
+compatible live producer returns `kBridgeRequired`; it never falls through to
+stale guest-memory decoding.
