@@ -1,0 +1,28 @@
+# Native renderer resource identity
+
+NR-03 uses one identity for every guest graphics resource: a half-open byte
+range in the 512 MiB Xenon physical aperture. Physical-heap window bits are
+removed at the capture boundary, so values such as `0xA1234000` and
+`0x01234000` cannot create separate cache entries for the same memory.
+
+`PhysicalRange` rejects empty and aperture-crossing resources and performs
+overflow-safe overlap checks. Buffer keys add the buffer class and descriptor
+signature. Texture keys add the complete fetch signature and optional mip
+range. Both key types carry a content fingerprint from
+`PhysicalResourceTracker`.
+
+The tracker assigns monotonically increasing generations to physical pages
+touched by a guest write. A capture over any touched range therefore produces
+a new key even when the guest object pointer and descriptor are reused. Its
+overlap index reports each affected buffer or texture exactly once.
+
+Invalidation only marks identity stale; it never destroys a host object. The
+buffer and texture caches introduced by later NR-03 pull requests own those
+objects and must retire them behind their final GPU submission. At that point,
+the tracker will be connected to ReXGlue's one-shot physical-memory
+invalidation callback and each cached range will re-arm the callback after a
+successful upload.
+
+The standalone native test covers physical-heap aliases, exact half-open range
+boundaries, aperture bounds, page generations, multi-range textures, resource
+class separation, deduplicated overlap reporting, and unregistration.
