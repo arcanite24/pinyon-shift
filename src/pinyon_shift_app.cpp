@@ -335,7 +335,7 @@ void PinyonShiftApp::OnPostLoadXexImage() {
 
 void PinyonShiftApp::OnPostSetup() {
   pinyon_shift::diagnostics::RefreshCrashReporter();
-  pinyon_shift::native_renderer::InstallDrawCensus(
+  pinyon_shift::native_renderer::InstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::diagnostics::RecordEvent(
       "runtime.setup.complete",
@@ -371,7 +371,7 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
 }
 
 void PinyonShiftApp::OnShutdown() {
-  pinyon_shift::native_renderer::UninstallDrawCensus(
+  pinyon_shift::native_renderer::UninstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
 }
