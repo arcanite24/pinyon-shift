@@ -532,6 +532,28 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("OutputDir must be below", renderdoc_export_wrapper)
         self.assertIn("qrenderdoc exited without producing", renderdoc_export_wrapper)
 
+        pass_trace = (
+            ROOT / "tools/export-native-renderer-pass-trace.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon-shift.native-renderer-renderdoc-pass-trace.v1", pass_trace
+        )
+        self.assertIn("resource_payload_exported", pass_trace)
+        self.assertIn("authoritative_candidate", pass_trace)
+        self.assertNotIn("SaveTexture", pass_trace)
+        pass_trace_wrapper = (
+            ROOT / "tools/export-native-renderer-pass-trace.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get-AuthenticodeSignature", pass_trace_wrapper)
+        self.assertIn("@{ Name = 'Capture'", pass_trace_wrapper)
+        self.assertIn("@{ Name = 'Output'", pass_trace_wrapper)
+        self.assertIn('$($item.Name) must be below', pass_trace_wrapper)
+        pass_inventory = (
+            ROOT / "tools/build-native-renderer-pass-inventory.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("isolated_native_draws_ignored", pass_inventory)
+        self.assertIn('"suppression_eligible"] = False', pass_inventory)
+
         draw_state_planner = (
             ROOT / "tools/build-native-draw-state-contract.py"
         ).read_text(encoding="utf-8")
