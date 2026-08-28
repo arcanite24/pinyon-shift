@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -25,6 +26,8 @@ namespace {
 constexpr uint64_t kFrameSummaryInterval = 300;
 constexpr size_t kSignatureCapacity = 4096;
 constexpr size_t kSummaryLimit = 16;
+constexpr size_t kCandidateSummaryLimit = 32;
+constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -32,7 +35,7 @@ constexpr uint64_t kGuestPageSize = 4096;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
-  char* value = nullptr;
+  char *value = nullptr;
   size_t length = 0;
   if (_dupenv_s(&value, &length, "PINYON_SHIFT_NATIVE_RENDERER_SCENE") != 0 ||
       !value || length <= 1) {
@@ -55,6 +58,7 @@ struct DrawSignatureEntry {
   uint64_t draw_count = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
+  bool samples_resolved_target = false;
   rex::system::GraphicsDrawObservation sample;
 };
 
@@ -68,6 +72,18 @@ struct DrawCensus {
 };
 
 DrawCensus g_draw_census;
+DrawCensus g_candidate_census;
+
+struct PreparedShaderPairEntry {
+  uint64_t identity = 0;
+  rex::system::GraphicsPreparedDrawObservation sample;
+};
+
+std::array<PreparedShaderPairEntry, kPreparedShaderPairCapacity>
+    g_prepared_shader_pairs{};
+uint64_t g_prepared_shader_pair_count = 0;
+uint64_t g_prepared_shader_pair_overflow = 0;
+bool g_graphics_census_installed = false;
 
 struct ResolveTargetEntry {
   uint32_t address = 0;
@@ -123,6 +139,14 @@ static_assert(std::is_trivially_copyable_v<DependencyCensus>);
 
 void ResetDrawCensus() {
   std::memset(&g_draw_census, 0, sizeof(g_draw_census));
+  std::memset(&g_candidate_census, 0, sizeof(g_candidate_census));
+}
+
+void ResetPreparedShaderPairs() {
+  std::memset(g_prepared_shader_pairs.data(), 0,
+              sizeof(g_prepared_shader_pairs));
+  g_prepared_shader_pair_count = 0;
+  g_prepared_shader_pair_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -138,7 +162,7 @@ size_t ResolveTargetIndex(uint32_t address) {
   size_t index = size_t(HashCombine(0xCBF29CE484222325ull, address) %
                         kResolveTargetCapacity);
   for (size_t probe = 0; probe < kResolveTargetCapacity; ++probe) {
-    const ResolveTargetEntry& entry = g_dependency_census.targets[index];
+    const ResolveTargetEntry &entry = g_dependency_census.targets[index];
     if (!entry.resolve_count || entry.address == address) {
       return index;
     }
@@ -148,10 +172,10 @@ size_t ResolveTargetIndex(uint32_t address) {
 }
 
 void MapResolvePage(uint32_t page, size_t target_index) {
-  size_t index = size_t(HashCombine(0x9E3779B97F4A7C15ull, page) %
-                        kResolvePageCapacity);
+  size_t index =
+      size_t(HashCombine(0x9E3779B97F4A7C15ull, page) % kResolvePageCapacity);
   for (size_t probe = 0; probe < kResolvePageCapacity; ++probe) {
-    ResolvePageEntry& entry = g_dependency_census.pages[index];
+    ResolvePageEntry &entry = g_dependency_census.pages[index];
     if (!entry.target_index_plus_one) {
       entry.page = page;
       entry.target_index_plus_one = uint32_t(target_index + 1);
@@ -178,23 +202,22 @@ void MapResolveRange(size_t target_index, uint32_t address, uint32_t length) {
     MapResolvePage(uint32_t(first_page + offset), target_index);
   }
   if (page_count > bounded_page_count) {
-    g_dependency_census.page_overflow_count +=
-        page_count - bounded_page_count;
+    g_dependency_census.page_overflow_count += page_count - bounded_page_count;
   }
 }
 
 size_t FindResolveTarget(uint32_t address) {
   const uint32_t page = uint32_t(uint64_t(address) / kGuestPageSize);
-  size_t index = size_t(HashCombine(0x9E3779B97F4A7C15ull, page) %
-                        kResolvePageCapacity);
+  size_t index =
+      size_t(HashCombine(0x9E3779B97F4A7C15ull, page) % kResolvePageCapacity);
   for (size_t probe = 0; probe < kResolvePageCapacity; ++probe) {
-    const ResolvePageEntry& page_entry = g_dependency_census.pages[index];
+    const ResolvePageEntry &page_entry = g_dependency_census.pages[index];
     if (!page_entry.target_index_plus_one) {
       return kResolveTargetCapacity;
     }
     if (page_entry.page == page) {
       const size_t target_index = page_entry.target_index_plus_one - 1;
-      const ResolveTargetEntry& target =
+      const ResolveTargetEntry &target =
           g_dependency_census.targets[target_index];
       const uint64_t target_end =
           uint64_t(target.address) + uint64_t(target.length);
@@ -227,7 +250,7 @@ void ResetDependencyWindow() {
   g_dependency_census.window_sampled_target_count = 0;
   g_dependency_census.window_query_draw_count = 0;
   g_dependency_census.window_memexport_draw_count = 0;
-  for (ResolveTargetEntry& target : g_dependency_census.targets) {
+  for (ResolveTargetEntry &target : g_dependency_census.targets) {
     target.window_resolve_count = 0;
     target.window_sampled_draw_count = 0;
   }
@@ -248,8 +271,7 @@ void EmitDependencyCensusWindow() {
        {"failed_copies", number(g_dependency_census.window_failed_copy_count)},
        {"zero_length_copies",
         number(g_dependency_census.window_zero_length_copy_count)},
-       {"sampled_draws",
-        number(g_dependency_census.window_sampled_draw_count)},
+       {"sampled_draws", number(g_dependency_census.window_sampled_draw_count)},
        {"sample_references",
         number(g_dependency_census.window_sample_reference_count)},
        {"sampled_targets",
@@ -270,12 +292,10 @@ void EmitDependencyCensusWindow() {
     order[i] = i;
   }
   std::sort(order.begin(), order.end(), [](size_t left, size_t right) {
-    const ResolveTargetEntry& left_entry =
-        g_dependency_census.targets[left];
-    const ResolveTargetEntry& right_entry =
-        g_dependency_census.targets[right];
-    const uint64_t left_activity = left_entry.window_resolve_count +
-                                   left_entry.window_sampled_draw_count;
+    const ResolveTargetEntry &left_entry = g_dependency_census.targets[left];
+    const ResolveTargetEntry &right_entry = g_dependency_census.targets[right];
+    const uint64_t left_activity =
+        left_entry.window_resolve_count + left_entry.window_sampled_draw_count;
     const uint64_t right_activity = right_entry.window_resolve_count +
                                     right_entry.window_sampled_draw_count;
     if (left_activity != right_activity) {
@@ -286,7 +306,7 @@ void EmitDependencyCensusWindow() {
 
   size_t emitted = 0;
   for (size_t target_index : order) {
-    const ResolveTargetEntry& target =
+    const ResolveTargetEntry &target =
         g_dependency_census.targets[target_index];
     if ((!target.window_resolve_count && !target.window_sampled_draw_count) ||
         emitted == kResolveSummaryLimit) {
@@ -317,16 +337,14 @@ void EmitDependencyCensusWindow() {
           number(target.conditional_sample_draw_count)},
          {"query_state_sample_draws",
           number(target.query_state_sample_draw_count)},
-         {"memexport_sample_draws",
-          number(target.memexport_sample_draw_count)},
+         {"memexport_sample_draws", number(target.memexport_sample_draw_count)},
          {"last_fetch_index", number(target.last_fetch_index)},
          {"last_fetch_kind", target.last_fetch_was_mip ? "mip" : "base"},
-         {"copy_state",
-          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
-                      target.sample.rb_copy_control,
-                      target.sample.rb_copy_dest_info,
-                      target.sample.rb_copy_dest_pitch,
-                      target.sample.surface_info)},
+         {"copy_state", fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                                    target.sample.rb_copy_control,
+                                    target.sample.rb_copy_dest_info,
+                                    target.sample.rb_copy_dest_pitch,
+                                    target.sample.surface_info)},
          {"presentation_only", "unknown_uninstrumented"},
          {"guest_cpu_read", "unknown_uninstrumented"},
          {"query_dependency", query_relation},
@@ -339,14 +357,14 @@ void EmitDependencyCensusWindow() {
 
 void AdvanceDependencyWindow(uint64_t frame) {
   if (g_dependency_census.window_first_frame &&
-      frame >= g_dependency_census.window_first_frame +
-                   kFrameSummaryInterval) {
+      frame >= g_dependency_census.window_first_frame + kFrameSummaryInterval) {
     EmitDependencyCensusWindow();
   }
   BeginDependencyWindow(frame);
 }
 
-uint64_t DrawSignature(const rex::system::GraphicsDrawObservation& observation) {
+uint64_t
+DrawSignature(const rex::system::GraphicsDrawObservation &observation) {
   uint64_t hash = 0xCBF29CE484222325ull;
   for (uint64_t value :
        {observation.vertex_shader_hash, observation.pixel_shader_hash,
@@ -354,8 +372,7 @@ uint64_t DrawSignature(const rex::system::GraphicsDrawObservation& observation) 
         uint64_t(observation.source_select), uint64_t(observation.indexed),
         uint64_t(observation.major_mode_explicit),
         uint64_t(observation.vertex_memexport),
-        uint64_t(observation.surface_info),
-        uint64_t(observation.color_info[0]),
+        uint64_t(observation.surface_info), uint64_t(observation.color_info[0]),
         uint64_t(observation.color_info[1]),
         uint64_t(observation.color_info[2]),
         uint64_t(observation.color_info[3]), uint64_t(observation.depth_info),
@@ -367,14 +384,193 @@ uint64_t DrawSignature(const rex::system::GraphicsDrawObservation& observation) 
   return hash ? hash : 1;
 }
 
+uint64_t
+CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
+                   bool samples_resolved_target) {
+  uint64_t hash = DrawSignature(observation);
+  for (uint64_t value : {uint64_t(observation.index_format),
+                         uint64_t(observation.index_endianness),
+                         uint64_t(observation.vertex_binding_count),
+                         uint64_t(observation.vertex_binding_overflow),
+                         uint64_t(observation.viz_query_condition),
+                         uint64_t(observation.pa_sc_viz_query),
+                         uint64_t(samples_resolved_target),
+                         uint64_t(observation.texture_fetch_mask),
+                         uint64_t(observation.rb_color_mask),
+                         uint64_t(observation.rb_blendcontrol[0]),
+                         uint64_t(observation.rb_blendcontrol[1]),
+                         uint64_t(observation.rb_blendcontrol[2]),
+                         uint64_t(observation.rb_blendcontrol[3]),
+                         uint64_t(observation.rb_depthcontrol),
+                         uint64_t(observation.pa_su_sc_mode_cntl),
+                         uint64_t(observation.pa_su_vtx_cntl)}) {
+    hash = HashCombine(hash, value);
+  }
+  const uint32_t bounded_binding_count =
+      std::min(observation.vertex_binding_count,
+               rex::system::kGraphicsVertexBindingObservationLimit);
+  for (uint32_t i = 0; i < bounded_binding_count; ++i) {
+    const auto &binding = observation.vertex_bindings[i];
+    hash = HashCombine(hash, binding.fetch_constant);
+    hash = HashCombine(hash, binding.size);
+    hash = HashCombine(hash, binding.stride_words);
+    hash = HashCombine(hash, binding.endianness);
+  }
+  return hash ? hash : 1;
+}
+
+bool IsOpaqueColorState(
+    const rex::system::GraphicsDrawObservation &observation) {
+  bool writes_color = false;
+  for (uint32_t i = 0; i < 4; ++i) {
+    if (!(observation.rb_color_mask & (uint32_t(0xF) << (i * 4)))) {
+      continue;
+    }
+    writes_color = true;
+    if (observation.rb_blendcontrol[i] != 0x00010001) {
+      return false;
+    }
+  }
+  return writes_color;
+}
+
+void ObservePreparedDraw(
+    const rex::system::GraphicsPreparedDrawObservation &observation) {
+  uint64_t identity = 0xCBF29CE484222325ull;
+  for (uint64_t value :
+       {observation.vertex_shader_hash, observation.pixel_shader_hash,
+        observation.vertex_specialization_mask,
+        observation.pixel_specialization_mask}) {
+    identity = HashCombine(identity, value);
+  }
+  identity = identity ? identity : 1;
+  size_t index = size_t(identity % kPreparedShaderPairCapacity);
+  for (size_t probe = 0; probe < kPreparedShaderPairCapacity; ++probe) {
+    PreparedShaderPairEntry &entry = g_prepared_shader_pairs[index];
+    if (!entry.identity) {
+      entry.identity = identity;
+      entry.sample = observation;
+      ++g_prepared_shader_pair_count;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.census.prepared_shader_pair",
+          {{"vertex_shader",
+            fmt::format("{:016X}", observation.vertex_shader_hash)},
+           {"pixel_shader",
+            fmt::format("{:016X}", observation.pixel_shader_hash)},
+           {"vertex_specialization_mask",
+            fmt::format("{:016X}", observation.vertex_specialization_mask)},
+           {"pixel_specialization_mask",
+            fmt::format("{:016X}", observation.pixel_specialization_mask)},
+           {"mode", "pass_through"},
+           {"suppression_eligible", "false"}});
+      return;
+    }
+    if (entry.identity == identity &&
+        entry.sample.vertex_shader_hash == observation.vertex_shader_hash &&
+        entry.sample.pixel_shader_hash == observation.pixel_shader_hash &&
+        entry.sample.vertex_specialization_mask ==
+            observation.vertex_specialization_mask &&
+        entry.sample.pixel_specialization_mask ==
+            observation.pixel_specialization_mask) {
+      return;
+    }
+    index = (index + 1) % kPreparedShaderPairCapacity;
+  }
+  ++g_prepared_shader_pair_overflow;
+}
+
+void EmitCandidateCensusWindow(uint64_t last_frame_value) {
+  std::array<size_t, kSignatureCapacity> order{};
+  for (size_t i = 0; i < order.size(); ++i) {
+    order[i] = i;
+  }
+  std::sort(order.begin(), order.end(), [](size_t left, size_t right) {
+    const DrawSignatureEntry &left_entry = g_candidate_census.entries[left];
+    const DrawSignatureEntry &right_entry = g_candidate_census.entries[right];
+    if (left_entry.draw_count != right_entry.draw_count) {
+      return left_entry.draw_count > right_entry.draw_count;
+    }
+    return left_entry.signature < right_entry.signature;
+  });
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.census.candidate_window",
+      {{"first_frame", std::to_string(g_candidate_census.window_first_frame)},
+       {"last_frame", std::to_string(last_frame_value)},
+       {"draws", std::to_string(g_candidate_census.window_draw_count)},
+       {"unique_signatures",
+        std::to_string(g_candidate_census.unique_signature_count)},
+       {"overflow_draws",
+        std::to_string(g_candidate_census.overflow_draw_count)},
+       {"signature_capacity", std::to_string(kSignatureCapacity)},
+       {"summary_limit", std::to_string(kCandidateSummaryLimit)},
+       {"mode", "metadata_shortlist_only"}});
+
+  size_t emitted = 0;
+  for (size_t index : order) {
+    const DrawSignatureEntry &entry = g_candidate_census.entries[index];
+    if (!entry.draw_count || emitted == kCandidateSummaryLimit) {
+      break;
+    }
+    const auto &sample = entry.sample;
+    std::string vertex_fetches;
+    const uint32_t bounded_binding_count =
+        std::min(sample.vertex_binding_count,
+                 rex::system::kGraphicsVertexBindingObservationLimit);
+    for (uint32_t i = 0; i < bounded_binding_count; ++i) {
+      const auto &binding = sample.vertex_bindings[i];
+      if (!vertex_fetches.empty()) {
+        vertex_fetches += ";";
+      }
+      vertex_fetches += fmt::format(
+          "{}:{:08X}:{}:{}:{}", binding.fetch_constant, binding.address,
+          binding.size, binding.stride_words, binding.endianness);
+    }
+    const bool query_draw =
+        sample.viz_query_condition || (sample.pa_sc_viz_query & 1);
+    const std::string pipeline_state =
+        fmt::format("color_mask={:08X};blend={:08X}:{:08X}:{:08X}:{:08X};"
+                    "depth={:08X};raster={:08X};vertex={:08X}",
+                    sample.rb_color_mask, sample.rb_blendcontrol[0],
+                    sample.rb_blendcontrol[1], sample.rb_blendcontrol[2],
+                    sample.rb_blendcontrol[3], sample.rb_depthcontrol,
+                    sample.pa_su_sc_mode_cntl, sample.pa_su_vtx_cntl);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.draw_candidate",
+        {{"rank", std::to_string(++emitted)},
+         {"signature", fmt::format("{:016X}", entry.signature)},
+         {"draws", std::to_string(entry.draw_count)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"vertex_shader", fmt::format("{:016X}", sample.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", sample.pixel_shader_hash)},
+         {"primitive", std::to_string(sample.primitive_type)},
+         {"index_state",
+          fmt::format("format={};endianness={}", sample.index_format,
+                      sample.index_endianness)},
+         {"vertex_binding_count", std::to_string(sample.vertex_binding_count)},
+         {"vertex_fetches", vertex_fetches},
+         {"texture_fetch_count",
+          std::to_string(std::popcount(sample.texture_fetch_mask))},
+         {"pipeline_state", pipeline_state},
+         {"indexed", sample.indexed ? "true" : "false"},
+         {"query", query_draw ? "true" : "false"},
+         {"memexport", sample.vertex_memexport ? "true" : "false"},
+         {"resolved_input", entry.samples_resolved_target ? "true" : "false"},
+         {"opaque", IsOpaqueColorState(sample) ? "true" : "false"},
+         {"vertex_overflow", sample.vertex_binding_overflow ? "true" : "false"},
+         {"qualification", "metadata_shortlist_only"},
+         {"suppression_eligible", "false"}});
+  }
+}
+
 void EmitDrawCensusWindow(uint64_t last_frame_value) {
   std::array<size_t, kSignatureCapacity> order{};
   for (size_t i = 0; i < order.size(); ++i) {
     order[i] = i;
   }
   std::sort(order.begin(), order.end(), [](size_t left, size_t right) {
-    const DrawSignatureEntry& left_entry = g_draw_census.entries[left];
-    const DrawSignatureEntry& right_entry = g_draw_census.entries[right];
+    const DrawSignatureEntry &left_entry = g_draw_census.entries[left];
+    const DrawSignatureEntry &right_entry = g_draw_census.entries[right];
     if (left_entry.draw_count != right_entry.draw_count) {
       return left_entry.draw_count > right_entry.draw_count;
     }
@@ -401,11 +597,11 @@ void EmitDrawCensusWindow(uint64_t last_frame_value) {
 
   size_t emitted = 0;
   for (size_t index : order) {
-    const DrawSignatureEntry& entry = g_draw_census.entries[index];
+    const DrawSignatureEntry &entry = g_draw_census.entries[index];
     if (!entry.draw_count || emitted == kSummaryLimit) {
       break;
     }
-    const auto& sample = entry.sample;
+    const auto &sample = entry.sample;
     const std::string rank = std::to_string(++emitted);
     const std::string count = std::to_string(entry.draw_count);
     const std::string first = std::to_string(entry.first_frame);
@@ -425,9 +621,37 @@ void EmitDrawCensusWindow(uint64_t last_frame_value) {
         "{:08X}:{:08X}", sample.window_scissor_tl, sample.window_scissor_br);
     const std::string index_buffer = fmt::format(
         "{:08X}:{}", sample.index_buffer_address, sample.index_buffer_length);
-    const std::string flags =
-        fmt::format("indexed={};explicit_major={};memexport={}", sample.indexed,
-                    sample.major_mode_explicit, sample.vertex_memexport);
+    const std::string index_state =
+        fmt::format("format={};endianness={}", sample.index_format,
+                    sample.index_endianness);
+    std::string vertex_fetches;
+    const uint32_t bounded_binding_count =
+        std::min(sample.vertex_binding_count,
+                 rex::system::kGraphicsVertexBindingObservationLimit);
+    for (uint32_t i = 0; i < bounded_binding_count; ++i) {
+      const auto &binding = sample.vertex_bindings[i];
+      if (!vertex_fetches.empty()) {
+        vertex_fetches += ";";
+      }
+      vertex_fetches += fmt::format(
+          "{}:{:08X}:{}:{}:{}", binding.fetch_constant, binding.address,
+          binding.size, binding.stride_words, binding.endianness);
+    }
+    const bool query_draw =
+        sample.viz_query_condition || (sample.pa_sc_viz_query & 1);
+    const std::string pipeline_state =
+        fmt::format("color_mask={:08X};blend={:08X}:{:08X}:{:08X}:{:08X};"
+                    "depth={:08X};raster={:08X};vertex={:08X}",
+                    sample.rb_color_mask, sample.rb_blendcontrol[0],
+                    sample.rb_blendcontrol[1], sample.rb_blendcontrol[2],
+                    sample.rb_blendcontrol[3], sample.rb_depthcontrol,
+                    sample.pa_su_sc_mode_cntl, sample.pa_su_vtx_cntl);
+    const std::string flags = fmt::format(
+        "indexed={};explicit_major={};memexport={};query={};"
+        "resolved_input={};opaque={};vertex_overflow={}",
+        sample.indexed, sample.major_mode_explicit, sample.vertex_memexport,
+        query_draw, entry.samples_resolved_target, IsOpaqueColorState(sample),
+        bool(sample.vertex_binding_overflow));
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.census.draw_signature",
         {{"rank", rank},
@@ -442,13 +666,26 @@ void EmitDrawCensusWindow(uint64_t last_frame_value) {
          {"target_state", target_state},
          {"scissor", scissor},
          {"index_buffer", index_buffer},
+         {"index_state", index_state},
+         {"vertex_binding_count", std::to_string(sample.vertex_binding_count)},
+         {"vertex_fetches", vertex_fetches},
+         {"texture_fetch_count",
+          std::to_string(std::popcount(sample.texture_fetch_mask))},
+         {"pipeline_state", pipeline_state},
+         {"indexed", sample.indexed ? "true" : "false"},
+         {"query", query_draw ? "true" : "false"},
+         {"memexport", sample.vertex_memexport ? "true" : "false"},
+         {"resolved_input", entry.samples_resolved_target ? "true" : "false"},
+         {"opaque", IsOpaqueColorState(sample) ? "true" : "false"},
+         {"vertex_overflow", sample.vertex_binding_overflow ? "true" : "false"},
          {"flags", flags}});
   }
 
+  EmitCandidateCensusWindow(last_frame_value);
   ResetDrawCensus();
 }
 
-void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
+void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
   if (!observation.succeeded) {
     ++g_dependency_census.window_failed_copy_count;
@@ -467,7 +704,7 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
     return;
   }
 
-  ResolveTargetEntry& target = g_dependency_census.targets[target_index];
+  ResolveTargetEntry &target = g_dependency_census.targets[target_index];
   if (!target.resolve_count) {
     target.address = observation.written_address;
     target.first_resolve_frame = observation.frame_sequence;
@@ -486,8 +723,8 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
 }
 
 void EmitResolvedTextureDependency(
-    const rex::system::GraphicsDrawObservation& observation,
-    const ResolveTargetEntry& target, uint32_t fetch_index, bool is_mip) {
+    const rex::system::GraphicsDrawObservation &observation,
+    const ResolveTargetEntry &target, uint32_t fetch_index, bool is_mip) {
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.census.resolve_dependency",
       {{"address", fmt::format("{:08X}", target.address)},
@@ -497,8 +734,7 @@ void EmitResolvedTextureDependency(
        {"sample_draw", std::to_string(observation.draw_sequence)},
        {"fetch_index", std::to_string(fetch_index)},
        {"fetch_kind", is_mip ? "mip" : "base"},
-       {"conditional_draw",
-        observation.viz_query_condition ? "true" : "false"},
+       {"conditional_draw", observation.viz_query_condition ? "true" : "false"},
        {"query_state", (observation.pa_sc_viz_query & 1) ? "true" : "false"},
        {"memexport_draw", observation.vertex_memexport ? "true" : "false"},
        {"presentation_only", "unknown_uninstrumented"},
@@ -509,9 +745,9 @@ void EmitResolvedTextureDependency(
 }
 
 void ObserveResolvedFetch(
-    const rex::system::GraphicsDrawObservation& observation,
+    const rex::system::GraphicsDrawObservation &observation,
     uint32_t fetch_index, uint32_t address, bool is_mip,
-    std::array<size_t, 64>& sampled_targets, size_t& sampled_target_count) {
+    std::array<size_t, 64> &sampled_targets, size_t &sampled_target_count) {
   if (!address) {
     return;
   }
@@ -520,7 +756,7 @@ void ObserveResolvedFetch(
     return;
   }
 
-  ResolveTargetEntry& target = g_dependency_census.targets[target_index];
+  ResolveTargetEntry &target = g_dependency_census.targets[target_index];
   ++target.sample_reference_count;
   ++g_dependency_census.window_sample_reference_count;
   target.last_fetch_index = fetch_index;
@@ -556,10 +792,38 @@ void ObserveResolvedFetch(
   }
 }
 
-void ObserveDraw(const rex::system::GraphicsDrawObservation& observation) {
+void RecordCandidate(const rex::system::GraphicsDrawObservation &observation,
+                     bool samples_resolved_target) {
+  ++g_candidate_census.window_draw_count;
+  const uint64_t signature =
+      CandidateSignature(observation, samples_resolved_target);
+  size_t index = size_t(signature % kSignatureCapacity);
+  for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
+    DrawSignatureEntry &entry = g_candidate_census.entries[index];
+    if (!entry.draw_count) {
+      entry.signature = signature;
+      entry.draw_count = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.samples_resolved_target = samples_resolved_target;
+      entry.sample = observation;
+      ++g_candidate_census.unique_signature_count;
+      return;
+    }
+    if (entry.signature == signature) {
+      ++entry.draw_count;
+      entry.last_frame = observation.frame_sequence;
+      return;
+    }
+    index = (index + 1) % kSignatureCapacity;
+  }
+  ++g_candidate_census.overflow_draw_count;
+}
+
+void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
-  const bool query_draw = observation.viz_query_condition ||
-                          (observation.pa_sc_viz_query & 1);
+  const bool query_draw =
+      observation.viz_query_condition || (observation.pa_sc_viz_query & 1);
   if (query_draw) {
     ++g_dependency_census.window_query_draw_count;
   }
@@ -574,12 +838,11 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation& observation) {
       continue;
     }
     ObserveResolvedFetch(observation, fetch_index,
-                         observation.texture_fetch_addresses[fetch_index], false,
-                         sampled_targets, sampled_target_count);
-    ObserveResolvedFetch(
-        observation, fetch_index,
-        observation.texture_fetch_mip_addresses[fetch_index], true,
-        sampled_targets, sampled_target_count);
+                         observation.texture_fetch_addresses[fetch_index],
+                         false, sampled_targets, sampled_target_count);
+    ObserveResolvedFetch(observation, fetch_index,
+                         observation.texture_fetch_mip_addresses[fetch_index],
+                         true, sampled_targets, sampled_target_count);
   }
   if (sampled_target_count) {
     ++g_dependency_census.window_sampled_draw_count;
@@ -587,23 +850,29 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation& observation) {
 
   if (!g_draw_census.window_first_frame) {
     g_draw_census.window_first_frame = observation.frame_sequence;
+    g_candidate_census.window_first_frame = observation.frame_sequence;
   } else if (observation.frame_sequence >=
              g_draw_census.window_first_frame + kFrameSummaryInterval) {
     EmitDrawCensusWindow(observation.frame_sequence - 1);
     g_draw_census.window_first_frame = observation.frame_sequence;
+    g_candidate_census.window_first_frame = observation.frame_sequence;
   }
   g_draw_census.window_last_frame = observation.frame_sequence;
+  g_candidate_census.window_last_frame = observation.frame_sequence;
 
   ++g_draw_census.window_draw_count;
+  const bool samples_resolved_target = sampled_target_count != 0;
+  RecordCandidate(observation, samples_resolved_target);
   const uint64_t signature = DrawSignature(observation);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
-    DrawSignatureEntry& entry = g_draw_census.entries[index];
+    DrawSignatureEntry &entry = g_draw_census.entries[index];
     if (!entry.draw_count) {
       entry.signature = signature;
       entry.draw_count = 1;
       entry.first_frame = observation.frame_sequence;
       entry.last_frame = observation.frame_sequence;
+      entry.samples_resolved_target = samples_resolved_target;
       entry.sample = observation;
       ++g_draw_census.unique_signature_count;
       return;
@@ -618,18 +887,21 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation& observation) {
   ++g_draw_census.overflow_draw_count;
 }
 
-}  // namespace
+} // namespace
 
 namespace pinyon_shift::native_renderer {
 
-void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
+void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (!graphics_system || !REXCVAR_GET(pinyon_shift_native_renderer_census)) {
     return;
   }
   ResetDrawCensus();
+  ResetPreparedShaderPairs();
   ResetDependencyCensus();
+  g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
+  graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
@@ -638,24 +910,36 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
                             {"resolve_target_capacity", "4096"},
                             {"resolve_page_capacity", "32768"},
                             {"resolve_summary_limit", "32"},
+                            {"prepared_shader_pair_capacity", "1024"},
                             {"scene", scene},
                             {"mode", "pass_through"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
 }
 
-void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
+void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
+    graphics_system->SetPreparedDrawObserver(nullptr);
   }
+  if (!g_graphics_census_installed) {
+    return;
+  }
+  g_graphics_census_installed = false;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);
   }
   EmitDependencyCensusWindow();
+  diagnostics::RecordEvent(
+      "native_renderer.census.prepared_shader_pair_summary",
+      {{"pairs", std::to_string(g_prepared_shader_pair_count)},
+       {"overflow", std::to_string(g_prepared_shader_pair_overflow)},
+       {"capacity", std::to_string(kPreparedShaderPairCapacity)},
+       {"mode", "pass_through"}});
 }
 
-}  // namespace pinyon_shift::native_renderer
+} // namespace pinyon_shift::native_renderer
 
 // This translation unit is the single owner for title-side graphics hooks.
 // The hook runs immediately before FH1's sole VdSwap import and intentionally
@@ -674,9 +958,8 @@ void PinyonShiftObserveGraphicsFrame() {
   }
 
   const std::string frame = std::to_string(frame_sequence);
-  pinyon_shift::diagnostics::RecordEvent(
-      "native_renderer.census.frame",
-      {{"frame_sequence", frame},
-       {"guest_address", "829EFEB8"},
-       {"mode", "pass_through"}});
+  pinyon_shift::diagnostics::RecordEvent("native_renderer.census.frame",
+                                         {{"frame_sequence", frame},
+                                          {"guest_address", "829EFEB8"},
+                                          {"mode", "pass_through"}});
 }

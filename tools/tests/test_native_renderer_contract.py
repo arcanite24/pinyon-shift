@@ -143,11 +143,13 @@ class NativeRendererContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         signature = source.split("DrawSignature(", 1)[1].split(
-            "EmitDrawCensusWindow", 1
+            "CandidateSignature", 1
         )[0]
         self.assertIn("observation.primitive_type", signature)
         self.assertIn("observation.source_select", signature)
         self.assertNotIn("observation.initiator", signature)
+        self.assertNotIn("observation.rb_blendcontrol", signature)
+        self.assertNotIn("samples_resolved_target", signature)
 
     def test_census_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
@@ -267,6 +269,62 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("-StateRoot $resolvedStateRoot", capture)
         self.assertIn("ForzaProfile", capture)
         self.assertIn("repository .local directory", capture)
+
+    def test_candidate_state_is_bounded_metadata_before_draw(self):
+        patch = (
+            ROOT / "patches/rexglue/0051-graphics-draw-candidate-state.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("kGraphicsVertexBindingObservationLimit = 8", patch)
+        self.assertIn("index_format", patch)
+        self.assertIn("index_endianness", patch)
+        self.assertIn("vertex_binding_overflow", patch)
+        self.assertIn("rb_blendcontrol", patch)
+        self.assertIn("rb_depthcontrol", patch)
+        self.assertIn("pa_su_sc_mode_cntl", patch)
+        for forbidden in (
+            "vertex_data",
+            "index_data",
+            "texture_data",
+            "constant_data",
+            "SetDrawSuppression",
+        ):
+            self.assertNotIn(forbidden, patch)
+
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"suppression_allowed": False', (
+            ROOT / "tools/select-native-renderer-candidate.py"
+        ).read_text(encoding="utf-8"))
+        self.assertIn("IsOpaqueColorState", source)
+        self.assertIn("samples_resolved_target", source)
+        reset_window = source.split("void ResetDrawCensus()", 1)[1].split(
+            "void ResetPreparedShaderPairs()", 1
+        )[0]
+        self.assertNotIn("g_prepared_shader_pairs", reset_window)
+        self.assertIn("ResetPreparedShaderPairs();", source)
+
+        app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
+        close_path = app.split("bool PinyonShiftApp::OnWindowCloseRequested()", 1)[
+            1
+        ].split("void PinyonShiftApp::OnShutdown()", 1)[0]
+        self.assertIn("UninstallGraphicsCensus", close_path)
+
+        prepared_patch = (
+            ROOT / "patches/rexglue/0052-d3d12-prepared-draw-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsPreparedDrawObservation", prepared_patch)
+        self.assertIn("vertex_specialization_mask", prepared_patch)
+        self.assertIn("pixel_specialization_mask", prepared_patch)
+        self.assertLess(
+            prepared_patch.index("GetD3D12PipelineByHandle"),
+            prepared_patch.index("prepared_draw_observer(observation);"),
+        )
+        self.assertLess(
+            prepared_patch.index("prepared_draw_observer(observation);"),
+            prepared_patch.index("// Update the textures"),
+        )
+        self.assertNotIn("SetDrawSuppression", prepared_patch)
 
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(

@@ -380,6 +380,8 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
   // clean qualification boundary before allowing the SDK to terminate.
   pinyon_shift::native_renderer::UninstallShaderCapture(
       runtime() ? runtime()->graphics_system() : nullptr);
+  pinyon_shift::native_renderer::UninstallGraphicsCensus(
+      runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
   return true;
 }
