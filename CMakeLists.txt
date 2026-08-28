@@ -28,6 +28,7 @@ if(WIN32)
         src/native_renderer/resource_identity.cpp
         src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
+        src/native_renderer/texture_cache.cpp
     )
 else()
     add_executable(pinyon_shift
@@ -41,6 +42,7 @@ else()
         src/native_renderer/resource_identity.cpp
         src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
+        src/native_renderer/texture_cache.cpp
     )
 endif()
 
@@ -56,6 +58,13 @@ add_executable(pinyon_shift_buffer_cache_tests EXCLUDE_FROM_ALL
     src/native_renderer/resource_identity.cpp
 )
 target_include_directories(pinyon_shift_buffer_cache_tests PRIVATE src)
+
+add_executable(pinyon_shift_texture_cache_tests EXCLUDE_FROM_ALL
+    tests/native_renderer/texture_cache_test.cpp
+    src/native_renderer/resource_identity.cpp
+    src/native_renderer/texture_cache.cpp
+)
+target_include_directories(pinyon_shift_texture_cache_tests PRIVATE src)
 
 pinyon_shift_attach_rexglue(pinyon_shift)
 

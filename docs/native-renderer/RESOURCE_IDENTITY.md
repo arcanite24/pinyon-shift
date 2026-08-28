@@ -35,3 +35,18 @@ the entry from lookup immediately, but moves its allocation to a retired queue
 stamped with the later of its last use and the current submission. Only
 `Collect(completed_submission)` returns handles that the backend may destroy.
 This makes early invalidation and shutdown use the same fence-safe path.
+
+## Texture streaming state
+
+`NativeTextureCache` uses the same physical content identity for asynchronous
+texture decode and upload work. An incomplete guest payload schedules bounded
+exponential backoff. While a refreshed generation is pending, the cache serves
+the previous complete texture; when no complete generation exists, handle zero
+selects the backend's neutral fallback. Exhausting the configured attempt limit
+stops decode churn until the content identity changes.
+
+The first measured upload contract is taken directly from retained-pass anchor
+`747837906D0BF484`. Its two fetches are tiled 256 by 64 `DXN` (BC5-like)
+resources with 256-pixel pitch and 8-in-16 endianness. The native semantic test
+decodes the captured six-word fetch constant and fixes those values as the
+input contract for the upcoming D3D12 upload bridge.

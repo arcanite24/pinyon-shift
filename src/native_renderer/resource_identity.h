@@ -70,6 +70,10 @@ struct TextureResourceKey {
   bool operator==(const TextureResourceKey&) const = default;
 };
 
+struct TextureResourceKeyHash {
+  [[nodiscard]] size_t operator()(const TextureResourceKey& key) const;
+};
+
 enum class TrackedResourceClass : uint8_t {
   kBuffer,
   kTexture,

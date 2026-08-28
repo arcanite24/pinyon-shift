@@ -55,6 +55,21 @@ size_t BufferResourceKeyHash::operator()(const BufferResourceKey& key) const {
   return static_cast<size_t>(hash);
 }
 
+size_t TextureResourceKeyHash::operator()(const TextureResourceKey& key) const {
+  uint64_t hash = kFnvOffsetBasis;
+  HashValue(key.base.address, hash);
+  HashValue(key.base.length, hash);
+  HashValue(key.mips.has_value(), hash);
+  if (key.mips) {
+    HashValue(key.mips->address, hash);
+    HashValue(key.mips->length, hash);
+  }
+  HashValue(key.fetch_signature, hash);
+  HashValue(key.content.generation, hash);
+  HashValue(key.content.fingerprint, hash);
+  return static_cast<size_t>(hash);
+}
+
 PhysicalResourceTracker::PhysicalResourceTracker()
     : page_generations_(kGuestPhysicalApertureSize /
                         kGuestPhysicalPageSize) {}
