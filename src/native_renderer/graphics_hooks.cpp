@@ -32,11 +32,15 @@ constexpr uint64_t kGuestPageSize = 4096;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
-  const char* value = std::getenv("PINYON_SHIFT_NATIVE_RENDERER_SCENE");
-  if (!value || !*value) {
+  char* value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length, "PINYON_SHIFT_NATIVE_RENDERER_SCENE") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
     return "unmarked";
   }
   std::string marker(value);
+  std::free(value);
   if (marker.size() > 32 ||
       !std::all_of(marker.begin(), marker.end(), [](unsigned char character) {
         return (character >= 'a' && character <= 'z') || character == '_';
