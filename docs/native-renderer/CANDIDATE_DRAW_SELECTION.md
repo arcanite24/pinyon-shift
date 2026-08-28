@@ -149,3 +149,28 @@ The selector now checks every captured base and mip address against every
 emitted resolve range in each input inventory. This is deliberately stricter
 than the draw-window `resolved_input` bit: a missed timing correlation can no
 longer turn absence of a dependency event into static-texture evidence.
+
+## Prepared-specialization correlation
+
+Candidate aggregation is deferred from the generic pre-draw observation until
+the synchronous D3D12 prepared-draw callback. The callback supplies the exact
+effective vertex and pixel shader identities plus their specialization masks.
+This matters when an active guest pixel shader is omitted from the prepared
+pipeline because rasterization is disabled, and when one guest shader pair has
+multiple render-target specializations.
+
+The specialization masks are part of the candidate signature and are emitted
+with every candidate record. Selection now requires the exact pair to repeat in
+every capture, appear in each prepared-draw inventory, and exist in the local
+shader manifest. It no longer guesses from all specializations seen for a guest
+shader pair.
+
+AppData-backed sessions `20260828T061406Z-p33972` and
+`20260828T061541Z-p41620` reached more than 2,100 frames and exited normally.
+Both reported zero prepared callbacks without a corresponding generic draw
+observation, zero observer overflow, and 22 prepared shader pairs. Exact
+correlation recovered four repeatable candidates under the existing
+zero-or-one-texture gate; all four are textureless. Two additional opaque,
+one-binding candidates have three non-resolved texture inputs and remain
+rejected by the current bounded-complexity gate pending an explicit scope
+decision.

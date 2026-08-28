@@ -171,22 +171,31 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
             str(records[0].get("vertex_shader", "")).upper(),
             str(records[0].get("pixel_shader", "")).upper(),
         )
-        repeated_specializations = set(
-            prepared_by_capture[0].get(shader_pair, set())
-        )
-        for prepared in prepared_by_capture[1:]:
-            repeated_specializations.intersection_update(
-                prepared.get(shader_pair, set())
+        candidate_specializations = [
+            (
+                str(record.get("vertex_specialization_mask", "")).upper(),
+                str(record.get("pixel_specialization_mask", "")).upper(),
             )
-        if not repeated_specializations:
+            for record in records
+        ]
+        if any(
+            len(value) != 16
+            for specialization in candidate_specializations
+            for value in specialization
+        ):
+            rejection_counts["missing_candidate_specialization"] += 1
+            continue
+        if len(set(candidate_specializations)) != 1:
+            rejection_counts["specialization_changed_across_captures"] += 1
+            continue
+        vertex_specialization, pixel_specialization = candidate_specializations[0]
+        if any(
+            candidate_specializations[index]
+            not in prepared_by_capture[index].get(shader_pair, set())
+            for index in range(len(censuses))
+        ):
             rejection_counts["missing_prepared_shader_pair"] += 1
             continue
-        if len(repeated_specializations) != 1:
-            rejection_counts["ambiguous_prepared_shader_pair"] += 1
-            continue
-        vertex_specialization, pixel_specialization = next(
-            iter(repeated_specializations)
-        )
         if ("vertex", shader_pair[0], vertex_specialization) not in shaders:
             rejection_counts["missing_vertex_shader_specialization"] += 1
             continue

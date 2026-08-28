@@ -121,3 +121,9 @@ register-only; the census still performs no guest resource payload reads.
 The deterministic inventory also retains every emitted resolve target so the
 candidate selector can reject any captured base or mip address inside a known
 resolve range, independently of draw-window timing.
+
+Candidate records are finalized only by the synchronous D3D12 prepared-draw
+callback. Their signature includes the exact effective shader specialization,
+preventing a global guest-shader pair with multiple prepared variants from
+producing an ambiguous or guessed candidate identity. Draws that never reach a
+prepared pipeline are counted and excluded; Xenos remains authoritative.
