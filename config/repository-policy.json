@@ -7,6 +7,8 @@
     ".live",
     ".pirs",
     ".stfs",
+    ".dxil",
+    ".pnsp",
     ".exe",
     ".dll",
     ".pdb",

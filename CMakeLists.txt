@@ -24,6 +24,7 @@ if(WIN32)
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/shader_pack.cpp
     )
 else()
     add_executable(pinyon_shift
@@ -33,6 +34,7 @@ else()
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/shader_pack.cpp
     )
 endif()
 
@@ -50,5 +52,5 @@ add_custom_target(pinyon_shift_stage_controller_mappings ALL
     VERBATIM)
 
 if(WIN32)
-    target_link_libraries(pinyon_shift PRIVATE dbghelp)
+    target_link_libraries(pinyon_shift PRIVATE bcrypt dbghelp)
 endif()
