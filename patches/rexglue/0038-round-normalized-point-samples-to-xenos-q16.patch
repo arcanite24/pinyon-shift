@@ -128,7 +128,7 @@ diff --git a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp b/src/graphi
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -494,2 +494,18 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+@@ -494,2 +494,23 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
      BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
 +    switch (fetch.format) {
 +      case xenos::TextureFormat::k_16_FLOAT:
