@@ -424,6 +424,22 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"native_draw", "false"', scanner)
         self.assertIn('"suppression_eligible", "false"', scanner)
         self.assertNotIn("SetDrawSuppression", scanner)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE", scanner)
+        self.assertIn('"native_renderer.census.pass_follower"', scanner)
+        self.assertIn("sample.draw_sequence == g_pass_follower.anchor_draw + 1", scanner)
+
+        census_capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PassAnchorSignature", census_capture)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE", census_capture)
+
+        follower_selector = (
+            ROOT / "tools/select-native-renderer-pass-follower.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pinyon-shift.native-renderer-pass-follower.v1", follower_selector)
+        self.assertIn('"suppression_allowed": False', follower_selector)
+        self.assertIn('"xenos_authority": True', follower_selector)
 
         isolated_replay_patch = (
             ROOT / "patches/rexglue/0058-d3d12-isolated-draw-replay.patch"

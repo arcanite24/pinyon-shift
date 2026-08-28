@@ -120,6 +120,19 @@ struct IsolatedDrawState {
 
 IsolatedDrawState g_isolated_draw;
 
+struct PassFollowerState {
+  uint64_t target_signature = 0;
+  uint64_t anchor_frame = 0;
+  uint64_t anchor_draw = 0;
+  uint64_t adjacency_mismatches = 0;
+  bool requested = false;
+  bool valid = true;
+  bool awaiting_follower = false;
+  bool completed = false;
+};
+
+PassFollowerState g_pass_follower;
+
 void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
                             bool &requested, bool &valid) {
   char *value = nullptr;
@@ -148,6 +161,14 @@ void ConfigureIndexScan() {
   ConfigureSignatureScan("PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE",
                          g_index_scan.target_signature,
                          g_index_scan.requested, g_index_scan.valid);
+}
+
+void ConfigurePassFollower() {
+  g_pass_follower = {};
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE",
+      g_pass_follower.target_signature, g_pass_follower.requested,
+      g_pass_follower.valid);
 }
 
 void ConfigureTextureScan() {
@@ -1528,13 +1549,88 @@ void ObservePreparedDraw(
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
-    g_isolated_draw.prepared_signature = CandidateSignature(
+    const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
+    g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
         sample, g_pending_candidate.samples_resolved_target, observation);
     g_isolated_draw.prepared_candidate_valid = true;
+    if (g_pass_follower.requested && g_pass_follower.valid &&
+        !g_pass_follower.completed) {
+      if (g_pass_follower.awaiting_follower) {
+        if (sample.frame_sequence == g_pass_follower.anchor_frame &&
+            sample.draw_sequence == g_pass_follower.anchor_draw + 1) {
+          const bool query_draw = sample.viz_query_condition ||
+                                  (sample.pa_sc_viz_query & 1);
+          const std::string pipeline_state = fmt::format(
+              "color_mask={:08X};blend={:08X}:{:08X}:{:08X}:{:08X};"
+              "depth={:08X};raster={:08X};vertex={:08X}",
+              sample.rb_color_mask, sample.rb_blendcontrol[0],
+              sample.rb_blendcontrol[1], sample.rb_blendcontrol[2],
+              sample.rb_blendcontrol[3], sample.rb_depthcontrol,
+              sample.pa_su_sc_mode_cntl, sample.pa_su_vtx_cntl);
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.census.pass_follower",
+              {{"anchor_signature",
+                fmt::format("{:016X}", g_pass_follower.target_signature)},
+               {"follower_signature",
+                fmt::format("{:016X}", prepared_signature)},
+               {"anchor_frame", std::to_string(g_pass_follower.anchor_frame)},
+               {"anchor_draw", std::to_string(g_pass_follower.anchor_draw)},
+               {"follower_frame", std::to_string(sample.frame_sequence)},
+               {"follower_draw", std::to_string(sample.draw_sequence)},
+               {"vertex_shader",
+                fmt::format("{:016X}", sample.vertex_shader_hash)},
+               {"pixel_shader", fmt::format("{:016X}", sample.pixel_shader_hash)},
+               {"vertex_specialization_mask",
+                fmt::format("{:016X}", observation.vertex_specialization_mask)},
+               {"pixel_specialization_mask",
+                fmt::format("{:016X}", observation.pixel_specialization_mask)},
+               {"prepared_pipeline_hash",
+                fmt::format("{:016X}", PreparedPipelineHash(observation))},
+               {"primitive", std::to_string(sample.primitive_type)},
+               {"source_select", std::to_string(sample.source_select)},
+               {"indexed", sample.indexed ? "true" : "false"},
+               {"index_count", std::to_string(sample.index_count)},
+               {"index_state",
+                fmt::format("format={};endianness={}", sample.index_format,
+                            sample.index_endianness)},
+               {"vertex_binding_count",
+                std::to_string(sample.vertex_binding_count)},
+               {"vertex_attribute_count",
+                std::to_string(sample.vertex_attribute_count)},
+               {"texture_fetch_count",
+                std::to_string(std::popcount(sample.texture_fetch_mask))},
+               {"pipeline_state", pipeline_state},
+               {"query", query_draw ? "true" : "false"},
+               {"memexport", sample.vertex_memexport ? "true" : "false"},
+               {"resolved_input",
+                g_pending_candidate.samples_resolved_target ? "true" : "false"},
+               {"mechanically_eligible",
+                IsIsolatedDrawEligible(
+                    sample, g_pending_candidate.samples_resolved_target,
+                    observation)
+                    ? "true"
+                    : "false"},
+               {"qualification", "metadata_contract_only"},
+               {"xenos_draw", "preserved"},
+               {"native_draw", "false"},
+               {"suppression_eligible", "false"}});
+          g_pass_follower.completed = true;
+        } else {
+          ++g_pass_follower.adjacency_mismatches;
+        }
+        g_pass_follower.awaiting_follower = false;
+      }
+      if (!g_pass_follower.completed &&
+          prepared_signature == g_pass_follower.target_signature) {
+        g_pass_follower.anchor_frame = sample.frame_sequence;
+        g_pass_follower.anchor_draw = sample.draw_sequence;
+        g_pass_follower.awaiting_follower = true;
+      }
+    }
     RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
                     observation);
     g_pending_candidate.valid = false;
@@ -2413,6 +2509,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   ConfigureTextureScan();
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
+  ConfigurePassFollower();
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
@@ -2458,6 +2555,20 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"maximum_total_bytes",
         std::to_string(kMaximumTextureScanTotalBytes)},
        {"mode", "bounded_diagnostic_read"}});
+  diagnostics::RecordEvent(
+      "native_renderer.census.pass_follower_config",
+      {{"status", !g_pass_follower.requested
+                      ? "disabled"
+                      : (g_pass_follower.valid ? "armed" : "invalid_signature")},
+       {"anchor_signature",
+        g_pass_follower.valid && g_pass_follower.requested
+            ? fmt::format("{:016X}", g_pass_follower.target_signature)
+            : ""},
+       {"maximum_followers", "1"},
+       {"mode", "bounded_metadata"},
+       {"xenos_draw", "preserved"},
+       {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
   diagnostics::RecordEvent(
       "native_renderer.snapshot.config",
       {{"status", !g_replay_snapshot.requested
@@ -2537,6 +2648,20 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"status", "not_observed"},
          {"guest_payload_read", "false"},
          {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  if (g_pass_follower.requested && g_pass_follower.valid &&
+      !g_pass_follower.completed) {
+    diagnostics::RecordEvent(
+        "native_renderer.census.pass_follower",
+        {{"anchor_signature",
+          fmt::format("{:016X}", g_pass_follower.target_signature)},
+         {"status", "not_observed"},
+         {"adjacency_mismatches",
+          std::to_string(g_pass_follower.adjacency_mismatches)},
+         {"qualification", "metadata_contract_only"},
+         {"xenos_draw", "preserved"},
          {"native_draw", "false"},
          {"suppression_eligible", "false"}});
   }

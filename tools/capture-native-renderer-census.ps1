@@ -16,6 +16,8 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
     [string]$IsolatedDrawDir,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$PassAnchorSignature,
     [switch]$Json
 )
 
@@ -102,6 +104,7 @@ $savedReplaySnapshot = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE
 $savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
+$savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -111,6 +114,7 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $ReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $IsolatedDrawSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -124,4 +128,5 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $savedReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $savedIsolatedDraw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
 }

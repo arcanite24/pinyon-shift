@@ -146,6 +146,15 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "guest_payload_read": "bounded_texture_only",
             },
             {
+                "event": "native_renderer.census.pass_follower",
+                "session": "new",
+                "anchor_signature": "CANDIDATE",
+                "follower_signature": "FOLLOWER",
+                "anchor_draw": "41",
+                "follower_draw": "42",
+                "suppression_eligible": "false",
+            },
+            {
                 "event": "native_renderer.census.resolve_window",
                 "session": "new",
                 "resolves": "7",
@@ -210,6 +219,7 @@ class NativeRendererCensusTests(unittest.TestCase):
             "1111111111111111",
             result["texture_fingerprints"][0]["base_hash"],
         )
+        self.assertEqual("FOLLOWER", result["pass_followers"][0]["follower_signature"])
         self.assertEqual(
             "bounded_index_and_texture_payload",
             result["safety"]["guest_cpu_reads"],
