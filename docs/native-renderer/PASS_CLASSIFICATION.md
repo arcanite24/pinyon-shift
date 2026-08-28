@@ -67,3 +67,29 @@ and its evidence is recorded. A semantic family requires stronger hook or
 visual evidence than recurrence alone. Changing classification never changes
 rendering behavior; suppression has separate gates and remains forbidden in
 NR-00.
+
+## Qualification snapshot — 2026-08-27
+
+Clean commit `6460ea8` was launched against the installed AppData save with
+the `front_end` marker. Session `20260828T002957Z-p39648` reached 1,500 frames,
+exited normally, and produced this deterministic report:
+
+- 83,665 observed and classified draws (100% coverage).
+- One `front_end_observed` family and zero drift signatures.
+- 2,890 resolves and two resolve-to-texture dependencies.
+- Zero classifier overflow, census overflow, crash, GPU-loss, or fatal events.
+
+The clean executable SHA-256 was
+`67F27E6E3039DB1B79606F18EA62F03DD4F3ED40BFD0B5405DE2A22B2D22F748`.
+
+An equal-duration census-disabled control run used the same build and save.
+After discarding 120 warm-up samples, the enabled/control comparison was:
+
+| Mode | Samples | Median frame time | p95 frame time | Median FPS |
+| --- | ---: | ---: | ---: | ---: |
+| Census disabled | 1,319 | 16,620 us | 18,606 us | 60 |
+| Census + classifier capture | 1,421 | 16,630 us | 18,643 us | 60 |
+
+The observed deltas were 10 us at median (0.06%) and 37 us at p95 (0.20%).
+This front-end result proves the disabled path has no material overhead in the
+captured scene; it does not replace the required open-world and race captures.
