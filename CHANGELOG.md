@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - 2026-08-27
+
+- Fixed launcher-package builds that completed translation but failed while
+  probing absent Git metadata.
+- Removed the packaged setup workflow's Python dependency by verifying codegen
+  warnings with Windows PowerShell.
+
 ## 0.1.0 - 2026-08-26
 
 - First Windows public playable preview.
@@ -18,5 +25,3 @@
   limitation list after the latest compatibility fixes.
 - Added launcher controls for validated graphics experiments, including 2x
   resolution scaling, anisotropic filtering, and post-effect selection.
-- Fixed launcher-package builds that completed translation but failed while
-  probing absent Git metadata, and removed Python from warning verification.

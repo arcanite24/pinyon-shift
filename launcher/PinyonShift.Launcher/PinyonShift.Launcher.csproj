@@ -8,9 +8,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>PinyonShiftLauncher</AssemblyName>
     <RootNamespace>PinyonShift.Launcher</RootNamespace>
-    <Version>0.1.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.1.1</Version>
+    <AssemblyVersion>0.1.1.0</AssemblyVersion>
+    <FileVersion>0.1.1.0</FileVersion>
     <Product>Pinyon Shift Launcher</Product>
     <Description>Builds Pinyon Shift locally from a verified user-supplied game disc image.</Description>
     <Authors>Pinyon Shift contributors</Authors>
