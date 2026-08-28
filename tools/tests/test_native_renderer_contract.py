@@ -488,6 +488,20 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("SetDrawSuppression", auto_index_replay_patch)
         self.assertIn("SourceSelect::kAutoIndex", scanner)
 
+        retained_pass_patch = (
+            ROOT
+            / "patches/rexglue/0063-d3d12-retained-isolated-pass-target.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ResumeIsolatedReplayTarget", retained_pass_patch)
+        self.assertIn("reuse_target", retained_pass_patch)
+        self.assertIn("isolated native pass anchor", retained_pass_patch)
+        self.assertIn("isolated native pass follower", retained_pass_patch)
+        self.assertNotIn("SetDrawSuppression", retained_pass_patch)
+        self.assertIn("request.retain_target = true", scanner)
+        self.assertIn("request.reuse_target = true", scanner)
+        self.assertIn("native_renderer.isolated_pass.result", scanner)
+        self.assertIn("native_renderer.isolated_pass.repeat", scanner)
+
         visual_marker_patch = (
             ROOT / "patches/rexglue/0060-d3d12-isolated-draw-debug-markers.patch"
         ).read_text(encoding="utf-8")
@@ -531,6 +545,8 @@ class NativeRendererContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("Get-AuthenticodeSignature", renderdoc_wrapper)
         self.assertIn("CaptureDir must be below", renderdoc_wrapper)
+        self.assertIn("PassAnchorSignature and IsolatedDrawDir", renderdoc_wrapper)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE", renderdoc_wrapper)
         self.assertIn("RenderDoc exited without producing", renderdoc_wrapper)
 
         renderdoc_export = (
@@ -549,12 +565,16 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('output_dir, "isolated-native"', renderdoc_export)
         self.assertIn('output_dir, "authoritative-xenos"', renderdoc_export)
         self.assertIn("authoritative Xenos marker follows", renderdoc_export)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_NATIVE_MARKER", renderdoc_export)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_XENOS_MARKER", renderdoc_export)
         renderdoc_export_wrapper = (
             ROOT / "tools/export-native-renderer-renderdoc.ps1"
         ).read_text(encoding="utf-8")
         self.assertIn("Get-AuthenticodeSignature", renderdoc_export_wrapper)
         self.assertIn("Capture must be below", renderdoc_export_wrapper)
         self.assertIn("OutputDir must be below", renderdoc_export_wrapper)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_NATIVE_MARKER", renderdoc_export_wrapper)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_XENOS_MARKER", renderdoc_export_wrapper)
         self.assertIn("qrenderdoc exited without producing", renderdoc_export_wrapper)
 
         pass_trace = (
