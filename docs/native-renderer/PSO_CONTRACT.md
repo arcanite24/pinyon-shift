@@ -95,3 +95,20 @@ No native PSO, upload, draw, or Xenos suppression path was enabled.
 
 A clean 57-patch Release build succeeded with executable SHA-256
 `8C8556FE675CE6E3A93080A7A420A46A8571AC14B36887F7ED638275B849B6D4`.
+
+## Joined contract qualification — 2026-08-28
+
+Fresh exact-signature scans in sessions `20260828T084949Z-p36548` and
+`20260828T085323Z-p43944` reproduced the bounded geometry and texture
+contracts under revised signature `747837906D0BF484`. The joined PSO contract
+is now `ready_for_pso_creation: true` and has deterministic key SHA-256
+`A4E07C14394100E280810B52BDB72D93CAF348AC3A79AE70EDA6F933DDFC4E64`.
+
+The two runs measured 30.560 and 31.032 median FPS over 6,682 and 4,893 frame
+samples. Presentation cadence was 59.993 and 59.994 Hz, with zero deadline
+misses. Both exited normally and emitted no error, crash, or device-loss event.
+
+The joined result is permission to attempt isolated PSO creation only. Visual
+identity remains unconfirmed and observed-producer exclusion is still
+required. The contract therefore keeps native PSO creation, native upload,
+native drawing, and suppression false, with Xenos authoritative.

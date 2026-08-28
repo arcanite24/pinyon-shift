@@ -84,3 +84,21 @@ normally with code zero.
 This evidence advances the candidate through static-content fingerprinting
 only. Visual identification and dynamic render-target exclusion remain open,
 and Xenos authority remains mandatory for subsequent isolated replay work.
+
+## Prepared-signature refresh — 2026-08-28
+
+The revised prepared-pipeline signature `747837906D0BF484` was fingerprinted
+again in two independent AppData-backed processes:
+
+| Session | Fetch | Address | Base bytes | Base hash |
+| --- | ---: | ---: | ---: | --- |
+| `20260828T084949Z-p36548` | 0 | `1464A000` | 16,384 | `813168E347A20D13` |
+| `20260828T084949Z-p36548` | 2 | `14752000` | 16,384 | `A1341C9AE209EB41` |
+| `20260828T085323Z-p43944` | 0 | `14666000` | 16,384 | `813168E347A20D13` |
+| `20260828T085323Z-p43944` | 2 | `1476E000` | 16,384 | `A1341C9AE209EB41` |
+
+Both resources relocated while their allocation shapes and hashes remained
+identical. This closes the earlier relocation caveat and confirms that the
+fingerprints describe stable source content rather than one deterministic
+allocation. It still does not prove visual identity or exclude an unobserved
+GPU producer; those remain explicit gates before replay or suppression.

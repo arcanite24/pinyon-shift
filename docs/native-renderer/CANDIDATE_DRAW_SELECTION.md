@@ -261,3 +261,12 @@ visual/dependency restrictions are recorded in
 [TEXTURE_PROVENANCE_CONTRACT.md](TEXTURE_PROVENANCE_CONTRACT.md). This is
 source-content evidence only; it does not enable upload, replay, or
 suppression.
+
+Prepared-pipeline observation revised this identity to `747837906D0BF484`.
+Two fresh exact-signature AppData scans independently reproduced its 9,300
+indices, decoded range 0–1,616, 51,744-byte vertex bound, and both 16 KiB DXN
+texture hashes. The guest allocations relocated between processes, while all
+bounded content facts remained stable. Its prepared pipeline is within the
+initial supported PSO shape and the joined offline contract is ready for
+isolated PSO creation. Visual identity and observed-producer exclusion remain
+open, so native drawing and Xenos suppression are still forbidden.
