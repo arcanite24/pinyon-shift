@@ -15,6 +15,7 @@ param(
     [string]$ReplaySnapshotDir,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
+    [string]$IsolatedDrawDir,
     [switch]$Json
 )
 
@@ -71,6 +72,28 @@ if ($ReplaySnapshotDir) {
     $ReplaySnapshotDir = $resolvedSnapshotDir
 }
 
+if ($IsolatedDrawDir) {
+    if (-not $IsolatedDrawSignature) {
+        throw 'IsolatedDrawDir requires IsolatedDrawSignature'
+    }
+    $repositoryRoot = Split-Path $PSScriptRoot -Parent
+    $localRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.local'))
+    $resolvedIsolatedDrawDir = [IO.Path]::GetFullPath($IsolatedDrawDir)
+    $localPrefix = $localRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedIsolatedDrawDir.StartsWith(
+            $localPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "IsolatedDrawDir must be below $localRoot"
+    }
+    if (Test-Path -LiteralPath $resolvedIsolatedDrawDir) {
+        throw "IsolatedDrawDir already exists: $resolvedIsolatedDrawDir"
+    }
+    if (Test-Path -LiteralPath "$resolvedIsolatedDrawDir.partial") {
+        throw "Isolated draw staging directory already exists: $resolvedIsolatedDrawDir.partial"
+    }
+    $IsolatedDrawDir = $resolvedIsolatedDrawDir
+}
+
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
@@ -78,6 +101,7 @@ $savedTextureScan = $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE
 $savedReplaySnapshot = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE
 $savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
+$savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -86,6 +110,7 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE = $ReplaySnapshotSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $ReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $IsolatedDrawSignature
+    $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -98,4 +123,5 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE = $savedReplaySnapshot
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $savedReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $savedIsolatedDraw
+    $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
 }

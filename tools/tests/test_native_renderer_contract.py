@@ -442,6 +442,27 @@ class NativeRendererContractTests(unittest.TestCase):
         )
         self.assertLess(isolated_draw_position, guest_draw_position)
 
+        isolated_readback_patch = (
+            ROOT / "patches/rexglue/0059-d3d12-isolated-draw-readback.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("QueueIsolatedReplayReadback", isolated_readback_patch)
+        self.assertIn("GetCopyableFootprints", isolated_readback_patch)
+        self.assertIn("D3DCopyTextureRegion", isolated_readback_patch)
+        self.assertIn("D3DResolveSubresource", isolated_readback_patch)
+        self.assertIn("failure_detail_out", isolated_readback_patch)
+        self.assertIn("readback_result.detail", isolated_readback_patch)
+        self.assertIn("GetCompletedSubmission", isolated_readback_patch)
+        self.assertNotIn("AwaitAllQueueOperationsCompletion", isolated_readback_patch)
+        self.assertNotIn("SetDrawSuppression", isolated_readback_patch)
+        copy_position = isolated_readback_patch.index("D3DCopyTextureRegion")
+        guest_draw_position = isolated_readback_patch.index(
+            "render_target_cache_->EndIsolatedReplayTarget", copy_position
+        )
+        self.assertLess(copy_position, guest_draw_position)
+        self.assertIn("captured_signature", scanner)
+        self.assertIn("captured_frame", scanner)
+        self.assertIn("captured_draw", scanner)
+
         draw_state_planner = (
             ROOT / "tools/build-native-draw-state-contract.py"
         ).read_text(encoding="utf-8")

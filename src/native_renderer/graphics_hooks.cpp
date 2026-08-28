@@ -3,6 +3,7 @@
 #include <atomic>
 #include <bit>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -103,7 +105,13 @@ struct IsolatedDrawState {
   uint64_t prepared_signature = 0;
   uint64_t frame = 0;
   uint64_t draw = 0;
+  uint64_t captured_signature = 0;
+  uint64_t captured_frame = 0;
+  uint64_t captured_draw = 0;
+  std::filesystem::path output_root;
+  std::jthread artifact_writer;
   bool requested = false;
+  bool readback_requested = false;
   bool completed = false;
   bool valid = true;
   bool prepared_candidate_valid = false;
@@ -191,6 +199,23 @@ void ConfigureIsolatedDraw() {
       "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE",
       g_isolated_draw.target_signature, g_isolated_draw.requested,
       g_isolated_draw.valid);
+  const bool signature_requested = g_isolated_draw.requested;
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  g_isolated_draw.readback_requested = true;
+  g_isolated_draw.output_root =
+      std::filesystem::absolute(std::filesystem::path(value)).lexically_normal();
+  std::free(value);
+  if (!signature_requested ||
+      !IsLocalArtifactRoot(g_isolated_draw.output_root)) {
+    g_isolated_draw.valid = false;
+  }
 }
 
 struct DrawSignatureEntry {
@@ -1747,6 +1772,212 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
   }
 }
 
+float HalfToFloat(uint16_t value) {
+  const uint32_t sign = uint32_t(value & 0x8000) << 16;
+  const uint32_t exponent = (value >> 10) & 0x1F;
+  uint32_t mantissa = value & 0x03FF;
+  uint32_t bits = 0;
+  if (!exponent) {
+    if (mantissa) {
+      uint32_t normalized_exponent = 113;
+      while (!(mantissa & 0x0400)) {
+        mantissa <<= 1;
+        --normalized_exponent;
+      }
+      bits = sign | (normalized_exponent << 23) |
+             ((mantissa & 0x03FF) << 13);
+    } else {
+      bits = sign;
+    }
+  } else if (exponent == 0x1F) {
+    bits = sign | 0x7F800000 | (mantissa << 13);
+  } else {
+    bits = sign | ((exponent + 112) << 23) | (mantissa << 13);
+  }
+  return std::bit_cast<float>(bits);
+}
+
+void CompleteIsolatedDrawReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  const auto reject = [&](const char *status) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.readback",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+         {"status", status},
+         {"detail", fmt::format("0x{:08X}", readback.detail)},
+         {"frame", std::to_string(g_isolated_draw.captured_frame)},
+         {"draw", std::to_string(g_isolated_draw.captured_draw)},
+         {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+  };
+  if (readback.status !=
+      rex::system::GraphicsIsolatedDrawReadbackStatus::kReady) {
+    if (readback.status ==
+        rex::system::GraphicsIsolatedDrawReadbackStatus::
+            kResolveAllocationFailed) {
+      reject("resolve_allocation_failed");
+    } else if (readback.status ==
+        rex::system::GraphicsIsolatedDrawReadbackStatus::kAllocationFailed) {
+      reject("allocation_failed");
+    } else if (readback.status ==
+               rex::system::GraphicsIsolatedDrawReadbackStatus::kMapFailed) {
+      reject("map_failed");
+    } else {
+      reject("unsupported_target");
+    }
+    return;
+  }
+  constexpr uint32_t kR16G16B16A16Float = 10;
+  constexpr uint32_t kR8G8B8A8Unorm = 28;
+  const uint32_t bytes_per_pixel =
+      readback.format == kR16G16B16A16Float
+          ? 8
+          : (readback.format == kR8G8B8A8Unorm ? 4 : 0);
+  const uint64_t required_size =
+      uint64_t(readback.row_pitch) * readback.height;
+  if (!bytes_per_pixel || !readback.data || !readback.width ||
+      !readback.height ||
+      uint64_t(readback.width) * bytes_per_pixel > readback.row_pitch ||
+      required_size > readback.data_size || required_size > SIZE_MAX) {
+    reject("unsupported_layout");
+    return;
+  }
+
+  std::vector<uint8_t> bytes(readback.data,
+                             readback.data + size_t(required_size));
+  const uint64_t signature = g_isolated_draw.captured_signature;
+  const uint64_t frame = g_isolated_draw.captured_frame;
+  const uint64_t draw = g_isolated_draw.captured_draw;
+  const auto output_root = g_isolated_draw.output_root;
+  const uint32_t width = readback.width;
+  const uint32_t height = readback.height;
+  const uint32_t row_pitch = readback.row_pitch;
+  const uint32_t format = readback.format;
+  g_isolated_draw.artifact_writer = std::jthread(
+      [bytes = std::move(bytes), signature, frame, draw, output_root, width,
+       height, row_pitch, format, bytes_per_pixel]() {
+        uint32_t left = width;
+        uint32_t top = height;
+        uint32_t right = 0;
+        uint32_t bottom = 0;
+        bool nonzero = false;
+        for (uint32_t y = 0; y < height; ++y) {
+          const uint8_t *row = bytes.data() + uint64_t(y) * row_pitch;
+          for (uint32_t x = 0; x < width; ++x) {
+            const uint8_t *pixel = row + uint64_t(x) * bytes_per_pixel;
+            bool pixel_nonzero = false;
+            for (uint32_t i = 0; i < bytes_per_pixel; ++i) {
+              pixel_nonzero |= pixel[i] != 0;
+            }
+            if (pixel_nonzero) {
+              nonzero = true;
+              left = std::min(left, x);
+              top = std::min(top, y);
+              right = std::max(right, x);
+              bottom = std::max(bottom, y);
+            }
+          }
+        }
+        if (!nonzero) {
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.isolated_draw.readback",
+              {{"signature", fmt::format("{:016X}", signature)},
+               {"status", "empty_target"},
+               {"frame", std::to_string(frame)},
+               {"draw", std::to_string(draw)},
+               {"output_authority", "xenos"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+
+        const uint32_t crop_width = right - left + 1;
+        const uint32_t crop_height = bottom - top + 1;
+        std::vector<uint8_t> ppm;
+        const std::string header =
+            fmt::format("P6\n{} {}\n255\n", crop_width, crop_height);
+        ppm.insert(ppm.end(), header.begin(), header.end());
+        ppm.reserve(ppm.size() + uint64_t(crop_width) * crop_height * 3);
+        for (uint32_t y = top; y <= bottom; ++y) {
+          const uint8_t *row = bytes.data() + uint64_t(y) * row_pitch;
+          for (uint32_t x = left; x <= right; ++x) {
+            const uint8_t *pixel = row + uint64_t(x) * bytes_per_pixel;
+            if (format == kR16G16B16A16Float) {
+              for (uint32_t component = 0; component < 3; ++component) {
+                uint16_t half = 0;
+                std::memcpy(&half, pixel + component * sizeof(uint16_t),
+                            sizeof(half));
+                const float value =
+                    std::clamp(HalfToFloat(half), 0.0f, 1.0f);
+                ppm.push_back(uint8_t(std::lround(value * 255.0f)));
+              }
+            } else {
+              ppm.insert(ppm.end(), pixel, pixel + 3);
+            }
+          }
+        }
+
+        std::filesystem::path staging = output_root;
+        staging += L".partial";
+        std::error_code error;
+        if (std::filesystem::exists(output_root, error) || error ||
+            std::filesystem::exists(staging, error) || error ||
+            !std::filesystem::create_directories(staging, error) || error) {
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.isolated_draw.readback",
+              {{"signature", fmt::format("{:016X}", signature)},
+               {"status", "output_directory_unavailable"},
+               {"output_authority", "xenos"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        const std::string metadata = fmt::format(
+            "{{\n  \"schema\": \"pinyon-shift.isolated-draw-readback.v1\",\n"
+            "  \"signature\": \"{:016X}\",\n  \"frame\": {},\n"
+            "  \"draw\": {},\n  \"source\": {{\"width\":{},"
+            "\"height\":{},\"row_pitch\":{},\"dxgi_format\":{},"
+            "\"bytes\":{},\"hash\":\"{:016X}\"}},\n"
+            "  \"crop\": {{\"left\":{},\"top\":{},\"right\":{},"
+            "\"bottom\":{},\"width\":{},\"height\":{}}},\n"
+            "  \"image\": {{\"file\":\"isolated.ppm\","
+            "\"encoding\":\"ppm-p6-linear-clamp\"}},\n"
+            "  \"safety\": {{\"output_authority\":\"xenos\","
+            "\"suppression_allowed\":false}}\n}}\n",
+            signature, frame, draw, width, height, row_pitch, format,
+            bytes.size(), HashBytes(bytes.data(), bytes.size()), left, top,
+            right, bottom, crop_width, crop_height);
+        const auto metadata_bytes = std::span(
+            reinterpret_cast<const uint8_t *>(metadata.data()),
+            metadata.size());
+        if (!WriteSnapshotFile(staging / L"isolated.bin", bytes) ||
+            !WriteSnapshotFile(staging / L"isolated.ppm", ppm) ||
+            !WriteSnapshotFile(staging / L"readback.json", metadata_bytes)) {
+          std::filesystem::remove_all(staging, error);
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.isolated_draw.readback",
+              {{"signature", fmt::format("{:016X}", signature)},
+               {"status", "artifact_write_failed"},
+               {"output_authority", "xenos"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        std::filesystem::rename(staging, output_root, error);
+        pinyon_shift::diagnostics::RecordEvent(
+            "native_renderer.isolated_draw.readback",
+            {{"signature", fmt::format("{:016X}", signature)},
+             {"status", error ? "artifact_commit_failed" : "captured"},
+             {"frame", std::to_string(frame)},
+             {"draw", std::to_string(draw)},
+             {"source_width", std::to_string(width)},
+             {"source_height", std::to_string(height)},
+             {"crop_width", std::to_string(crop_width)},
+             {"crop_height", std::to_string(crop_height)},
+             {"readback_bytes", std::to_string(bytes.size())},
+             {"output_authority", "xenos"},
+             {"suppression_eligible", "false"}});
+      });
+}
+
 void CompleteIsolatedDraw(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   const char *status = "unsupported_state";
@@ -1760,10 +1991,10 @@ void CompleteIsolatedDraw(
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.isolated_draw.result",
       {{"signature",
-        fmt::format("{:016X}", g_isolated_draw.prepared_signature)},
+        fmt::format("{:016X}", g_isolated_draw.captured_signature)},
        {"status", status},
-       {"frame", std::to_string(g_isolated_draw.frame)},
-       {"draw", std::to_string(g_isolated_draw.draw)},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"draw", std::to_string(g_isolated_draw.captured_draw)},
        {"target_width", std::to_string(result.target_width)},
        {"target_height", std::to_string(result.target_height)},
        {"native_draw", result.status ==
@@ -1799,8 +2030,15 @@ void RequestIsolatedDraw(
          {"suppression_eligible", "false"}});
     return;
   }
+  g_isolated_draw.captured_signature = g_isolated_draw.prepared_signature;
+  g_isolated_draw.captured_frame = g_isolated_draw.frame;
+  g_isolated_draw.captured_draw = g_isolated_draw.draw;
   request.requested = true;
+  request.readback_requested = g_isolated_draw.readback_requested;
   request.completion = &CompleteIsolatedDraw;
+  request.readback_completion = g_isolated_draw.readback_requested
+                                    ? &CompleteIsolatedDrawReadback
+                                    : nullptr;
 }
 
 void EmitDrawCensusWindow(uint64_t last_frame_value) {
@@ -2233,13 +2471,18 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       "native_renderer.isolated_draw.config",
       {{"status", !g_isolated_draw.requested
                       ? "disabled"
-                      : (g_isolated_draw.valid ? "armed"
+                      : (g_isolated_draw.valid
+                             ? (g_isolated_draw.readback_requested
+                                    ? "armed_with_readback"
+                                    : "armed")
                                                : "invalid_configuration")},
        {"signature",
         g_isolated_draw.valid && g_isolated_draw.requested
             ? fmt::format("{:016X}", g_isolated_draw.target_signature)
             : ""},
        {"native_draw", "isolated_only"},
+       {"readback", g_isolated_draw.readback_requested ? "asynchronous"
+                                                        : "disabled"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});
@@ -2254,6 +2497,9 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (!g_graphics_census_installed) {
     return;
+  }
+  if (g_isolated_draw.artifact_writer.joinable()) {
+    g_isolated_draw.artifact_writer.join();
   }
   g_graphics_census_installed = false;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
