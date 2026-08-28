@@ -8,7 +8,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 class NativeRendererResourceIdentityContractTests(unittest.TestCase):
     def test_preview_compiles_resource_identity(self):
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-        self.assertEqual(cmake.count("src/native_renderer/resource_identity.cpp"), 4)
+        self.assertEqual(cmake.count("src/native_renderer/resource_identity.cpp"), 5)
         self.assertIn("pinyon_shift_resource_identity_tests EXCLUDE_FROM_ALL", cmake)
 
     def test_physical_identity_is_canonical_and_generation_aware(self):
