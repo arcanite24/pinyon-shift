@@ -259,6 +259,12 @@ try {
         claimed_frames = [uint64]0
         failure_reason = $null
     }
+    $nativeShaderPack = [ordered]@{
+        status = 'not_configured'
+        backend = 'd3d12'
+        entries = [uint64]0
+        failure_reason = $null
+    }
     if ($null -ne $eventLog) {
         foreach ($line in Get-Content -LiteralPath $eventLog.FullName -ErrorAction SilentlyContinue) {
             try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
@@ -272,6 +278,15 @@ try {
                 'native_renderer.output.failure' {
                     $nativeRenderer.effective = 'xenos'
                     $nativeRenderer.failure_reason = [string]$event.reason
+                }
+                'native_renderer.shader_pack.ready' {
+                    $nativeShaderPack.status = 'ready'
+                    $nativeShaderPack.backend = [string]$event.backend
+                    $nativeShaderPack.entries = [uint64]$event.entries
+                }
+                'native_renderer.shader_pack.failure' {
+                    $nativeShaderPack.status = 'failed'
+                    $nativeShaderPack.failure_reason = [string]$event.reason
                 }
             }
         }
@@ -343,6 +358,7 @@ try {
         }
         graphics = [ordered]@{
             native_renderer = $nativeRenderer
+            native_shader_pack = $nativeShaderPack
             zpd = $zpdCounters
             resolve_readback = $resolveCounters
             presentation = $presentationCounters
@@ -393,7 +409,9 @@ try {
         [Text.UTF8Encoding]::new($false))
 
     foreach ($file in Get-ChildItem -LiteralPath $stagingRoot -Recurse -File) {
-        if ($file.Extension.ToLowerInvariant() -in @('.dmp', '.exe', '.dll', '.iso', '.xex', '.obj', '.lib', '.pdb')) {
+        if ($file.Extension.ToLowerInvariant() -in @(
+                '.dmp', '.exe', '.dll', '.iso', '.xex', '.obj', '.lib', '.pdb',
+                '.dxil', '.pnsp')) {
             throw "Forbidden diagnostic attachment: $($file.Name)"
         }
         $content = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue

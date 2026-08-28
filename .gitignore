@@ -5,6 +5,8 @@
 *.live
 *.pirs
 *.stfs
+*.dxil
+*.pnsp
 TU_*
 assets/
 game/

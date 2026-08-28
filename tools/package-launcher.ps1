@@ -64,6 +64,7 @@ $include = @(
     'config/rexglue', 'patches/rexglue', 'src',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
+    'tools/native-shader-pack.py',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
     'tools/set-graphics-experiment.ps1', 'tools/setup-preview.ps1',
     'tools/verify-codegen-log.ps1', 'tools/verify-game.ps1'
@@ -105,7 +106,7 @@ $sourceProvenancePath = Join-Path $payloadRoot 'config/source-provenance.json'
     [Text.UTF8Encoding]::new($false))
 
 Get-ChildItem -LiteralPath $payloadRoot -Recurse -File | Where-Object {
-    $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex')
+    $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex', '.dxil', '.pnsp')
 } | ForEach-Object { throw "Forbidden file entered launcher payload: $($_.FullName)" }
 
 New-DeterministicZip -SourceDirectory $payloadRoot -DestinationPath $payloadZip
