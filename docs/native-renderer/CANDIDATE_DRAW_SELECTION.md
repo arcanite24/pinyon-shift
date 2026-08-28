@@ -72,8 +72,8 @@ input capture. It accepts both indexed and non-indexed authentic draws because
 the NR-02 candidate criteria do not require an index buffer. It rejects missing
 or ambiguous prepared pairs, shader-pack misses, blending, query or memexport
 state, observed resolved-target inputs, more than one vertex binding, more than
-one texture, and either bounded-observer overflow. Results are ordered
-deterministically by recurrence and draw count.
+four or fewer than one texture resource, and either bounded-observer overflow.
+Results are ordered deterministically by recurrence and draw count.
 
 The resulting selection can be converted into a metadata-only geometry
 contract as described in [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md). An
@@ -174,3 +174,34 @@ zero-or-one-texture gate; all four are textureless. Two additional opaque,
 one-binding candidates have three non-resolved texture inputs and remain
 rejected by the current bounded-complexity gate pending an explicit scope
 decision.
+
+## Bounded texture-set qualification
+
+The NR-02 static-source requirement makes a textureless draw unsuitable for the
+first isolated replay even when its shader and geometry metadata are otherwise
+simple. The selector now requires one through four texture resources. This
+keeps the first replay bounded while admitting common material sets without
+weakening the resolve-range exclusion or any Xenos-authority gate.
+
+Two AppData-backed `gameplay_candidate` captures navigated through the title
+screen into the same open-world save and exited normally:
+
+| Session | Frames | Draws | Candidate records | Median FPS | 1% low FPS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `20260828T062404Z-p40136` | 9,191 | 18,294,006 | 117 | 30.333 | 19.602 |
+| `20260828T062956Z-p33312` | 6,573 | 14,902,074 | 115 | 30.570 | 19.443 |
+
+Exact cross-capture selection produced five bounded candidates. Three use the
+same opaque quad-list shader pair, one 40-byte binding, and one non-resolved
+512 by 512 tiled `DXT4_5` texture. They are better static-source leads than the
+front-end candidates, but the geometry planner correctly rejects their current
+snapshots: a four-vertex quad needs 160 bytes while the observed fetch exposes
+one 40-byte record. Quad expansion or instancing semantics must be understood
+before any guest payload read.
+
+The remaining two candidates are the previously observed three-texture,
+full-screen YUV-style compositor family. Their non-resolved addresses satisfy
+the mechanical gate, but their render-sized planes and conversion constants
+make them inappropriate for the first authentic world draw. No candidate from
+this qualification advances to PSO construction. Xenos remained authoritative
+throughout both runs, and suppression remains disabled.
