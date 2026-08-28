@@ -139,6 +139,7 @@ def summarize(
     index_scans: list[dict[str, Any]] = []
     texture_scans: list[dict[str, Any]] = []
     texture_fingerprints: list[dict[str, Any]] = []
+    pass_followers: list[dict[str, Any]] = []
     dependencies: dict[str, dict[str, Any]] = {}
     resolve_targets: dict[str, dict[str, Any]] = {}
     totals = {
@@ -222,6 +223,8 @@ def summarize(
             texture_scans.append(dict(event))
         elif kind == f"{PREFIX}texture_fingerprint":
             texture_fingerprints.append(dict(event))
+        elif kind == f"{PREFIX}pass_follower":
+            pass_followers.append(dict(event))
         elif kind == f"{PREFIX}resolve_window":
             for key in (
                 "resolves",
@@ -293,6 +296,7 @@ def summarize(
         "index_scans": [clean(record) for record in index_scans],
         "texture_scans": [clean(record) for record in texture_scans],
         "texture_fingerprints": [clean(record) for record in texture_fingerprints],
+        "pass_followers": [clean(record) for record in pass_followers],
         "resolve_dependencies": [
             clean(record) for _, record in sorted(dependencies.items())
         ],
