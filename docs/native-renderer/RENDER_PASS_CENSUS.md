@@ -90,7 +90,9 @@ read or serialize guest memory.
   livery, thumbnail, and rewind dispatch families.
 
 Resolve-to-texture dependency tracking is documented in
-`GUEST_VISIBLE_RENDER_DEPENDENCIES.md`. Pass classification, CPU-read
-observation, and presentation provenance remain subsequent NR-00 work.
+`GUEST_VISIBLE_RENDER_DEPENDENCIES.md`. The evidence-based classifier and scene
+capture contract are documented in `PASS_CLASSIFICATION.md`. Scene coverage,
+CPU-read observation, and presentation provenance remain subsequent NR-00
+work.
 
 Unknown work stays on Xenos.

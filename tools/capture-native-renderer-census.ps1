@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$StateRoot,
+    [ValidateSet('unmarked', 'front_end', 'garage', 'open_world_day',
+        'open_world_night', 'traffic', 'race', 'rewind', 'pause',
+        'save_reload')]
+    [string]$Scene = 'unmarked',
     [switch]$Json
 )
 
@@ -37,11 +41,14 @@ if (@(Get-Process -Name 'pinyon_shift' -ErrorAction SilentlyContinue).Count -ne 
 }
 
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
+$savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -Json:$Json
 }
 finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $savedCensus
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
 }
