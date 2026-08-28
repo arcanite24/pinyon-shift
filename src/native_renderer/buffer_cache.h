@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "native_renderer/resource_cache_budget.h"
 #include "native_renderer/resource_identity.h"
 
 namespace pinyon_shift::native_renderer {
@@ -42,6 +43,9 @@ struct BufferCacheMetrics {
   uint64_t live_bytes = 0;
   uint64_t retired_count = 0;
   uint64_t retired_bytes = 0;
+  uint64_t budget_evictions = 0;
+  uint64_t budget_refusals = 0;
+  uint64_t maintenance_passes = 0;
 };
 
 // Owns buffer-cache identity and lifetime metadata. The backend creates and
@@ -49,7 +53,8 @@ struct BufferCacheMetrics {
 // handle is not returned for destruction until its final submission completes.
 class NativeBufferCache {
  public:
-  explicit NativeBufferCache(PhysicalResourceTracker& tracker);
+  explicit NativeBufferCache(PhysicalResourceTracker& tracker,
+                             NativeResourceCacheBudget budget = {});
 
   // A zero handle or allocation size is rejected. On a key hit the supplied
   // handle remains caller-owned and the existing allocation is returned.
@@ -68,6 +73,12 @@ class NativeBufferCache {
                            uint64_t current_submission);
   size_t RetireAll(uint64_t current_submission);
 
+  // Retires at most one configured batch of idle resources. Normal
+  // maintenance uses the long idle guard; an explicit pressure signal uses
+  // the shorter guard without weakening fence-safe destruction.
+  size_t Trim(uint64_t frame, uint64_t current_submission,
+              bool under_pressure = false);
+
   [[nodiscard]] std::vector<RetiredBuffer> Collect(uint64_t completed_submission);
   [[nodiscard]] BufferCacheMetrics metrics() const;
 
@@ -75,8 +86,13 @@ class NativeBufferCache {
   using LiveMap = std::unordered_map<BufferResourceKey, BufferCacheEntry, BufferResourceKeyHash>;
 
   void RetireLocked(LiveMap::iterator entry, uint64_t current_submission);
+  size_t EvictLocked(uint64_t frame, uint64_t current_submission,
+                     uint64_t idle_frames, size_t maximum_count,
+                     bool only_until_capacity, uint64_t incoming_bytes);
+  [[nodiscard]] bool HasCapacityLocked(uint64_t incoming_bytes) const;
 
   PhysicalResourceTracker& tracker_;
+  NativeResourceCacheBudget budget_;
   mutable std::mutex mutex_;
   LiveMap live_;
   std::unordered_map<uint64_t, BufferResourceKey> keys_by_id_;

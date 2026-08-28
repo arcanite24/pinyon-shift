@@ -41,6 +41,9 @@ constexpr size_t kResolveRecordLimit = 4096;
 constexpr size_t kProducerResourceLimit = 64;
 constexpr uint64_t kProducerByteLimit = 128 * 1024 * 1024;
 constexpr uint64_t kProducerStaleSubmissions = 600;
+constexpr uint64_t kTextureCacheByteLimit = 128 * 1024 * 1024;
+constexpr size_t kTextureCacheResourceLimit = 2048;
+constexpr size_t kTextureCacheStateLimit = 4096;
 
 uint64_t HashFetchWords(const uint32_t words[6]) {
   uint64_t hash = UINT64_C(14695981039346656037);
@@ -175,6 +178,9 @@ class TextureResourceBridge {
     if (resource_count_ && (!last_summary_submission_ ||
                             observation.current_submission >= last_summary_submission_ + 300)) {
       last_summary_submission_ = observation.current_submission;
+      cache_.Trim(observation.current_submission,
+                  observation.current_submission, false);
+      ReleaseCollected(cache_.Collect(observation.completed_submission));
       const auto metrics = cache_.metrics();
       const auto target_metrics = render_target_bridge_.metrics();
       const auto worker_metrics = prewarm_worker_.metrics();
@@ -185,8 +191,16 @@ class TextureResourceBridge {
            {"live", std::to_string(metrics.live_count)},
            {"live_bytes", std::to_string(metrics.live_bytes)},
            {"retired", std::to_string(metrics.retired_count)},
+           {"retired_bytes", std::to_string(metrics.retired_bytes)},
            {"hits", std::to_string(metrics.hits)},
            {"misses", std::to_string(metrics.misses)},
+           {"cache_budget_evictions",
+            std::to_string(metrics.budget_evictions)},
+           {"cache_budget_refusals",
+            std::to_string(metrics.budget_refusals)},
+           {"cache_state", std::to_string(metrics.state_count)},
+           {"cache_state_evictions",
+            std::to_string(metrics.state_evictions)},
            {"resolve_observations", std::to_string(resolve_observation_count_)},
            {"producer_publications",
             std::to_string(target_metrics.resolve_publications)},
@@ -239,6 +253,13 @@ class TextureResourceBridge {
          {"prewarm_pending", std::to_string(worker_metrics.pending_count)},
          {"prewarm_prepared", std::to_string(worker_metrics.prepared_count)},
          {"live", std::to_string(metrics.live_count)},
+         {"live_bytes", std::to_string(metrics.live_bytes)},
+         {"retired", std::to_string(metrics.retired_count)},
+         {"retired_bytes", std::to_string(metrics.retired_bytes)},
+         {"cache_budget_evictions",
+          std::to_string(metrics.budget_evictions)},
+         {"cache_budget_refusals",
+          std::to_string(metrics.budget_refusals)},
          {"retained_refs", std::to_string(RetainedReferenceCount())},
          {"xenos_draw", "preserved"}});
   }
@@ -319,18 +340,28 @@ class TextureResourceBridge {
     const uint64_t handle = reinterpret_cast<uint64_t>(resource.resource);
     const pinyon_shift::native_renderer::TextureResourceKey key{
         *base, mips, HashFetchWords(resource.fetch_dwords), {0, handle}};
-    auto request = cache_.Request(key, observation_count_, observation.current_submission);
+    auto request = cache_.Request(key, observation.current_submission,
+                                  observation.current_submission);
     if (request.state != pinyon_shift::native_renderer::TextureRequestState::kDecodeRequired) {
       return;
     }
 
     resource.retain(resource.resource);
+    const uint64_t refusals_before = cache_.metrics().budget_refusals;
     const bool completed = cache_.Complete(
         request.decode_ticket, pinyon_shift::native_renderer::TextureDecodeResult::kReady, handle,
-        resource.host_allocation_bytes, observation_count_, observation.current_submission);
-    const auto confirmed = cache_.Request(key, observation_count_, observation.current_submission);
-    if (!completed ||
-        confirmed.state != pinyon_shift::native_renderer::TextureRequestState::kReady ||
+        resource.host_allocation_bytes, observation.current_submission,
+        observation.current_submission);
+    if (!completed) {
+      resource.release(resource.resource);
+      if (cache_.metrics().budget_refusals == refusals_before) {
+        RecordFailureOnce("cache_commit_failed");
+      }
+      return;
+    }
+    const auto confirmed = cache_.Request(key, observation.current_submission,
+                                          observation.current_submission);
+    if (confirmed.state != pinyon_shift::native_renderer::TextureRequestState::kReady ||
         confirmed.sampled_handle != handle) {
       resource.release(resource.resource);
       RecordFailureOnce("cache_commit_failed");
@@ -581,7 +612,14 @@ class TextureResourceBridge {
 
   std::mutex mutex_;
   pinyon_shift::native_renderer::PhysicalResourceTracker tracker_;
-  pinyon_shift::native_renderer::NativeTextureCache cache_{tracker_};
+  pinyon_shift::native_renderer::NativeTextureCache cache_{
+      tracker_, {},
+      {.maximum_live_bytes = kTextureCacheByteLimit,
+       .maximum_live_count = kTextureCacheResourceLimit,
+       .maximum_state_count = kTextureCacheStateLimit,
+       .maximum_evictions_per_maintenance = 16,
+       .normal_idle_frames = 1200,
+       .pressure_idle_frames = 120}};
   pinyon_shift::native_renderer::NativeResourceWorker prewarm_worker_;
   pinyon_shift::native_renderer::NativeRenderTargetBridge
       render_target_bridge_;
