@@ -50,3 +50,30 @@ The first measured upload contract is taken directly from retained-pass anchor
 resources with 256-pixel pitch and 8-in-16 endianness. The native semantic test
 decodes the captured six-word fetch constant and fixes those values as the
 input contract for the upcoming D3D12 upload bridge.
+
+## GPU-ready texture handoff
+
+Patch `0064-d3d12-native-texture-resource-observer.patch` adds a read-only
+observer immediately after ReXGlue finishes `RequestTextures`. The D3D12
+backend exports the exact guest fetch words, canonical base and mip ranges,
+host resource and view formats, component swizzle, allocation size, and the
+current and completed submission indices. The observer receives borrowed
+resources. Keeping one beyond the callback requires the backend-provided
+retain function, and releasing it is deferred through the native texture
+cache's completed-submission gate.
+
+Pinyon's bridge is controlled by the restart-required
+`pinyon_shift_native_renderer_texture_bridge` setting and defaults to `false`.
+When enabled, it imports the already-untilled GPU resource into
+`NativeTextureCache`, records bounded ownership and cache diagnostics, and
+leaves the authoritative Xenos draw untouched. This is a producer-resource
+handoff, not an independent upload and not a suppression point. The next
+milestone may build a native descriptor from the exported host view metadata
+and bind it to the retained isolated pass without changing that fallback
+policy.
+
+The bridge records only the first 16 observed layouts for discovery, then
+returns through a lock-free rejection path unless a texture matches the
+measured 256 by 64 tiled DXN contract. Cache summaries are submission-paced,
+not draw-paced. This keeps the default-off probe bounded even in scenes with
+thousands of draws per frame.

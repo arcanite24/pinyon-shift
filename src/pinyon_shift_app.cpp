@@ -21,6 +21,7 @@
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
 #include "native_renderer/shader_capture.h"
+#include "native_renderer/texture_resource_bridge.h"
 #include "pinyon_shift_diagnostics.h"
 
 #include <cstdio>
@@ -307,6 +308,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"native_renderer_census",
                          rex::cvar::GetFlagByName(
                              "pinyon_shift_native_renderer_census")},
+                        {"native_renderer_texture_bridge",
+                         rex::cvar::GetFlagByName(
+                             "pinyon_shift_native_renderer_texture_bridge")},
                         {"native_renderer",
                          rex::cvar::GetFlagByName(
                              "pinyon_shift_native_renderer")},
@@ -347,6 +351,8 @@ void PinyonShiftApp::OnPostSetup() {
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
+  pinyon_shift::native_renderer::InstallTextureResourceBridge(
+      runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallShaderCapture(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::diagnostics::RecordEvent(
@@ -382,6 +388,8 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::UninstallGraphicsCensus(
       runtime() ? runtime()->graphics_system() : nullptr);
+  pinyon_shift::native_renderer::UninstallTextureResourceBridge(
+      runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
   return true;
 }
@@ -392,6 +400,8 @@ void PinyonShiftApp::OnShutdown() {
   pinyon_shift::native_renderer::UninstallGuestOutputRenderer(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::UninstallGraphicsCensus(
+      runtime() ? runtime()->graphics_system() : nullptr);
+  pinyon_shift::native_renderer::UninstallTextureResourceBridge(
       runtime() ? runtime()->graphics_system() : nullptr);
   RecordShutdownOnce();
 }
