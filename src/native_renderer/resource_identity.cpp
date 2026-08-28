@@ -44,6 +44,17 @@ bool PhysicalRange::valid() const {
   return length && end_exclusive() <= kGuestPhysicalApertureSize;
 }
 
+size_t BufferResourceKeyHash::operator()(const BufferResourceKey& key) const {
+  uint64_t hash = kFnvOffsetBasis;
+  HashValue(key.range.address, hash);
+  HashValue(key.range.length, hash);
+  HashValue(static_cast<uint8_t>(key.resource_class), hash);
+  HashValue(key.descriptor_signature, hash);
+  HashValue(key.content.generation, hash);
+  HashValue(key.content.fingerprint, hash);
+  return static_cast<size_t>(hash);
+}
+
 PhysicalResourceTracker::PhysicalResourceTracker()
     : page_generations_(kGuestPhysicalApertureSize /
                         kGuestPhysicalPageSize) {}

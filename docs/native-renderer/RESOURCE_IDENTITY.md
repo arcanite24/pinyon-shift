@@ -26,3 +26,12 @@ successful upload.
 The standalone native test covers physical-heap aliases, exact half-open range
 boundaries, aperture bounds, page generations, multi-range textures, resource
 class separation, deduplicated overlap reporting, and unregistration.
+
+## Buffer cache lifetime
+
+`NativeBufferCache` attaches opaque backend allocations to exact buffer keys.
+Hits advance the last-use frame and submission. A physical invalidation removes
+the entry from lookup immediately, but moves its allocation to a retired queue
+stamped with the later of its last use and the current submission. Only
+`Collect(completed_submission)` returns handles that the backend may destroy.
+This makes early invalidation and shutdown use the same fence-safe path.

@@ -23,6 +23,7 @@ if(WIN32)
         src/pinyon_shift_diagnostics.cpp
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
+        src/native_renderer/buffer_cache.cpp
         src/native_renderer/guest_output_renderer.cpp
         src/native_renderer/resource_identity.cpp
         src/native_renderer/shader_capture.cpp
@@ -35,6 +36,7 @@ else()
         src/pinyon_shift_diagnostics.cpp
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
+        src/native_renderer/buffer_cache.cpp
         src/native_renderer/guest_output_renderer.cpp
         src/native_renderer/resource_identity.cpp
         src/native_renderer/shader_capture.cpp
@@ -47,6 +49,13 @@ add_executable(pinyon_shift_resource_identity_tests EXCLUDE_FROM_ALL
     src/native_renderer/resource_identity.cpp
 )
 target_include_directories(pinyon_shift_resource_identity_tests PRIVATE src)
+
+add_executable(pinyon_shift_buffer_cache_tests EXCLUDE_FROM_ALL
+    tests/native_renderer/buffer_cache_test.cpp
+    src/native_renderer/buffer_cache.cpp
+    src/native_renderer/resource_identity.cpp
+)
+target_include_directories(pinyon_shift_buffer_cache_tests PRIVATE src)
 
 pinyon_shift_attach_rexglue(pinyon_shift)
 
