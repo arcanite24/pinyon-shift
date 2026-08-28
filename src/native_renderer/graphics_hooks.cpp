@@ -7,9 +7,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <span>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include <fmt/format.h>
 #include <rex/cvar.h>
@@ -83,6 +88,16 @@ struct TextureScanState {
 
 TextureScanState g_texture_scan;
 
+struct ReplaySnapshotState {
+  uint64_t target_signature = 0;
+  std::filesystem::path output_root;
+  bool requested = false;
+  bool completed = false;
+  bool valid = true;
+};
+
+ReplaySnapshotState g_replay_snapshot;
+
 void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
                             bool &requested, bool &valid) {
   char *value = nullptr;
@@ -119,6 +134,41 @@ void ConfigureTextureScan() {
       "PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE",
       g_texture_scan.target_signature, g_texture_scan.requested,
       g_texture_scan.valid);
+}
+
+bool IsLocalArtifactRoot(const std::filesystem::path &path) {
+  return path.is_absolute() &&
+         std::any_of(path.begin(), path.end(), [](const auto &component) {
+           return component.native() == L".local";
+         });
+}
+
+void ConfigureReplaySnapshot() {
+  g_replay_snapshot = {};
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE",
+      g_replay_snapshot.target_signature, g_replay_snapshot.requested,
+      g_replay_snapshot.valid);
+  const bool signature_requested = g_replay_snapshot.requested;
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    if (g_replay_snapshot.requested) {
+      g_replay_snapshot.valid = false;
+    }
+    return;
+  }
+  g_replay_snapshot.requested = true;
+  g_replay_snapshot.output_root =
+      std::filesystem::absolute(std::filesystem::path(value)).lexically_normal();
+  std::free(value);
+  if (!signature_requested ||
+      !IsLocalArtifactRoot(g_replay_snapshot.output_root)) {
+    g_replay_snapshot.valid = false;
+  }
 }
 
 struct DrawSignatureEntry {
@@ -556,6 +606,374 @@ void TryScanCandidateIndices(
        {"vertex_binding_size",
         std::to_string(observation.vertex_bindings[0].size)},
        {"guest_payload_read", "bounded_index_only"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
+}
+
+bool WriteSnapshotFile(const std::filesystem::path &path,
+                       std::span<const uint8_t> bytes) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  return output.write(reinterpret_cast<const char *>(bytes.data()),
+                      static_cast<std::streamsize>(bytes.size())) &&
+         output.flush();
+}
+
+void AppendFloatConstants(
+    std::string &document, const char *name,
+    const rex::system::GraphicsFloatConstantObservation *constants,
+    uint32_t count) {
+  document += fmt::format("    \"{}\": [", name);
+  const uint32_t bounded_count = std::min(
+      count, rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    if (i) {
+      document += ",";
+    }
+    document += fmt::format(
+        "\n      {{\"index\":{},\"words\":[\"{:08X}\",\"{:08X}\","
+        "\"{:08X}\",\"{:08X}\"]}}",
+        constants[i].index, constants[i].values[0], constants[i].values[1],
+        constants[i].values[2], constants[i].values[3]);
+  }
+  document += bounded_count ? "\n    ]" : "]";
+}
+
+struct SnapshotTexturePayload {
+  uint32_t fetch_constant = 0;
+  uint32_t base_address = 0;
+  uint32_t mip_address = 0;
+  std::vector<uint8_t> base;
+  std::vector<uint8_t> mip;
+};
+
+void TryCaptureReplaySnapshot(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint64_t signature) {
+  if (!g_replay_snapshot.requested || !g_replay_snapshot.valid ||
+      g_replay_snapshot.completed ||
+      signature != g_replay_snapshot.target_signature) {
+    return;
+  }
+  g_replay_snapshot.completed = true;
+
+  const auto reject = [&](const char *reason) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.snapshot.capture",
+        {{"signature", fmt::format("{:016X}", signature)},
+         {"status", "rejected"},
+         {"reason", reason},
+         {"frame", std::to_string(observation.frame_sequence)},
+         {"draw", std::to_string(observation.draw_sequence)},
+         {"guest_payload_read", "false"},
+         {"payload_persisted", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  };
+
+  if (samples_resolved_target) {
+    reject("observed_resolve_dependency");
+    return;
+  }
+  if (!observation.indexed ||
+      observation.source_select !=
+          uint32_t(rex::graphics::xenos::SourceSelect::kDMA) ||
+      observation.index_format > 1 || observation.index_endianness > 3 ||
+      !observation.index_count ||
+      observation.index_count > kMaximumIndexScanCount) {
+    reject("unsupported_index_state");
+    return;
+  }
+  if (observation.vertex_binding_count != 1 ||
+      observation.vertex_binding_overflow ||
+      observation.vertex_attribute_overflow ||
+      observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow ||
+      observation.texture_state_overflow || observation.vertex_memexport ||
+      observation.viz_query_condition || (observation.pa_sc_viz_query & 1)) {
+    reject("unsupported_draw_state");
+    return;
+  }
+  if ((prepared.flags & 3) != 3 ||
+      !(prepared.bound_render_target_bits & 2)) {
+    reject("inactive_prepared_pipeline");
+    return;
+  }
+
+  const uint32_t index_element_bytes = observation.index_format ? 4 : 2;
+  const uint64_t index_bytes =
+      uint64_t(observation.index_count) * index_element_bytes;
+  const auto &binding = observation.vertex_bindings[0];
+  const uint64_t vertex_bytes = binding.size;
+  constexpr uint64_t kMaximumVertexSnapshotBytes = UINT64_C(64) << 20;
+  const uint64_t index_address =
+      uint64_t(observation.index_buffer_address & 0x1FFFFFFF);
+  const uint64_t vertex_address = uint64_t(binding.address & 0x1FFFFFFF);
+  if (!vertex_bytes || index_bytes > kMaximumIndexScanBytes ||
+      index_bytes > observation.index_buffer_length ||
+      vertex_bytes > kMaximumVertexSnapshotBytes ||
+      index_address + index_bytes > kPhysicalApertureSize ||
+      vertex_address + vertex_bytes > kPhysicalApertureSize) {
+    reject("geometry_range_out_of_bounds");
+    return;
+  }
+
+  const uint32_t texture_count = std::popcount(observation.texture_fetch_mask);
+  if (!texture_count || texture_count > kMaximumTextureScanResources ||
+      (observation.texture_fetch_layout_valid_mask &
+       observation.texture_fetch_mask) != observation.texture_fetch_mask) {
+    reject("texture_layout_unavailable");
+    return;
+  }
+  uint64_t texture_bytes = 0;
+  for (uint32_t fetch = 0; fetch < 32; ++fetch) {
+    if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch))) {
+      continue;
+    }
+    const uint64_t base_bytes =
+        observation.texture_fetch_base_lengths[fetch];
+    const uint64_t mip_bytes = observation.texture_fetch_mip_lengths[fetch];
+    const uint64_t base_address =
+        observation.texture_fetch_addresses[fetch] & 0x1FFFFFFF;
+    const uint64_t mip_address =
+        observation.texture_fetch_mip_addresses[fetch] & 0x1FFFFFFF;
+    if (!base_bytes || base_bytes > kMaximumTextureScanResourceBytes ||
+        mip_bytes > kMaximumTextureScanResourceBytes ||
+        base_address + base_bytes > kPhysicalApertureSize ||
+        (mip_bytes && mip_address + mip_bytes > kPhysicalApertureSize) ||
+        base_bytes + mip_bytes >
+            kMaximumTextureScanTotalBytes - texture_bytes) {
+      reject("texture_range_out_of_bounds");
+      return;
+    }
+    texture_bytes += base_bytes + mip_bytes;
+  }
+
+  auto *kernel_state = rex::system::kernel_state();
+  if (!kernel_state || !kernel_state->memory()) {
+    reject("guest_memory_unavailable");
+    return;
+  }
+  auto *memory = kernel_state->memory();
+  const auto copy_physical = [&](uint32_t address, uint64_t size) {
+    std::vector<uint8_t> result(size);
+    const uint8_t *source =
+        memory->TranslatePhysical<const uint8_t *>(address);
+    std::memcpy(result.data(), source, size);
+    return result;
+  };
+
+  std::vector<uint8_t> index_payload =
+      copy_physical(observation.index_buffer_address, index_bytes);
+  std::vector<uint8_t> vertex_payload =
+      copy_physical(binding.address, vertex_bytes);
+  std::vector<SnapshotTexturePayload> textures;
+  textures.reserve(texture_count);
+  for (uint32_t fetch = 0; fetch < 32; ++fetch) {
+    if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch))) {
+      continue;
+    }
+    SnapshotTexturePayload texture;
+    texture.fetch_constant = fetch;
+    texture.base_address = observation.texture_fetch_addresses[fetch];
+    texture.mip_address = observation.texture_fetch_mip_addresses[fetch];
+    texture.base = copy_physical(
+        texture.base_address, observation.texture_fetch_base_lengths[fetch]);
+    if (observation.texture_fetch_mip_lengths[fetch]) {
+      texture.mip = copy_physical(
+          texture.mip_address, observation.texture_fetch_mip_lengths[fetch]);
+    }
+    textures.push_back(std::move(texture));
+  }
+
+  std::filesystem::path staging = g_replay_snapshot.output_root;
+  staging += L".partial";
+  std::error_code error;
+  if (std::filesystem::exists(g_replay_snapshot.output_root, error) || error ||
+      std::filesystem::exists(staging, error) || error ||
+      !std::filesystem::create_directories(staging, error) || error) {
+    reject("output_directory_unavailable");
+    return;
+  }
+
+  const auto write_payload = [&](const std::filesystem::path &name,
+                                 std::span<const uint8_t> payload) {
+    return WriteSnapshotFile(staging / name, payload);
+  };
+  if (!write_payload(L"index.bin", index_payload) ||
+      !write_payload(L"vertex.bin", vertex_payload)) {
+    reject("geometry_write_failed");
+    return;
+  }
+  for (const auto &texture : textures) {
+    const auto base_name =
+        std::filesystem::path(fmt::format("texture_{:02}_base.bin",
+                                         texture.fetch_constant));
+    if (!write_payload(base_name, texture.base)) {
+      reject("texture_write_failed");
+      return;
+    }
+    if (!texture.mip.empty()) {
+      const auto mip_name =
+          std::filesystem::path(fmt::format("texture_{:02}_mip.bin",
+                                           texture.fetch_constant));
+      if (!write_payload(mip_name, texture.mip)) {
+        reject("texture_write_failed");
+        return;
+      }
+    }
+  }
+
+  std::string document = fmt::format(
+      "{{\n  \"schema\": \"pinyon-shift.native-replay-snapshot.v1\",\n"
+      "  \"candidate_signature\": \"{:016X}\",\n"
+      "  \"frame\": {},\n  \"draw\": {},\n"
+      "  \"shaders\": {{\"vertex\":\"{:016X}\",\"pixel\":\"{:016X}\","
+      "\"vertex_specialization\":\"{:016X}\","
+      "\"pixel_specialization\":\"{:016X}\"}},\n"
+      "  \"prepared_pipeline_hash\": \"{:016X}\",\n"
+      "  \"prepared_pipeline\": {{\"guest_primitive\":{},"
+      "\"host_primitive\":{},\"host_vertex_shader_type\":{},"
+      "\"tessellation_mode\":{},\"index_buffer_type\":{},"
+      "\"host_index_format\":{},\"host_primitive_reset\":{},"
+      "\"depth_control\":\"{:08X}\",\"color_mask\":\"{:08X}\","
+      "\"target_bits\":\"{:08X}\","
+      "\"target_formats\":[{},{},{},{},{}],\"flags\":\"{:08X}\"}},\n"
+      "  \"geometry\": {{\n"
+      "    \"index\": {{\"file\":\"index.bin\",\"bytes\":{},"
+      "\"hash\":\"{:016X}\",\"address\":\"{:08X}\","
+      "\"format\":{},\"endianness\":{},\"count\":{}}},\n"
+      "    \"vertex\": {{\"file\":\"vertex.bin\",\"bytes\":{},"
+      "\"hash\":\"{:016X}\",\"address\":\"{:08X}\","
+      "\"fetch_constant\":{},\"stride_words\":{},"
+      "\"endianness\":{}}}\n  }},\n  \"textures\": [",
+      signature, observation.frame_sequence, observation.draw_sequence,
+      prepared.vertex_shader_hash, prepared.pixel_shader_hash,
+      prepared.vertex_specialization_mask, prepared.pixel_specialization_mask,
+      PreparedPipelineHash(prepared), prepared.guest_primitive_type,
+      prepared.host_primitive_type, prepared.host_vertex_shader_type,
+      prepared.tessellation_mode, prepared.index_buffer_type,
+      prepared.host_index_format, prepared.host_primitive_reset_enabled,
+      prepared.normalized_depth_control, prepared.normalized_color_mask,
+      prepared.bound_render_target_bits, prepared.bound_render_target_formats[0],
+      prepared.bound_render_target_formats[1],
+      prepared.bound_render_target_formats[2],
+      prepared.bound_render_target_formats[3],
+      prepared.bound_render_target_formats[4], prepared.flags,
+      index_payload.size(), HashBytes(index_payload.data(), index_payload.size()),
+      observation.index_buffer_address, observation.index_format,
+      observation.index_endianness, observation.index_count,
+      vertex_payload.size(),
+      HashBytes(vertex_payload.data(), vertex_payload.size()), binding.address,
+      binding.fetch_constant, binding.stride_words, binding.endianness);
+  for (size_t i = 0; i < textures.size(); ++i) {
+    const auto &texture = textures[i];
+    if (i) {
+      document += ",";
+    }
+    document += fmt::format(
+        "\n    {{\"fetch_constant\":{},\"base_file\":"
+        "\"texture_{:02}_base.bin\",\"base_bytes\":{},"
+        "\"base_hash\":\"{:016X}\",\"base_address\":\"{:08X}\","
+        "\"mip_file\":{},\"mip_bytes\":{},\"mip_hash\":{},"
+        "\"mip_address\":\"{:08X}\"}}",
+        texture.fetch_constant, texture.fetch_constant, texture.base.size(),
+        HashBytes(texture.base.data(), texture.base.size()),
+        texture.base_address,
+        texture.mip.empty()
+            ? "null"
+            : fmt::format("\"texture_{:02}_mip.bin\"",
+                          texture.fetch_constant),
+        texture.mip.size(),
+        texture.mip.empty()
+            ? "null"
+            : fmt::format("\"{:016X}\"",
+                          HashBytes(texture.mip.data(), texture.mip.size())),
+        texture.mip_address);
+  }
+  document += "\n  ],\n  \"constants\": {\n";
+  AppendFloatConstants(document, "vertex_float",
+                       observation.vertex_float_constants,
+                       observation.vertex_float_constant_count);
+  document += ",\n";
+  AppendFloatConstants(document, "pixel_float",
+                       observation.pixel_float_constants,
+                       observation.pixel_float_constant_count);
+  document += ",\n    \"bool_bitmap\": [";
+  for (uint32_t i = 0; i < 8; ++i) {
+    document += fmt::format("{}\"{:08X}\"", i ? "," : "",
+                            observation.bool_constant_bitmap[i]);
+  }
+  document += "],\n    \"bool_values\": [";
+  for (uint32_t i = 0; i < 8; ++i) {
+    document += fmt::format("{}\"{:08X}\"", i ? "," : "",
+                            observation.bool_constant_values[i]);
+  }
+  document += fmt::format(
+      "],\n    \"loop_bitmap\": \"{:08X}\",\n"
+      "    \"loop_values\": [",
+      observation.loop_constant_bitmap);
+  for (uint32_t i = 0; i < 32; ++i) {
+    document += fmt::format("{}\"{:08X}\"", i ? "," : "",
+                            observation.loop_constant_values[i]);
+  }
+  document += "],\n    \"texture_states\": [";
+  const uint32_t texture_state_count = std::min(
+      observation.texture_state_count,
+      rex::system::kGraphicsTextureFetchObservationLimit);
+  for (uint32_t i = 0; i < texture_state_count; ++i) {
+    const auto &state = observation.texture_states[i];
+    if (i) {
+      document += ",";
+    }
+    document += fmt::format(
+        "\n      {{\"stage\":{},\"fetch_constant\":{},"
+        "\"dwords\":[\"{:08X}\",\"{:08X}\",\"{:08X}\",\"{:08X}\","
+        "\"{:08X}\",\"{:08X}\"],\"opcode\":{},\"dimension\":{},"
+        "\"filters\":\"{:08X}\",\"flags\":\"{:08X}\","
+        "\"lod_bias\":\"{:08X}\",\"offsets\":\"{:08X}\","
+        "\"result_target\":{},\"result_index\":{},"
+        "\"result_mask\":{},\"result_components\":{}}}",
+        state.stage, state.fetch_constant, state.dwords[0], state.dwords[1],
+        state.dwords[2], state.dwords[3], state.dwords[4], state.dwords[5],
+        state.opcode, state.dimension, state.filters, state.flags,
+        state.lod_bias, state.offsets, state.result_storage_target,
+        state.result_storage_index, state.result_write_mask,
+        state.result_components);
+  }
+  document += texture_state_count ? "\n    ]\n" : "]\n";
+  document +=
+      "  },\n  \"safety\": {\"guest_payload_read\":"
+      "\"bounded_snapshot_only\",\"payload_scope\":\"local_only\","
+      "\"native_upload\":false,\"native_draw\":false,"
+      "\"suppression_allowed\":false,\"xenos_authority\":true}\n}\n";
+  const auto manifest_bytes = std::span(
+      reinterpret_cast<const uint8_t *>(document.data()), document.size());
+  if (!write_payload(L"snapshot.json", manifest_bytes)) {
+    reject("manifest_write_failed");
+    return;
+  }
+  std::filesystem::rename(staging, g_replay_snapshot.output_root, error);
+  if (error) {
+    reject("snapshot_commit_failed");
+    return;
+  }
+
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.snapshot.capture",
+      {{"signature", fmt::format("{:016X}", signature)},
+       {"status", "captured"},
+       {"frame", std::to_string(observation.frame_sequence)},
+       {"draw", std::to_string(observation.draw_sequence)},
+       {"index_bytes", std::to_string(index_payload.size())},
+       {"vertex_bytes", std::to_string(vertex_payload.size())},
+       {"texture_resources", std::to_string(textures.size())},
+       {"texture_bytes", std::to_string(texture_bytes)},
+       {"guest_payload_read", "bounded_snapshot_only"},
+       {"payload_persisted", "local_only"},
        {"native_upload", "false"},
        {"native_draw", "false"},
        {"suppression_eligible", "false"}});
@@ -1513,6 +1931,8 @@ void RecordCandidate(
       CandidateSignature(observation, samples_resolved_target, prepared);
   TryScanCandidateIndices(observation, signature);
   TryFingerprintCandidateTextures(observation, signature);
+  TryCaptureReplaySnapshot(observation, samples_resolved_target, prepared,
+                           signature);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_candidate_census.entries[index];
@@ -1636,6 +2056,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   ResetDependencyCensus();
   ConfigureIndexScan();
   ConfigureTextureScan();
+  ConfigureReplaySnapshot();
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
@@ -1680,6 +2101,22 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"maximum_total_bytes",
         std::to_string(kMaximumTextureScanTotalBytes)},
        {"mode", "bounded_diagnostic_read"}});
+  diagnostics::RecordEvent(
+      "native_renderer.snapshot.config",
+      {{"status", !g_replay_snapshot.requested
+                      ? "disabled"
+                      : (g_replay_snapshot.valid ? "armed"
+                                                 : "invalid_configuration")},
+       {"signature",
+        g_replay_snapshot.valid && g_replay_snapshot.requested
+            ? fmt::format("{:016X}", g_replay_snapshot.target_signature)
+            : ""},
+       {"output",
+        g_replay_snapshot.valid && g_replay_snapshot.requested ? "local_only"
+                                                               : ""},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
@@ -1718,6 +2155,19 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           fmt::format("{:016X}", g_texture_scan.target_signature)},
          {"status", "not_observed"},
          {"guest_payload_read", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  if (g_replay_snapshot.requested && g_replay_snapshot.valid &&
+      !g_replay_snapshot.completed) {
+    diagnostics::RecordEvent(
+        "native_renderer.snapshot.capture",
+        {{"signature",
+          fmt::format("{:016X}", g_replay_snapshot.target_signature)},
+         {"status", "not_observed"},
+         {"guest_payload_read", "false"},
+         {"payload_persisted", "false"},
          {"native_upload", "false"},
          {"native_draw", "false"},
          {"suppression_eligible", "false"}});

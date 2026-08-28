@@ -10,6 +10,9 @@ param(
     [string]$IndexScanSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$TextureScanSignature,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$ReplaySnapshotSignature,
+    [string]$ReplaySnapshotDir,
     [switch]$Json
 )
 
@@ -44,16 +47,41 @@ if ($profiles.Count -eq 0) {
 if (@(Get-Process -Name 'pinyon_shift' -ErrorAction SilentlyContinue).Count -ne 0) {
     throw 'Pinyon Shift is already running.'
 }
+if ([bool]$ReplaySnapshotSignature -xor [bool]$ReplaySnapshotDir) {
+    throw 'ReplaySnapshotSignature and ReplaySnapshotDir must be supplied together.'
+}
+if ($ReplaySnapshotDir) {
+    $repositoryRoot = Split-Path $PSScriptRoot -Parent
+    $localRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.local'))
+    $resolvedSnapshotDir = [IO.Path]::GetFullPath($ReplaySnapshotDir)
+    $localPrefix = $localRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedSnapshotDir.StartsWith(
+            $localPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "ReplaySnapshotDir must be below $localRoot"
+    }
+    if (Test-Path -LiteralPath $resolvedSnapshotDir) {
+        throw "ReplaySnapshotDir already exists: $resolvedSnapshotDir"
+    }
+    if (Test-Path -LiteralPath "$resolvedSnapshotDir.partial") {
+        throw "Replay snapshot staging directory already exists: $resolvedSnapshotDir.partial"
+    }
+    $ReplaySnapshotDir = $resolvedSnapshotDir
+}
 
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
 $savedTextureScan = $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE
+$savedReplaySnapshot = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE
+$savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $IndexScanSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $TextureScanSignature
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE = $ReplaySnapshotSignature
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $ReplaySnapshotDir
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -63,4 +91,6 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $savedIndexScan
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $savedTextureScan
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE = $savedReplaySnapshot
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $savedReplaySnapshotDir
 }
