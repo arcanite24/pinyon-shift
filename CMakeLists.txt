@@ -23,6 +23,7 @@ if(WIN32)
         src/pinyon_shift_diagnostics.cpp
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
+        src/native_renderer/guest_output_renderer.cpp
     )
 else()
     add_executable(pinyon_shift
@@ -31,6 +32,7 @@ else()
         src/pinyon_shift_diagnostics.cpp
         src/pinyon_shift_runtime_hooks.cpp
         src/native_renderer/graphics_hooks.cpp
+        src/native_renderer/guest_output_renderer.cpp
     )
 endif()
 

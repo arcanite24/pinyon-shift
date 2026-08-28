@@ -181,6 +181,25 @@ class NativeRendererContractTests(unittest.TestCase):
         for forbidden in ("IssueSwap", "ResourceBarrier", "ClearRenderTargetView"):
             self.assertNotIn(forbidden, patch)
 
+    def test_d3d12_guest_output_callback_preserves_state_and_fallback(self):
+        patch = (
+            ROOT / "patches/rexglue/0047-d3d12-native-guest-output-context.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("NativeGuestOutputClearColor", patch)
+        self.assertIn("D3DClearUnorderedAccessViewFloat", patch)
+        self.assertIn("kGuestOutputInternalState", patch)
+        self.assertIn("native_guest_output_renderer().Get()", patch)
+        self.assertIn("native_context.backend", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        source = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pinyon_shift_native_renderer_diagnostic_clear, false", source)
+        self.assertIn("g_failure_latched", source)
+        self.assertIn('{"fallback", "xenos"}', source)
+        self.assertIn("context.clear_color(context, color)", source)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"
