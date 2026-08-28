@@ -40,7 +40,7 @@ present in the captured frame. Export the first adjacent marker pair with:
 
 ```powershell
 .\tools\export-native-renderer-renderdoc.ps1 `
-  -Capture `.local\qualification\native-renderer-renderdoc-reference\reference_frame1.rdc` `
+  -Capture '.local\qualification\native-renderer-renderdoc-reference\reference_frame1.rdc' `
   -RenderDocRoot '.local\tools\renderdoc\RenderDoc_64' `
   -OutputDir '.local\qualification\renderdoc-reference-export'
 ```
@@ -120,3 +120,7 @@ For the 512 by 280 gameplay crop, both comparisons passed with exact output:
 The isolated and authoritative color PNGs had the same SHA-256, as did their
 pre-draw color PNGs and post-draw depth PNGs. The capture and game-derived
 exports remain local under `.local/qualification`.
+
+The six exact-signature occurrences do not by themselves define the complete
+pass. Their target-phase correlation and the remaining four-index follower are
+documented in [PASS_INVENTORY.md](PASS_INVENTORY.md).
