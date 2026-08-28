@@ -93,6 +93,36 @@ NativeRenderTargetBridge::Acquire(const NativeRenderTargetKey &key,
   return NativeRenderTargetAcquireResult{candidate_handle, false};
 }
 
+std::optional<NativeRenderTargetAcquireResult>
+NativeRenderTargetBridge::ImportObserved(
+    const NativeRenderTargetKey &key,
+    NativeRenderTargetHandle observed_handle, uint64_t allocation_bytes,
+    uint64_t frame, uint64_t current_submission) {
+  if (!key.valid() || !observed_handle || !allocation_bytes) {
+    return std::nullopt;
+  }
+  const std::scoped_lock lock(mutex_);
+  TargetEntry *target = FindTargetLocked(observed_handle);
+  if (target) {
+    if (target->checked_out || target->key != key ||
+        target->allocation_bytes != allocation_bytes) {
+      return std::nullopt;
+    }
+    target->checked_out = true;
+    target->last_use_frame = std::max(target->last_use_frame, frame);
+    target->last_use_submission =
+        std::max(target->last_use_submission, current_submission);
+    ++metrics_.pool_hits;
+    return NativeRenderTargetAcquireResult{observed_handle, true};
+  }
+  targets_.push_back({key, observed_handle, allocation_bytes, frame,
+                      current_submission, current_submission, 0, true});
+  ++metrics_.pool_misses;
+  ++metrics_.live_count;
+  metrics_.live_bytes += allocation_bytes;
+  return NativeRenderTargetAcquireResult{observed_handle, false};
+}
+
 bool NativeRenderTargetBridge::Release(NativeRenderTargetHandle handle,
                                        uint64_t current_submission) {
   const std::scoped_lock lock(mutex_);
@@ -133,6 +163,29 @@ bool NativeRenderTargetBridge::PublishResolve(NativeRenderTargetHandle handle,
   return true;
 }
 
+bool NativeRenderTargetBridge::RecordGpuOutput(
+    const PhysicalRange &range, uint64_t producer_submission) {
+  if (!range.valid()) {
+    return false;
+  }
+  const std::scoped_lock lock(mutex_);
+  for (size_t mapping_index = mappings_.size(); mapping_index-- > 0;) {
+    if (!mappings_[mapping_index].region.guest_destination.Overlaps(range)) {
+      continue;
+    }
+    TargetEntry *target = FindTargetLocked(mappings_[mapping_index].handle);
+    if (target) {
+      target->last_use_submission =
+          std::max(target->last_use_submission, producer_submission);
+      target->available_after_submission =
+          std::max(target->available_after_submission, producer_submission);
+    }
+    RemoveMappingLocked(mapping_index);
+  }
+  ++metrics_.gpu_output_records;
+  return RememberKnownOutputLocked(range);
+}
+
 NativeProducerLookup NativeRenderTargetBridge::LookupProducer(
     const NativeProducerRequest &request, uint64_t frame,
     uint64_t current_submission) {
@@ -165,6 +218,7 @@ NativeProducerLookup NativeRenderTargetBridge::LookupProducer(
     return {NativeProducerLookupState::kBridgeRequired};
   }
   const bool known_gpu_output =
+      known_output_overflow_ ||
       std::ranges::any_of(known_gpu_outputs_, [&](const PhysicalRange &known) {
         return known.Overlaps(request.guest_source);
       });
@@ -298,13 +352,20 @@ void NativeRenderTargetBridge::RemoveMappingLocked(size_t mapping_index) {
   mappings_.erase(mappings_.begin() + mapping_index);
 }
 
-void NativeRenderTargetBridge::RememberKnownOutputLocked(
+bool NativeRenderTargetBridge::RememberKnownOutputLocked(
     const PhysicalRange &range) {
-  if (std::ranges::none_of(known_gpu_outputs_, [&](const PhysicalRange &known) {
+  if (std::ranges::any_of(known_gpu_outputs_, [&](const PhysicalRange &known) {
         return known == range;
       })) {
-    known_gpu_outputs_.push_back(range);
+    return true;
   }
+  if (known_gpu_outputs_.size() >= kKnownGpuOutputLimit) {
+    known_output_overflow_ = true;
+    ++metrics_.known_output_overflows;
+    return false;
+  }
+  known_gpu_outputs_.push_back(range);
+  return true;
 }
 
 void NativeRenderTargetBridge::ForgetKnownOutputLocked(

@@ -70,13 +70,30 @@ int main() {
 
   nr::NativeRenderTargetBridge bridge;
 
-  const auto first = bridge.Acquire(color, 101, 4 * 1024 * 1024, 1, 10, 9);
+  const auto recorded = nr::PhysicalRange::FromGraphicsAddress(
+      0xB1200000, 640 * 360 * 4);
+  Require(recorded && bridge.RecordGpuOutput(*recorded, 9),
+          "a successful backend resolve must record GPU provenance");
+  Require(bridge.LookupProducer(ProducerRequest(), 1, 9).state ==
+              nr::NativeProducerLookupState::kBridgeRequired,
+          "a recorded GPU output must refuse decode before import");
+
+  const auto first = bridge.ImportObserved(color, 101, 4 * 1024 * 1024, 1, 10);
   Require(first && !first->hit && first->handle == 101,
           "a cold target must consume the candidate allocation");
   Require(bridge.PublishResolve(101, ResolveRegion(), 10),
           "a checked-out shader-readable target must publish its resolve");
   Require(bridge.Release(101, 10),
           "the producer target must check into the pool");
+
+  const auto same_observed =
+      bridge.ImportObserved(color, 101, 4 * 1024 * 1024, 2, 11);
+  Require(same_observed && same_observed->hit &&
+              same_observed->handle == 101 && bridge.Release(101, 11),
+          "the same externally owned producer may be observed again");
+  Require(!bridge.ImportObserved(ColorTarget(11), 101,
+                                 4 * 1024 * 1024, 2, 11),
+          "an observed handle must never change its exact allocation key");
 
   const auto producer = bridge.LookupProducer(ProducerRequest(), 2, 11);
   Require(producer.state == nr::NativeProducerLookupState::kNativeProducer &&
@@ -132,9 +149,11 @@ int main() {
           "shutdown target must collect once the fence completes");
 
   const nr::RenderTargetBridgeMetrics metrics = bridge.metrics();
-  Require(metrics.pool_hits == 2 && metrics.pool_misses == 2 &&
-              metrics.bridge_hits == 1 && metrics.bridge_refusals == 2 &&
+  Require(metrics.pool_hits == 3 && metrics.pool_misses == 2 &&
+              metrics.bridge_hits == 1 && metrics.bridge_refusals == 3 &&
               metrics.resolve_publications == 3 &&
+              metrics.gpu_output_records == 1 &&
+              metrics.known_output_overflows == 0 &&
               metrics.guest_invalidations == 1 && !metrics.live_count &&
               !metrics.live_bytes && !metrics.retired_count &&
               !metrics.retired_bytes,

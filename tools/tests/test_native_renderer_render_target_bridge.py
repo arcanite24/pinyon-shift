@@ -34,6 +34,31 @@ class NativeRendererRenderTargetBridgeContractTests(unittest.TestCase):
         self.assertIn("known_gpu_outputs_", header)
         self.assertIn("known_gpu_output", source)
         self.assertIn("NativeProducerLookupState::kBridgeRequired", source)
+        self.assertIn("RecordGpuOutput", header)
+        self.assertIn("known_output_overflow_", header)
+        self.assertIn("kKnownGpuOutputLimit", header)
+
+    def test_observed_backend_resources_have_explicit_import_ownership(self):
+        header = (
+            ROOT / "src/native_renderer/render_target_bridge.h"
+        ).read_text(encoding="utf-8")
+        source = (
+            ROOT / "src/native_renderer/texture_resource_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ImportObserved", header)
+        self.assertIn("SetNativeResolveObserver(&ObserveNativeResolve)", source)
+        self.assertIn("render_target_bridge_.RecordGpuOutput", source)
+        self.assertIn("render_target_bridge_.PublishResolve", source)
+        self.assertIn("guest_row_pitch_bytes", source)
+        self.assertIn("kProducerResourceLimit", source)
+        self.assertIn("kProducerByteLimit", source)
+        self.assertIn("producer_deduplications_", source)
+        self.assertIn("PruneProducers", source)
+        self.assertIn("RetireProducer", source)
+        self.assertIn("existing->second.destination != *base", source)
+        self.assertIn('RecordFailureOnce("producer_retire_failed")', source)
+        self.assertIn('"xenos_resolve", "preserved"', source)
+        self.assertNotIn("SetDrawSuppression", source)
 
     def test_pool_reuse_and_retirement_are_submission_safe(self):
         source = (
