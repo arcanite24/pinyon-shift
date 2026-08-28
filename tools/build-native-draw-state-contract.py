@@ -13,6 +13,7 @@ from typing import Any
 SCHEMA = "pinyon-shift.native-draw-state-contract.v1"
 SELECTION_SCHEMA = "pinyon-shift.native-renderer-candidate-selection.v1"
 PHYSICAL_MASK = 0x1FFFFFFF
+MAX_TEXTURE_RESOURCES = 4
 TEXTURE_FORMATS = [
     "1_REVERSE", "1", "8", "1_5_5_5", "5_6_5", "6_5_5", "8_8_8_8",
     "2_10_10_10", "8_A", "8_B", "8_8", "Cr_Y1_Cb_Y0_REP",
@@ -222,8 +223,8 @@ def build(selection: dict[str, Any], signature: str | None = None) -> dict[str, 
     resources = {
         (texture["fetch_constant"], tuple(texture["raw_words"])) for texture in textures
     }
-    if len(resources) != 1:
-        raise ValueError("initial draw-state contract requires exactly one texture resource")
+    if not 1 <= len(resources) <= MAX_TEXTURE_RESOURCES:
+        raise ValueError("draw-state contract requires one to four texture resources")
     hashes = candidate.get("draw_state_hashes", [])
     if not hashes or any(len(str(value)) != 16 for value in hashes):
         raise ValueError("candidate has invalid draw-state hashes")

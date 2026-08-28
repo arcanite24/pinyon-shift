@@ -148,6 +148,20 @@ class NativeRendererCandidateTests(unittest.TestCase):
         reasons = MODULE.rejection_reasons(signature("BAD", resolved_input="true"))
         self.assertIn("dynamic_render_target_input", reasons)
 
+    def test_requires_one_to_four_texture_resources(self):
+        self.assertIn(
+            "texture_count_outside_1_to_4",
+            MODULE.rejection_reasons(signature("NONE", texture_fetch_count="0")),
+        )
+        self.assertNotIn(
+            "texture_count_outside_1_to_4",
+            MODULE.rejection_reasons(signature("FOUR", texture_fetch_count="4")),
+        )
+        self.assertIn(
+            "texture_count_outside_1_to_4",
+            MODULE.rejection_reasons(signature("FIVE", texture_fetch_count="5")),
+        )
+
     def test_rejects_texture_inside_any_observed_resolve_range(self):
         record = signature(
             "BAD", texture_states=texture_state(0x00124000)

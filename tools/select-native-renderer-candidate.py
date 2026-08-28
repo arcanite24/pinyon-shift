@@ -14,6 +14,7 @@ SCHEMA = "pinyon-shift.native-renderer-candidate-selection.v1"
 CENSUS_SCHEMA = "pinyon-shift.native-renderer-census.v1"
 SHADER_SCHEMA = "pinyon-shift.native-shader-pack.v1"
 PHYSICAL_MASK = 0x1FFFFFFF
+MAX_TEXTURE_RESOURCES = 4
 
 
 def boolean(record: dict[str, Any], key: str) -> bool:
@@ -69,8 +70,9 @@ def rejection_reasons(record: dict[str, Any]) -> list[str]:
         reasons.append("texture_state_observer_overflow")
     if int(record.get("vertex_binding_count", 0)) != 1:
         reasons.append("vertex_binding_count_not_one")
-    if int(record.get("texture_fetch_count", 0)) > 1:
-        reasons.append("multiple_textures")
+    texture_count = int(record.get("texture_fetch_count", 0))
+    if texture_count < 1 or texture_count > MAX_TEXTURE_RESOURCES:
+        reasons.append("texture_count_outside_1_to_4")
     return reasons
 
 

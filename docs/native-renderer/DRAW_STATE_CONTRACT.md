@@ -26,9 +26,9 @@ and render targets are not read by this observer.
 ## Decoder
 
 `tools/build-native-draw-state-contract.py` accepts an exact candidate-selection
-inventory. The initial contract requires one selected candidate and one texture
-resource, while preserving every observed instruction that references it. It
-validates constant counts and indices, decodes all 64 Xenos
+inventory. The initial contract requires one selected candidate and one through
+four texture resources, while preserving every observed instruction that
+references them. It validates constant counts and indices, decodes all 64 Xenos
 texture format identities, dimensions stored with minus-one sizing, physical
 base and mip addresses, pitch, tiling, endianness, signs, component swizzle,
 number format, exponent adjustment, clamp modes, effective filtering,

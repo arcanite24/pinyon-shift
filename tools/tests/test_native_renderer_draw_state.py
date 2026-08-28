@@ -106,10 +106,19 @@ class NativeRendererDrawStateTests(unittest.TestCase):
         self.assertEqual(1, result["texture_resource_count"])
         self.assertEqual(2, len(result["textures"]))
 
-    def test_rejects_multiple_texture_resources(self):
+    def test_accepts_multiple_texture_resources_within_bound(self):
         states = ";".join([texture_state(), texture_state(fetch=1)])
-        with self.assertRaisesRegex(ValueError, "exactly one texture resource"):
-            MODULE.build(selection(texture_state_count=2, texture_states=states))
+        result = MODULE.build(selection(texture_state_count=2, texture_states=states))
+        self.assertEqual(2, result["texture_resource_count"])
+
+    def test_rejects_missing_texture_resource(self):
+        with self.assertRaisesRegex(ValueError, "observed texture states"):
+            MODULE.build(selection(texture_state_count=0, texture_states=""))
+
+    def test_rejects_more_than_four_texture_resources(self):
+        states = ";".join(texture_state(fetch=index) for index in range(5))
+        with self.assertRaisesRegex(ValueError, "one to four"):
+            MODULE.build(selection(texture_state_count=5, texture_states=states))
 
     def test_rejects_non_texture_fetch_constant(self):
         state = texture_state(dwords=[0, 0, 0, 0, 0, 0])
