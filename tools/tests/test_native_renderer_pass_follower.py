@@ -28,6 +28,7 @@ def follower(signature="FOLLOWER"):
         "suppression_eligible": "false",
         "native_draw": "false",
         "xenos_draw": "preserved",
+        "host_index_buffer_type": "0",
     }
 
 

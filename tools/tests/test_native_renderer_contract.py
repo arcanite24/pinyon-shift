@@ -479,6 +479,15 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("captured_frame", scanner)
         self.assertIn("captured_draw", scanner)
 
+        auto_index_replay_patch = (
+            ROOT / "patches/rexglue/0062-d3d12-isolated-auto-index-replay.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("D3DDrawInstanced", auto_index_replay_patch)
+        self.assertIn("isolated native auto-index draw", auto_index_replay_patch)
+        self.assertIn("authoritative Xenos auto-index draw", auto_index_replay_patch)
+        self.assertNotIn("SetDrawSuppression", auto_index_replay_patch)
+        self.assertIn("SourceSelect::kAutoIndex", scanner)
+
         visual_marker_patch = (
             ROOT / "patches/rexglue/0060-d3d12-isolated-draw-debug-markers.patch"
         ).read_text(encoding="utf-8")

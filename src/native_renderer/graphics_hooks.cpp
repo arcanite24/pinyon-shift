@@ -1517,10 +1517,17 @@ bool IsIsolatedDrawEligible(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   const uint32_t texture_count =
       std::popcount(observation.texture_fetch_mask);
-  return !samples_resolved_target && observation.indexed &&
-         observation.source_select ==
-             uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
-         observation.index_format <= 1 && observation.index_endianness <= 3 &&
+  const bool supported_geometry =
+      (observation.indexed &&
+       observation.source_select ==
+           uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
+       observation.index_format <= 1 && observation.index_endianness <= 3 &&
+       prepared.index_buffer_type == 1) ||
+      (!observation.indexed &&
+       observation.source_select ==
+           uint32_t(rex::graphics::xenos::SourceSelect::kAutoIndex) &&
+       prepared.index_buffer_type == 0);
+  return !samples_resolved_target && supported_geometry &&
          observation.index_count && observation.vertex_binding_count == 1 &&
          !observation.vertex_binding_overflow &&
          !observation.vertex_attribute_overflow &&
@@ -1531,8 +1538,7 @@ bool IsIsolatedDrawEligible(
          texture_count >= 1 && texture_count <= 4 &&
          (observation.texture_fetch_layout_valid_mask &
           observation.texture_fetch_mask) == observation.texture_fetch_mask &&
-         (prepared.flags & 3) == 3 && prepared.bound_render_target_bits == 3 &&
-         prepared.index_buffer_type == 1;
+         (prepared.flags & 3) == 3 && prepared.bound_render_target_bits == 3;
 }
 
 void RecordCandidate(
@@ -1590,6 +1596,18 @@ void ObservePreparedDraw(
                 fmt::format("{:016X}", observation.pixel_specialization_mask)},
                {"prepared_pipeline_hash",
                 fmt::format("{:016X}", PreparedPipelineHash(observation))},
+               {"host_primitive",
+                std::to_string(observation.host_primitive_type)},
+               {"host_index_buffer_type",
+                std::to_string(observation.index_buffer_type)},
+               {"host_index_format",
+                std::to_string(observation.host_index_format)},
+               {"host_primitive_reset",
+                observation.host_primitive_reset_enabled ? "true" : "false"},
+               {"prepared_pipeline_flags",
+                fmt::format("{:08X}", observation.flags)},
+               {"bound_render_target_bits",
+                fmt::format("{:08X}", observation.bound_render_target_bits)},
                {"primitive", std::to_string(sample.primitive_type)},
                {"source_select", std::to_string(sample.source_select)},
                {"indexed", sample.indexed ? "true" : "false"},

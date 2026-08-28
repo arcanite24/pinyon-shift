@@ -1,10 +1,12 @@
 # Isolated authentic draw replay
 
 NR-02E begins with a one-shot replay at the synchronous prepared-draw point.
-The D3D12 backend duplicates one exact, title-qualified indexed draw into
-private depth and color targets. It then restores the guest targets and records
-the original draw normally. The isolated target is never presented and Xenos
-remains authoritative for the displayed frame.
+The D3D12 backend duplicates one exact, title-qualified draw into private depth
+and color targets. The initial path supports direct DMA indexed geometry; the
+qualified NR-02F follower also supports the prepared AutoIndex path. It then
+restores the guest targets and records the original draw normally. The isolated
+target is never presented and Xenos remains authoritative for the displayed
+frame.
 
 ## Ownership and safety gates
 
@@ -12,16 +14,18 @@ The path is disabled unless the native-renderer census and an exact 16-digit
 candidate signature are both supplied. Pinyon requests a draw only when the
 live observation still satisfies the qualified candidate boundary:
 
-- direct DMA indexed geometry with supported index format and endianness;
+- direct DMA indexed geometry with supported index format and endianness, or
+  the exact non-indexed AutoIndex follower contract;
 - one vertex allocation and one through four fully observed textures;
 - no observer overflow, memexport, query, or resolved-target dependency;
 - active host rasterization; and
 - exactly one depth target and the first color target.
 
-ReXGlue independently requires host render targets, rasterization, no
-memexport, and a direct guest DMA index buffer. It creates private clones with
-the same dimensions, formats, and sample count as the live targets, clears
-them, records the duplicate draw with the already prepared PSO and immutable
+ReXGlue independently requires host render targets, rasterization, and no
+memexport. Indexed requests require a direct guest DMA index buffer; AutoIndex
+requests use the already prepared host vertex count. It creates private clones
+with the same dimensions, formats, and sample count as the live targets,
+records the duplicate draw with the already prepared PSO and immutable
 bindings, and rebinds the guest targets before the original draw. The API has
 no suppression operation, and failure records an explicit result while the
 guest draw continues.
