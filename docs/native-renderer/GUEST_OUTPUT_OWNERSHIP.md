@@ -76,3 +76,33 @@ panel backs up every change and provides a dedicated **Reset to Xenos** action
 that changes no unrelated setting. Sanitized crash reports record the
 configured mode, last effective mode, bounded claimed-frame count, and any
 fallback reason.
+
+## NR-01C/D qualification
+
+The clean post-rebase build applied all 49 ReXGlue patches and produced
+executable SHA-256
+`5FD5D2511075B3FF4200F82A99B1A62069F7E08523F374D5159183D5A2D34DD7`.
+All 61 repository tests passed, tracked Markdown links were valid, and the
+ReXGlue unit suite passed 2,282 assertions across 247 test cases with the four
+documented upstream `BitStream::Write` cases skipped.
+
+AppData-backed control session `20260828T015455Z-p33796` ran with `xenos`
+selected. It recorded Xenos as the sole output authority, registered no native
+callback, claimed no frame, emitted no renderer failure, and exited normally.
+
+Diagnostic session `20260828T015607Z-p29900` claimed 2,100 of 2,100 observed
+callbacks. Its final marker reported a 2560 by 1440 guest output, a 1280 by 720
+display, and format identifier 24. Visual inspection confirmed a centered
+full-frame color triangle whose phase changed during sustained presentation.
+The session recorded no callback failure, device removal, TDR, validation
+error, resource-state warning, or presentation deadline miss and exited
+normally. Presentation cadence was 60.002 Hz and simulation cadence was
+29.409 Hz.
+
+Unsupported-mode recovery session `20260828T015729Z-p11548` emitted exactly
+one `unsupported_mode` failure with `fallback=xenos`, registered no native
+callback, claimed no frame, visibly continued through the normal Xenos-rendered
+Microsoft Studios sequence, and exited normally. The launcher recovery command
+also created a timestamped configuration backup and reset only
+`pinyon_shift_native_renderer` to `xenos`; all unrelated graphics settings and
+the AppData save remained unchanged.
