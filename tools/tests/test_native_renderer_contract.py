@@ -463,6 +463,75 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("captured_frame", scanner)
         self.assertIn("captured_draw", scanner)
 
+        visual_marker_patch = (
+            ROOT / "patches/rexglue/0060-d3d12-isolated-draw-debug-markers.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PinyonShift NR-02E isolated native draw", visual_marker_patch)
+        self.assertIn("PinyonShift NR-02E authoritative Xenos draw", visual_marker_patch)
+        self.assertEqual(visual_marker_patch.count("BeginDebugMarker"), 2)
+        self.assertEqual(visual_marker_patch.count("EndDebugMarker"), 2)
+        self.assertIn("reference_marker_requested", visual_marker_patch)
+        self.assertNotIn("SetDrawSuppression", visual_marker_patch)
+        self.assertIn("request.reference_marker_requested = true", scanner)
+        self.assertIn(
+            "request.requested = g_isolated_draw.prepared_candidate_eligible", scanner
+        )
+        self.assertIn("authoritative Xenos draw still follows unmodified", scanner)
+
+        seeded_target_patch = (
+            ROOT / "patches/rexglue/0061-d3d12-seeded-isolated-replay-targets.patch"
+        ).read_text(encoding="utf-8")
+        seeded_target_additions = "\n".join(
+            line[1:]
+            for line in seeded_target_patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        self.assertEqual(seeded_target_additions.count("D3DCopyResource"), 2)
+        self.assertIn("guest_depth_state", seeded_target_additions)
+        self.assertIn("guest_color_state", seeded_target_additions)
+        self.assertNotIn("D3DClearRenderTargetView", seeded_target_additions)
+        self.assertNotIn("D3DClearDepthStencilView", seeded_target_additions)
+        self.assertNotIn("SetDrawSuppression", seeded_target_additions)
+
+        visual_compare = (
+            ROOT / "tools/compare-native-renderer-images.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon-shift.native-renderer-image-comparison.v1", visual_compare
+        )
+        self.assertIn('args.content == "depth"', visual_compare)
+        self.assertIn("native.channels in (2, 4)", visual_compare)
+        renderdoc_wrapper = (
+            ROOT / "tools/capture-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get-AuthenticodeSignature", renderdoc_wrapper)
+        self.assertIn("CaptureDir must be below", renderdoc_wrapper)
+        self.assertIn("RenderDoc exited without producing", renderdoc_wrapper)
+
+        renderdoc_export = (
+            ROOT / "tools/export-native-renderer-renderdoc.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon-shift.native-renderer-renderdoc-export.v1",
+            renderdoc_export,
+        )
+        self.assertIn("GetRootActions", renderdoc_export)
+        self.assertIn("SetFrameEvent", renderdoc_export)
+        self.assertIn("SaveTexture", renderdoc_export)
+        self.assertIn("GetDepthTarget", renderdoc_export)
+        self.assertIn('basename + "-before.png"', renderdoc_export)
+        self.assertIn('basename + "-depth-before.png"', renderdoc_export)
+        self.assertIn('output_dir, "isolated-native"', renderdoc_export)
+        self.assertIn('output_dir, "authoritative-xenos"', renderdoc_export)
+        self.assertIn("authoritative Xenos marker follows", renderdoc_export)
+        renderdoc_export_wrapper = (
+            ROOT / "tools/export-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get-AuthenticodeSignature", renderdoc_export_wrapper)
+        self.assertIn("Capture must be below", renderdoc_export_wrapper)
+        self.assertIn("OutputDir must be below", renderdoc_export_wrapper)
+        self.assertIn("qrenderdoc exited without producing", renderdoc_export_wrapper)
+
         draw_state_planner = (
             ROOT / "tools/build-native-draw-state-contract.py"
         ).read_text(encoding="utf-8")

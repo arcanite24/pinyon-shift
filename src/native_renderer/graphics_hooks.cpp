@@ -2010,9 +2010,16 @@ void RequestIsolatedDraw(
     const rex::system::GraphicsPreparedDrawObservation &,
     rex::system::GraphicsIsolatedDrawRequest &request) {
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
-      g_isolated_draw.completed ||
       !g_isolated_draw.prepared_candidate_valid ||
       g_isolated_draw.prepared_signature != g_isolated_draw.target_signature) {
+    return;
+  }
+  request.reference_marker_requested = true;
+  if (g_isolated_draw.completed) {
+    // Keep the private replay visible to frame debuggers after the one-shot
+    // result has been recorded. This path has no readback or completion
+    // callback, and the authoritative Xenos draw still follows unmodified.
+    request.requested = g_isolated_draw.prepared_candidate_eligible;
     return;
   }
   g_isolated_draw.completed = true;
@@ -2483,6 +2490,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"native_draw", "isolated_only"},
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
+       {"reference_marker", "exact_signature"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});
