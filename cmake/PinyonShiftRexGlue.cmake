@@ -204,15 +204,19 @@ function(pinyon_shift_attach_rexglue target_name)
             INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/rexglue-sdk/include")
 
         # ReXGlue's target helper copies runtime DLLs only after the host links.
-        # An incremental SDK-only relink would therefore leave an older DLL next
-        # to an otherwise current host. This target runs on every build (with
-        # copy_if_different) and makes the executable's load-time artifact exact.
+        # An incremental SDK-only relink would therefore leave older runtime or
+        # graphics backend DLLs next to an otherwise current host. This target
+        # runs on every build (with copy_if_different) and makes the executable's
+        # load-time artifacts exact.
         add_custom_target(${target_name}_stage_rexruntime ALL
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:rexruntime>
                 $<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexruntime>
-            DEPENDS ${target_name} rexruntime
-            COMMENT "Staging the current ReXGlue runtime beside ${target_name}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:rexgpu-xenos>
+                $<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexgpu-xenos>
+            DEPENDS ${target_name} rexruntime rexgpu-xenos
+            COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
             VERBATIM)
     endif()
 endfunction()

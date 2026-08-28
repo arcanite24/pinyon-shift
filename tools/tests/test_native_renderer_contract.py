@@ -232,6 +232,42 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("claimed_frames", report)
         self.assertIn("failure_reason", report)
 
+    def test_retained_pass_preview_is_explicit_and_preserves_xenos(self):
+        patch = (
+            ROOT / "patches/rexglue/0065-d3d12-retained-pass-preview.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("NativeGuestOutputDrawRetainedPass", patch)
+        self.assertIn("BeginIsolatedReplayPreview", patch)
+        self.assertIn("EndIsolatedReplayPreview", patch)
+        self.assertIn("native_guest_output_retained_pass_cs", patch)
+        self.assertIn("DXGI_FORMAT_R16G16B16A16_FLOAT", patch)
+        self.assertIn("isolated_replay_preview_resolved_target_", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_RESOLVE_SOURCE", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_RESOLVE_DEST", patch)
+        self.assertIn("D3DResolveSubresource", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE", patch)
+        self.assertIn("kGuestOutputInternalState", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        source = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('mode == "diagnostic_retained_pass"', source)
+        self.assertIn("context.draw_retained_pass(context)", source)
+        self.assertIn('"retained_pass_unavailable"', source)
+        self.assertIn('{"suppression", "disabled"}', source)
+
+        settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'diagnostic_retained_pass'", settings)
+
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'native_renderer.output.waiting'", report)
+        self.assertIn("waiting_reason", report)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT

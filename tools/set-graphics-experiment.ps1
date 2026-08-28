@@ -24,7 +24,7 @@ param(
     [string]$DisableMotionBlur = 'false',
     [ValidateSet('true', 'false')]
     [string]$DisableDepthOfField = 'false',
-    [ValidateSet('xenos', 'diagnostic_triangle')]
+    [ValidateSet('xenos', 'diagnostic_triangle', 'diagnostic_retained_pass')]
     [string]$NativeRenderer = 'xenos',
     [string]$StateRoot,
     [switch]$Json
