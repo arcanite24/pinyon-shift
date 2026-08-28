@@ -139,6 +139,7 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "event": "native_renderer.census.resolve_target",
                 "session": "new",
                 "address": "00123000",
+                "length": "4096",
                 "last_resolve_frame": "42",
                 "resolves": "7",
                 "resolved_bytes": "28672",
@@ -172,6 +173,8 @@ class NativeRendererCensusTests(unittest.TestCase):
             result["prepared_shader_pairs"][0]["vertex_specialization_mask"],
         )
         self.assertEqual("7", result["resolve_dependencies"][0]["resolves"])
+        self.assertEqual("00123000", result["resolve_targets"][0]["address"])
+        self.assertEqual("4096", result["resolve_targets"][0]["length"])
         self.assertFalse(result["safety"]["suppression_allowed"])
 
     def test_summarizer_rejects_missing_session(self):

@@ -59,9 +59,11 @@ planner also validates the draw's 24 vertices against its complete 384-byte
 binding.
 
 Both runs exited normally with zero observer overflow and no memexport, XMA, or
-ZPD fallback activity. This closes the metadata and decode gate for NR-02C; the
-half-pixel and output interpretation remain explicitly reserved for the
-isolated visual comparison in NR-02E.
+ZPD fallback activity. This qualifies the capture and decode implementation,
+but not this candidate: its texture base `0x1C149000` is also an observed
+resolve destination. The corrected selector rejects it as a dynamic
+render-target consumer. NR-02C therefore needs a new static-source candidate
+before its output can advance to PSO construction or isolated comparison.
 
 ## Safety boundary
 

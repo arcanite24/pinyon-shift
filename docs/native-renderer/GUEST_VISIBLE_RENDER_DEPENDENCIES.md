@@ -92,8 +92,10 @@ python .\tools\summarize-native-renderer-census.py `
 
 The summarizer selects the latest census-enabled session unless `--session` is
 provided. Its output includes aggregated draw signatures, every emitted
-resolve-to-texture dependency, overflow totals, and an explicit safety object
-that keeps suppression disabled.
+resolve target, every observed resolve-to-texture dependency, overflow totals,
+and an explicit safety object that keeps suppression disabled. Retaining the
+target inventory lets later candidate selection reject a texture address even
+when the draw-window dependency bit did not observe the transition.
 
 ## Qualification status
 

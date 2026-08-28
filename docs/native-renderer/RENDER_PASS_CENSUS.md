@@ -118,3 +118,6 @@ Used shader constants plus texture-fetch and sampler state are captured by the
 bounded NR-02C observer and decoded as described in
 [`DRAW_STATE_CONTRACT.md`](DRAW_STATE_CONTRACT.md). This state remains
 register-only; the census still performs no guest resource payload reads.
+The deterministic inventory also retains every emitted resolve target so the
+candidate selector can reject any captured base or mip address inside a known
+resolve range, independently of draw-window timing.

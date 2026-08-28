@@ -138,7 +138,14 @@ rejection. The selector carries the first bounded snapshot from each inventory
 and its draw-state hash. Decoding and the safety boundary are documented in
 [DRAW_STATE_CONTRACT.md](DRAW_STATE_CONTRACT.md).
 
-Two post-`0054` captures selected candidate `08810649442C4213` as the sole
-bounded match. Its draw-state hash was identical in both captures. This is the
-NR-02C subject going forward; earlier provisional signatures remain historical
-because each observer extension intentionally changes the structural identity.
+Two post-`0054` captures initially selected candidate `08810649442C4213` as the
+sole bounded metadata match, with an identical draw-state hash in both runs.
+Cross-checking its decoded texture address against the full resolve-target
+inventory then identified `0x1C149000` as a known resolve destination. The
+candidate is therefore rejected as a dynamic render-target consumer and does
+not advance to PSO construction.
+
+The selector now checks every captured base and mip address against every
+emitted resolve range in each input inventory. This is deliberately stricter
+than the draw-window `resolved_input` bit: a missed timing correlation can no
+longer turn absence of a dependency event into static-texture evidence.

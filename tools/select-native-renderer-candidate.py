@@ -13,6 +13,7 @@ from typing import Any
 SCHEMA = "pinyon-shift.native-renderer-candidate-selection.v1"
 CENSUS_SCHEMA = "pinyon-shift.native-renderer-census.v1"
 SHADER_SCHEMA = "pinyon-shift.native-shader-pack.v1"
+PHYSICAL_MASK = 0x1FFFFFFF
 
 
 def boolean(record: dict[str, Any], key: str) -> bool:
@@ -73,6 +74,45 @@ def rejection_reasons(record: dict[str, Any]) -> list[str]:
     return reasons
 
 
+def texture_addresses(record: dict[str, Any]) -> set[int]:
+    count = int(record.get("texture_state_count", 0))
+    values = str(record.get("texture_states") or "").split(";") if count else []
+    if len(values) != count:
+        raise ValueError("candidate texture-state count is inconsistent")
+    addresses: set[int] = set()
+    for value in values:
+        fields = value.split(":")
+        if len(fields) != 18:
+            raise ValueError(f"candidate has invalid texture state: {value!r}")
+        words = [int(field, 16) for field in fields[2:8]]
+        addresses.add(((words[1] >> 12) << 12) & PHYSICAL_MASK)
+        mip_address = ((words[5] >> 12) << 12) & PHYSICAL_MASK
+        if mip_address:
+            addresses.add(mip_address)
+    return addresses
+
+
+def resolve_ranges(census: dict[str, Any]) -> list[tuple[int, int]]:
+    ranges = []
+    for target in census.get("resolve_targets", []):
+        start = int(str(target.get("address", "0")), 16) & PHYSICAL_MASK
+        length = int(target.get("length", 0))
+        if length <= 0 or start + length > PHYSICAL_MASK + 1:
+            raise ValueError("resolve target has an invalid physical range")
+        ranges.append((start, start + length))
+    return ranges
+
+
+def reads_known_resolve_target(
+    record: dict[str, Any], ranges: list[tuple[int, int]]
+) -> bool:
+    return any(
+        start <= address < end
+        for address in texture_addresses(record)
+        for start, end in ranges
+    )
+
+
 def prepared_pairs(census: dict[str, Any]) -> dict[tuple[str, str], set[tuple[str, str]]]:
     result: dict[tuple[str, str], set[tuple[str, str]]] = {}
     for record in census.get("prepared_shader_pairs", []):
@@ -99,6 +139,7 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
         raise ValueError("candidate inventories must use the same scene marker")
     shaders = shader_identities(load_json(shader_manifest_path, SHADER_SCHEMA))
     prepared_by_capture = [prepared_pairs(census) for census in censuses]
+    resolve_ranges_by_capture = [resolve_ranges(census) for census in censuses]
 
     by_capture: list[dict[str, dict[str, Any]]] = []
     for census in censuses:
@@ -114,6 +155,11 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
     for signature in sorted(repeated):
         records = [capture[signature] for capture in by_capture]
         reasons = rejection_reasons(records[0])
+        if any(
+            reads_known_resolve_target(record, ranges)
+            for record, ranges in zip(records, resolve_ranges_by_capture)
+        ) and "dynamic_render_target_input" not in reasons:
+            reasons.append("dynamic_render_target_input")
         for reason in reasons:
             rejection_counts[reason] += 1
         if reasons:
