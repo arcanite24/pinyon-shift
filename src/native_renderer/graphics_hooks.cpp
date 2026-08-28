@@ -622,6 +622,23 @@ bool IsOpaqueColorState(
   return writes_color;
 }
 
+bool IsMechanicallyEligibleCandidate(const DrawSignatureEntry &entry) {
+  const auto &observation = entry.sample;
+  const bool query_draw = observation.viz_query_condition ||
+                          (observation.pa_sc_viz_query & 1);
+  const uint32_t texture_count =
+      std::popcount(observation.texture_fetch_mask);
+  return IsOpaqueColorState(observation) && !query_draw &&
+         !observation.vertex_memexport && !entry.samples_resolved_target &&
+         !observation.vertex_binding_overflow &&
+         !observation.vertex_attribute_overflow &&
+         !observation.vertex_float_constant_overflow &&
+         !observation.pixel_float_constant_overflow &&
+         !observation.texture_state_overflow &&
+         observation.vertex_binding_count == 1 && texture_count >= 1 &&
+         texture_count <= 4;
+}
+
 void RecordCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
@@ -684,12 +701,24 @@ void ObservePreparedDraw(
 
 void EmitCandidateCensusWindow(uint64_t last_frame_value) {
   std::array<size_t, kSignatureCapacity> order{};
+  uint64_t eligible_signatures = 0;
+  uint64_t eligible_draws = 0;
   for (size_t i = 0; i < order.size(); ++i) {
     order[i] = i;
+    const DrawSignatureEntry &entry = g_candidate_census.entries[i];
+    if (entry.draw_count && IsMechanicallyEligibleCandidate(entry)) {
+      ++eligible_signatures;
+      eligible_draws += entry.draw_count;
+    }
   }
   std::sort(order.begin(), order.end(), [](size_t left, size_t right) {
     const DrawSignatureEntry &left_entry = g_candidate_census.entries[left];
     const DrawSignatureEntry &right_entry = g_candidate_census.entries[right];
+    const bool left_eligible = IsMechanicallyEligibleCandidate(left_entry);
+    const bool right_eligible = IsMechanicallyEligibleCandidate(right_entry);
+    if (left_eligible != right_eligible) {
+      return left_eligible;
+    }
     if (left_entry.draw_count != right_entry.draw_count) {
       return left_entry.draw_count > right_entry.draw_count;
     }
@@ -704,6 +733,8 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
         std::to_string(g_candidate_census.unique_signature_count)},
        {"overflow_draws",
         std::to_string(g_candidate_census.overflow_draw_count)},
+       {"eligible_signatures", std::to_string(eligible_signatures)},
+       {"eligible_draws", std::to_string(eligible_draws)},
        {"signature_capacity", std::to_string(kSignatureCapacity)},
        {"summary_limit", std::to_string(kCandidateSummaryLimit)},
        {"mode", "metadata_shortlist_only"}});
@@ -824,6 +855,8 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
               : "false"},
          {"texture_state_overflow",
           sample.texture_state_overflow ? "true" : "false"},
+         {"mechanically_eligible",
+          IsMechanicallyEligibleCandidate(entry) ? "true" : "false"},
          {"qualification", "metadata_shortlist_only"},
          {"suppression_eligible", "false"}});
   }
