@@ -1,0 +1,89 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -96,9 +96,9 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+     return depth_float24_convert_in_pixel_shader_;
+   }
+ 
+-  // Binds cleared private clones of the current depth and first color target.
+-  // EndIsolatedReplayTarget restores the guest targets without changing their
+-  // contents or ownership.
++  // Seeds and binds private clones of the current depth and first color target.
++  // EndIsolatedReplayTarget restores the guest bindings without changing the
++  // guest attachments or ownership.
+   bool BeginIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out);
+   system::GraphicsIsolatedDrawReadbackStatus QueueIsolatedReplayReadback(
+       system::GraphicsIsolatedDrawReadbackCompletion completion,
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1748,10 +1748,50 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+       isolated_replay_depth_target_.get());
+   auto* isolated_color = static_cast<D3D12RenderTarget*>(
+       isolated_replay_color_target_.get());
++  auto* guest_depth = static_cast<D3D12RenderTarget*>(guest_targets[0]);
++  auto* guest_color = static_cast<D3D12RenderTarget*>(guest_targets[1]);
+   const D3D12_RESOURCE_DESC color_desc = isolated_color->resource()->GetDesc();
+   width_out = uint32_t(color_desc.Width);
+   height_out = color_desc.Height;
+ 
++  const D3D12_RESOURCE_STATES guest_depth_state =
++      guest_depth->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
++  const D3D12_RESOURCE_STATES guest_color_state =
++      guest_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
++  const D3D12_RESOURCE_STATES isolated_depth_state =
++      isolated_depth->SetResourceState(D3D12_RESOURCE_STATE_COPY_DEST);
++  const D3D12_RESOURCE_STATES isolated_color_state =
++      isolated_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_DEST);
++  command_processor_.PushTransitionBarrier(
++      guest_depth->resource(), guest_depth_state,
++      D3D12_RESOURCE_STATE_COPY_SOURCE);
++  command_processor_.PushTransitionBarrier(
++      guest_color->resource(), guest_color_state,
++      D3D12_RESOURCE_STATE_COPY_SOURCE);
++  command_processor_.PushTransitionBarrier(
++      isolated_depth->resource(), isolated_depth_state,
++      D3D12_RESOURCE_STATE_COPY_DEST);
++  command_processor_.PushTransitionBarrier(
++      isolated_color->resource(), isolated_color_state,
++      D3D12_RESOURCE_STATE_COPY_DEST);
++  command_processor_.SubmitBarriers();
++
++  DeferredCommandList& command_list =
++      command_processor_.GetDeferredCommandList();
++  command_list.D3DCopyResource(isolated_depth->resource(),
++                               guest_depth->resource());
++  command_list.D3DCopyResource(isolated_color->resource(),
++                               guest_color->resource());
++
++  guest_depth->SetResourceState(guest_depth_state);
++  guest_color->SetResourceState(guest_color_state);
++  command_processor_.PushTransitionBarrier(
++      guest_depth->resource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
++      guest_depth_state);
++  command_processor_.PushTransitionBarrier(
++      guest_color->resource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
++      guest_color_state);
++
+   RenderTarget* isolated_targets[1 + xenos::kMaxColorRenderTargets] = {};
+   isolated_targets[0] = isolated_depth;
+   isolated_targets[1] = isolated_color;
+@@ -1759,18 +1799,5 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+   SetCommandListRenderTargets(isolated_targets);
+   command_processor_.SubmitBarriers();
+ 
+-  DeferredCommandList& command_list =
+-      command_processor_.GetDeferredCommandList();
+-  const float clear_color[4] = {};
+-  command_list.D3DClearRenderTargetView(
+-      isolated_color->descriptor_draw().GetHandle(), clear_color, 0, nullptr);
+-  const float clear_depth =
+-      depth_key.GetDepthFormat() == xenos::DepthRenderTargetFormat::kD24S8
+-          ? 1.0f
+-          : 0.0f;
+-  command_list.D3DClearDepthStencilView(
+-      isolated_depth->descriptor_draw().GetHandle(),
+-      D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, clear_depth, 0, 0,
+-      nullptr);
+   return true;
+ }
