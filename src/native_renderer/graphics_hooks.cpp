@@ -98,6 +98,20 @@ struct ReplaySnapshotState {
 
 ReplaySnapshotState g_replay_snapshot;
 
+struct IsolatedDrawState {
+  uint64_t target_signature = 0;
+  uint64_t prepared_signature = 0;
+  uint64_t frame = 0;
+  uint64_t draw = 0;
+  bool requested = false;
+  bool completed = false;
+  bool valid = true;
+  bool prepared_candidate_valid = false;
+  bool prepared_candidate_eligible = false;
+};
+
+IsolatedDrawState g_isolated_draw;
+
 void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
                             bool &requested, bool &valid) {
   char *value = nullptr;
@@ -169,6 +183,14 @@ void ConfigureReplaySnapshot() {
       !IsLocalArtifactRoot(g_replay_snapshot.output_root)) {
     g_replay_snapshot.valid = false;
   }
+}
+
+void ConfigureIsolatedDraw() {
+  g_isolated_draw = {};
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE",
+      g_isolated_draw.target_signature, g_isolated_draw.requested,
+      g_isolated_draw.valid);
 }
 
 struct DrawSignatureEntry {
@@ -1443,6 +1465,30 @@ bool IsMechanicallyEligibleCandidate(const DrawSignatureEntry &entry) {
          texture_count <= 4;
 }
 
+bool IsIsolatedDrawEligible(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  const uint32_t texture_count =
+      std::popcount(observation.texture_fetch_mask);
+  return !samples_resolved_target && observation.indexed &&
+         observation.source_select ==
+             uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
+         observation.index_format <= 1 && observation.index_endianness <= 3 &&
+         observation.index_count && observation.vertex_binding_count == 1 &&
+         !observation.vertex_binding_overflow &&
+         !observation.vertex_attribute_overflow &&
+         !observation.vertex_float_constant_overflow &&
+         !observation.pixel_float_constant_overflow &&
+         !observation.texture_state_overflow && !observation.vertex_memexport &&
+         !observation.viz_query_condition && !(observation.pa_sc_viz_query & 1) &&
+         texture_count >= 1 && texture_count <= 4 &&
+         (observation.texture_fetch_layout_valid_mask &
+          observation.texture_fetch_mask) == observation.texture_fetch_mask &&
+         (prepared.flags & 3) == 3 && prepared.bound_render_target_bits == 3 &&
+         prepared.index_buffer_type == 1;
+}
+
 void RecordCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
@@ -1450,12 +1496,20 @@ void RecordCandidate(
 
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
+  g_isolated_draw.prepared_candidate_valid = false;
   if (!g_pending_candidate.valid) {
     ++g_candidate_prepared_without_observation_count;
   } else {
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
+    g_isolated_draw.prepared_signature = CandidateSignature(
+        sample, g_pending_candidate.samples_resolved_target, observation);
+    g_isolated_draw.frame = sample.frame_sequence;
+    g_isolated_draw.draw = sample.draw_sequence;
+    g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
+        sample, g_pending_candidate.samples_resolved_target, observation);
+    g_isolated_draw.prepared_candidate_valid = true;
     RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
                     observation);
     g_pending_candidate.valid = false;
@@ -1691,6 +1745,62 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"qualification", "metadata_shortlist_only"},
          {"suppression_eligible", "false"}});
   }
+}
+
+void CompleteIsolatedDraw(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  const char *status = "unsupported_state";
+  if (result.status ==
+      rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    status = "recorded";
+  } else if (result.status ==
+             rex::system::GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
+    status = "target_creation_failed";
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.isolated_draw.result",
+      {{"signature",
+        fmt::format("{:016X}", g_isolated_draw.prepared_signature)},
+       {"status", status},
+       {"frame", std::to_string(g_isolated_draw.frame)},
+       {"draw", std::to_string(g_isolated_draw.draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"native_draw", result.status ==
+                                   rex::system::GraphicsIsolatedDrawStatus::kRecorded
+                               ? "isolated_only"
+                               : "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
+void RequestIsolatedDraw(
+    const rex::system::GraphicsPreparedDrawObservation &,
+    rex::system::GraphicsIsolatedDrawRequest &request) {
+  if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
+      g_isolated_draw.completed ||
+      !g_isolated_draw.prepared_candidate_valid ||
+      g_isolated_draw.prepared_signature != g_isolated_draw.target_signature) {
+    return;
+  }
+  g_isolated_draw.completed = true;
+  if (!g_isolated_draw.prepared_candidate_eligible) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.result",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.prepared_signature)},
+         {"status", "rejected_by_title_gate"},
+         {"frame", std::to_string(g_isolated_draw.frame)},
+         {"draw", std::to_string(g_isolated_draw.draw)},
+         {"native_draw", "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+    return;
+  }
+  request.requested = true;
+  request.completion = &CompleteIsolatedDraw;
 }
 
 void EmitDrawCensusWindow(uint64_t last_frame_value) {
@@ -2057,10 +2167,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   ConfigureIndexScan();
   ConfigureTextureScan();
   ConfigureReplaySnapshot();
+  ConfigureIsolatedDraw();
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
+  graphics_system->SetIsolatedDrawRequestObserver(&RequestIsolatedDraw);
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
@@ -2117,6 +2229,20 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"native_upload", "false"},
        {"native_draw", "false"},
        {"suppression_eligible", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.isolated_draw.config",
+      {{"status", !g_isolated_draw.requested
+                      ? "disabled"
+                      : (g_isolated_draw.valid ? "armed"
+                                               : "invalid_configuration")},
+       {"signature",
+        g_isolated_draw.valid && g_isolated_draw.requested
+            ? fmt::format("{:016X}", g_isolated_draw.target_signature)
+            : ""},
+       {"native_draw", "isolated_only"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
@@ -2124,6 +2250,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
     graphics_system->SetPreparedDrawObserver(nullptr);
+    graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
   if (!g_graphics_census_installed) {
     return;
@@ -2170,6 +2297,18 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"payload_persisted", "false"},
          {"native_upload", "false"},
          {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  if (g_isolated_draw.requested && g_isolated_draw.valid &&
+      !g_isolated_draw.completed) {
+    diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.result",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"status", "not_observed"},
+         {"native_draw", "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
          {"suppression_eligible", "false"}});
   }
   diagnostics::RecordEvent(

@@ -425,6 +425,23 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"suppression_eligible", "false"', scanner)
         self.assertNotIn("SetDrawSuppression", scanner)
 
+        isolated_replay_patch = (
+            ROOT / "patches/rexglue/0058-d3d12-isolated-draw-replay.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsIsolatedDrawRequest", isolated_replay_patch)
+        self.assertIn("BeginIsolatedReplayTarget", isolated_replay_patch)
+        self.assertIn("EndIsolatedReplayTarget", isolated_replay_patch)
+        self.assertIn("D3DDrawIndexedInstanced", isolated_replay_patch)
+        self.assertIn("isolated_draw_request.completion", isolated_replay_patch)
+        self.assertNotIn("SetDrawSuppression", isolated_replay_patch)
+        isolated_draw_position = isolated_replay_patch.index(
+            "if (isolated_draw_request.requested)"
+        )
+        guest_draw_position = isolated_replay_patch.index(
+            "PROFILE_DRAW_CALL();", isolated_draw_position
+        )
+        self.assertLess(isolated_draw_position, guest_draw_position)
+
         draw_state_planner = (
             ROOT / "tools/build-native-draw-state-contract.py"
         ).read_text(encoding="utf-8")
