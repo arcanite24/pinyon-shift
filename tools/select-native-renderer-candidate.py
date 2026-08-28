@@ -60,6 +60,8 @@ def rejection_reasons(record: dict[str, Any]) -> list[str]:
         reasons.append("dynamic_render_target_input")
     if boolean(record, "vertex_overflow"):
         reasons.append("vertex_binding_overflow")
+    if boolean(record, "vertex_attribute_overflow"):
+        reasons.append("vertex_attribute_overflow")
     if int(record.get("vertex_binding_count", 0)) != 1:
         reasons.append("vertex_binding_count_not_one")
     if int(record.get("texture_fetch_count", 0)) > 1:
@@ -155,8 +157,29 @@ def select(census_paths: list[Path], shader_manifest_path: Path) -> dict[str, An
                 "vertex_specialization_mask": vertex_specialization,
                 "pixel_specialization_mask": pixel_specialization,
                 "primitive": sample.get("primitive"),
+                "indexed": boolean(sample, "indexed"),
+                "source_select": int(sample.get("source_select", 0)),
+                "index_count_min": min(
+                    int(record.get("index_count_min", 0)) for record in records
+                ),
+                "index_count_max": max(
+                    int(record.get("index_count_max", 0)) for record in records
+                ),
                 "index_state": sample.get("index_state"),
+                "index_buffer_address": sample.get("index_buffer_address"),
+                "index_buffer_length_min": min(
+                    int(record.get("index_buffer_length_min", 0))
+                    for record in records
+                ),
+                "vertex_index_range": sample.get("vertex_index_range"),
+                "vertex_binding_count": int(
+                    sample.get("vertex_binding_count", 0)
+                ),
                 "vertex_fetches": sample.get("vertex_fetches"),
+                "vertex_attribute_count": int(
+                    sample.get("vertex_attribute_count", 0)
+                ),
+                "vertex_attributes": sample.get("vertex_attributes"),
                 "texture_fetch_count": int(sample.get("texture_fetch_count", 0)),
                 "pipeline_state": sample.get("pipeline_state"),
                 "qualification": "metadata_shortlist_only",

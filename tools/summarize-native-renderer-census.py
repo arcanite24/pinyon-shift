@@ -182,6 +182,18 @@ def summarize(
                 record["last_frame"] = str(
                     max(integer(record, "last_frame"), integer(event, "last_frame"))
                 )
+                for field in ("index_count_min", "index_buffer_length_min"):
+                    if field in record and field in event:
+                        record[field] = str(
+                            min(integer(record, field), integer(event, field))
+                        )
+                if "index_count_max" in record and "index_count_max" in event:
+                    record["index_count_max"] = str(
+                        max(
+                            integer(record, "index_count_max"),
+                            integer(event, "index_count_max"),
+                        )
+                    )
         elif kind == f"{PREFIX}prepared_shader_pair":
             key = (
                 str(event["vertex_shader"]),

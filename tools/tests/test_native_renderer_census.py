@@ -93,6 +93,20 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "draws": "12",
                 "first_frame": "1",
                 "last_frame": "100",
+                "index_count_min": "6",
+                "index_count_max": "12",
+                "index_buffer_length_min": "24",
+            },
+            {
+                "event": "native_renderer.census.draw_candidate",
+                "session": "new",
+                "signature": "CANDIDATE",
+                "draws": "8",
+                "first_frame": "101",
+                "last_frame": "200",
+                "index_count_min": "3",
+                "index_count_max": "18",
+                "index_buffer_length_min": "20",
             },
             {
                 "event": "native_renderer.census.prepared_shader_pair",
@@ -147,6 +161,12 @@ class NativeRendererCensusTests(unittest.TestCase):
         self.assertEqual(100, result["totals"]["draws"])
         self.assertEqual(7, result["totals"]["resolves"])
         self.assertEqual("CANDIDATE", result["draw_candidates"][0]["signature"])
+        self.assertEqual("20", result["draw_candidates"][0]["draws"])
+        self.assertEqual("3", result["draw_candidates"][0]["index_count_min"])
+        self.assertEqual("18", result["draw_candidates"][0]["index_count_max"])
+        self.assertEqual(
+            "20", result["draw_candidates"][0]["index_buffer_length_min"]
+        )
         self.assertEqual(
             "AAAAAAAAAAAAAAAA",
             result["prepared_shader_pairs"][0]["vertex_specialization_mask"],
