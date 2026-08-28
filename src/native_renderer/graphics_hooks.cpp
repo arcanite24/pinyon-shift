@@ -61,6 +61,8 @@ struct DrawSignatureEntry {
   uint32_t min_index_count = 0;
   uint32_t max_index_count = 0;
   uint32_t min_index_buffer_length = 0;
+  uint64_t vertex_specialization_mask = 0;
+  uint64_t pixel_specialization_mask = 0;
   bool samples_resolved_target = false;
   rex::system::GraphicsDrawObservation sample;
 };
@@ -86,7 +88,17 @@ std::array<PreparedShaderPairEntry, kPreparedShaderPairCapacity>
     g_prepared_shader_pairs{};
 uint64_t g_prepared_shader_pair_count = 0;
 uint64_t g_prepared_shader_pair_overflow = 0;
+uint64_t g_candidate_unprepared_draw_count = 0;
+uint64_t g_candidate_prepared_without_observation_count = 0;
 bool g_graphics_census_installed = false;
+
+struct PendingCandidateObservation {
+  rex::system::GraphicsDrawObservation sample;
+  bool samples_resolved_target = false;
+  bool valid = false;
+};
+
+thread_local PendingCandidateObservation g_pending_candidate;
 
 struct ResolveTargetEntry {
   uint32_t address = 0;
@@ -150,6 +162,9 @@ void ResetPreparedShaderPairs() {
               sizeof(g_prepared_shader_pairs));
   g_prepared_shader_pair_count = 0;
   g_prepared_shader_pair_overflow = 0;
+  g_candidate_unprepared_draw_count = 0;
+  g_candidate_prepared_without_observation_count = 0;
+  g_pending_candidate.valid = false;
 }
 
 void ResetDependencyCensus() {
@@ -508,9 +523,13 @@ DrawSignature(const rex::system::GraphicsDrawObservation &observation) {
 
 uint64_t
 CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
-                   bool samples_resolved_target) {
+                   bool samples_resolved_target,
+                   const rex::system::GraphicsPreparedDrawObservation
+                       &prepared) {
   uint64_t hash = DrawSignature(observation);
-  for (uint64_t value : {uint64_t(observation.index_format),
+  for (uint64_t value : {prepared.vertex_specialization_mask,
+                         prepared.pixel_specialization_mask,
+                         uint64_t(observation.index_format),
                          uint64_t(observation.index_endianness),
                          uint64_t(observation.vertex_index_offset),
                          uint64_t(observation.vertex_index_min),
@@ -603,8 +622,23 @@ bool IsOpaqueColorState(
   return writes_color;
 }
 
+void RecordCandidate(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared);
+
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
+  if (!g_pending_candidate.valid) {
+    ++g_candidate_prepared_without_observation_count;
+  } else {
+    auto sample = g_pending_candidate.sample;
+    sample.vertex_shader_hash = observation.vertex_shader_hash;
+    sample.pixel_shader_hash = observation.pixel_shader_hash;
+    RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
+                    observation);
+    g_pending_candidate.valid = false;
+  }
   uint64_t identity = 0xCBF29CE484222325ull;
   for (uint64_t value :
        {observation.vertex_shader_hash, observation.pixel_shader_hash,
@@ -730,6 +764,10 @@ void EmitCandidateCensusWindow(uint64_t last_frame_value) {
          {"last_frame", std::to_string(entry.last_frame)},
          {"vertex_shader", fmt::format("{:016X}", sample.vertex_shader_hash)},
          {"pixel_shader", fmt::format("{:016X}", sample.pixel_shader_hash)},
+         {"vertex_specialization_mask",
+          fmt::format("{:016X}", entry.vertex_specialization_mask)},
+         {"pixel_specialization_mask",
+          fmt::format("{:016X}", entry.pixel_specialization_mask)},
          {"primitive", std::to_string(sample.primitive_type)},
          {"source_select", std::to_string(sample.source_select)},
          {"index_count_min", std::to_string(entry.min_index_count)},
@@ -1020,11 +1058,13 @@ void ObserveResolvedFetch(
   }
 }
 
-void RecordCandidate(const rex::system::GraphicsDrawObservation &observation,
-                     bool samples_resolved_target) {
+void RecordCandidate(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
   ++g_candidate_census.window_draw_count;
   const uint64_t signature =
-      CandidateSignature(observation, samples_resolved_target);
+      CandidateSignature(observation, samples_resolved_target, prepared);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_candidate_census.entries[index];
@@ -1036,6 +1076,9 @@ void RecordCandidate(const rex::system::GraphicsDrawObservation &observation,
       entry.min_index_count = observation.index_count;
       entry.max_index_count = observation.index_count;
       entry.min_index_buffer_length = observation.index_buffer_length;
+      entry.vertex_specialization_mask =
+          prepared.vertex_specialization_mask;
+      entry.pixel_specialization_mask = prepared.pixel_specialization_mask;
       entry.samples_resolved_target = samples_resolved_target;
       entry.sample = observation;
       ++g_candidate_census.unique_signature_count;
@@ -1101,7 +1144,12 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
 
   ++g_draw_census.window_draw_count;
   const bool samples_resolved_target = sampled_target_count != 0;
-  RecordCandidate(observation, samples_resolved_target);
+  if (g_pending_candidate.valid) {
+    ++g_candidate_unprepared_draw_count;
+  }
+  g_pending_candidate.sample = observation;
+  g_pending_candidate.samples_resolved_target = samples_resolved_target;
+  g_pending_candidate.valid = true;
   const uint64_t signature = DrawSignature(observation);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
@@ -1169,11 +1217,19 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);
   }
+  if (g_pending_candidate.valid) {
+    ++g_candidate_unprepared_draw_count;
+    g_pending_candidate.valid = false;
+  }
   EmitDependencyCensusWindow();
   diagnostics::RecordEvent(
       "native_renderer.census.prepared_shader_pair_summary",
       {{"pairs", std::to_string(g_prepared_shader_pair_count)},
        {"overflow", std::to_string(g_prepared_shader_pair_overflow)},
+       {"candidate_unprepared_draws",
+        std::to_string(g_candidate_unprepared_draw_count)},
+       {"candidate_prepared_without_observation",
+        std::to_string(g_candidate_prepared_without_observation_count)},
        {"capacity", std::to_string(kPreparedShaderPairCapacity)},
        {"mode", "pass_through"}});
 }

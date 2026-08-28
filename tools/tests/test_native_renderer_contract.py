@@ -325,6 +325,16 @@ class NativeRendererContractTests(unittest.TestCase):
             prepared_patch.index("// Update the textures"),
         )
         self.assertNotIn("SetDrawSuppression", prepared_patch)
+        self.assertIn("g_pending_candidate.sample = observation;", source)
+        self.assertIn(
+            "sample.vertex_shader_hash = observation.vertex_shader_hash;",
+            source,
+        )
+        self.assertIn(
+            'fmt::format("{:016X}", entry.vertex_specialization_mask)',
+            source,
+        )
+        self.assertIn("candidate_prepared_without_observation", source)
 
         declaration_patch = (
             ROOT / "patches/rexglue/0053-graphics-vertex-declaration-observer.patch"

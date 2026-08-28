@@ -20,6 +20,8 @@ def signature(name: str, **overrides):
         "draws": "20",
         "vertex_shader": "1111111111111111",
         "pixel_shader": "2222222222222222",
+        "vertex_specialization_mask": "AAAAAAAAAAAAAAAA",
+        "pixel_specialization_mask": "BBBBBBBBBBBBBBBB",
         "primitive": "4",
         "source_select": "2",
         "index_count_min": "3",
