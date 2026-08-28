@@ -2,16 +2,21 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <type_traits>
 
 #include <fmt/format.h>
 #include <rex/cvar.h>
+#include <rex/graphics/xenos.h>
+#include <rex/memory.h>
 #include <rex/system/interfaces/graphics.h>
+#include <rex/system/kernel_state.h>
 
 #include "native_renderer/graphics_hooks.h"
 #include "pinyon_shift_diagnostics.h"
@@ -32,6 +37,10 @@ constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
 constexpr uint64_t kGuestPageSize = 4096;
+constexpr uint64_t kPhysicalApertureSize = UINT64_C(0x20000000);
+constexpr uint32_t kVertexIndexMask = 0x00FFFFFF;
+constexpr uint32_t kMaximumIndexScanCount = 1 << 20;
+constexpr uint64_t kMaximumIndexScanBytes = UINT64_C(4) << 20;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
@@ -51,6 +60,42 @@ std::string CensusSceneMarker() {
     return "invalid";
   }
   return marker;
+}
+
+struct IndexScanState {
+  uint64_t target_signature = 0;
+  bool requested = false;
+  bool completed = false;
+  bool valid = true;
+};
+
+IndexScanState g_index_scan;
+
+void ConfigureIndexScan() {
+  g_index_scan = {};
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string setting(value);
+  std::free(value);
+  g_index_scan.requested = true;
+  if (setting.size() != 16) {
+    g_index_scan.valid = false;
+    return;
+  }
+  const char *begin = setting.data();
+  const char *end = begin + setting.size();
+  const auto parsed =
+      std::from_chars(begin, end, g_index_scan.target_signature, 16);
+  if (parsed.ec != std::errc{} || parsed.ptr != end ||
+      !g_index_scan.target_signature) {
+    g_index_scan.valid = false;
+  }
 }
 
 struct DrawSignatureEntry {
@@ -174,6 +219,173 @@ void ResetDependencyCensus() {
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
   value += 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
   return hash ^ value;
+}
+
+void TryScanCandidateIndices(
+    const rex::system::GraphicsDrawObservation &observation,
+    uint64_t signature) {
+  if (!g_index_scan.requested || !g_index_scan.valid ||
+      g_index_scan.completed || signature != g_index_scan.target_signature) {
+    return;
+  }
+  g_index_scan.completed = true;
+
+  const auto reject = [&](const char *reason) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.index_scan",
+        {{"signature", fmt::format("{:016X}", signature)},
+         {"status", "rejected"},
+         {"reason", reason},
+         {"frame", std::to_string(observation.frame_sequence)},
+         {"draw", std::to_string(observation.draw_sequence)},
+         {"guest_payload_read", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  };
+
+  if (!observation.indexed ||
+      observation.source_select !=
+          uint32_t(rex::graphics::xenos::SourceSelect::kDMA)) {
+    reject("not_dma_indexed");
+    return;
+  }
+  if (observation.index_format > 1 || observation.index_endianness > 3) {
+    reject("unsupported_index_state");
+    return;
+  }
+  if (!observation.index_count ||
+      observation.index_count > kMaximumIndexScanCount) {
+    reject("index_count_out_of_bounds");
+    return;
+  }
+  if (observation.vertex_index_min > observation.vertex_index_max) {
+    reject("invalid_vertex_index_clamp");
+    return;
+  }
+  if (observation.vertex_binding_count != 1 ||
+      observation.vertex_binding_overflow) {
+    reject("unsupported_vertex_bindings");
+    return;
+  }
+
+  const uint32_t element_bytes = observation.index_format ? 4 : 2;
+  const uint64_t required_bytes =
+      uint64_t(observation.index_count) * element_bytes;
+  const uint64_t physical_address =
+      uint64_t(observation.index_buffer_address & 0x1FFFFFFF);
+  if (required_bytes > kMaximumIndexScanBytes ||
+      required_bytes > observation.index_buffer_length) {
+    reject("index_allocation_too_small");
+    return;
+  }
+  if (physical_address + required_bytes > kPhysicalApertureSize) {
+    reject("index_range_crosses_aperture");
+    return;
+  }
+  auto *kernel_state = rex::system::kernel_state();
+  if (!kernel_state || !kernel_state->memory()) {
+    reject("guest_memory_unavailable");
+    return;
+  }
+
+  const uint8_t *payload =
+      kernel_state->memory()->TranslatePhysical<const uint8_t *>(
+          observation.index_buffer_address);
+  auto endianness =
+      static_cast<rex::graphics::xenos::Endian>(observation.index_endianness);
+  if (!observation.index_format) {
+    if (endianness == rex::graphics::xenos::Endian::k8in32) {
+      endianness = rex::graphics::xenos::Endian::k8in16;
+    } else if (endianness == rex::graphics::xenos::Endian::k16in32) {
+      endianness = rex::graphics::xenos::Endian::kNone;
+    }
+  }
+
+  uint32_t decoded_minimum = std::numeric_limits<uint32_t>::max();
+  uint32_t decoded_maximum = 0;
+  uint32_t effective_minimum = std::numeric_limits<uint32_t>::max();
+  uint32_t effective_maximum = 0;
+  uint32_t non_reset_count = 0;
+  uint32_t reset_count = 0;
+  uint64_t decoded_hash = 0xCBF29CE484222325ull;
+  for (uint32_t i = 0; i < observation.index_count; ++i) {
+    uint32_t decoded = 0;
+    if (observation.index_format) {
+      std::memcpy(&decoded, payload + uint64_t(i) * element_bytes,
+                  sizeof(decoded));
+      decoded = rex::graphics::xenos::GpuSwap(decoded, endianness);
+    } else {
+      uint16_t decoded16 = 0;
+      std::memcpy(&decoded16, payload + uint64_t(i) * element_bytes,
+                  sizeof(decoded16));
+      decoded = rex::graphics::xenos::GpuSwap(decoded16, endianness);
+    }
+    decoded &= kVertexIndexMask;
+    decoded_hash = HashCombine(decoded_hash, decoded);
+    if (observation.index_reset_enabled &&
+        decoded == (observation.index_reset & kVertexIndexMask)) {
+      ++reset_count;
+      continue;
+    }
+    decoded_minimum = std::min(decoded_minimum, decoded);
+    decoded_maximum = std::max(decoded_maximum, decoded);
+    const uint32_t adjusted =
+        (decoded + observation.vertex_index_offset) & kVertexIndexMask;
+    const uint32_t effective = std::clamp(
+        adjusted, observation.vertex_index_min, observation.vertex_index_max);
+    effective_minimum = std::min(effective_minimum, effective);
+    effective_maximum = std::max(effective_maximum, effective);
+    ++non_reset_count;
+  }
+  if (!non_reset_count) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.index_scan",
+        {{"signature", fmt::format("{:016X}", signature)},
+         {"status", "empty_after_reset"},
+         {"frame", std::to_string(observation.frame_sequence)},
+         {"draw", std::to_string(observation.draw_sequence)},
+         {"index_count", std::to_string(observation.index_count)},
+         {"bytes_read", std::to_string(required_bytes)},
+         {"reset_count", std::to_string(reset_count)},
+         {"guest_payload_read", "bounded_index_only"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+    return;
+  }
+
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.census.index_scan",
+      {{"signature", fmt::format("{:016X}", signature)},
+       {"status", "scanned"},
+       {"frame", std::to_string(observation.frame_sequence)},
+       {"draw", std::to_string(observation.draw_sequence)},
+       {"index_count", std::to_string(observation.index_count)},
+       {"bytes_read", std::to_string(required_bytes)},
+       {"index_buffer_address",
+        fmt::format("{:08X}", observation.index_buffer_address)},
+       {"index_buffer_length", std::to_string(observation.index_buffer_length)},
+       {"index_format", std::to_string(observation.index_format)},
+       {"index_endianness", std::to_string(observation.index_endianness)},
+       {"index_reset_enabled",
+        observation.index_reset_enabled ? "true" : "false"},
+       {"index_reset", fmt::format("{:08X}", observation.index_reset)},
+       {"decoded_minimum", std::to_string(decoded_minimum)},
+       {"decoded_maximum", std::to_string(decoded_maximum)},
+       {"effective_minimum", std::to_string(effective_minimum)},
+       {"effective_maximum", std::to_string(effective_maximum)},
+       {"non_reset_count", std::to_string(non_reset_count)},
+       {"reset_count", std::to_string(reset_count)},
+       {"decoded_hash", fmt::format("{:016X}", decoded_hash)},
+       {"vertex_binding_address",
+        fmt::format("{:08X}", observation.vertex_bindings[0].address)},
+       {"vertex_binding_size",
+        std::to_string(observation.vertex_bindings[0].size)},
+       {"guest_payload_read", "bounded_index_only"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
 }
 
 uint64_t DrawStateHash(
@@ -1098,6 +1310,7 @@ void RecordCandidate(
   ++g_candidate_census.window_draw_count;
   const uint64_t signature =
       CandidateSignature(observation, samples_resolved_target, prepared);
+  TryScanCandidateIndices(observation, signature);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_candidate_census.entries[index];
@@ -1218,6 +1431,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   ResetDrawCensus();
   ResetPreparedShaderPairs();
   ResetDependencyCensus();
+  ConfigureIndexScan();
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
@@ -1235,6 +1449,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                             {"mode", "pass_through"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
+  diagnostics::RecordEvent(
+      "native_renderer.census.index_scan_config",
+      {{"status", !g_index_scan.requested
+                      ? "disabled"
+                      : (g_index_scan.valid ? "armed" : "invalid_signature")},
+       {"signature", g_index_scan.valid && g_index_scan.requested
+                         ? fmt::format("{:016X}", g_index_scan.target_signature)
+                         : ""},
+       {"maximum_index_count", std::to_string(kMaximumIndexScanCount)},
+       {"maximum_bytes", std::to_string(kMaximumIndexScanBytes)},
+       {"mode", "bounded_diagnostic_read"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
@@ -1255,6 +1480,16 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     g_pending_candidate.valid = false;
   }
   EmitDependencyCensusWindow();
+  if (g_index_scan.requested && g_index_scan.valid && !g_index_scan.completed) {
+    diagnostics::RecordEvent(
+        "native_renderer.census.index_scan",
+        {{"signature", fmt::format("{:016X}", g_index_scan.target_signature)},
+         {"status", "not_observed"},
+         {"guest_payload_read", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
   diagnostics::RecordEvent(
       "native_renderer.census.prepared_shader_pair_summary",
       {{"pairs", std::to_string(g_prepared_shader_pair_count)},

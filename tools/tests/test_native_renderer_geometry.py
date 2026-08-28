@@ -37,6 +37,34 @@ def selection(**overrides):
     return {"schema": MODULE.SELECTION_SCHEMA, "candidates": [candidate]}
 
 
+def index_census(decoded_hash="0123456789ABCDEF"):
+    return {
+        "schema": MODULE.CENSUS_SCHEMA,
+        "index_scans": [
+            {
+                "signature": "E184D75768958828",
+                "status": "scanned",
+                "index_count": "3",
+                "bytes_read": "6",
+                "index_buffer_address": "E0180000",
+                "index_buffer_length": "6",
+                "index_format": "0",
+                "index_endianness": "2",
+                "index_reset_enabled": "false",
+                "index_reset": "0000FFFF",
+                "decoded_minimum": "0",
+                "decoded_maximum": "2",
+                "effective_minimum": "0",
+                "effective_maximum": "2",
+                "non_reset_count": "3",
+                "reset_count": "0",
+                "decoded_hash": decoded_hash,
+                "vertex_binding_size": "120",
+            }
+        ],
+    }
+
+
 class NativeRendererGeometryTests(unittest.TestCase):
     def test_decodes_every_pinned_xenos_vertex_format_word_shape(self):
         expected = {
@@ -135,6 +163,29 @@ class NativeRendererGeometryTests(unittest.TestCase):
         document["candidates"][0]["indexed"] = True
         with self.assertRaisesRegex(ValueError, "index fetch needs 6 bytes, has 5"):
             MODULE.build(document)
+
+    def test_validates_repeatable_bounded_index_scan(self):
+        document = deepcopy(selection())
+        document["candidates"][0]["indexed"] = True
+
+        result = MODULE.build(document, index_censuses=[index_census(), index_census()])
+
+        self.assertEqual("bounded_index_scan", result["bounds"]["status"])
+        self.assertTrue(result["bounds"]["validated"])
+        self.assertEqual(2, result["bounds"]["scan_captures"])
+        self.assertEqual(104, result["bounds"]["required_vertex_bytes"])
+        self.assertTrue(result["safety"]["guest_payload_read"])
+        self.assertEqual("bounded_index_only", result["safety"]["guest_payload_scope"])
+        self.assertFalse(result["safety"]["native_draw"])
+
+    def test_rejects_index_payload_drift(self):
+        document = deepcopy(selection())
+        document["candidates"][0]["indexed"] = True
+        with self.assertRaisesRegex(ValueError, "changed across captures"):
+            MODULE.build(
+                document,
+                index_censuses=[index_census(), index_census("FEDCBA9876543210")],
+            )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from typing import Any
 
 
 SELECTION_SCHEMA = "pinyon-shift.native-renderer-candidate-selection.v1"
+CENSUS_SCHEMA = "pinyon-shift.native-renderer-census.v1"
 SCHEMA = "pinyon-shift.native-geometry-contract.v1"
 PHYSICAL_MASK = 0x1FFFFFFF
 VERTEX_INDEX_MASK = 0xFFFFFF
@@ -164,7 +165,11 @@ def select_candidate(document: dict[str, Any], signature: str | None) -> dict[st
     return candidates[0]
 
 
-def build(document: dict[str, Any], signature: str | None = None) -> dict[str, Any]:
+def build(
+    document: dict[str, Any],
+    signature: str | None = None,
+    index_censuses: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     candidate = select_candidate(document, signature)
     if int(candidate.get("vertex_binding_count", 0)) != 1:
         raise ValueError("initial geometry contract requires exactly one vertex binding")
@@ -300,11 +305,100 @@ def build(document: dict[str, Any], signature: str | None = None) -> dict[str, A
             "available_bytes": index_buffer_length,
             "required_bytes_before_scan": required_index_bytes,
         }
-        bounds = {
-            "status": "requires_index_scan",
-            "validated": False,
-            "reason": "index payload is intentionally outside this metadata-only PR",
-        }
+        if not index_censuses:
+            bounds = {
+                "status": "requires_index_scan",
+                "validated": False,
+                "reason": "no bounded index-scan evidence was supplied",
+            }
+        else:
+            if len(index_censuses) < 2:
+                raise ValueError("indexed qualification requires two scan captures")
+            scans = []
+            for census in index_censuses:
+                if census.get("schema") != CENSUS_SCHEMA:
+                    raise ValueError("unsupported index census schema")
+                matching = [
+                    scan
+                    for scan in census.get("index_scans", [])
+                    if scan.get("signature") == candidate.get("signature")
+                    and scan.get("status") == "scanned"
+                ]
+                if len(matching) != 1:
+                    raise ValueError(
+                        "each index census must contain one successful candidate scan"
+                    )
+                scans.append(matching[0])
+            for scan in scans:
+                scan_count = int(scan.get("index_count", 0))
+                scan_bytes = int(scan.get("bytes_read", 0))
+                scan_length = int(scan.get("index_buffer_length", 0))
+                scan_address = int(str(scan.get("index_buffer_address", "0")), 16)
+                if scan_count < int(candidate.get("index_count_min", 0)) or (
+                    scan_count > index_count_max
+                ):
+                    raise ValueError("index scan count is outside candidate observations")
+                if int(scan.get("index_format", -1)) != index_format or int(
+                    scan.get("index_endianness", -1)
+                ) != index_endianness:
+                    raise ValueError("index scan state disagrees with the candidate")
+                if scan_bytes != scan_count * index_element_bytes:
+                    raise ValueError("index scan byte count is inconsistent")
+                if scan_bytes > scan_length:
+                    raise ValueError("index scan exceeded its observed allocation")
+                scan_physical_address = scan_address & PHYSICAL_MASK
+                if scan_physical_address + scan_bytes > PHYSICAL_MASK + 1:
+                    raise ValueError("index scan crosses the physical aperture")
+                effective_minimum = int(scan.get("effective_minimum", -1))
+                effective_maximum = int(scan.get("effective_maximum", -1))
+                if (
+                    int(scan.get("non_reset_count", 0)) <= 0
+                    or effective_minimum < minimum
+                    or effective_maximum > maximum
+                    or effective_maximum < effective_minimum
+                ):
+                    raise ValueError("index scan has invalid effective bounds")
+                if int(scan.get("vertex_binding_size", 0)) != fetch["size_bytes"]:
+                    raise ValueError("index scan vertex allocation changed")
+            stable_fields = (
+                "decoded_minimum",
+                "decoded_maximum",
+                "effective_minimum",
+                "effective_maximum",
+                "non_reset_count",
+                "reset_count",
+                "decoded_hash",
+                "index_reset_enabled",
+                "index_reset",
+            )
+            if any(
+                scan.get(field) != scans[0].get(field)
+                for scan in scans[1:]
+                for field in stable_fields
+            ):
+                raise ValueError("index payload or reset state changed across captures")
+            maximum_vertex = int(scans[0]["effective_maximum"])
+            required_vertex_bytes = maximum_vertex * stride_bytes + maximum_extent
+            if required_vertex_bytes > fetch["size_bytes"]:
+                raise ValueError(
+                    f"scanned vertex fetch needs {required_vertex_bytes} bytes, "
+                    f"has {fetch['size_bytes']}"
+                )
+            bounds = {
+                "status": "bounded_index_scan",
+                "validated": True,
+                "scan_captures": len(scans),
+                "decoded_minimum": int(scans[0]["decoded_minimum"]),
+                "decoded_maximum": int(scans[0]["decoded_maximum"]),
+                "effective_minimum": int(scans[0]["effective_minimum"]),
+                "effective_maximum": maximum_vertex,
+                "non_reset_count": int(scans[0]["non_reset_count"]),
+                "reset_count": int(scans[0]["reset_count"]),
+                "decoded_hash": scans[0]["decoded_hash"],
+                "maximum_attribute_extent_bytes": maximum_extent,
+                "required_vertex_bytes": required_vertex_bytes,
+                "available_vertex_bytes": fetch["size_bytes"],
+            }
     else:
         if index_count_max < 0:
             raise ValueError("index count must not be negative")
@@ -365,7 +459,10 @@ def build(document: dict[str, Any], signature: str | None = None) -> dict[str, A
         "attributes": attributes,
         "bounds": bounds,
         "safety": {
-            "guest_payload_read": False,
+            "guest_payload_read": indexed and bool(index_censuses),
+            "guest_payload_scope": (
+                "bounded_index_only" if indexed and index_censuses else "none"
+            ),
             "native_upload": False,
             "native_draw": False,
             "suppression_allowed": False,
@@ -378,6 +475,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("selection", type=Path)
     parser.add_argument("--signature")
+    parser.add_argument("--index-census", nargs="+", type=Path)
     parser.add_argument("--output", "-o", type=Path)
     return parser.parse_args()
 
@@ -385,7 +483,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     document = json.loads(args.selection.read_text(encoding="utf-8"))
-    rendered = json.dumps(build(document, args.signature), indent=2) + "\n"
+    index_censuses = (
+        [json.loads(path.read_text(encoding="utf-8")) for path in args.index_census]
+        if args.index_census
+        else None
+    )
+    rendered = json.dumps(
+        build(document, args.signature, index_censuses), indent=2
+    ) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")
     else:
