@@ -3,7 +3,9 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
+#include <type_traits>
 
 #include <fmt/format.h>
 #include <rex/cvar.h>
@@ -95,6 +97,17 @@ struct DependencyCensus {
 };
 
 DependencyCensus g_dependency_census;
+
+static_assert(std::is_trivially_copyable_v<DrawCensus>);
+static_assert(std::is_trivially_copyable_v<DependencyCensus>);
+
+void ResetDrawCensus() {
+  std::memset(&g_draw_census, 0, sizeof(g_draw_census));
+}
+
+void ResetDependencyCensus() {
+  std::memset(&g_dependency_census, 0, sizeof(g_dependency_census));
+}
 
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
   value += 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
@@ -412,7 +425,7 @@ void EmitDrawCensusWindow(uint64_t last_frame_value) {
          {"flags", flags}});
   }
 
-  g_draw_census = {};
+  ResetDrawCensus();
 }
 
 void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
@@ -593,8 +606,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
   if (!graphics_system || !REXCVAR_GET(pinyon_shift_native_renderer_census)) {
     return;
   }
-  g_draw_census = {};
-  g_dependency_census = {};
+  ResetDrawCensus();
+  ResetDependencyCensus();
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
   const std::string capacity = std::to_string(kSignatureCapacity);

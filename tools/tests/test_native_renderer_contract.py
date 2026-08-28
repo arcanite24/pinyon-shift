@@ -6,6 +6,21 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererContractTests(unittest.TestCase):
+    def test_census_storage_is_reset_without_large_stack_temporaries(self) -> None:
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("g_draw_census = {};", source)
+        self.assertNotIn("g_dependency_census = {};", source)
+        self.assertIn(
+            "std::memset(&g_draw_census, 0, sizeof(g_draw_census));", source
+        )
+        self.assertIn(
+            "std::memset(&g_dependency_census, 0, sizeof(g_dependency_census));",
+            source,
+        )
+
     def test_graphics_hook_has_one_pass_through_owner(self):
         analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
             encoding="utf-8"
