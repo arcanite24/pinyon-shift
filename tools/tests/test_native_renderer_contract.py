@@ -26,12 +26,59 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("kFrameSummaryInterval = 300", source)
         self.assertIn("kSignatureCapacity = 4096", source)
         self.assertIn("kSummaryLimit = 16", source)
+        self.assertIn("kResolveTargetCapacity = 4096", source)
+        self.assertIn("kResolvePageCapacity = 32768", source)
+        self.assertIn("kResolveSummaryLimit = 32", source)
         self.assertIn("unique_signature_count", source)
         self.assertIn("overflow_draw_count", source)
         self.assertIn("kRequiresRestart", source)
         self.assertIn('"mode", "pass_through"', source)
         self.assertNotIn("REX_STORE", source)
         self.assertNotIn("GuestPtr", source)
+
+    def test_resolve_dependency_observer_is_passive_and_payload_free(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0045-graphics-resolve-dependency-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsCopyObservation", patch)
+        self.assertIn("GraphicsCopyObserver", patch)
+        self.assertIn("texture_fetch_addresses", patch)
+        self.assertIn("texture_fetch_mip_addresses", patch)
+        self.assertIn("copy_observer(observation);", patch)
+        self.assertLess(
+            patch.index("copy_succeeded = render_target_cache_->Resolve"),
+            patch.index("copy_observer(observation);"),
+        )
+        for forbidden in (
+            "shader_code",
+            "texture_data",
+            "render_target_data",
+            "vertex_data",
+            "payload",
+            "suppress",
+        ):
+            self.assertNotIn(forbidden, patch)
+
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"native_renderer.census.resolve_dependency"', source)
+        self.assertIn('"unknown_uninstrumented"', source)
+        self.assertIn('{"suppression_eligible", "false"}', source)
+        self.assertIn("page_count > bounded_page_count", source)
+        self.assertNotIn("REX_STORE", source)
+
+    def test_dependency_ledger_keeps_gate_b_closed(self):
+        ledger = (
+            ROOT / "docs/native-renderer/GUEST_VISIBLE_RENDER_DEPENDENCIES.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("No render target is suppression-eligible yet.", ledger)
+        self.assertIn("Gate B remains closed", ledger)
+        self.assertIn("unknown_uninstrumented", ledger)
+        self.assertIn("unknown_unclassified", ledger)
+        self.assertIn("capture-native-renderer-census.ps1", ledger)
+        self.assertIn("summarize-native-renderer-census.py", ledger)
 
     def test_draw_observer_is_read_only_and_contains_no_payload(self):
         patch = (ROOT / "patches/rexglue/0044-graphics-draw-observer.patch").read_text(
@@ -65,11 +112,18 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("observation.source_select", signature)
         self.assertNotIn("observation.initiator", signature)
 
-    def test_first_pr_has_no_native_renderer_or_suppression_api(self):
+    def test_census_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
         )
-        forbidden = ("native_rhi", "NativeRHI", "IssueDraw", "IssueCopy", "suppress")
+        forbidden = (
+            "native_rhi",
+            "NativeRHI",
+            "IssueDraw",
+            "IssueCopy",
+            "SetDrawSuppression",
+            "SetCopySuppression",
+        )
         for token in forbidden:
             self.assertNotIn(token, source)
 

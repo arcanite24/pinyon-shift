@@ -8,7 +8,7 @@ a trace or disassembly proves them.
 
 - Pinyon Shift `dev`: `cafc7233fef9e039f163d11023f40eccb22e8fc1`
 - ReXGlue: `v0.10.0` at `f5337cdc947ff6d4c4196737e2c807a48f2a1fc2`
-- ReXGlue patch stack: `0001` through `0044`
+- ReXGlue patch stack: `0001` through `0045`
 - `default.xex` SHA-256:
   `DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C`
 
@@ -89,5 +89,8 @@ read or serialize guest memory.
 - Map high-level world, vehicle, road, HUD, garage, mirror, shadow, exposure,
   livery, thumbnail, and rewind dispatch families.
 
-Bounded draw metadata, resolve dependencies, and pass classification belong to
-the subsequent NR-00 pull requests. Unknown work stays on Xenos.
+Resolve-to-texture dependency tracking is documented in
+`GUEST_VISIBLE_RENDER_DEPENDENCIES.md`. Pass classification, CPU-read
+observation, and presentation provenance remain subsequent NR-00 work.
+
+Unknown work stays on Xenos.
