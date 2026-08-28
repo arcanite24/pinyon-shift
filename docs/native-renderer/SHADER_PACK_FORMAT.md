@@ -89,3 +89,32 @@ bounded sizes before any shader is exposed to a renderer.
   failed hash is explicit failure. The isolated NR-02 renderer yields and
   Xenos remains authoritative.
 - This package does not enable guest draw or resolve suppression.
+
+## NR-02A qualification
+
+Clean commit `5938136` built with all 49 ReXGlue patches and produced
+executable SHA-256
+`27163174F2180837FF7BCBDDA7028EA68275F70B2E38B7ED0B9B410E9107BC33`.
+All 68 repository tests passed, tracked Markdown links were valid, and the
+public-source boundary reported zero violations.
+
+The builder produced the same 212-byte one-entry qualification pack regardless
+of manifest order. Its SHA-256 was
+`BFB4A386B4F3840048088E186E55CC6AD534F6D3AB109DA2600B7572FD3390EE`,
+and an independent verify operation accepted every range and digest. Unit tests
+also rejected duplicate identities, mismatched hashes, path traversal,
+non-DXIL input, and content corruption.
+
+AppData-backed session `20260828T023642Z-p41636` loaded that pack and recorded
+one D3D12 entry while separately retaining Xenos output authority. Visual
+inspection confirmed the normal Xenos-rendered startup sequence. The session
+claimed no native frame, recorded no shader-pack failure, device removal, TDR,
+validation warning, resource-state warning, or presentation deadline miss, and
+exited normally. Presentation cadence was 59.994 Hz and simulation cadence was
+29.209 Hz.
+
+Recovery session `20260828T023747Z-p9136` selected a missing pack. It emitted
+exactly one sanitized `validation_failed` event with `fallback=xenos`, then
+recorded Xenos as output authority, claimed no native frame, and exited
+normally without another error signal. Neither qualification run changed or
+copied the AppData save.
