@@ -7,6 +7,9 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$PassAnchorSignature,
+    [string]$IsolatedDrawDir,
     [Parameter(Mandatory)]
     [string]$CaptureDir,
     [ValidateSet('open_world_day', 'open_world_night', 'garage', 'race')]
@@ -28,6 +31,20 @@ if (-not $resolvedCaptureDir.StartsWith(
 }
 if (Test-Path -LiteralPath $resolvedCaptureDir) {
     throw "CaptureDir already exists: $resolvedCaptureDir"
+}
+if ([bool]$PassAnchorSignature -xor [bool]$IsolatedDrawDir) {
+    throw 'PassAnchorSignature and IsolatedDrawDir must be supplied together.'
+}
+if ($IsolatedDrawDir) {
+    $resolvedIsolatedDrawDir = [IO.Path]::GetFullPath($IsolatedDrawDir)
+    if (-not $resolvedIsolatedDrawDir.StartsWith(
+            $localPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "IsolatedDrawDir must be below $localRoot"
+    }
+    if (Test-Path -LiteralPath $resolvedIsolatedDrawDir) {
+        throw "IsolatedDrawDir already exists: $resolvedIsolatedDrawDir"
+    }
+    $IsolatedDrawDir = $resolvedIsolatedDrawDir
 }
 
 $profile = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'user') `
@@ -64,6 +81,8 @@ $saved = @{
     census = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
     scene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
     draw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
+    draw_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
+    pass_anchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 }
 try {
     $env:PINYON_SHIFT_STATE_ROOT = $resolvedStateRoot
@@ -73,6 +92,13 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE =
         $IsolatedDrawSignature.ToUpperInvariant()
+    $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE =
+        if ($PassAnchorSignature) {
+            $PassAnchorSignature.ToUpperInvariant()
+        } else {
+            $null
+        }
     & $renderdoc capture -w `
         -d (Split-Path $executable -Parent) `
         -c (Join-Path $resolvedCaptureDir 'reference') `
@@ -88,6 +114,8 @@ finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $saved.census
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $saved.scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $saved.draw
+    $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $saved.draw_dir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $saved.pass_anchor
 }
 
 $captures = @(Get-ChildItem -LiteralPath $resolvedCaptureDir -File -Filter '*.rdc')

@@ -87,10 +87,35 @@ contains the expected sky and horizon phase prefix, the process exited normally
 with code zero, and the structured result retained `xenos_draw=preserved`,
 `output_authority=xenos`, and `suppression_eligible=false`.
 
-This qualifies the ordered phase shape, its two prepared signatures, and each
-draw's isolated replay path. NR-02F must next replay the ordered pair into one
-retained private target and compare the complete phase against Xenos. Until
-then, Xenos remains authoritative and suppression remains forbidden.
+## Retained-pass runtime result
+
+NR-02F now replays the ordered pair into one retained private target. The
+indexed anchor seeds and retains the isolated color and depth attachments; the
+immediately adjacent AutoIndex follower resumes those same attachments before
+the private target is released. Each original guest draw still executes.
+
+AppData-backed sessions `20260828T161429Z-p41368` and
+`20260828T162849Z-p8536` both recorded the complete pass. The latter recorded
+anchor draw 117 and follower draw 118 at frame 3,190, produced an asynchronous
+readback from the 640 by 8,192 private target, then recorded a second retained
+pair at draws 126 and 127 in the same frame. Both readback crops have SHA-256
+`AF82E49BAE46AA67B0255BC3B1B5120BA7F69205BB8526F1DB9F8ED151090150`,
+confirming deterministic output across the two runs. The crop contains the
+expected combined sky and horizon phase output. Both processes exited normally
+with code zero.
+
+The structured results report `draw_count=2`, `status=recorded`,
+`xenos_draw=preserved`, `output_authority=xenos`, and
+`suppression_eligible=false`. The one-shot repeat result also reports
+`status=recorded`, proving that the retained target can be recreated after the
+diagnostic readback for later frame-debugger runs.
+
+RenderDoc captures taken after the readback contained only the final 3840 by
+2160 presentation draw and no Pinyon marker regions; the metadata-only trace
+therefore cannot be used as a visual-equivalence result. A complete-pass Xenos
+image comparison remains an explicit gate before any suppression work. The
+runtime replay itself is qualified only as an isolated, default-off diagnostic.
+Xenos remains authoritative and suppression remains forbidden.
 
 Local evidence hashes:
 
@@ -99,7 +124,10 @@ Local evidence hashes:
 - derived inventory SHA-256:
   `9B71679E0971620D192054BC0216CFD3B6EC46668CDB56F224D0C69491CA25D0`;
 - two-run follower contract SHA-256:
-  `9F1CC53C8D7989EB3EC113D2215848EDA2D1DFD127D57C4F8BAA73A5DEB7923A`.
+  `9F1CC53C8D7989EB3EC113D2215848EDA2D1DFD127D57C4F8BAA73A5DEB7923A`;
+- retained-pass readback metadata SHA-256:
+  `B0C6395F5C8BD6294A54837C94E85536BFBEFA99E340DCDA5A8C442829E954CB`.
 
-The capture and derived reports remain under `.local/qualification` and
-`.local/native-renderer/pass-follower`.
+The capture and derived reports remain under `.local/qualification`,
+`.local/native-renderer/pass-follower`, and
+`.local/native-renderer/pass-replay`.

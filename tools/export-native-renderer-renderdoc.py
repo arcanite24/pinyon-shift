@@ -9,12 +9,19 @@ import hashlib
 import json
 import os
 import sys
+import traceback
 
 import renderdoc as rd
 
 
-ISOLATED_MARKER = "PinyonShift NR-02E isolated native draw"
-XENOS_MARKER = "PinyonShift NR-02E authoritative Xenos draw"
+ISOLATED_MARKER = os.environ.get(
+    "PINYON_SHIFT_RENDERDOC_NATIVE_MARKER",
+    "PinyonShift NR-02E isolated native draw",
+)
+XENOS_MARKER = os.environ.get(
+    "PINYON_SHIFT_RENDERDOC_XENOS_MARKER",
+    "PinyonShift NR-02E authoritative Xenos draw",
+)
 SCHEMA = "pinyon-shift.native-renderer-renderdoc-export.v1"
 
 
@@ -164,9 +171,17 @@ def main():
         isolated = [a for a in actions if a.customName == ISOLATED_MARKER]
         xenos = [a for a in actions if a.customName == XENOS_MARKER]
         if not isolated or not xenos:
+            available_markers = sorted(
+                set(
+                    a.customName
+                    for a in actions
+                    if a.customName and "PinyonShift" in a.customName
+                )
+            )
             raise RuntimeError(
-                "paired markers were not found (isolated={}, xenos={})".format(
-                    len(isolated), len(xenos)
+                "paired markers were not found (isolated={}, xenos={}); "
+                "available PinyonShift markers={}".format(
+                    len(isolated), len(xenos), available_markers
                 )
             )
 
@@ -208,5 +223,13 @@ def main():
 try:
     sys.exit(main())
 except Exception as error:
-    sys.stderr.write("native renderer RenderDoc export failed: {}\n".format(error))
+    message = "native renderer RenderDoc export failed: {}\n{}".format(
+        error, traceback.format_exc()
+    )
+    output_dir = os.environ.get("PINYON_SHIFT_RENDERDOC_EXPORT_DIR")
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "renderdoc-export-error.txt"), "w") as output:
+            output.write(message)
+    sys.stderr.write(message)
     sys.exit(1)

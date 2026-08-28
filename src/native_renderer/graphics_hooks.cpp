@@ -108,6 +108,8 @@ struct IsolatedDrawState {
   uint64_t captured_signature = 0;
   uint64_t captured_frame = 0;
   uint64_t captured_draw = 0;
+  uint64_t pass_anchor_frame = 0;
+  uint64_t pass_anchor_draw = 0;
   std::filesystem::path output_root;
   std::jthread artifact_writer;
   bool requested = false;
@@ -116,6 +118,9 @@ struct IsolatedDrawState {
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  bool awaiting_pass_follower = false;
+  bool pass_anchor_recorded = false;
+  bool pass_repeat_reported = false;
 };
 
 IsolatedDrawState g_isolated_draw;
@@ -2120,12 +2125,153 @@ void CompleteIsolatedDraw(
        {"suppression_eligible", "false"}});
 }
 
+void CompleteIsolatedPassAnchor(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  g_isolated_draw.pass_anchor_recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  const char *status = g_isolated_draw.pass_anchor_recorded
+                           ? "recorded"
+                           : (result.status == rex::system::
+                                                   GraphicsIsolatedDrawStatus::
+                                                       kTargetCreationFailed
+                                  ? "target_creation_failed"
+                                  : "unsupported_state");
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.isolated_pass.stage",
+      {{"anchor_signature",
+        fmt::format("{:016X}", g_pass_follower.target_signature)},
+       {"follower_signature",
+        fmt::format("{:016X}", g_isolated_draw.target_signature)},
+       {"stage", "anchor"},
+       {"status", status},
+       {"frame", std::to_string(g_isolated_draw.pass_anchor_frame)},
+       {"draw", std::to_string(g_isolated_draw.pass_anchor_draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
+void CompleteIsolatedPassFollower(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  if (recorded) {
+    g_isolated_draw.completed = true;
+  }
+  const char *status = recorded
+                           ? "recorded"
+                           : (result.status == rex::system::
+                                                   GraphicsIsolatedDrawStatus::
+                                                       kTargetCreationFailed
+                                  ? "target_creation_failed"
+                                  : "unsupported_state");
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.isolated_pass.result",
+      {{"anchor_signature",
+        fmt::format("{:016X}", g_pass_follower.target_signature)},
+       {"follower_signature",
+        fmt::format("{:016X}", g_isolated_draw.target_signature)},
+       {"status", status},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"anchor_draw", std::to_string(g_isolated_draw.pass_anchor_draw)},
+       {"follower_draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"draw_count", recorded ? "2" : "0"},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"native_draw", recorded ? "isolated_pass" : "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
+void CompleteIsolatedPassRepeat(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  g_isolated_draw.pass_repeat_reported = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.isolated_pass.repeat",
+      {{"anchor_signature",
+        fmt::format("{:016X}", g_pass_follower.target_signature)},
+       {"follower_signature",
+        fmt::format("{:016X}", g_isolated_draw.target_signature)},
+       {"status", recorded ? "recorded" : "failed"},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"anchor_draw", std::to_string(g_isolated_draw.pass_anchor_draw)},
+       {"follower_draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
 void RequestIsolatedDraw(
     const rex::system::GraphicsPreparedDrawObservation &,
     rex::system::GraphicsIsolatedDrawRequest &request) {
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
-      !g_isolated_draw.prepared_candidate_valid ||
-      g_isolated_draw.prepared_signature != g_isolated_draw.target_signature) {
+      !g_isolated_draw.prepared_candidate_valid) {
+    return;
+  }
+  const bool pass_mode = g_pass_follower.requested &&
+                         g_pass_follower.valid &&
+                         g_pass_follower.target_signature !=
+                             g_isolated_draw.target_signature;
+  if (pass_mode) {
+    const uint64_t signature = g_isolated_draw.prepared_signature;
+    if (signature == g_pass_follower.target_signature) {
+      g_isolated_draw.awaiting_pass_follower = false;
+      g_isolated_draw.pass_anchor_recorded = false;
+      if (!g_isolated_draw.prepared_candidate_eligible) {
+        return;
+      }
+      g_isolated_draw.pass_anchor_frame = g_isolated_draw.frame;
+      g_isolated_draw.pass_anchor_draw = g_isolated_draw.draw;
+      g_isolated_draw.awaiting_pass_follower = true;
+      g_isolated_draw.pass_anchor_recorded = g_isolated_draw.completed;
+      request.requested = true;
+      request.retain_target = true;
+      request.reference_marker_requested = true;
+      request.completion = g_isolated_draw.completed
+                               ? nullptr
+                               : &CompleteIsolatedPassAnchor;
+      return;
+    }
+    if (!g_isolated_draw.awaiting_pass_follower) {
+      return;
+    }
+    const bool adjacent =
+        signature == g_isolated_draw.target_signature &&
+        g_isolated_draw.frame == g_isolated_draw.pass_anchor_frame &&
+        g_isolated_draw.draw == g_isolated_draw.pass_anchor_draw + 1;
+    g_isolated_draw.awaiting_pass_follower = false;
+    if (!adjacent || !g_isolated_draw.pass_anchor_recorded ||
+        !g_isolated_draw.prepared_candidate_eligible) {
+      return;
+    }
+    request.requested = true;
+    request.reuse_target = true;
+    request.reference_marker_requested = true;
+    if (!g_isolated_draw.completed) {
+      g_isolated_draw.captured_signature = signature;
+      g_isolated_draw.captured_frame = g_isolated_draw.frame;
+      g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      request.readback_requested = g_isolated_draw.readback_requested;
+      request.completion = &CompleteIsolatedPassFollower;
+      request.readback_completion = g_isolated_draw.readback_requested
+                                        ? &CompleteIsolatedDrawReadback
+                                        : nullptr;
+    } else if (!g_isolated_draw.pass_repeat_reported) {
+      g_isolated_draw.captured_frame = g_isolated_draw.frame;
+      g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      request.completion = &CompleteIsolatedPassRepeat;
+    }
+    return;
+  }
+  if (g_isolated_draw.prepared_signature !=
+      g_isolated_draw.target_signature) {
     return;
   }
   request.reference_marker_requested = true;
@@ -2616,6 +2762,14 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
         g_isolated_draw.valid && g_isolated_draw.requested
             ? fmt::format("{:016X}", g_isolated_draw.target_signature)
             : ""},
+       {"anchor_signature",
+        g_isolated_draw.valid && g_isolated_draw.requested &&
+                g_pass_follower.valid && g_pass_follower.requested
+            ? fmt::format("{:016X}", g_pass_follower.target_signature)
+            : ""},
+       {"mode", g_pass_follower.valid && g_pass_follower.requested
+                    ? "retained_pass"
+                    : "single_draw"},
        {"native_draw", "isolated_only"},
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
@@ -2699,9 +2853,15 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (g_isolated_draw.requested && g_isolated_draw.valid &&
       !g_isolated_draw.completed) {
     diagnostics::RecordEvent(
-        "native_renderer.isolated_draw.result",
-        {{"signature",
+        g_pass_follower.requested && g_pass_follower.valid
+            ? "native_renderer.isolated_pass.result"
+            : "native_renderer.isolated_draw.result",
+      {{"signature",
           fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"anchor_signature",
+          g_pass_follower.requested && g_pass_follower.valid
+              ? fmt::format("{:016X}", g_pass_follower.target_signature)
+              : ""},
          {"status", "not_observed"},
          {"native_draw", "false"},
          {"xenos_draw", "preserved"},
