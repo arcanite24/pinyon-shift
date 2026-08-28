@@ -143,7 +143,12 @@ diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/tex
 +        binding.normalized_fixed_point = false;
 +        break;
 +      default:
-+        binding.normalized_fixed_point = fetch.num_format == 0;
++        // Keep the Xenos Q16 point-sample behavior scoped to unsigned fixed
++        // fetches. Signed, biased, gamma and mixed-sign fetches may use the
++        // same num_format encoding but have different conversion semantics.
++        binding.normalized_fixed_point =
++            fetch.num_format == 0 &&
++            binding.swizzled_signs == kSwizzledSignsUnsigned;
 +        break;
 +    }
      texture_bindings_in_sync_ |= index_bit;

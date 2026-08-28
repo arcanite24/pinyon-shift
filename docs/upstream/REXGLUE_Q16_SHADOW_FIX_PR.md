@@ -108,15 +108,9 @@ patches/rexglue/0038-round-normalized-point-samples-to-xenos-q16.patch
 
 ### Visual evidence
 
-The captures below use the same open-world route, chase camera, vehicle, and
-gameplay presentation. The unpatched renderer produces a large dark/striped
-texture under the moving vehicle; with this patch, that texture is absent while
-the expected vehicle shadow remains.
-
-Before (unpatched):
-
-![Before: dark striped under-car texture artifact](assets/forza-horizon-shadow-artifact-before.png)
-
-After (patched):
-
-![After: expected vehicle shadow without the under-car texture artifact](assets/forza-horizon-shadow-artifact-after.png)
+The before/after captures use the same open-world route, chase camera, vehicle,
+and gameplay presentation. They are attached to the pull request rather than
+stored in this repository, keeping the public source tree free of game captures.
+The unpatched renderer produces a large dark/striped texture under the moving
+vehicle; with this patch, that texture is absent while the expected vehicle
+shadow remains.
