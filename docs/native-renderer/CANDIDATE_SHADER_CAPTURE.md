@@ -83,3 +83,5 @@ copied the AppData save.
 This closes the local extraction/translation prerequisite for NR-02. Selecting
 one stable candidate shader pair still depends on a scene-specific draw census;
 geometry, constants, resources, and PSO state remain NR-02B through NR-02D.
+The bounded repeated-capture workflow is defined in
+[`CANDIDATE_DRAW_SELECTION.md`](CANDIDATE_DRAW_SELECTION.md).

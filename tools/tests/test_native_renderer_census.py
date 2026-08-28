@@ -87,6 +87,22 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "overflow_draws": "0",
             },
             {
+                "event": "native_renderer.census.draw_candidate",
+                "session": "new",
+                "signature": "CANDIDATE",
+                "draws": "12",
+                "first_frame": "1",
+                "last_frame": "100",
+            },
+            {
+                "event": "native_renderer.census.prepared_shader_pair",
+                "session": "new",
+                "vertex_shader": "1111111111111111",
+                "pixel_shader": "2222222222222222",
+                "vertex_specialization_mask": "AAAAAAAAAAAAAAAA",
+                "pixel_specialization_mask": "BBBBBBBBBBBBBBBB",
+            },
+            {
                 "event": "native_renderer.census.resolve_window",
                 "session": "new",
                 "resolves": "7",
@@ -130,6 +146,11 @@ class NativeRendererCensusTests(unittest.TestCase):
         self.assertEqual("new", result["session"])
         self.assertEqual(100, result["totals"]["draws"])
         self.assertEqual(7, result["totals"]["resolves"])
+        self.assertEqual("CANDIDATE", result["draw_candidates"][0]["signature"])
+        self.assertEqual(
+            "AAAAAAAAAAAAAAAA",
+            result["prepared_shader_pairs"][0]["vertex_specialization_mask"],
+        )
         self.assertEqual("7", result["resolve_dependencies"][0]["resolves"])
         self.assertFalse(result["safety"]["suppression_allowed"])
 

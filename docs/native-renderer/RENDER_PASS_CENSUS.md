@@ -96,3 +96,8 @@ CPU-read observation, and presentation provenance remain subsequent NR-00
 work.
 
 Unknown work stays on Xenos.
+
+Candidate-specific index, vertex-layout, blend, depth, and raster metadata is
+documented in [`CANDIDATE_DRAW_SELECTION.md`](CANDIDATE_DRAW_SELECTION.md).
+It is a local NR-02 shortlist only and does not change the NR-00 classifier or
+open Gate B.

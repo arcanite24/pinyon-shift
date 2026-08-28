@@ -134,6 +134,8 @@ def summarize(
     scene = str(marker_events[-1].get("scene", "unmarked")) if marker_events else "unmarked"
 
     draw_signatures: dict[str, dict[str, Any]] = {}
+    draw_candidates: dict[str, dict[str, Any]] = {}
+    prepared_shader_pairs: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     dependencies: dict[str, dict[str, Any]] = {}
     resolve_targets: dict[str, dict[str, Any]] = {}
     totals = {
@@ -167,6 +169,27 @@ def summarize(
                 record["last_frame"] = str(
                     max(integer(record, "last_frame"), integer(event, "last_frame"))
                 )
+        elif kind == f"{PREFIX}draw_candidate":
+            key = str(event["signature"])
+            record = draw_candidates.get(key)
+            if record is None:
+                draw_candidates[key] = dict(event)
+            else:
+                record["draws"] = str(integer(record, "draws") + integer(event, "draws"))
+                record["first_frame"] = str(
+                    min(integer(record, "first_frame"), integer(event, "first_frame"))
+                )
+                record["last_frame"] = str(
+                    max(integer(record, "last_frame"), integer(event, "last_frame"))
+                )
+        elif kind == f"{PREFIX}prepared_shader_pair":
+            key = (
+                str(event["vertex_shader"]),
+                str(event["pixel_shader"]),
+                str(event["vertex_specialization_mask"]),
+                str(event["pixel_specialization_mask"]),
+            )
+            prepared_shader_pairs.setdefault(key, dict(event))
         elif kind == f"{PREFIX}resolve_window":
             for key in (
                 "resolves",
@@ -225,6 +248,16 @@ def summarize(
         "totals": totals,
         "classification": classification,
         "draw_signatures": cleaned_signatures,
+        "draw_candidates": [
+            clean(record)
+            for _, record in sorted(
+                draw_candidates.items(),
+                key=lambda item: (-integer(item[1], "draws"), item[0]),
+            )
+        ],
+        "prepared_shader_pairs": [
+            clean(record) for _, record in sorted(prepared_shader_pairs.items())
+        ],
         "resolve_dependencies": [
             clean(record) for _, record in sorted(dependencies.items())
         ],

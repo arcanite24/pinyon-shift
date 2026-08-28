@@ -5,6 +5,7 @@ param(
         'open_world_night', 'traffic', 'race', 'rewind', 'pause',
         'save_reload')]
     [string]$Scene = 'unmarked',
+    [string]$ShaderCaptureDir,
     [switch]$Json
 )
 
@@ -46,7 +47,8 @@ try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
-        -StateRoot $resolvedStateRoot -Json:$Json
+        -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
+        -Json:$Json
 }
 finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $savedCensus

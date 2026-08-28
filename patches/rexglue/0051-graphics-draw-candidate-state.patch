@@ -1,0 +1,93 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 8ced0d1..c2561b8 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -85,3 +85,13 @@ class NativeGuestOutputRendererRegistration {
++struct GraphicsVertexBindingObservation {
++  uint32_t fetch_constant = 0;
++  uint32_t address = 0;
++  uint32_t size = 0;
++  uint32_t stride_words = 0;
++  uint32_t endianness = 0;
++};
++
++constexpr uint32_t kGraphicsVertexBindingObservationLimit = 8;
++
+ struct GraphicsDrawObservation {
+   uint64_t frame_sequence = 0;
+   uint64_t draw_sequence = 0;
+@@ -45,6 +54,12 @@ struct GraphicsDrawObservation {
+   uint32_t source_select = 0;
+   uint32_t index_buffer_address = 0;
+   uint32_t index_buffer_length = 0;
++  uint32_t index_format = 0;
++  uint32_t index_endianness = 0;
++  uint32_t vertex_binding_count = 0;
++  GraphicsVertexBindingObservation
++      vertex_bindings[kGraphicsVertexBindingObservationLimit] = {};
++  uint32_t vertex_binding_overflow = 0;
+   uint32_t surface_info = 0;
+   uint32_t color_info[4] = {};
+   uint32_t depth_info = 0;
+@@ -54,6 +69,11 @@ struct GraphicsDrawObservation {
+   uint32_t viz_query_condition = 0;
+   uint32_t pa_sc_viz_query = 0;
+   uint32_t texture_fetch_mask = 0;
++  uint32_t rb_color_mask = 0;
++  uint32_t rb_blendcontrol[4] = {};
++  uint32_t rb_depthcontrol = 0;
++  uint32_t pa_su_sc_mode_cntl = 0;
++  uint32_t pa_su_vtx_cntl = 0;
+   uint32_t texture_fetch_addresses[32] = {};
+   uint32_t texture_fetch_mip_addresses[32] = {};
+   bool indexed = false;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 795d5ed..86f7141 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1495,6 +1495,27 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+         if (is_indexed) {
+           observation.index_buffer_address = index_buffer_info.guest_base;
+           observation.index_buffer_length = uint32_t(index_buffer_info.length);
++          observation.index_format = uint32_t(index_buffer_info.format);
++          observation.index_endianness = uint32_t(index_buffer_info.endianness);
++        }
++        if (active_vertex_shader_) {
++          const auto& vertex_bindings = active_vertex_shader_->vertex_bindings();
++          observation.vertex_binding_count = uint32_t(vertex_bindings.size());
++          for (uint32_t i = 0;
++               i < observation.vertex_binding_count &&
++               i < system::kGraphicsVertexBindingObservationLimit;
++               ++i) {
++            const Shader::VertexBinding& binding = vertex_bindings[i];
++            const xenos::xe_gpu_vertex_fetch_t fetch =
++                register_file_->GetVertexFetch(binding.fetch_constant);
++            observation.vertex_bindings[i].fetch_constant = binding.fetch_constant;
++            observation.vertex_bindings[i].address = fetch.address << 2;
++            observation.vertex_bindings[i].size = fetch.size << 2;
++            observation.vertex_bindings[i].stride_words = binding.stride_words;
++            observation.vertex_bindings[i].endianness = uint32_t(fetch.endian);
++          }
++          observation.vertex_binding_overflow =
++              observation.vertex_binding_count > system::kGraphicsVertexBindingObservationLimit;
+         }
+         observation.surface_info = register_file_->Get<reg::RB_SURFACE_INFO>().value;
+         for (uint32_t i = 0; i < 4; ++i) {
+@@ -1508,6 +1529,16 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+             register_file_->Get<reg::PA_SC_WINDOW_SCISSOR_BR>().value;
+         observation.rb_modecontrol = register_file_->Get<reg::RB_MODECONTROL>().value;
+         observation.viz_query_condition = viz_query_condition;
+         observation.pa_sc_viz_query = viz_query.value;
++        observation.rb_color_mask = register_file_->Get<reg::RB_COLOR_MASK>().value;
++        for (uint32_t i = 0; i < 4; ++i) {
++          observation.rb_blendcontrol[i] =
++              (*register_file_)[reg::RB_BLENDCONTROL::rt_register_indices[i]];
++        }
++        observation.rb_depthcontrol =
++            register_file_->Get<reg::RB_DEPTHCONTROL>().value;
++        observation.pa_su_sc_mode_cntl =
++            register_file_->Get<reg::PA_SU_SC_MODE_CNTL>().value;
++        observation.pa_su_vtx_cntl = register_file_->Get<reg::PA_SU_VTX_CNTL>().value;
+         auto capture_texture_fetches = [&](Shader* shader) {
+           if (!shader) {
+             return;
