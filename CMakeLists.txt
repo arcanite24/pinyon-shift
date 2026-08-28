@@ -29,6 +29,7 @@ if(WIN32)
         src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
         src/native_renderer/texture_cache.cpp
+        src/native_renderer/texture_resource_bridge.cpp
     )
 else()
     add_executable(pinyon_shift
@@ -43,6 +44,7 @@ else()
         src/native_renderer/shader_capture.cpp
         src/native_renderer/shader_pack.cpp
         src/native_renderer/texture_cache.cpp
+        src/native_renderer/texture_resource_bridge.cpp
     )
 endif()
 

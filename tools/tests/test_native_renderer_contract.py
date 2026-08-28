@@ -502,6 +502,32 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("native_renderer.isolated_pass.result", scanner)
         self.assertIn("native_renderer.isolated_pass.repeat", scanner)
 
+        texture_resource_patch = (
+            ROOT
+            / "patches/rexglue/0064-d3d12-native-texture-resource-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsNativeTextureSetObservation", texture_resource_patch)
+        self.assertIn("GraphicsNativeTextureRetain", texture_resource_patch)
+        self.assertIn("GraphicsNativeTextureRelease", texture_resource_patch)
+        self.assertIn("ObserveNativeTextures", texture_resource_patch)
+        self.assertIn("texture_cache_->RequestTextures", texture_resource_patch)
+        self.assertIn("completed_submission", texture_resource_patch)
+        self.assertNotIn("SetDrawSuppression", texture_resource_patch)
+        texture_bridge = (
+            ROOT / "src/native_renderer/texture_resource_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon_shift_native_renderer_texture_bridge, false", texture_bridge
+        )
+        self.assertIn('"xenos_draw", "preserved"', texture_bridge)
+        self.assertIn('"suppression", "disabled"', texture_bridge)
+        self.assertIn("resource.retain(resource.resource)", texture_bridge)
+        self.assertIn("retained->second.release", texture_bridge)
+        self.assertIn("IsRetainedPassCandidate", texture_bridge)
+        self.assertIn("observed_resource_count_", texture_bridge)
+        self.assertIn("observed < 16", texture_bridge)
+        self.assertIn("last_summary_submission_ + 300", texture_bridge)
+
         visual_marker_patch = (
             ROOT / "patches/rexglue/0060-d3d12-isolated-draw-debug-markers.patch"
         ).read_text(encoding="utf-8")
