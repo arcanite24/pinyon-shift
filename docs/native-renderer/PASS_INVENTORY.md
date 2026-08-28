@@ -74,14 +74,23 @@ The follower uses vertex shader `21FBB5F33759B350`, pixel shader
 `CF453BD52292E8E8`, prepared pipeline hash `E08F2FEEA79DC6FE`, primitive 13,
 auto-index source selection, four elements, one vertex binding and attribute,
 and one texture fetch. Shader specialization masks, pipeline state, and all
-recorded dependency flags matched across both processes. It is not an isolated
-draw candidate because it uses the auto-index path; that is an expected
-contract property, not drift.
+recorded dependency flags matched across both processes. A third observation
+confirmed host primitive 13, prepared index-buffer type zero, host index format
+zero, primitive restart disabled, prepared flags `00000003`, and bound target
+bits `00000003`.
 
-This qualifies the ordered phase shape and its two prepared signatures. NR-02F
-must next replay the ordered pair into one retained private target and compare
-the complete phase against Xenos. Until then, Xenos remains authoritative and
-suppression remains forbidden.
+The title-qualified AutoIndex replay path was then exercised against the
+installed AppData save as session `20260828T154921Z-p40752`. Signature
+`1D253A52B55C9FB3` recorded once at frame 3,143, draw 117, and completed an
+asynchronous readback from the 640 by 8,192 private target. The 512 by 512 crop
+contains the expected sky and horizon phase prefix, the process exited normally
+with code zero, and the structured result retained `xenos_draw=preserved`,
+`output_authority=xenos`, and `suppression_eligible=false`.
+
+This qualifies the ordered phase shape, its two prepared signatures, and each
+draw's isolated replay path. NR-02F must next replay the ordered pair into one
+retained private target and compare the complete phase against Xenos. Until
+then, Xenos remains authoritative and suppression remains forbidden.
 
 Local evidence hashes:
 
