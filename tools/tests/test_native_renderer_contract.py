@@ -370,15 +370,32 @@ class NativeRendererContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, draw_state_patch)
 
+        index_reset_patch = (
+            ROOT / "patches/rexglue/0055-graphics-index-reset-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("index_reset", index_reset_patch)
+        self.assertIn("multi_prim_ib_ena", index_reset_patch)
+        self.assertNotIn("TranslatePhysical", index_reset_patch)
+
         planner = (
             ROOT / "tools/build-native-geometry-contract.py"
         ).read_text(encoding="utf-8")
         self.assertIn("PHYSICAL_MASK = 0x1FFFFFFF", planner)
-        self.assertIn('"guest_payload_read": False', planner)
+        self.assertIn('"guest_payload_scope"', planner)
+        self.assertIn('"bounded_index_only"', planner)
         self.assertIn('"native_upload": False', planner)
         self.assertIn('"native_draw": False', planner)
         self.assertIn('"suppression_allowed": False', planner)
         self.assertIn('"xenos_authority": True', planner)
+
+        scanner = (
+            ROOT / "src/native_renderer/graphics_hooks.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE", scanner)
+        self.assertIn("kMaximumIndexScanCount", scanner)
+        self.assertIn("kMaximumIndexScanBytes", scanner)
+        self.assertIn('"bounded_index_only"', scanner)
+        self.assertNotIn("SetDrawSuppression", scanner)
 
         draw_state_planner = (
             ROOT / "tools/build-native-draw-state-contract.py"

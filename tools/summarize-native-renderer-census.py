@@ -136,6 +136,7 @@ def summarize(
     draw_signatures: dict[str, dict[str, Any]] = {}
     draw_candidates: dict[str, dict[str, Any]] = {}
     prepared_shader_pairs: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    index_scans: list[dict[str, Any]] = []
     dependencies: dict[str, dict[str, Any]] = {}
     resolve_targets: dict[str, dict[str, Any]] = {}
     totals = {
@@ -213,6 +214,8 @@ def summarize(
                 str(event["pixel_specialization_mask"]),
             )
             prepared_shader_pairs.setdefault(key, dict(event))
+        elif kind == f"{PREFIX}index_scan":
+            index_scans.append(dict(event))
         elif kind == f"{PREFIX}resolve_window":
             for key in (
                 "resolves",
@@ -281,6 +284,7 @@ def summarize(
         "prepared_shader_pairs": [
             clean(record) for _, record in sorted(prepared_shader_pairs.items())
         ],
+        "index_scans": [clean(record) for record in index_scans],
         "resolve_dependencies": [
             clean(record) for _, record in sorted(dependencies.items())
         ],
@@ -289,7 +293,14 @@ def summarize(
         ],
         "safety": {
             "suppression_allowed": False,
-            "guest_cpu_reads": "unknown_uninstrumented",
+            "guest_cpu_reads": (
+                "bounded_index_payload"
+                if any(
+                    record.get("guest_payload_read") == "bounded_index_only"
+                    for record in index_scans
+                )
+                else "unknown_uninstrumented"
+            ),
             "presentation_only": "unknown_uninstrumented",
             "semantic_roles": "unknown_unclassified",
         },

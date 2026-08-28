@@ -245,3 +245,11 @@ advance to native replay yet: its geometry contract still requires a bounded
 guest index scan, its complete draw-state hashes vary between captures, and it
 has not passed isolated visual review. Xenos remained authoritative and no
 suppression path was enabled.
+
+The subsequent bounded scan qualified this candidate's geometry across
+sessions `20260828T070848Z-p13800` and `20260828T071104Z-p37760`. Both decoded
+the same 9,300-index payload, range 0–1,616, and hash
+`76F4D9C9DFE1E128`; the derived vertex requirement is exactly the observed
+51,744-byte allocation. See [GEOMETRY_CONTRACT.md](GEOMETRY_CONTRACT.md) for
+the scanner contract and safety boundary. The candidate remains pending visual
+identification and static texture-provenance review before any replay work.

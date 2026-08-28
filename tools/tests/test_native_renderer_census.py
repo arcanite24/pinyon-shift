@@ -124,6 +124,13 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "pixel_specialization_mask": "BBBBBBBBBBBBBBBB",
             },
             {
+                "event": "native_renderer.census.index_scan",
+                "session": "new",
+                "signature": "CANDIDATE",
+                "status": "scanned",
+                "guest_payload_read": "bounded_index_only",
+            },
+            {
                 "event": "native_renderer.census.resolve_window",
                 "session": "new",
                 "resolves": "7",
@@ -182,6 +189,8 @@ class NativeRendererCensusTests(unittest.TestCase):
             "AAAAAAAAAAAAAAAA",
             result["prepared_shader_pairs"][0]["vertex_specialization_mask"],
         )
+        self.assertEqual("CANDIDATE", result["index_scans"][0]["signature"])
+        self.assertEqual("bounded_index_payload", result["safety"]["guest_cpu_reads"])
         self.assertEqual("7", result["resolve_dependencies"][0]["resolves"])
         self.assertEqual("00123000", result["resolve_targets"][0]["address"])
         self.assertEqual("4096", result["resolve_targets"][0]["length"])

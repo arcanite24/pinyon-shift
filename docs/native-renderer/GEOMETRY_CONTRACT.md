@@ -50,6 +50,43 @@ cannot be proven without a later, separately bounded payload-read step. Every
 contract carries explicit false values for guest payload reads, native upload,
 native draw, and suppression, plus true Xenos authority.
 
+## Bounded index-scan qualification
+
+The later payload-read step is now available as an exact-signature diagnostic:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -IndexScanSignature FA45AAFDC22C8625
+```
+
+The scanner is disabled unless a 16-digit signature is supplied. It attempts
+that signature once per process, accepts only DMA-indexed draws with one vertex
+binding, and rejects unknown formats, invalid clamp state, undersized
+allocations, physical-aperture crossings, more than 1,048,576 indices, or more
+than 4 MiB. It reads no vertex or texture payload. Index decoding matches the
+Xenos 16/32-bit endianness rules, masks values to 24 bits, excludes enabled
+primitive-reset markers, and applies the VGT base offset and min/max clamp.
+Only decoded bounds and a hash are logged; payload bytes remain local.
+
+Two summarized scan captures may be supplied to the planner:
+
+```powershell
+python .\tools\build-native-geometry-contract.py `
+  .\.local\native-renderer\candidate\selection.json `
+  --signature FA45AAFDC22C8625 `
+  --index-census `
+    .\.local\native-renderer\candidate\scan-1-census.json `
+    .\.local\native-renderer\candidate\scan-2-census.json `
+  --output .\.local\native-renderer\candidate\geometry-contract.json
+```
+
+The planner requires one successful scan in each of at least two captures,
+stable decoded payload hash, bounds, and reset state, matching index format and
+endianness, and a vertex byte range that fits the signature-bound allocation.
+It still emits false native-upload, native-draw, and suppression gates.
+
 ## Advancement gate
 
 This slice is ready to merge when a clean build and AppData-backed run confirm
@@ -85,3 +122,29 @@ reads, native uploads, native draws, and suppression disabled.
 This candidate has only two observations and still needs visual and static
 texture-provenance review. It validates the declaration and bounds machinery;
 it is not yet the approved authentic draw for NR-02E comparison.
+
+## Indexed candidate qualification — 2026-08-28
+
+Patch `0055-graphics-index-reset-observer.patch` adds the reset index and enable
+state needed to scan indexed geometry precisely. Two AppData-backed
+`open_world_day` sessions scanned candidate `FA45AAFDC22C8625` and exited
+normally:
+
+| Session | Frame | Indices | Bytes | Decoded range | Hash |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `20260828T070848Z-p13800` | 3,004 | 9,300 | 37,200 | 0–1,616 | `76F4D9C9DFE1E128` |
+| `20260828T071104Z-p37760` | 3,127 | 9,300 | 37,200 | 0–1,616 | `76F4D9C9DFE1E128` |
+
+Both captures observed reset index `0000FFFF` enabled with zero reset markers.
+The guest index and vertex addresses relocated between processes, while the
+decoded payload and bounds remained identical. With a 32-byte stride and
+32-byte maximum attribute extent, vertex 1,616 requires exactly 51,744 bytes,
+matching the observed allocation exactly. The generated contract is therefore
+`bounded_index_scan` and validated across two captures. This closes the guest
+index/vertex bounds gate only; texture provenance, visual identification,
+native upload, native drawing, and suppression remain unapproved.
+
+The captures contained 4,134 and 4,364 performance samples, measured 31.885
+and 31.653 median FPS, reported zero presentation deadline misses, and emitted
+no crash, error, or device-loss event. The one-time 37,200-byte diagnostic read
+did not alter Xenos rendering authority.
