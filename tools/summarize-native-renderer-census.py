@@ -273,6 +273,9 @@ def summarize(
         "resolve_dependencies": [
             clean(record) for _, record in sorted(dependencies.items())
         ],
+        "resolve_targets": [
+            clean(record) for _, record in sorted(resolve_targets.items())
+        ],
         "safety": {
             "suppression_allowed": False,
             "guest_cpu_reads": "unknown_uninstrumented",

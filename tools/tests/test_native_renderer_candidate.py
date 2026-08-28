@@ -57,6 +57,25 @@ def signature(name: str, **overrides):
     return record
 
 
+def texture_state(base_address: int) -> str:
+    fields = signature("STATE")["texture_states"].split(":")
+    fields[3] = f"{base_address >> 12 << 12:08X}"
+    return ":".join(fields)
+
+
+def select_documents(first, second, shader_manifest):
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        paths = []
+        for index, document in enumerate((first, second)):
+            path = root / f"census-{index}.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            paths.append(path)
+        manifest = root / "shader-manifest.json"
+        manifest.write_text(json.dumps(shader_manifest), encoding="utf-8")
+        return MODULE.select(paths, manifest)
+
+
 class NativeRendererCandidateTests(unittest.TestCase):
     def test_requires_two_census_inventories(self):
         with self.assertRaisesRegex(ValueError, "at least two"):
@@ -102,16 +121,7 @@ class NativeRendererCandidateTests(unittest.TestCase):
             ],
             "prepared_shader_pairs": first["prepared_shader_pairs"],
         }
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            paths = []
-            for index, document in enumerate((first, second)):
-                path = root / f"census-{index}.json"
-                path.write_text(json.dumps(document), encoding="utf-8")
-                paths.append(path)
-            manifest = root / "shader-manifest.json"
-            manifest.write_text(json.dumps(shader_manifest), encoding="utf-8")
-            result = MODULE.select(paths, manifest)
+        result = select_documents(first, second, shader_manifest)
 
         self.assertEqual(1, result["candidate_count"])
         self.assertEqual("GOOD", result["candidates"][0]["signature"])
@@ -135,6 +145,67 @@ class NativeRendererCandidateTests(unittest.TestCase):
     def test_rejects_dynamic_input(self):
         reasons = MODULE.rejection_reasons(signature("BAD", resolved_input="true"))
         self.assertIn("dynamic_render_target_input", reasons)
+
+    def test_rejects_texture_inside_any_observed_resolve_range(self):
+        record = signature(
+            "BAD", texture_states=texture_state(0x00124000)
+        )
+        self.assertTrue(
+            MODULE.reads_known_resolve_target(
+                record, MODULE.resolve_ranges({"resolve_targets": [
+                    {"address": "00123000", "length": "8192"}
+                ]})
+            )
+        )
+
+    def test_selector_rejects_candidate_with_known_resolve_provenance(self):
+        shader_manifest = {
+            "schema": MODULE.SHADER_SCHEMA,
+            "entries": [
+                {
+                    "stage": stage,
+                    "guest_hash": guest_hash,
+                    "specialization_mask": specialization,
+                }
+                for stage, guest_hash, specialization in (
+                    ("vertex", "1111111111111111", "AAAAAAAAAAAAAAAA"),
+                    ("pixel", "2222222222222222", "BBBBBBBBBBBBBBBB"),
+                )
+            ],
+        }
+        prepared = [{
+            "vertex_shader": "1111111111111111",
+            "pixel_shader": "2222222222222222",
+            "vertex_specialization_mask": "AAAAAAAAAAAAAAAA",
+            "pixel_specialization_mask": "BBBBBBBBBBBBBBBB",
+        }]
+        census = {
+            "schema": MODULE.CENSUS_SCHEMA,
+            "classification": {"scene": "open_world_day"},
+            "draw_candidates": [signature(
+                "DYNAMIC", texture_states=texture_state(0x00124000)
+            )],
+            "prepared_shader_pairs": prepared,
+            "resolve_targets": [{"address": "00123000", "length": "8192"}],
+        }
+        result = select_documents(census, census, shader_manifest)
+        self.assertEqual(0, result["candidate_count"])
+        self.assertEqual(
+            {"reason": "dynamic_render_target_input", "signatures": 1},
+            next(item for item in result["rejections"]
+                 if item["reason"] == "dynamic_render_target_input"),
+        )
+    def test_ignores_texture_outside_observed_resolve_ranges(self):
+        record = signature(
+            "GOOD", texture_states=texture_state(0x00125000)
+        )
+        self.assertFalse(
+            MODULE.reads_known_resolve_target(
+                record, MODULE.resolve_ranges({"resolve_targets": [
+                    {"address": "00123000", "length": "8192"}
+                ]})
+            )
+        )
 
     def test_rejects_vertex_attribute_overflow(self):
         reasons = MODULE.rejection_reasons(
