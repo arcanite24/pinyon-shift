@@ -167,6 +167,20 @@ class NativeRendererContractTests(unittest.TestCase):
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertEqual(cmake.count("src/native_renderer/graphics_hooks.cpp"), 2)
 
+    def test_native_guest_output_registration_is_inert_and_backend_neutral(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0046-native-guest-output-callback-contract.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("NativeGuestOutputRenderContext", patch)
+        self.assertIn("NativeGuestOutputBackend", patch)
+        self.assertIn("NativeGuestOutputRendererRegistration", patch)
+        self.assertIn("return renderer ? renderer(context) : false;", patch)
+        self.assertIn("defaults to inert yield", patch)
+        self.assertIn("preserves callback result", patch)
+        for forbidden in ("IssueSwap", "ResourceBarrier", "ClearRenderTargetView"):
+            self.assertNotIn(forbidden, patch)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"
