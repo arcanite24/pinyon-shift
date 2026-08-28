@@ -131,6 +131,21 @@ class NativeRendererCensusTests(unittest.TestCase):
                 "guest_payload_read": "bounded_index_only",
             },
             {
+                "event": "native_renderer.census.texture_scan",
+                "session": "new",
+                "signature": "CANDIDATE",
+                "status": "scanned",
+                "guest_payload_read": "bounded_texture_only",
+            },
+            {
+                "event": "native_renderer.census.texture_fingerprint",
+                "session": "new",
+                "signature": "CANDIDATE",
+                "fetch_constant": "0",
+                "base_hash": "1111111111111111",
+                "guest_payload_read": "bounded_texture_only",
+            },
+            {
                 "event": "native_renderer.census.resolve_window",
                 "session": "new",
                 "resolves": "7",
@@ -190,7 +205,15 @@ class NativeRendererCensusTests(unittest.TestCase):
             result["prepared_shader_pairs"][0]["vertex_specialization_mask"],
         )
         self.assertEqual("CANDIDATE", result["index_scans"][0]["signature"])
-        self.assertEqual("bounded_index_payload", result["safety"]["guest_cpu_reads"])
+        self.assertEqual("CANDIDATE", result["texture_scans"][0]["signature"])
+        self.assertEqual(
+            "1111111111111111",
+            result["texture_fingerprints"][0]["base_hash"],
+        )
+        self.assertEqual(
+            "bounded_index_and_texture_payload",
+            result["safety"]["guest_cpu_reads"],
+        )
         self.assertEqual("7", result["resolve_dependencies"][0]["resolves"])
         self.assertEqual("00123000", result["resolve_targets"][0]["address"])
         self.assertEqual("4096", result["resolve_targets"][0]["length"])

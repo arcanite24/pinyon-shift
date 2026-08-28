@@ -8,6 +8,8 @@ param(
     [string]$ShaderCaptureDir,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IndexScanSignature,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$TextureScanSignature,
     [switch]$Json
 )
 
@@ -46,10 +48,12 @@ if (@(Get-Process -Name 'pinyon_shift' -ErrorAction SilentlyContinue).Count -ne 
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
+$savedTextureScan = $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $IndexScanSignature
+    $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $TextureScanSignature
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -58,4 +62,5 @@ finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $savedCensus
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $savedIndexScan
+    $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $savedTextureScan
 }

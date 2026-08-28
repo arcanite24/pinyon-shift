@@ -41,6 +41,9 @@ constexpr uint64_t kPhysicalApertureSize = UINT64_C(0x20000000);
 constexpr uint32_t kVertexIndexMask = 0x00FFFFFF;
 constexpr uint32_t kMaximumIndexScanCount = 1 << 20;
 constexpr uint64_t kMaximumIndexScanBytes = UINT64_C(4) << 20;
+constexpr uint32_t kMaximumTextureScanResources = 4;
+constexpr uint64_t kMaximumTextureScanResourceBytes = UINT64_C(16) << 20;
+constexpr uint64_t kMaximumTextureScanTotalBytes = UINT64_C(32) << 20;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
@@ -71,31 +74,51 @@ struct IndexScanState {
 
 IndexScanState g_index_scan;
 
-void ConfigureIndexScan() {
-  g_index_scan = {};
+struct TextureScanState {
+  uint64_t target_signature = 0;
+  bool requested = false;
+  bool completed = false;
+  bool valid = true;
+};
+
+TextureScanState g_texture_scan;
+
+void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
+                            bool &requested, bool &valid) {
   char *value = nullptr;
   size_t length = 0;
-  if (_dupenv_s(&value, &length,
-                "PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE") != 0 ||
-      !value || length <= 1) {
+  if (_dupenv_s(&value, &length, name) != 0 || !value || length <= 1) {
     std::free(value);
     return;
   }
   const std::string setting(value);
   std::free(value);
-  g_index_scan.requested = true;
+  requested = true;
   if (setting.size() != 16) {
-    g_index_scan.valid = false;
+    valid = false;
     return;
   }
   const char *begin = setting.data();
   const char *end = begin + setting.size();
-  const auto parsed =
-      std::from_chars(begin, end, g_index_scan.target_signature, 16);
-  if (parsed.ec != std::errc{} || parsed.ptr != end ||
-      !g_index_scan.target_signature) {
-    g_index_scan.valid = false;
+  const auto parsed = std::from_chars(begin, end, target_signature, 16);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || !target_signature) {
+    valid = false;
   }
+}
+
+void ConfigureIndexScan() {
+  g_index_scan = {};
+  ConfigureSignatureScan("PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE",
+                         g_index_scan.target_signature,
+                         g_index_scan.requested, g_index_scan.valid);
+}
+
+void ConfigureTextureScan() {
+  g_texture_scan = {};
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE",
+      g_texture_scan.target_signature, g_texture_scan.requested,
+      g_texture_scan.valid);
 }
 
 struct DrawSignatureEntry {
@@ -219,6 +242,133 @@ void ResetDependencyCensus() {
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
   value += 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
   return hash ^ value;
+}
+
+uint64_t HashBytes(const uint8_t *data, uint64_t length) {
+  uint64_t hash = 0xCBF29CE484222325ull;
+  for (uint64_t i = 0; i < length; ++i) {
+    hash ^= data[i];
+    hash *= 0x100000001B3ull;
+  }
+  return hash;
+}
+
+void TryFingerprintCandidateTextures(
+    const rex::system::GraphicsDrawObservation &observation,
+    uint64_t signature) {
+  if (!g_texture_scan.requested || !g_texture_scan.valid ||
+      g_texture_scan.completed ||
+      signature != g_texture_scan.target_signature) {
+    return;
+  }
+  g_texture_scan.completed = true;
+
+  const auto reject = [&](const char *reason) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.texture_scan",
+        {{"signature", fmt::format("{:016X}", signature)},
+         {"status", "rejected"},
+         {"reason", reason},
+         {"frame", std::to_string(observation.frame_sequence)},
+         {"draw", std::to_string(observation.draw_sequence)},
+         {"guest_payload_read", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  };
+
+  const uint32_t resource_count = std::popcount(observation.texture_fetch_mask);
+  if (!resource_count || resource_count > kMaximumTextureScanResources ||
+      observation.texture_state_overflow) {
+    reject("texture_resource_count_out_of_bounds");
+    return;
+  }
+  if ((observation.texture_fetch_layout_valid_mask &
+       observation.texture_fetch_mask) != observation.texture_fetch_mask) {
+    reject("texture_layout_unavailable");
+    return;
+  }
+
+  uint64_t total_bytes = 0;
+  for (uint32_t fetch = 0; fetch < 32; ++fetch) {
+    if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch))) {
+      continue;
+    }
+    const uint64_t base_address =
+        observation.texture_fetch_addresses[fetch] & UINT64_C(0x1FFFFFFF);
+    const uint64_t base_length = observation.texture_fetch_base_lengths[fetch];
+    const uint64_t mip_address =
+        observation.texture_fetch_mip_addresses[fetch] & UINT64_C(0x1FFFFFFF);
+    const uint64_t mip_length = observation.texture_fetch_mip_lengths[fetch];
+    if (!base_length || base_length > kMaximumTextureScanResourceBytes ||
+        mip_length > kMaximumTextureScanResourceBytes ||
+        base_address + base_length > kPhysicalApertureSize ||
+        (mip_length && (!mip_address ||
+                        mip_address + mip_length > kPhysicalApertureSize))) {
+      reject("texture_allocation_out_of_bounds");
+      return;
+    }
+    total_bytes += base_length + mip_length;
+    if (total_bytes > kMaximumTextureScanTotalBytes) {
+      reject("texture_scan_total_out_of_bounds");
+      return;
+    }
+  }
+
+  auto *kernel_state = rex::system::kernel_state();
+  if (!kernel_state || !kernel_state->memory()) {
+    reject("guest_memory_unavailable");
+    return;
+  }
+
+  uint32_t resource = 0;
+  for (uint32_t fetch = 0; fetch < 32; ++fetch) {
+    if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch))) {
+      continue;
+    }
+    const uint32_t base_address = observation.texture_fetch_addresses[fetch];
+    const uint32_t base_length =
+        observation.texture_fetch_base_lengths[fetch];
+    const uint32_t mip_address =
+        observation.texture_fetch_mip_addresses[fetch];
+    const uint32_t mip_length = observation.texture_fetch_mip_lengths[fetch];
+    const uint8_t *base =
+        kernel_state->memory()->TranslatePhysical<const uint8_t *>(base_address);
+    const uint64_t base_hash = HashBytes(base, base_length);
+    uint64_t mip_hash = 0;
+    if (mip_length) {
+      const uint8_t *mip =
+          kernel_state->memory()->TranslatePhysical<const uint8_t *>(mip_address);
+      mip_hash = HashBytes(mip, mip_length);
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.texture_fingerprint",
+        {{"signature", fmt::format("{:016X}", signature)},
+         {"resource", std::to_string(resource++)},
+         {"fetch_constant", std::to_string(fetch)},
+         {"base_address", fmt::format("{:08X}", base_address)},
+         {"base_bytes", std::to_string(base_length)},
+         {"base_hash", fmt::format("{:016X}", base_hash)},
+         {"mip_address", fmt::format("{:08X}", mip_address)},
+         {"mip_bytes", std::to_string(mip_length)},
+         {"mip_hash", mip_length ? fmt::format("{:016X}", mip_hash) : ""},
+         {"guest_payload_read", "bounded_texture_only"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.census.texture_scan",
+      {{"signature", fmt::format("{:016X}", signature)},
+       {"status", "scanned"},
+       {"frame", std::to_string(observation.frame_sequence)},
+       {"draw", std::to_string(observation.draw_sequence)},
+       {"resources", std::to_string(resource_count)},
+       {"bytes_read", std::to_string(total_bytes)},
+       {"guest_payload_read", "bounded_texture_only"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
 }
 
 void TryScanCandidateIndices(
@@ -1311,6 +1461,7 @@ void RecordCandidate(
   const uint64_t signature =
       CandidateSignature(observation, samples_resolved_target, prepared);
   TryScanCandidateIndices(observation, signature);
+  TryFingerprintCandidateTextures(observation, signature);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_candidate_census.entries[index];
@@ -1432,6 +1583,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   ResetPreparedShaderPairs();
   ResetDependencyCensus();
   ConfigureIndexScan();
+  ConfigureTextureScan();
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
@@ -1460,6 +1612,22 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"maximum_index_count", std::to_string(kMaximumIndexScanCount)},
        {"maximum_bytes", std::to_string(kMaximumIndexScanBytes)},
        {"mode", "bounded_diagnostic_read"}});
+  diagnostics::RecordEvent(
+      "native_renderer.census.texture_scan_config",
+      {{"status", !g_texture_scan.requested
+                      ? "disabled"
+                      : (g_texture_scan.valid ? "armed" : "invalid_signature")},
+       {"signature", g_texture_scan.valid && g_texture_scan.requested
+                         ? fmt::format("{:016X}",
+                                       g_texture_scan.target_signature)
+                         : ""},
+       {"maximum_resources",
+        std::to_string(kMaximumTextureScanResources)},
+       {"maximum_resource_bytes",
+        std::to_string(kMaximumTextureScanResourceBytes)},
+       {"maximum_total_bytes",
+        std::to_string(kMaximumTextureScanTotalBytes)},
+       {"mode", "bounded_diagnostic_read"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
@@ -1484,6 +1652,18 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     diagnostics::RecordEvent(
         "native_renderer.census.index_scan",
         {{"signature", fmt::format("{:016X}", g_index_scan.target_signature)},
+         {"status", "not_observed"},
+         {"guest_payload_read", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  if (g_texture_scan.requested && g_texture_scan.valid &&
+      !g_texture_scan.completed) {
+    diagnostics::RecordEvent(
+        "native_renderer.census.texture_scan",
+        {{"signature",
+          fmt::format("{:016X}", g_texture_scan.target_signature)},
          {"status", "not_observed"},
          {"guest_payload_read", "false"},
          {"native_upload", "false"},

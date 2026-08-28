@@ -377,6 +377,15 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("multi_prim_ib_ena", index_reset_patch)
         self.assertNotIn("TranslatePhysical", index_reset_patch)
 
+        texture_layout_patch = (
+            ROOT / "patches/rexglue/0056-graphics-texture-layout-observer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("TextureInfo::Prepare", texture_layout_patch)
+        self.assertIn("FetchConstantType::kTexture", texture_layout_patch)
+        self.assertIn("texture_fetch_base_lengths", texture_layout_patch)
+        self.assertIn("texture_fetch_layout_valid_mask", texture_layout_patch)
+        self.assertNotIn("TranslatePhysical", texture_layout_patch)
+
         planner = (
             ROOT / "tools/build-native-geometry-contract.py"
         ).read_text(encoding="utf-8")
@@ -395,6 +404,9 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("kMaximumIndexScanCount", scanner)
         self.assertIn("kMaximumIndexScanBytes", scanner)
         self.assertIn('"bounded_index_only"', scanner)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE", scanner)
+        self.assertIn("kMaximumTextureScanTotalBytes", scanner)
+        self.assertIn('"bounded_texture_only"', scanner)
         self.assertNotIn("SetDrawSuppression", scanner)
 
         draw_state_planner = (
