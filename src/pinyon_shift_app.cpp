@@ -24,14 +24,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 9, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 10, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 9;
+constexpr uint32_t kConfigSchema = 10;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -60,6 +60,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "xma_relaxed_padding_admission = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n"
+              "pinyon_shift_native_renderer = \"xenos\"\n"
               "anisotropic_override = 3\n"
               "swap_post_effect = \"none\"\n"
               "disable_motion_blur = false\n"
@@ -97,7 +98,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 8) {
+    if (schema < 1 || schema > 9) {
       return false;
     }
 
@@ -163,6 +164,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"occlusion_query", "occlusion_query = \"legacy\"\n"},
         {"zpd_end_policy", "zpd_end_policy = \"report_layout\"\n"},
         {"zpd_end_fallback", "zpd_end_fallback = \"pairwise_sentinel\"\n"},
+        {"pinyon_shift_native_renderer",
+         "pinyon_shift_native_renderer = \"xenos\"\n"},
     };
     for (const auto& [name, line] : graphics_settings) {
       const std::regex setting_pattern("(?:^|\\n)\\s*" + std::string(name) +
@@ -303,6 +306,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"native_renderer_census",
                          rex::cvar::GetFlagByName(
                              "pinyon_shift_native_renderer_census")},
+                        {"native_renderer",
+                         rex::cvar::GetFlagByName(
+                             "pinyon_shift_native_renderer")},
                         {"occlusion_query", rex::cvar::GetFlagByName("occlusion_query")},
                         {"zpd_end_policy", rex::cvar::GetFlagByName("zpd_end_policy")},
                         {"zpd_end_fallback", rex::cvar::GetFlagByName("zpd_end_fallback")},
