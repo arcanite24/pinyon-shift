@@ -24,6 +24,46 @@ FIELDS = [
 
 
 class PerformanceSummaryTests(unittest.TestCase):
+    def test_emits_native_renderer_gpu_timing_buckets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            timing_columns = list(MODULE.NATIVE_GPU_TIMING_COLUMNS)
+            fields = FIELDS + timing_columns
+            with capture.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                base = dict.fromkeys(fields, 0)
+                writer.writerow(base | {
+                    "frame_time_us": 20_000,
+                    "guest_frame_gpu_time_ns": 10_000_000,
+                    "native_composition_gpu_time_ns": 200_000,
+                    "native_selection_gpu_time_ns": 40_000,
+                    "guest_frame_gpu_timing_samples": 1,
+                    "native_composition_gpu_timing_samples": 1,
+                    "native_selection_gpu_timing_samples": 1,
+                })
+                writer.writerow(base | {
+                    "frame_time_us": 20_000,
+                    "guest_frame_gpu_time_ns": 12_000_000,
+                    "native_composition_gpu_time_ns": 300_000,
+                    "native_selection_gpu_time_ns": 60_000,
+                    "guest_frame_gpu_timing_samples": 1,
+                    "native_composition_gpu_timing_samples": 1,
+                    "native_selection_gpu_timing_samples": 1,
+                    "native_gpu_timing_drops": 1,
+                })
+            timing = MODULE.summarize(capture)[
+                "native_renderer_gpu_timing"
+            ]
+            self.assertEqual(timing["mean_microseconds"]["guest_frame"], 11_000)
+            self.assertEqual(
+                timing["mean_microseconds"]["native_composition"], 250
+            )
+            self.assertEqual(
+                timing["mean_microseconds"]["native_selection"], 50
+            )
+            self.assertEqual(timing["counters"]["native_gpu_timing_drops"], 1)
+
     def test_emits_presentation_cadence_and_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"

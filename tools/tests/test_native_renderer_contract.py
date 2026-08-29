@@ -402,6 +402,28 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("selected_output = $null", report)
         self.assertIn("authority = $null", report)
 
+    def test_native_gpu_timing_is_async_bounded_and_non_suppressing(self):
+        patch = (
+            ROOT / "patches/rexglue/0070-d3d12-native-gpu-timing.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("D3D12_QUERY_HEAP_TYPE_TIMESTAMP", patch)
+        self.assertIn("kNativeGuestOutputGpuQueriesPerFrame = 5", patch)
+        self.assertIn("std::array<NativeGuestOutputGpuTimingSlot", patch)
+        self.assertIn("slot.submission > submission_completed_", patch)
+        self.assertIn("D3DResolveQueryData", patch)
+        self.assertIn("PROFILE_GUEST_FRAME_GPU_TIME_NS", patch)
+        self.assertIn("PROFILE_NATIVE_COMPOSITION_GPU_TIME_NS", patch)
+        self.assertIn("PROFILE_NATIVE_SELECTION_GPU_TIME_NS", patch)
+        self.assertIn("PROFILE_NATIVE_GPU_TIMING_DROP", patch)
+        self.assertNotIn("WaitForSingleObject", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        summarizer = (ROOT / "tools/summarize-performance.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("NATIVE_GPU_TIMING_COLUMNS", summarizer)
+        self.assertIn('"native_renderer_gpu_timing"', summarizer)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT

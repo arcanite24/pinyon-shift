@@ -1,0 +1,397 @@
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index a7a3a9b..e6a8075 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -384,6 +384,11 @@ class D3D12CommandProcessor : public CommandProcessor {
+   bool IssueDraw_MemexportReadbackFullPath(uint32_t total_size);
+   bool IssueDraw_MemexportReadbackFastPath(uint32_t total_size);
+ 
++  bool InitializeNativeGuestOutputGpuTiming();
++  void ShutdownNativeGuestOutputGpuTiming();
++  void BeginNativeGuestOutputGpuTimingFrame();
++  void RetireNativeGuestOutputGpuTimings();
++
+   // Returns a buffer for reading GPU data back to the CPU. Assuming
+   // synchronizing immediately after use. Always in COPY_DEST state.
+   ID3D12Resource* RequestReadbackBuffer(uint32_t size);
+@@ -656,6 +661,23 @@ class D3D12CommandProcessor : public CommandProcessor {
+       D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   uint64_t native_guest_output_display_target_submission_ = 0;
+ 
++  static constexpr uint32_t kNativeGuestOutputGpuQueriesPerFrame = 5;
++  struct NativeGuestOutputGpuTimingSlot {
++    uint64_t submission = 0;
++    bool frame_started = false;
++    bool guest_timed = false;
++    bool selection_timed = false;
++  };
++  Microsoft::WRL::ComPtr<ID3D12QueryHeap>
++      native_guest_output_gpu_query_heap_;
++  Microsoft::WRL::ComPtr<ID3D12Resource>
++      native_guest_output_gpu_query_readback_;
++  uint64_t* native_guest_output_gpu_query_mapping_ = nullptr;
++  uint64_t native_guest_output_gpu_timestamp_frequency_ = 0;
++  std::array<NativeGuestOutputGpuTimingSlot, kQueueFrames>
++      native_guest_output_gpu_timing_slots_{};
++  bool native_guest_output_gpu_timing_active_ = false;
++
+   struct ResolveDownscaleConstants {
+     uint32_t scale_x;
+     uint32_t scale_y;
+diff --git a/include/rex/perf/counter.h b/include/rex/perf/counter.h
+index 97b1683..be36e8c 100644
+--- a/include/rex/perf/counter.h
++++ b/include/rex/perf/counter.h
+@@ -28,6 +28,13 @@ enum class CounterId : uint16_t {
+   kDrawCalls,
+   kCommandBufferStalls,
+   kVerticesProcessed,
++  kGuestFrameGpuTimeNs,
++  kNativeCompositionGpuTimeNs,
++  kNativeSelectionGpuTimeNs,
++  kGuestFrameGpuTimingSamples,
++  kNativeCompositionGpuTimingSamples,
++  kNativeSelectionGpuTimingSamples,
++  kNativeGpuTimingDrops,
+ 
+   // Audio
+   kXmaFramesDecoded,
+@@ -200,6 +207,18 @@ class Profiler {
+ #define PROFILE_DRAW_CALL() PERF_counter_inc(kDrawCalls)
+ #define PROFILE_VERTICES(n) PERF_counter_add(kVerticesProcessed, n)
+ #define PROFILE_CMD_BUFFER_STALL() PERF_counter_inc(kCommandBufferStalls)
++#define PROFILE_GUEST_FRAME_GPU_TIME_NS(n) PERF_counter_add(kGuestFrameGpuTimeNs, n)
++#define PROFILE_NATIVE_COMPOSITION_GPU_TIME_NS(n) \
++  PERF_counter_add(kNativeCompositionGpuTimeNs, n)
++#define PROFILE_NATIVE_SELECTION_GPU_TIME_NS(n) \
++  PERF_counter_add(kNativeSelectionGpuTimeNs, n)
++#define PROFILE_GUEST_FRAME_GPU_TIMING_SAMPLE() \
++  PERF_counter_inc(kGuestFrameGpuTimingSamples)
++#define PROFILE_NATIVE_COMPOSITION_GPU_TIMING_SAMPLE() \
++  PERF_counter_inc(kNativeCompositionGpuTimingSamples)
++#define PROFILE_NATIVE_SELECTION_GPU_TIMING_SAMPLE() \
++  PERF_counter_inc(kNativeSelectionGpuTimingSamples)
++#define PROFILE_NATIVE_GPU_TIMING_DROP() PERF_counter_inc(kNativeGpuTimingDrops)
+ #define PROFILE_AUDIO_LATENCY_US(value) PERF_counter_set(kAudioFrameLatencyUs, value)
+ #define PROFILE_BUFFER_QUEUE_DEPTH(value) PERF_counter_set(kBufferQueueDepth, value)
+ #define PROFILE_THREAD_CREATED() PERF_counter_inc(kActiveThreads)
+@@ -248,6 +267,13 @@ class Profiler {
+ #define PROFILE_DRAW_CALL()
+ #define PROFILE_VERTICES(n)
+ #define PROFILE_CMD_BUFFER_STALL()
++#define PROFILE_GUEST_FRAME_GPU_TIME_NS(n)
++#define PROFILE_NATIVE_COMPOSITION_GPU_TIME_NS(n)
++#define PROFILE_NATIVE_SELECTION_GPU_TIME_NS(n)
++#define PROFILE_GUEST_FRAME_GPU_TIMING_SAMPLE()
++#define PROFILE_NATIVE_COMPOSITION_GPU_TIMING_SAMPLE()
++#define PROFILE_NATIVE_SELECTION_GPU_TIMING_SAMPLE()
++#define PROFILE_NATIVE_GPU_TIMING_DROP()
+ #define PROFILE_AUDIO_LATENCY_US(value)
+ #define PROFILE_BUFFER_QUEUE_DEPTH(value)
+ #define PROFILE_THREAD_CREATED()
+diff --git a/src/core/perf/counter.cpp b/src/core/perf/counter.cpp
+index 11f57cf..5a4c6b2 100644
+--- a/src/core/perf/counter.cpp
++++ b/src/core/perf/counter.cpp
+@@ -37,6 +37,13 @@ constexpr const char* kCounterNames[] = {
+     "draw_calls",
+     "command_buffer_stalls",
+     "vertices_processed",
++    "guest_frame_gpu_time_ns",
++    "native_composition_gpu_time_ns",
++    "native_selection_gpu_time_ns",
++    "guest_frame_gpu_timing_samples",
++    "native_composition_gpu_timing_samples",
++    "native_selection_gpu_timing_samples",
++    "native_gpu_timing_drops",
+     "xma_frames_decoded",
+     "xma_no_space_stalls",
+     "xma_no_progress_stalls",
+@@ -100,6 +107,13 @@ constexpr bool kIsGauge[] = {
+     false,  // kDrawCalls
+     false,  // kCommandBufferStalls
+     false,  // kVerticesProcessed
++    false,  // kGuestFrameGpuTimeNs
++    false,  // kNativeCompositionGpuTimeNs
++    false,  // kNativeSelectionGpuTimeNs
++    false,  // kGuestFrameGpuTimingSamples
++    false,  // kNativeCompositionGpuTimingSamples
++    false,  // kNativeSelectionGpuTimingSamples
++    false,  // kNativeGpuTimingDrops
+     false,  // kXmaFramesDecoded
+     false,  // kXmaNoSpaceStalls
+     false,  // kXmaNoProgressStalls
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 163333e..95e917a 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -1787,6 +1787,7 @@ bool D3D12CommandProcessor::SetupContext() {
+   }
+ 
+   occlusion_query_resources_available_ = InitializeOcclusionQueryResources();
++  InitializeNativeGuestOutputGpuTiming();
+ 
+   // Just not to expose uninitialized memory.
+   std::memset(&system_constants_, 0, sizeof(system_constants_));
+@@ -1797,6 +1798,7 @@ bool D3D12CommandProcessor::SetupContext() {
+ void D3D12CommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
+   InvalidateAllVertexBufferResidency();
++  ShutdownNativeGuestOutputGpuTiming();
+   ShutdownOcclusionQueryResources();
+ 
+   ui::d3d12::util::ReleaseAndNull(readback_buffer_);
+@@ -2333,6 +2335,32 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   }
+ 
++  NativeGuestOutputGpuTimingSlot* timing_slot = nullptr;
++  uint32_t timing_query_base = 0;
++  if (comparison) {
++    native_guest_output_gpu_timing_active_ = true;
++    if (native_guest_output_gpu_query_heap_ &&
++        native_guest_output_gpu_query_readback_) {
++      const uint32_t slot_index =
++          uint32_t(frame_current_ % kQueueFrames);
++      auto& candidate_slot =
++          native_guest_output_gpu_timing_slots_[slot_index];
++      if (!candidate_slot.submission) {
++        timing_slot = &candidate_slot;
++        timing_slot->guest_timed = timing_slot->frame_started;
++        timing_query_base =
++            slot_index * kNativeGuestOutputGpuQueriesPerFrame;
++        deferred_command_list_.D3DEndQuery(
++            native_guest_output_gpu_query_heap_.Get(),
++            D3D12_QUERY_TYPE_TIMESTAMP, timing_query_base + 1);
++      } else {
++        PROFILE_NATIVE_GPU_TIMING_DROP();
++      }
++    } else {
++      PROFILE_NATIVE_GPU_TIMING_DROP();
++    }
++  }
++
+   ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[2];
+   if (!RequestOneUseSingleViewDescriptors(2, descriptors)) {
+     static bool logged_retained_preview_descriptor_failure = false;
+@@ -2401,11 +2429,22 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+   if (comparison) {
+     deferred_command_list_.EndDebugMarker();
+   }
++  if (timing_slot) {
++    deferred_command_list_.D3DEndQuery(
++        native_guest_output_gpu_query_heap_.Get(),
++        D3D12_QUERY_TYPE_TIMESTAMP, timing_query_base + 2);
++  }
+   if (present_native) {
+     if (comparison) {
+       deferred_command_list_.BeginDebugMarker(
+           "PinyonShift NR-04C native output selection");
+     }
++    if (timing_slot) {
++      timing_slot->selection_timed = true;
++      deferred_command_list_.D3DEndQuery(
++          native_guest_output_gpu_query_heap_.Get(),
++          D3D12_QUERY_TYPE_TIMESTAMP, timing_query_base + 3);
++    }
+     PushTransitionBarrier(
+         resource, ui::d3d12::D3D12Presenter::kGuestOutputInternalState,
+         D3D12_RESOURCE_STATE_COPY_DEST);
+@@ -2414,10 +2453,29 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         resource, native_guest_output_display_target_.Get());
+     PushTransitionBarrier(resource, D3D12_RESOURCE_STATE_COPY_DEST,
+                           ui::d3d12::D3D12Presenter::kGuestOutputInternalState);
++    SubmitBarriers();
++    if (timing_slot) {
++      deferred_command_list_.D3DEndQuery(
++          native_guest_output_gpu_query_heap_.Get(),
++          D3D12_QUERY_TYPE_TIMESTAMP, timing_query_base + 4);
++    }
+     if (comparison) {
+       deferred_command_list_.EndDebugMarker();
+     }
+   }
++  if (timing_slot) {
++    const uint32_t first_query =
++        timing_query_base + (timing_slot->guest_timed ? 0 : 1);
++    const uint32_t last_query = timing_query_base +
++        (timing_slot->selection_timed ? 4 : 2);
++    deferred_command_list_.D3DResolveQueryData(
++        native_guest_output_gpu_query_heap_.Get(),
++        D3D12_QUERY_TYPE_TIMESTAMP, first_query,
++        last_query - first_query + 1,
++        native_guest_output_gpu_query_readback_.Get(),
++        uint64_t(first_query) * sizeof(uint64_t));
++    timing_slot->submission = submission_current_;
++  }
+   native_guest_output_display_target_state_ =
+       D3D12_RESOURCE_STATE_COPY_SOURCE;
+   native_guest_output_display_target_submission_ = submission_current_;
+@@ -3954,6 +4012,7 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
+     REXGPU_ERROR("Failed to await a submission completion Direct3D 12 fence");
+   }
+   RetireModernZPDQueries();
++  RetireNativeGuestOutputGpuTimings();
+   if (submission_completed_ <= submission_completed_before) {
+     // Not updated - no need to reclaim or download things.
+     return;
+@@ -4112,6 +4171,9 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+     // end of the submission (when async pipeline creation requests are
+     // fulfilled).
+     deferred_command_list_.Reset();
++    if (is_opening_frame) {
++      BeginNativeGuestOutputGpuTimingFrame();
++    }
+ 
+     // Reset cached state of the command list.
+     ff_viewport_update_needed_ = true;
+@@ -5628,6 +5690,149 @@ ID3D12Resource* D3D12CommandProcessor::RequestReadbackBuffer(uint32_t size) {
+   return readback_buffer_;
+ }
+ 
++bool D3D12CommandProcessor::InitializeNativeGuestOutputGpuTiming() {
++  native_guest_output_gpu_query_heap_.Reset();
++  native_guest_output_gpu_query_readback_.Reset();
++  native_guest_output_gpu_query_mapping_ = nullptr;
++  native_guest_output_gpu_timestamp_frequency_ = 0;
++  native_guest_output_gpu_timing_slots_ = {};
++  native_guest_output_gpu_timing_active_ = false;
++
++  ID3D12Device* device = GetD3D12Provider().GetDevice();
++  ID3D12CommandQueue* direct_queue = GetD3D12Provider().GetDirectQueue();
++  if (!device || !direct_queue ||
++      FAILED(direct_queue->GetTimestampFrequency(
++          &native_guest_output_gpu_timestamp_frequency_)) ||
++      !native_guest_output_gpu_timestamp_frequency_) {
++    REXGPU_WARN("Native guest-output GPU timestamps are unavailable");
++    return false;
++  }
++
++  D3D12_QUERY_HEAP_DESC heap_desc{};
++  heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
++  heap_desc.Count =
++      kQueueFrames * kNativeGuestOutputGpuQueriesPerFrame;
++  if (FAILED(device->CreateQueryHeap(
++          &heap_desc,
++          IID_PPV_ARGS(&native_guest_output_gpu_query_heap_)))) {
++    REXGPU_WARN("Failed to create native guest-output GPU timestamp heap");
++    return false;
++  }
++
++  const uint64_t readback_size =
++      sizeof(uint64_t) * heap_desc.Count;
++  D3D12_RESOURCE_DESC buffer_desc;
++  ui::d3d12::util::FillBufferResourceDesc(
++      buffer_desc, readback_size, D3D12_RESOURCE_FLAG_NONE);
++  if (FAILED(device->CreateCommittedResource(
++          &ui::d3d12::util::kHeapPropertiesReadback,
++          GetD3D12Provider().GetHeapFlagCreateNotZeroed(), &buffer_desc,
++          D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
++          IID_PPV_ARGS(&native_guest_output_gpu_query_readback_)))) {
++    REXGPU_WARN(
++        "Failed to allocate native guest-output GPU timestamp readback");
++    native_guest_output_gpu_query_heap_.Reset();
++    return false;
++  }
++
++  D3D12_RANGE read_range{0, SIZE_T(readback_size)};
++  void* mapping = nullptr;
++  if (FAILED(native_guest_output_gpu_query_readback_->Map(
++          0, &read_range, &mapping))) {
++    REXGPU_WARN("Failed to map native guest-output GPU timestamps");
++    native_guest_output_gpu_query_readback_.Reset();
++    native_guest_output_gpu_query_heap_.Reset();
++    return false;
++  }
++  native_guest_output_gpu_query_mapping_ =
++      static_cast<uint64_t*>(mapping);
++  return true;
++}
++
++void D3D12CommandProcessor::ShutdownNativeGuestOutputGpuTiming() {
++  RetireNativeGuestOutputGpuTimings();
++  if (native_guest_output_gpu_query_readback_ &&
++      native_guest_output_gpu_query_mapping_) {
++    native_guest_output_gpu_query_readback_->Unmap(0, nullptr);
++  }
++  native_guest_output_gpu_query_mapping_ = nullptr;
++  native_guest_output_gpu_query_readback_.Reset();
++  native_guest_output_gpu_query_heap_.Reset();
++  native_guest_output_gpu_timestamp_frequency_ = 0;
++  native_guest_output_gpu_timing_slots_ = {};
++  native_guest_output_gpu_timing_active_ = false;
++}
++
++void D3D12CommandProcessor::BeginNativeGuestOutputGpuTimingFrame() {
++  if (!native_guest_output_gpu_timing_active_ ||
++      !native_guest_output_gpu_query_heap_) {
++    return;
++  }
++  const uint32_t slot_index = uint32_t(frame_current_ % kQueueFrames);
++  auto& slot = native_guest_output_gpu_timing_slots_[slot_index];
++  if (slot.submission) {
++    PROFILE_NATIVE_GPU_TIMING_DROP();
++    return;
++  }
++  slot = {};
++  slot.frame_started = true;
++  const uint32_t query_base =
++      slot_index * kNativeGuestOutputGpuQueriesPerFrame;
++  deferred_command_list_.D3DEndQuery(
++      native_guest_output_gpu_query_heap_.Get(),
++      D3D12_QUERY_TYPE_TIMESTAMP, query_base);
++}
++
++void D3D12CommandProcessor::RetireNativeGuestOutputGpuTimings() {
++  if (!native_guest_output_gpu_query_mapping_ ||
++      !native_guest_output_gpu_timestamp_frequency_) {
++    return;
++  }
++  auto ticks_to_ns = [this](uint64_t ticks) -> int64_t {
++    const long double nanoseconds =
++        static_cast<long double>(ticks) * 1000000000.0L /
++        static_cast<long double>(
++            native_guest_output_gpu_timestamp_frequency_);
++    return static_cast<int64_t>(nanoseconds);
++  };
++  for (uint32_t slot_index = 0; slot_index < kQueueFrames;
++       ++slot_index) {
++    auto& slot = native_guest_output_gpu_timing_slots_[slot_index];
++    if (!slot.submission || slot.submission > submission_completed_) {
++      continue;
++    }
++    const uint32_t query_base =
++        slot_index * kNativeGuestOutputGpuQueriesPerFrame;
++    const uint64_t* timestamps =
++        native_guest_output_gpu_query_mapping_ + query_base;
++    bool valid = timestamps[2] >= timestamps[1];
++    if (slot.guest_timed) {
++      valid &= timestamps[1] >= timestamps[0];
++    }
++    if (slot.selection_timed) {
++      valid &= timestamps[4] >= timestamps[3];
++    }
++    if (valid) {
++      if (slot.guest_timed) {
++        PROFILE_GUEST_FRAME_GPU_TIME_NS(
++            ticks_to_ns(timestamps[1] - timestamps[0]));
++        PROFILE_GUEST_FRAME_GPU_TIMING_SAMPLE();
++      }
++      PROFILE_NATIVE_COMPOSITION_GPU_TIME_NS(
++          ticks_to_ns(timestamps[2] - timestamps[1]));
++      PROFILE_NATIVE_COMPOSITION_GPU_TIMING_SAMPLE();
++      if (slot.selection_timed) {
++        PROFILE_NATIVE_SELECTION_GPU_TIME_NS(
++            ticks_to_ns(timestamps[4] - timestamps[3]));
++        PROFILE_NATIVE_SELECTION_GPU_TIMING_SAMPLE();
++      }
++    } else {
++      PROFILE_NATIVE_GPU_TIMING_DROP();
++    }
++    slot = {};
++  }
++}
++
+ bool D3D12CommandProcessor::InitializeOcclusionQueryResources() {
+   active_occlusion_query_ = {};
+   occlusion_query_cursor_ = 0;
