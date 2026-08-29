@@ -1,0 +1,266 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index afe69ac..d328cc1 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -104,6 +104,9 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   system::GraphicsIsolatedDrawReadbackStatus QueueIsolatedReplayReadback(
+       system::GraphicsIsolatedDrawReadbackCompletion completion,
+       uint32_t* failure_detail_out);
++  system::GraphicsIsolatedDrawReadbackStatus QueueGuestColorReadback(
++      system::GraphicsIsolatedDrawReadbackCompletion completion,
++      uint32_t* failure_detail_out);
+   void EndIsolatedReplayTarget(uint64_t frame_sequence);
+ 
+   struct IsolatedReplayPreviewSource {
+@@ -712,6 +715,11 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+     uint32_t format = 0;
+     system::GraphicsIsolatedDrawReadbackCompletion completion = nullptr;
+   } isolated_replay_readback_;
++  IsolatedReplayReadback guest_reference_readback_;
++  system::GraphicsIsolatedDrawReadbackStatus QueueRenderTargetReadback(
++      D3D12RenderTarget* target, IsolatedReplayReadback& pending_readback,
++      system::GraphicsIsolatedDrawReadbackCompletion completion,
++      uint32_t* failure_detail_out);
+   std::shared_ptr<ui::d3d12::D3D12CpuDescriptorPool> descriptor_pool_srv_;
+   ui::d3d12::D3D12CpuDescriptorPool::Descriptor null_rtv_descriptor_ss_;
+   ui::d3d12::D3D12CpuDescriptorPool::Descriptor null_rtv_descriptor_ms_;
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 2975c98..b6385ee 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -387,6 +387,10 @@ using GraphicsIsolatedDrawReadbackCompletion = void (*)(
+ struct GraphicsIsolatedDrawRequest {
+   bool requested = false;
+   bool readback_requested = false;
++  // Capture the authoritative guest color target after the original draw.
++  // This is independent of the private replay readback and never suppresses
++  // or redirects the guest draw.
++  bool reference_readback_requested = false;
+   bool reference_marker_requested = false;
+   bool retain_target = false;
+   // Rebind the retained private target without copying the guest target. This
+@@ -395,6 +399,8 @@ struct GraphicsIsolatedDrawRequest {
+   uint64_t frame_sequence = 0;
+   GraphicsIsolatedDrawCompletion completion = nullptr;
+   GraphicsIsolatedDrawReadbackCompletion readback_completion = nullptr;
++  GraphicsIsolatedDrawReadbackCompletion reference_readback_completion =
++      nullptr;
+ };
+ 
+ // Called after the host pipeline has been prepared. A request duplicates the
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 95e917a..0885b89 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3380,6 +3380,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     if (isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.EndDebugMarker();
+     }
++    if (isolated_draw_request.reference_readback_requested &&
++        isolated_draw_request.reference_readback_completion) {
++      uint32_t readback_detail = 0;
++      auto readback_status = render_target_cache_->QueueGuestColorReadback(
++          isolated_draw_request.reference_readback_completion,
++          &readback_detail);
++      if (readback_status !=
++          system::GraphicsIsolatedDrawReadbackStatus::kReady) {
++        system::GraphicsIsolatedDrawReadback readback_result;
++        readback_result.status = readback_status;
++        readback_result.detail = readback_detail;
++        isolated_draw_request.reference_readback_completion(readback_result);
++      }
++    }
+   } else {
+     D3D12_INDEX_BUFFER_VIEW index_buffer_view;
+     index_buffer_view.SizeInBytes = primitive_processing_result.host_draw_vertex_count;
+@@ -3498,6 +3512,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     if (isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.EndDebugMarker();
+     }
++    if (isolated_draw_request.reference_readback_requested &&
++        isolated_draw_request.reference_readback_completion) {
++      uint32_t readback_detail = 0;
++      auto readback_status = render_target_cache_->QueueGuestColorReadback(
++          isolated_draw_request.reference_readback_completion,
++          &readback_detail);
++      if (readback_status !=
++          system::GraphicsIsolatedDrawReadbackStatus::kReady) {
++        system::GraphicsIsolatedDrawReadback readback_result;
++        readback_result.status = readback_status;
++        readback_result.detail = readback_detail;
++        isolated_draw_request.reference_readback_completion(readback_result);
++      }
++    }
+     if (scratch_index_buffer != nullptr) {
+       ReleaseScratchGPUBuffer(scratch_index_buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+     }
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index bf2472a..ef06755 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1020,11 +1020,15 @@ void D3D12RenderTargetCache::Shutdown(bool from_destructor) {
+   }
+   ui::d3d12::util::ReleaseAndNull(host_depth_store_root_signature_);
+ 
+-  if (isolated_replay_readback_.buffer && isolated_replay_readback_.mapping) {
+-    D3D12_RANGE write_range = {};
+-    isolated_replay_readback_.buffer->Unmap(0, &write_range);
+-  }
+-  isolated_replay_readback_ = {};
++  const auto release_isolated_readback = [](IsolatedReplayReadback& readback) {
++    if (readback.buffer && readback.mapping) {
++      D3D12_RANGE write_range = {};
++      readback.buffer->Unmap(0, &write_range);
++    }
++    readback = {};
++  };
++  release_isolated_readback(isolated_replay_readback_);
++  release_isolated_readback(guest_reference_readback_);
+   isolated_replay_preview_resolved_target_.Reset();
+   isolated_replay_preview_resolved_target_state_ =
+       D3D12_RESOURCE_STATE_RESOLVE_DEST;
+@@ -1054,25 +1058,30 @@ void D3D12RenderTargetCache::CompletedSubmissionUpdated() {
+   if (transfer_vertex_buffer_pool_) {
+     transfer_vertex_buffer_pool_->Reclaim(command_processor_.GetCompletedSubmission());
+   }
+-  if (isolated_replay_readback_.buffer &&
+-      isolated_replay_readback_.submission <=
+-          command_processor_.GetCompletedSubmission()) {
++  const auto complete_isolated_readback = [this](
++                                              IsolatedReplayReadback& readback) {
++    if (!readback.buffer ||
++        readback.submission > command_processor_.GetCompletedSubmission()) {
++      return;
++    }
+     system::GraphicsIsolatedDrawReadback result;
+     result.status = system::GraphicsIsolatedDrawReadbackStatus::kReady;
+-    result.data = isolated_replay_readback_.mapping;
+-    result.data_size = isolated_replay_readback_.data_size;
+-    result.width = isolated_replay_readback_.width;
+-    result.height = isolated_replay_readback_.height;
+-    result.row_pitch = isolated_replay_readback_.row_pitch;
+-    result.format = isolated_replay_readback_.format;
+-    auto completion = isolated_replay_readback_.completion;
++    result.data = readback.mapping;
++    result.data_size = readback.data_size;
++    result.width = readback.width;
++    result.height = readback.height;
++    result.row_pitch = readback.row_pitch;
++    result.format = readback.format;
++    auto completion = readback.completion;
+     if (completion) {
+       completion(result);
+     }
+     D3D12_RANGE write_range = {};
+-    isolated_replay_readback_.buffer->Unmap(0, &write_range);
+-    isolated_replay_readback_ = {};
+-  }
++    readback.buffer->Unmap(0, &write_range);
++    readback = {};
++  };
++  complete_isolated_readback(isolated_replay_readback_);
++  complete_isolated_readback(guest_reference_readback_);
+ }
+ 
+ void D3D12RenderTargetCache::BeginSubmission() {
+@@ -1862,16 +1871,43 @@ system::GraphicsIsolatedDrawReadbackStatus
+ D3D12RenderTargetCache::QueueIsolatedReplayReadback(
+     system::GraphicsIsolatedDrawReadbackCompletion completion,
+     uint32_t* failure_detail_out) {
++  if (!isolated_replay_color_target_) {
++    return system::GraphicsIsolatedDrawReadbackStatus::kUnsupportedTarget;
++  }
++  return QueueRenderTargetReadback(
++      static_cast<D3D12RenderTarget*>(isolated_replay_color_target_.get()),
++      isolated_replay_readback_, completion, failure_detail_out);
++}
++
++system::GraphicsIsolatedDrawReadbackStatus
++D3D12RenderTargetCache::QueueGuestColorReadback(
++    system::GraphicsIsolatedDrawReadbackCompletion completion,
++    uint32_t* failure_detail_out) {
++  if (GetPath() != Path::kHostRenderTargets) {
++    return system::GraphicsIsolatedDrawReadbackStatus::kUnsupportedTarget;
++  }
++  RenderTarget* const* guest_targets =
++      last_update_accumulated_render_targets();
++  if (!guest_targets[1]) {
++    return system::GraphicsIsolatedDrawReadbackStatus::kUnsupportedTarget;
++  }
++  return QueueRenderTargetReadback(
++      static_cast<D3D12RenderTarget*>(guest_targets[1]),
++      guest_reference_readback_, completion, failure_detail_out);
++}
++
++system::GraphicsIsolatedDrawReadbackStatus
++D3D12RenderTargetCache::QueueRenderTargetReadback(
++    D3D12RenderTarget* target, IsolatedReplayReadback& pending_readback,
++    system::GraphicsIsolatedDrawReadbackCompletion completion,
++    uint32_t* failure_detail_out) {
+   if (failure_detail_out) {
+     *failure_detail_out = 0;
+   }
+-  if (!completion || isolated_replay_readback_.buffer ||
+-      !isolated_replay_color_target_) {
++  if (!completion || pending_readback.buffer || !target) {
+     return system::GraphicsIsolatedDrawReadbackStatus::kUnsupportedTarget;
+   }
+-  auto* isolated_color = static_cast<D3D12RenderTarget*>(
+-      isolated_replay_color_target_.get());
+-  ID3D12Resource* source = isolated_color->resource();
++  ID3D12Resource* source = target->resource();
+   const D3D12_RESOURCE_DESC source_desc = source->GetDesc();
+   if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       source_desc.DepthOrArraySize != 1 || source_desc.MipLevels != 1) {
+@@ -1940,7 +1976,7 @@ D3D12RenderTargetCache::QueueIsolatedReplayReadback(
+   }
+ 
+   D3D12_RESOURCE_STATES old_state =
+-      isolated_color->SetResourceState(
++      target->SetResourceState(
+           source_desc.SampleDesc.Count > 1
+               ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
+               : D3D12_RESOURCE_STATE_COPY_SOURCE);
+@@ -1956,7 +1992,7 @@ D3D12RenderTargetCache::QueueIsolatedReplayReadback(
+     command_processor_.PushTransitionBarrier(
+         copy_source, D3D12_RESOURCE_STATE_RESOLVE_DEST,
+         D3D12_RESOURCE_STATE_COPY_SOURCE);
+-    isolated_color->SetResourceState(old_state);
++    target->SetResourceState(old_state);
+     command_processor_.PushTransitionBarrier(
+         source, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, old_state);
+     command_processor_.SubmitBarriers();
+@@ -1972,22 +2008,22 @@ D3D12RenderTargetCache::QueueIsolatedReplayReadback(
+   command_processor_.GetDeferredCommandList().D3DCopyTextureRegion(
+       &destination, 0, 0, 0, &source_location, nullptr);
+   if (source_desc.SampleDesc.Count == 1) {
+-    isolated_color->SetResourceState(old_state);
++    target->SetResourceState(old_state);
+     command_processor_.PushTransitionBarrier(
+         source, D3D12_RESOURCE_STATE_COPY_SOURCE, old_state);
+   }
+ 
+-  isolated_replay_readback_.buffer = std::move(buffer);
+-  isolated_replay_readback_.resolved_target = std::move(resolved_target);
+-  isolated_replay_readback_.mapping = static_cast<uint8_t*>(mapping);
+-  isolated_replay_readback_.submission =
++  pending_readback.buffer = std::move(buffer);
++  pending_readback.resolved_target = std::move(resolved_target);
++  pending_readback.mapping = static_cast<uint8_t*>(mapping);
++  pending_readback.submission =
+       command_processor_.GetCurrentSubmission();
+-  isolated_replay_readback_.data_size = total_size;
+-  isolated_replay_readback_.width = uint32_t(source_desc.Width);
+-  isolated_replay_readback_.height = source_desc.Height;
+-  isolated_replay_readback_.row_pitch = footprint.Footprint.RowPitch;
+-  isolated_replay_readback_.format = uint32_t(source_desc.Format);
+-  isolated_replay_readback_.completion = completion;
++  pending_readback.data_size = total_size;
++  pending_readback.width = uint32_t(source_desc.Width);
++  pending_readback.height = source_desc.Height;
++  pending_readback.row_pitch = footprint.Footprint.RowPitch;
++  pending_readback.format = uint32_t(source_desc.Format);
++  pending_readback.completion = completion;
+   return system::GraphicsIsolatedDrawReadbackStatus::kReady;
+ }
+ 

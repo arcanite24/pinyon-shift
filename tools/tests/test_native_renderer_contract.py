@@ -436,6 +436,24 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"resolve_suppression_implemented": False', evaluator)
         self.assertNotIn("SetDrawSuppression", evaluator)
 
+    def test_complete_pass_export_spans_anchor_and_follower(self):
+        exporter = (
+            ROOT / "tools/export-native-renderer-renderdoc.py"
+        ).read_text(encoding="utf-8")
+        wrapper = (
+            ROOT / "tools/export-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PASS_NATIVE_ANCHOR_MARKER", exporter)
+        self.assertIn("PASS_XENOS_ANCHOR_MARKER", exporter)
+        self.assertIn("PASS_NATIVE_FOLLOWER_MARKER", exporter)
+        self.assertIn("PASS_XENOS_FOLLOWER_MARKER", exporter)
+        self.assertIn("_export_pass_span", exporter)
+        self.assertIn('"draw_count": 2', exporter)
+        self.assertIn('"suppression_allowed": False', exporter)
+        self.assertIn("[switch]$CompletePass", wrapper)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_COMPLETE_PASS", wrapper)
+        self.assertNotIn("SetDrawSuppression", exporter)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT
@@ -705,6 +723,33 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("request.reuse_target = true", scanner)
         self.assertIn("native_renderer.isolated_pass.result", scanner)
         self.assertIn("native_renderer.isolated_pass.repeat", scanner)
+        repeat_request = scanner.split(
+            "} else if (!g_isolated_draw.pass_repeat_reported) {", 1
+        )[1].split("}", 1)[0]
+        self.assertNotIn("captured_frame =", repeat_request)
+        self.assertNotIn("captured_draw =", repeat_request)
+
+        paired_readback_patch = (
+            ROOT
+            / "patches/rexglue/0071-d3d12-paired-pass-color-readback.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("reference_readback_requested", paired_readback_patch)
+        self.assertIn("QueueGuestColorReadback", paired_readback_patch)
+        self.assertIn("guest_reference_readback_", paired_readback_patch)
+        self.assertIn("GetCompletedSubmission", paired_readback_patch)
+        self.assertNotIn("AwaitAllQueueOperationsCompletion", paired_readback_patch)
+        self.assertNotIn("SetDrawSuppression", paired_readback_patch)
+        marker_end = paired_readback_patch.index(
+            "deferred_command_list_.EndDebugMarker"
+        )
+        xenos_readback = paired_readback_patch.index(
+            "QueueGuestColorReadback", marker_end
+        )
+        self.assertLess(marker_end, xenos_readback)
+        self.assertIn("CompleteIsolatedReferenceReadback", scanner)
+        self.assertIn("request.reference_readback_requested", scanner)
+        self.assertIn('readback, "xenos"', scanner)
+        self.assertIn('"suppression_eligible", "false"', scanner)
 
         texture_resource_patch = (
             ROOT
