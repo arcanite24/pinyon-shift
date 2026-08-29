@@ -127,3 +127,7 @@ It separates a resource-free pipeline identity from draw arguments, geometry,
 textures, render targets, and shader-used constant values, then measures
 mesh/material instancing, material reuse, and pipeline reuse independently.
 See `SEMANTIC_BATCH_EQUIVALENCE.md`.
+
+The measured material and pipeline opportunities feed a bounded shadow cache
+without enabling native state objects or execution. See
+`SEMANTIC_STATE_CACHE.md`.

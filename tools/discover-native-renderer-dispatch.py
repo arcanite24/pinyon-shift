@@ -1474,6 +1474,12 @@ def procedural_model_receiver_lifecycle(
                 "resource_free_layout_and_prepared_state"
             ),
             "semantic_batch_execution_enabled": False,
+            "semantic_state_cache_required": True,
+            "semantic_state_cache_policy": "set_associative_lru",
+            "semantic_state_cache_profiles": (
+                "compact:64,balanced:256,headroom:1024"
+            ),
+            "semantic_state_cache_execution_enabled": False,
             "physical_pm4_packet_correlation_proved": False,
             "prepared_draw_lineage_proved": False,
             "classification": "procedural_submission_pm4_packet_boundary",

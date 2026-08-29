@@ -71,7 +71,7 @@ enter any equivalence level.
 ## Fail-closed report
 
 `tools/summarize-native-renderer-semantic-batches.py` emits schema
-`pinyon-shift.native-renderer-semantic-batch-admission.v2`. It requires one
+`pinyon-shift.native-renderer-semantic-batch-admission.v3`. It requires one
 complete summary for every equivalence level and reconciles every retained
 entry to the exact eligible-draw total. Continuation accounting must match
 both semantic-instance and parameter transitions, with zero table overflow.
@@ -104,3 +104,6 @@ The largest compact shader-parameter payload was 700 bytes, below the
 prepared-pipeline caches as the next implementation batch, but those reuse
 paths must not be reported as draw-count reduction. Native execution,
 reordering, admission, upload, draw, and suppression remain disabled.
+
+The follow-up bounded shadow-cache contract is documented in
+`docs/native-renderer/SEMANTIC_STATE_CACHE.md`.

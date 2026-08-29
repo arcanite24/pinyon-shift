@@ -8,7 +8,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v2"
+SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 TITLE_CONFIG = "native_renderer.discovery.title_provenance_config"
 TITLE_SUMMARY = "native_renderer.discovery.title_provenance_summary"
@@ -20,12 +20,21 @@ EQUIVALENCE_ENTRY = (
 EQUIVALENCE_SUMMARY = (
     "native_renderer.discovery.semantic_batch_equivalence_summary"
 )
+STATE_CACHE_SUMMARY = (
+    "native_renderer.discovery.semantic_state_cache_summary"
+)
 EXPECTED_ORDERING = "exact_consecutive_prepared_draw_order"
 EXPECTED_EQUIVALENCES = (
     "mesh_material_instance",
     "material_state_reuse",
     "pipeline_state_reuse",
 )
+EXPECTED_STATE_CACHE_LEVELS = ("material_state", "pipeline_state")
+EXPECTED_STATE_CACHE_PROFILES = {
+    "compact": 64,
+    "balanced": 256,
+    "headroom": 1024,
+}
 REJECTION_FIELDS = {
     "missing_title_resource": "reject_missing_title_resource",
     "non_opaque": "reject_non_opaque",
@@ -51,6 +60,7 @@ def read_events(paths: list[pathlib.Path]) -> list[dict]:
         BATCH_SUMMARY,
         EQUIVALENCE_ENTRY,
         EQUIVALENCE_SUMMARY,
+        STATE_CACHE_SUMMARY,
     }
     for path in paths:
         for line_number, line in enumerate(
@@ -142,6 +152,12 @@ def _validate_static(static: dict) -> dict:
             "resource_free_layout_and_prepared_state"
         ),
         "semantic_batch_execution_enabled": False,
+        "semantic_state_cache_required": True,
+        "semantic_state_cache_policy": "set_associative_lru",
+        "semantic_state_cache_profiles": (
+            "compact:64,balanced:256,headroom:1024"
+        ),
+        "semantic_state_cache_execution_enabled": False,
         "native_rendering_enabled": False,
         "suppression_eligible": False,
     }
@@ -377,6 +393,141 @@ def _build_equivalence_levels(
     return result
 
 
+def _build_state_caches(
+    selected: list[dict], eligible_draws: int
+) -> dict[str, dict]:
+    result = {}
+    for cache_level in EXPECTED_STATE_CACHE_LEVELS:
+        profiles = {}
+        for cache_profile, expected_capacity in (
+            EXPECTED_STATE_CACHE_PROFILES.items()
+        ):
+            summaries = [
+                event
+                for event in selected
+                if event.get("event") == STATE_CACHE_SUMMARY
+                and event.get("cache_level") == cache_level
+                and event.get("cache_profile") == cache_profile
+            ]
+            if len(summaries) != 1:
+                raise ValueError(
+                    "semantic state cache needs one summary: "
+                    f"{cache_level}/{cache_profile}"
+                )
+            summary = summaries[0]
+            if (
+                summary.get("status") != "complete"
+                or summary.get("accounting_complete") != "true"
+                or summary.get("policy") != "set_associative_lru"
+                or summary.get("lifetime") != "census_session"
+                or summary.get("native_state_objects") != "false"
+                or summary.get("native_bindings") != "false"
+                or summary.get("native_draw") != "false"
+                or summary.get("reordering") != "false"
+                or summary.get("xenos_authority") != "true"
+                or summary.get("suppression_allowed") != "false"
+            ):
+                raise ValueError(
+                    "semantic state cache is incomplete or unsafe: "
+                    f"{cache_level}/{cache_profile}"
+                )
+            totals = {
+                name: _integer(summary, name)
+                for name in (
+                    "eligible_draws",
+                    "lookups",
+                    "hits",
+                    "misses",
+                    "evictions",
+                    "full_bucket_misses",
+                    "resident_entries",
+                    "maximum_resident_entries",
+                    "consecutive_hits",
+                    "nonconsecutive_same_frame_hits",
+                    "cross_frame_hits",
+                    "object_constructions",
+                    "object_constructions_avoided",
+                    "required_bindings",
+                    "binding_elisions",
+                    "bucket_count",
+                    "ways",
+                    "capacity",
+                )
+            }
+            totals["hit_percent"] = _number(summary, "hit_percent")
+            totals["binding_elision_percent"] = _number(
+                summary, "binding_elision_percent"
+            )
+            expected_hit_percent = (
+                100.0 * totals["hits"] / totals["lookups"]
+                if totals["lookups"]
+                else 0.0
+            )
+            expected_elision_percent = (
+                100.0 * totals["binding_elisions"] / totals["lookups"]
+                if totals["lookups"]
+                else 0.0
+            )
+            if (
+                totals["eligible_draws"] != eligible_draws
+                or totals["lookups"] != eligible_draws
+                or totals["hits"] + totals["misses"]
+                != totals["lookups"]
+                or totals["consecutive_hits"]
+                + totals["nonconsecutive_same_frame_hits"]
+                + totals["cross_frame_hits"]
+                != totals["hits"]
+                or totals["object_constructions"] != totals["misses"]
+                or totals["object_constructions_avoided"]
+                != totals["hits"]
+                or totals["required_bindings"]
+                + totals["binding_elisions"]
+                != totals["lookups"]
+                or totals["binding_elisions"]
+                != totals["consecutive_hits"]
+                or totals["full_bucket_misses"] != totals["evictions"]
+                or totals["evictions"] > totals["misses"]
+                or totals["resident_entries"] > totals["capacity"]
+                or totals["maximum_resident_entries"]
+                > totals["capacity"]
+                or totals["capacity"] != expected_capacity
+                or totals["capacity"]
+                != totals["bucket_count"] * totals["ways"]
+                or totals["bucket_count"] <= 0
+                or totals["ways"] <= 0
+            ):
+                raise ValueError(
+                    "semantic state cache accounting failed: "
+                    f"{cache_level}/{cache_profile}"
+                )
+            if (
+                abs(totals["hit_percent"] - expected_hit_percent) > 0.001
+                or abs(
+                    totals["binding_elision_percent"]
+                    - expected_elision_percent
+                )
+                > 0.001
+            ):
+                raise ValueError(
+                    "semantic state cache percentage drifted: "
+                    f"{cache_level}/{cache_profile}"
+                )
+            profiles[cache_profile] = totals
+        zero_eviction_profile = next(
+            (
+                profile
+                for profile in EXPECTED_STATE_CACHE_PROFILES
+                if profiles[profile]["evictions"] == 0
+            ),
+            None,
+        )
+        result[cache_level] = {
+            "profiles": profiles,
+            "minimum_zero_eviction_profile": zero_eviction_profile,
+        }
+    return result
+
+
 def build(events: list[dict], static: dict, requested: str | None = None) -> dict:
     contract = _validate_static(static)
     session = _select_session(events, requested)
@@ -409,6 +560,18 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             config, "semantic_batch_maximum_parameter_payload_bytes"
         )
         <= 0
+        or config.get("semantic_state_cache_levels")
+        != "material,pipeline"
+        or config.get("semantic_state_cache_profiles")
+        != "compact:64,balanced:256,headroom:1024"
+        or _integer(config, "semantic_state_cache_ways") <= 0
+        or _integer(config, "semantic_state_cache_maximum_capacity")
+        != 1024
+        or config.get("semantic_state_cache_policy")
+        != "set_associative_lru"
+        or config.get("semantic_state_cache_lifetime") != "census_session"
+        or config.get("semantic_state_cache_execution")
+        != "shadow_measurement_only"
         or config.get("xenos_authority") != "true"
         or config.get("suppression_allowed") != "false"
     ):
@@ -623,6 +786,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     equivalence_levels = _build_equivalence_levels(
         selected, totals["eligible_draws"]
     )
+    state_caches = _build_state_caches(
+        selected, totals["eligible_draws"]
+    )
 
     entries.sort(
         key=lambda item: (
@@ -657,12 +823,21 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "totals": totals,
         "rejections": reported_rejections,
         "equivalence_levels": equivalence_levels,
+        "state_caches": state_caches,
         "conservative_batch_plan_proved": conservative_batch_plan_proved,
         "mesh_material_instancing_opportunity_proved": (
             mesh_material_instancing_opportunity_proved
         ),
         "instancing_parameter_path_required": (
             instancing_parameter_path_required
+        ),
+        "state_object_cache_reuse_proved": all(
+            cache["profiles"]["headroom"]["hits"] > 0
+            for cache in state_caches.values()
+        ),
+        "state_binding_elision_proved": any(
+            cache["profiles"]["headroom"]["binding_elisions"] > 0
+            for cache in state_caches.values()
         ),
         "execution_admitted": False,
         "contract": contract,
