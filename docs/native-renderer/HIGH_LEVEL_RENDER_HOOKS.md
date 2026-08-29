@@ -324,7 +324,13 @@ first overlap census found no semantic submission at direct draw packet stores
 lineage therefore moved to the actual byte-160 target. Static decoding now
 resolves it through `82415CE0`/`82415F68` to exact `PM4_DRAW_INDX` stores
 `82416260` and `824162F4`. The passive hooks attach the active semantic key to
-those physical packet headers; runtime backend qualification remains pending.
+those physical packet headers. Session `20260829T202741Z-p30324` proved
+888,312 prepared matches across 819 signatures with zero unprepared outcomes.
+The compact layer now joins those exact outcomes to immutable semantic records,
+separates prepared templates from dynamic geometry/texture resources, and
+emits conservative batch groups. Session `20260829T210122Z-p37672` qualified
+900 composite templates and 1,067 groups across 403,015 prepared associations.
+See `SEMANTIC_INSTANCE_CATALOG.md`.
 This is resolved structural submission identity, not a
 proved provider class, secondary-resolution semantic, texture, material,
 vertex, index, mesh, LOD, streaming, or lifetime ABI. See

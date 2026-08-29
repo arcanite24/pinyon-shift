@@ -1461,6 +1461,10 @@ def procedural_model_receiver_lifecycle(
             "indirect_packet_constructor_overlap_probe": True,
             "semantic_pm4_packet_construction_proved": True,
             "semantic_pm4_backend_join_required": True,
+            "semantic_prepared_contract_runtime_join_required": True,
+            "semantic_catalog_classification": (
+                "immutable_template_and_dynamic_resource_instance"
+            ),
             "physical_pm4_packet_correlation_proved": False,
             "prepared_draw_lineage_proved": False,
             "classification": "procedural_submission_pm4_packet_boundary",
