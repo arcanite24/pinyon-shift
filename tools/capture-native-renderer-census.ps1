@@ -18,6 +18,7 @@ param(
     [string]$IsolatedDrawDir,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
+    [switch]$PublishRetainedPass,
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
     [string]$ConsumerReadbackDir,
@@ -59,6 +60,10 @@ if (@(Get-Process -Name 'pinyon_shift' -ErrorAction SilentlyContinue).Count -ne 
 }
 if ([bool]$ReplaySnapshotSignature -xor [bool]$ReplaySnapshotDir) {
     throw 'ReplaySnapshotSignature and ReplaySnapshotDir must be supplied together.'
+}
+if ($PublishRetainedPass -and
+    (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
+    throw 'PublishRetainedPass requires IsolatedDrawSignature and PassAnchorSignature.'
 }
 if ($ReplaySnapshotDir) {
     $repositoryRoot = Split-Path $PSScriptRoot -Parent
@@ -132,6 +137,7 @@ $savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
+$savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
 $savedConsumerReadbackDir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
 $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
@@ -145,6 +151,8 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $IsolatedDrawSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
+        if ($PublishRetainedPass) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
@@ -163,6 +171,7 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $savedIsolatedDraw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $savedPassPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $savedConsumerReadbackDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =

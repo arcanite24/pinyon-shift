@@ -57,6 +57,7 @@ constexpr uint32_t kMaximumTextureScanResources = 4;
 constexpr uint64_t kMaximumTextureScanResourceBytes = UINT64_C(16) << 20;
 constexpr uint64_t kMaximumTextureScanTotalBytes = UINT64_C(32) << 20;
 constexpr uint32_t kMaximumConsumerReadbackSamples = 16;
+constexpr uint64_t kPassPublicationDetailLimit = 64;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
@@ -147,6 +148,20 @@ struct PassFollowerState {
 };
 
 PassFollowerState g_pass_follower;
+
+struct PassPublicationState {
+  uint64_t attempts = 0;
+  uint64_t published = 0;
+  uint64_t failures = 0;
+  uint64_t detail_events = 0;
+  uint64_t detail_overflow = 0;
+  uint64_t last_frame = 0;
+  uint64_t last_draw = 0;
+  bool requested = false;
+  bool valid = true;
+};
+
+PassPublicationState g_pass_publication;
 
 struct ConsumerFamilyMarkerState {
   uint64_t vertex_shader_hash = 0;
@@ -371,6 +386,29 @@ void ConfigureIsolatedDraw() {
       !IsLocalArtifactRoot(g_isolated_draw.output_root)) {
     g_isolated_draw.valid = false;
   }
+}
+
+void ConfigurePassPublication() {
+  g_pass_publication = {};
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string setting(value);
+  std::free(value);
+  if (setting == "false") {
+    return;
+  }
+  g_pass_publication.requested = true;
+  g_pass_publication.valid =
+      setting == "true" && g_isolated_draw.requested &&
+      g_isolated_draw.valid && g_pass_follower.requested &&
+      g_pass_follower.valid &&
+      g_isolated_draw.target_signature != g_pass_follower.target_signature;
 }
 
 struct DrawSignatureEntry {
@@ -2981,6 +3019,62 @@ void CompleteIsolatedPassRepeat(
        {"suppression_eligible", "false"}});
 }
 
+void CompleteRetainedPassPublication(
+    const rex::system::GraphicsIsolatedDrawPublicationResult &result) {
+  ++g_pass_publication.attempts;
+  g_pass_publication.last_frame = g_isolated_draw.frame;
+  g_pass_publication.last_draw = g_isolated_draw.draw;
+  const bool published =
+      result.status ==
+          rex::system::GraphicsIsolatedDrawPublicationStatus::kPublished &&
+      result.color_published && result.depth_stencil_published;
+  if (published) {
+    ++g_pass_publication.published;
+  } else {
+    ++g_pass_publication.failures;
+  }
+  const char *status = "unavailable";
+  switch (result.status) {
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kPublished:
+    status = published ? "published" : "incomplete";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kUnsupportedPath:
+    status = "unsupported_path";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kTargetMismatch:
+    status = "target_mismatch";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kUnavailable:
+    break;
+  }
+  if (g_pass_publication.detail_events >= kPassPublicationDetailLimit) {
+    ++g_pass_publication.detail_overflow;
+    return;
+  }
+  ++g_pass_publication.detail_events;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.retained_pass.publication",
+      {{"anchor_signature",
+        fmt::format("{:016X}", g_pass_follower.target_signature)},
+       {"follower_signature",
+        fmt::format("{:016X}", g_isolated_draw.target_signature)},
+       {"status", status},
+       {"frame", std::to_string(g_isolated_draw.frame)},
+       {"follower_draw", std::to_string(g_isolated_draw.draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"sample_count", std::to_string(result.sample_count)},
+       {"color", result.color_published ? "published" : "preserved_xenos"},
+       {"depth_stencil",
+        result.depth_stencil_published ? "published" : "preserved_xenos"},
+       {"guest_target_content", published ? "native_retained_pass" : "xenos"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"side_effects", "preserved"},
+       {"suppression_eligible", "false"}});
+}
+
 void RequestIsolatedDraw(
     const rex::system::GraphicsPreparedDrawObservation &,
     rex::system::GraphicsIsolatedDrawRequest &request) {
@@ -3061,6 +3155,10 @@ void RequestIsolatedDraw(
     request.frame_sequence = g_isolated_draw.frame;
     request.reuse_target = true;
     request.reference_marker_requested = true;
+    if (g_pass_publication.requested && g_pass_publication.valid) {
+      request.publish_to_guest_requested = true;
+      request.publication_completion = &CompleteRetainedPassPublication;
+    }
     if (!g_isolated_draw.completed) {
       g_isolated_draw.captured_signature = signature;
       g_isolated_draw.captured_frame = g_isolated_draw.frame;
@@ -3720,6 +3818,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
   ConfigurePassFollower();
+  ConfigurePassPublication();
   ConfigureConsumerFamilyMarker();
   g_graphics_census_memory = memory;
   if (g_pass_follower.requested && g_pass_follower.valid &&
@@ -3856,6 +3955,31 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"reference_marker", "exact_signature"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.retained_pass.publication_config",
+      {{"status", !g_pass_publication.requested
+                      ? "disabled"
+                      : (g_pass_publication.valid ? "armed"
+                                                  : "invalid_configuration")},
+       {"anchor_signature",
+        g_pass_publication.valid && g_pass_publication.requested
+            ? fmt::format("{:016X}", g_pass_follower.target_signature)
+            : ""},
+       {"follower_signature",
+        g_pass_publication.valid && g_pass_publication.requested
+            ? fmt::format("{:016X}", g_isolated_draw.target_signature)
+            : ""},
+       {"activation", "startup_only"},
+       {"default_enabled", "false"},
+       {"publication", "color_and_depth_stencil_after_xenos_follower"},
+       {"guest_target_content", "xenos_until_successful_publication"},
+       {"fallback", "preserve_xenos_targets"},
+       {"detail_limit", std::to_string(kPassPublicationDetailLimit)},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"side_effects", "preserved"},
        {"suppression_eligible", "false"}});
   diagnostics::RecordEvent(
       "native_renderer.census.guest_cpu_visibility_config",
@@ -4162,6 +4286,31 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"xenos_draw", "preserved"},
        {"draw_suppression", "false"},
        {"resolve_suppression", "false"},
+       {"suppression_eligible", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.retained_pass.publication_summary",
+      {{"status", !g_pass_publication.requested
+                      ? "disabled"
+                      : (!g_pass_publication.valid
+                             ? "invalid_configuration"
+                             : (g_pass_publication.failures
+                                    ? "fallback_observed"
+                                     : (g_pass_publication.published
+                                            ? "complete"
+                                           : "not_observed")))},
+       {"attempts", std::to_string(g_pass_publication.attempts)},
+       {"published", std::to_string(g_pass_publication.published)},
+       {"failures", std::to_string(g_pass_publication.failures)},
+       {"detail_events", std::to_string(g_pass_publication.detail_events)},
+       {"detail_overflow", std::to_string(g_pass_publication.detail_overflow)},
+       {"last_frame", std::to_string(g_pass_publication.last_frame)},
+       {"last_draw", std::to_string(g_pass_publication.last_draw)},
+       {"published_attachments", "color_and_depth_stencil"},
+       {"guest_target_content", "per_attempt"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"side_effects", "preserved"},
        {"suppression_eligible", "false"}});
   g_graphics_census_installed = false;
   g_graphics_census_memory = nullptr;

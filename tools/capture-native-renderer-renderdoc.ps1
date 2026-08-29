@@ -9,6 +9,7 @@ param(
     [string]$IsolatedDrawSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
+    [switch]$PublishRetainedPass,
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
     [string]$ConsumerReadbackDir,
@@ -39,6 +40,9 @@ if (Test-Path -LiteralPath $resolvedCaptureDir) {
 }
 if ([bool]$PassAnchorSignature -xor [bool]$IsolatedDrawDir) {
     throw 'PassAnchorSignature and IsolatedDrawDir must be supplied together.'
+}
+if ($PublishRetainedPass -and -not $PassAnchorSignature) {
+    throw 'PublishRetainedPass requires PassAnchorSignature.'
 }
 if ($IsolatedDrawDir) {
     $resolvedIsolatedDrawDir = [IO.Path]::GetFullPath($IsolatedDrawDir)
@@ -102,6 +106,7 @@ $saved = @{
     draw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
     draw_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
     pass_anchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
+    pass_publication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
     consumer_family = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
     consumer_readback_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
     consumer_readback_samples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
@@ -121,6 +126,8 @@ try {
         } else {
             $null
         }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
+        if ($PublishRetainedPass) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
@@ -142,6 +149,7 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $saved.draw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $saved.draw_dir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $saved.pass_anchor
+    $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $saved.pass_publication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $saved.consumer_family
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR =
         $saved.consumer_readback_dir

@@ -659,6 +659,52 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("SetDrawSuppression", hooks + patch + analyzer)
         self.assertNotIn("SetCopySuppression", hooks + patch + analyzer)
 
+    def test_retained_pass_publication_preserves_xenos_side_effects(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0078-d3d12-retained-pass-output-publication.patch"
+        ).read_text(encoding="utf-8")
+        census = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        renderdoc = (
+            ROOT / "tools/capture-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-pass-publication.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS", hooks
+        )
+        self.assertIn("publication_config", hooks)
+        self.assertIn("publication_summary", hooks)
+        self.assertIn("guest_target_content", hooks)
+        self.assertIn("publish_to_guest_requested", patch)
+        self.assertIn("PublishIsolatedReplayTarget", patch)
+        self.assertIn("kTargetMismatch", patch)
+        self.assertIn("isolated_replay_recorded", patch)
+        self.assertIn("D3DCopyResource(guest_depth->resource()", patch)
+        self.assertIn("D3DCopyResource(guest_color->resource()", patch)
+        self.assertIn(
+            "PinyonShift NR-04D native retained-pass publication", patch
+        )
+        self.assertIn("[switch]$PublishRetainedPass", census)
+        self.assertIn("[switch]$PublishRetainedPass", renderdoc)
+        self.assertIn("native-renderer-pass-publication.v1", summarizer)
+        self.assertIn("native_retained_pass", summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
+        self.assertIn('"later_gpu_consumers_gate": "qualification_required"', summarizer)
+        self.assertIn('"xenos_draw", "preserved"', hooks)
+        self.assertIn('"draw_suppression", "false"', hooks)
+        self.assertIn('"resolve_suppression", "false"', hooks)
+        for source in (hooks, patch):
+            self.assertNotIn("SetDrawSuppression", source)
+            self.assertNotIn("SetCopySuppression", source)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT
