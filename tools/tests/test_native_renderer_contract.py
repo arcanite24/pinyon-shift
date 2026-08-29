@@ -1,3 +1,4 @@
+import json
 import pathlib
 import unittest
 
@@ -497,6 +498,43 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"draw_suppression_implemented": False', evaluator)
         self.assertIn('"resolve_suppression_implemented": False', evaluator)
         self.assertNotIn("SetDrawSuppression", evaluator)
+
+    def test_consumer_family_classifier_is_exact_and_fail_closed(self):
+        classifier = json.loads(
+            (ROOT / "config/native-renderer/consumer-family-classifier.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            "pinyon-shift.native-renderer-consumer-family-classifier.v1",
+            classifier["schema"],
+        )
+        self.assertEqual(38, len(classifier["rules"]))
+        self.assertEqual(
+            38, len({rule["shader_family_id"] for rule in classifier["rules"]})
+        )
+        self.assertTrue(
+            all(
+                rule["semantic_role"] == "retained_unknown"
+                for rule in classifier["rules"]
+            )
+        )
+        self.assertTrue(
+            all(rule["native_coverage"] is False for rule in classifier["rules"])
+        )
+
+    def test_suppression_switch_spec_is_default_off_and_unimplemented(self):
+        switches = json.loads(
+            (ROOT / "config/native-renderer/suppression-switches.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        family = switches["families"][0]
+        self.assertFalse(family["default_enabled"])
+        self.assertTrue(family["independent"])
+        self.assertEqual("absent", family["implementation_status"])
+        self.assertFalse(family["draw_suppression_implemented"])
+        self.assertFalse(family["resolve_suppression_implemented"])
 
     def test_complete_pass_export_spans_anchor_and_follower(self):
         exporter = (

@@ -1,0 +1,87 @@
+# Exact consumer-family classification
+
+The retained sky/horizon producer has 38 stable later-GPU-consumer shader
+families in qualified open-world session `20260829T053639Z-p40004`.
+`config/native-renderer/consumer-family-classifier.json` turns that observed
+set into a deterministic, drift-detecting identity contract without claiming
+semantic knowledge that the capture does not prove.
+
+## Fail-closed model
+
+Each rule matches the exact tuple of vertex shader, pixel shader, vertex
+specialization mask, and pixel specialization mask. The initial rules use:
+
+- `semantic_role=retained_unknown`;
+- `confidence=identity_only`;
+- a reference to the qualified session and activity rank; and
+- `native_coverage=false`.
+
+The classifier loader rejects duplicate or malformed family identifiers,
+unsupported roles or confidence values, blank evidence, a producer-signature
+mismatch, and any rule that claims native coverage. Classification changes
+only the deterministic report. It cannot submit native work, skip Xenos work,
+or authorize suppression.
+
+## Drift report
+
+Run the exact-family summarizer with the tracked manifest:
+
+```powershell
+python .\tools\summarize-native-renderer-pass-consumers.py `
+  "$stateRoot\logs\<session>.jsonl" `
+  --classifier .\config\native-renderer\consumer-family-classifier.json `
+  --output .artifacts\native-renderer-pass-consumers.json
+```
+
+The schema-v4 report adds `consumer_family_classification` with separate
+identity and semantic status. Exact known families are annotated with their
+rule evidence. Unknown families become bounded activity-ranked drift records;
+overflow remains explicit. A fully matched `identity_status=complete` does not
+make `semantic_status` complete while any family remains `retained_unknown`.
+
+## Promotion requirements
+
+A family may move beyond `retained_unknown` only when reproducible evidence
+identifies its role. Shader recurrence, texture slot, activity rank, or a
+correct-looking frame is insufficient. Promotion should reference one or more
+of:
+
+- paired draw isolation proving the visual contribution;
+- target and texture provenance across the producer/consumer boundary;
+- an identified high-level title render dispatch;
+- query, memexport, or guest-memory side-effect evidence; and
+- a scene matrix proving the classification does not drift across supported
+  states.
+
+Even a high-confidence semantic rule keeps `native_coverage=false` until a
+separate native consumer implementation and parity qualification exist. The
+current 38 identity-only rules therefore close classifier drift for the
+qualified scene but leave all 38 semantic roles and the later-GPU-consumer
+suppression gate unresolved.
+
+Reprocessing session `20260829T053639Z-p40004` through the tracked classifier
+produced schema-v4 `identity_status=complete`: 38 of 38 observed shader
+families matched, with zero drift records and zero drift overflow. It correctly
+reported `semantic_status=incomplete`, 38 retained-unknown families, and zero
+semantically classified families. The local deterministic report SHA-256 is
+`72BAF6322337F7E01A709BA1F2D5730100F70E2745B7B4C8E378358B86E7463B`.
+The later-GPU-consumer gate remained `fail`, guest CPU visibility remained
+`pass`, Xenos remained authoritative, and suppression remained disallowed.
+
+## Rollback-switch boundary
+
+`config/native-renderer/suppression-switches.json` reserves one independent,
+startup-only, default-off switch name for the exact producer family. The
+validator reports its implementation as absent and the rollback gate as
+`unknown`. This is intentional: specifying a switch before suppression exists
+prevents a future global or default-on implementation, but it is not evidence
+that rollback behavior has been runtime-qualified.
+
+Validate the specification with:
+
+```powershell
+python .\tools\validate-native-renderer-suppression-switches.py `
+  .\config\native-renderer\suppression-switches.json
+```
+
+The report always preserves Xenos authority and keeps suppression disallowed.

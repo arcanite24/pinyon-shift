@@ -131,6 +131,21 @@ class PassConsumerSummaryTests(unittest.TestCase):
         )
         return path
 
+    def write_classifier(self, root, rules, **overrides):
+        document = {
+            "schema": MODULE.CONSUMER_CLASSIFIER_SCHEMA,
+            "producer_family": {
+                "anchor_signature": ANCHOR,
+                "follower_signature": FOLLOWER,
+            },
+            "maximum_drift_records": 32,
+            "rules": rules,
+        }
+        document.update(overrides)
+        path = Path(root) / "consumer-classifier.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
     def test_summarizes_complete_observed_lineage(self):
         records = [
             event("resolve", address="1000"),
@@ -339,6 +354,108 @@ class PassConsumerSummaryTests(unittest.TestCase):
         self.assertEqual(2, families[0]["pipeline_hash_count"])
         self.assertEqual(1_000_000, families[0]["sample_share_ppm"])
         self.assertFalse(families[0]["suppression_eligible"])
+
+    def test_applies_exact_consumer_family_classifier(self):
+        records = [
+            event("resolve"),
+            event("consumer"),
+            event("resolve"),
+            consumer_signature(),
+            summary(),
+        ]
+        rule = {
+            "shader_family_id": (
+                "1111111111111111/2222222222222222/"
+                "0000000000000001/0000000000000002"
+            ),
+            "semantic_role": "retained_unknown",
+            "confidence": "identity_only",
+            "evidence": "exact family observed in the qualified scene",
+            "native_coverage": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            classifier = self.write_classifier(temp, [rule])
+            result = MODULE.summarize(
+                [self.write(temp, records)], classifier_path=classifier
+            )
+        family = result["consumer_shader_families"][0]
+        classification = result["consumer_family_classification"]
+        self.assertTrue(family["classifier_match"])
+        self.assertEqual("retained_unknown", family["semantic_role"])
+        self.assertEqual("identity_only", family["semantic_confidence"])
+        self.assertFalse(family["native_coverage"])
+        self.assertEqual("complete", classification["identity_status"])
+        self.assertEqual("incomplete", classification["semantic_status"])
+        self.assertEqual(1, classification["retained_unknown_family_count"])
+        self.assertEqual([], classification["drift_records"])
+
+    def test_reports_bounded_consumer_classifier_drift(self):
+        records = [
+            event("resolve"),
+            event("consumer"),
+            event("resolve"),
+            consumer_signature(),
+            summary(),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            classifier = self.write_classifier(
+                temp, [], maximum_drift_records=0
+            )
+            result = MODULE.summarize(
+                [self.write(temp, records)], classifier_path=classifier
+            )
+        classification = result["consumer_family_classification"]
+        self.assertEqual("drift_observed", classification["identity_status"])
+        self.assertEqual([], classification["drift_records"])
+        self.assertEqual(1, classification["drift_overflow"])
+        self.assertFalse(result["safety"]["suppression_allowed"])
+
+    def test_rejects_unsafe_consumer_classifier_native_coverage(self):
+        records = [
+            event("resolve"),
+            event("consumer"),
+            event("resolve"),
+            consumer_signature(),
+            summary(),
+        ]
+        rule = {
+            "shader_family_id": (
+                "1111111111111111/2222222222222222/"
+                "0000000000000001/0000000000000002"
+            ),
+            "semantic_role": "post_process",
+            "confidence": "high",
+            "evidence": "fixture",
+            "native_coverage": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            classifier = self.write_classifier(temp, [rule])
+            with self.assertRaisesRegex(ValueError, "native_coverage false"):
+                MODULE.summarize(
+                    [self.write(temp, records)], classifier_path=classifier
+                )
+
+    def test_rejects_consumer_classifier_for_different_producer(self):
+        records = [
+            event("resolve"),
+            event("consumer"),
+            event("resolve"),
+            consumer_signature(),
+            summary(),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            classifier = self.write_classifier(
+                temp,
+                [],
+                producer_family={
+                    "anchor_signature": "AAAAAAAAAAAAAAAA",
+                    "follower_signature": FOLLOWER,
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "anchor does not match"):
+                MODULE.summarize(
+                    [self.write(temp, records)], classifier_path=classifier
+                )
 
 
 if __name__ == "__main__":

@@ -9,7 +9,22 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA = "pinyon-shift.native-renderer-pass-consumer-inventory.v3"
+SCHEMA = "pinyon-shift.native-renderer-pass-consumer-inventory.v4"
+CONSUMER_CLASSIFIER_SCHEMA = (
+    "pinyon-shift.native-renderer-consumer-family-classifier.v1"
+)
+CLASSIFIER_CONFIDENCE = {"identity_only", "low", "medium", "high"}
+SEMANTIC_ROLES = {
+    "retained_unknown",
+    "world_material",
+    "post_process",
+    "shadow",
+    "reflection",
+    "exposure",
+    "ui_composite",
+    "livery_thumbnail",
+    "rewind",
+}
 PREFIX = "native_renderer.census.pass_family_"
 SUMMARY_EVENT = f"{PREFIX}consumer_summary"
 RESOLVE_EVENT = f"{PREFIX}resolve"
@@ -77,6 +92,127 @@ def normalize_signature(value: str) -> str:
     ):
         raise ValueError(f"invalid 64-bit signature: {value!r}")
     return signature
+
+
+def normalize_shader_family_id(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) != 4:
+        raise ValueError(f"invalid shader family id: {value!r}")
+    return "/".join(normalize_signature(part) for part in parts)
+
+
+def load_consumer_classifier(
+    path: Path, *, anchor: str, follower: str
+) -> dict[str, Any]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read consumer classifier {path}: {error}") from error
+    if document.get("schema") != CONSUMER_CLASSIFIER_SCHEMA:
+        raise ValueError("unsupported consumer classifier schema")
+    producer = document.get("producer_family")
+    if not isinstance(producer, dict):
+        raise ValueError("consumer classifier producer_family must be an object")
+    if normalize_signature(str(producer.get("anchor_signature", ""))) != anchor:
+        raise ValueError("consumer classifier anchor does not match selected family")
+    if normalize_signature(str(producer.get("follower_signature", ""))) != follower:
+        raise ValueError("consumer classifier follower does not match selected family")
+    try:
+        maximum_drift_records = int(document["maximum_drift_records"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("consumer classifier has invalid drift capacity") from error
+    if not 0 <= maximum_drift_records <= 1024:
+        raise ValueError("consumer classifier drift capacity must be between 0 and 1024")
+    rules = document.get("rules")
+    if not isinstance(rules, list):
+        raise ValueError("consumer classifier rules must be an array")
+    normalized_rules: dict[str, dict[str, Any]] = {}
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise ValueError(f"consumer classifier rule {index} must be an object")
+        family_id = normalize_shader_family_id(str(rule.get("shader_family_id", "")))
+        if family_id in normalized_rules:
+            raise ValueError(f"duplicate consumer classifier rule: {family_id}")
+        semantic_role = str(rule.get("semantic_role", ""))
+        confidence = str(rule.get("confidence", ""))
+        evidence = str(rule.get("evidence", "")).strip()
+        if semantic_role not in SEMANTIC_ROLES:
+            raise ValueError(f"consumer classifier rule {index} has invalid semantic role")
+        if confidence not in CLASSIFIER_CONFIDENCE:
+            raise ValueError(f"consumer classifier rule {index} has invalid confidence")
+        if not evidence:
+            raise ValueError(f"consumer classifier rule {index} requires evidence")
+        if rule.get("native_coverage") is not False:
+            raise ValueError(
+                f"consumer classifier rule {index} must keep native_coverage false"
+            )
+        normalized_rules[family_id] = {
+            "semantic_role": semantic_role,
+            "semantic_confidence": confidence,
+            "semantic_evidence": evidence,
+            "native_coverage": False,
+        }
+    return {
+        "path": str(path),
+        "maximum_drift_records": maximum_drift_records,
+        "rules": normalized_rules,
+    }
+
+
+def classify_shader_families(
+    families: list[dict[str, Any]], classifier: dict[str, Any] | None
+) -> dict[str, Any]:
+    if classifier is None:
+        return {
+            "manifest": None,
+            "identity_status": "not_configured",
+            "semantic_status": "not_configured",
+            "matched_family_count": 0,
+            "classified_semantic_family_count": 0,
+            "retained_unknown_family_count": 0,
+            "drift_records": [],
+            "drift_overflow": 0,
+        }
+    rules = classifier["rules"]
+    drift: list[dict[str, Any]] = []
+    matched = 0
+    semantic = 0
+    retained_unknown = 0
+    for family in families:
+        rule = rules.get(family["shader_family_id"])
+        if rule is None:
+            drift.append(
+                {
+                    "shader_family_id": family["shader_family_id"],
+                    "rank": family["rank"],
+                    "sample_events": family["sample_events"],
+                    "sample_share_ppm": family["sample_share_ppm"],
+                }
+            )
+            continue
+        matched += 1
+        family.update(rule)
+        family["classifier_match"] = True
+        if rule["semantic_role"] == "retained_unknown":
+            retained_unknown += 1
+        else:
+            semantic += 1
+    capacity = classifier["maximum_drift_records"]
+    retained_drift = drift[:capacity]
+    return {
+        "manifest": classifier["path"],
+        "identity_status": "complete" if not drift else "drift_observed",
+        "semantic_status": (
+            "complete"
+            if families and semantic == len(families)
+            else "incomplete"
+        ),
+        "matched_family_count": matched,
+        "classified_semantic_family_count": semantic,
+        "retained_unknown_family_count": retained_unknown,
+        "drift_records": retained_drift,
+        "drift_overflow": len(drift) - len(retained_drift),
+    }
 
 
 def require_safety(event: dict[str, Any]) -> None:
@@ -170,6 +306,9 @@ def build_shader_families(
                 "family_base_fetch_mask": f"{family['family_base_fetch_mask']:016X}",
                 "family_mip_fetch_mask": f"{family['family_mip_fetch_mask']:016X}",
                 "semantic_role": "unknown_unclassified",
+                "semantic_confidence": "none",
+                "semantic_evidence": "no exact consumer-family classifier rule",
+                "classifier_match": False,
                 "native_coverage": False,
                 "suppression_eligible": False,
             }
@@ -199,6 +338,7 @@ def summarize(
     anchor: str | None = None,
     follower: str | None = None,
     session: str | None = None,
+    classifier_path: Path | None = None,
 ) -> dict[str, Any]:
     paths = list(paths)
     events = read_events(paths)
@@ -316,6 +456,14 @@ def summarize(
     ):
         raise ValueError("consumer signature sample totals contradict summary counts")
     shader_families = build_shader_families(consumer_signatures)
+    classifier = (
+        load_consumer_classifier(
+            classifier_path, anchor=selected_anchor, follower=selected_follower
+        )
+        if classifier_path is not None
+        else None
+    )
+    consumer_classification = classify_shader_families(shader_families, classifier)
     classified_sample_events = sum(
         int(family["sample_events"]) for family in shader_families
     )
@@ -444,6 +592,7 @@ def summarize(
             )
         ],
         "consumer_shader_families": shader_families,
+        "consumer_family_classification": consumer_classification,
         "guest_cpu_visibility": {
             "counts": guest_cpu_counts,
             "targets": [
@@ -484,6 +633,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--anchor")
     parser.add_argument("--follower")
     parser.add_argument("--session")
+    parser.add_argument(
+        "--classifier",
+        type=Path,
+        help="exact consumer shader-family classifier manifest",
+    )
     parser.add_argument("--output", "-o", type=Path)
     return parser.parse_args()
 
@@ -492,7 +646,11 @@ def main() -> int:
     args = parse_args()
     try:
         result = summarize(
-            args.logs, anchor=args.anchor, follower=args.follower, session=args.session
+            args.logs,
+            anchor=args.anchor,
+            follower=args.follower,
+            session=args.session,
+            classifier_path=args.classifier,
         )
     except ValueError as error:
         print(f"error: {error}")
