@@ -54,11 +54,12 @@ Configuration schema 11 reserves the restart-gated CVar
 `pinyon_shift_native_renderer_sky_horizon_suppression`. It defaults to `false`
 and is independently reset when the renderer is rolled back to Xenos.
 
-The control is deliberately `diagnostic_only`. If requested, runtime emits
-`native_renderer.suppression_control` with `status=blocked_not_admitted`, keeps
-`suppression_allowed=false`, and executes every original draw and resolve. This
-proves the control-plane identity without pretending the rollback gate has been
-runtime-qualified against a real suppression implementation.
+The original control-plane qualification was deliberately diagnostic-only. The
+next implementation boundary is now documented in
+[EXACT_FAMILY_SUPPRESSION.md](EXACT_FAMILY_SUPPRESSION.md): when explicitly
+requested, it may suppress only the exact follower after successful full-pair
+publication. The anchor, resolves, and all later consumers remain unchanged,
+and publication failure executes the original follower.
 
 AppData-backed session `20260829T084847Z-p9268` requested the control on the
 schema-11 clean build. It reached the installed festival save with complete
@@ -79,6 +80,13 @@ Use the settings helper to exercise either state without editing TOML:
   -StateRoot $stateRoot
 ```
 
-The next implementation boundary is the independent, default-off suppression
-path itself. It remains prohibited until its rollback behavior is qualified and
-the full admission report is 12/12.
+The same-build rollback pair has now passed. Enabled session
+`20260829T092338Z-p31960` published and suppressed 5,442 exact followers with
+zero failures or fallbacks. Disabled session `20260829T092551Z-p25116`
+suppressed zero draws. Both used executable
+`2060C64808794C10B368350566542E2005646D9513B252391980D525732BC22A`, reached
+the installed festival save with a complete frame, and shut down normally.
+Presentation remained at 59.974 Hz in the enabled run with zero deadline
+misses; simulation cadence was 29.423 Hz. The final `rollback_switch` gate is
+therefore `pass`, making admission 12/12 for this exact family while the switch
+remains restart-gated and default-off.

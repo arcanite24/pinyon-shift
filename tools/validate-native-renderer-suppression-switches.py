@@ -77,6 +77,15 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
                 draw_implemented is False and resolve_implemented is False,
                 f"family {family} cannot claim suppression before implementation",
             )
+        rollback_qualified = entry.get("rollback_qualified", False)
+        require(
+            isinstance(rollback_qualified, bool),
+            f"family {family} rollback qualification flag must be boolean",
+        )
+        require(
+            status == "implemented" or rollback_qualified is False,
+            f"family {family} cannot qualify rollback before implementation",
+        )
         require(
             entry.get("xenos_fallback") == "mandatory",
             f"family {family} must retain mandatory Xenos fallback",
@@ -95,9 +104,12 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
                 "implementation_status": status,
                 "draw_suppression_implemented": draw_implemented,
                 "resolve_suppression_implemented": resolve_implemented,
+                "rollback_qualified": rollback_qualified,
                 "xenos_fallback": "mandatory",
                 "rollback_gate": (
-                    "unknown" if status != "implemented" else "requires_runtime_test"
+                    "pass"
+                    if rollback_qualified
+                    else ("unknown" if status != "implemented" else "requires_runtime_test")
                 ),
             }
         )
@@ -114,12 +126,21 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
                 entry["implementation_status"] == "diagnostic_only"
                 for entry in normalized
             ),
-            "rollback_switch_gate": "unknown",
-            "reason": "switches are specified fail-closed but rollback is not runtime-qualified",
+            "rollback_switch_gate": (
+                "pass" if all(entry["rollback_qualified"] for entry in normalized) else "unknown"
+            ),
+            "reason": (
+                "every implemented switch has a same-build enabled/disabled rollback qualification"
+                if all(entry["rollback_qualified"] for entry in normalized)
+                else "one or more switches still require runtime rollback qualification"
+            ),
         },
         "safety": {
             "xenos_authority": True,
-            "suppression_allowed": False,
+            "suppression_allowed": all(
+                entry["rollback_qualified"] and entry["draw_suppression_implemented"]
+                for entry in normalized
+            ),
         },
     }
 

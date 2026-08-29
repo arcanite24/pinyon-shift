@@ -41,20 +41,22 @@ code 1.
 
 The exact pair `747837906D0BF484` / `1D253A52B55C9FB3` has stable boundaries,
 complete-pass color/depth parity, continuous exact-frame output, fallback
-behavior, and native GPU timing. It is not admitted for suppression yet:
+behavior, and native GPU timing. It is admitted only for the fail-closed,
+operator-requested follower boundary because:
 
-- the latest exact-family graph positively observes 63 prepared
-  later-GPU-consumer signatures across 38 shader families that have not been
-  replaced;
+- the exact publication boundary preserves the observed later-GPU-consumer
+  graph behind bit-exact guest color and depth/stencil targets;
 - guest CPU visibility passes for one bounded exact-family AppData
   qualification route, with zero reads across 348 fully armed resolve
   generations; and
-- an independent default-off switch is specified but no suppression or
-  runtime-qualified rollback implementation exists.
+- an independent default-off, fail-closed follower suppression implementation
+  passed its same-build enabled/disabled rollback qualification.
 
-Consequently the next work is evidence collection and complete-pass comparison,
-not draw skipping. The Xenos copy, draw, resolve, query, fence, and memexport
-paths remain unchanged.
+Consequently the only permitted draw skipping is the experimental exact
+follower boundary in
+[EXACT_FAMILY_SUPPRESSION.md](EXACT_FAMILY_SUPPRESSION.md). The Xenos anchor,
+copy, resolve, query, fence, memexport, and later-consumer paths remain
+unchanged, and failed replay/publication executes the original follower.
 
 The complete-pass color and depth gates use the paired asynchronous readback
 described in [VISUAL_COMPARISON.md](VISUAL_COMPARISON.md). It captures
@@ -87,9 +89,11 @@ The same session armed every one of those 348 resolve generations and observed
 zero guest CPU read or write events. This promotes `guest_cpu_visibility` from
 `unknown` to scene-bounded `pass`, as documented in
 [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md). The admission result is now
-11/12 passing gates and one unknown gate (`rollback_switch`). The exact
-38-family identity classifier and the fail-closed, diagnostic-only switch
-control are documented in
-[CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md). They do
-not promote the remaining blocker. Suppression is still prohibited. See
+12/12 passing gates for the exact, scene-bounded sky/horizon family. Enabled
+AppData session `20260829T092338Z-p31960` suppressed 5,442 followers after
+5,442 complete publications with zero fallbacks. Disabled session
+`20260829T092551Z-p25116` used the same executable, suppressed zero draws, and
+both sessions shut down normally. The exact 38-family identity classifier and
+fail-closed switch control are documented in
+[CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md). See
 [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).

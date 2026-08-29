@@ -63,6 +63,8 @@ constexpr uint64_t kMaximumTextureScanResourceBytes = UINT64_C(16) << 20;
 constexpr uint64_t kMaximumTextureScanTotalBytes = UINT64_C(32) << 20;
 constexpr uint32_t kMaximumConsumerReadbackSamples = 16;
 constexpr uint64_t kPassPublicationDetailLimit = 64;
+constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
+constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
@@ -168,6 +170,18 @@ struct PassPublicationState {
 
 PassPublicationState g_pass_publication;
 
+struct SkyHorizonSuppressionState {
+  uint64_t attempts = 0;
+  uint64_t suppressed = 0;
+  uint64_t fallbacks = 0;
+  uint64_t last_frame = 0;
+  uint64_t last_draw = 0;
+  bool requested = false;
+  bool armed = false;
+};
+
+SkyHorizonSuppressionState g_sky_horizon_suppression;
+
 struct ConsumerFamilyMarkerState {
   uint64_t vertex_shader_hash = 0;
   uint64_t pixel_shader_hash = 0;
@@ -232,6 +246,11 @@ void ConfigurePassFollower() {
       "PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE",
       g_pass_follower.target_signature, g_pass_follower.requested,
       g_pass_follower.valid);
+  if (!g_pass_follower.requested &&
+      g_sky_horizon_suppression.requested) {
+    g_pass_follower.target_signature = kSkyHorizonAnchorSignature;
+    g_pass_follower.requested = true;
+  }
 }
 
 void ConfigureConsumerFamilyMarker() {
@@ -374,6 +393,11 @@ void ConfigureIsolatedDraw() {
       "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE",
       g_isolated_draw.target_signature, g_isolated_draw.requested,
       g_isolated_draw.valid);
+  if (!g_isolated_draw.requested &&
+      g_sky_horizon_suppression.requested) {
+    g_isolated_draw.target_signature = kSkyHorizonFollowerSignature;
+    g_isolated_draw.requested = true;
+  }
   const bool signature_requested = g_isolated_draw.requested;
   char *value = nullptr;
   size_t length = 0;
@@ -401,6 +425,14 @@ void ConfigurePassPublication() {
                 "PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS") != 0 ||
       !value || length <= 1) {
     std::free(value);
+    if (g_sky_horizon_suppression.requested) {
+      g_pass_publication.requested = true;
+      g_pass_publication.valid =
+          g_isolated_draw.requested && g_isolated_draw.valid &&
+          g_pass_follower.requested && g_pass_follower.valid &&
+          g_isolated_draw.target_signature !=
+              g_pass_follower.target_signature;
+    }
     return;
   }
   const std::string setting(value);
@@ -417,23 +449,39 @@ void ConfigurePassPublication() {
 }
 
 void EmitSkyHorizonSuppressionControl() {
-  const bool requested =
-      REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
+  const bool requested = g_sky_horizon_suppression.requested;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.suppression_control",
       {{"family", "sky_horizon"},
        {"anchor_signature", "747837906D0BF484"},
        {"follower_signature", "1D253A52B55C9FB3"},
        {"requested", requested ? "true" : "false"},
-       {"status", requested ? "blocked_not_admitted" : "disabled"},
+       {"status", !requested
+                      ? "disabled"
+                      : (g_sky_horizon_suppression.armed
+                             ? "armed_experimental"
+                             : "blocked_invalid_configuration")},
        {"activation", "startup_only"},
        {"default_enabled", "false"},
-       {"implementation", "diagnostic_only"},
+       {"implementation", "fail_closed_follower_draw"},
        {"xenos_fallback", "mandatory"},
-       {"xenos_draw", "preserved"},
-       {"draw_suppression", "false"},
+       {"xenos_draw", requested ? "anchor_preserved_follower_conditional"
+                                  : "preserved"},
+       {"draw_suppression", requested ? "follower_after_publication_only"
+                                        : "false"},
        {"resolve_suppression", "false"},
-       {"suppression_allowed", "false"}});
+       {"suppression_allowed",
+        g_sky_horizon_suppression.armed ? "operator_requested" : "false"}});
+}
+
+void ArmSkyHorizonSuppression() {
+  g_sky_horizon_suppression.armed =
+      g_sky_horizon_suppression.requested && g_isolated_draw.requested &&
+      g_isolated_draw.valid &&
+      g_isolated_draw.target_signature == kSkyHorizonFollowerSignature &&
+      g_pass_follower.requested && g_pass_follower.valid &&
+      g_pass_follower.target_signature == kSkyHorizonAnchorSignature &&
+      g_pass_publication.requested && g_pass_publication.valid;
 }
 
 struct DrawSignatureEntry {
@@ -3058,6 +3106,16 @@ void CompleteRetainedPassPublication(
   } else {
     ++g_pass_publication.failures;
   }
+  if (g_sky_horizon_suppression.armed) {
+    ++g_sky_horizon_suppression.attempts;
+    g_sky_horizon_suppression.last_frame = g_isolated_draw.frame;
+    g_sky_horizon_suppression.last_draw = g_isolated_draw.draw;
+    if (result.guest_draw_suppressed) {
+      ++g_sky_horizon_suppression.suppressed;
+    } else {
+      ++g_sky_horizon_suppression.fallbacks;
+    }
+  }
   const char *status = "unavailable";
   switch (result.status) {
   case rex::system::GraphicsIsolatedDrawPublicationStatus::kPublished:
@@ -3093,11 +3151,18 @@ void CompleteRetainedPassPublication(
        {"depth_stencil",
         result.depth_stencil_published ? "published" : "preserved_xenos"},
        {"guest_target_content", published ? "native_retained_pass" : "xenos"},
-       {"xenos_draw", "preserved"},
-       {"draw_suppression", "false"},
+       {"xenos_draw", result.guest_draw_suppressed
+                          ? "anchor_preserved_follower_suppressed"
+                          : "preserved"},
+       {"draw_suppression",
+        result.guest_draw_suppressed ? "follower" : "false"},
        {"resolve_suppression", "false"},
-       {"side_effects", "preserved"},
-       {"suppression_eligible", "false"}});
+       {"side_effects", "setup_barriers_resolves_consumers_preserved"},
+       {"fallback", result.guest_draw_suppressed
+                        ? "not_needed"
+                        : "original_follower_executed"},
+       {"suppression_eligible",
+        g_sky_horizon_suppression.armed ? "true" : "false"}});
 }
 
 void RequestIsolatedDraw(
@@ -3183,6 +3248,8 @@ void RequestIsolatedDraw(
     if (g_pass_publication.requested && g_pass_publication.valid) {
       request.publish_to_guest_requested = true;
       request.publication_completion = &CompleteRetainedPassPublication;
+      request.suppress_guest_draw_if_published =
+          g_sky_horizon_suppression.armed;
     }
     if (!g_isolated_draw.completed) {
       g_isolated_draw.captured_signature = signature;
@@ -3833,8 +3900,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   if (!graphics_system || !memory) {
     return;
   }
-  EmitSkyHorizonSuppressionControl();
-  if (!REXCVAR_GET(pinyon_shift_native_renderer_census)) {
+  g_sky_horizon_suppression = {};
+  g_sky_horizon_suppression.requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
+  const bool census_requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_census);
+  if (!census_requested && !g_sky_horizon_suppression.requested) {
+    EmitSkyHorizonSuppressionControl();
     return;
   }
   ResetDrawCensus();
@@ -3847,6 +3919,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureIsolatedDraw();
   ConfigurePassFollower();
   ConfigurePassPublication();
+  ArmSkyHorizonSuppression();
+  EmitSkyHorizonSuppressionControl();
   ConfigureConsumerFamilyMarker();
   g_graphics_census_memory = memory;
   if (g_pass_follower.requested && g_pass_follower.valid &&
@@ -3871,7 +3945,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                             {"prepared_shader_pair_capacity", "1024"},
                             {"guest_cpu_visibility_target_capacity", "64"},
                             {"scene", scene},
-                            {"mode", "pass_through"}});
+                            {"mode", g_sky_horizon_suppression.armed
+                                         ? "experimental_suppression"
+                                         : "pass_through"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
   diagnostics::RecordEvent(
@@ -4004,11 +4080,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"guest_target_content", "xenos_until_successful_publication"},
        {"fallback", "preserve_xenos_targets"},
        {"detail_limit", std::to_string(kPassPublicationDetailLimit)},
-       {"xenos_draw", "preserved"},
-       {"draw_suppression", "false"},
+       {"xenos_draw", g_sky_horizon_suppression.armed
+                          ? "anchor_preserved_follower_conditional"
+                          : "preserved"},
+       {"draw_suppression", g_sky_horizon_suppression.armed
+                                ? "follower_after_publication_only"
+                                : "false"},
        {"resolve_suppression", "false"},
        {"side_effects", "preserved"},
-       {"suppression_eligible", "false"}});
+       {"suppression_eligible",
+        g_sky_horizon_suppression.armed ? "true" : "false"}});
   diagnostics::RecordEvent(
       "native_renderer.census.guest_cpu_visibility_config",
       {{"status", g_guest_cpu_access_callback ? "armed" : "disabled"},
@@ -4335,11 +4416,38 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"last_draw", std::to_string(g_pass_publication.last_draw)},
        {"published_attachments", "color_and_depth_stencil"},
        {"guest_target_content", "per_attempt"},
-       {"xenos_draw", "preserved"},
-       {"draw_suppression", "false"},
+       {"xenos_draw", g_sky_horizon_suppression.suppressed
+                          ? "anchor_preserved_follower_suppressed"
+                          : "preserved"},
+       {"draw_suppression", g_sky_horizon_suppression.suppressed
+                                ? "follower"
+                                : "false"},
        {"resolve_suppression", "false"},
        {"side_effects", "preserved"},
-       {"suppression_eligible", "false"}});
+       {"suppression_eligible",
+        g_sky_horizon_suppression.armed ? "true" : "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.suppression_summary",
+      {{"family", "sky_horizon"},
+       {"status", !g_sky_horizon_suppression.requested
+                      ? "disabled"
+                      : (!g_sky_horizon_suppression.armed
+                             ? "blocked_invalid_configuration"
+                             : (g_sky_horizon_suppression.suppressed
+                                    ? "active"
+                                    : "not_observed"))},
+       {"scope", "exact_follower_draw_after_full_pair_publication"},
+       {"attempts", std::to_string(g_sky_horizon_suppression.attempts)},
+       {"suppressed", std::to_string(g_sky_horizon_suppression.suppressed)},
+       {"fallbacks", std::to_string(g_sky_horizon_suppression.fallbacks)},
+       {"last_frame", std::to_string(g_sky_horizon_suppression.last_frame)},
+       {"last_draw", std::to_string(g_sky_horizon_suppression.last_draw)},
+       {"anchor_draw", "preserved"},
+       {"follower_draw", g_sky_horizon_suppression.suppressed
+                             ? "suppressed_after_publication"
+                             : "preserved"},
+       {"resolve_suppression", "false"},
+       {"xenos_fallback", "mandatory_on_replay_or_publication_failure"}});
   g_graphics_census_installed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
