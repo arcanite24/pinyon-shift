@@ -1202,6 +1202,20 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(
             draw_association["semantic_batch_execution_enabled"]
         )
+        self.assertTrue(
+            draw_association["semantic_state_cache_required"]
+        )
+        self.assertEqual(
+            "set_associative_lru",
+            draw_association["semantic_state_cache_policy"],
+        )
+        self.assertEqual(
+            "compact:64,balanced:256,headroom:1024",
+            draw_association["semantic_state_cache_profiles"],
+        )
+        self.assertFalse(
+            draw_association["semantic_state_cache_execution_enabled"]
+        )
         self.assertTrue(draw_association["render_item_invocation_scope_proved"])
         self.assertTrue(draw_association["submission_before_draw_dispatch_proved"])
         self.assertEqual(160, draw_association["graphics_submission_vtable_offset"])

@@ -96,6 +96,12 @@ constexpr size_t kSemanticPreparedTemplateCapacity =
     kTitleDrawProvenanceCapacity;
 constexpr size_t kSemanticBatchOpportunityCapacity =
     kTitleDrawProvenanceCapacity;
+constexpr size_t kSemanticStateCacheWays = 4;
+constexpr size_t kSemanticStateCacheCompactBucketCount = 16;
+constexpr size_t kSemanticStateCacheBalancedBucketCount = 64;
+constexpr size_t kSemanticStateCacheHeadroomBucketCount = 256;
+constexpr size_t kSemanticStateCacheMaximumCapacity =
+    kSemanticStateCacheHeadroomBucketCount * kSemanticStateCacheWays;
 constexpr uint64_t kSemanticBatchMaximumParameterPayloadBytes =
     2 * rex::system::kGraphicsFloatConstantObservationLimit *
         5 * sizeof(uint32_t) +
@@ -307,6 +313,42 @@ struct SemanticBatchEquivalenceRun {
   bool valid = false;
 };
 
+enum class SemanticStateCacheLevel : uint32_t {
+  kMaterial = 0,
+  kPipeline = 1,
+  kCount = 2,
+};
+
+enum class SemanticStateCacheProfile : uint32_t {
+  kCompact = 0,
+  kBalanced = 1,
+  kHeadroom = 2,
+  kCount = 3,
+};
+
+struct SemanticStateCacheEntry {
+  uint64_t key = 0;
+  uint64_t last_use_sequence = 0;
+  uint64_t last_frame = 0;
+};
+
+struct SemanticStateCacheStats {
+  uint64_t lookups = 0;
+  uint64_t hits = 0;
+  uint64_t misses = 0;
+  uint64_t evictions = 0;
+  uint64_t full_bucket_misses = 0;
+  uint64_t consecutive_hits = 0;
+  uint64_t nonconsecutive_same_frame_hits = 0;
+  uint64_t cross_frame_hits = 0;
+  uint64_t resident_entries = 0;
+  uint64_t maximum_resident_entries = 0;
+  uint64_t use_sequence = 0;
+  uint64_t previous_key = 0;
+  uint64_t previous_frame = 0;
+  bool previous_valid = false;
+};
+
 struct TitleDrawProvenanceEntry {
   uint64_t backend_signature = 0;
   uint32_t backend_outcome = 0;
@@ -407,6 +449,15 @@ std::array<std::array<SemanticBatchEquivalenceEntry,
                       kSemanticBatchOpportunityCapacity>,
            size_t(SemanticBatchEquivalence::kCount)>
     g_semantic_batch_equivalence_opportunities{};
+std::array<std::array<std::array<SemanticStateCacheEntry,
+                                 kSemanticStateCacheMaximumCapacity>,
+                      size_t(SemanticStateCacheProfile::kCount)>,
+           size_t(SemanticStateCacheLevel::kCount)>
+    g_semantic_state_caches{};
+std::array<std::array<SemanticStateCacheStats,
+                      size_t(SemanticStateCacheProfile::kCount)>,
+           size_t(SemanticStateCacheLevel::kCount)>
+    g_semantic_state_cache_stats{};
 std::array<TitleIndirectPacketEntry, kTitleIndirectPacketCapacity>
     g_title_indirect_packets{};
 std::mutex g_title_packet_provenance_mutex;
@@ -981,6 +1032,13 @@ void ResetTitleDrawProvenance() {
       entry = {};
     }
   }
+  for (auto &level : g_semantic_state_caches) {
+    for (auto &cache : level) {
+      for (SemanticStateCacheEntry &entry : cache) {
+        entry = {};
+      }
+    }
+  }
   for (TitleIndirectPacketEntry &entry : g_title_indirect_packets) {
     entry = {};
   }
@@ -1033,6 +1091,7 @@ void ResetTitleDrawProvenance() {
   g_semantic_batch_equivalence_counts = {};
   g_semantic_batch_equivalence_overflows = {};
   g_semantic_batch_equivalence_runs = {};
+  g_semantic_state_cache_stats = {};
   g_title_packet_submission_sequence = 0;
   g_title_indirect_packets_recorded = 0;
   g_title_indirect_packet_address_failures = 0;
@@ -1307,6 +1366,16 @@ void ConfigureTitleDrawProvenance(bool census_requested,
         "shader_constants_and_semantic_instance"},
        {"semantic_batch_maximum_parameter_payload_bytes",
         std::to_string(kSemanticBatchMaximumParameterPayloadBytes)},
+       {"semantic_state_cache_levels", "material,pipeline"},
+       {"semantic_state_cache_profiles",
+        "compact:64,balanced:256,headroom:1024"},
+       {"semantic_state_cache_ways",
+        std::to_string(kSemanticStateCacheWays)},
+       {"semantic_state_cache_maximum_capacity",
+        std::to_string(kSemanticStateCacheMaximumCapacity)},
+       {"semantic_state_cache_policy", "set_associative_lru"},
+       {"semantic_state_cache_lifetime", "census_session"},
+       {"semantic_state_cache_execution", "shadow_measurement_only"},
        {"semantic_batch_execution", "disabled_measurement_only"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
@@ -8235,6 +8304,154 @@ const char *SemanticBatchEquivalenceName(
   return "unknown";
 }
 
+const char *SemanticStateCacheLevelName(SemanticStateCacheLevel level) {
+  switch (level) {
+  case SemanticStateCacheLevel::kMaterial:
+    return "material_state";
+  case SemanticStateCacheLevel::kPipeline:
+    return "pipeline_state";
+  case SemanticStateCacheLevel::kCount:
+    break;
+  }
+  return "unknown";
+}
+
+const char *SemanticStateCacheProfileName(
+    SemanticStateCacheProfile profile) {
+  switch (profile) {
+  case SemanticStateCacheProfile::kCompact:
+    return "compact";
+  case SemanticStateCacheProfile::kBalanced:
+    return "balanced";
+  case SemanticStateCacheProfile::kHeadroom:
+    return "headroom";
+  case SemanticStateCacheProfile::kCount:
+    break;
+  }
+  return "unknown";
+}
+
+size_t SemanticStateCacheBucketCount(
+    SemanticStateCacheProfile profile) {
+  switch (profile) {
+  case SemanticStateCacheProfile::kCompact:
+    return kSemanticStateCacheCompactBucketCount;
+  case SemanticStateCacheProfile::kBalanced:
+    return kSemanticStateCacheBalancedBucketCount;
+  case SemanticStateCacheProfile::kHeadroom:
+    return kSemanticStateCacheHeadroomBucketCount;
+  case SemanticStateCacheProfile::kCount:
+    break;
+  }
+  return 0;
+}
+
+uint64_t SemanticStateCacheKey(
+    SemanticStateCacheLevel level,
+    const SemanticPreparedDrawContract &contract) {
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  key = HashCombine(key, contract.batch_pipeline_key);
+  if (level == SemanticStateCacheLevel::kMaterial) {
+    key = HashCombine(key, contract.texture_resource_hash);
+    key = HashCombine(key, contract.render_target_resource_hash);
+  }
+  return key ? key : 1;
+}
+
+void BreakSemanticStateCacheContinuity() {
+  for (auto &level : g_semantic_state_cache_stats) {
+    for (SemanticStateCacheStats &stats : level) {
+      stats.previous_valid = false;
+    }
+  }
+}
+
+void RecordSemanticStateCacheLookup(
+    SemanticStateCacheLevel level, SemanticStateCacheProfile profile,
+    uint64_t frame,
+    const SemanticPreparedDrawContract &contract) {
+  const size_t level_index = size_t(level);
+  const size_t profile_index = size_t(profile);
+  SemanticStateCacheStats &stats =
+      g_semantic_state_cache_stats[level_index][profile_index];
+  auto &cache = g_semantic_state_caches[level_index][profile_index];
+  const uint64_t key = SemanticStateCacheKey(level, contract);
+  const size_t bucket_count = SemanticStateCacheBucketCount(profile);
+  const size_t bucket = size_t(key % bucket_count);
+  const size_t first_way = bucket * kSemanticStateCacheWays;
+  size_t hit_index = kSemanticStateCacheMaximumCapacity;
+  size_t empty_index = kSemanticStateCacheMaximumCapacity;
+  size_t least_recent_index = first_way;
+  uint64_t least_recent_sequence = UINT64_MAX;
+  for (size_t way = 0; way < kSemanticStateCacheWays; ++way) {
+    const size_t index = first_way + way;
+    const SemanticStateCacheEntry &entry = cache[index];
+    if (entry.key == key) {
+      hit_index = index;
+      break;
+    }
+    if (!entry.key &&
+        empty_index == kSemanticStateCacheMaximumCapacity) {
+      empty_index = index;
+    }
+    if (entry.key && entry.last_use_sequence < least_recent_sequence) {
+      least_recent_sequence = entry.last_use_sequence;
+      least_recent_index = index;
+    }
+  }
+
+  ++stats.lookups;
+  ++stats.use_sequence;
+  if (hit_index != kSemanticStateCacheMaximumCapacity) {
+    ++stats.hits;
+    SemanticStateCacheEntry &entry = cache[hit_index];
+    if (stats.previous_valid && stats.previous_frame == frame &&
+        stats.previous_key == key) {
+      ++stats.consecutive_hits;
+    } else if (entry.last_frame == frame) {
+      ++stats.nonconsecutive_same_frame_hits;
+    } else {
+      ++stats.cross_frame_hits;
+    }
+    entry.last_use_sequence = stats.use_sequence;
+    entry.last_frame = frame;
+  } else {
+    ++stats.misses;
+    size_t insert_index = empty_index;
+    if (insert_index == kSemanticStateCacheMaximumCapacity) {
+      insert_index = least_recent_index;
+      ++stats.full_bucket_misses;
+      ++stats.evictions;
+    } else {
+      ++stats.resident_entries;
+      stats.maximum_resident_entries =
+          std::max(stats.maximum_resident_entries,
+                   stats.resident_entries);
+    }
+    cache[insert_index] = {
+        .key = key,
+        .last_use_sequence = stats.use_sequence,
+        .last_frame = frame,
+    };
+  }
+  stats.previous_key = key;
+  stats.previous_frame = frame;
+  stats.previous_valid = true;
+}
+
+void RecordSemanticStateCacheLookups(
+    uint64_t frame, const SemanticPreparedDrawContract &contract) {
+  for (size_t level = 0;
+       level < size_t(SemanticStateCacheLevel::kCount); ++level) {
+    for (size_t profile = 0;
+         profile < size_t(SemanticStateCacheProfile::kCount); ++profile) {
+      RecordSemanticStateCacheLookup(
+          SemanticStateCacheLevel(level),
+          SemanticStateCacheProfile(profile), frame, contract);
+    }
+  }
+}
+
 void FinalizeSemanticBatchEquivalenceRun(
     SemanticBatchEquivalence equivalence) {
   const size_t level = size_t(equivalence);
@@ -8421,6 +8638,7 @@ void RecordSemanticBatchOpportunity(
   if (opportunity_index == kSemanticBatchOpportunityCapacity) {
     FinalizeSemanticBatchRun();
     FinalizeSemanticBatchEquivalenceRuns();
+    BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
     return;
   }
@@ -8440,6 +8658,7 @@ void RecordSemanticBatchOpportunity(
     ++g_semantic_batch_rejections[size_t(rejection)];
     FinalizeSemanticBatchRun();
     FinalizeSemanticBatchEquivalenceRuns();
+    BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
     return;
   }
@@ -8452,6 +8671,7 @@ void RecordSemanticBatchOpportunity(
   g_semantic_batch_maximum_parameter_payload_bytes =
       std::max(g_semantic_batch_maximum_parameter_payload_bytes,
                parameter_payload_bytes);
+  RecordSemanticStateCacheLookups(observation.frame_sequence, contract);
   for (size_t level = 0;
        level < size_t(SemanticBatchEquivalence::kCount); ++level) {
     RecordSemanticBatchEquivalenceOpportunity(
@@ -8644,10 +8864,93 @@ void EmitSemanticBatchEquivalenceSummary() {
   }
 }
 
+void EmitSemanticStateCacheSummary() {
+  for (size_t level = 0;
+       level < size_t(SemanticStateCacheLevel::kCount); ++level) {
+    const SemanticStateCacheLevel cache_level =
+        SemanticStateCacheLevel(level);
+    for (size_t profile = 0;
+         profile < size_t(SemanticStateCacheProfile::kCount); ++profile) {
+      const SemanticStateCacheProfile cache_profile =
+          SemanticStateCacheProfile(profile);
+      const SemanticStateCacheStats &stats =
+          g_semantic_state_cache_stats[level][profile];
+      const size_t bucket_count =
+          SemanticStateCacheBucketCount(cache_profile);
+      const size_t capacity = bucket_count * kSemanticStateCacheWays;
+      const bool accounting_complete =
+          stats.lookups == g_semantic_batch_eligible_draws &&
+          stats.hits + stats.misses == stats.lookups &&
+          stats.consecutive_hits +
+                  stats.nonconsecutive_same_frame_hits +
+                  stats.cross_frame_hits ==
+              stats.hits &&
+          stats.evictions <= stats.misses &&
+          stats.resident_entries <= capacity &&
+          stats.maximum_resident_entries <= capacity;
+      const uint64_t required_bindings =
+          stats.lookups >= stats.consecutive_hits
+              ? stats.lookups - stats.consecutive_hits
+              : 0;
+      const double hit_percent =
+          stats.lookups ? 100.0 * stats.hits / stats.lookups : 0.0;
+      const double bind_elision_percent =
+          stats.lookups
+              ? 100.0 * stats.consecutive_hits / stats.lookups
+              : 0.0;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_state_cache_summary",
+          {{"status", accounting_complete ? "complete" : "incomplete"},
+           {"cache_level", SemanticStateCacheLevelName(cache_level)},
+           {"cache_profile",
+            SemanticStateCacheProfileName(cache_profile)},
+           {"eligible_draws",
+            std::to_string(g_semantic_batch_eligible_draws)},
+           {"lookups", std::to_string(stats.lookups)},
+           {"hits", std::to_string(stats.hits)},
+           {"misses", std::to_string(stats.misses)},
+           {"hit_percent", fmt::format("{:.3f}", hit_percent)},
+           {"evictions", std::to_string(stats.evictions)},
+           {"full_bucket_misses",
+            std::to_string(stats.full_bucket_misses)},
+           {"resident_entries", std::to_string(stats.resident_entries)},
+           {"maximum_resident_entries",
+            std::to_string(stats.maximum_resident_entries)},
+           {"consecutive_hits",
+            std::to_string(stats.consecutive_hits)},
+           {"nonconsecutive_same_frame_hits",
+            std::to_string(stats.nonconsecutive_same_frame_hits)},
+           {"cross_frame_hits", std::to_string(stats.cross_frame_hits)},
+           {"object_constructions", std::to_string(stats.misses)},
+           {"object_constructions_avoided",
+            std::to_string(stats.hits)},
+           {"required_bindings", std::to_string(required_bindings)},
+           {"binding_elisions",
+            std::to_string(stats.consecutive_hits)},
+           {"binding_elision_percent",
+            fmt::format("{:.3f}", bind_elision_percent)},
+           {"bucket_count", std::to_string(bucket_count)},
+           {"ways", std::to_string(kSemanticStateCacheWays)},
+           {"capacity", std::to_string(capacity)},
+           {"policy", "set_associative_lru"},
+           {"lifetime", "census_session"},
+           {"accounting_complete",
+            accounting_complete ? "true" : "false"},
+           {"native_state_objects", "false"},
+           {"native_bindings", "false"},
+           {"native_draw", "false"},
+           {"reordering", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+}
+
 void EmitSemanticBatchOpportunitySummary() {
   FinalizeSemanticBatchRun();
   FinalizeSemanticBatchFrame();
   EmitSemanticBatchEquivalenceSummary();
+  EmitSemanticStateCacheSummary();
   uint64_t entry_draws = 0;
   uint64_t entry_eligible_draws = 0;
   uint64_t entry_rejected_draws = 0;

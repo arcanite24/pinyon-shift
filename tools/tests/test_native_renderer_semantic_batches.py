@@ -32,6 +32,12 @@ def static_inventory():
                     "resource_free_layout_and_prepared_state"
                 ),
                 "semantic_batch_execution_enabled": False,
+                "semantic_state_cache_required": True,
+                "semantic_state_cache_policy": "set_associative_lru",
+                "semantic_state_cache_profiles": (
+                    "compact:64,balanced:256,headroom:1024"
+                ),
+                "semantic_state_cache_execution_enabled": False,
                 "native_rendering_enabled": False,
                 "suppression_eligible": False,
             }
@@ -163,6 +169,75 @@ def events():
                 },
             ]
         )
+    cache_events = []
+    cache_metrics = {
+        "material_state": {
+            "hits": 8,
+            "misses": 2,
+            "consecutive_hits": 6,
+            "nonconsecutive_same_frame_hits": 1,
+            "cross_frame_hits": 1,
+            "resident_entries": 2,
+        },
+        "pipeline_state": {
+            "hits": 9,
+            "misses": 1,
+            "consecutive_hits": 6,
+            "nonconsecutive_same_frame_hits": 2,
+            "cross_frame_hits": 1,
+            "resident_entries": 1,
+        },
+    }
+    for cache_level, metrics in cache_metrics.items():
+        for cache_profile, capacity in (
+            MODULE.EXPECTED_STATE_CACHE_PROFILES.items()
+        ):
+            cache_events.append(
+                {
+                    **common,
+                    "event": MODULE.STATE_CACHE_SUMMARY,
+                    "status": "complete",
+                    "cache_level": cache_level,
+                    "cache_profile": cache_profile,
+                    "eligible_draws": "10",
+                    "lookups": "10",
+                    "hits": str(metrics["hits"]),
+                    "misses": str(metrics["misses"]),
+                    "hit_percent": f'{metrics["hits"] * 10:.3f}',
+                    "evictions": "0",
+                    "full_bucket_misses": "0",
+                    "resident_entries": str(metrics["resident_entries"]),
+                    "maximum_resident_entries": str(
+                        metrics["resident_entries"]
+                    ),
+                    "consecutive_hits": str(metrics["consecutive_hits"]),
+                    "nonconsecutive_same_frame_hits": str(
+                        metrics["nonconsecutive_same_frame_hits"]
+                    ),
+                    "cross_frame_hits": str(metrics["cross_frame_hits"]),
+                    "object_constructions": str(metrics["misses"]),
+                    "object_constructions_avoided": str(metrics["hits"]),
+                    "required_bindings": str(
+                        10 - metrics["consecutive_hits"]
+                    ),
+                    "binding_elisions": str(metrics["consecutive_hits"]),
+                    "binding_elision_percent": (
+                        f'{metrics["consecutive_hits"] * 10:.3f}'
+                    ),
+                    "bucket_count": str(capacity // 4),
+                    "ways": "4",
+                    "capacity": str(capacity),
+                    "policy": "set_associative_lru",
+                    "lifetime": "census_session",
+                    "accounting_complete": "true",
+                    "native_state_objects": "false",
+                    "native_bindings": "false",
+                    "native_draw": "false",
+                    "reordering": "false",
+                    "xenos_authority": "true",
+                    "suppression_allowed": "false",
+                }
+            )
     return [
         {
             **common,
@@ -182,6 +257,15 @@ def events():
                 "shader_constants_and_semantic_instance"
             ),
             "semantic_batch_maximum_parameter_payload_bytes": "2756",
+            "semantic_state_cache_levels": "material,pipeline",
+            "semantic_state_cache_profiles": (
+                "compact:64,balanced:256,headroom:1024"
+            ),
+            "semantic_state_cache_ways": "4",
+            "semantic_state_cache_maximum_capacity": "1024",
+            "semantic_state_cache_policy": "set_associative_lru",
+            "semantic_state_cache_lifetime": "census_session",
+            "semantic_state_cache_execution": "shadow_measurement_only",
             "semantic_batch_execution": "disabled_measurement_only",
             "xenos_authority": "true",
             "suppression_allowed": "false",
@@ -248,6 +332,7 @@ def events():
             "semantic_draw_prepared_matches": "12",
             "semantic_draw_unprepared_matches": "0",
         },
+        *cache_events,
         summary,
     ]
 
@@ -265,6 +350,20 @@ class SemanticBatchTests(unittest.TestCase):
             document["mesh_material_instancing_opportunity_proved"]
         )
         self.assertTrue(document["instancing_parameter_path_required"])
+        self.assertTrue(document["state_object_cache_reuse_proved"])
+        self.assertTrue(document["state_binding_elision_proved"])
+        self.assertEqual(
+            8,
+            document["state_caches"]["material_state"]["profiles"][
+                "headroom"
+            ]["hits"],
+        )
+        self.assertEqual(
+            "compact",
+            document["state_caches"]["material_state"][
+                "minimum_zero_eviction_profile"
+            ],
+        )
         self.assertEqual(
             6,
             document["equivalence_levels"]["mesh_material_instance"][
@@ -321,6 +420,29 @@ class SemanticBatchTests(unittest.TestCase):
             if event.get("event") == MODULE.EQUIVALENCE_SUMMARY
         )
         equivalence_summary["native_batch_execution"] = "true"
+        with self.assertRaisesRegex(ValueError, "incomplete or unsafe"):
+            MODULE.build(observed, static_inventory())
+
+    def test_rejects_state_cache_accounting_drift(self):
+        observed = events()
+        cache_summary = next(
+            event
+            for event in observed
+            if event.get("event") == MODULE.STATE_CACHE_SUMMARY
+            and event.get("cache_level") == "material_state"
+        )
+        cache_summary["cross_frame_hits"] = "2"
+        with self.assertRaisesRegex(ValueError, "cache accounting"):
+            MODULE.build(observed, static_inventory())
+
+    def test_rejects_unsafe_state_cache_summary(self):
+        observed = events()
+        cache_summary = next(
+            event
+            for event in observed
+            if event.get("event") == MODULE.STATE_CACHE_SUMMARY
+        )
+        cache_summary["native_state_objects"] = "true"
         with self.assertRaisesRegex(ValueError, "incomplete or unsafe"):
             MODULE.build(observed, static_inventory())
 
