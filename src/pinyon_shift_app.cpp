@@ -350,7 +350,8 @@ void PinyonShiftApp::OnPostSetup() {
   pinyon_shift::native_renderer::InstallGuestOutputRenderer(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallGraphicsCensus(
-      runtime() ? runtime()->graphics_system() : nullptr);
+      runtime() ? runtime()->graphics_system() : nullptr,
+      runtime() ? runtime()->memory() : nullptr);
   pinyon_shift::native_renderer::InstallTextureResourceBridge(
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallShaderCapture(
