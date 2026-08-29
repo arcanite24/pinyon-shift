@@ -8,11 +8,17 @@ param(
     [string]$OutputDir,
     [string]$NativeMarker = 'PinyonShift NR-02E isolated native draw',
     [string]$XenosMarker = 'PinyonShift NR-02E authoritative Xenos draw',
-    [switch]$CompletePass
+    [switch]$CompletePass,
+    [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
+    [string]$ConsumerFamily
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($CompletePass -and $ConsumerFamily) {
+    throw 'CompletePass and ConsumerFamily are mutually exclusive.'
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $localRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.local'))
@@ -48,12 +54,14 @@ $savedOutput = $env:PINYON_SHIFT_RENDERDOC_EXPORT_DIR
 $savedNativeMarker = $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER
 $savedXenosMarker = $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER
 $savedCompletePass = $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS
+$savedConsumerFamily = $env:PINYON_SHIFT_RENDERDOC_CONSUMER_FAMILY
 try {
     $env:PINYON_SHIFT_RENDERDOC_CAPTURE = $resolvedCapture
     $env:PINYON_SHIFT_RENDERDOC_EXPORT_DIR = $resolvedOutputDir
     $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER = $NativeMarker
     $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER = $XenosMarker
     $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS = if ($CompletePass) { '1' } else { '0' }
+    $env:PINYON_SHIFT_RENDERDOC_CONSUMER_FAMILY = $ConsumerFamily
     $process = Start-Process -FilePath $qrenderdoc `
         -ArgumentList @('--python', $script) -PassThru -Wait
     if ($process.ExitCode) {
@@ -66,6 +74,7 @@ finally {
     $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER = $savedNativeMarker
     $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER = $savedXenosMarker
     $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS = $savedCompletePass
+    $env:PINYON_SHIFT_RENDERDOC_CONSUMER_FAMILY = $savedConsumerFamily
 }
 
 $report = Join-Path $resolvedOutputDir 'renderdoc-export.json'

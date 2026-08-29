@@ -147,6 +147,20 @@ struct PassFollowerState {
 
 PassFollowerState g_pass_follower;
 
+struct ConsumerFamilyMarkerState {
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t vertex_specialization_mask = 0;
+  uint64_t pixel_specialization_mask = 0;
+  uint64_t matched_draws = 0;
+  uint64_t marker_requests = 0;
+  bool requested = false;
+  bool valid = true;
+  bool current_match = false;
+};
+
+ConsumerFamilyMarkerState g_consumer_family_marker;
+
 void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
                             bool &requested, bool &valid) {
   char *value = nullptr;
@@ -183,6 +197,58 @@ void ConfigurePassFollower() {
       "PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE",
       g_pass_follower.target_signature, g_pass_follower.requested,
       g_pass_follower.valid);
+}
+
+void ConfigureConsumerFamilyMarker() {
+  g_consumer_family_marker = {};
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string setting(value);
+  std::free(value);
+  g_consumer_family_marker.requested = true;
+  if (setting.size() != 67 || setting[16] != '/' || setting[33] != '/' ||
+      setting[50] != '/') {
+    g_consumer_family_marker.valid = false;
+    return;
+  }
+  std::array<uint64_t *, 4> fields = {
+      &g_consumer_family_marker.vertex_shader_hash,
+      &g_consumer_family_marker.pixel_shader_hash,
+      &g_consumer_family_marker.vertex_specialization_mask,
+      &g_consumer_family_marker.pixel_specialization_mask,
+  };
+  for (size_t index = 0; index < fields.size(); ++index) {
+    const char *begin = setting.data() + index * 17;
+    const char *end = begin + 16;
+    const auto parsed = std::from_chars(begin, end, *fields[index], 16);
+    if (parsed.ec != std::errc{} || parsed.ptr != end) {
+      g_consumer_family_marker.valid = false;
+      return;
+    }
+  }
+  if (!g_consumer_family_marker.vertex_shader_hash ||
+      !g_consumer_family_marker.pixel_shader_hash) {
+    g_consumer_family_marker.valid = false;
+  }
+}
+
+std::string ConsumerFamilyId() {
+  if (!g_consumer_family_marker.requested ||
+      !g_consumer_family_marker.valid) {
+    return "";
+  }
+  return fmt::format(
+      "{:016X}/{:016X}/{:016X}/{:016X}",
+      g_consumer_family_marker.vertex_shader_hash,
+      g_consumer_family_marker.pixel_shader_hash,
+      g_consumer_family_marker.vertex_specialization_mask,
+      g_consumer_family_marker.pixel_specialization_mask);
 }
 
 void ConfigureTextureScan() {
@@ -1747,6 +1813,7 @@ void CommitPassConsumer(
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
+  g_consumer_family_marker.current_match = false;
   if (!g_pending_candidate.valid) {
     ++g_candidate_prepared_without_observation_count;
   } else {
@@ -2615,6 +2682,10 @@ void CompleteIsolatedPassRepeat(
 void RequestIsolatedDraw(
     const rex::system::GraphicsPreparedDrawObservation &,
     rex::system::GraphicsIsolatedDrawRequest &request) {
+  if (g_consumer_family_marker.current_match) {
+    request.consumer_reference_marker_requested = true;
+    ++g_consumer_family_marker.marker_requests;
+  }
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
       !g_isolated_draw.prepared_candidate_valid) {
     return;
@@ -2940,6 +3011,19 @@ void CommitPassConsumer(
   ++g_pass_consumer_trace.sampled_draws;
   g_pass_consumer_trace.sample_references +=
       candidate.family_sample_references;
+  if (g_consumer_family_marker.requested &&
+      g_consumer_family_marker.valid &&
+      observation.vertex_shader_hash ==
+          g_consumer_family_marker.vertex_shader_hash &&
+      observation.pixel_shader_hash ==
+          g_consumer_family_marker.pixel_shader_hash &&
+      prepared.vertex_specialization_mask ==
+          g_consumer_family_marker.vertex_specialization_mask &&
+      prepared.pixel_specialization_mask ==
+          g_consumer_family_marker.pixel_specialization_mask) {
+    g_consumer_family_marker.current_match = true;
+    ++g_consumer_family_marker.matched_draws;
+  }
   ObservePassConsumerSignature(observation, prepared,
                                candidate.family_base_fetch_mask,
                                candidate.family_mip_fetch_mask);
@@ -3307,6 +3391,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
   ConfigurePassFollower();
+  ConfigureConsumerFamilyMarker();
   g_graphics_census_memory = memory;
   if (g_pass_follower.requested && g_pass_follower.valid &&
       g_isolated_draw.requested && g_isolated_draw.valid) {
@@ -3373,6 +3458,18 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"mode", "bounded_metadata"},
        {"xenos_draw", "preserved"},
        {"native_draw", "false"},
+       {"suppression_eligible", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.census.consumer_family_marker_config",
+      {{"status", !g_consumer_family_marker.requested
+                      ? "disabled"
+                      : (g_consumer_family_marker.valid ? "armed"
+                                                        : "invalid_family")},
+       {"consumer_family", ConsumerFamilyId()},
+       {"mode", "authoritative_draw_marker_only"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
        {"suppression_eligible", "false"}});
   diagnostics::RecordEvent(
       "native_renderer.snapshot.config",
@@ -3683,6 +3780,22 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"xenos_draw", "preserved"},
          {"suppression_eligible", "false"}});
   }
+  diagnostics::RecordEvent(
+      "native_renderer.census.consumer_family_marker_summary",
+      {{"status", !g_consumer_family_marker.requested
+                      ? "disabled"
+                      : (g_consumer_family_marker.valid ? "complete"
+                                                        : "invalid_family")},
+       {"consumer_family", ConsumerFamilyId()},
+       {"matched_draws",
+        std::to_string(g_consumer_family_marker.matched_draws)},
+       {"marker_requests",
+        std::to_string(g_consumer_family_marker.marker_requests)},
+       {"mode", "authoritative_draw_marker_only"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"suppression_eligible", "false"}});
   g_graphics_census_installed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {

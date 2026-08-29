@@ -68,6 +68,48 @@ semantically classified families. The local deterministic report SHA-256 is
 The later-GPU-consumer gate remained `fail`, guest CPU visibility remained
 `pass`, Xenos remained authoritative, and suppression remained disallowed.
 
+## Targeted RenderDoc evidence
+
+The census and RenderDoc helpers can mark only authoritative draws that both
+consume an output from the exact retained producer family and match one exact
+four-field consumer identity. The first activity-ranked family is:
+
+```text
+2E5E0A854BE00027/BDFFA72B7ED2FBA4/000000000000003F/000000000016003F
+```
+
+Capture it with the AppData save and the exact producer anchor/follower pair:
+
+```powershell
+$family = '2E5E0A854BE00027/BDFFA72B7ED2FBA4/000000000000003F/000000000016003F'
+.\tools\capture-native-renderer-renderdoc.ps1 `
+  -StateRoot "$env:LOCALAPPDATA\PinyonShift\source\0.1.0\.local\preview" `
+  -RenderDocRoot '.local\tools\renderdoc-1.45\RenderDoc_1.45_64' `
+  -IsolatedDrawSignature '1D253A52B55C9FB3' `
+  -PassAnchorSignature '747837906D0BF484' `
+  -IsolatedDrawDir '.local\qualification\consumer-family-isolated' `
+  -ConsumerFamily $family `
+  -CaptureDir '.local\qualification\consumer-family-capture'
+```
+
+After closing the captured run, export the first marked draw's bound color and
+depth attachments before and after the draw:
+
+```powershell
+.\tools\export-native-renderer-renderdoc.ps1 `
+  -Capture '.local\qualification\consumer-family-capture\reference_frame1.rdc' `
+  -RenderDocRoot '.local\tools\renderdoc-1.45\RenderDoc_1.45_64' `
+  -OutputDir '.local\qualification\consumer-family-export' `
+  -ConsumerFamily $family
+```
+
+The schema-v1 report records the exact family, total marker count, up to 64
+deterministic marker event IDs, capture and attachment hashes, and the first
+draw's before/after images. This is evidence for operator semantic review, not
+an automatic role promotion. Marker insertion does not replay, redirect, or
+suppress work: every Xenos draw remains authoritative and both draw and resolve
+suppression remain false.
+
 ## Rollback-switch boundary
 
 `config/native-renderer/suppression-switches.json` reserves one independent,
