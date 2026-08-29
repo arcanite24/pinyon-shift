@@ -114,6 +114,8 @@ struct IsolatedDrawState {
   std::filesystem::path output_root;
   std::jthread artifact_writer;
   std::jthread reference_artifact_writer;
+  std::jthread depth_artifact_writer;
+  std::jthread reference_depth_artifact_writer;
   bool requested = false;
   bool readback_requested = false;
   bool completed = false;
@@ -2132,6 +2134,189 @@ void CompleteIsolatedReferenceReadback(
       g_isolated_draw.reference_artifact_writer);
 }
 
+void CompleteIsolatedDepthReadbackArtifact(
+    const rex::system::GraphicsIsolatedDrawReadback &readback,
+    const char *capture_role, const std::filesystem::path &artifact_root,
+    std::jthread &artifact_writer) {
+  const auto reject = [&](const char *status) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.readback",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+         {"status", status},
+         {"detail", fmt::format("0x{:08X}", readback.detail)},
+         {"frame", std::to_string(g_isolated_draw.captured_frame)},
+         {"draw", std::to_string(g_isolated_draw.captured_draw)},
+         {"capture_role", capture_role},
+         {"capture_content", "depth_stencil"},
+         {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+  };
+  if (readback.status !=
+      rex::system::GraphicsIsolatedDrawReadbackStatus::kReady) {
+    if (readback.status ==
+        rex::system::GraphicsIsolatedDrawReadbackStatus::
+            kResolveAllocationFailed) {
+      reject("resolve_allocation_failed");
+    } else if (readback.status ==
+               rex::system::GraphicsIsolatedDrawReadbackStatus::
+                   kAllocationFailed) {
+      reject("allocation_failed");
+    } else if (readback.status ==
+               rex::system::GraphicsIsolatedDrawReadbackStatus::kMapFailed) {
+      reject("map_failed");
+    } else {
+      reject("unsupported_target");
+    }
+    return;
+  }
+  if (!readback.data || !readback.width || !readback.height ||
+      !readback.sample_count || !readback.plane_count ||
+      readback.plane_count >
+          rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes ||
+      !readback.data_size || readback.data_size > SIZE_MAX) {
+    reject("unsupported_layout");
+    return;
+  }
+  for (uint32_t plane = 0; plane < readback.plane_count; ++plane) {
+    const uint64_t offset = readback.plane_offsets[plane];
+    const uint64_t row_pitch = readback.plane_row_pitches[plane];
+    const uint64_t row_size = readback.plane_row_sizes[plane];
+    const uint64_t row_count = readback.plane_row_counts[plane];
+    const uint64_t end =
+        offset + (row_count ? (row_count - 1) * row_pitch : 0) + row_size;
+    if (!row_count || !row_size || row_size > row_pitch ||
+        end > readback.data_size) {
+      reject("unsupported_layout");
+      return;
+    }
+  }
+
+  std::vector<uint8_t> bytes(readback.data,
+                             readback.data + size_t(readback.data_size));
+  const uint64_t signature = g_isolated_draw.captured_signature;
+  const uint64_t frame = g_isolated_draw.captured_frame;
+  const uint64_t draw = g_isolated_draw.captured_draw;
+  const auto output_root = artifact_root;
+  const uint32_t width = readback.width;
+  const uint32_t height = readback.height;
+  const uint32_t format = readback.format;
+  const uint32_t sample_count = readback.sample_count;
+  const uint32_t plane_count = readback.plane_count;
+  std::array<uint64_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
+      plane_offsets = {};
+  std::array<uint32_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
+      plane_row_pitches = {};
+  std::array<uint32_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
+      plane_row_sizes = {};
+  std::array<uint32_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
+      plane_row_counts = {};
+  std::copy_n(readback.plane_offsets, plane_count, plane_offsets.begin());
+  std::copy_n(readback.plane_row_pitches, plane_count,
+              plane_row_pitches.begin());
+  std::copy_n(readback.plane_row_sizes, plane_count, plane_row_sizes.begin());
+  std::copy_n(readback.plane_row_counts, plane_count, plane_row_counts.begin());
+  artifact_writer = std::jthread(
+      [bytes = std::move(bytes), signature, frame, draw, output_root, width,
+       height, format, sample_count, plane_count, plane_offsets,
+       plane_row_pitches, plane_row_sizes, plane_row_counts,
+       capture_role = std::string(capture_role)]() {
+        std::string planes;
+        for (uint32_t plane = 0; plane < plane_count; ++plane) {
+          if (!planes.empty()) {
+            planes += ",";
+          }
+          planes +=
+              fmt::format("{{\"index\":{},\"offset\":{},\"row_pitch\":{},"
+                          "\"row_size\":{},\"row_count\":{}}}",
+                          plane, plane_offsets[plane], plane_row_pitches[plane],
+                          plane_row_sizes[plane], plane_row_counts[plane]);
+        }
+        std::filesystem::path staging = output_root;
+        staging += L".partial";
+        std::error_code error;
+        if (std::filesystem::exists(output_root, error) || error ||
+            std::filesystem::exists(staging, error) || error ||
+            !std::filesystem::create_directories(staging, error) || error) {
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.isolated_draw.readback",
+              {{"signature", fmt::format("{:016X}", signature)},
+               {"status", "output_directory_unavailable"},
+               {"capture_role", capture_role},
+               {"capture_content", "depth_stencil"},
+               {"output_authority", "xenos"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        const std::string metadata = fmt::format(
+            "{{\n  \"schema\": "
+            "\"pinyon-shift.isolated-depth-readback.v1\",\n"
+            "  \"signature\": \"{:016X}\",\n  \"frame\": {},\n"
+            "  \"draw\": {},\n  \"capture_role\": \"{}\",\n"
+            "  \"capture_content\": \"depth_stencil\",\n"
+            "  \"source\": {{\"width\":{},\"height\":{},"
+            "\"dxgi_format\":{},\"sample_count\":{},"
+            "\"encoding\":\"{}\",\"bytes\":{},\"hash\":\"{:016X}\","
+            "\"planes\":[{}]}},\n"
+            "  \"safety\": {{\"output_authority\":\"xenos\","
+            "\"suppression_allowed\":false}}\n}}\n",
+            signature, frame, draw, capture_role, width, height, format,
+            sample_count,
+            sample_count > 1 ? "depth32_stencil8_sample_tuples"
+                             : "d3d12_texture_planes",
+            bytes.size(), HashBytes(bytes.data(), bytes.size()), planes);
+        const auto metadata_bytes =
+            std::span(reinterpret_cast<const uint8_t *>(metadata.data()),
+                      metadata.size());
+        if (!WriteSnapshotFile(staging / L"isolated.bin", bytes) ||
+            !WriteSnapshotFile(staging / L"readback.json", metadata_bytes)) {
+          std::filesystem::remove_all(staging, error);
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.isolated_draw.readback",
+              {{"signature", fmt::format("{:016X}", signature)},
+               {"status", "artifact_write_failed"},
+               {"capture_role", capture_role},
+               {"capture_content", "depth_stencil"},
+               {"output_authority", "xenos"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        std::filesystem::rename(staging, output_root, error);
+        pinyon_shift::diagnostics::RecordEvent(
+            "native_renderer.isolated_draw.readback",
+            {{"signature", fmt::format("{:016X}", signature)},
+             {"status", error ? "artifact_commit_failed" : "captured"},
+             {"frame", std::to_string(frame)},
+             {"draw", std::to_string(draw)},
+             {"source_width", std::to_string(width)},
+             {"source_height", std::to_string(height)},
+             {"sample_count", std::to_string(sample_count)},
+             {"plane_count", std::to_string(plane_count)},
+             {"readback_bytes", std::to_string(bytes.size())},
+             {"capture_role", capture_role},
+             {"capture_content", "depth_stencil"},
+             {"output_authority", "xenos"},
+             {"suppression_eligible", "false"}});
+      });
+}
+
+void CompleteIsolatedDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path depth_root = g_isolated_draw.output_root;
+  depth_root += L".depth";
+  CompleteIsolatedDepthReadbackArtifact(
+      readback, "native", depth_root, g_isolated_draw.depth_artifact_writer);
+}
+
+void CompleteIsolatedReferenceDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path depth_root = g_isolated_draw.output_root;
+  depth_root += L".depth.xenos";
+  CompleteIsolatedDepthReadbackArtifact(
+      readback, "xenos", depth_root,
+      g_isolated_draw.reference_depth_artifact_writer);
+}
+
 void CompleteIsolatedDraw(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   const char *status = "unsupported_state";
@@ -2298,6 +2483,9 @@ void RequestIsolatedDraw(
       request.readback_requested = g_isolated_draw.readback_requested;
       request.reference_readback_requested =
           g_isolated_draw.readback_requested;
+      request.depth_readback_requested = g_isolated_draw.readback_requested;
+      request.reference_depth_readback_requested =
+          g_isolated_draw.readback_requested;
       request.completion = &CompleteIsolatedPassFollower;
       request.readback_completion = g_isolated_draw.readback_requested
                                         ? &CompleteIsolatedDrawReadback
@@ -2305,6 +2493,14 @@ void RequestIsolatedDraw(
       request.reference_readback_completion =
           g_isolated_draw.readback_requested
               ? &CompleteIsolatedReferenceReadback
+              : nullptr;
+      request.depth_readback_completion =
+          g_isolated_draw.readback_requested
+              ? &CompleteIsolatedDepthReadback
+              : nullptr;
+      request.reference_depth_readback_completion =
+          g_isolated_draw.readback_requested
+              ? &CompleteIsolatedReferenceDepthReadback
               : nullptr;
     } else if (!g_isolated_draw.pass_repeat_reported) {
       request.completion = &CompleteIsolatedPassRepeat;
@@ -2837,6 +3033,12 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_isolated_draw.reference_artifact_writer.joinable()) {
     g_isolated_draw.reference_artifact_writer.join();
+  }
+  if (g_isolated_draw.depth_artifact_writer.joinable()) {
+    g_isolated_draw.depth_artifact_writer.join();
+  }
+  if (g_isolated_draw.reference_depth_artifact_writer.joinable()) {
+    g_isolated_draw.reference_depth_artifact_writer.join();
   }
   g_graphics_census_installed = false;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {

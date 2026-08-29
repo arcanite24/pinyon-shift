@@ -39,6 +39,83 @@ def write_readback(root: Path, role: str, data: bytes, *, row_pitch: int = 8) ->
     (root / "isolated.bin").write_bytes(data)
 
 
+def write_depth_readback(root: Path, role: str, data: bytes) -> None:
+    root.mkdir()
+    metadata = {
+        "schema": "pinyon-shift.isolated-depth-readback.v1",
+        "signature": "747837906D0BF484",
+        "frame": 100,
+        "draw": 42,
+        "capture_role": role,
+        "capture_content": "depth_stencil",
+        "source": {
+            "width": 1,
+            "height": 2,
+            "dxgi_format": 19,
+            "sample_count": 1,
+            "encoding": "d3d12_texture_planes",
+            "bytes": len(data),
+            "planes": [
+                {
+                    "index": 0,
+                    "offset": 0,
+                    "row_pitch": 8,
+                    "row_size": 4,
+                    "row_count": 2,
+                },
+                {
+                    "index": 1,
+                    "offset": 16,
+                    "row_pitch": 4,
+                    "row_size": 1,
+                    "row_count": 2,
+                },
+            ],
+        },
+        "safety": {
+            "output_authority": "xenos",
+            "suppression_allowed": False,
+        },
+    }
+    (root / "readback.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (root / "isolated.bin").write_bytes(data)
+
+
+def write_msaa_depth_readback(root: Path, role: str, data: bytes) -> None:
+    root.mkdir()
+    metadata = {
+        "schema": "pinyon-shift.isolated-depth-readback.v1",
+        "signature": "747837906D0BF484",
+        "frame": 100,
+        "draw": 42,
+        "capture_role": role,
+        "capture_content": "depth_stencil",
+        "source": {
+            "width": 2,
+            "height": 2,
+            "dxgi_format": 19,
+            "sample_count": 2,
+            "encoding": "depth32_stencil8_sample_tuples",
+            "bytes": len(data),
+            "planes": [
+                {
+                    "index": 0,
+                    "offset": 0,
+                    "row_pitch": 32,
+                    "row_size": 32,
+                    "row_count": 2,
+                }
+            ],
+        },
+        "safety": {
+            "output_authority": "xenos",
+            "suppression_allowed": False,
+        },
+    }
+    (root / "readback.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (root / "isolated.bin").write_bytes(data)
+
+
 class NativeRendererPassReadbackTests(unittest.TestCase):
     def test_exact_active_bytes_pass(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +158,56 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "frame values differ"):
                 MODULE.compare(native, xenos)
+
+    def test_exact_depth_and_stencil_planes_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / "pass.depth"
+            xenos = Path(str(native) + ".xenos")
+            data = bytes(range(21))
+            write_depth_readback(native, "native", data)
+            write_depth_readback(xenos, "xenos", data)
+            report = MODULE.compare(native, xenos, "depth-stencil")
+            self.assertEqual(report["result"], "pass")
+            self.assertEqual(report["scope"]["content"], "depth-stencil")
+            self.assertEqual(report["metrics"]["compared_bytes"], 10)
+
+    def test_depth_padding_is_excluded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / "pass.depth"
+            xenos = Path(str(native) + ".xenos")
+            native_data = bytearray(range(21))
+            xenos_data = bytearray(native_data)
+            for index in (4, 5, 6, 7, 12, 13, 14, 15, 17, 18, 19):
+                xenos_data[index] = 255
+            write_depth_readback(native, "native", bytes(native_data))
+            write_depth_readback(xenos, "xenos", bytes(xenos_data))
+            report = MODULE.compare(native, xenos, "depth-stencil")
+            self.assertEqual(report["result"], "pass")
+
+    def test_stencil_difference_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / "pass.depth"
+            xenos = Path(str(native) + ".xenos")
+            native_data = bytes(range(21))
+            xenos_data = bytearray(native_data)
+            xenos_data[20] ^= 0xFF
+            write_depth_readback(native, "native", native_data)
+            write_depth_readback(xenos, "xenos", bytes(xenos_data))
+            report = MODULE.compare(native, xenos, "depth-stencil")
+            self.assertEqual(report["result"], "fail")
+            self.assertEqual(report["metrics"]["different_bytes"], 1)
+
+    def test_exact_msaa_depth_sample_tuples_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / "pass.depth"
+            xenos = Path(str(native) + ".xenos")
+            data = bytes(range(64))
+            write_msaa_depth_readback(native, "native", data)
+            write_msaa_depth_readback(xenos, "xenos", data)
+            report = MODULE.compare(native, xenos, "depth-stencil")
+            self.assertEqual(report["result"], "pass")
+            self.assertEqual(report["metrics"]["compared_bytes"], 64)
+            self.assertEqual(report["layout"]["sample_count"], 2)
 
 
 if __name__ == "__main__":
