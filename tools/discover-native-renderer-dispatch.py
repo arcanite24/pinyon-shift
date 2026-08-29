@@ -1459,6 +1459,32 @@ def procedural_model_receiver_lifecycle(
             "xenos_authority": True,
             "suppression_allowed": False,
         },
+        "visibility_shadow_policy": {
+            "record_entry_hook_address": "{:08X}".format(
+                spec["visibility_record_entry"]
+            ),
+            "category_helper_result_hook_address": "{:08X}".format(
+                spec["visibility_category_helper_result_hook"]
+            ),
+            "title_result_hook_address": "{:08X}".format(
+                spec["visibility_result"]
+            ),
+            "record_exit_hook_address": "{:08X}".format(
+                spec["visibility_record_exit"]
+            ),
+            "model": "any_nonzero_category_result_selects",
+            "category_result_domain": [0, 1, 2],
+            "scope": "active_title_record_only",
+            "title_outcome_comparison_required": True,
+            "guest_payload_read": False,
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "native_policy_execution": "shadow_only",
+            "native_culling_enabled": False,
+            "native_lod_enabled": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
         "render_state_function_address": "{:08X}".format(
             spec["render_state_function"]
         ),

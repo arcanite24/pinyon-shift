@@ -651,6 +651,19 @@ struct SemanticVisibilityOracleStats {
   std::array<std::atomic<uint64_t>, 3> category_results{};
 };
 
+struct SemanticVisibilityShadowStats {
+  std::atomic<uint64_t> records{};
+  std::atomic<uint64_t> modelled_records{};
+  std::atomic<uint64_t> predicted_selected{};
+  std::atomic<uint64_t> predicted_rejected{};
+  std::atomic<uint64_t> title_matches{};
+  std::atomic<uint64_t> false_positive{};
+  std::atomic<uint64_t> false_negative{};
+  std::atomic<uint64_t> result_1_records{};
+  std::atomic<uint64_t> result_2_records{};
+  std::atomic<uint64_t> mixed_nonzero_records{};
+};
+
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
 std::atomic<uint64_t> g_semantic_visibility_record_completions{};
 std::atomic<uint64_t> g_semantic_visibility_records_open{};
@@ -708,6 +721,10 @@ std::atomic<uint64_t> g_semantic_visibility_spatial_helper_without_local_pass{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_without_record{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_without_spatial_pass{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_invalid_result{};
+std::array<std::array<SemanticVisibilityShadowStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_shadow_categories{};
 
 struct SemanticInstanceEntry {
   uint64_t key = 0;
@@ -2515,6 +2532,37 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
       oracle.category_results[result].fetch_add(
           record.category_helper_results[result],
           std::memory_order_relaxed);
+    }
+    SemanticVisibilityShadowStats &shadow =
+        g_semantic_visibility_shadow_categories[record.category]
+                                               [policy_outcome_index];
+    shadow.records.fetch_add(1, std::memory_order_relaxed);
+    if (record.category_helper_observations) {
+      shadow.modelled_records.fetch_add(1, std::memory_order_relaxed);
+      const bool result_1_seen = record.category_helper_results[1] != 0;
+      const bool result_2_seen = record.category_helper_results[2] != 0;
+      const bool predicted_selected = result_1_seen || result_2_seen;
+      const bool title_selected = record.result_seen && record.selected;
+      (predicted_selected ? shadow.predicted_selected
+                          : shadow.predicted_rejected)
+          .fetch_add(1, std::memory_order_relaxed);
+      if (predicted_selected == title_selected) {
+        shadow.title_matches.fetch_add(1, std::memory_order_relaxed);
+      } else if (predicted_selected) {
+        shadow.false_positive.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        shadow.false_negative.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_1_seen) {
+        shadow.result_1_records.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_2_seen) {
+        shadow.result_2_records.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_1_seen && result_2_seen) {
+        shadow.mixed_nonzero_records.fetch_add(1,
+                                               std::memory_order_relaxed);
+      }
     }
   }
   if (record.spatial_sample_valid) {
@@ -10058,6 +10106,136 @@ void EmitSemanticVisibilityCensus() {
        {"native_policy_execution", "false"},
        {"native_culling", "false"},
        {"native_lod", "false"},
+        {"xenos_authority", "true"},
+        {"suppression_allowed", "false"}});
+
+  uint64_t shadow_records = 0;
+  uint64_t shadow_modelled_records = 0;
+  uint64_t shadow_predicted_selected = 0;
+  uint64_t shadow_predicted_rejected = 0;
+  uint64_t shadow_title_matches = 0;
+  uint64_t shadow_false_positive = 0;
+  uint64_t shadow_false_negative = 0;
+  uint64_t shadow_result_1_records = 0;
+  uint64_t shadow_result_2_records = 0;
+  uint64_t shadow_mixed_nonzero_records = 0;
+  bool shadow_category_accounting_complete = true;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      const SemanticVisibilityShadowStats &shadow =
+          g_semantic_visibility_shadow_categories[category_index]
+                                                 [outcome_index];
+      const uint64_t records =
+          shadow.records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t modelled_records =
+          shadow.modelled_records.load(std::memory_order_relaxed);
+      const uint64_t predicted_selected =
+          shadow.predicted_selected.load(std::memory_order_relaxed);
+      const uint64_t predicted_rejected =
+          shadow.predicted_rejected.load(std::memory_order_relaxed);
+      const uint64_t title_matches =
+          shadow.title_matches.load(std::memory_order_relaxed);
+      const uint64_t false_positive =
+          shadow.false_positive.load(std::memory_order_relaxed);
+      const uint64_t false_negative =
+          shadow.false_negative.load(std::memory_order_relaxed);
+      const uint64_t result_1_records =
+          shadow.result_1_records.load(std::memory_order_relaxed);
+      const uint64_t result_2_records =
+          shadow.result_2_records.load(std::memory_order_relaxed);
+      const uint64_t mixed_nonzero_records =
+          shadow.mixed_nonzero_records.load(std::memory_order_relaxed);
+      const uint64_t expected_records =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index]
+              .records.load(std::memory_order_relaxed);
+      const bool category_complete =
+          records == expected_records && modelled_records <= records &&
+          predicted_selected + predicted_rejected == modelled_records &&
+          title_matches + false_positive + false_negative == modelled_records &&
+          result_1_records <= modelled_records &&
+          result_2_records <= modelled_records &&
+          mixed_nonzero_records <= result_1_records &&
+          mixed_nonzero_records <= result_2_records;
+      shadow_category_accounting_complete &= category_complete;
+      shadow_records += records;
+      shadow_modelled_records += modelled_records;
+      shadow_predicted_selected += predicted_selected;
+      shadow_predicted_rejected += predicted_rejected;
+      shadow_title_matches += title_matches;
+      shadow_false_positive += false_positive;
+      shadow_false_negative += false_negative;
+      shadow_result_1_records += result_1_records;
+      shadow_result_2_records += result_2_records;
+      shadow_mixed_nonzero_records += mixed_nonzero_records;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_shadow_category_summary",
+          {{"status", category_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome", SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"modelled_records", std::to_string(modelled_records)},
+           {"predicted_selected", std::to_string(predicted_selected)},
+           {"predicted_rejected", std::to_string(predicted_rejected)},
+           {"title_matches", std::to_string(title_matches)},
+           {"false_positive", std::to_string(false_positive)},
+           {"false_negative", std::to_string(false_negative)},
+           {"result_1_records", std::to_string(result_1_records)},
+           {"result_2_records", std::to_string(result_2_records)},
+           {"mixed_nonzero_records",
+            std::to_string(mixed_nonzero_records)},
+           {"native_policy_execution", "shadow_only"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+  const bool shadow_complete =
+      shadow_category_accounting_complete &&
+      shadow_records == oracle_records &&
+      shadow_modelled_records <= shadow_records &&
+      shadow_predicted_selected + shadow_predicted_rejected ==
+          shadow_modelled_records &&
+      shadow_title_matches + shadow_false_positive + shadow_false_negative ==
+          shadow_modelled_records &&
+      shadow_result_1_records <= shadow_modelled_records &&
+      shadow_result_2_records <= shadow_modelled_records &&
+      shadow_mixed_nonzero_records <= shadow_result_1_records &&
+      shadow_mixed_nonzero_records <= shadow_result_2_records &&
+      !shadow_false_positive && !shadow_false_negative;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_shadow_summary",
+      {{"status", shadow_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(shadow_records)},
+       {"modelled_records", std::to_string(shadow_modelled_records)},
+       {"unmodelled_records",
+        std::to_string(shadow_records - shadow_modelled_records)},
+       {"predicted_selected", std::to_string(shadow_predicted_selected)},
+       {"predicted_rejected", std::to_string(shadow_predicted_rejected)},
+       {"title_matches", std::to_string(shadow_title_matches)},
+       {"false_positive", std::to_string(shadow_false_positive)},
+       {"false_negative", std::to_string(shadow_false_negative)},
+       {"result_1_records", std::to_string(shadow_result_1_records)},
+       {"result_2_records", std::to_string(shadow_result_2_records)},
+       {"mixed_nonzero_records",
+        std::to_string(shadow_mixed_nonzero_records)},
+       {"accounting_complete", shadow_complete ? "true" : "false"},
+       {"model", "any_nonzero_category_result_selects"},
+       {"scope", "active_title_record_only"},
+       {"classification", "title_result_domain_shadow_selection"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
 
@@ -12551,6 +12729,29 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_policy_execution", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_shadow_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"record_entry_hook", "82E20094"},
+       {"category_helper_result_hook", "82E20368"},
+       {"title_result_hook", "82E206F8"},
+       {"record_completion_hook", "82E2084C"},
+       {"model", "any_nonzero_category_result_selects"},
+       {"category_result_domain", "0,1,2"},
+       {"outcomes", "early_rejected,rejected,selected"},
+       {"scope", "active_title_record_only"},
+       {"classification", "title_result_domain_shadow_selection"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
        {"native_culling", "false"},
        {"native_lod", "false"},
        {"native_draw", "false"},

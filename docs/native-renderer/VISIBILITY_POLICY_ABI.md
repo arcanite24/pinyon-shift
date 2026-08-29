@@ -150,3 +150,26 @@ specified above. The authoritative census had zero lifecycle, identity,
 overflow, or shutdown-open faults. Median performance was 30.224 FPS over 6,413
 frames, there were no present-deadline misses, no fatal log signatures, and
 Xenos remained the sole rendering authority.
+
+## Title-result shadow selection
+
+The first executable shadow policy turns the proved helper-result domain into a
+per-record native decision without changing the title's decision. Within an
+active title record, the model predicts selection when at least one six-vector
+helper call returns 1 or 2; a modelled record with only zero results predicts
+rejection. Records that never reach the helper remain explicitly unmodelled
+rather than being guessed as invisible.
+
+At record completion the shadow result is compared with the authoritative title
+selection byte. Bounded category/outcome telemetry records model coverage,
+predicted selections and rejections, exact title matches, false positives,
+false negatives, records that observed each nonzero helper result, and records
+that observed both. Qualification requires complete reconciliation with the
+visibility census and zero false positives or false negatives.
+
+This is an observational native state-machine model, not an independent camera
+or frustum implementation. It reads only the already captured register result
+domain, changes no guest state or control flow, performs no native draw, and
+cannot suppress Xenos work. Its purpose is to prove the selection mapping before
+the next batch mirrors the spatial helper inputs independently. Release and
+AppData qualification are intentionally deferred to that consolidated batch.

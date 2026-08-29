@@ -189,6 +189,15 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"xenos_authority": True', oracle_summarizer)
         self.assertIn('"suppression_allowed": False', oracle_summarizer)
 
+        shadow_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-shadow.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("title_result_domain_shadow_selection", source)
+        self.assertIn('"native_policy_execution": "shadow_only"', shadow_summarizer)
+        self.assertIn('"guest_state_changed": False', shadow_summarizer)
+        self.assertIn('"xenos_authority": True', shadow_summarizer)
+        self.assertIn('"suppression_allowed": False', shadow_summarizer)
+
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
