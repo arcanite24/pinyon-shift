@@ -751,6 +751,40 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('readback, "xenos"', scanner)
         self.assertIn('"suppression_eligible", "false"', scanner)
 
+        depth_readback_patch = (
+            ROOT
+            / "patches/rexglue/0072-d3d12-paired-pass-depth-readback.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("QueueIsolatedReplayDepthReadback", depth_readback_patch)
+        self.assertIn("QueueGuestDepthReadback", depth_readback_patch)
+        self.assertIn("plane_row_sizes", depth_readback_patch)
+        self.assertIn("GetCopyableFootprints", depth_readback_patch)
+        self.assertIn(
+            "complete_isolated_readback(isolated_replay_depth_readback_)",
+            depth_readback_patch,
+        )
+        self.assertIn(
+            "complete_isolated_readback(guest_depth_reference_readback_)",
+            depth_readback_patch,
+        )
+        self.assertNotIn("AwaitAllQueueOperationsCompletion", depth_readback_patch)
+        self.assertNotIn("SetDrawSuppression", depth_readback_patch)
+        msaa_depth_patch = (
+            ROOT / "patches/rexglue/0073-d3d12-msaa-depth-readback.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Texture2DMS<float> source_depth", msaa_depth_patch)
+        self.assertIn("Texture2DMS<uint2> source_stencil", msaa_depth_patch)
+        self.assertIn("depth32_stencil8_sample_tuples", scanner)
+        self.assertIn("sample_count", msaa_depth_patch)
+        self.assertIn("D3DCopyBufferRegion", msaa_depth_patch)
+        self.assertIn("GetCurrentSubmission", msaa_depth_patch)
+        self.assertNotIn("AwaitAllQueueOperationsCompletion", msaa_depth_patch)
+        self.assertNotIn("SetDrawSuppression", msaa_depth_patch)
+        self.assertIn("request.depth_readback_requested", scanner)
+        self.assertIn("request.reference_depth_readback_requested", scanner)
+        self.assertIn("CompleteIsolatedReferenceDepthReadback", scanner)
+        self.assertIn('"capture_content", "depth_stencil"', scanner)
+
         texture_resource_patch = (
             ROOT
             / "patches/rexglue/0064-d3d12-native-texture-resource-observer.patch"

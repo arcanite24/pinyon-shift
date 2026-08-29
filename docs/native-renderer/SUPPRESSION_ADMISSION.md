@@ -53,14 +53,16 @@ Consequently the next work is evidence collection and complete-pass comparison,
 not draw skipping. The Xenos copy, draw, resolve, query, fence, and memexport
 paths remain unchanged.
 
-The complete-pass color gate may use the paired asynchronous readback described
-in [VISUAL_COMPARISON.md](VISUAL_COMPARISON.md). It captures private-native and
-authoritative-Xenos color after the same follower draw, checks exact active
-texel bytes, adds no GPU wait, and preserves the original draw. It does not
-prove the independent depth gate.
+The complete-pass color and depth gates use the paired asynchronous readback
+described in [VISUAL_COMPARISON.md](VISUAL_COMPARISON.md). It captures
+private-native and authoritative-Xenos attachments after the same follower
+draw, checks exact active bytes, adds no GPU wait, and preserves the original
+draw. Two-sample depth/stencil targets are extracted as raw per-sample tuples
+so both depth and stencil participate in the comparison.
 
-The 2026-08-28 same-frame qualification passed exact complete-pass color parity
-across 41,943,040 active bytes. This promotes `color_parity` to `pass`. The
-admission result is now 8/12; `depth_parity`, `later_gpu_consumers`,
+The 2026-08-29 same-frame qualification passed exact complete-pass color parity
+across 41,943,040 active bytes and exact two-sample depth/stencil parity across
+83,886,080 bytes. This promotes both `color_parity` and `depth_parity` to
+`pass`. The admission result is now 9/12; `later_gpu_consumers`,
 `guest_cpu_visibility`, and `rollback_switch` remain `unknown`, so suppression
 is still prohibited.

@@ -128,27 +128,37 @@ documented in [PASS_INVENTORY.md](PASS_INVENTORY.md).
 ## Complete-pass comparison
 
 NR-04D admission compares the entire two-draw family rather than promoting the
-anchor result above. The preferred color path is a same-frame paired asynchronous
-readback. Launch the pass with the existing isolated readback directory set. The
-native artifact is committed at that path and the authoritative guest artifact
-is committed beside it with `.xenos` appended. Compare active texel bytes while
-excluding D3D12 row padding:
+anchor result above. The preferred color and depth path is a same-frame paired
+asynchronous readback. Launch the pass with the existing isolated readback
+directory set. The native color artifact is committed at that path and the
+authoritative guest color artifact is committed beside it with `.xenos`
+appended. Their corresponding depth/stencil artifacts use `.depth` and
+`.depth.xenos`. Compare active texel bytes while excluding D3D12 row padding:
 
 ```powershell
 python .\tools\compare-native-renderer-pass-readbacks.py `
   '.local\qualification\nr04d-pass-readback' `
   --output '.local\qualification\nr04d-pass-color-report.json'
+
+python .\tools\compare-native-renderer-pass-readbacks.py `
+  '.local\qualification\nr04d-pass-readback.depth' `
+  --content depth-stencil `
+  --output '.local\qualification\nr04d-pass-depth-report.json'
 ```
 
-Both copies are inserted into the same command list: native after the private
+All copies are inserted into the same command list: native after the private
 follower, and Xenos after the original authoritative follower. They retire by
-submission fence without a CPU/GPU wait. The comparison rejects mismatched
-signature, frame, follower draw, dimensions, row pitch, format, role, or safety
-metadata, and requires exact active color bytes. Xenos remains the displayed
-and authoritative output throughout.
+submission fence without a CPU/GPU wait. Single-sample depth uses the native
+D3D12 texture-plane layout. Multisample depth is extracted by a diagnostic
+compute shader into interleaved raw `depth32` and `stencil8` tuples for every
+pixel and sample. The comparison rejects mismatched signature, frame, follower
+draw, dimensions, sample count, encoding, layout, format, role, or safety
+metadata, and requires exact active bytes. Xenos remains the displayed and
+authoritative output throughout.
 
-RenderDoc remains the strict color-and-depth path. Capture with both the anchor
-and follower configured, then export their native/Xenos spans:
+RenderDoc remains available for visual inspection and external confirmation.
+Capture with both the anchor and follower configured, then export their
+native/Xenos spans:
 
 ```powershell
 .\tools\export-native-renderer-renderdoc.ps1 `
@@ -167,10 +177,10 @@ remain compatible with the color and depth comparator commands above.
 The complete-pass report records
 `pinyon-shift.native-renderer-pass-renderdoc-export.v1`, two draws per path,
 all marker/event IDs, capture and image hashes, and an explicit safety object.
-It never enables draw or resolve suppression. A passing paired readback can
-promote `color_parity`; `depth_parity` still requires the RenderDoc depth export
-or a future same-frame depth capture. Both gates must pass before suppression
-admission can complete.
+It never enables draw or resolve suppression. Passing same-frame paired color
+and depth/stencil readbacks may promote `color_parity` and `depth_parity`.
+Every remaining admission gate must still pass before suppression work can
+begin.
 
 ### Qualified complete-pass color result
 
@@ -189,3 +199,22 @@ timing recorded zero drops; native composition averaged 77.223 microseconds
 and native selection averaged 19.245 microseconds. The admission report now
 passes 8 of 12 gates, with depth parity, later GPU consumers, guest CPU
 visibility, and a rollback switch still deliberately blocking suppression.
+
+### Qualified complete-pass depth result
+
+The 2026-08-29 AppData-backed `open_world_day` run used clean-build executable
+SHA-256 `4B9421BBB6DA05A02D580984361477DF9F6C02BCF5848FB5A790DCA156794D3D`.
+Frame 3468 replayed the complete pass and captured the follower
+`1D253A52B55C9FB3` at draw 118. The bound `R32G8X24_TYPELESS` depth/stencil
+target was 640 by 8192 with two samples. Both paths produced 83,886,080 bytes
+encoded as raw `depth32_stencil8_sample_tuples`.
+
+The depth/stencil comparison passed exactly: zero differing bytes, zero
+maximum error, and identical binary SHA-256
+`33A3A11D54DE8EDE604C243CEDFDE1EF4B534D5EA3279C9DD57DF314045C23DF`.
+The paired color capture from the same frame also remained exact across
+41,943,040 bytes. Runtime diagnostics recorded all four captures, preserved
+Xenos authority with suppression disabled, reported no error or fatal events,
+and exited normally. Across 4,402 performance samples, median frame rate was
+31.531 FPS and the 1% low was 19.419 FPS. This promotes `depth_parity`; the
+admission report now passes 9 of 12 gates.
