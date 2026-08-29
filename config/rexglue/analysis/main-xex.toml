@@ -276,6 +276,16 @@ name = "PinyonShiftObserveProceduralModelSecondaryResourceBinding"
 registers = ["r3", "r4", "r5", "r6", "r20", "r26", "r27", "r28", "r31"]
 
 [[midasm_hook]]
+address = 0x82415C50
+name = "PinyonShiftObserveProceduralModelResourceResolutionResult"
+registers = ["r3", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82415C6C
+name = "PinyonShiftObserveProceduralModelResourceBindDispatch"
+registers = ["r3", "r4", "r5", "r30", "r31"]
+
+[[midasm_hook]]
 address = 0x82417B60
 name = "PinyonShiftObserveProceduralModelGeometrySubmission"
 registers = ["r20", "r22", "r24", "r25", "r26", "r27", "r28", "r31"]
