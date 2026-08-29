@@ -23,8 +23,14 @@ def static_inventory():
                 "caller_function": "sub_82B2B180",
                 "caller_function_address": "82B2B180",
                 "callsite": "82B2BD74",
+                "wrapper_layer": "packet_wrapper",
             }
         ],
+        "resolve_boundary": {
+            "backend": "IssueCopy",
+            "title_wrapper": "82458A88",
+            "classification": "title_resolve_setup_and_backend_copy_proved",
+        },
     }
 
 
@@ -46,6 +52,7 @@ def events(safe=True):
             "event": "native_renderer.discovery.dispatch_config",
             "session": "run",
             "status": "armed",
+            "scene": "open_world",
         },
         {
             "event": "native_renderer.discovery.dispatch_frame",
@@ -63,6 +70,11 @@ def events(safe=True):
             "first_r3": "10000000",
             "first_r4": "00000004",
             "first_r5": "00000000",
+            "first_r6": "00000004",
+            "first_r7": "00000000",
+            "first_r8": "00000000",
+            "first_r9": "00000000",
+            "first_r10": "00000020",
         },
         summary,
     ]
@@ -72,10 +84,16 @@ class NativeRendererDispatchSummaryTests(unittest.TestCase):
     def test_correlates_runtime_lr_with_static_callsite(self):
         document = MODULE.build(events(), static_inventory())
         self.assertEqual(document["frames_observed"], 300)
+        self.assertEqual(document["scene"], "open_world")
         self.assertEqual(document["totals"]["tracked_calls"], 12)
         self.assertEqual(document["totals"]["static_matches"], 1)
         self.assertEqual(
             document["callers"][0]["static_match"]["callsite"], "82B2BD74"
+        )
+        self.assertEqual(document["callers"][0]["first_arguments"]["r10"], "00000020")
+        self.assertEqual(
+            document["resolve_boundary"]["classification"],
+            "title_resolve_setup_and_backend_copy_proved",
         )
         self.assertEqual(document["callers"][0]["semantic_identity"], "unknown")
         self.assertFalse(document["safety"]["suppression_allowed"])
