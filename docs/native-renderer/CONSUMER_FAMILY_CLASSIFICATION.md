@@ -110,12 +110,13 @@ an automatic role promotion. Marker insertion does not replay, redirect, or
 suppress work: every Xenos draw remains authoritative and both draw and resolve
 suppression remain false.
 
-### Automatic exact-draw contribution capture
+### Automatic exact-draw contribution corpus
 
 Manual F12 capture can land on a frame that does not contain the selected
-family. For deterministic semantic evidence, request a one-shot asynchronous
-readback of the authoritative color attachment immediately before and after
-the first exact lineage/four-field match:
+family. For deterministic semantic evidence, request a bounded asynchronous
+corpus of the authoritative color and depth/stencil attachments immediately
+before and after exact lineage/four-field matches. Capture between 1 and 16
+occurrences; eight is a useful qualification batch:
 
 ```powershell
 $family = '2E5E0A854BE00027/BDFFA72B7ED2FBA4/000000000000003F/000000000016003F'
@@ -126,14 +127,18 @@ $readback = '.local\qualification\consumer-family-readback'
   -IsolatedDrawSignature '1D253A52B55C9FB3' `
   -PassAnchorSignature '747837906D0BF484' `
   -ConsumerFamily $family `
-  -ConsumerReadbackDir $readback
+  -ConsumerReadbackDir $readback `
+  -ConsumerReadbackSamples 8
 ```
 
-The D3D12 backend owns two independent pending slots, so the pre-draw and
-post-draw copies cannot alias each other or the existing isolated-pass
-readbacks. Both copies are queued around the original authoritative draw and
-complete after its submission fence without a GPU wait. The output remains
-local and contains raw row-pitched target bytes plus fail-closed metadata.
+The D3D12 backend owns four independent pending slots for pre/post color and
+pre/post depth/stencil. A new occurrence is armed only after all four callbacks
+for the previous occurrence complete, so copies cannot alias each other or the
+existing isolated-pass readbacks. Every copy is queued around the original
+authoritative draw and completes after its submission fence without a GPU
+wait. The output remains local, is grouped into deterministic `sample-NNNN`
+directories, and contains raw row-pitched target bytes plus fail-closed
+metadata.
 
 Build a deterministic visual contribution report with:
 
@@ -143,31 +148,45 @@ Build a deterministic visual contribution report with:
   -OutputDir '.local\qualification\consumer-family-contribution'
 ```
 
-The report validates exact family/frame/draw identity, attachment layout, and
-the no-suppression safety fields before producing `before.png`, `after.png`, a
-4x absolute-difference image, a changed-pixel mask, and numeric change bounds.
-It deliberately leaves `semantic_role=operator_review_required`; a visible
-contribution is evidence for classification, not permission to claim native
-coverage or suppress the producer. Xenos remains authoritative throughout.
+The report validates exact family/frame/draw/sample identity, attachment
+layout, and the no-suppression safety fields. Each sample contains color
+before/after, difference, and mask images. Multisampled depth/stencil tuple
+captures also produce grayscale depth previews and an exact changed-sample
+mask; single-sample planar layouts are compared byte-exactly even when they
+cannot be visualized safely. The corpus summary counts samples with color and
+depth/stencil deltas and records whether every sampled occurrence is unchanged.
+
+The analyzer deliberately leaves
+`semantic_role=operator_review_required`. Multiple unchanged occurrences are
+stronger negative evidence than one occurrence, but never automatically
+promote a semantic role, claim native coverage, or permit suppression. Xenos
+remains authoritative throughout.
 
 ### Qualification evidence
 
-The `open_world_day` AppData qualification on 2026-08-29 captured the selected
-family at frame 3876, draw 419, from a 2560x1024
-`R16G16B16A16_FLOAT` attachment. Runtime diagnostics reported one bounded
-request, two successful completions, 1364 exact matches, a normal process exit,
-and no error or device-loss events. The before and after payloads were identical
-(`7FA5516C3FA339D267CCC801D3B558FA655597D085284F58F914C5BAD5904FFD`),
-so this sampled draw changed zero color pixels. That is negative contribution
-evidence for this occurrence, not sufficient proof that every draw in the
-family is semantically inert; its role therefore remains
-`operator_review_required`.
+The `open_world_day` AppData qualification on 2026-08-29 captured four
+occurrences of the selected family at frames 3226 through 3229 and draws 236,
+540, 338, and 389. Each occurrence produced complete before/after color and
+depth/stencil artifacts. The color source was a 2560x1024 four-sample
+`R16G16B16A16_FLOAT` target resolved to a single-sample readback payload; the
+depth source was retained as exact four-sample depth/stencil tuples.
 
-The same 131.118-second run recorded 4642 frame samples, 31.094 median FPS,
-19.107 one-percent-low FPS, 59.969 Hz host presentation cadence, no presentation
-deadline misses, and no pipeline-cache misses. Xenos remained authoritative,
-the original draw was preserved, and both draw and resolve suppression stayed
-false.
+All four color pairs were byte-identical. Samples 1 and 3 also left the
+depth/stencil attachment unchanged. Samples 2 and 4 changed 16,218 and 16
+stencil tuples respectively while changing zero depth tuples. The corpus is
+therefore complete but does not prove the family inert:
+`all_samples_no_attachment_delta=false` and
+`semantic_role=operator_review_required`. The stencil contribution is positive
+evidence that suppression must remain disallowed until its downstream role and
+native parity are understood.
+
+Runtime diagnostics reported four bounded requests, all 16 expected
+completions, 1080 exact matches, a normal process exit, and no error,
+unsupported-layout, or device-loss events. The 96.340-second run recorded 3744
+frame samples, 53.974 median derived FPS, 19.194 one-percent-low FPS, 59.944 Hz
+host presentation cadence, no presentation deadline misses, and no
+pipeline-cache misses. Xenos remained authoritative, every original draw was
+preserved, and both draw and resolve suppression stayed false.
 
 ## Rollback-switch boundary
 

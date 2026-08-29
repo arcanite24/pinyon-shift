@@ -12,6 +12,8 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
     [string]$ConsumerReadbackDir,
+    [ValidateRange(1, 16)]
+    [int]$ConsumerReadbackSamples = 1,
     [string]$IsolatedDrawDir,
     [Parameter(Mandatory)]
     [string]$CaptureDir,
@@ -102,6 +104,7 @@ $saved = @{
     pass_anchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
     consumer_family = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
     consumer_readback_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
+    consumer_readback_samples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
 }
 try {
     $env:PINYON_SHIFT_STATE_ROOT = $resolvedStateRoot
@@ -120,6 +123,8 @@ try {
         }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
+        if ($ConsumerReadbackDir) { [string]$ConsumerReadbackSamples } else { $null }
     & $renderdoc capture -w `
         -d (Split-Path $executable -Parent) `
         -c (Join-Path $resolvedCaptureDir 'reference') `
@@ -140,6 +145,8 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $saved.consumer_family
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR =
         $saved.consumer_readback_dir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
+        $saved.consumer_readback_samples
 }
 
 $captures = @(Get-ChildItem -LiteralPath $resolvedCaptureDir -File -Filter '*.rdc')

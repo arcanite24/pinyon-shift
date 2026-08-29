@@ -624,6 +624,41 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("SetDrawSuppression", hooks + patch + analyzer)
         self.assertNotIn("SetCopySuppression", hooks + patch + analyzer)
 
+    def test_consumer_family_corpus_captures_depth_without_suppression(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0077-d3d12-consumer-family-depth-corpus.patch"
+        ).read_text(encoding="utf-8")
+        census = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        renderdoc = (
+            ROOT / "tools/capture-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+        analyzer = (
+            ROOT / "tools/analyze-native-renderer-consumer-readback.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kMaximumConsumerReadbackSamples = 16", hooks)
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES", hooks
+        )
+        self.assertIn("consumer_reference_depth_readback_requested", patch)
+        self.assertIn("QueueGuestConsumerDepthReadback", patch)
+        self.assertIn("guest_consumer_before_depth_readback_", patch)
+        self.assertIn("guest_consumer_after_depth_readback_", patch)
+        self.assertIn("before_after_color_and_depth_stencil", hooks)
+        self.assertIn("[ValidateRange(1, 16)]", census)
+        self.assertIn("[ValidateRange(1, 16)]", renderdoc)
+        self.assertIn("consumer-family-contribution-corpus.v1", analyzer)
+        self.assertIn("all_samples_no_attachment_delta", analyzer)
+        self.assertIn("operator_review_required", analyzer)
+        self.assertNotIn("SetDrawSuppression", hooks + patch + analyzer)
+        self.assertNotIn("SetCopySuppression", hooks + patch + analyzer)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT
