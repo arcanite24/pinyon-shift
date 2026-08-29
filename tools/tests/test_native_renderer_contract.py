@@ -163,6 +163,8 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelResourceResolutionResult": "0x82415C50",
             "PinyonShiftObserveProceduralModelResourceBindDispatch": "0x82415C6C",
             "PinyonShiftObserveProceduralModelGeometrySubmission": "0x82417B60",
+            "PinyonShiftObserveProceduralModelDirectDrawPacket": "0x82416260",
+            "PinyonShiftObserveProceduralModelAlternateDrawPacket": "0x824162F4",
         }
         for name, address in expected_hooks.items():
             self.assertEqual(analysis.count(f'name = "{name}"'), 1)

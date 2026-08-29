@@ -23,19 +23,28 @@ def static_inventory():
                 "render_item_exit_hook_address": "82417B80",
                 "geometry_submission_hook_address": "82417B60",
                 "title_draw_packet_hook_addresses": ["82410328", "829F7CB0"],
+                "semantic_draw_packet_hook_addresses": [
+                    "82416260", "824162F4",
+                ],
                 "title_indirect_packet_hook_addresses": [
                     "824095B4", "82416EFC", "8246FC1C",
                     "8263BD64", "829E8E88", "829EC49C",
                 ],
                 "graphics_submission_vtable_offset": 160,
                 "graphics_submission_target_runtime_join_required": True,
+                "graphics_submission_wrapper_address": "82415CE0",
+                "graphics_submission_emitter_address": "82415F68",
+                "semantic_draw_packet_opcode": "PM4_DRAW_INDX",
+                "semantic_draw_packet_opcode_value": 0x22,
                 "render_item_invocation_scope_proved": True,
                 "submission_before_draw_dispatch_proved": True,
                 "direct_title_packet_overlap_probe": True,
                 "indirect_packet_constructor_overlap_probe": True,
+                "semantic_pm4_packet_construction_proved": True,
+                "semantic_pm4_backend_join_required": True,
                 "physical_pm4_packet_correlation_proved": False,
                 "prepared_draw_lineage_proved": False,
-                "classification": "procedural_submission_dispatch_boundary",
+                "classification": "procedural_submission_pm4_packet_boundary",
                 "native_rendering_enabled": False,
                 "suppression_eligible": False,
             }
@@ -62,10 +71,14 @@ def events():
             "render_item_exit_hook": "82417B80",
             "geometry_submission_hook": "82417B60",
             "title_packet_hooks": "82410328,829F7CB0",
+            "semantic_packet_hooks": "82416260,824162F4",
+            "graphics_submission_wrapper": "82415CE0",
+            "graphics_submission_emitter": "82415F68",
+            "semantic_packet_opcode": "PM4_DRAW_INDX_0x22",
             "title_indirect_packet_hooks":
                 "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C",
-            "correlation": "exact_render_item_scope_with_packet_constructor_overlap_probe",
-            "classification": "procedural_submission_dispatch_boundary",
+            "correlation": "exact_render_item_scope_to_emitted_and_backend_pm4_header",
+            "classification": "procedural_submission_pm4_packet_boundary",
             "guest_state_changed": "false",
             "native_upload": "false",
             "native_draw": "false",
@@ -99,9 +112,9 @@ def events():
             "semantic_draw_association":
                 "exact_render_item_scope_and_physical_pm4_header",
             "semantic_identity": "procedural_model_submission",
-            "origin_wrapper": "draw_indexed",
-            "origin_wrapper_address": "8240F4D8",
-            "origin_caller": "82417B80",
+            "origin_wrapper": "procedural_model_draw_indexed",
+            "origin_wrapper_address": "82415F68",
+            "origin_caller": "82416260",
             "outcome": "prepared",
             "backend_outcome": "prepared_callback",
             "backend_signature": "AABBCCDDEEFF0011",
@@ -146,6 +159,8 @@ class SemanticDrawTests(unittest.TestCase):
         self.assertEqual(12, document["totals"]["semantic_submissions"])
         self.assertEqual(12, document["totals"]["prepared_draw_calls"])
         self.assertEqual(1, document["totals"]["unique_prepared_signatures"])
+        self.assertTrue(document["physical_pm4_packet_correlation_proved"])
+        self.assertTrue(document["prepared_draw_lineage_proved"])
         self.assertFalse(document["safety"]["native_draw"])
         self.assertFalse(document["safety"]["suppression_allowed"])
 
@@ -170,6 +185,19 @@ class SemanticDrawTests(unittest.TestCase):
                 "semantic_draw_dispatches_without_direct_title_origin"
             ],
         )
+
+    def test_accepts_multiple_exact_draw_packets_for_one_submission_scope(self):
+        observed = copy.deepcopy(events())
+        observed[3]["calls"] = "15"
+        summary = observed[-1]
+        summary["semantic_draw_origins_captured"] = "15"
+        summary["semantic_draw_packets_recorded"] = "15"
+        summary["semantic_draw_packet_matches"] = "15"
+        summary["semantic_draw_prepared_matches"] = "15"
+        document = MODULE.build(observed, static_inventory())
+        self.assertEqual(12, document["totals"]["semantic_submissions"])
+        self.assertEqual(15, document["totals"]["prepared_draw_calls"])
+        self.assertTrue(document["prepared_draw_lineage_proved"])
 
     def test_rejects_mismatched_submission_identity(self):
         observed = copy.deepcopy(events())

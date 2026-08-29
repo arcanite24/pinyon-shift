@@ -1,10 +1,11 @@
-# Procedural-model draw-dispatch boundary
+# Procedural-model draw lineage
 
 This NR-05B investigation follows each accepted procedural-model semantic
-submission to graphics virtual slot 160 and tests whether that call directly
-uses either title `PM4_DRAW_INDX_2` constructor already covered by exact packet
-provenance. It is a boundary census, not yet submission-to-backend draw
-lineage. Native upload, native draw, and suppression remain disabled.
+submission through graphics virtual slot 160 to the physical `PM4_DRAW_INDX`
+header consumed by the backend. The first checkpoint was a negative overlap
+census against two unrelated `PM4_DRAW_INDX_2` constructors. The current
+bridge hooks slot 160's own exact packet stores. Native upload, native draw,
+and suppression remain disabled.
 
 ## Proven boundary
 
@@ -60,11 +61,18 @@ This proves rare scope overlap, not buffer ownership or prepared-draw lineage.
 Static inspection resolves `82415CE0` to a thin state/update wrapper around
 `82415F68`. The callee emits PM4 words directly into the graphics context's
 command stream through the packet sequence beginning at `824161EC`, and
-updates the stream cursor at `82416358`. This explains why the two previously tracked
-direct constructors saw no semantic origin: slot 160 is itself a distinct
-packet-emission path. The next ownership bridge must bracket this exact emitted
-range and join it to backend execution before any prepared draw is attributed
-to a semantic submission.
+updates the stream cursor at `82416350`. Its two branches construct
+`PM4_DRAW_INDX` opcode `0x22` at exact header stores `82416260` and
+`824162F4`. This explains why the two previously tracked direct constructors
+saw no semantic origin: slot 160 is itself a distinct packet-emission path.
+
+The current bridge observes those two stores before the title instruction
+executes, computes only the effective guest packet address, translates it to
+the physical address through the existing packet-provenance path, and attaches
+the active semantic key and scope generation. Backend consumption still uses
+the exact physical header address and oldest retained address generation. A
+large submission may emit multiple packets, so packet counts may exceed scope
+counts without weakening the join.
 
 ## Runtime accounting
 
@@ -86,21 +94,32 @@ python tools/summarize-native-renderer-semantic-draws.py `
   --output <semantic-draw-boundary.json>
 ```
 
-A `complete` report means the boundary and overlap census are fully accounted.
-`prepared_draw_lineage_proved` is a separate boolean and remains false when
-any semantic dispatch lacks a direct tracked packet origin.
+A `complete` report means the scope, packet-generation, physical-address, and
+backend accounting all reconcile. `physical_pm4_packet_correlation_proved`
+requires every accepted scope to emit at least one exact tracked packet.
+`prepared_draw_lineage_proved` additionally requires at least one prepared
+backend outcome and no matched unprepared outcome. Both remain runtime gates,
+not static assumptions.
 
-## Next correlation boundary
+## Qualification result
 
-The next milestone will instrument the exact `82415CE0`/`82415F68` command
-range and retain its start cursor, end cursor, semantic key, and scope
-generation in a bounded table. Backend correlation must consume that record
-only through exact buffer identity and packet address/range membership. It must
-also retain the exact indirect constructor store address for the four observed
-overlaps rather than treating all six constructors as one aggregate. Existing
-command-buffer lineage proves receiver context for part of the indirect draw
-set, but receiver context alone is not enough to assign an individual record
-or semantic submission key.
+Release/AppData session `20260829T202741Z-p30324` cleared the physical-packet
+and prepared-draw gates in one consolidated run. All 888,664 accepted semantic
+scopes emitted an exact `82416260` or `824162F4` packet. The backend consumed
+888,312 of those packet generations as prepared draws across 819 unique
+signatures; zero matched packets were unprepared. The remaining 352 packet
+generations were pending only at clean shutdown, and matched plus pending
+exactly reconciles the 888,664 recorded origins.
+
+Every match retained the same semantic receiver generation, record index, and
+key. Address failures, provenance-table overflow, scope mismatches, stack
+faults, backend-outcome mismatches, native admission, and suppression were
+zero. The report therefore proves both
+`physical_pm4_packet_correlation_proved` and
+`prepared_draw_lineage_proved`. This establishes an exact passive bridge from
+the procedural semantic submission to its physical PM4 header and prepared
+Xenos draw; it does not yet establish the resource ABI needed for native
+rendering.
 
 ## Safety boundary
 
@@ -110,10 +129,10 @@ state, or backend submission. Xenos remains authoritative. Mesh/material ABI,
 texture ownership, vertex/index formats, LOD meaning, streaming lifetime,
 prepared signatures, and native batching eligibility remain unproved.
 
-The expanded saved visual checkpoint is
-`.local/qualification/native-renderer-semantic-draw-expanded-runtime.jpg`; the
-live festival save rendered normally. Its 204.217-second capture measured
-29.652 median FPS, 18.768 FPS one-percent low, 59.985 Hz presentation cadence,
-zero present-deadline misses, and zero XMA stalls. All semantic-submission,
-semantic-instance, command-lineage, semantic-boundary, and performance reports
+The saved visual checkpoint is
+`.local/qualification/native-renderer-semantic-pm4-runtime.png`; the live
+festival save rendered normally. Its 193.692-second capture measured 29.701
+median FPS, 15.272 FPS one-percent low, 59.538 Hz presentation cadence, one
+present-deadline miss, and zero XMA stalls. All semantic-submission,
+semantic-instance, command-lineage, semantic-draw, and performance reports
 completed from this single saved session; no confirmation rerun was required.

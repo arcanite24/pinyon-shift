@@ -206,6 +206,9 @@ PROCEDURAL_MODEL_RECEIVER = {
     "primary_resource_binding_hook": 0x82417A74,
     "secondary_resource_binding_hook": 0x82417A9C,
     "geometry_submission_hook": 0x82417B60,
+    "graphics_submission_wrapper": 0x82415CE0,
+    "graphics_submission_emitter": 0x82415F68,
+    "semantic_draw_packet_hooks": [0x82416260, 0x824162F4],
     "resource_binding_function": 0x82415BF8,
     "resource_resolution_function": 0x82415AD0,
     "resource_lookup_function": 0x82410A58,
@@ -826,6 +829,8 @@ def procedural_model_receiver_lifecycle(
         spec["resource_binding_function"],
         spec["resource_resolution_function"],
         spec["resource_lookup_function"],
+        spec["graphics_submission_wrapper"],
+        spec["graphics_submission_emitter"],
     }
     lifecycle_functions = required - {spec["dispatch_function"]}
     if not lifecycle_functions & set(functions_by_address):
@@ -890,6 +895,18 @@ def procedural_model_receiver_lifecycle(
     resource_lookup = {
         item["address"]: item["text"]
         for item in functions_by_address[spec["resource_lookup_function"]][
+            "instructions"
+        ]
+    }
+    graphics_submission_wrapper = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["graphics_submission_wrapper"]][
+            "instructions"
+        ]
+    }
+    graphics_submission_emitter = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["graphics_submission_emitter"]][
             "instructions"
         ]
     }
@@ -1039,6 +1056,37 @@ def procedural_model_receiver_lifecycle(
         for address, text in render_state_helper_expected.items()
     ):
         raise ValueError("procedural-model render-item call evidence drifted")
+
+    graphics_submission_wrapper_expected = {
+        spec["graphics_submission_wrapper"]: "mflr r12",
+        0x82415CFC: "mr r31,r3",
+        0x82415D00: "lwz r3,20(r3)",
+        0x82415D18: "bl 0x82415f68",
+        0x82415D1C: "addi r11,r31,172",
+    }
+    graphics_submission_emitter_expected = {
+        spec["graphics_submission_emitter"]: "mflr r12",
+        0x82415F80: "mr r31,r3",
+        0x824161D4: "lwz r3,48(r31)",
+        0x82416250: "lis r11,-16383",
+        0x82416258: "ori r11,r11,8705",
+        spec["semantic_draw_packet_hooks"][0]: "stwu r11,4(r30)",
+        0x824162C8: "lis r9,-16383",
+        0x824162D0: "ori r9,r9,8705",
+        spec["semantic_draw_packet_hooks"][1]: "stwu r9,4(r6)",
+        0x82416350: "stw r11,48(r31)",
+        0x82416370: "b 0x824161d4",
+    }
+    if any(
+        graphics_submission_wrapper.get(address) != text
+        for address, text in graphics_submission_wrapper_expected.items()
+    ):
+        raise ValueError("procedural-model graphics submission wrapper drifted")
+    if any(
+        graphics_submission_emitter.get(address) != text
+        for address, text in graphics_submission_emitter_expected.items()
+    ):
+        raise ValueError("procedural-model graphics packet emitter drifted")
 
     resource_binding_expected = {
         spec["resource_binding_function"]: "mflr r12",
@@ -1385,6 +1433,10 @@ def procedural_model_receiver_lifecycle(
                 spec["geometry_submission_hook"]
             ),
             "title_draw_packet_hook_addresses": ["82410328", "829F7CB0"],
+            "semantic_draw_packet_hook_addresses": [
+                "{:08X}".format(address)
+                for address in spec["semantic_draw_packet_hooks"]
+            ],
             "title_indirect_packet_hook_addresses": [
                 "824095B4",
                 "82416EFC",
@@ -1395,13 +1447,23 @@ def procedural_model_receiver_lifecycle(
             ],
             "graphics_submission_vtable_offset": 160,
             "graphics_submission_target_runtime_join_required": True,
+            "graphics_submission_wrapper_address": "{:08X}".format(
+                spec["graphics_submission_wrapper"]
+            ),
+            "graphics_submission_emitter_address": "{:08X}".format(
+                spec["graphics_submission_emitter"]
+            ),
+            "semantic_draw_packet_opcode": "PM4_DRAW_INDX",
+            "semantic_draw_packet_opcode_value": 0x22,
             "render_item_invocation_scope_proved": True,
             "submission_before_draw_dispatch_proved": True,
             "direct_title_packet_overlap_probe": True,
             "indirect_packet_constructor_overlap_probe": True,
+            "semantic_pm4_packet_construction_proved": True,
+            "semantic_pm4_backend_join_required": True,
             "physical_pm4_packet_correlation_proved": False,
             "prepared_draw_lineage_proved": False,
-            "classification": "procedural_submission_dispatch_boundary",
+            "classification": "procedural_submission_pm4_packet_boundary",
             "native_rendering_enabled": False,
             "suppression_eligible": False,
         },

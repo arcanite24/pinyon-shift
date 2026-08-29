@@ -326,6 +326,20 @@ address = 0x82417B60
 name = "PinyonShiftObserveProceduralModelGeometrySubmission"
 registers = ["r20", "r22", "r24", "r25", "r26", "r27", "r28", "r31"]
 
+# Graphics slot 160 resolves to 0x82415CE0 and forwards into 0x82415F68.
+# These are its two exact PM4_DRAW_INDX (opcode 0x22) header stores. The hooks
+# publish only the effective packet address and the already-proved semantic
+# scope; Xenos still writes and executes every packet.
+[[midasm_hook]]
+address = 0x82416260
+name = "PinyonShiftObserveProceduralModelDirectDrawPacket"
+registers = ["r23", "r24", "r25", "r28", "r29", "r30"]
+
+[[midasm_hook]]
+address = 0x824162F4
+name = "PinyonShiftObserveProceduralModelAlternateDrawPacket"
+registers = ["r6", "r23", "r24", "r25", "r28", "r29"]
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

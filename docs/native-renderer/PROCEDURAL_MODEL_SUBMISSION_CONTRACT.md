@@ -85,12 +85,15 @@ but exact texture/material class,
 vertex format, index format, mesh ownership, and streaming lifetime are still
 open.
 
-The next passive layer probes whether an accepted tuple overlaps either direct
-title draw-packet constructor already covered by physical packet provenance.
-The first consolidated run proved that it does not. See
-`docs/native-renderer/PROCEDURAL_MODEL_DRAW_LINEAGE.md`. Runtime slot-160 target
-identity now narrows the next command-buffer ownership search without claiming
-a packet, prepared signature, mesh, or material ABI.
+The first passive draw layer proved that an accepted tuple does not overlap the
+two previously tracked `PM4_DRAW_INDX_2` constructors. Runtime target identity
+then resolved slot 160 through `82415CE0` to emitter `82415F68`. Static decoding
+proves that emitter's two `PM4_DRAW_INDX` header stores at `82416260` and
+`824162F4`; the next bridge attaches the active semantic key to those exact
+physical packet headers. See
+`docs/native-renderer/PROCEDURAL_MODEL_DRAW_LINEAGE.md`. Backend prepared-draw
+qualification, mesh/material ABI, and native eligibility remain separate
+runtime gates.
 
 ## Bounded runtime join
 
