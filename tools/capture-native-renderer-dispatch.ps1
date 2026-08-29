@@ -2,6 +2,8 @@
 param(
     [string]$StateRoot,
     [string]$StaticOutput,
+    [ValidatePattern('^[a-z_]{1,32}$')]
+    [string]$Scene = 'unmarked',
     [switch]$Json
 )
 
@@ -64,11 +66,14 @@ if ($StaticOutput) {
 }
 
 $savedDiscovery = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY
+$savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY = 'true'
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -Json:$Json
 }
 finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY = $savedDiscovery
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
 }

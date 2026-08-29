@@ -37,7 +37,7 @@ REXCVAR_DEFINE_BOOL(
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_dispatch_discovery, false, "Pinyon Shift",
-    "Record bounded title draw-wrapper caller metadata without changing rendering")
+    "Record bounded title graphics-wrapper caller metadata without changing rendering")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_sky_horizon_suppression, false,
@@ -79,6 +79,11 @@ std::atomic<uint64_t> g_frame_sequence{};
 enum class DispatchWrapper : uint32_t {
   kDrawIndexed = 1,
   kDrawImmediate = 2,
+  kDrawAdapter = 3,
+  kVizQueryBegin = 4,
+  kVizQueryEnd = 5,
+  kResolveController = 6,
+  kResolveSetup = 7,
 };
 
 struct DispatchCallerEntry {
@@ -88,6 +93,11 @@ struct DispatchCallerEntry {
   std::atomic<uint32_t> first_r3{};
   std::atomic<uint32_t> first_r4{};
   std::atomic<uint32_t> first_r5{};
+  std::atomic<uint32_t> first_r6{};
+  std::atomic<uint32_t> first_r7{};
+  std::atomic<uint32_t> first_r8{};
+  std::atomic<uint32_t> first_r9{};
+  std::atomic<uint32_t> first_r10{};
 };
 
 std::array<DispatchCallerEntry, kDispatchCallerCapacity> g_dispatch_callers;
@@ -100,6 +110,16 @@ const char *DispatchWrapperName(DispatchWrapper wrapper) {
     return "draw_indexed";
   case DispatchWrapper::kDrawImmediate:
     return "draw_immediate";
+  case DispatchWrapper::kDrawAdapter:
+    return "draw_adapter";
+  case DispatchWrapper::kVizQueryBegin:
+    return "viz_query_begin";
+  case DispatchWrapper::kVizQueryEnd:
+    return "viz_query_end";
+  case DispatchWrapper::kResolveController:
+    return "resolve_controller";
+  case DispatchWrapper::kResolveSetup:
+    return "resolve_setup";
   }
   return "unknown";
 }
@@ -110,6 +130,16 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
     return "8240F4D8";
   case DispatchWrapper::kDrawImmediate:
     return "829F7C70";
+  case DispatchWrapper::kDrawAdapter:
+    return "824079B8";
+  case DispatchWrapper::kVizQueryBegin:
+    return "829F21A0";
+  case DispatchWrapper::kVizQueryEnd:
+    return "829F2280";
+  case DispatchWrapper::kResolveController:
+    return "824587D8";
+  case DispatchWrapper::kResolveSetup:
+    return "82458A88";
   }
   return "00000000";
 }
@@ -122,9 +152,16 @@ void ResetDispatchDiscovery() {
     entry.first_r3.store(0, std::memory_order_relaxed);
     entry.first_r4.store(0, std::memory_order_relaxed);
     entry.first_r5.store(0, std::memory_order_relaxed);
+    entry.first_r6.store(0, std::memory_order_relaxed);
+    entry.first_r7.store(0, std::memory_order_relaxed);
+    entry.first_r8.store(0, std::memory_order_relaxed);
+    entry.first_r9.store(0, std::memory_order_relaxed);
+    entry.first_r10.store(0, std::memory_order_relaxed);
   }
   g_dispatch_caller_overflow.store(0, std::memory_order_relaxed);
 }
+
+std::string CensusSceneMarker();
 
 void ConfigureDispatchDiscovery() {
   ResetDispatchDiscovery();
@@ -134,16 +171,20 @@ void ConfigureDispatchDiscovery() {
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.dispatch_config",
       {{"status", requested ? "armed" : "disabled"},
-       {"wrappers", "8240F4D8,829F7C70"},
+       {"scene", CensusSceneMarker()},
+       {"wrappers",
+        "824079B8,8240F4D8,824587D8,82458A88,829F21A0,829F2280,829F7C70"},
        {"caller_capacity", std::to_string(kDispatchCallerCapacity)},
-       {"metadata", "entry_lr_via_r12,r3,r4,r5,frame"},
+       {"metadata", "entry_lr_via_r12,r3-r10,frame"},
        {"guest_payload_read", "false"},
        {"xenos_draw", "preserved"},
        {"suppression_eligible", "false"}});
 }
 
 void ObserveTitleDispatch(DispatchWrapper wrapper, uint32_t caller,
-                          uint32_t r3, uint32_t r4, uint32_t r5) {
+                          uint32_t r3, uint32_t r4, uint32_t r5,
+                          uint32_t r6, uint32_t r7, uint32_t r8,
+                          uint32_t r9, uint32_t r10) {
   if (!g_dispatch_discovery_installed.load(std::memory_order_acquire)) {
     return;
   }
@@ -169,6 +210,11 @@ void ObserveTitleDispatch(DispatchWrapper wrapper, uint32_t caller,
       entry.first_r3.store(r3, std::memory_order_relaxed);
       entry.first_r4.store(r4, std::memory_order_relaxed);
       entry.first_r5.store(r5, std::memory_order_relaxed);
+      entry.first_r6.store(r6, std::memory_order_relaxed);
+      entry.first_r7.store(r7, std::memory_order_relaxed);
+      entry.first_r8.store(r8, std::memory_order_relaxed);
+      entry.first_r9.store(r9, std::memory_order_relaxed);
+      entry.first_r10.store(r10, std::memory_order_relaxed);
       return;
     }
     index = (index + 1) % kDispatchCallerCapacity;
@@ -210,6 +256,21 @@ void EmitDispatchDiscoverySummary() {
          {"first_r5",
           fmt::format("{:08X}",
                       entry.first_r5.load(std::memory_order_relaxed))},
+         {"first_r6",
+          fmt::format("{:08X}",
+                      entry.first_r6.load(std::memory_order_relaxed))},
+         {"first_r7",
+          fmt::format("{:08X}",
+                      entry.first_r7.load(std::memory_order_relaxed))},
+         {"first_r8",
+          fmt::format("{:08X}",
+                      entry.first_r8.load(std::memory_order_relaxed))},
+         {"first_r9",
+          fmt::format("{:08X}",
+                      entry.first_r9.load(std::memory_order_relaxed))},
+         {"first_r10",
+          fmt::format("{:08X}",
+                      entry.first_r10.load(std::memory_order_relaxed))},
          {"mode", "read_only_metadata"},
          {"xenos_draw", "preserved"},
          {"suppression_eligible", "false"}});
@@ -4964,16 +5025,60 @@ void PinyonShiftObserveGraphicsFrame() {
   }
 }
 
-void PinyonShiftObserveDrawIndexedDispatch(PPCRegister &r3, PPCRegister &r4,
-                                           PPCRegister &r5,
-                                           PPCRegister &r12) {
+void PinyonShiftObserveDrawIndexedDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kDrawIndexed, r12.u32, r3.u32, r4.u32,
-                       r5.u32);
+                       r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
 }
 
-void PinyonShiftObserveDrawImmediateDispatch(PPCRegister &r3, PPCRegister &r4,
-                                             PPCRegister &r5,
-                                             PPCRegister &r12) {
+void PinyonShiftObserveDrawImmediateDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kDrawImmediate, r12.u32, r3.u32, r4.u32,
-                       r5.u32);
+                       r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+}
+
+void PinyonShiftObserveDrawAdapterDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kDrawAdapter, r12.u32, r3.u32, r4.u32,
+                       r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+}
+
+void PinyonShiftObserveResolveControllerDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kResolveController, r12.u32, r3.u32,
+                       r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                       r10.u32);
+}
+
+void PinyonShiftObserveResolveSetupDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kResolveSetup, r12.u32, r3.u32, r4.u32,
+                       r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+}
+
+void PinyonShiftObserveVizQueryBeginDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kVizQueryBegin, r12.u32, r3.u32,
+                       r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                       r10.u32);
+}
+
+void PinyonShiftObserveVizQueryEndDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kVizQueryEnd, r12.u32, r3.u32, r4.u32,
+                       r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
 }

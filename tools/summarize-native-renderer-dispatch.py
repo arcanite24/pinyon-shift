@@ -1,4 +1,4 @@
-"""Correlate bounded title draw-wrapper telemetry with static call sites."""
+"""Correlate bounded title graphics-wrapper telemetry with static call sites."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v1"
-STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v1"
+SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v2"
+STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v2"
 PREFIX = "native_renderer.discovery.dispatch_"
 
 
@@ -51,6 +51,15 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         raise ValueError("unsupported static dispatch inventory schema")
     session = select_session(events, requested)
     selected = [event for event in events if event.get("session") == session]
+    configs = [
+        event
+        for event in selected
+        if event.get("event") == f"{PREFIX}config"
+        and event.get("status") == "armed"
+    ]
+    if len(configs) != 1:
+        raise ValueError("dispatch session must contain exactly one armed config")
+    scene = str(configs[0].get("scene", "unmarked"))
     summaries = [
         event for event in selected if event.get("event") == f"{PREFIX}summary"
     ]
@@ -86,9 +95,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "calls": int(event.get("calls", 0)),
                 "first_frame": int(event.get("first_frame", 0)),
                 "first_arguments": {
-                    "r3": str(event.get("first_r3", "")).upper(),
-                    "r4": str(event.get("first_r4", "")).upper(),
-                    "r5": str(event.get("first_r5", "")).upper(),
+                    f"r{index}": str(
+                        event.get(f"first_r{index}", "")
+                    ).upper()
+                    for index in range(3, 11)
                 },
                 "static_match": (
                     {
@@ -97,6 +107,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                             "caller_function_address"
                         ],
                         "callsite": callsite["callsite"],
+                        "wrapper_layer": callsite.get(
+                            "wrapper_layer", "unknown"
+                        ),
                     }
                     if callsite
                     else None
@@ -115,6 +128,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     return {
         "schema": SCHEMA,
         "session": session,
+        "scene": scene,
         "frames_observed": max(
             (int(event.get("frame_sequence", 0)) for event in selected),
             default=0,
@@ -131,7 +145,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             ),
             "overflow_calls": int(summary.get("overflow_calls", 0)),
         },
-        "qualification": "wrapper_identity_and_frequency_only",
+        "resolve_boundary": static.get("resolve_boundary"),
+        "qualification": "wrapper_layer_identity_and_frequency_only",
         "safety": {
             "metadata_only": True,
             "guest_payload_read": False,

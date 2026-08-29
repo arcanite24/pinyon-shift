@@ -25,6 +25,85 @@ def fixture(address, body):
     )
 
 
+def reviewed_fixtures(include_immediate=True):
+    dirty_clears = []
+    for offset in (16, 16, 16, 16, 24, 32):
+        dirty_clears.extend(
+            [
+                f"ld r20,{offset}(r31)",
+                "rldicr r20,r20,0,51",
+                f"std r20,{offset}(r31)",
+            ]
+        )
+    chunks = [
+        fixture(0x824079B8, ["mflr r12", "bl 0x8240f4d8"]),
+        fixture(
+            0x8240F4D8,
+            [
+                "mflr r12",
+                "oris r11,r11,49152",
+                "ori r11,r11,13824",
+                "stwu r11,4(r3)",
+                *dirty_clears,
+            ],
+        ),
+        fixture(
+            0x824587D8,
+            [
+                "mflr r12",
+                "bl 0x82458a88",
+                "bl 0x82458a88",
+            ],
+        ),
+        fixture(
+            0x82458A88,
+            [
+                "mflr r12",
+                "li r11,8712",
+                "li r10,6",
+                "stwu r11,4(r3)",
+                "lis r11,1",
+                "stwu r10,4(r3)",
+            ],
+        ),
+        fixture(
+            0x829F21A0,
+            [
+                "mflr r12",
+                "lis r9,-16384",
+                "ori r9,r9,8960",
+                "stwu r9,4(r11)",
+                "or r10,r9,r10",
+                "std r10,12424(r31)",
+            ],
+        ),
+        fixture(
+            0x829F2280,
+            [
+                "mflr r12",
+                "lis r11,-16384",
+                "ori r11,r11,8960",
+                "stwu r11,4(r3)",
+                "andc r11,r10,r11",
+                "std r11,12424(r31)",
+            ],
+        ),
+    ]
+    if include_immediate:
+        chunks.append(
+            fixture(
+                0x829F7C70,
+                [
+                    "mflr r12",
+                    "lis r11,-16384",
+                    "ori r11,r11,13824",
+                    "stwu r11,4(r3)",
+                ],
+            )
+        )
+    return chunks
+
+
 class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
     def build(self, chunks):
         with tempfile.TemporaryDirectory() as directory:
@@ -33,29 +112,21 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             return MODULE.build([path])
 
     def test_finds_reviewed_wrappers_and_direct_calls(self):
-        indexed = fixture(
-            0x8240F4D8,
-            [
-                "oris r11,r11,49152",
-                "ori r11,r11,13824",
-                "stwu r11,4(r3)",
-            ],
-        )
-        immediate = fixture(
-            0x829F7C70,
-            [
-                "lis r11,-16384",
-                "ori r11,r11,13824",
-                "stwu r11,4(r3)",
-            ],
-        )
         caller = fixture(
             0x82B00000,
-            ["bl 0x8240f4d8", "bl 0x829f7c70"],
+            [
+                "bl 0x824079b8",
+                "bl 0x8240f4d8",
+                "bl 0x829f21a0",
+                "bl 0x829f2280",
+                "bl 0x829f7c70",
+            ],
         )
-        document = self.build([indexed, immediate, caller])
-        self.assertEqual(document["totals"]["reviewed_wrappers"], 2)
-        self.assertEqual(document["totals"]["direct_calls"], 2)
+        document = self.build([*reviewed_fixtures(), caller])
+        self.assertEqual(document["totals"]["reviewed_wrappers"], 7)
+        self.assertEqual(document["totals"]["direct_calls"], 8)
+        self.assertEqual(document["totals"]["dirty_state_clears"], 6)
+        self.assertEqual(document["totals"]["query_state_transitions"], 2)
         self.assertEqual(
             document["packet_constructors"][0]["header_source"],
             "dynamic_type3_count",
@@ -64,43 +135,30 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             document["packet_constructors"][1]["header_source"],
             "fixed_type3_count_1",
         )
-        self.assertEqual(document["direct_calls"][0]["return_address"], "82B00004")
+        adapter_call = next(
+            item
+            for item in document["direct_calls"]
+            if item["wrapper_kind"] == "draw_adapter"
+        )
+        self.assertEqual(adapter_call["return_address"], "82B00004")
+        self.assertEqual(
+            document["resolve_boundary"]["classification"],
+            "title_resolve_setup_and_backend_copy_proved",
+        )
+        self.assertEqual(document["totals"]["resolve_mode_writes"], 1)
         self.assertFalse(document["safety"]["suppression_allowed"])
 
     def test_rejects_missing_reviewed_packet_evidence(self):
-        only_one = fixture(
-            0x8240F4D8,
-            [
-                "oris r11,r11,49152",
-                "ori r11,r11,13824",
-                "stwu r11,4(r3)",
-            ],
-        )
+        incomplete = reviewed_fixtures(include_immediate=False)
         with self.assertRaisesRegex(ValueError, "829F7C70"):
-            self.build([only_one])
+            self.build(incomplete)
 
     def test_ignores_matching_numeric_work_without_a_packet_store(self):
         false_positive = fixture(
             0x83051E48,
             ["ori r12,r12,13824", "add r11,r11,r12"],
         )
-        indexed = fixture(
-            0x8240F4D8,
-            [
-                "oris r11,r11,49152",
-                "ori r11,r11,13824",
-                "stwu r11,4(r3)",
-            ],
-        )
-        immediate = fixture(
-            0x829F7C70,
-            [
-                "lis r11,-16384",
-                "ori r11,r11,13824",
-                "stwu r11,4(r3)",
-            ],
-        )
-        document = self.build([false_positive, indexed, immediate])
+        document = self.build([false_positive, *reviewed_fixtures()])
         addresses = {
             item["function_address"] for item in document["packet_constructors"]
         }
@@ -132,12 +190,45 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             analysis.count('name = "PinyonShiftObserveDrawImmediateDispatch"'),
             1,
         )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveDrawAdapterDispatch"'),
+            1,
+        )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
+            1,
+        )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveVizQueryEndDispatch"'),
+            1,
+        )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveResolveControllerDispatch"'),
+            1,
+        )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveResolveSetupDispatch"'),
+            1,
+        )
+        self.assertIn('address = 0x824079BC', analysis)
         self.assertIn('address = 0x8240F4DC', analysis)
+        self.assertIn('address = 0x824587DC', analysis)
+        self.assertIn('address = 0x82458A8C', analysis)
+        self.assertIn('address = 0x829F21A4', analysis)
+        self.assertIn('address = 0x829F2284', analysis)
         self.assertIn('address = 0x829F7C74', analysis)
-        self.assertIn('registers = ["r3", "r4", "r5", "r12"]', analysis)
+        self.assertEqual(
+            analysis.count(
+                'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
+                '"r9", "r10", "r12"]'
+            ),
+            7,
+        )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture
         )
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SCENE", capture)
+        self.assertIn("[string]$Scene = 'unmarked'", capture)
         self.assertIn("launch-preview.ps1", capture)
         for forbidden in ("SetDrawSuppression", "SetCopySuppression"):
             self.assertNotIn(forbidden, hooks + analysis + capture)

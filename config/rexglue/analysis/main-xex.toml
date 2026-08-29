@@ -13,20 +13,46 @@ address = 0x829EFEB8
 name = "PinyonShiftObserveGraphicsFrame"
 
 # NR-00/NR-05A title dispatch discovery. Static PM4 construction evidence maps
-# 0x8240F4D8 to the title's indexed draw wrapper and 0x829F7C70 to its embedded-
-# index draw wrapper. Each hook runs after the wrapper's opening mflr r12, so
-# r12 contains the unmodified caller LR while r3-r5 still contain the entry
-# arguments. The bounded, default-off census neither reads guest resource
-# payloads nor changes registers, command packets, or control flow.
+# the draw and visibility-query packet wrappers; 0x824079B8 is the promoted
+# title adapter that directly calls the indexed wrapper. Each hook runs after
+# the wrapper's opening mflr r12, so r12 contains the unmodified caller LR
+# while r3-r10 still contain entry metadata. The bounded, default-off census
+# neither reads guest resource payloads nor changes registers, packets, or
+# control flow.
+[[midasm_hook]]
+address = 0x824079BC
+name = "PinyonShiftObserveDrawAdapterDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
 [[midasm_hook]]
 address = 0x8240F4DC
 name = "PinyonShiftObserveDrawIndexedDispatch"
-registers = ["r3", "r4", "r5", "r12"]
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x824587DC
+name = "PinyonShiftObserveResolveControllerDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82458A8C
+name = "PinyonShiftObserveResolveSetupDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F21A4
+name = "PinyonShiftObserveVizQueryBeginDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F2284
+name = "PinyonShiftObserveVizQueryEndDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
 [[midasm_hook]]
 address = 0x829F7C74
 name = "PinyonShiftObserveDrawImmediateDispatch"
-registers = ["r3", "r4", "r5", "r12"]
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
 # Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
 # longjmp restores the host-side PPCContext captured at the setjmp call site.

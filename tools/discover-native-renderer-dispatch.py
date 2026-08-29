@@ -1,25 +1,70 @@
-"""Inventory reviewed FH1 draw-packet constructors from generated AOT code.
+"""Inventory reviewed FH1 graphics wrappers from generated AOT code.
 
 This tool is intentionally payload-free.  It reads generated C++ instruction
-comments, identifies stores of PM4_DRAW_INDX_2 packet headers, and records the
-direct title call sites for the two reviewed runtime wrappers.
+comments, identifies stored draw and visibility-query packet headers, records
+the direct title call graph, and proves the dirty-mask transitions that happen
+inside the indexed draw wrapper.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import pathlib
 import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v1"
-DRAW_OPCODE = 0x36
-DRAW_OPCODE_IMMEDIATE = 0x22
+SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v2"
+PACKET_OPCODES = {
+    0x23: "PM4_VIZ_QUERY",
+    0x36: "PM4_DRAW_INDX_2",
+}
 REVIEWED_WRAPPERS = {
-    0x8240F4D8: "draw_indexed",
-    0x829F7C70: "draw_immediate",
+    0x824079B8: {
+        "kind": "draw_adapter",
+        "layer": "title_adapter",
+        "evidence": "direct_call_to_8240F4D8",
+        "hook_address": 0x824079BC,
+        "stack_argument_offsets": [92, 100],
+    },
+    0x8240F4D8: {
+        "kind": "draw_indexed",
+        "layer": "packet_wrapper",
+        "packet_opcode": 0x36,
+        "hook_address": 0x8240F4DC,
+    },
+    0x824587D8: {
+        "kind": "resolve_controller",
+        "layer": "title_adapter",
+        "evidence": "two_direct_calls_to_82458A88",
+        "hook_address": 0x824587DC,
+    },
+    0x82458A88: {
+        "kind": "resolve_setup",
+        "layer": "state_packet_wrapper",
+        "evidence": "RB_MODECONTROL_0x2208_written_kCopy_6",
+        "hook_address": 0x82458A8C,
+    },
+    0x829F21A0: {
+        "kind": "viz_query_begin",
+        "layer": "packet_wrapper",
+        "packet_opcode": 0x23,
+        "hook_address": 0x829F21A4,
+    },
+    0x829F2280: {
+        "kind": "viz_query_end",
+        "layer": "packet_wrapper",
+        "packet_opcode": 0x23,
+        "hook_address": 0x829F2284,
+    },
+    0x829F7C70: {
+        "kind": "draw_immediate",
+        "layer": "packet_wrapper",
+        "packet_opcode": 0x36,
+        "hook_address": 0x829F7C74,
+    },
 }
 INITIALIZATION_CONSTRUCTORS = {
     0x829E82D0,
@@ -35,6 +80,8 @@ STORE_RE = re.compile(r"stw(?:u|x|ux)? (r\d+),.*$")
 LIS_RE = re.compile(r"lis (r\d+),(-?\d+)$")
 ORIS_RE = re.compile(r"oris (r\d+),\1,(\d+)$")
 CALL_RE = re.compile(r"bl 0x([0-9a-fA-F]{8})$")
+DIRTY_STORE_RE = re.compile(r"std (r\d+),(16|24|32)\(r31\)$")
+QUERY_STATE_STORE_RE = re.compile(r"std (r\d+),12424\(r31\)$")
 
 
 def parse_functions(paths: list[pathlib.Path]) -> list[dict]:
@@ -86,7 +133,13 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
         instructions = function["instructions"]
         for index, instruction in enumerate(instructions):
             match = ORI_RE.fullmatch(instruction["text"])
-            if not match or int(match.group(2)) != DRAW_OPCODE << 8:
+            if not match:
+                continue
+            opcode_value = int(match.group(2)) >> 8
+            if (
+                int(match.group(2)) & 0xFF
+                or opcode_value not in PACKET_OPCODES
+            ):
                 continue
             register = match.group(1)
             stored = any(
@@ -111,9 +164,13 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
             ):
                 header_source = "dynamic_type3_count"
             role = "unreviewed"
-            if function["address"] in REVIEWED_WRAPPERS:
+            reviewed = REVIEWED_WRAPPERS.get(function["address"])
+            if reviewed and reviewed.get("packet_opcode") == opcode_value:
                 role = "runtime_wrapper"
-            elif function["address"] in INITIALIZATION_CONSTRUCTORS:
+            elif (
+                opcode_value == 0x36
+                and function["address"] in INITIALIZATION_CONSTRUCTORS
+            ):
                 role = "initialization_template"
             constructors.append(
                 {
@@ -122,8 +179,8 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
                     "constructor_address": "{:08X}".format(
                         instruction["address"]
                     ),
-                    "opcode": "PM4_DRAW_INDX_2",
-                    "opcode_value": "{:02X}".format(DRAW_OPCODE),
+                    "opcode": PACKET_OPCODES[opcode_value],
+                    "opcode_value": "{:02X}".format(opcode_value),
                     "header_source": header_source,
                     "role": role,
                     "source": function["source"],
@@ -149,7 +206,8 @@ def direct_calls(functions: list[dict], targets: set[int]) -> list[dict]:
             calls.append(
                 {
                     "wrapper": "{:08X}".format(target),
-                    "wrapper_kind": REVIEWED_WRAPPERS[target],
+                    "wrapper_kind": REVIEWED_WRAPPERS[target]["kind"],
+                    "wrapper_layer": REVIEWED_WRAPPERS[target]["layer"],
                     "caller_function": function["name"],
                     "caller_function_address": "{:08X}".format(
                         function["address"]
@@ -163,20 +221,222 @@ def direct_calls(functions: list[dict], targets: set[int]) -> list[dict]:
     return sorted(calls, key=lambda item: (item["wrapper"], item["callsite"]))
 
 
+def dirty_state_clears(functions: list[dict]) -> list[dict]:
+    """Find reviewed consume-then-clear writes in the indexed draw wrapper."""
+    sites = []
+    function = next(
+        (item for item in functions if item["address"] == 0x8240F4D8), None
+    )
+    if function is None:
+        return sites
+    instructions = function["instructions"]
+    for index, instruction in enumerate(instructions):
+        store = DIRTY_STORE_RE.fullmatch(instruction["text"])
+        if not store:
+            continue
+        register, offset = store.groups()
+        prior = instructions[max(0, index - 7) : index]
+        loaded = any(
+            item["text"] == f"ld {register},{offset}(r31)" for item in prior
+        )
+        cleared = any(
+            re.fullmatch(rf"(?:and|rldicr) {register},{register},.+", item["text"])
+            for item in prior
+        )
+        if not loaded or not cleared:
+            continue
+        submission = next(
+            (
+                item
+                for item in reversed(prior)
+                if CALL_RE.fullmatch(item["text"])
+            ),
+            None,
+        )
+        sites.append(
+            {
+                "wrapper": "8240F4D8",
+                "wrapper_kind": "draw_indexed",
+                "address": "{:08X}".format(instruction["address"]),
+                "mask_word_offset": int(offset),
+                "transition": "consume_then_clear",
+                "submission_callsite": (
+                    "{:08X}".format(submission["address"])
+                    if submission
+                    else None
+                ),
+            }
+        )
+    return sites
+
+
+def query_state_transitions(functions: list[dict]) -> list[dict]:
+    sites = []
+    for function in functions:
+        reviewed = REVIEWED_WRAPPERS.get(function["address"])
+        if not reviewed or not reviewed["kind"].startswith("viz_query_"):
+            continue
+        instructions = function["instructions"]
+        for index, instruction in enumerate(instructions):
+            store = QUERY_STATE_STORE_RE.fullmatch(instruction["text"])
+            if not store:
+                continue
+            register = store.group(1)
+            prior = instructions[max(0, index - 5) : index]
+            operation = next(
+                (
+                    item["text"].split(" ", 1)[0]
+                    for item in reversed(prior)
+                    if re.fullmatch(rf"(?:or|andc) {register},.+", item["text"])
+                ),
+                None,
+            )
+            if operation not in ("or", "andc"):
+                continue
+            sites.append(
+                {
+                    "wrapper": "{:08X}".format(function["address"]),
+                    "wrapper_kind": reviewed["kind"],
+                    "address": "{:08X}".format(instruction["address"]),
+                    "active_query_word_offset": 12424,
+                    "transition": "set_active" if operation == "or" else "clear_active",
+                }
+            )
+    return sites
+
+
+def resolve_mode_writes(functions: list[dict]) -> list[dict]:
+    function = next(
+        (item for item in functions if item["address"] == 0x82458A88), None
+    )
+    if function is None:
+        return []
+    instructions = function["instructions"]
+    sites = []
+    for index, instruction in enumerate(instructions):
+        register_match = re.fullmatch(r"li (r\d+),8712", instruction["text"])
+        if not register_match:
+            continue
+        window = instructions[index + 1 : index + 10]
+        value_load = next(
+            (
+                item
+                for item in window
+                if re.fullmatch(r"li (r\d+),6", item["text"])
+            ),
+            None,
+        )
+        register_store = next(
+            (
+                item
+                for item in window
+                if item["text"].startswith(f"stwu {register_match.group(1)},")
+            ),
+            None,
+        )
+        if value_load is None or register_store is None:
+            continue
+        value_register = value_load["text"].split(" ", 1)[1].split(",", 1)[0]
+        value_store = next(
+            (
+                item
+                for item in window
+                if item["address"] > register_store["address"]
+                and item["text"].startswith(f"stwu {value_register},")
+            ),
+            None,
+        )
+        if value_store is None:
+            continue
+        sites.append(
+            {
+                "wrapper": "82458A88",
+                "wrapper_kind": "resolve_setup",
+                "register_index": "2208",
+                "register_name": "RB_MODECONTROL",
+                "register_write_address": "{:08X}".format(
+                    register_store["address"]
+                ),
+                "value": 6,
+                "value_name": "EdramMode::kCopy",
+                "value_write_address": "{:08X}".format(value_store["address"]),
+            }
+        )
+    return sites
+
+
 def build(paths: list[pathlib.Path]) -> dict:
     functions = parse_functions(paths)
+    functions_by_address = {item["address"]: item for item in functions}
+    for address, wrapper in REVIEWED_WRAPPERS.items():
+        function = functions_by_address.get(address)
+        if (
+            function is None
+            or not function["instructions"]
+            or function["instructions"][0]["address"] != address
+            or function["instructions"][0]["text"] != "mflr r12"
+            or wrapper["hook_address"] != address + 4
+        ):
+            raise ValueError(
+                "reviewed wrapper entry LR evidence missing: {:08X}".format(address)
+            )
     constructors = packet_constructors(functions)
-    constructor_addresses = {
-        int(item["function_address"], 16) for item in constructors
+    constructor_evidence = {
+        (int(item["function_address"], 16), int(item["opcode_value"], 16))
+        for item in constructors
     }
-    missing = set(REVIEWED_WRAPPERS) - constructor_addresses
+    expected_packet_evidence = {
+        (address, int(wrapper["packet_opcode"]))
+        for address, wrapper in REVIEWED_WRAPPERS.items()
+        if "packet_opcode" in wrapper
+    }
+    missing = expected_packet_evidence - constructor_evidence
     if missing:
         raise ValueError(
-            "reviewed draw wrapper packet evidence missing: {}".format(
-                ", ".join("{:08X}".format(address) for address in sorted(missing))
+            "reviewed wrapper packet evidence missing: {}".format(
+                ", ".join(
+                    "{:08X}/0x{:02X}".format(address, opcode)
+                    for address, opcode in sorted(missing)
+                )
             )
         )
     calls = direct_calls(functions, set(REVIEWED_WRAPPERS))
+    adapter_calls = [
+        item
+        for item in calls
+        if item["caller_function_address"] == "824079B8"
+        and item["wrapper"] == "8240F4D8"
+    ]
+    if len(adapter_calls) != 1:
+        raise ValueError("draw adapter must directly call indexed wrapper once")
+    resolve_controller_calls = [
+        item
+        for item in calls
+        if item["caller_function_address"] == "824587D8"
+        and item["wrapper"] == "82458A88"
+    ]
+    if len(resolve_controller_calls) != 2:
+        raise ValueError("resolve controller must directly call setup wrapper twice")
+    clears = dirty_state_clears(functions)
+    observed_clear_words = collections.Counter(
+        item["mask_word_offset"] for item in clears
+    )
+    if observed_clear_words != {16: 4, 24: 1, 32: 1}:
+        raise ValueError("reviewed indexed-draw dirty-state clear evidence drifted")
+    query_transitions = query_state_transitions(functions)
+    expected_query_transitions = {
+        ("viz_query_begin", "set_active"),
+        ("viz_query_end", "clear_active"),
+    }
+    observed_query_transitions = {
+        (item["wrapper_kind"], item["transition"])
+        for item in query_transitions
+    }
+    if observed_query_transitions != expected_query_transitions:
+        raise ValueError("reviewed visibility-query state evidence drifted")
+    resolve_writes = resolve_mode_writes(functions)
+    if len(resolve_writes) != 1:
+        raise ValueError("reviewed title resolve-mode write evidence drifted")
     return {
         "schema": SCHEMA,
         "input": {
@@ -187,17 +447,50 @@ def build(paths: list[pathlib.Path]) -> dict:
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
-                "kind": kind,
-                "packet_evidence": "PM4_DRAW_INDX_2",
-                "runtime_trace": "entry_lr_and_bounded_argument_metadata",
+                "kind": wrapper["kind"],
+                "layer": wrapper["layer"],
+                "evidence": (
+                    wrapper["evidence"]
+                    if "evidence" in wrapper
+                    else PACKET_OPCODES[wrapper["packet_opcode"]]
+                ),
+                "runtime_trace": "entry_lr_and_bounded_r3_r10_metadata",
+                "hook_address": "{:08X}".format(wrapper["hook_address"]),
+                "observed_entry_registers": [
+                    "r3",
+                    "r4",
+                    "r5",
+                    "r6",
+                    "r7",
+                    "r8",
+                    "r9",
+                    "r10",
+                ],
+                "caller_lr_register": "r12_after_opening_mflr",
+                "stack_argument_offsets": wrapper.get(
+                    "stack_argument_offsets", []
+                ),
             }
-            for address, kind in sorted(REVIEWED_WRAPPERS.items())
+            for address, wrapper in sorted(REVIEWED_WRAPPERS.items())
         ],
         "direct_calls": calls,
+        "dirty_state_clears": clears,
+        "query_state_transitions": query_transitions,
+        "resolve_mode_writes": resolve_writes,
+        "resolve_boundary": {
+            "backend": "IssueCopy",
+            "trigger": "RB_MODECONTROL.edram_mode == kCopy during Xenos draw",
+            "title_controller": "824587D8",
+            "title_wrapper": "82458A88",
+            "classification": "title_resolve_setup_and_backend_copy_proved",
+        },
         "totals": {
             "packet_constructors": len(constructors),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
+            "dirty_state_clears": len(clears),
+            "query_state_transitions": len(query_transitions),
+            "resolve_mode_writes": len(resolve_writes),
         },
         "safety": {
             "guest_payload_read": False,
