@@ -100,3 +100,53 @@ present-deadline misses and a normal exit.
 This qualifies the passive structural input/outcome contract for semantic
 hypothesis testing. It still does not prove camera, frustum, bounds, or unit
 semantics, and it does not enable native policy execution.
+
+## Ordered helper oracle
+
+The next passive checkpoint traces the title's two proved helper returns at
+their exact slot-14 callsites:
+
+| Return boundary | Address | Captured value |
+| --- | --- | --- |
+| candidate-threshold comparison | `0x82E20258` | candidate scalar in `f0` versus the title's zero reference in `f29` |
+| local squared-distance comparison | `0x82E202D8` | local squared distance in `f31` versus the squared candidate threshold in `f0` |
+| spatial helper return | `0x82E20350` | low-byte boolean result from `0x8243F9A0` |
+| six-vector helper return | `0x82E20368` | result 0, 1, or 2 from `0x82441048` |
+
+The trace is ordered within the active title record. It counts candidate
+threshold tests, local squared-distance tests, repeated spatial-helper tests,
+subsequent six-vector classifications, and every pass/result by title category
+and final title outcome. Accounting requires every local-distance test to
+follow a non-negative candidate threshold, every spatial helper to follow a
+local-distance pass, every classifier call to follow a spatial-helper pass,
+every classifier result to remain in the statically proved 0/1/2 domain, and
+all records to reconcile with the authoritative visibility census.
+
+ReXGlue may invoke a registered interior continuation without the entry hook's
+thread-local record scope. Those observations are counted explicitly as
+unscoped continuations and excluded from the oracle dataset; they are not
+treated as record-order faults. Qualification remains strict inside every
+active authoritative record, where orphaned or out-of-order gates and invalid
+values still fail closed.
+
+This creates a title-oracle dataset suitable for a later shadow policy model.
+It remains register-only and passive: it reads no guest payload, changes no
+guest state or control flow, and does not execute native culling or LOD.
+
+The batched AppData-backed Release capture `20260829T233419Z-p43632` completed
+normally and reconciled 1,472,349 active title records. The ordered oracle
+observed 2,424,492 candidate-threshold comparisons; all passed. The local
+squared-distance gate admitted 208,775 of those candidates. Every admitted
+candidate passed the spatial helper, after which the six-vector helper returned
+0 for 163,907 observations, 1 for 8,620, and 2 for 36,248. Selected records
+included 44,868 nonzero helper results, which makes the classifier's 0/1/2
+domain materially useful for shadow-policy modeling rather than merely
+structurally reachable.
+
+All in-record ordering faults, invalid gate values, and invalid classifier
+results were zero. ReXGlue resumed 1,736 comparison continuations and 149 helper
+continuations outside an active entry scope; these were counted and excluded as
+specified above. The authoritative census had zero lifecycle, identity,
+overflow, or shutdown-open faults. Median performance was 30.224 FPS over 6,413
+frames, there were no present-deadline misses, no fatal log signatures, and
+Xenos remained the sole rendering authority.

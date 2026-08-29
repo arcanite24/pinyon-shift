@@ -262,6 +262,29 @@ address = 0x82E201B0
 name = "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold"
 registers = ["f0", "f26"]
 
+# These return-site hooks observe the title's two structural helper results for
+# each active record. Calls may repeat while the title scans runtime entries;
+# the hooks preserve that ordering and never alter r3 or control flow.
+[[midasm_hook]]
+address = 0x82E20258
+name = "PinyonShiftObserveProceduralModelVisibilityCandidateThreshold"
+registers = ["f0", "f29"]
+
+[[midasm_hook]]
+address = 0x82E202D8
+name = "PinyonShiftObserveProceduralModelVisibilityLocalDistance"
+registers = ["f0", "f31"]
+
+[[midasm_hook]]
+address = 0x82E20350
+name = "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82E20368
+name = "PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult"
+registers = ["r3"]
+
 [[midasm_hook]]
 address = 0x82E205E4
 name = "PinyonShiftObserveProceduralModelVisibilityLodPrimary"

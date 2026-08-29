@@ -136,6 +136,18 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold": (
                 "0x82E201B0"
             ),
+            "PinyonShiftObserveProceduralModelVisibilityCandidateThreshold": (
+                "0x82E20258"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityLocalDistance": (
+                "0x82E202D8"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult": (
+                "0x82E20350"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult": (
+                "0x82E20368"
+            ),
         }
         for name, address in hooks.items():
             self.assertEqual(analysis.count(f'name = "{name}"'), 1)
@@ -167,6 +179,15 @@ class NativeRendererContractTests(unittest.TestCase):
         )
         self.assertIn('"xenos_authority": True', policy_summarizer)
         self.assertIn('"suppression_allowed": False', policy_summarizer)
+
+        oracle_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-oracle.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("title_ordered_visibility_helper_oracle", source)
+        self.assertIn('"native_policy_execution_enabled": False', oracle_summarizer)
+        self.assertIn('"guest_payload_read": False', oracle_summarizer)
+        self.assertIn('"xenos_authority": True', oracle_summarizer)
+        self.assertIn('"suppression_allowed": False', oracle_summarizer)
 
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

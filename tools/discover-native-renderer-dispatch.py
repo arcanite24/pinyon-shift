@@ -206,6 +206,10 @@ PROCEDURAL_MODEL_RECEIVER = {
     "visibility_spatial_distance_helper": 0x8243FD70,
     "visibility_runtime_threshold_hook": 0x82E20134,
     "visibility_descriptor_threshold_hook": 0x82E201B0,
+    "visibility_candidate_threshold_hook": 0x82E20258,
+    "visibility_local_distance_hook": 0x82E202D8,
+    "visibility_spatial_helper_result_hook": 0x82E20350,
+    "visibility_category_helper_result_hook": 0x82E20368,
     "render_state_function": 0x824170D8,
     "render_state_vtable_slot": 40,
     "render_state_entry": 0x824170DC,
@@ -1004,6 +1008,12 @@ def procedural_model_receiver_lifecycle(
         0x82E201A0: "lfs f0,60(r23)",
         0x82E201AC: "fmuls f0,f0,f0",
         0x82E201B0: "fcmpu cr6,f26,f0",
+        0x82E20258: "fcmpu cr6,f0,f29",
+        0x82E202D8: "fcmpu cr6,f31,f0",
+        0x82E2034C: "bl 0x8243f9a0",
+        0x82E20350: "clrlwi. r11,r3,24",
+        0x82E20364: "bl 0x82441048",
+        0x82E20368: "cmpwi r3,0",
         0x82E20080: "add r23,r11,r18",
         0x82E20090: "add r21,r11,r17",
         0x82E205E4: "stw r6,104(r25)",
@@ -1407,6 +1417,19 @@ def procedural_model_receiver_lifecycle(
             "descriptor_threshold_hook_address": "{:08X}".format(
                 spec["visibility_descriptor_threshold_hook"]
             ),
+            "candidate_threshold_hook_address": "{:08X}".format(
+                spec["visibility_candidate_threshold_hook"]
+            ),
+            "local_distance_hook_address": "{:08X}".format(
+                spec["visibility_local_distance_hook"]
+            ),
+            "spatial_helper_result_hook_address": "{:08X}".format(
+                spec["visibility_spatial_helper_result_hook"]
+            ),
+            "category_helper_result_hook_address": "{:08X}".format(
+                spec["visibility_category_helper_result_hook"]
+            ),
+            "helper_result_capture": "ordered_per_record_return_trace",
             "passive_input_outcome_correlation_required": True,
             "spatial_helper_contract": {
                 "distance_helper_address": "{:08X}".format(
