@@ -136,6 +136,38 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x829F6358
 name = "PinyonShiftObserveIndirectOwner829F5FF0Exit"
 
+# Trace the three dominant live functions that directly call the constructor
+# owners above. Together they accounted for most owner-origin draws in the
+# NR-05A owner-provenance qualification. Entry hooks capture their direct
+# caller LR and r3-r10; exits are the proved common stack-restoration points.
+# The metadata remains passive and does not assign semantic object identity.
+[[midasm_hook]]
+address = 0x8240D074
+name = "PinyonShiftObserveIndirectProducer8240D070Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8240D1F0
+name = "PinyonShiftObserveIndirectProducer8240D070Exit"
+
+[[midasm_hook]]
+address = 0x82417064
+name = "PinyonShiftObserveIndirectProducer82417060Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x824170C0
+name = "PinyonShiftObserveIndirectProducer82417060Exit"
+
+[[midasm_hook]]
+address = 0x829F6364
+name = "PinyonShiftObserveIndirectProducer829F6360Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F63FC
+name = "PinyonShiftObserveIndirectProducer829F6360Exit"
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

@@ -52,12 +52,14 @@ fall within the reported current-buffer bounds or the lineage is invalid.
 Pinyon validates the exact addresses, current-buffer length, and packet offset
 on every draw, then aggregates a stable ownership-class key in a fixed
 4,096-entry table: nesting depth, exact constructor store and return address,
-plus the exact upstream owner function and return address when those are
-matched. Balanced entry/exit hooks on all six constructor functions carry the
-direct caller return address and bounded `r3-r10` entry metadata into the exact
-stored packet generation. A second balanced layer covers the four immediate
-constructor callers that produced every known-origin draw in the first
-qualification. Each class retains statically resolved constructor and owner
+plus the exact upstream owner and producer function and return addresses when
+those are matched. Balanced entry/exit hooks on all six constructor functions
+carry the direct caller return address and bounded `r3-r10` entry metadata into
+the exact stored packet generation. A second balanced layer covers the four
+immediate constructor callers that produced every known-origin draw in the first
+qualification. A third balanced layer covers the three producer functions
+responsible for 85.1% of the owner-origin draws in the owner qualification.
+Each class retains statically resolved constructor, owner, and producer
 callsites when proved, independent argument samples and varying masks, and
 minimum and maximum current-buffer lengths, packet
 offsets, and parent-packet offsets from the first indirect root, plus a first
@@ -137,7 +139,9 @@ documented in `INDIRECT_CONSTRUCTOR_PROVENANCE.md`. Its runtime qualification is
 performed as a separate milestone gate; the evidence above remains the baseline
 for the original store-and-depth bridge.
 
-The next exact upstream layer is documented in
-`INDIRECT_OWNER_PROVENANCE.md`. It remains unqualified until the batched
-AppData gate proves balanced owner accounting and resolves live owner
-callsites; it does not change the already-qualified constructor baseline.
+The exact owner layer is documented and runtime-qualified in
+`INDIRECT_OWNER_PROVENANCE.md`. The next producer layer is documented in
+`INDIRECT_PRODUCER_PROVENANCE.md`. Session `20260829T155036Z-p13876`
+runtime-qualified its balanced accounting and resolved 4,400,708 producer-
+origin draws to five exact live caller edges. Neither refinement changes the
+qualified constructor baseline.
