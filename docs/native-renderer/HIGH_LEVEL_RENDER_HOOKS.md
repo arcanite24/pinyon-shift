@@ -257,6 +257,15 @@ and semantic caller identities remain open title-side inventory work. Until
 those gates are met, all work stays on Xenos and no new draw family may be
 suppressed.
 
+The constructor-provenance qualification identified four immediate caller
+functions covering every known-origin prepared draw. Static analysis now
+proves five constructor edges inside those functions and 32 exact direct
+callsites into them. The passive second-layer bridge in
+`INDIRECT_OWNER_PROVENANCE.md` captures those upstream return addresses and
+bounded entry arguments. Runtime qualification is still required before any
+of those callsites becomes an object or lifetime lead; all semantic identities
+remain unknown.
+
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
 loads retain base register, offset, and width; values crossing a call boundary

@@ -287,6 +287,97 @@ class NativeRendererCommandLineageTests(unittest.TestCase):
             12, document["totals"]["unresolved_constructor_origin_draws"]
         )
 
+    def test_maps_balanced_owner_origin_to_static_caller(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function": "sub_82409668",
+                "caller_function_address": "82409668",
+                "callsite": "82409834",
+                "return_address": "82409838",
+            }
+        ]
+        static["indirect_owner_calls"] = [
+            {
+                "owner_function_address": "82409668",
+                "caller_function": "sub_82469290",
+                "caller_function_address": "82469290",
+                "callsite": "824693E0",
+                "return_address": "824693E4",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "82409838",
+                "sample_constructor_arguments": (
+                    "10000000,20000000,00000001,00000000,00000000,"
+                    "00000000,00000000,00000000"
+                ),
+                "constructor_argument_varying_mask": "03",
+                "owner_function_address": "82409668",
+                "owner_return_address": "824693E4",
+                "sample_owner_arguments": (
+                    "30000000,40000000,00000002,00000000,00000000,"
+                    "00000000,00000000,00000000"
+                ),
+                "owner_argument_varying_mask": "05",
+            }
+        )
+        traced[-1].update(
+            {
+                "indirect_constructor_entries": "4",
+                "indirect_constructor_exits": "4",
+                "indirect_constructor_invocations_open_at_shutdown": "0",
+                "indirect_constructor_stack_faults": "0",
+                "indirect_owner_entries": "4",
+                "indirect_owner_exits": "4",
+                "indirect_owner_invocations_open_at_shutdown": "0",
+                "indirect_owner_stack_faults": "0",
+                "indirect_constructors_without_owner_origin": "0",
+                "indirect_constructor_owner_mismatches": "0",
+            }
+        )
+        document = MODULE.build(traced, static)
+        self.assertEqual("complete", document["status"])
+        shape = document["shapes"][0]
+        self.assertEqual("824693E0", shape["owner_callsite"])
+        self.assertEqual("sub_82469290", shape["owner_caller_function"])
+        self.assertEqual(5, shape["owner_argument_varying_mask"])
+        self.assertEqual(12, document["totals"]["owner_origin_draws"])
+        self.assertEqual(
+            12, document["totals"]["statically_resolved_owner_origin_draws"]
+        )
+
+    def test_rejects_owner_that_does_not_contain_constructor_callsite(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function": "sub_82409668",
+                "caller_function_address": "82409668",
+                "callsite": "82409834",
+                "return_address": "82409838",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "82409838",
+                "sample_constructor_arguments": "00000000," * 7 + "00000000",
+                "constructor_argument_varying_mask": "00",
+                "owner_function_address": "824167F8",
+                "owner_return_address": "824170BC",
+                "sample_owner_arguments": "00000000," * 7 + "00000000",
+                "owner_argument_varying_mask": "00",
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "does not contain"):
+            MODULE.build(traced, static)
+
 
 if __name__ == "__main__":
     unittest.main()

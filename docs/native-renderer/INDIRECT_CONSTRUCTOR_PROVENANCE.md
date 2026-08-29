@@ -98,3 +98,12 @@ The hooks observe registers and packet addresses only. They do not read guest
 resource payloads, mutate guest state, alter control flow, add a native draw,
 or expose a suppression API. Xenos remains authoritative and suppression
 remains disabled.
+
+## Next ownership layer
+
+The four immediate constructor callers that accounted for all known-origin
+draws are now traced one exact caller layer upward. Their 32 proved direct
+callsites, balanced runtime contract, and additional fail-closed gates are
+documented in `INDIRECT_OWNER_PROVENANCE.md`. That work remains passive and
+does not retroactively assign semantic identity to this qualified constructor
+evidence.

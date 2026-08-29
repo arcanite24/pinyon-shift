@@ -83,6 +83,7 @@ constexpr size_t kTitleIndirectPacketCapacity =
     kTitleIndirectPacketBucketCount * kTitleIndirectPacketWays;
 constexpr size_t kTitleIndirectStackCapacity = 32;
 constexpr size_t kIndirectConstructorStackCapacity = 32;
+constexpr size_t kIndirectOwnerStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -155,12 +156,22 @@ struct TitleIndirectPacketEntry {
   uint32_t constructor_function_address = 0;
   uint32_t constructor_return_address = 0;
   std::array<uint32_t, 8> constructor_arguments{};
+  uint32_t owner_function_address = 0;
+  uint32_t owner_return_address = 0;
+  std::array<uint32_t, 8> owner_arguments{};
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
+  bool owner_origin_known = false;
   bool occupied = false;
 };
 
 struct IndirectConstructorOrigin {
+  struct Owner {
+    uint32_t function_address = 0;
+    uint32_t return_address = 0;
+    std::array<uint32_t, 8> arguments{};
+    bool valid = false;
+  } owner{};
   uint32_t function_address = 0;
   uint32_t return_address = 0;
   std::array<uint32_t, 8> arguments{};
@@ -223,8 +234,14 @@ uint64_t g_indirect_constructor_entries = 0;
 uint64_t g_indirect_constructor_exits = 0;
 uint64_t g_indirect_constructor_stack_faults = 0;
 uint64_t g_indirect_packets_without_constructor_origin = 0;
+uint64_t g_indirect_owner_entries = 0;
+uint64_t g_indirect_owner_exits = 0;
+uint64_t g_indirect_owner_stack_faults = 0;
+uint64_t g_indirect_constructors_without_owner_origin = 0;
+uint64_t g_indirect_constructor_owner_mismatches = 0;
 std::atomic<uint64_t> g_title_indirect_buffers_open{};
 std::atomic<uint64_t> g_indirect_constructor_invocations_open{};
+std::atomic<uint64_t> g_indirect_owner_invocations_open{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -237,6 +254,11 @@ thread_local std::array<IndirectConstructorOrigin,
     g_indirect_constructor_stack;
 thread_local size_t g_indirect_constructor_stack_depth = 0;
 thread_local size_t g_indirect_constructor_stack_overflow_depth = 0;
+thread_local std::array<IndirectConstructorOrigin::Owner,
+                        kIndirectOwnerStackCapacity>
+    g_indirect_owner_stack;
+thread_local size_t g_indirect_owner_stack_depth = 0;
+thread_local size_t g_indirect_owner_stack_overflow_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -393,9 +415,15 @@ void ResetTitleDrawProvenance() {
   g_indirect_constructor_exits = 0;
   g_indirect_constructor_stack_faults = 0;
   g_indirect_packets_without_constructor_origin = 0;
+  g_indirect_owner_entries = 0;
+  g_indirect_owner_exits = 0;
+  g_indirect_owner_stack_faults = 0;
+  g_indirect_constructors_without_owner_origin = 0;
+  g_indirect_constructor_owner_mismatches = 0;
   g_title_indirect_buffers_open.store(0, std::memory_order_relaxed);
   g_indirect_constructor_invocations_open.store(0,
                                                 std::memory_order_relaxed);
+  g_indirect_owner_invocations_open.store(0, std::memory_order_relaxed);
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -404,6 +432,9 @@ void ResetTitleDrawProvenance() {
   g_indirect_constructor_stack = {};
   g_indirect_constructor_stack_depth = 0;
   g_indirect_constructor_stack_overflow_depth = 0;
+  g_indirect_owner_stack = {};
+  g_indirect_owner_stack_depth = 0;
+  g_indirect_owner_stack_overflow_depth = 0;
 }
 
 void ConfigureTitleDrawProvenance(bool census_requested,
@@ -435,6 +466,7 @@ void ConfigureTitleDrawProvenance(bool census_requested,
         std::to_string(kTitleIndirectStackCapacity)},
        {"constructor_stack_capacity",
         std::to_string(kIndirectConstructorStackCapacity)},
+       {"owner_stack_capacity", std::to_string(kIndirectOwnerStackCapacity)},
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
         "backend_signature"},
@@ -544,6 +576,82 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
   ++g_title_packets_recorded;
 }
 
+uint32_t ExpectedIndirectOwnerFunction(uint32_t constructor_function_address,
+                                       uint32_t constructor_return_address) {
+  if (constructor_function_address == 0x82409398) {
+    switch (constructor_return_address) {
+    case 0x82409838:
+      return 0x82409668;
+    case 0x829F6308:
+    case 0x829F633C:
+      return 0x829F5FF0;
+    default:
+      return 0;
+    }
+  }
+  if (constructor_function_address == 0x82416A00) {
+    switch (constructor_return_address) {
+    case 0x82416898:
+      return 0x824167F8;
+    case 0x8246E930:
+      return 0x8246E8F8;
+    default:
+      return 0;
+    }
+  }
+  return 0;
+}
+
+void PushIndirectOwnerOrigin(uint32_t function_address,
+                             uint32_t return_address, uint32_t r3,
+                             uint32_t r4, uint32_t r5, uint32_t r6,
+                             uint32_t r7, uint32_t r8, uint32_t r9,
+                             uint32_t r10) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_indirect_owner_entries;
+  if (g_indirect_owner_stack_depth == kIndirectOwnerStackCapacity) {
+    ++g_indirect_owner_stack_faults;
+    ++g_indirect_owner_stack_overflow_depth;
+    return;
+  }
+  IndirectConstructorOrigin::Owner &owner =
+      g_indirect_owner_stack[g_indirect_owner_stack_depth++];
+  owner.function_address = function_address;
+  owner.return_address = return_address;
+  owner.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  owner.valid = true;
+  g_indirect_owner_invocations_open.fetch_add(1,
+                                               std::memory_order_relaxed);
+}
+
+void PopIndirectOwnerOrigin(uint32_t function_address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_indirect_owner_exits;
+  if (g_indirect_owner_stack_overflow_depth) {
+    --g_indirect_owner_stack_overflow_depth;
+    return;
+  }
+  if (!g_indirect_owner_stack_depth) {
+    ++g_indirect_owner_stack_faults;
+    return;
+  }
+  if (g_indirect_owner_stack[g_indirect_owner_stack_depth - 1]
+          .function_address != function_address) {
+    ++g_indirect_owner_stack_faults;
+    g_indirect_owner_invocations_open.fetch_sub(
+        g_indirect_owner_stack_depth, std::memory_order_relaxed);
+    g_indirect_owner_stack_depth = 0;
+    return;
+  }
+  --g_indirect_owner_stack_depth;
+  g_indirect_owner_invocations_open.fetch_sub(1,
+                                               std::memory_order_relaxed);
+}
+
 void PushIndirectConstructorOrigin(uint32_t function_address,
                                    uint32_t return_address, uint32_t r3,
                                    uint32_t r4, uint32_t r5, uint32_t r6,
@@ -561,9 +669,26 @@ void PushIndirectConstructorOrigin(uint32_t function_address,
   }
   IndirectConstructorOrigin &origin =
       g_indirect_constructor_stack[g_indirect_constructor_stack_depth++];
+  origin = {};
   origin.function_address = function_address;
   origin.return_address = return_address;
   origin.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  const uint32_t expected_owner =
+      ExpectedIndirectOwnerFunction(function_address, return_address);
+  if (expected_owner && g_indirect_owner_stack_depth) {
+    const IndirectConstructorOrigin::Owner &owner =
+        g_indirect_owner_stack[g_indirect_owner_stack_depth - 1];
+    if (owner.valid && owner.function_address == expected_owner) {
+      origin.owner = owner;
+    } else {
+      ++g_indirect_constructor_owner_mismatches;
+    }
+  } else if (expected_owner) {
+    ++g_indirect_constructor_owner_mismatches;
+  }
+  if (!origin.owner.valid) {
+    ++g_indirect_constructors_without_owner_origin;
+  }
   origin.valid = true;
   g_indirect_constructor_invocations_open.fetch_add(
       1, std::memory_order_relaxed);
@@ -662,8 +787,12 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
   entry.constructor_function_address = origin.function_address;
   entry.constructor_return_address = origin.return_address;
   entry.constructor_arguments = origin.arguments;
+  entry.owner_function_address = origin.owner.function_address;
+  entry.owner_return_address = origin.owner.return_address;
+  entry.owner_arguments = origin.owner.arguments;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
+  entry.owner_origin_known = origin.owner.valid;
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
@@ -727,6 +856,12 @@ void ObserveIndirectBuffer(
         matched.constructor_return_address;
     active.constructor_origin.arguments = matched.constructor_arguments;
     active.constructor_origin.valid = matched.constructor_origin_known;
+    active.constructor_origin.owner.function_address =
+        matched.owner_function_address;
+    active.constructor_origin.owner.return_address =
+        matched.owner_return_address;
+    active.constructor_origin.owner.arguments = matched.owner_arguments;
+    active.constructor_origin.owner.valid = matched.owner_origin_known;
     active.depth = observation.depth;
     g_title_indirect_buffers_open.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -1607,8 +1742,13 @@ struct CommandBufferLineageEntry {
   uint32_t constructor_return_address = 0;
   std::array<uint32_t, 8> sample_constructor_arguments{};
   uint32_t constructor_argument_varying_mask = 0;
+  uint32_t owner_function_address = 0;
+  uint32_t owner_return_address = 0;
+  std::array<uint32_t, 8> sample_owner_arguments{};
+  uint32_t owner_argument_varying_mask = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
+  bool owner_origin_known = false;
   bool prepared_signature_varied = false;
 };
 
@@ -3095,6 +3235,8 @@ void RecordPreparedCommandBufferLineage(
   for (uint64_t value :
        {uint64_t(constructor_store_address),
         uint64_t(constructor_origin.return_address),
+        uint64_t(constructor_origin.owner.function_address),
+        uint64_t(constructor_origin.owner.return_address),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -3130,12 +3272,20 @@ void RecordPreparedCommandBufferLineage(
       entry.constructor_return_address = constructor_origin.return_address;
       entry.sample_constructor_arguments = constructor_origin.arguments;
       entry.constructor_origin_known = constructor_origin.valid;
+      entry.owner_function_address =
+          constructor_origin.owner.function_address;
+      entry.owner_return_address = constructor_origin.owner.return_address;
+      entry.sample_owner_arguments = constructor_origin.owner.arguments;
+      entry.owner_origin_known = constructor_origin.owner.valid;
       entry.depth = observation.command_buffer_depth;
       ++g_command_buffer_lineage_entry_count;
       return;
     }
     if (entry.constructor_store_address == constructor_store_address &&
         entry.constructor_return_address == constructor_origin.return_address &&
+        entry.owner_function_address ==
+            constructor_origin.owner.function_address &&
+        entry.owner_return_address == constructor_origin.owner.return_address &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.last_frame = observation.frame_sequence;
@@ -3164,6 +3314,15 @@ void RecordPreparedCommandBufferLineage(
           if (entry.sample_constructor_arguments[argument] !=
               constructor_origin.arguments[argument]) {
             entry.constructor_argument_varying_mask |= 1u << argument;
+          }
+        }
+      }
+      if (entry.owner_origin_known && constructor_origin.owner.valid) {
+        for (size_t argument = 0;
+             argument < entry.sample_owner_arguments.size(); ++argument) {
+          if (entry.sample_owner_arguments[argument] !=
+              constructor_origin.owner.arguments[argument]) {
+            entry.owner_argument_varying_mask |= 1u << argument;
           }
         }
       }
@@ -3241,6 +3400,23 @@ void EmitCommandBufferLineageSummary() {
               entry.sample_constructor_arguments[7])},
          {"constructor_argument_varying_mask",
           fmt::format("{:02X}", entry.constructor_argument_varying_mask)},
+         {"owner_function_address",
+          entry.owner_origin_known
+              ? fmt::format("{:08X}", entry.owner_function_address)
+              : "unknown"},
+         {"owner_return_address",
+          entry.owner_origin_known
+              ? fmt::format("{:08X}", entry.owner_return_address)
+              : "unknown"},
+         {"sample_owner_arguments",
+          fmt::format(
+              "{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}",
+              entry.sample_owner_arguments[0], entry.sample_owner_arguments[1],
+              entry.sample_owner_arguments[2], entry.sample_owner_arguments[3],
+              entry.sample_owner_arguments[4], entry.sample_owner_arguments[5],
+              entry.sample_owner_arguments[6], entry.sample_owner_arguments[7])},
+         {"owner_argument_varying_mask",
+          fmt::format("{:02X}", entry.owner_argument_varying_mask)},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
@@ -3292,6 +3468,17 @@ void EmitCommandBufferLineageSummary() {
         std::to_string(g_indirect_constructor_stack_faults)},
        {"indirect_packets_without_constructor_origin",
         std::to_string(g_indirect_packets_without_constructor_origin)},
+       {"indirect_owner_entries", std::to_string(g_indirect_owner_entries)},
+       {"indirect_owner_exits", std::to_string(g_indirect_owner_exits)},
+       {"indirect_owner_invocations_open_at_shutdown",
+        std::to_string(g_indirect_owner_invocations_open.load(
+            std::memory_order_relaxed))},
+       {"indirect_owner_stack_faults",
+        std::to_string(g_indirect_owner_stack_faults)},
+       {"indirect_constructors_without_owner_origin",
+        std::to_string(g_indirect_constructors_without_owner_origin)},
+       {"indirect_constructor_owner_mismatches",
+        std::to_string(g_indirect_constructor_owner_mismatches)},
        {"indirect_buffers_open_at_shutdown",
         std::to_string(g_title_indirect_buffers_open.load(
             std::memory_order_relaxed))},
@@ -5680,7 +5867,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"capacity", std::to_string(kCommandBufferLineageCapacity)},
        {"source",
         "title_store,constructor_function,constructor_return,r3-r10,"
-        "backend_packet,current_buffer,parent_packet,root_buffer,depth"},
+        "owner_function,owner_return,owner_r3-r10,backend_packet,"
+        "current_buffer,parent_packet,root_buffer,depth"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -6416,6 +6604,33 @@ PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(829E8E00)
 PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(829EC400)
 
 #undef PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS
+
+void ObserveIndirectOwnerEntry(
+    uint32_t function_address, PPCRegister &r3, PPCRegister &r4,
+    PPCRegister &r5, PPCRegister &r6, PPCRegister &r7, PPCRegister &r8,
+    PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {
+  PushIndirectOwnerOrigin(function_address, r12.u32, r3.u32, r4.u32, r5.u32,
+                          r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+}
+
+#define PINYON_SHIFT_INDIRECT_OWNER_HOOKS(address)                             \
+  void PinyonShiftObserveIndirectOwner##address##Entry(                        \
+      PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,      \
+      PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,     \
+      PPCRegister &r12) {                                                       \
+    ObserveIndirectOwnerEntry(0x##address, r3, r4, r5, r6, r7, r8, r9, r10,   \
+                              r12);                                            \
+  }                                                                             \
+  void PinyonShiftObserveIndirectOwner##address##Exit() {                      \
+    PopIndirectOwnerOrigin(0x##address);                                        \
+  }
+
+PINYON_SHIFT_INDIRECT_OWNER_HOOKS(82409668)
+PINYON_SHIFT_INDIRECT_OWNER_HOOKS(824167F8)
+PINYON_SHIFT_INDIRECT_OWNER_HOOKS(8246E8F8)
+PINYON_SHIFT_INDIRECT_OWNER_HOOKS(829F5FF0)
+
+#undef PINYON_SHIFT_INDIRECT_OWNER_HOOKS
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
                                                PPCRegister &r28) {

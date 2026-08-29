@@ -193,6 +193,58 @@ def reviewed_fixtures(include_immediate=True):
     return chunks
 
 
+def owner_fixtures():
+    return [
+        fixture(
+            0x82409668,
+            [
+                "mflr r12",
+                "loc_82409834:",
+                "bl 0x82409398",
+                "mr r3,r29",
+                "addi r1,r1,176",
+                "b 0x82a7de40",
+            ],
+        ),
+        fixture(
+            0x824167F8,
+            [
+                "mflr r12",
+                "loc_82416894:",
+                "bl 0x82416a00",
+                "addi r1,r1,112",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x8246E8F8,
+            [
+                "mflr r12",
+                "loc_8246E92C:",
+                "bl 0x82416a00",
+                "mr r3,r30",
+                "bl 0x82467468",
+                "addi r1,r1,112",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x829F5FF0,
+            [
+                "mflr r12",
+                "loc_829F6304:",
+                "bl 0x82409398",
+                "loc_829F6338:",
+                "bl 0x82409398",
+                "loc_829F6354:",
+                "mr r3,r31",
+                "addi r1,r1,176",
+                "b 0x82a7de44",
+            ],
+        ),
+    ]
+
+
 class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
     def build(self, chunks):
         with tempfile.TemporaryDirectory() as directory:
@@ -349,6 +401,41 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         self.assertFalse(constructor_call["suppression_eligible"])
 
+    def test_inventories_balanced_constructor_owner_layer(self):
+        callers = [
+            fixture(0x83010000, ["lwz r3,40(r31)", "bl 0x82409668"]),
+            fixture(0x83020000, ["bl 0x824167f8"]),
+            fixture(0x83030000, ["bl 0x8246e8f8"]),
+            fixture(0x83040000, ["bl 0x829f5ff0"]),
+        ]
+        document = self.build(
+            [*reviewed_fixtures(), *owner_fixtures(), *callers]
+        )
+        self.assertEqual(4, document["totals"]["indirect_owner_runtime_hooks"])
+        self.assertEqual(4, document["totals"]["indirect_owner_calls"])
+        self.assertEqual(4, document["totals"]["indirect_owner_argument_leads"])
+        hooks = {
+            item["function_address"]: item
+            for item in document["indirect_owner_runtime_hooks"]
+        }
+        self.assertEqual("8240983C", hooks["82409668"]["exit_hook_address"])
+        call = next(
+            item
+            for item in document["indirect_owner_calls"]
+            if item["owner_function_address"] == "82409668"
+        )
+        self.assertEqual("83010004", call["callsite"])
+        lead = next(
+            item
+            for item in document["indirect_owner_argument_leads"]
+            if item["owner_function_address"] == "82409668"
+        )
+        self.assertEqual(
+            {"base_register": "r31", "offset": 40, "width": "lwz"},
+            lead["arguments"][0]["memory_load"],
+        )
+        self.assertFalse(lead["suppression_eligible"])
+
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -420,6 +507,26 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 ),
                 1,
             )
+        for function, entry, exit_address in (
+            ("82409668", "8240966C", "8240983C"),
+            ("824167F8", "824167FC", "82416898"),
+            ("8246E8F8", "8246E8FC", "8246E938"),
+            ("829F5FF0", "829F5FF4", "829F6358"),
+        ):
+            self.assertIn(f"address = 0x{entry}", analysis)
+            self.assertIn(f"address = 0x{exit_address}", analysis)
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectOwner{function}Entry"'
+                ),
+                1,
+            )
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectOwner{function}Exit"'
+                ),
+                1,
+            )
         self.assertEqual(
             analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
             1,
@@ -467,7 +574,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
                 '"r9", "r10", "r12"]'
             ),
-            16,
+            20,
         )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture
