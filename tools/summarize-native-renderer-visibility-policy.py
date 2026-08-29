@@ -161,6 +161,8 @@ def build(events, static, requested_session=None):
     expected_summary = {
         "status": "complete",
         "accounting_complete": "true",
+        "scope": "active_title_record_only",
+        "unscoped_continuations_excluded": "true",
         "classification": "title_spatial_policy_input_outcome_correlation",
         "guest_payload_read": "false",
         "guest_state_changed": "false",
@@ -204,9 +206,7 @@ def build(events, static, requested_session=None):
                 "invalid_spatial_values",
                 "invalid_threshold_values",
                 "hook_faults",
-                "runtime_threshold_without_record",
                 "duplicate_runtime_threshold",
-                "descriptor_threshold_without_record",
                 "duplicate_descriptor_threshold",
             )
         )
@@ -324,6 +324,7 @@ def build(events, static, requested_session=None):
             "structural_policy_inputs_proved": True,
             "title_input_outcome_correlation_proved": True,
             "ready_for_semantic_hypothesis_testing": True,
+            "unscoped_continuation_observations_excluded": True,
             "camera_semantics_proved": False,
             "frustum_plane_layout_proved": False,
             "native_policy_execution_enabled": False,

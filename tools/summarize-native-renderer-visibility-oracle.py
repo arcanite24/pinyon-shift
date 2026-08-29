@@ -69,6 +69,8 @@ def static_contract(document):
     expected = {
         "spatial_helper_address": "8243F9A0",
         "category_helper_address": "82441048",
+        "candidate_threshold_hook_address": "82E20258",
+        "local_distance_hook_address": "82E202D8",
         "spatial_helper_result_hook_address": "82E20350",
         "category_helper_result_hook_address": "82E20368",
         "helper_result_capture": "ordered_per_record_return_trace",
@@ -103,12 +105,15 @@ def build(events, static, requested_session=None):
         "class": "proceduralGeometry::CProceduralModels",
         "visibility_function": "82E1FD00",
         "record_entry_hook": "82E20094",
+        "candidate_threshold_hook": "82E20258",
+        "local_distance_hook": "82E202D8",
         "spatial_helper": "8243F9A0",
         "spatial_helper_result_hook": "82E20350",
         "category_helper": "82441048",
         "category_helper_result_hook": "82E20368",
         "category_result_domain": "0,1,2",
         "outcomes": "early_rejected,rejected,selected",
+        "scope": "active_title_record_only",
         "classification": "title_ordered_visibility_helper_oracle",
         "guest_payload_read": "false",
         "guest_state_changed": "false",
@@ -126,6 +131,8 @@ def build(events, static, requested_session=None):
     expected_summary = {
         "status": "complete",
         "accounting_complete": "true",
+        "scope": "active_title_record_only",
+        "unscoped_continuations_excluded": "true",
         "classification": "title_ordered_visibility_helper_oracle",
         "guest_payload_read": "false",
         "guest_state_changed": "false",
@@ -140,6 +147,10 @@ def build(events, static, requested_session=None):
         raise ValueError("visibility-oracle summary is incomplete or unsafe")
     count_keys = (
         "records",
+        "candidate_threshold_observations",
+        "candidate_threshold_passes",
+        "local_distance_observations",
+        "local_distance_passes",
         "spatial_helper_observations",
         "spatial_helper_passes",
         "category_helper_observations",
@@ -147,13 +158,23 @@ def build(events, static, requested_session=None):
         "category_result_1",
         "category_result_2",
     )
-    fault_keys = (
+    diagnostic_keys = (
+        "candidate_threshold_without_record",
+        "local_distance_without_record",
         "spatial_helper_without_record",
         "category_helper_without_record",
+    )
+    fault_keys = (
+        "local_distance_without_candidate_pass",
+        "spatial_helper_without_local_pass",
+        "invalid_gate_values",
         "category_helper_without_spatial_pass",
         "category_helper_invalid_result",
     )
-    totals = {key: integer(summary, key) for key in count_keys + fault_keys}
+    totals = {
+        key: integer(summary, key)
+        for key in count_keys + diagnostic_keys + fault_keys
+    }
     if (
         totals["records"] <= 0
         or totals["category_helper_observations"]
@@ -162,6 +183,14 @@ def build(events, static, requested_session=None):
         > totals["spatial_helper_passes"]
         or totals["spatial_helper_passes"]
         > totals["spatial_helper_observations"]
+        or totals["spatial_helper_observations"]
+        > totals["local_distance_passes"]
+        or totals["local_distance_passes"]
+        > totals["local_distance_observations"]
+        or totals["local_distance_observations"]
+        > totals["candidate_threshold_passes"]
+        or totals["candidate_threshold_passes"]
+        > totals["candidate_threshold_observations"]
         or any(totals[key] for key in fault_keys)
     ):
         raise ValueError("visibility-oracle aggregate accounting failed")
@@ -205,6 +234,14 @@ def build(events, static, requested_session=None):
             > item["spatial_helper_passes"]
             or item["spatial_helper_passes"]
             > item["spatial_helper_observations"]
+            or item["spatial_helper_observations"]
+            > item["local_distance_passes"]
+            or item["local_distance_passes"]
+            > item["local_distance_observations"]
+            or item["local_distance_observations"]
+            > item["candidate_threshold_passes"]
+            or item["candidate_threshold_passes"]
+            > item["candidate_threshold_observations"]
         ):
             raise ValueError("visibility-oracle category accounting failed")
         categories[key] = item
@@ -241,6 +278,7 @@ def build(events, static, requested_session=None):
             "title_helper_result_domain_proved": True,
             "selected_nonzero_helper_results": selected_helper_passes,
             "ready_for_shadow_policy_modeling": selected_helper_passes > 0,
+            "unscoped_continuation_observations_excluded": True,
             "camera_semantics_proved": False,
             "frustum_plane_layout_proved": False,
             "native_policy_execution_enabled": False,

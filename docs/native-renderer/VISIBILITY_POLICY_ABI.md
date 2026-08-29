@@ -108,15 +108,26 @@ their exact slot-14 callsites:
 
 | Return boundary | Address | Captured value |
 | --- | --- | --- |
+| candidate-threshold comparison | `0x82E20258` | candidate scalar in `f0` versus the title's zero reference in `f29` |
+| local squared-distance comparison | `0x82E202D8` | local squared distance in `f31` versus the squared candidate threshold in `f0` |
 | spatial helper return | `0x82E20350` | low-byte boolean result from `0x8243F9A0` |
 | six-vector helper return | `0x82E20368` | result 0, 1, or 2 from `0x82441048` |
 
-The trace is ordered within the active title record. It counts repeated spatial
-tests, spatial passes, subsequent six-vector classifications, and each proved
-classifier return value by title category and final title outcome. The
-accounting requires every classifier call to follow an observed spatial pass,
+The trace is ordered within the active title record. It counts candidate
+threshold tests, local squared-distance tests, repeated spatial-helper tests,
+subsequent six-vector classifications, and every pass/result by title category
+and final title outcome. Accounting requires every local-distance test to
+follow a non-negative candidate threshold, every spatial helper to follow a
+local-distance pass, every classifier call to follow a spatial-helper pass,
 every classifier result to remain in the statically proved 0/1/2 domain, and
 all records to reconcile with the authoritative visibility census.
+
+ReXGlue may invoke a registered interior continuation without the entry hook's
+thread-local record scope. Those observations are counted explicitly as
+unscoped continuations and excluded from the oracle dataset; they are not
+treated as record-order faults. Qualification remains strict inside every
+active authoritative record, where orphaned or out-of-order gates and invalid
+values still fail closed.
 
 This creates a title-oracle dataset suitable for a later shadow policy model.
 It remains register-only and passive: it reads no guest payload, changes no

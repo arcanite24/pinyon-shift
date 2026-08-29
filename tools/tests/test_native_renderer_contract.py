@@ -136,6 +136,12 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold": (
                 "0x82E201B0"
             ),
+            "PinyonShiftObserveProceduralModelVisibilityCandidateThreshold": (
+                "0x82E20258"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityLocalDistance": (
+                "0x82E202D8"
+            ),
             "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult": (
                 "0x82E20350"
             ),

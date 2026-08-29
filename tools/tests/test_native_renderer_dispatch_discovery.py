@@ -469,6 +469,10 @@ def procedural_model_lifecycle_fixtures():
                 "loc_82E201AC:",
                 "fmuls f0,f0,f0",
                 "fcmpu cr6,f26,f0",
+                "loc_82E20258:",
+                "fcmpu cr6,f0,f29",
+                "loc_82E202D8:",
+                "fcmpu cr6,f31,f0",
                 "loc_82E2034C:",
                 "bl 0x8243f9a0",
                 "loc_82E20350:",
@@ -1263,6 +1267,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             "82E201B0", policy["descriptor_threshold_hook_address"]
         )
+        self.assertEqual(
+            "82E20258", policy["candidate_threshold_hook_address"]
+        )
+        self.assertEqual("82E202D8", policy["local_distance_hook_address"])
         self.assertEqual(
             "82E20350", policy["spatial_helper_result_hook_address"]
         )
