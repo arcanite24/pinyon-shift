@@ -256,6 +256,31 @@ class NativeRendererContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, patch + source + analysis)
 
+    def test_d3d12_draw_outcomes_cover_every_issue_draw_exit(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0081-d3d12-draw-outcome-observer.patch"
+        ).read_text(encoding="utf-8")
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        for token in (
+            "GraphicsDrawOutcomeObservation",
+            "SetDrawOutcomeObserver",
+            "kEdramCopy",
+            "kPipelinePending",
+            "kCompleted",
+            "observation_packet_physical_address_",
+        ):
+            self.assertIn(token, patch)
+        self.assertEqual(patch.count("return observe_draw_outcome("), 21)
+        self.assertIn("void ObserveDrawOutcome(", source)
+        self.assertIn("backend_draw_outcome_mismatches", source)
+        self.assertIn("backend_draw_outcome_missing", source)
+        self.assertIn("SetDrawOutcomeObserver(&ObserveDrawOutcome)", source)
+        self.assertIn("SetDrawOutcomeObserver(nullptr)", source)
+        self.assertNotIn("suppression_allowed\", \"true", patch + source)
+
     def test_census_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
