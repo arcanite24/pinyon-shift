@@ -206,6 +206,87 @@ class NativeRendererCommandLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no stored indirect-buffer"):
             MODULE.build(events(), static)
 
+    def test_maps_runtime_constructor_origin_to_static_caller(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function": "sub_829E9790",
+                "caller_function_address": "829E9790",
+                "callsite": "829E982C",
+                "return_address": "829E9830",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "829E9830",
+                "sample_constructor_arguments": (
+                    "10000000,20000000,00000001,00000000,00000000,"
+                    "00000000,00000000,00000000"
+                ),
+                "constructor_argument_varying_mask": "03",
+            }
+        )
+        traced[-1].update(
+            {
+                "indirect_constructor_entries": "4",
+                "indirect_constructor_exits": "3",
+                "indirect_constructor_invocations_open_at_shutdown": "1",
+                "indirect_constructor_stack_faults": "0",
+                "indirect_packets_without_constructor_origin": "2",
+            }
+        )
+        document = MODULE.build(traced, static)
+        self.assertEqual("complete", document["status"])
+        shape = document["shapes"][0]
+        self.assertEqual("829E982C", shape["constructor_callsite"])
+        self.assertEqual("sub_829E9790", shape["constructor_caller_function"])
+        self.assertEqual(3, shape["constructor_argument_varying_mask"])
+        self.assertEqual(
+            2,
+            document["totals"]["indirect_packets_without_constructor_origin"],
+        )
+
+    def test_retains_exact_runtime_origin_when_static_caller_is_unresolved(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function": "sub_829E9790",
+                "caller_function_address": "829E9790",
+                "callsite": "829E982C",
+                "return_address": "829E9830",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "83000004",
+                "sample_constructor_arguments": (
+                    "00000000,00000000,00000000,00000000,00000000,"
+                    "00000000,00000000,00000000"
+                ),
+                "constructor_argument_varying_mask": "00",
+            }
+        )
+        traced[-1].update(
+            {
+                "indirect_constructor_entries": "1",
+                "indirect_constructor_exits": "1",
+                "indirect_constructor_invocations_open_at_shutdown": "0",
+                "indirect_constructor_stack_faults": "0",
+            }
+        )
+        document = MODULE.build(traced, static)
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(document["shapes"][0]["constructor_callsite_proved"])
+        self.assertEqual(
+            12, document["totals"]["unresolved_constructor_origin_draws"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

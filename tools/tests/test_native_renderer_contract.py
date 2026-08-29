@@ -332,7 +332,9 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("g_command_buffer_lineage_installed", source)
         self.assertIn("g_command_buffer_lineage_memory", source)
         self.assertIn("constructor_store_address", source)
-        self.assertIn("CurrentTitleIndirectConstructor", source)
+        self.assertIn("CurrentTitleIndirectBuffer", source)
+        self.assertIn("constructor_return_address", source)
+        self.assertIn("indirect_constructor_stack_faults", source)
         self.assertIn("SetIndirectBufferObserver(&ObserveIndirectBuffer)", source)
         self.assertIn("SetIndirectBufferObserver(nullptr)", source)
         self.assertIn(
