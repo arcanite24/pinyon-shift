@@ -9,11 +9,11 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v3"
+SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v4"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.semantic_submission_"
 EXPECTED_CLASS = "proceduralGeometry::CProceduralModels"
-EXPECTED_CLASSIFICATION = "resolved_resource_and_state_variant_submission"
+EXPECTED_CLASSIFICATION = "resolved_resource_state_variant_and_dispatch_submission"
 EXPECTED_HOOKS = (
     "82417A74",
     "82417A9C",
@@ -26,7 +26,7 @@ EXPECTED_HOOKS = (
     "82415C6C",
     "82417B60",
 )
-EXPECTED_MAXIMUM_PAYLOAD_BYTES = 56
+EXPECTED_MAXIMUM_PAYLOAD_BYTES = 64
 
 
 def read_events(paths: list[pathlib.Path]) -> list[dict]:
@@ -73,7 +73,7 @@ def _boolean(mapping: dict, key: str) -> bool:
 
 def _require_safety(mapping: dict) -> None:
     expected = {
-        "guest_payload_read": "bounded_submission_fields_only",
+        "guest_payload_read": "bounded_submission_and_dispatch_fields_only",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -116,6 +116,7 @@ def _validate_static(static: dict) -> None:
             "resource_provider_chain_derivation_proved",
             "record_join_proved",
             "geometry_submission_derivation_proved",
+            "graphics_submission_vtable_runtime_join_required",
             "descriptor_kind_partition_proved",
             "helper_state_partition_proved",
         )
@@ -163,6 +164,7 @@ def _validate_static(static: dict) -> None:
         or extraction.get("secondary_resolution_semantics_proved") is not False
         or extraction.get("graphics_submission_primitive") != 13
         or extraction.get("graphics_submission_count_scale") != 4
+        or extraction.get("graphics_submission_vtable_offset") != 160
         or extraction.get("classification") != EXPECTED_CLASSIFICATION
         or extraction.get("native_rendering_enabled") is not False
         or extraction.get("suppression_eligible") is not False
@@ -197,6 +199,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "resource_resolution_result_hook": "82415C50",
         "resource_bind_dispatch_hook": "82415C6C",
         "geometry_submission_hook": "82417B60",
+        "graphics_submission_vtable_offset": "160",
     }
     if any(configs[0].get(key) != value for key, value in expected_runtime_hooks.items()):
         raise ValueError("semantic-submission runtime hook contract drifted")
@@ -226,6 +229,13 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         key = _hex(event, "key", 16)
         receiver_address = _hex(event, "receiver_address", 8)
         graphics_context = _hex(event, "graphics_context", 8)
+        graphics_vtable = _hex(event, "graphics_vtable", 8)
+        graphics_submission_method = _hex(
+            event, "graphics_submission_method", 8
+        )
+        graphics_submission_vtable_offset = _integer(
+            event, "graphics_submission_vtable_offset"
+        )
         resource_lookup_context = _hex(event, "resource_lookup_context", 8)
         primary_resource_key = _hex(event, "primary_resource_key", 8)
         primary_bound_resource_object = _hex(
@@ -318,6 +328,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             or count_bytes != ((count_units << 2) & 0xFFFFFFFF)
             or int(receiver_address, 16) == 0
             or int(graphics_context, 16) == 0
+            or int(graphics_vtable, 16) == 0
+            or int(graphics_submission_method, 16) == 0
+            or graphics_submission_vtable_offset != 160
             or int(resource_lookup_context, 16) == 0
             or int(primary_bound_resource_object, 16) == 0
             or any(int(value, 16) == 0 for value in primary_provider_fields)
@@ -363,7 +376,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             raise ValueError("semantic-submission source contract is invalid")
 
         entry_calls += calls
-        expected_payload_bytes += calls * (56 if secondary_present else 52)
+        expected_payload_bytes += calls * (64 if secondary_present else 60)
         secondary_calls += calls if secondary_present else 0
         descriptor_kinds[descriptor_kind] += calls
         helper_states[helper_state] += calls
@@ -408,6 +421,11 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "descriptor_kind": descriptor_kind,
                 "helper_state": helper_state,
                 "graphics_context": graphics_context,
+                "graphics_dispatch": {
+                    "vtable": graphics_vtable,
+                    "submission_vtable_offset": graphics_submission_vtable_offset,
+                    "submission_method": graphics_submission_method,
+                },
                 "resource_lookup_context": resource_lookup_context,
                 "resources": {
                     "primary_index": primary_index,
@@ -469,6 +487,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "invalid_resource_joins",
             "unresolved_resource_joins",
             "invalid_geometry",
+            "invalid_dispatch_targets",
             "primary_binding_observations",
             "secondary_binding_observations",
             "resource_resolution_attempts",
@@ -511,6 +530,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "invalid_resource_joins",
             "unresolved_resource_joins",
             "invalid_geometry",
+            "invalid_dispatch_targets",
         )
     ):
         failures.append("observation accounting is incomplete")
@@ -608,6 +628,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "invalid_resource_joins",
         "unresolved_resource_joins",
         "invalid_geometry",
+        "invalid_dispatch_targets",
         "resource_resolution_misses",
         "resource_resolution_protocol_faults",
         "overflow",

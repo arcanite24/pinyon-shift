@@ -77,11 +77,20 @@ slot 124. Virtual slot 160 receives primitive 13, byte count
 - the counted path reads its count at runtime byte offset 28 and source address
   at runtime byte offset 32.
 
-These are structural resource keys, binding slots, an opaque runtime
-submission object, and a geometry source tuple. Exact provider and virtual-
-method identities are retained structurally, but exact texture/material class,
+The runtime census also retains the graphics object's vtable and exact method
+pointer at byte offset 160. These are structural resource keys, binding slots,
+an opaque runtime submission object, a geometry source tuple, and a dispatch
+target. Exact provider and virtual-method identities are retained structurally,
+but exact texture/material class,
 vertex format, index format, mesh ownership, and streaming lifetime are still
 open.
+
+The next passive layer probes whether an accepted tuple overlaps either direct
+title draw-packet constructor already covered by physical packet provenance.
+The first consolidated run proved that it does not. See
+`docs/native-renderer/PROCEDURAL_MODEL_DRAW_LINEAGE.md`. Runtime slot-160 target
+identity now narrows the next command-buffer ownership search without claiming
+a packet, prepared signature, mesh, or material ABI.
 
 ## Bounded runtime join
 
@@ -106,12 +115,16 @@ only when all of the following hold:
 - secondary binding presence exactly follows descriptor word 4's signed
   sentinel;
 - runtime object, count, and source reproduce one of the two proved geometry
-  source paths.
+  source paths;
+- the graphics context has a nonzero aligned vtable and nonzero aligned method
+  pointer at byte offset 160.
 
-Each accepted geometry observation reads 52 bytes, or 56 bytes when the optional
-secondary resource is present. A fixed 8,192-entry table aggregates exact
+Each accepted geometry observation reads 60 bytes, or 64 bytes when the optional
+secondary resource is present. The extra eight bytes are the graphics vtable
+and byte-160 submission method. A fixed 8,192-entry table aggregates exact
 receiver generation, record, key/provider/vtable/method/route/source/object
-chain, state-variant pair, runtime-object, and geometry-source tuples. A direct
+chain, state-variant pair, runtime-object, geometry-source, and dispatch-target
+tuples. A direct
 non-null provider lookup reads 20 additional bounded metadata bytes: one
 provider vtable pointer and four vtable method pointers. Mismatches remain
 separately accountable and fail qualification.
@@ -132,15 +145,16 @@ accounting. It also reconciles lookup outcomes, provider selections and null
 results, secondary-resolution outcomes, final resolver successes/misses, and
 the 20-byte provider metadata budget. Unknown receivers, mismatched bindings,
 invalid or unresolved resource joins, resolver misses, bind-protocol faults,
-invalid geometry, capacity overflow, native admission, or suppression claims
-make it incomplete.
+invalid geometry or dispatch targets, capacity overflow, native admission, or
+suppression claims make it incomplete.
 
 ## Safety boundary
 
 The hooks read bounded scalar fields and never modify guest state, redirect
 title control flow, upload resources, issue host draws, or suppress Xenos
 work. Every accepted tuple is classified as
-`resolved_resource_and_state_variant_submission` and retains `xenos_replay`.
+`resolved_resource_state_variant_and_dispatch_submission` and retains
+`xenos_replay`.
 
 ## AppData qualification
 

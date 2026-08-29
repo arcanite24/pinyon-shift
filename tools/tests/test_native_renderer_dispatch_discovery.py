@@ -734,7 +734,10 @@ def procedural_model_lifecycle_fixtures():
                 "lwz r11,160(r11)",
                 "loc_82417B7C:",
                 "bctrl",
-                "blr",
+                "loc_82417B80:",
+                "addi r1,r1,272",
+                "loc_82417B88:",
+                "b 0x82a7de34",
             ],
         ),
     ]
@@ -1069,6 +1072,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         extraction = lifecycle["semantic_instance_extraction"]
         self.assertEqual("8241741C", extraction["hook_address"])
+        self.assertEqual("82417B80", lifecycle["render_item_exit_hook_address"])
         self.assertEqual(84, extraction["descriptor_index_caller_stack_offset"])
         self.assertEqual(380, extraction["bounded_payload_bytes_per_observation"])
         self.assertTrue(extraction["argument_mapping_proved"])
@@ -1103,6 +1107,29 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertTrue(submission["resource_binding_derivation_proved"])
         self.assertTrue(submission["geometry_submission_derivation_proved"])
         self.assertFalse(submission["native_rendering_enabled"])
+        draw_association = lifecycle["semantic_draw_association"]
+        self.assertEqual(
+            "8241741C", draw_association["render_item_entry_hook_address"]
+        )
+        self.assertEqual(
+            "82417B80", draw_association["render_item_exit_hook_address"]
+        )
+        self.assertEqual(
+            ["82410328", "829F7CB0"],
+            draw_association["title_draw_packet_hook_addresses"],
+        )
+        self.assertTrue(draw_association["render_item_invocation_scope_proved"])
+        self.assertTrue(draw_association["submission_before_draw_dispatch_proved"])
+        self.assertEqual(160, draw_association["graphics_submission_vtable_offset"])
+        self.assertTrue(draw_association["direct_title_packet_overlap_probe"])
+        self.assertTrue(
+            draw_association["indirect_packet_constructor_overlap_probe"]
+        )
+        self.assertFalse(
+            draw_association["physical_pm4_packet_correlation_proved"]
+        )
+        self.assertFalse(draw_association["prepared_draw_lineage_proved"])
+        self.assertFalse(draw_association["native_rendering_enabled"])
         self.assertFalse(lifecycle["suppression_eligible"])
 
     def test_rejects_drifted_procedural_model_vtable_slot(self):

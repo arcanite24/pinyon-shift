@@ -317,8 +317,12 @@ cache-slot addresses, so either form of exact-key reuse cannot lose or
 substitute provenance.
 
 The submission also retains the proved descriptor-kind group, helper-state
-table family, opaque runtime submission object, and exact default/counted
-geometry-source tuple. This is resolved structural submission identity, not a
+table family, opaque runtime submission object, exact default/counted
+geometry-source tuple, graphics vtable, and byte-160 submission method. The
+first overlap census found no semantic submission at direct draw packet stores
+`82410328`/`829F7CB0`; those stores remained EDRAM-copy traffic. Prepared draw
+lineage therefore remains open at the actual byte-160 target. This is resolved
+structural submission identity, not a
 proved provider class, secondary-resolution semantic, texture, material,
 vertex, index, mesh, LOD, streaming, or lifetime ABI. See
 `PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.

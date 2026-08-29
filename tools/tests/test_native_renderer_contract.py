@@ -78,10 +78,22 @@ class NativeRendererContractTests(unittest.TestCase):
             analysis.count('name = "PinyonShiftObserveProceduralModelRenderItem"'),
             1,
         )
+        self.assertEqual(
+            analysis.count(
+                'name = "PinyonShiftObserveProceduralModelRenderItemExit"'
+            ),
+            1,
+        )
         hook = analysis.split(
             'name = "PinyonShiftObserveProceduralModelRenderItem"', 1
         )[0].rsplit("[[midasm_hook]]", 1)[1]
         self.assertIn("address = 0x8241741C", hook)
+        exit_hook = analysis.split(
+            'name = "PinyonShiftObserveProceduralModelRenderItemExit"', 1
+        )[0].rsplit("[[midasm_hook]]", 1)[1]
+        self.assertIn("address = 0x82417B80", exit_hook)
+        self.assertIn("kSemanticRenderItemStackCapacity = 32", source)
+        self.assertIn("exact_render_item_scope_and_physical_pm4_header", source)
         self.assertIn("kSemanticInstanceCapacity = 4096", source)
         self.assertIn("kSemanticObservationPayloadBytes = 380", source)
         self.assertIn("LoadSemanticGuestWords", source)
@@ -159,10 +171,12 @@ class NativeRendererContractTests(unittest.TestCase):
             )[1]
             self.assertIn(f"address = {address}", hook)
         self.assertIn("kSemanticSubmissionCapacity = 8192", source)
-        self.assertIn("kSemanticSubmissionMaximumPayloadBytes = 56", source)
+        self.assertIn("kSemanticSubmissionMaximumPayloadBytes = 64", source)
         self.assertIn("runtime_record_24_default", source)
         self.assertIn("runtime_record_28_32", source)
-        self.assertIn('"classification", "resolved_resource_and_state_variant_submission"', source)
+        self.assertIn("resolved_resource_state_variant_and_dispatch_submission", source)
+        self.assertIn("graphics_submission_method", source)
+        self.assertIn("invalid_dispatch_targets", source)
         self.assertIn("primary_bound_resource_object", source)
         self.assertIn("SemanticResourceProviderProvenance", source)
         self.assertIn("provider_metadata_bytes_per_lookup", source)
