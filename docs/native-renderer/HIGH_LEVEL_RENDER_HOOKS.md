@@ -283,6 +283,18 @@ the entry-register-plus-offset root must all match producer `r3`. This narrows
 the next object/lifetime investigation without claiming a type, instance,
 registration, destruction, or suppression candidate.
 
+That receiver investigation now proves `82417BC0` as virtual slot 41 of
+`proceduralGeometry::CProceduralModels`, including its exact constructor,
+destructor, scalar-deleting destructor, and runtime address generations. The
+semantic receiver is entry `r3`; the command root remains the distinct
+`r6 + 59712` value. See `PROCEDURAL_MODEL_RECEIVER_LIFETIME.md`. No mesh,
+material, LOD, or streaming field is classified yet. The static proof now also
+identifies the 512-byte object extent, slot 14 visibility preparation, slot 40
+render-state preparation, 92/68-byte descriptor/runtime record strides, and
+three 64-byte transform/constant matrix ranges. Balanced runtime epochs carry
+the optional stage history to slot 41 without reading guest payload; the
+AppData capture refutes treating both stages as a universal prerequisite.
+
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
 loads retain base register, offset, and width; values crossing a call boundary

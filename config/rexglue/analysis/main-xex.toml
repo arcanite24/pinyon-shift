@@ -208,6 +208,49 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x829F67B8
 name = "PinyonShiftObserveIndirectContext829F6620Exit"
 
+# RTTI-backed lifetime hooks for proceduralGeometry::CProceduralModels. The
+# constructor and destructor both write vtable 0x82002B5C; virtual slot 41 is
+# the context dispatch at 0x82417BC0. Runtime joins only the exact r3 receiver
+# address observed after completed construction and before destruction.
+[[midasm_hook]]
+address = 0x82E1C9A4
+name = "PinyonShiftObserveProceduralModelConstructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82E1CA0C
+name = "PinyonShiftObserveProceduralModelConstructorExit"
+
+[[midasm_hook]]
+address = 0x82E1CA2C
+name = "PinyonShiftObserveProceduralModelDestructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82E1CBD0
+name = "PinyonShiftObserveProceduralModelDestructorExit"
+
+# Vtable slots 14 and 40 bracket the exact visibility-preparation and render-
+# state preparation functions consumed by slot 41. These hooks record only the
+# live receiver generation and balanced invocation order.
+[[midasm_hook]]
+address = 0x82E1FD04
+name = "PinyonShiftObserveProceduralModelVisibilityEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82E208CC
+name = "PinyonShiftObserveProceduralModelVisibilityExit"
+
+[[midasm_hook]]
+address = 0x824170DC
+name = "PinyonShiftObserveProceduralModelRenderStateEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82417410
+name = "PinyonShiftObserveProceduralModelRenderStateExit"
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

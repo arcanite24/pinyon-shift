@@ -58,8 +58,12 @@ if ($StaticOutput) {
         throw "StaticOutput must be below $localRoot"
     }
     $generatedRoot = Join-Path $repositoryRoot '.local\generated\default'
+    $imagePath = Join-Path $repositoryRoot '.local\analysis\default-image.bin'
+    if (-not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
+        throw "Static dispatch discovery image is missing: $imagePath"
+    }
     & python (Join-Path $PSScriptRoot 'discover-native-renderer-dispatch.py') `
-        $generatedRoot --output $resolvedStaticOutput
+        $generatedRoot --image $imagePath --output $resolvedStaticOutput
     if ($LASTEXITCODE -ne 0) {
         throw 'Static dispatch discovery failed.'
     }

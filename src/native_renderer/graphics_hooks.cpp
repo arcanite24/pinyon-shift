@@ -86,6 +86,8 @@ constexpr size_t kIndirectConstructorStackCapacity = 32;
 constexpr size_t kIndirectOwnerStackCapacity = 32;
 constexpr size_t kIndirectProducerStackCapacity = 32;
 constexpr size_t kIndirectContextStackCapacity = 32;
+constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
+constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -168,11 +170,17 @@ struct TitleIndirectPacketEntry {
   uint32_t context_return_address = 0;
   std::array<uint32_t, 8> context_arguments{};
   uint32_t context_root_address = 0;
+  uint32_t semantic_receiver_address = 0;
+  uint32_t semantic_receiver_generation = 0;
+  uint64_t semantic_visibility_epoch = 0;
+  uint64_t semantic_render_state_epoch = 0;
+  uint64_t semantic_render_state_visibility_epoch = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
+  bool semantic_receiver_known = false;
   bool occupied = false;
 };
 
@@ -184,6 +192,12 @@ struct IndirectConstructorOrigin {
         uint32_t return_address = 0;
         std::array<uint32_t, 8> arguments{};
         uint32_t root_address = 0;
+        uint32_t semantic_receiver_address = 0;
+        uint32_t semantic_receiver_generation = 0;
+        uint64_t semantic_visibility_epoch = 0;
+        uint64_t semantic_render_state_epoch = 0;
+        uint64_t semantic_render_state_visibility_epoch = 0;
+        bool semantic_receiver_known = false;
         bool valid = false;
       } context{};
       uint32_t function_address = 0;
@@ -278,6 +292,60 @@ std::atomic<uint64_t> g_indirect_constructor_invocations_open{};
 std::atomic<uint64_t> g_indirect_owner_invocations_open{};
 std::atomic<uint64_t> g_indirect_producer_invocations_open{};
 std::atomic<uint64_t> g_indirect_context_invocations_open{};
+enum class SemanticReceiverState : uint32_t {
+  kEmpty = 0,
+  kLive = 1,
+  kDestroying = 2,
+  kDestroyed = 3,
+};
+
+struct SemanticReceiverLifecycleEntry {
+  std::atomic<uint32_t> address{};
+  std::atomic<uint32_t> generation{};
+  std::atomic<uint32_t> state{};
+  std::atomic<uint64_t> dispatches{};
+  std::atomic<uint64_t> visibility_preparations{};
+  std::atomic<uint64_t> render_state_preparations{};
+  std::atomic<uint64_t> visibility_epoch{};
+  std::atomic<uint64_t> render_state_epoch{};
+  std::atomic<uint64_t> render_state_visibility_epoch{};
+  // Legacy event field names retained for capture compatibility. These count
+  // whether both optional observed stages had history before a dispatch; they
+  // are not a universal slot-41 readiness predicate.
+  std::atomic<uint64_t> dispatches_with_preparation{};
+  std::atomic<uint64_t> dispatches_without_preparation{};
+  std::atomic<uint64_t> dispatches_without_visibility{};
+  std::atomic<uint64_t> dispatches_without_render_state{};
+};
+
+std::array<SemanticReceiverLifecycleEntry,
+           kSemanticReceiverLifecycleCapacity>
+    g_semantic_receiver_lifecycles{};
+std::atomic<uint64_t> g_semantic_receiver_constructor_entries{};
+std::atomic<uint64_t> g_semantic_receiver_constructor_exits{};
+std::atomic<uint64_t> g_semantic_receiver_constructor_open{};
+std::atomic<uint64_t> g_semantic_receiver_destructor_entries{};
+std::atomic<uint64_t> g_semantic_receiver_destructor_exits{};
+std::atomic<uint64_t> g_semantic_receiver_destructor_open{};
+std::atomic<uint64_t> g_semantic_receiver_stack_faults{};
+std::atomic<uint64_t> g_semantic_receiver_instances_published{};
+std::atomic<uint64_t> g_semantic_receiver_instances_destroyed{};
+std::atomic<uint64_t> g_semantic_receiver_address_reuses{};
+std::atomic<uint64_t> g_semantic_receiver_table_overflow{};
+std::atomic<uint64_t> g_semantic_receiver_dispatches{};
+std::atomic<uint64_t> g_semantic_receiver_live_dispatches{};
+std::atomic<uint64_t> g_semantic_receiver_unregistered_dispatches{};
+std::atomic<uint64_t> g_semantic_receiver_destroying_dispatches{};
+std::atomic<uint64_t> g_semantic_receiver_destroyed_dispatches{};
+std::atomic<uint64_t> g_semantic_receiver_destructors_without_instance{};
+std::atomic<uint64_t> g_semantic_visibility_entries{};
+std::atomic<uint64_t> g_semantic_visibility_exits{};
+std::atomic<uint64_t> g_semantic_visibility_open{};
+std::atomic<uint64_t> g_semantic_render_state_entries{};
+std::atomic<uint64_t> g_semantic_render_state_exits{};
+std::atomic<uint64_t> g_semantic_render_state_open{};
+std::atomic<uint64_t> g_semantic_stage_stack_faults{};
+std::atomic<uint64_t> g_semantic_stage_unknown_receivers{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -305,6 +373,28 @@ thread_local std::array<IndirectConstructorOrigin::Owner::Producer::Context,
     g_indirect_context_stack;
 thread_local size_t g_indirect_context_stack_depth = 0;
 thread_local size_t g_indirect_context_stack_overflow_depth = 0;
+thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
+    g_semantic_receiver_constructor_stack{};
+thread_local size_t g_semantic_receiver_constructor_stack_depth = 0;
+thread_local size_t g_semantic_receiver_constructor_overflow_depth = 0;
+thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
+    g_semantic_receiver_destructor_stack{};
+thread_local size_t g_semantic_receiver_destructor_stack_depth = 0;
+thread_local size_t g_semantic_receiver_destructor_overflow_depth = 0;
+struct SemanticReceiverStageScope {
+  uint32_t address = 0;
+  uint32_t generation = 0;
+};
+thread_local std::array<SemanticReceiverStageScope,
+                        kSemanticReceiverStackCapacity>
+    g_semantic_visibility_stack{};
+thread_local size_t g_semantic_visibility_stack_depth = 0;
+thread_local size_t g_semantic_visibility_overflow_depth = 0;
+thread_local std::array<SemanticReceiverStageScope,
+                        kSemanticReceiverStackCapacity>
+    g_semantic_render_state_stack{};
+thread_local size_t g_semantic_render_state_stack_depth = 0;
+thread_local size_t g_semantic_render_state_overflow_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -489,6 +579,65 @@ void ResetTitleDrawProvenance() {
   g_indirect_owner_invocations_open.store(0, std::memory_order_relaxed);
   g_indirect_producer_invocations_open.store(0, std::memory_order_relaxed);
   g_indirect_context_invocations_open.store(0, std::memory_order_relaxed);
+  for (SemanticReceiverLifecycleEntry &entry :
+       g_semantic_receiver_lifecycles) {
+    entry.address.store(0, std::memory_order_relaxed);
+    entry.generation.store(0, std::memory_order_relaxed);
+    entry.state.store(0, std::memory_order_relaxed);
+    entry.dispatches.store(0, std::memory_order_relaxed);
+    entry.visibility_preparations.store(0, std::memory_order_relaxed);
+    entry.render_state_preparations.store(0, std::memory_order_relaxed);
+    entry.visibility_epoch.store(0, std::memory_order_relaxed);
+    entry.render_state_epoch.store(0, std::memory_order_relaxed);
+    entry.render_state_visibility_epoch.store(0,
+                                               std::memory_order_relaxed);
+    entry.dispatches_with_preparation.store(0, std::memory_order_relaxed);
+    entry.dispatches_without_preparation.store(0,
+                                                std::memory_order_relaxed);
+    entry.dispatches_without_visibility.store(0,
+                                               std::memory_order_relaxed);
+    entry.dispatches_without_render_state.store(0,
+                                                 std::memory_order_relaxed);
+  }
+  g_semantic_receiver_constructor_entries.store(0,
+                                                 std::memory_order_relaxed);
+  g_semantic_receiver_constructor_exits.store(0,
+                                               std::memory_order_relaxed);
+  g_semantic_receiver_constructor_open.store(0,
+                                              std::memory_order_relaxed);
+  g_semantic_receiver_destructor_entries.store(0,
+                                                std::memory_order_relaxed);
+  g_semantic_receiver_destructor_exits.store(0,
+                                              std::memory_order_relaxed);
+  g_semantic_receiver_destructor_open.store(0,
+                                             std::memory_order_relaxed);
+  g_semantic_receiver_stack_faults.store(0, std::memory_order_relaxed);
+  g_semantic_receiver_instances_published.store(0,
+                                                 std::memory_order_relaxed);
+  g_semantic_receiver_instances_destroyed.store(0,
+                                                 std::memory_order_relaxed);
+  g_semantic_receiver_address_reuses.store(0, std::memory_order_relaxed);
+  g_semantic_receiver_table_overflow.store(0, std::memory_order_relaxed);
+  g_semantic_receiver_dispatches.store(0, std::memory_order_relaxed);
+  g_semantic_receiver_live_dispatches.store(0,
+                                             std::memory_order_relaxed);
+  g_semantic_receiver_unregistered_dispatches.store(
+      0, std::memory_order_relaxed);
+  g_semantic_receiver_destroying_dispatches.store(
+      0, std::memory_order_relaxed);
+  g_semantic_receiver_destroyed_dispatches.store(
+      0, std::memory_order_relaxed);
+  g_semantic_receiver_destructors_without_instance.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_entries.store(0, std::memory_order_relaxed);
+  g_semantic_visibility_exits.store(0, std::memory_order_relaxed);
+  g_semantic_visibility_open.store(0, std::memory_order_relaxed);
+  g_semantic_render_state_entries.store(0, std::memory_order_relaxed);
+  g_semantic_render_state_exits.store(0, std::memory_order_relaxed);
+  g_semantic_render_state_open.store(0, std::memory_order_relaxed);
+  g_semantic_stage_stack_faults.store(0, std::memory_order_relaxed);
+  g_semantic_stage_unknown_receivers.store(0,
+                                            std::memory_order_relaxed);
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -506,6 +655,18 @@ void ResetTitleDrawProvenance() {
   g_indirect_context_stack = {};
   g_indirect_context_stack_depth = 0;
   g_indirect_context_stack_overflow_depth = 0;
+  g_semantic_receiver_constructor_stack = {};
+  g_semantic_receiver_constructor_stack_depth = 0;
+  g_semantic_receiver_constructor_overflow_depth = 0;
+  g_semantic_receiver_destructor_stack = {};
+  g_semantic_receiver_destructor_stack_depth = 0;
+  g_semantic_receiver_destructor_overflow_depth = 0;
+  g_semantic_visibility_stack = {};
+  g_semantic_visibility_stack_depth = 0;
+  g_semantic_visibility_overflow_depth = 0;
+  g_semantic_render_state_stack = {};
+  g_semantic_render_state_stack_depth = 0;
+  g_semantic_render_state_overflow_depth = 0;
 }
 
 void ConfigureTitleDrawProvenance(bool census_requested,
@@ -731,6 +892,364 @@ uint32_t DeriveIndirectContextRoot(
   }
 }
 
+size_t SemanticReceiverLifecycleIndex(uint32_t address) {
+  return size_t((address >> 4) % kSemanticReceiverLifecycleCapacity);
+}
+
+SemanticReceiverLifecycleEntry *FindSemanticReceiverLifecycle(
+    uint32_t address) {
+  size_t index = SemanticReceiverLifecycleIndex(address);
+  for (size_t probe = 0; probe < kSemanticReceiverLifecycleCapacity;
+       ++probe) {
+    SemanticReceiverLifecycleEntry &entry =
+        g_semantic_receiver_lifecycles[index];
+    const uint32_t observed =
+        entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed) {
+      return nullptr;
+    }
+    index = (index + 1) % kSemanticReceiverLifecycleCapacity;
+  }
+  return nullptr;
+}
+
+SemanticReceiverLifecycleEntry *FindOrClaimSemanticReceiverLifecycle(
+    uint32_t address) {
+  size_t index = SemanticReceiverLifecycleIndex(address);
+  for (size_t probe = 0; probe < kSemanticReceiverLifecycleCapacity;
+       ++probe) {
+    SemanticReceiverLifecycleEntry &entry =
+        g_semantic_receiver_lifecycles[index];
+    uint32_t observed = entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed && entry.address.compare_exchange_strong(
+                         observed, address, std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      return &entry;
+    }
+    index = (index + 1) % kSemanticReceiverLifecycleCapacity;
+  }
+  g_semantic_receiver_table_overflow.fetch_add(1,
+                                                std::memory_order_relaxed);
+  return nullptr;
+}
+
+void PublishSemanticReceiver(uint32_t address) {
+  SemanticReceiverLifecycleEntry *entry =
+      FindOrClaimSemanticReceiverLifecycle(address);
+  if (!entry) {
+    return;
+  }
+  const auto previous = static_cast<SemanticReceiverState>(
+      entry->state.load(std::memory_order_acquire));
+  if (previous == SemanticReceiverState::kLive ||
+      previous == SemanticReceiverState::kDestroying) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  uint32_t generation =
+      entry->generation.load(std::memory_order_relaxed) + 1;
+  if (!generation) {
+    generation = 1;
+  }
+  if (previous == SemanticReceiverState::kDestroyed) {
+    g_semantic_receiver_address_reuses.fetch_add(1,
+                                                  std::memory_order_relaxed);
+  }
+  entry->dispatches.store(0, std::memory_order_relaxed);
+  entry->visibility_preparations.store(0, std::memory_order_relaxed);
+  entry->render_state_preparations.store(0, std::memory_order_relaxed);
+  entry->visibility_epoch.store(0, std::memory_order_relaxed);
+  entry->render_state_epoch.store(0, std::memory_order_relaxed);
+  entry->render_state_visibility_epoch.store(0,
+                                              std::memory_order_relaxed);
+  entry->dispatches_with_preparation.store(0, std::memory_order_relaxed);
+  entry->dispatches_without_preparation.store(0,
+                                               std::memory_order_relaxed);
+  entry->dispatches_without_visibility.store(0,
+                                              std::memory_order_relaxed);
+  entry->dispatches_without_render_state.store(0,
+                                                std::memory_order_relaxed);
+  entry->generation.store(generation, std::memory_order_relaxed);
+  entry->state.store(uint32_t(SemanticReceiverState::kLive),
+                     std::memory_order_release);
+  g_semantic_receiver_instances_published.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void BeginSemanticReceiverConstruction(uint32_t address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_receiver_constructor_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_semantic_receiver_constructor_stack_depth ==
+      kSemanticReceiverStackCapacity) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    ++g_semantic_receiver_constructor_overflow_depth;
+    return;
+  }
+  g_semantic_receiver_constructor_stack
+      [g_semantic_receiver_constructor_stack_depth++] = address;
+  g_semantic_receiver_constructor_open.fetch_add(1,
+                                                  std::memory_order_relaxed);
+}
+
+void EndSemanticReceiverConstruction() {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_receiver_constructor_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_semantic_receiver_constructor_overflow_depth) {
+    --g_semantic_receiver_constructor_overflow_depth;
+    return;
+  }
+  if (!g_semantic_receiver_constructor_stack_depth) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t address = g_semantic_receiver_constructor_stack
+      [--g_semantic_receiver_constructor_stack_depth];
+  g_semantic_receiver_constructor_open.fetch_sub(1,
+                                                  std::memory_order_relaxed);
+  PublishSemanticReceiver(address);
+}
+
+void BeginSemanticReceiverDestruction(uint32_t address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_receiver_destructor_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_semantic_receiver_destructor_stack_depth ==
+      kSemanticReceiverStackCapacity) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    ++g_semantic_receiver_destructor_overflow_depth;
+    return;
+  }
+  g_semantic_receiver_destructor_stack
+      [g_semantic_receiver_destructor_stack_depth++] = address;
+  g_semantic_receiver_destructor_open.fetch_add(1,
+                                                 std::memory_order_relaxed);
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(address);
+  uint32_t expected_state = uint32_t(SemanticReceiverState::kLive);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(SemanticReceiverState::kDestroying),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_semantic_receiver_destructors_without_instance.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
+void EndSemanticReceiverDestruction() {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_receiver_destructor_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_semantic_receiver_destructor_overflow_depth) {
+    --g_semantic_receiver_destructor_overflow_depth;
+    return;
+  }
+  if (!g_semantic_receiver_destructor_stack_depth) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t address = g_semantic_receiver_destructor_stack
+      [--g_semantic_receiver_destructor_stack_depth];
+  g_semantic_receiver_destructor_open.fetch_sub(1,
+                                                 std::memory_order_relaxed);
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(address);
+  uint32_t expected_state = uint32_t(SemanticReceiverState::kDestroying);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(SemanticReceiverState::kDestroyed),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_semantic_receiver_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  g_semantic_receiver_instances_destroyed.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+enum class SemanticReceiverStage {
+  kVisibility,
+  kRenderState,
+};
+
+void BeginSemanticReceiverStage(uint32_t address,
+                                SemanticReceiverStage stage) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  auto &entries = stage == SemanticReceiverStage::kVisibility
+                      ? g_semantic_visibility_entries
+                      : g_semantic_render_state_entries;
+  auto &open = stage == SemanticReceiverStage::kVisibility
+                   ? g_semantic_visibility_open
+                   : g_semantic_render_state_open;
+  auto &stack = stage == SemanticReceiverStage::kVisibility
+                    ? g_semantic_visibility_stack
+                    : g_semantic_render_state_stack;
+  size_t &depth = stage == SemanticReceiverStage::kVisibility
+                      ? g_semantic_visibility_stack_depth
+                      : g_semantic_render_state_stack_depth;
+  size_t &overflow_depth = stage == SemanticReceiverStage::kVisibility
+                               ? g_semantic_visibility_overflow_depth
+                               : g_semantic_render_state_overflow_depth;
+  entries.fetch_add(1, std::memory_order_relaxed);
+  if (depth == kSemanticReceiverStackCapacity) {
+    g_semantic_stage_stack_faults.fetch_add(1,
+                                             std::memory_order_relaxed);
+    ++overflow_depth;
+    return;
+  }
+  SemanticReceiverStageScope &scope = stack[depth++];
+  scope = {};
+  scope.address = address;
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(address);
+  if (!entry || entry->state.load(std::memory_order_acquire) !=
+                    uint32_t(SemanticReceiverState::kLive)) {
+    g_semantic_stage_unknown_receivers.fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    scope.generation = entry->generation.load(std::memory_order_relaxed);
+  }
+  open.fetch_add(1, std::memory_order_relaxed);
+}
+
+void EndSemanticReceiverStage(SemanticReceiverStage stage) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  auto &exits = stage == SemanticReceiverStage::kVisibility
+                    ? g_semantic_visibility_exits
+                    : g_semantic_render_state_exits;
+  auto &open = stage == SemanticReceiverStage::kVisibility
+                   ? g_semantic_visibility_open
+                   : g_semantic_render_state_open;
+  auto &stack = stage == SemanticReceiverStage::kVisibility
+                    ? g_semantic_visibility_stack
+                    : g_semantic_render_state_stack;
+  size_t &depth = stage == SemanticReceiverStage::kVisibility
+                      ? g_semantic_visibility_stack_depth
+                      : g_semantic_render_state_stack_depth;
+  size_t &overflow_depth = stage == SemanticReceiverStage::kVisibility
+                               ? g_semantic_visibility_overflow_depth
+                               : g_semantic_render_state_overflow_depth;
+  exits.fetch_add(1, std::memory_order_relaxed);
+  if (overflow_depth) {
+    --overflow_depth;
+    return;
+  }
+  if (!depth) {
+    g_semantic_stage_stack_faults.fetch_add(1,
+                                             std::memory_order_relaxed);
+    return;
+  }
+  const SemanticReceiverStageScope scope = stack[--depth];
+  open.fetch_sub(1, std::memory_order_relaxed);
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(scope.address);
+  if (!scope.generation || !entry ||
+      entry->state.load(std::memory_order_acquire) !=
+          uint32_t(SemanticReceiverState::kLive) ||
+      entry->generation.load(std::memory_order_relaxed) != scope.generation) {
+    g_semantic_stage_unknown_receivers.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (stage == SemanticReceiverStage::kVisibility) {
+    entry->visibility_preparations.fetch_add(1,
+                                              std::memory_order_relaxed);
+    entry->visibility_epoch.fetch_add(1, std::memory_order_release);
+  } else {
+    entry->render_state_visibility_epoch.store(
+        entry->visibility_epoch.load(std::memory_order_acquire),
+        std::memory_order_relaxed);
+    entry->render_state_preparations.fetch_add(1,
+                                                std::memory_order_relaxed);
+    entry->render_state_epoch.fetch_add(1, std::memory_order_release);
+  }
+}
+
+bool ResolveSemanticReceiver(uint32_t address, uint32_t *generation,
+                             uint64_t *visibility_epoch,
+                             uint64_t *render_state_epoch,
+                             uint64_t *render_state_visibility_epoch) {
+  g_semantic_receiver_dispatches.fetch_add(1, std::memory_order_relaxed);
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(address);
+  if (!entry) {
+    g_semantic_receiver_unregistered_dispatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return false;
+  }
+  const auto state = static_cast<SemanticReceiverState>(
+      entry->state.load(std::memory_order_acquire));
+  if (state != SemanticReceiverState::kLive) {
+    if (state == SemanticReceiverState::kDestroying) {
+      g_semantic_receiver_destroying_dispatches.fetch_add(
+          1, std::memory_order_relaxed);
+    } else {
+      g_semantic_receiver_destroyed_dispatches.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    return false;
+  }
+  *generation = entry->generation.load(std::memory_order_relaxed);
+  if (entry->state.load(std::memory_order_acquire) !=
+      uint32_t(SemanticReceiverState::kLive)) {
+    g_semantic_receiver_destroying_dispatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return false;
+  }
+  entry->dispatches.fetch_add(1, std::memory_order_relaxed);
+  *visibility_epoch =
+      entry->visibility_epoch.load(std::memory_order_acquire);
+  *render_state_epoch =
+      entry->render_state_epoch.load(std::memory_order_acquire);
+  *render_state_visibility_epoch =
+      entry->render_state_visibility_epoch.load(std::memory_order_relaxed);
+  if (!*visibility_epoch) {
+    entry->dispatches_without_visibility.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (!*render_state_epoch) {
+    entry->dispatches_without_render_state.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (*visibility_epoch && *render_state_epoch &&
+      *render_state_visibility_epoch) {
+    entry->dispatches_with_preparation.fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    entry->dispatches_without_preparation.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  g_semantic_receiver_live_dispatches.fetch_add(
+      1, std::memory_order_relaxed);
+  return *generation != 0;
+}
+
 void PushIndirectContextOrigin(uint32_t function_address,
                                uint32_t return_address, uint32_t r3,
                                uint32_t r4, uint32_t r5, uint32_t r6,
@@ -754,6 +1273,14 @@ void PushIndirectContextOrigin(uint32_t function_address,
   context.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
   context.root_address =
       DeriveIndirectContextRoot(function_address, context.arguments);
+  if (function_address == 0x82417BC0) {
+    context.semantic_receiver_address = r3;
+    context.semantic_receiver_known = ResolveSemanticReceiver(
+        r3, &context.semantic_receiver_generation,
+        &context.semantic_visibility_epoch,
+        &context.semantic_render_state_epoch,
+        &context.semantic_render_state_visibility_epoch);
+  }
   context.valid = true;
   g_indirect_context_invocations_open.fetch_add(1,
                                                  std::memory_order_relaxed);
@@ -1090,11 +1617,23 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
   entry.context_return_address = origin.owner.producer.context.return_address;
   entry.context_arguments = origin.owner.producer.context.arguments;
   entry.context_root_address = origin.owner.producer.context.root_address;
+  entry.semantic_receiver_address =
+      origin.owner.producer.context.semantic_receiver_address;
+  entry.semantic_receiver_generation =
+      origin.owner.producer.context.semantic_receiver_generation;
+  entry.semantic_visibility_epoch =
+      origin.owner.producer.context.semantic_visibility_epoch;
+  entry.semantic_render_state_epoch =
+      origin.owner.producer.context.semantic_render_state_epoch;
+  entry.semantic_render_state_visibility_epoch =
+      origin.owner.producer.context.semantic_render_state_visibility_epoch;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
   entry.producer_origin_known = origin.owner.producer.valid;
   entry.context_origin_known = origin.owner.producer.context.valid;
+  entry.semantic_receiver_known =
+      origin.owner.producer.context.semantic_receiver_known;
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
@@ -1180,6 +1719,19 @@ void ObserveIndirectBuffer(
         matched.context_arguments;
     active.constructor_origin.owner.producer.context.root_address =
         matched.context_root_address;
+    active.constructor_origin.owner.producer.context.semantic_receiver_address =
+        matched.semantic_receiver_address;
+    active.constructor_origin.owner.producer.context
+        .semantic_receiver_generation = matched.semantic_receiver_generation;
+    active.constructor_origin.owner.producer.context.semantic_visibility_epoch =
+        matched.semantic_visibility_epoch;
+    active.constructor_origin.owner.producer.context.semantic_render_state_epoch =
+        matched.semantic_render_state_epoch;
+    active.constructor_origin.owner.producer.context
+        .semantic_render_state_visibility_epoch =
+        matched.semantic_render_state_visibility_epoch;
+    active.constructor_origin.owner.producer.context.semantic_receiver_known =
+        matched.semantic_receiver_known;
     active.constructor_origin.owner.producer.context.valid =
         matched.context_origin_known;
     active.depth = observation.depth;
@@ -2076,11 +2628,18 @@ struct CommandBufferLineageEntry {
   uint32_t context_argument_varying_mask = 0;
   uint32_t sample_context_root_address = 0;
   bool context_root_address_varied = false;
+  uint32_t semantic_receiver_address = 0;
+  uint32_t semantic_receiver_generation = 0;
+  uint64_t semantic_visibility_epoch = 0;
+  uint64_t semantic_render_state_epoch = 0;
+  uint64_t semantic_render_state_visibility_epoch = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
+  bool semantic_receiver_known = false;
+  bool semantic_preparation_epoch_varied = false;
   bool prepared_signature_varied = false;
 };
 
@@ -3573,6 +4132,10 @@ void RecordPreparedCommandBufferLineage(
         uint64_t(constructor_origin.owner.producer.return_address),
         uint64_t(constructor_origin.owner.producer.context.function_address),
         uint64_t(constructor_origin.owner.producer.context.return_address),
+        uint64_t(
+            constructor_origin.owner.producer.context.semantic_receiver_address),
+        uint64_t(constructor_origin.owner.producer.context
+                     .semantic_receiver_generation),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -3631,6 +4194,20 @@ void RecordPreparedCommandBufferLineage(
           constructor_origin.owner.producer.context.root_address;
       entry.context_origin_known =
           constructor_origin.owner.producer.context.valid;
+      entry.semantic_receiver_address = constructor_origin.owner.producer
+                                            .context.semantic_receiver_address;
+      entry.semantic_receiver_generation =
+          constructor_origin.owner.producer.context
+              .semantic_receiver_generation;
+      entry.semantic_visibility_epoch = constructor_origin.owner.producer
+                                            .context.semantic_visibility_epoch;
+      entry.semantic_render_state_epoch = constructor_origin.owner.producer
+                                              .context.semantic_render_state_epoch;
+      entry.semantic_render_state_visibility_epoch =
+          constructor_origin.owner.producer.context
+              .semantic_render_state_visibility_epoch;
+      entry.semantic_receiver_known = constructor_origin.owner.producer.context
+                                          .semantic_receiver_known;
       entry.depth = observation.command_buffer_depth;
       ++g_command_buffer_lineage_entry_count;
       return;
@@ -3648,8 +4225,24 @@ void RecordPreparedCommandBufferLineage(
             constructor_origin.owner.producer.context.function_address &&
         entry.context_return_address ==
             constructor_origin.owner.producer.context.return_address &&
+        entry.semantic_receiver_address ==
+            constructor_origin.owner.producer.context
+                .semantic_receiver_address &&
+        entry.semantic_receiver_generation ==
+            constructor_origin.owner.producer.context
+                .semantic_receiver_generation &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
+      entry.semantic_preparation_epoch_varied |=
+          entry.semantic_visibility_epoch !=
+              constructor_origin.owner.producer.context
+                  .semantic_visibility_epoch ||
+          entry.semantic_render_state_epoch !=
+              constructor_origin.owner.producer.context
+                  .semantic_render_state_epoch ||
+          entry.semantic_render_state_visibility_epoch !=
+              constructor_origin.owner.producer.context
+                  .semantic_render_state_visibility_epoch;
       entry.last_frame = observation.frame_sequence;
       entry.last_draw = observation.draw_sequence;
       entry.min_packet_offset_bytes =
@@ -3850,9 +4443,106 @@ void EmitCommandBufferLineageSummary() {
               : "unknown"},
          {"context_root_address_varied",
           entry.context_root_address_varied ? "true" : "false"},
+         {"semantic_receiver_class",
+          entry.semantic_receiver_known
+              ? "proceduralGeometry::CProceduralModels"
+              : "unknown"},
+         {"semantic_receiver_address",
+          entry.semantic_receiver_known
+              ? fmt::format("{:08X}", entry.semantic_receiver_address)
+              : "unknown"},
+         {"semantic_receiver_generation",
+          entry.semantic_receiver_known
+              ? std::to_string(entry.semantic_receiver_generation)
+              : "unknown"},
+         {"semantic_visibility_epoch",
+          entry.semantic_receiver_known
+              ? std::to_string(entry.semantic_visibility_epoch)
+              : "unknown"},
+         {"semantic_render_state_epoch",
+          entry.semantic_receiver_known
+              ? std::to_string(entry.semantic_render_state_epoch)
+              : "unknown"},
+         {"semantic_render_state_visibility_epoch",
+          entry.semantic_receiver_known
+              ? std::to_string(entry.semantic_render_state_visibility_epoch)
+              : "unknown"},
+         {"semantic_preparation_epoch_varied",
+          entry.semantic_preparation_epoch_varied ? "true" : "false"},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  uint64_t semantic_receivers_tracked = 0;
+  uint64_t semantic_receivers_live = 0;
+  uint64_t semantic_receivers_destroying = 0;
+  uint64_t semantic_receivers_destroyed = 0;
+  for (const SemanticReceiverLifecycleEntry &entry :
+       g_semantic_receiver_lifecycles) {
+    const uint32_t address = entry.address.load(std::memory_order_acquire);
+    if (!address) {
+      continue;
+    }
+    ++semantic_receivers_tracked;
+    const auto state = static_cast<SemanticReceiverState>(
+        entry.state.load(std::memory_order_acquire));
+    const char *state_name = "empty";
+    switch (state) {
+    case SemanticReceiverState::kLive:
+      state_name = "live";
+      ++semantic_receivers_live;
+      break;
+    case SemanticReceiverState::kDestroying:
+      state_name = "destroying";
+      ++semantic_receivers_destroying;
+      break;
+    case SemanticReceiverState::kDestroyed:
+      state_name = "destroyed";
+      ++semantic_receivers_destroyed;
+      break;
+    case SemanticReceiverState::kEmpty:
+      break;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_receiver_lifecycle_entry",
+        {{"class", "proceduralGeometry::CProceduralModels"},
+         {"address", fmt::format("{:08X}", address)},
+         {"generation",
+          std::to_string(entry.generation.load(std::memory_order_relaxed))},
+         {"state", state_name},
+         {"dispatches",
+          std::to_string(entry.dispatches.load(std::memory_order_relaxed))},
+         {"visibility_preparations",
+          std::to_string(entry.visibility_preparations.load(
+              std::memory_order_relaxed))},
+         {"render_state_preparations",
+          std::to_string(entry.render_state_preparations.load(
+              std::memory_order_relaxed))},
+         {"visibility_epoch",
+          std::to_string(
+              entry.visibility_epoch.load(std::memory_order_relaxed))},
+         {"render_state_epoch",
+          std::to_string(
+              entry.render_state_epoch.load(std::memory_order_relaxed))},
+         {"render_state_visibility_epoch",
+          std::to_string(entry.render_state_visibility_epoch.load(
+              std::memory_order_relaxed))},
+         {"dispatches_with_preparation",
+          std::to_string(entry.dispatches_with_preparation.load(
+              std::memory_order_relaxed))},
+         {"dispatches_without_preparation",
+          std::to_string(entry.dispatches_without_preparation.load(
+              std::memory_order_relaxed))},
+         {"dispatches_without_visibility",
+          std::to_string(entry.dispatches_without_visibility.load(
+              std::memory_order_relaxed))},
+         {"dispatches_without_render_state",
+          std::to_string(entry.dispatches_without_render_state.load(
+              std::memory_order_relaxed))},
+         {"identity_join", "exact_constructor_receiver_address"},
+         {"guest_payload_read", "false"},
          {"xenos_authority", "true"},
          {"suppression_allowed", "false"}});
   }
@@ -3959,12 +4649,99 @@ void EmitCommandBufferLineageSummary() {
        {"indirect_producer_context_mismatches",
         std::to_string(g_indirect_producer_context_mismatches.load(
             std::memory_order_relaxed))},
+       {"semantic_receiver_class",
+        "proceduralGeometry::CProceduralModels"},
+       {"semantic_receiver_constructor_entries",
+        std::to_string(g_semantic_receiver_constructor_entries.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_constructor_exits",
+        std::to_string(g_semantic_receiver_constructor_exits.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_constructor_open_at_shutdown",
+        std::to_string(g_semantic_receiver_constructor_open.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destructor_entries",
+        std::to_string(g_semantic_receiver_destructor_entries.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destructor_exits",
+        std::to_string(g_semantic_receiver_destructor_exits.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destructor_open_at_shutdown",
+        std::to_string(g_semantic_receiver_destructor_open.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_stack_faults",
+        std::to_string(g_semantic_receiver_stack_faults.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_instances_published",
+        std::to_string(g_semantic_receiver_instances_published.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_instances_destroyed",
+        std::to_string(g_semantic_receiver_instances_destroyed.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_address_reuses",
+        std::to_string(g_semantic_receiver_address_reuses.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_table_overflow",
+        std::to_string(g_semantic_receiver_table_overflow.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_dispatches",
+        std::to_string(g_semantic_receiver_dispatches.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_live_dispatches",
+        std::to_string(g_semantic_receiver_live_dispatches.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_unregistered_dispatches",
+        std::to_string(g_semantic_receiver_unregistered_dispatches.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destroying_dispatches",
+        std::to_string(g_semantic_receiver_destroying_dispatches.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destroyed_dispatches",
+        std::to_string(g_semantic_receiver_destroyed_dispatches.load(
+            std::memory_order_relaxed))},
+       {"semantic_receiver_destructors_without_instance",
+        std::to_string(g_semantic_receiver_destructors_without_instance.load(
+            std::memory_order_relaxed))},
+       {"semantic_visibility_entries",
+        std::to_string(
+            g_semantic_visibility_entries.load(std::memory_order_relaxed))},
+       {"semantic_visibility_exits",
+        std::to_string(
+            g_semantic_visibility_exits.load(std::memory_order_relaxed))},
+       {"semantic_visibility_open_at_shutdown",
+        std::to_string(
+            g_semantic_visibility_open.load(std::memory_order_relaxed))},
+       {"semantic_render_state_entries",
+        std::to_string(g_semantic_render_state_entries.load(
+            std::memory_order_relaxed))},
+       {"semantic_render_state_exits",
+        std::to_string(
+            g_semantic_render_state_exits.load(std::memory_order_relaxed))},
+       {"semantic_render_state_open_at_shutdown",
+        std::to_string(
+            g_semantic_render_state_open.load(std::memory_order_relaxed))},
+       {"semantic_stage_stack_faults",
+        std::to_string(
+            g_semantic_stage_stack_faults.load(std::memory_order_relaxed))},
+       {"semantic_stage_unknown_receivers",
+        std::to_string(g_semantic_stage_unknown_receivers.load(
+            std::memory_order_relaxed))},
+       {"semantic_receivers_tracked",
+        std::to_string(semantic_receivers_tracked)},
+       {"semantic_receivers_live_at_shutdown",
+        std::to_string(semantic_receivers_live)},
+       {"semantic_receivers_destroying_at_shutdown",
+        std::to_string(semantic_receivers_destroying)},
+       {"semantic_receivers_destroyed",
+        std::to_string(semantic_receivers_destroyed)},
        {"indirect_buffers_open_at_shutdown",
         std::to_string(g_title_indirect_buffers_open.load(
             std::memory_order_relaxed))},
        {"correlation",
         "exact_title_store_to_backend_nested_command_buffer_shape"},
        {"semantic_identity", "unknown"},
+       {"semantic_receiver_identity",
+        "exact_rtti_lifetime_and_preparation_join"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -6335,6 +7112,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                             {"resolve_summary_limit", "32"},
                             {"prepared_shader_pair_capacity", "1024"},
                             {"command_buffer_lineage_capacity", "4096"},
+                            {"semantic_receiver_lifecycle_capacity", "1024"},
                             {"guest_cpu_visibility_target_capacity", "64"},
                             {"scene", scene},
                             {"mode", g_sky_horizon_suppression.armed
@@ -6349,8 +7127,32 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "title_store,constructor_function,constructor_return,r3-r10,"
         "owner_function,owner_return,owner_r3-r10,producer_function,"
         "producer_return,producer_r3-r10,context_function,context_return,"
-        "context_r3-r10,context_root,backend_packet,"
+        "context_r3-r10,context_root,semantic_receiver_generation,"
+        "semantic_visibility_epoch,semantic_render_state_epoch,"
+        "backend_packet,"
         "current_buffer,parent_packet,root_buffer,depth"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_receiver_config",
+      {{"status", "armed"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"dispatch", "82417BC0"},
+       {"receiver", "entry_r3"},
+       {"command_root", "entry_r6_plus_59712"},
+       {"constructor", "82E1C9A0"},
+       {"destructor", "82E1CA28"},
+       {"deleting_destructor", "82E1D9B0"},
+       {"object_size", "512"},
+       {"visibility_function", "82E1FD00"},
+       {"render_state_function", "824170D8"},
+       {"descriptor_record_stride", "92"},
+       {"runtime_record_stride", "68"},
+       {"transform_matrix_ranges", "320:64,384:64,448:64"},
+       {"identity_join", "exact_constructor_receiver_address_generation"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -7168,6 +7970,38 @@ PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(824365B0)
 PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(829F6620)
 
 #undef PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS
+
+void PinyonShiftObserveProceduralModelConstructorEntry(PPCRegister &r3) {
+  BeginSemanticReceiverConstruction(r3.u32);
+}
+
+void PinyonShiftObserveProceduralModelConstructorExit() {
+  EndSemanticReceiverConstruction();
+}
+
+void PinyonShiftObserveProceduralModelDestructorEntry(PPCRegister &r3) {
+  BeginSemanticReceiverDestruction(r3.u32);
+}
+
+void PinyonShiftObserveProceduralModelDestructorExit() {
+  EndSemanticReceiverDestruction();
+}
+
+void PinyonShiftObserveProceduralModelVisibilityEntry(PPCRegister &r3) {
+  BeginSemanticReceiverStage(r3.u32, SemanticReceiverStage::kVisibility);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityExit() {
+  EndSemanticReceiverStage(SemanticReceiverStage::kVisibility);
+}
+
+void PinyonShiftObserveProceduralModelRenderStateEntry(PPCRegister &r3) {
+  BeginSemanticReceiverStage(r3.u32, SemanticReceiverStage::kRenderState);
+}
+
+void PinyonShiftObserveProceduralModelRenderStateExit() {
+  EndSemanticReceiverStage(SemanticReceiverStage::kRenderState);
+}
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
                                                PPCRegister &r28) {

@@ -107,3 +107,12 @@ shutdown event. The visually inspected frame retained the car, crowd, stage,
 structures, sky, lighting, HUD, and interaction prompt. Median derived
 performance was 30.514 FPS, the 1% low was 19.185 FPS, present cadence was
 59.981 Hz, and present-deadline and XMA stall counters were zero.
+
+The first semantic refinement is documented in
+`PROCEDURAL_MODEL_RECEIVER_LIFETIME.md`. It identifies entry `r3` of
+`82417BC0` as a live `proceduralGeometry::CProceduralModels` receiver through
+RTTI, vtable, constructor, destructor, and exact runtime address-generation
+evidence. Slot 14 visibility and slot 40 render-state epochs now accompany
+that live generation into slot 41 when those optional stages have occurred.
+Alternate stage routes remain explicit in the report. It deliberately keeps
+the separate `r6 + 59712` command root non-semantic.

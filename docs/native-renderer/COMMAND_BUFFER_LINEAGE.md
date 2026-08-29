@@ -157,3 +157,14 @@ identity. Session `20260829T162653Z-p41196` runtime-qualified 5,311,650 exact
 context-origin draws with zero unresolved origins, stack faults, join faults,
 invalid lineages, or overflow. It remains metadata-only, Xenos-authoritative,
 and suppression-ineligible.
+
+`PROCEDURAL_MODEL_RECEIVER_LIFETIME.md` defines the first semantic receiver
+join. For `82417BC0` only, a prepared lineage may carry an exact live
+`proceduralGeometry::CProceduralModels` receiver address and generation.
+That lineage also carries the latest completed slot 14 visibility epoch, slot
+40 render-state epoch, and the visibility epoch consumed by slot 40. Runtime
+evidence shows those stages are optional histories, not universal dispatch
+prerequisites. Impossible or unbalanced stage history remains explicit
+fail-closed evidence, and alternate routes remain counted. Mesh,
+material, instance, LOD, and streaming semantics remain unknown, and the
+receiver join does not change Xenos authority.

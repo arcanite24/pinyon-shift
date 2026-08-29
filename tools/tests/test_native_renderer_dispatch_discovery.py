@@ -360,12 +360,149 @@ def context_fixtures():
     ]
 
 
+def procedural_model_lifecycle_fixtures():
+    return [
+        fixture(
+            0x82E1C9A0,
+            [
+                "mflr r12",
+                "loc_82E1C9B8:",
+                "bl 0x82e19478",
+                "loc_82E1C9BC:",
+                "lis r11,-32256",
+                "loc_82E1C9C4:",
+                "addi r11,r11,11100",
+                "loc_82E1C9D0:",
+                "stw r11,0(r31)",
+                "loc_82E1CA0C:",
+                "addi r1,r1,112",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82E1CA28,
+            [
+                "mflr r12",
+                "loc_82E1CA3C:",
+                "lis r11,-32256",
+                "loc_82E1CA48:",
+                "addi r11,r11,11100",
+                "loc_82E1CA50:",
+                "stw r11,0(r3)",
+                "loc_82E1CBCC:",
+                "bl 0x82e1c0c0",
+                "loc_82E1CBD0:",
+                "addi r1,r1,112",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82E1D9B0,
+            [
+                "mflr r12",
+                "loc_82E1D9CC:",
+                "bl 0x82e1ca28",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82E1CDC8,
+            [
+                "mflr r12",
+                "loc_82E1CDD8:",
+                "rlwinm r3,r3,9,0,22",
+                "loc_82E1CDFC:",
+                "bl 0x82e1c9a0",
+                "loc_82E1CE04:",
+                "addi r31,r31,512",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82E1FD00,
+            [
+                "mflr r12",
+                "loc_82E1FD20:",
+                "mr r20,r3",
+                "loc_82E1FD40:",
+                "lwz r11,124(r3)",
+                "loc_82E1FD4C:",
+                "lwz r11,136(r3)",
+                "loc_82E1FE10:",
+                "lwz r11,128(r20)",
+                "loc_82E1FEB8:",
+                "lwz r9,128(r20)",
+                "loc_82E20048:",
+                "lwz r11,124(r20)",
+                "loc_82E20854:",
+                "addi r18,r18,92",
+                "loc_82E20858:",
+                "addi r17,r17,68",
+                "loc_82E208CC:",
+                "addi r1,r1,704",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x824170D8,
+            [
+                "mflr r12",
+                "loc_824172F8:",
+                "vmaddfp v1,v31,v0,v30",
+                "loc_82417304:",
+                "mr r3,r31",
+                "loc_82417410:",
+                "addi r1,r1,256",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82417418,
+            [
+                "mflr r12",
+                "loc_82417494:",
+                "addi r30,r27,448",
+                "loc_824174D8:",
+                "addi r30,r27,320",
+                "loc_8241751C:",
+                "addi r30,r27,384",
+                "loc_82417668:",
+                "lwz r10,124(r27)",
+                "loc_824176AC:",
+                "lwz r10,128(r27)",
+                "loc_824176B0:",
+                "mulli r11,r9,68",
+                "blr",
+            ],
+        ),
+    ]
+
+
+def procedural_model_image():
+    decorated = b".?AVCProceduralModels@proceduralGeometry@@\0"
+    image = bytearray(0x12B9EE4 + len(decorated))
+
+    def store(address, value):
+        offset = address - MODULE.IMAGE_BASE
+        image[offset : offset + 4] = value.to_bytes(4, "big")
+
+    store(0x82002B58, 0x82363C9C)
+    store(0x82002B5C, 0x82E1D9B0)
+    store(0x82002B94, 0x82E1FD00)
+    store(0x82002BFC, 0x824170D8)
+    store(0x82002C00, 0x82417BC0)
+    store(0x82363CA8, 0x832B9EDC)
+    name_offset = 0x832B9EDC - MODULE.IMAGE_BASE + 8
+    image[name_offset : name_offset + len(decorated)] = decorated
+    return bytes(image)
+
+
 class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
-    def build(self, chunks):
+    def build(self, chunks, image=None):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "pinyon_shift_recomp.1.cpp"
             path.write_text("\n\n".join(chunks), encoding="utf-8")
-            return MODULE.build([path])
+            return MODULE.build([path], image)
 
     def test_finds_reviewed_wrappers_and_direct_calls(self):
         caller = fixture(
@@ -639,6 +776,51 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "producer edge drifted"):
             self.build([*reviewed_fixtures(), *producer_fixtures(), *contexts])
 
+    def test_proves_procedural_model_receiver_lifecycle(self):
+        document = self.build(
+            [
+                *reviewed_fixtures(),
+                *context_fixtures(),
+                *procedural_model_lifecycle_fixtures(),
+            ],
+            procedural_model_image(),
+        )
+        lifecycle = document["procedural_model_receiver_lifecycle"]
+        self.assertEqual(
+            "proceduralGeometry::CProceduralModels", lifecycle["class_name"]
+        )
+        self.assertEqual(41, lifecycle["vtable_slot"])
+        self.assertEqual("82417BC0", lifecycle["dispatch_function_address"])
+        self.assertEqual("r3", lifecycle["receiver_entry_register"])
+        self.assertEqual("r6+59712", lifecycle["command_root_derivation"])
+        self.assertFalse(lifecycle["receiver_is_command_root"])
+        self.assertTrue(lifecycle["rtti_vtable_identity_proved"])
+        self.assertTrue(lifecycle["constructor_destructor_pair_proved"])
+        self.assertEqual(512, lifecycle["object_size"])
+        self.assertTrue(lifecycle["visibility_preparation_boundary_proved"])
+        self.assertTrue(lifecycle["render_state_boundary_proved"])
+        self.assertEqual(
+            92, lifecycle["field_layout"]["descriptor_record_stride"]
+        )
+        self.assertEqual(
+            68, lifecycle["field_layout"]["runtime_record_stride"]
+        )
+        self.assertFalse(lifecycle["suppression_eligible"])
+
+    def test_rejects_drifted_procedural_model_vtable_slot(self):
+        image = bytearray(procedural_model_image())
+        offset = 0x82002C00 - MODULE.IMAGE_BASE
+        image[offset : offset + 4] = (0x824365B0).to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "RTTI/vtable evidence drifted"):
+            self.build(
+                [
+                    *reviewed_fixtures(),
+                    *context_fixtures(),
+                    *procedural_model_lifecycle_fixtures(),
+                ],
+                bytes(image),
+            )
+
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -707,6 +889,26 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 analysis.count(
                     f'name = "PinyonShiftObserveIndirectConstructor{function}Exit"'
+                ),
+                1,
+            )
+        for name, entry, exit_address in (
+            ("Constructor", "82E1C9A4", "82E1CA0C"),
+            ("Destructor", "82E1CA2C", "82E1CBD0"),
+            ("Visibility", "82E1FD04", "82E208CC"),
+            ("RenderState", "824170DC", "82417410"),
+        ):
+            self.assertIn(f"address = 0x{entry}", analysis)
+            self.assertIn(f"address = 0x{exit_address}", analysis)
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveProceduralModel{name}Entry"'
+                ),
+                1,
+            )
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveProceduralModel{name}Exit"'
                 ),
                 1,
             )
