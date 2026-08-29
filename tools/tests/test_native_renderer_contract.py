@@ -106,6 +106,68 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"bounded_guest_read": True', summarizer)
         self.assertIn('"suppression_allowed": False', summarizer)
 
+    def test_visibility_lod_census_is_exact_bounded_and_passive(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility.py"
+        ).read_text(encoding="utf-8")
+        hooks = {
+            "PinyonShiftObserveProceduralModelVisibilityRecordEntry": (
+                "0x82E20094"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityLodPrimary": (
+                "0x82E205E4"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityLodSecondary": (
+                "0x82E206DC"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityResult": "0x82E206F8",
+            "PinyonShiftObserveProceduralModelVisibilityRecordExit": (
+                "0x82E2084C"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityRuntimeThreshold": (
+                "0x82E20134"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold": (
+                "0x82E201B0"
+            ),
+        }
+        for name, address in hooks.items():
+            self.assertEqual(analysis.count(f'name = "{name}"'), 1)
+            hook = analysis.split(f'name = "{name}"', 1)[0].rsplit(
+                "[[midasm_hook]]", 1
+            )[1]
+            self.assertIn(f"address = {address}", hook)
+            self.assertNotIn("jump_address", hook)
+        self.assertIn("kSemanticVisibilityCategoryCapacity = 32", source)
+        self.assertIn("kSemanticVisibilityLodCapacity = 32", source)
+        self.assertIn("title_authoritative_visibility_and_lod_observation", source)
+        self.assertNotIn("REX_STORE", source)
+        self.assertIn('"native_culling": False', summarizer)
+        self.assertIn('"native_lod": False', summarizer)
+        self.assertIn('"xenos_authority": True', summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
+
+        policy_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-policy.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "kSemanticVisibilitySpatialExponentCapacity = 256", source
+        )
+        self.assertIn(
+            "title_spatial_policy_input_outcome_correlation", source
+        )
+        self.assertIn(
+            '"native_policy_execution_enabled": False', policy_summarizer
+        )
+        self.assertIn('"xenos_authority": True', policy_summarizer)
+        self.assertIn('"suppression_allowed": False', policy_summarizer)
+
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

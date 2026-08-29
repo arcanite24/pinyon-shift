@@ -1,0 +1,102 @@
+# Visibility policy ABI candidates
+
+The first NR-05D runtime census proves the title's visibility and LOD outcomes.
+This checkpoint narrows the inputs that produce those outcomes without naming
+an unproven camera, frustum, or bounds layout.
+
+## Proven structural flow
+
+The slot-14 function preserves its second and third arguments, then partitions
+both by title category:
+
+| Input | Structural use | Evidence |
+| --- | --- | --- |
+| receiver `+4` | shared spatial context | vectors loaded at `+16` and `+32` |
+| argument `r4` | category spatial table | `category * 192`; scalars at `+160`, `+164`, `+168` |
+| argument `r5` | category query table | `category * 32` before helper dispatch |
+| descriptor `+60` | squared-distance comparison scalar | compared against the shared `f26` value |
+| runtime `+44` | earlier squared-distance threshold | compared against the same `f26` value |
+
+The shared context vectors feed a clamp/subtract/vector-sum sequence whose
+result is retained in `f26`. The category query reaches helpers `0x8243F9A0`
+and `0x82441048` before record iteration. These derivations and exact
+instructions are now part of static discovery, so binary or recompilation drift
+fails closed.
+
+The first helper interpolates between the two vector arguments, forms a
+three-component squared delta, and delegates to `0x8243FD70`. That predicate
+loads a query vector at offset 0 plus scalars at offsets 16, 20, and 24, then
+compares scaled squared distances. The second helper loads six 16-byte vector
+blocks at offsets 0 through 80, combines vector comparisons for both input
+endpoints, and returns only 0, 1, or 2. Static discovery now proves those exact
+structures as well as their callsites.
+
+## Deliberately unproven semantics
+
+The arithmetic is consistent with point-to-box squared distance and the helper
+pair is consistent with spatial/frustum policy, but those names are not yet an
+ABI contract. We have not proved:
+
+- which shared-context vector is minimum, maximum, eye, or focus position;
+- a camera or frustum-plane layout;
+- whether the category scalars are extents, margins, ranges, or mode data;
+- the descriptor/runtime scalar units or all category-specific branches.
+
+The helper shapes strengthen the segment-distance and six-vector-classifier
+hypotheses, but do not by themselves prove world-space units or that the six
+vectors are camera frustum planes.
+
+Accordingly this checkpoint enables only a future passive input/outcome
+correlation census. Native policy execution, native culling, native LOD, guest
+state mutation, draw suppression, and Xenos replacement remain disabled.
+
+## Passive input/outcome correlation
+
+That census is now implemented at three register-only boundaries:
+
+| Boundary | Address | Captured title value |
+| --- | --- | --- |
+| record entry | `0x82E20094` | shared squared spatial value in `f26` |
+| runtime-scalar comparison | `0x82E20134` | `f26` versus squared runtime `+44` scalar in `f0` |
+| descriptor-scalar comparison | `0x82E201B0` | `f26` versus scaled-and-squared descriptor `+60` scalar in `f0` |
+
+Every completed record joins those observations to its title outcome and
+category. A bounded 256-bin IEEE-754 exponent histogram preserves the spatial
+value distribution separately for early rejection, evaluated rejection, and
+selection without logging raw per-object values. Per-category summaries retain
+threshold reach and comparison counts. Non-finite/negative inputs, duplicate or
+orphan threshold hooks, category drift, histogram drift, or any native-policy
+flag fail qualification closed.
+
+Generate the static contract and the runtime report with:
+
+```powershell
+python tools/discover-native-renderer-dispatch.py `
+  .local/generated/default `
+  --image .local/analysis/default-image.bin `
+  --output .local/qualification/native-renderer-visibility-policy-static.json
+
+python tools/summarize-native-renderer-visibility-policy.py `
+  <diagnostic-jsonl> `
+  --static .local/qualification/native-renderer-visibility-policy-static.json `
+  --output .local/qualification/native-renderer-visibility-policy.json
+```
+
+## Runtime qualification
+
+The consolidated AppData-backed Release capture
+`20260829T230622Z-p39648` completed normally. It correlated 1,768,409 record
+outcomes and the same number of spatial samples, including 1,694,229 early
+rejections, 60,660 evaluated rejections, and 13,520 selections. All threshold
+hooks joined to an open record. Duplicate hooks, orphan hooks, lifecycle and
+identity faults, category and histogram overflow, and invalid spatial or
+threshold values were all zero.
+
+The capture also observed both comparison boundaries in meaningful numbers:
+1,687,112 runtime-threshold observations and 334,276 descriptor-threshold
+observations. Median performance was 30.195 FPS over 8,034 frames, with no
+present-deadline misses and a normal exit.
+
+This qualifies the passive structural input/outcome contract for semantic
+hypothesis testing. It still does not prove camera, frustum, bounds, or unit
+semantics, and it does not enable native policy execution.
