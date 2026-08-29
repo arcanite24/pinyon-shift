@@ -94,6 +94,8 @@ constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
 constexpr size_t kSemanticPreparedTemplateCapacity =
     kTitleDrawProvenanceCapacity;
+constexpr size_t kSemanticBatchOpportunityCapacity =
+    kTitleDrawProvenanceCapacity;
 constexpr size_t kSemanticDescriptorWordCount = 92 / sizeof(uint32_t);
 constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
 constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
@@ -143,8 +145,13 @@ struct SemanticDrawIdentity {
   uint32_t record_index = 0;
   uint32_t descriptor_address = 0;
   uint32_t runtime_address = 0;
+  uint32_t descriptor_kind = 0;
+  uint32_t helper_state = 0;
+  uint32_t primary_resource_key = 0;
+  uint32_t secondary_resource_key = 0;
   uint32_t direct_title_origins = 0;
   uint32_t indirect_packet_origins = 0;
+  bool secondary_resource_present = false;
   bool valid = false;
 };
 
@@ -198,6 +205,55 @@ struct SemanticPreparedDrawContract {
   bool indexed = false;
   bool geometry_bounded = false;
   bool texture_layout_bounded = false;
+  bool valid = false;
+};
+
+enum class SemanticBatchRejection : uint32_t {
+  kNone = 0,
+  kMissingTitleResource = 1,
+  kNonOpaque = 2,
+  kResolvedInput = 3,
+  kQueryOrConditional = 4,
+  kMemexport = 5,
+  kUnboundedGeometry = 6,
+  kUnsupportedGeometry = 7,
+  kConstantOverflow = 8,
+  kUnboundedTextureLayout = 9,
+  kTextureCount = 10,
+  kIncompletePreparedPipeline = 11,
+  kRenderTargetCoverage = 12,
+  kCount = 13,
+};
+
+struct SemanticBatchOpportunityEntry {
+  uint64_t key = 0;
+  uint64_t template_key = 0;
+  uint64_t geometry_resource_hash = 0;
+  uint64_t texture_resource_hash = 0;
+  uint64_t draws = 0;
+  uint64_t frames = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t consecutive_runs = 0;
+  uint64_t multi_draw_runs = 0;
+  uint64_t multi_draw_draws = 0;
+  uint64_t maximum_run_length = 0;
+  uint64_t instance_switches = 0;
+  uint64_t same_instance_continuations = 0;
+  uint32_t primary_resource_key = 0;
+  uint32_t secondary_resource_key = 0;
+  SemanticBatchRejection rejection = SemanticBatchRejection::kNone;
+  bool secondary_resource_present = false;
+};
+
+struct SemanticBatchRun {
+  uint64_t key = 0;
+  uint64_t frame = 0;
+  uint64_t length = 0;
+  size_t opportunity_index = 0;
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
   bool valid = false;
 };
 
@@ -294,6 +350,9 @@ std::array<TitlePacketProvenanceEntry, kTitlePacketProvenanceCapacity>
     g_title_packet_provenance{};
 std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
     g_title_draw_provenance{};
+std::array<SemanticBatchOpportunityEntry,
+           kSemanticBatchOpportunityCapacity>
+    g_semantic_batch_opportunities{};
 std::array<TitleIndirectPacketEntry, kTitleIndirectPacketCapacity>
     g_title_indirect_packets{};
 std::mutex g_title_packet_provenance_mutex;
@@ -320,6 +379,32 @@ std::atomic<uint64_t> g_title_origin_stack_overflow{};
 std::atomic<uint64_t> g_title_packets_without_origin{};
 uint64_t g_title_draw_provenance_count = 0;
 uint64_t g_title_draw_provenance_overflow = 0;
+uint64_t g_semantic_batch_observations = 0;
+uint64_t g_semantic_batch_eligible_draws = 0;
+uint64_t g_semantic_batch_rejected_draws = 0;
+uint64_t g_semantic_batch_opportunity_count = 0;
+uint64_t g_semantic_batch_opportunity_overflow = 0;
+uint64_t g_semantic_batch_consecutive_runs = 0;
+uint64_t g_semantic_batch_multi_draw_runs = 0;
+uint64_t g_semantic_batch_multi_draw_draws = 0;
+uint64_t g_semantic_batch_maximum_run_length = 0;
+uint64_t g_semantic_batch_instance_switches = 0;
+uint64_t g_semantic_batch_same_instance_continuations = 0;
+uint64_t g_semantic_batch_frame_count = 0;
+uint64_t g_semantic_batch_current_frame = 0;
+uint64_t g_semantic_batch_current_frame_draws = 0;
+uint64_t g_semantic_batch_maximum_draws_per_frame = 0;
+uint64_t g_semantic_batch_template_transitions = 0;
+uint64_t g_semantic_batch_geometry_transitions = 0;
+uint64_t g_semantic_batch_texture_transitions = 0;
+uint64_t g_semantic_batch_title_resource_transitions = 0;
+std::array<uint64_t, size_t(SemanticBatchRejection::kCount)>
+    g_semantic_batch_rejections{};
+SemanticBatchRun g_semantic_batch_run{};
+SemanticPreparedDrawContract g_semantic_batch_previous_contract{};
+SemanticDrawIdentity g_semantic_batch_previous_identity{};
+uint64_t g_semantic_batch_previous_frame = 0;
+bool g_semantic_batch_previous_eligible = false;
 uint64_t g_title_packet_submission_sequence = 0;
 uint64_t g_title_indirect_packets_recorded = 0;
 uint64_t g_title_indirect_packet_address_failures = 0;
@@ -824,6 +909,10 @@ void ResetTitleDrawProvenance() {
   for (TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
     entry = {};
   }
+  for (SemanticBatchOpportunityEntry &entry :
+       g_semantic_batch_opportunities) {
+    entry = {};
+  }
   for (TitleIndirectPacketEntry &entry : g_title_indirect_packets) {
     entry = {};
   }
@@ -846,6 +935,31 @@ void ResetTitleDrawProvenance() {
   g_title_packets_without_origin.store(0, std::memory_order_relaxed);
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
+  g_semantic_batch_observations = 0;
+  g_semantic_batch_eligible_draws = 0;
+  g_semantic_batch_rejected_draws = 0;
+  g_semantic_batch_opportunity_count = 0;
+  g_semantic_batch_opportunity_overflow = 0;
+  g_semantic_batch_consecutive_runs = 0;
+  g_semantic_batch_multi_draw_runs = 0;
+  g_semantic_batch_multi_draw_draws = 0;
+  g_semantic_batch_maximum_run_length = 0;
+  g_semantic_batch_instance_switches = 0;
+  g_semantic_batch_same_instance_continuations = 0;
+  g_semantic_batch_frame_count = 0;
+  g_semantic_batch_current_frame = 0;
+  g_semantic_batch_current_frame_draws = 0;
+  g_semantic_batch_maximum_draws_per_frame = 0;
+  g_semantic_batch_template_transitions = 0;
+  g_semantic_batch_geometry_transitions = 0;
+  g_semantic_batch_texture_transitions = 0;
+  g_semantic_batch_title_resource_transitions = 0;
+  g_semantic_batch_rejections = {};
+  g_semantic_batch_run = {};
+  g_semantic_batch_previous_contract = {};
+  g_semantic_batch_previous_identity = {};
+  g_semantic_batch_previous_frame = 0;
+  g_semantic_batch_previous_eligible = false;
   g_title_packet_submission_sequence = 0;
   g_title_indirect_packets_recorded = 0;
   g_title_indirect_packet_address_failures = 0;
@@ -1086,6 +1200,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"packet_key", "physical_pm4_header_address"},
        {"packet_capacity", std::to_string(kTitlePacketProvenanceCapacity)},
        {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
+       {"semantic_batch_opportunity_capacity",
+        std::to_string(kSemanticBatchOpportunityCapacity)},
        {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
        {"semantic_render_item_stack_capacity",
         std::to_string(kSemanticRenderItemStackCapacity)},
@@ -1106,7 +1222,11 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
         "backend_signature,semantic_submission_key,semantic_receiver,"
-        "semantic_record_index"},
+        "semantic_record_index,semantic_template_key,geometry_resource,"
+        "texture_resource,title_resource_keys"},
+       {"semantic_batch_planner",
+        "exact_consecutive_opaque_prepared_draw_order"},
+       {"semantic_batch_execution", "disabled_measurement_only"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -4310,7 +4430,12 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
                                      uint32_t receiver_generation,
                                      uint32_t record_index,
                                      uint32_t descriptor_address,
-                                     uint32_t runtime_address) {
+                                     uint32_t runtime_address,
+                                     uint32_t descriptor_kind,
+                                     uint32_t helper_state,
+                                     uint32_t primary_resource_key,
+                                     uint32_t secondary_resource_key,
+                                     bool secondary_resource_present) {
   if (!g_semantic_render_item_stack_depth) {
     g_semantic_draw_scope_mismatches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -4329,6 +4454,11 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
     return;
   }
   semantic_draw.submission_key = submission_key;
+  semantic_draw.descriptor_kind = descriptor_kind;
+  semantic_draw.helper_state = helper_state;
+  semantic_draw.primary_resource_key = primary_resource_key;
+  semantic_draw.secondary_resource_key = secondary_resource_key;
+  semantic_draw.secondary_resource_present = secondary_resource_present;
   semantic_draw.valid = true;
   g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
 }
@@ -4550,7 +4680,9 @@ void RecordProceduralModelGeometrySubmission(
   key = key ? key : 1;
   JoinProceduralModelSemanticDraw(
       key, receiver_address, receiver_generation, record_index,
-      descriptor_address, runtime_address);
+      descriptor_address, runtime_address, descriptor_kind, helper_state,
+      primary_resource_key, secondary_resource_key,
+      secondary_resource_present);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -7601,6 +7733,455 @@ bool IsIsolatedDrawEligible(
          (prepared.flags & 3) == 3 && prepared.bound_render_target_bits == 3;
 }
 
+const char *SemanticBatchRejectionName(SemanticBatchRejection rejection) {
+  switch (rejection) {
+  case SemanticBatchRejection::kNone:
+    return "none";
+  case SemanticBatchRejection::kMissingTitleResource:
+    return "missing_title_resource";
+  case SemanticBatchRejection::kNonOpaque:
+    return "non_opaque";
+  case SemanticBatchRejection::kResolvedInput:
+    return "resolved_input";
+  case SemanticBatchRejection::kQueryOrConditional:
+    return "query_or_conditional";
+  case SemanticBatchRejection::kMemexport:
+    return "memexport";
+  case SemanticBatchRejection::kUnboundedGeometry:
+    return "unbounded_geometry";
+  case SemanticBatchRejection::kUnsupportedGeometry:
+    return "unsupported_geometry";
+  case SemanticBatchRejection::kConstantOverflow:
+    return "constant_overflow";
+  case SemanticBatchRejection::kUnboundedTextureLayout:
+    return "unbounded_texture_layout";
+  case SemanticBatchRejection::kTextureCount:
+    return "texture_count";
+  case SemanticBatchRejection::kIncompletePreparedPipeline:
+    return "incomplete_prepared_pipeline";
+  case SemanticBatchRejection::kRenderTargetCoverage:
+    return "render_target_coverage";
+  case SemanticBatchRejection::kCount:
+    break;
+  }
+  return "unknown";
+}
+
+SemanticBatchRejection ClassifySemanticBatchRejection(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const SemanticDrawIdentity &identity,
+    const SemanticPreparedDrawContract &contract) {
+  if (!identity.primary_resource_key) {
+    return SemanticBatchRejection::kMissingTitleResource;
+  }
+  if (!IsOpaqueColorState(observation)) {
+    return SemanticBatchRejection::kNonOpaque;
+  }
+  if (samples_resolved_target) {
+    return SemanticBatchRejection::kResolvedInput;
+  }
+  if (observation.viz_query_condition || (observation.pa_sc_viz_query & 1)) {
+    return SemanticBatchRejection::kQueryOrConditional;
+  }
+  if (observation.vertex_memexport) {
+    return SemanticBatchRejection::kMemexport;
+  }
+  if (!contract.geometry_bounded || observation.vertex_binding_count != 1) {
+    return SemanticBatchRejection::kUnboundedGeometry;
+  }
+  const bool supported_geometry =
+      (observation.indexed &&
+       observation.source_select ==
+           uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
+       observation.index_format <= 1 && observation.index_endianness <= 3 &&
+       prepared.index_buffer_type == 1) ||
+      (!observation.indexed &&
+       observation.source_select ==
+           uint32_t(rex::graphics::xenos::SourceSelect::kAutoIndex) &&
+       prepared.index_buffer_type == 0);
+  if (!supported_geometry) {
+    return SemanticBatchRejection::kUnsupportedGeometry;
+  }
+  if (observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow) {
+    return SemanticBatchRejection::kConstantOverflow;
+  }
+  if (!contract.texture_layout_bounded) {
+    return SemanticBatchRejection::kUnboundedTextureLayout;
+  }
+  const uint32_t texture_count = std::popcount(observation.texture_fetch_mask);
+  if (texture_count < 1 || texture_count > 4) {
+    return SemanticBatchRejection::kTextureCount;
+  }
+  if ((prepared.flags & 3) != 3) {
+    return SemanticBatchRejection::kIncompletePreparedPipeline;
+  }
+  if (prepared.bound_render_target_bits != 3) {
+    return SemanticBatchRejection::kRenderTargetCoverage;
+  }
+  return SemanticBatchRejection::kNone;
+}
+
+void FinalizeSemanticBatchFrame() {
+  if (!g_semantic_batch_current_frame) {
+    return;
+  }
+  ++g_semantic_batch_frame_count;
+  g_semantic_batch_maximum_draws_per_frame =
+      std::max(g_semantic_batch_maximum_draws_per_frame,
+               g_semantic_batch_current_frame_draws);
+  g_semantic_batch_current_frame = 0;
+  g_semantic_batch_current_frame_draws = 0;
+}
+
+void FinalizeSemanticBatchRun() {
+  if (!g_semantic_batch_run.valid) {
+    return;
+  }
+  SemanticBatchOpportunityEntry &entry =
+      g_semantic_batch_opportunities[g_semantic_batch_run.opportunity_index];
+  ++entry.consecutive_runs;
+  entry.maximum_run_length =
+      std::max(entry.maximum_run_length, g_semantic_batch_run.length);
+  ++g_semantic_batch_consecutive_runs;
+  g_semantic_batch_maximum_run_length =
+      std::max(g_semantic_batch_maximum_run_length,
+               g_semantic_batch_run.length);
+  if (g_semantic_batch_run.length > 1) {
+    ++entry.multi_draw_runs;
+    entry.multi_draw_draws += g_semantic_batch_run.length;
+    ++g_semantic_batch_multi_draw_runs;
+    g_semantic_batch_multi_draw_draws += g_semantic_batch_run.length;
+  }
+  g_semantic_batch_run = {};
+}
+
+size_t FindOrCreateSemanticBatchOpportunity(
+    uint64_t key, const SemanticPreparedDrawContract &contract,
+    const SemanticDrawIdentity &identity, SemanticBatchRejection rejection) {
+  size_t index = size_t(key % kSemanticBatchOpportunityCapacity);
+  for (size_t probe = 0; probe < kSemanticBatchOpportunityCapacity; ++probe) {
+    SemanticBatchOpportunityEntry &entry =
+        g_semantic_batch_opportunities[index];
+    if (!entry.key) {
+      entry.key = key;
+      entry.template_key = contract.template_key;
+      entry.geometry_resource_hash = contract.geometry_resource_hash;
+      entry.texture_resource_hash = contract.texture_resource_hash;
+      entry.primary_resource_key = identity.primary_resource_key;
+      entry.secondary_resource_key = identity.secondary_resource_key;
+      entry.secondary_resource_present = identity.secondary_resource_present;
+      entry.rejection = rejection;
+      ++g_semantic_batch_opportunity_count;
+      return index;
+    }
+    if (entry.key == key && entry.template_key == contract.template_key &&
+        entry.geometry_resource_hash == contract.geometry_resource_hash &&
+        entry.texture_resource_hash == contract.texture_resource_hash &&
+        entry.primary_resource_key == identity.primary_resource_key &&
+        entry.secondary_resource_key == identity.secondary_resource_key &&
+        entry.secondary_resource_present ==
+            identity.secondary_resource_present &&
+        entry.rejection == rejection) {
+      return index;
+    }
+    index = (index + 1) % kSemanticBatchOpportunityCapacity;
+  }
+  ++g_semantic_batch_opportunity_overflow;
+  return kSemanticBatchOpportunityCapacity;
+}
+
+void RecordSemanticBatchOpportunity(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const TitleDrawOrigin &origin) {
+  if (!origin.semantic_draw.valid) {
+    return;
+  }
+  const SemanticDrawIdentity &identity = origin.semantic_draw;
+  const SemanticPreparedDrawContract contract =
+      BuildSemanticPreparedDrawContract(observation, prepared);
+  const SemanticBatchRejection rejection =
+      ClassifySemanticBatchRejection(observation, samples_resolved_target,
+                                     prepared, identity, contract);
+  const bool eligible = rejection == SemanticBatchRejection::kNone;
+  ++g_semantic_batch_observations;
+  if (g_semantic_batch_current_frame != observation.frame_sequence) {
+    FinalizeSemanticBatchFrame();
+    g_semantic_batch_current_frame = observation.frame_sequence;
+  }
+  ++g_semantic_batch_current_frame_draws;
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {contract.template_key, contract.geometry_resource_hash,
+        contract.texture_resource_hash, uint64_t(identity.primary_resource_key),
+        uint64_t(identity.secondary_resource_present),
+        uint64_t(identity.secondary_resource_key), uint64_t(rejection)}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  const size_t opportunity_index = FindOrCreateSemanticBatchOpportunity(
+      key, contract, identity, rejection);
+  if (opportunity_index == kSemanticBatchOpportunityCapacity) {
+    FinalizeSemanticBatchRun();
+    g_semantic_batch_previous_eligible = false;
+    return;
+  }
+  SemanticBatchOpportunityEntry &entry =
+      g_semantic_batch_opportunities[opportunity_index];
+  ++entry.draws;
+  if (!entry.first_frame) {
+    entry.first_frame = observation.frame_sequence;
+  }
+  if (entry.last_frame != observation.frame_sequence) {
+    ++entry.frames;
+  }
+  entry.last_frame = observation.frame_sequence;
+
+  if (!eligible) {
+    ++g_semantic_batch_rejected_draws;
+    ++g_semantic_batch_rejections[size_t(rejection)];
+    FinalizeSemanticBatchRun();
+    g_semantic_batch_previous_eligible = false;
+    return;
+  }
+  ++g_semantic_batch_eligible_draws;
+  if (g_semantic_batch_previous_eligible &&
+      g_semantic_batch_previous_frame == observation.frame_sequence) {
+    g_semantic_batch_template_transitions +=
+        g_semantic_batch_previous_contract.template_key !=
+        contract.template_key;
+    g_semantic_batch_geometry_transitions +=
+        g_semantic_batch_previous_contract.geometry_resource_hash !=
+        contract.geometry_resource_hash;
+    g_semantic_batch_texture_transitions +=
+        g_semantic_batch_previous_contract.texture_resource_hash !=
+        contract.texture_resource_hash;
+    g_semantic_batch_title_resource_transitions +=
+        g_semantic_batch_previous_identity.primary_resource_key !=
+            identity.primary_resource_key ||
+        g_semantic_batch_previous_identity.secondary_resource_present !=
+            identity.secondary_resource_present ||
+        g_semantic_batch_previous_identity.secondary_resource_key !=
+            identity.secondary_resource_key;
+  }
+  g_semantic_batch_previous_contract = contract;
+  g_semantic_batch_previous_identity = identity;
+  g_semantic_batch_previous_frame = observation.frame_sequence;
+  g_semantic_batch_previous_eligible = true;
+
+  if (g_semantic_batch_run.valid &&
+      g_semantic_batch_run.frame == observation.frame_sequence &&
+      g_semantic_batch_run.key == key) {
+    const bool same_instance =
+        g_semantic_batch_run.receiver_address == identity.receiver_address &&
+        g_semantic_batch_run.receiver_generation ==
+            identity.receiver_generation &&
+        g_semantic_batch_run.record_index == identity.record_index;
+    if (same_instance) {
+      ++entry.same_instance_continuations;
+      ++g_semantic_batch_same_instance_continuations;
+    } else {
+      ++entry.instance_switches;
+      ++g_semantic_batch_instance_switches;
+    }
+    ++g_semantic_batch_run.length;
+    g_semantic_batch_run.receiver_address = identity.receiver_address;
+    g_semantic_batch_run.receiver_generation = identity.receiver_generation;
+    g_semantic_batch_run.record_index = identity.record_index;
+    return;
+  }
+  FinalizeSemanticBatchRun();
+  g_semantic_batch_run = {
+      .key = key,
+      .frame = observation.frame_sequence,
+      .length = 1,
+      .opportunity_index = opportunity_index,
+      .receiver_address = identity.receiver_address,
+      .receiver_generation = identity.receiver_generation,
+      .record_index = identity.record_index,
+      .valid = true,
+  };
+}
+
+void EmitSemanticBatchOpportunitySummary() {
+  FinalizeSemanticBatchRun();
+  FinalizeSemanticBatchFrame();
+  uint64_t entry_draws = 0;
+  uint64_t entry_eligible_draws = 0;
+  uint64_t entry_rejected_draws = 0;
+  uint64_t entry_runs = 0;
+  uint64_t entry_multi_draw_runs = 0;
+  uint64_t entry_multi_draw_draws = 0;
+  uint64_t rejection_total = 0;
+  for (uint64_t count : g_semantic_batch_rejections) {
+    rejection_total += count;
+  }
+  for (const SemanticBatchOpportunityEntry &entry :
+       g_semantic_batch_opportunities) {
+    if (!entry.key) {
+      continue;
+    }
+    entry_draws += entry.draws;
+    if (entry.rejection == SemanticBatchRejection::kNone) {
+      entry_eligible_draws += entry.draws;
+    } else {
+      entry_rejected_draws += entry.draws;
+    }
+    entry_runs += entry.consecutive_runs;
+    entry_multi_draw_runs += entry.multi_draw_runs;
+    entry_multi_draw_draws += entry.multi_draw_draws;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_batch_entry",
+        {{"opportunity_key", fmt::format("{:016X}", entry.key)},
+         {"template_key", fmt::format("{:016X}", entry.template_key)},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}", entry.geometry_resource_hash)},
+         {"texture_resource_hash",
+          fmt::format("{:016X}", entry.texture_resource_hash)},
+         {"primary_resource_key",
+          fmt::format("{:08X}", entry.primary_resource_key)},
+         {"secondary_resource_present",
+          entry.secondary_resource_present ? "true" : "false"},
+         {"secondary_resource_key",
+          fmt::format("{:08X}", entry.secondary_resource_key)},
+         {"draws", std::to_string(entry.draws)},
+         {"frames", std::to_string(entry.frames)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"consecutive_runs", std::to_string(entry.consecutive_runs)},
+         {"multi_draw_runs", std::to_string(entry.multi_draw_runs)},
+         {"multi_draw_draws", std::to_string(entry.multi_draw_draws)},
+         {"maximum_run_length",
+          std::to_string(entry.maximum_run_length)},
+         {"instance_switches", std::to_string(entry.instance_switches)},
+         {"same_instance_continuations",
+          std::to_string(entry.same_instance_continuations)},
+         {"eligible",
+          entry.rejection == SemanticBatchRejection::kNone ? "true"
+                                                           : "false"},
+         {"rejection", SemanticBatchRejectionName(entry.rejection)},
+         {"classification",
+          entry.rejection == SemanticBatchRejection::kNone
+              ? "conservative_consecutive_batch_candidate"
+              : "xenos_replay_rejected"},
+         {"native_batch", "false"},
+         {"xenos_draw", "preserved"},
+         {"suppression_allowed", "false"}});
+  }
+  const bool accounting_complete =
+      !g_semantic_batch_opportunity_overflow &&
+      g_semantic_batch_observations ==
+          g_semantic_batch_eligible_draws + g_semantic_batch_rejected_draws &&
+      g_semantic_batch_observations == entry_draws &&
+      g_semantic_batch_eligible_draws == entry_eligible_draws &&
+      g_semantic_batch_rejected_draws == entry_rejected_draws &&
+      g_semantic_batch_rejected_draws == rejection_total &&
+      g_semantic_batch_consecutive_runs == entry_runs &&
+      g_semantic_batch_multi_draw_runs == entry_multi_draw_runs &&
+      g_semantic_batch_multi_draw_draws == entry_multi_draw_draws;
+  const uint64_t projected_commands =
+      g_semantic_batch_consecutive_runs + g_semantic_batch_rejected_draws;
+  const uint64_t potential_command_reduction =
+      g_semantic_batch_eligible_draws >= g_semantic_batch_consecutive_runs
+          ? g_semantic_batch_eligible_draws -
+                g_semantic_batch_consecutive_runs
+          : 0;
+  const double reduction_percent = g_semantic_batch_observations
+                                       ? 100.0 * potential_command_reduction /
+                                             g_semantic_batch_observations
+                                       : 0.0;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_batch_summary",
+      {{"status", !g_semantic_batch_observations
+                       ? "not_observed"
+                       : (accounting_complete ? "complete"
+                                              : "incomplete")},
+       {"observations", std::to_string(g_semantic_batch_observations)},
+       {"eligible_draws", std::to_string(g_semantic_batch_eligible_draws)},
+       {"rejected_draws", std::to_string(g_semantic_batch_rejected_draws)},
+       {"opportunity_entries",
+        std::to_string(g_semantic_batch_opportunity_count)},
+       {"opportunity_overflow",
+        std::to_string(g_semantic_batch_opportunity_overflow)},
+       {"consecutive_runs",
+        std::to_string(g_semantic_batch_consecutive_runs)},
+       {"multi_draw_runs",
+        std::to_string(g_semantic_batch_multi_draw_runs)},
+       {"multi_draw_draws",
+        std::to_string(g_semantic_batch_multi_draw_draws)},
+       {"maximum_run_length",
+        std::to_string(g_semantic_batch_maximum_run_length)},
+       {"instance_switches",
+        std::to_string(g_semantic_batch_instance_switches)},
+       {"same_instance_continuations",
+        std::to_string(g_semantic_batch_same_instance_continuations)},
+       {"frames", std::to_string(g_semantic_batch_frame_count)},
+       {"maximum_draws_per_frame",
+        std::to_string(g_semantic_batch_maximum_draws_per_frame)},
+       {"template_transitions",
+        std::to_string(g_semantic_batch_template_transitions)},
+       {"geometry_transitions",
+        std::to_string(g_semantic_batch_geometry_transitions)},
+       {"texture_transitions",
+        std::to_string(g_semantic_batch_texture_transitions)},
+       {"title_resource_transitions",
+        std::to_string(g_semantic_batch_title_resource_transitions)},
+       {"projected_commands", std::to_string(projected_commands)},
+       {"potential_command_reduction",
+        std::to_string(potential_command_reduction)},
+       {"potential_command_reduction_percent",
+        fmt::format("{:.3f}", reduction_percent)},
+       {"reject_missing_title_resource",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kMissingTitleResource)])},
+       {"reject_non_opaque",
+        std::to_string(g_semantic_batch_rejections[
+            size_t(SemanticBatchRejection::kNonOpaque)])},
+       {"reject_resolved_input",
+        std::to_string(g_semantic_batch_rejections[
+            size_t(SemanticBatchRejection::kResolvedInput)])},
+       {"reject_query_or_conditional",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kQueryOrConditional)])},
+       {"reject_memexport",
+        std::to_string(g_semantic_batch_rejections[
+            size_t(SemanticBatchRejection::kMemexport)])},
+       {"reject_unbounded_geometry",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kUnboundedGeometry)])},
+       {"reject_unsupported_geometry",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kUnsupportedGeometry)])},
+       {"reject_constant_overflow",
+        std::to_string(g_semantic_batch_rejections[
+            size_t(SemanticBatchRejection::kConstantOverflow)])},
+       {"reject_unbounded_texture_layout",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kUnboundedTextureLayout)])},
+       {"reject_texture_count",
+        std::to_string(g_semantic_batch_rejections[
+            size_t(SemanticBatchRejection::kTextureCount)])},
+       {"reject_incomplete_prepared_pipeline",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kIncompletePreparedPipeline)])},
+       {"reject_render_target_coverage",
+        std::to_string(g_semantic_batch_rejections[size_t(
+            SemanticBatchRejection::kRenderTargetCoverage)])},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"ordering", "exact_consecutive_prepared_draw_order"},
+       {"reordering", "false"},
+       {"native_batch_execution", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void RecordCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
@@ -7627,6 +8208,9 @@ void ObservePreparedDraw(
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
+    RecordSemanticBatchOpportunity(
+        sample, g_pending_candidate.samples_resolved_target, observation,
+        g_pending_candidate.title_origin);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
@@ -10027,6 +10611,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     g_pending_candidate.valid = false;
   }
   EmitTitleDrawProvenanceSummary();
+  EmitSemanticBatchOpportunitySummary();
   EmitCommandBufferLineageSummary();
   if (g_pass_consumer_trace.pending) {
     ++g_pass_consumer_trace.superseded_without_resolve;

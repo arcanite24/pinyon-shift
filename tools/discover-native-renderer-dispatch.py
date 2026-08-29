@@ -1465,6 +1465,11 @@ def procedural_model_receiver_lifecycle(
             "semantic_catalog_classification": (
                 "immutable_template_and_dynamic_resource_instance"
             ),
+            "semantic_batch_admission_census_required": True,
+            "semantic_batch_ordering": (
+                "exact_consecutive_prepared_draw_order"
+            ),
+            "semantic_batch_execution_enabled": False,
             "physical_pm4_packet_correlation_proved": False,
             "prepared_draw_lineage_proved": False,
             "classification": "procedural_submission_pm4_packet_boundary",
