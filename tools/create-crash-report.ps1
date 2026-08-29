@@ -273,6 +273,31 @@ try {
             status = 'not_observed'
             suppression_allowed = $false
         }
+        title_draw_provenance = [ordered]@{
+            status = 'not_observed'
+            correlation = $null
+            title_packets_recorded = [uint64]0
+            backend_packet_matches = [uint64]0
+            prepared_matches = [uint64]0
+            matched_unprepared_draws = [uint64]0
+            pending_packets = [uint64]0
+            backend_draws_without_title_packet = [uint64]0
+            packet_address_failures = [uint64]0
+            reused_live_packet_addresses = [uint64]0
+            packet_table_overflow = [uint64]0
+            forwarding_mismatches = [uint64]0
+            origin_stack_overflow = [uint64]0
+            packets_without_origin = [uint64]0
+            aggregate_count = [uint64]0
+            prepared_aggregate_count = [uint64]0
+            unprepared_aggregate_count = [uint64]0
+            unprepared_aggregate_matches = [uint64]0
+            aggregate_overflow = [uint64]0
+            packet_accounting_complete = $false
+            origin_accounting_complete = $false
+            xenos_authority = $true
+            suppression_allowed = $false
+        }
     }
     $nativeShaderPack = [ordered]@{
         status = 'not_configured'
@@ -314,6 +339,37 @@ try {
                     $nativeRenderer.sky_horizon_suppression.status =
                         [string]$event.status
                     $nativeRenderer.sky_horizon_suppression.suppression_allowed =
+                        [string]$event.suppression_allowed -eq 'true'
+                }
+                'native_renderer.discovery.title_provenance_config' {
+                    $nativeRenderer.title_draw_provenance.status =
+                        [string]$event.status
+                }
+                'native_renderer.discovery.title_provenance_summary' {
+                    $provenance = $nativeRenderer.title_draw_provenance
+                    $provenance.status = 'summary_observed'
+                    $provenance.correlation = [string]$event.correlation
+                    foreach ($field in @(
+                            'title_packets_recorded', 'backend_packet_matches',
+                            'prepared_matches', 'matched_unprepared_draws',
+                            'pending_packets', 'backend_draws_without_title_packet',
+                            'packet_address_failures',
+                            'reused_live_packet_addresses', 'packet_table_overflow',
+                            'forwarding_mismatches', 'origin_stack_overflow',
+                            'packets_without_origin', 'aggregate_count',
+                            'prepared_aggregate_count',
+                            'unprepared_aggregate_count',
+                            'unprepared_aggregate_matches',
+                            'aggregate_overflow')) {
+                        $provenance[$field] = [uint64]$event.$field
+                    }
+                    $provenance.packet_accounting_complete =
+                        [string]$event.packet_accounting_complete -eq 'true'
+                    $provenance.origin_accounting_complete =
+                        [string]$event.origin_accounting_complete -eq 'true'
+                    $provenance.xenos_authority =
+                        [string]$event.xenos_authority -eq 'true'
+                    $provenance.suppression_allowed =
                         [string]$event.suppression_allowed -eq 'true'
                 }
                 'native_renderer.shader_pack.ready' {

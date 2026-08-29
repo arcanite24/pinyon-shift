@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <mutex>
 #include <span>
 #include <string>
 #include <thread>
@@ -72,6 +73,9 @@ constexpr uint64_t kSuppressionWarmupFrameCount = 8;
 constexpr uint64_t kSuppressionFailureCooldownFrameCount = 120;
 constexpr uint64_t kSuppressionStateDetailLimit = 32;
 constexpr size_t kDispatchCallerCapacity = 256;
+constexpr size_t kTitlePacketProvenanceCapacity = 16384;
+constexpr size_t kTitleDrawProvenanceCapacity = 4096;
+constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -106,6 +110,63 @@ struct DispatchCallerEntry {
 std::array<DispatchCallerEntry, kDispatchCallerCapacity> g_dispatch_callers;
 std::atomic<uint64_t> g_dispatch_caller_overflow{};
 std::atomic<bool> g_dispatch_discovery_installed{};
+
+struct TitleDrawOrigin {
+  DispatchWrapper wrapper = DispatchWrapper::kDrawIndexed;
+  uint32_t caller = 0;
+  std::array<uint32_t, 8> arguments{};
+  bool valid = false;
+};
+
+struct TitlePacketProvenanceEntry {
+  uint32_t packet_physical_address = 0;
+  uint64_t submission_sequence = 0;
+  TitleDrawOrigin origin{};
+  bool ever_used = false;
+  bool occupied = false;
+};
+
+struct TitleDrawProvenanceEntry {
+  uint64_t backend_signature = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t first_draw = 0;
+  uint32_t first_packet_physical_address = 0;
+  TitleDrawOrigin origin{};
+  std::array<uint32_t, 8> last_arguments{};
+  std::array<uint32_t, 8> minimum_arguments{};
+  std::array<uint32_t, 8> maximum_arguments{};
+  uint32_t varying_argument_mask = 0;
+  bool prepared = false;
+};
+
+std::array<TitlePacketProvenanceEntry, kTitlePacketProvenanceCapacity>
+    g_title_packet_provenance{};
+std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
+    g_title_draw_provenance{};
+std::mutex g_title_packet_provenance_mutex;
+std::atomic<bool> g_title_provenance_installed{};
+std::atomic<rex::memory::Memory *> g_title_provenance_memory{};
+uint64_t g_title_packets_recorded = 0;
+uint64_t g_title_packets_matched = 0;
+uint64_t g_title_packet_address_failures = 0;
+uint64_t g_title_packet_reused_live_addresses = 0;
+uint64_t g_title_packet_table_overflow = 0;
+uint64_t g_title_backend_unattributed_draws = 0;
+uint64_t g_title_matched_unprepared_draws = 0;
+std::atomic<uint64_t> g_title_forwarding_mismatches{};
+std::atomic<uint64_t> g_title_origins_pushed{};
+std::atomic<uint64_t> g_title_origins_consumed{};
+std::atomic<uint64_t> g_title_origin_stack_overflow{};
+std::atomic<uint64_t> g_title_packets_without_origin{};
+uint64_t g_title_draw_provenance_count = 0;
+uint64_t g_title_draw_provenance_overflow = 0;
+uint64_t g_title_packet_submission_sequence = 0;
+thread_local TitleDrawOrigin g_pending_adapter_origin;
+thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
+    g_title_origin_stack;
+thread_local size_t g_title_origin_stack_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -159,6 +220,213 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
   return "00000000";
 }
 
+std::string CensusSceneMarker();
+
+TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
+                                    uint32_t r3, uint32_t r4, uint32_t r5,
+                                    uint32_t r6, uint32_t r7, uint32_t r8,
+                                    uint32_t r9, uint32_t r10) {
+  TitleDrawOrigin origin;
+  origin.wrapper = wrapper;
+  origin.caller = caller;
+  origin.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  origin.valid = true;
+  return origin;
+}
+
+void ResetTitleDrawProvenance() {
+  std::scoped_lock lock(g_title_packet_provenance_mutex);
+  for (TitlePacketProvenanceEntry &entry : g_title_packet_provenance) {
+    entry = {};
+  }
+  for (TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
+    entry = {};
+  }
+  g_title_packets_recorded = 0;
+  g_title_packets_matched = 0;
+  g_title_packet_address_failures = 0;
+  g_title_packet_reused_live_addresses = 0;
+  g_title_packet_table_overflow = 0;
+  g_title_backend_unattributed_draws = 0;
+  g_title_matched_unprepared_draws = 0;
+  g_title_forwarding_mismatches.store(0, std::memory_order_relaxed);
+  g_title_origins_pushed.store(0, std::memory_order_relaxed);
+  g_title_origins_consumed.store(0, std::memory_order_relaxed);
+  g_title_origin_stack_overflow.store(0, std::memory_order_relaxed);
+  g_title_packets_without_origin.store(0, std::memory_order_relaxed);
+  g_title_draw_provenance_count = 0;
+  g_title_draw_provenance_overflow = 0;
+  g_title_packet_submission_sequence = 0;
+  g_pending_adapter_origin = {};
+  g_title_origin_stack = {};
+  g_title_origin_stack_depth = 0;
+}
+
+void ConfigureTitleDrawProvenance(bool census_requested,
+                                  rex::memory::Memory *memory) {
+  ResetTitleDrawProvenance();
+  const bool dispatch_requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
+  const bool armed = dispatch_requested && census_requested && memory;
+  g_title_provenance_memory.store(armed ? memory : nullptr,
+                                  std::memory_order_release);
+  g_title_provenance_installed.store(armed, std::memory_order_release);
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.title_provenance_config",
+      {{"status", armed ? "armed" : "disabled"},
+       {"scene", CensusSceneMarker()},
+       {"title_packet_hooks", "82410328,829F7CB0"},
+       {"packet_key", "physical_pm4_header_address"},
+       {"packet_capacity", std::to_string(kTitlePacketProvenanceCapacity)},
+       {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
+       {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
+       {"metadata",
+        "origin_wrapper,entry_lr,r3-r10,outcome,backend_signature"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void CaptureAdapterOrigin(uint32_t caller, uint32_t r3, uint32_t r4,
+                          uint32_t r5, uint32_t r6, uint32_t r7,
+                          uint32_t r8, uint32_t r9, uint32_t r10) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_pending_adapter_origin = MakeTitleDrawOrigin(
+      DispatchWrapper::kDrawAdapter, caller, r3, r4, r5, r6, r7, r8, r9,
+      r10);
+}
+
+void CapturePacketWrapperOrigin(DispatchWrapper wrapper, uint32_t caller,
+                                uint32_t r3, uint32_t r4, uint32_t r5,
+                                uint32_t r6, uint32_t r7, uint32_t r8,
+                                uint32_t r9, uint32_t r10) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  TitleDrawOrigin origin;
+  if (wrapper == DispatchWrapper::kDrawIndexed && caller == 0x824079FC) {
+    if (g_pending_adapter_origin.valid) {
+      origin = g_pending_adapter_origin;
+      g_pending_adapter_origin = {};
+    } else {
+      ++g_title_forwarding_mismatches;
+    }
+  }
+  if (!origin.valid) {
+    origin = MakeTitleDrawOrigin(wrapper, caller, r3, r4, r5, r6, r7, r8,
+                                 r9, r10);
+  }
+  if (g_title_origin_stack_depth == kTitleOriginStackCapacity) {
+    ++g_title_origin_stack_overflow;
+    return;
+  }
+  g_title_origin_stack[g_title_origin_stack_depth++] = origin;
+  ++g_title_origins_pushed;
+}
+
+void RecordTitleDrawPacket(uint32_t packet_guest_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (!g_title_origin_stack_depth) {
+    ++g_title_packets_without_origin;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    return;
+  }
+  const TitleDrawOrigin origin =
+      g_title_origin_stack[--g_title_origin_stack_depth];
+  ++g_title_origins_consumed;
+  const uint32_t packet_physical_address =
+      memory->GetPhysicalAddress(packet_guest_address);
+  std::scoped_lock lock(g_title_packet_provenance_mutex);
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (packet_physical_address == UINT32_MAX) {
+    ++g_title_packet_address_failures;
+    return;
+  }
+  const size_t initial =
+      (packet_physical_address >> 2) % kTitlePacketProvenanceCapacity;
+  size_t available = kTitlePacketProvenanceCapacity;
+  bool reused_live_address = false;
+  for (size_t probe = 0; probe < kTitlePacketProvenanceCapacity; ++probe) {
+    const size_t index = (initial + probe) % kTitlePacketProvenanceCapacity;
+    TitlePacketProvenanceEntry &entry = g_title_packet_provenance[index];
+    if (entry.occupied &&
+        entry.packet_physical_address == packet_physical_address) {
+      reused_live_address = true;
+    }
+    if (!entry.occupied && available == kTitlePacketProvenanceCapacity) {
+      available = index;
+    }
+    if (!entry.ever_used) {
+      break;
+    }
+  }
+  if (available == kTitlePacketProvenanceCapacity) {
+    ++g_title_packet_table_overflow;
+    return;
+  }
+  TitlePacketProvenanceEntry &entry = g_title_packet_provenance[available];
+  entry.packet_physical_address = packet_physical_address;
+  entry.submission_sequence = ++g_title_packet_submission_sequence;
+  entry.origin = origin;
+  entry.ever_used = true;
+  entry.occupied = true;
+  if (reused_live_address) {
+    ++g_title_packet_reused_live_addresses;
+  }
+  ++g_title_packets_recorded;
+}
+
+bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
+                            TitleDrawOrigin &origin) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      packet_physical_address == UINT32_MAX) {
+    return false;
+  }
+  std::scoped_lock lock(g_title_packet_provenance_mutex);
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return false;
+  }
+  const size_t initial =
+      (packet_physical_address >> 2) % kTitlePacketProvenanceCapacity;
+  size_t oldest_match = kTitlePacketProvenanceCapacity;
+  uint64_t oldest_sequence = UINT64_MAX;
+  for (size_t probe = 0; probe < kTitlePacketProvenanceCapacity; ++probe) {
+    const size_t index = (initial + probe) % kTitlePacketProvenanceCapacity;
+    TitlePacketProvenanceEntry &entry = g_title_packet_provenance[index];
+    if (!entry.ever_used) {
+      break;
+    }
+    if (entry.occupied &&
+        entry.packet_physical_address == packet_physical_address &&
+        entry.submission_sequence < oldest_sequence) {
+      oldest_match = index;
+      oldest_sequence = entry.submission_sequence;
+    }
+  }
+  if (oldest_match != kTitlePacketProvenanceCapacity) {
+    TitlePacketProvenanceEntry &entry =
+        g_title_packet_provenance[oldest_match];
+    origin = entry.origin;
+    entry.occupied = false;
+    ++g_title_packets_matched;
+    return true;
+  }
+  ++g_title_backend_unattributed_draws;
+  return false;
+}
+
 void ResetDispatchDiscovery() {
   for (DispatchCallerEntry &entry : g_dispatch_callers) {
     entry.key.store(0, std::memory_order_relaxed);
@@ -175,8 +443,6 @@ void ResetDispatchDiscovery() {
   }
   g_dispatch_caller_overflow.store(0, std::memory_order_relaxed);
 }
-
-std::string CensusSceneMarker();
 
 void ConfigureDispatchDiscovery() {
   ResetDispatchDiscovery();
@@ -955,6 +1221,7 @@ std::atomic<uint64_t> g_guest_cpu_visibility_target_overflow{};
 
 struct PendingCandidateObservation {
   rex::system::GraphicsDrawObservation sample;
+  TitleDrawOrigin title_origin{};
   std::array<size_t, 64> family_targets{};
   size_t family_target_count = 0;
   uint64_t family_base_fetch_mask = 0;
@@ -2310,6 +2577,197 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
   return hash ? hash : 1;
 }
 
+void RecordTitleDrawProvenance(
+    uint64_t backend_signature, bool prepared,
+    const rex::system::GraphicsDrawObservation &observation,
+    const TitleDrawOrigin &origin) {
+  if (!origin.valid) {
+    return;
+  }
+  const uint64_t key = backend_signature ^
+                       (uint64_t(origin.caller) << 17) ^
+                       (uint64_t(origin.wrapper) << 57) ^
+                       (prepared ? uint64_t(1) << 63 : 0);
+  size_t index = size_t(key % kTitleDrawProvenanceCapacity);
+  for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
+    TitleDrawProvenanceEntry &entry = g_title_draw_provenance[index];
+    if (!entry.calls) {
+      entry.backend_signature = backend_signature;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.first_draw = observation.draw_sequence;
+      entry.first_packet_physical_address =
+          observation.packet_physical_address;
+      entry.origin = origin;
+      entry.last_arguments = origin.arguments;
+      entry.minimum_arguments = origin.arguments;
+      entry.maximum_arguments = origin.arguments;
+      entry.prepared = prepared;
+      ++g_title_draw_provenance_count;
+      return;
+    }
+    if (entry.backend_signature == backend_signature &&
+        entry.prepared == prepared &&
+        entry.origin.wrapper == origin.wrapper &&
+        entry.origin.caller == origin.caller) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      for (size_t i = 0; i < origin.arguments.size(); ++i) {
+        if (entry.last_arguments[i] != origin.arguments[i]) {
+          entry.varying_argument_mask |= uint32_t(1) << i;
+        }
+        entry.last_arguments[i] = origin.arguments[i];
+        entry.minimum_arguments[i] =
+            std::min(entry.minimum_arguments[i], origin.arguments[i]);
+        entry.maximum_arguments[i] =
+            std::max(entry.maximum_arguments[i], origin.arguments[i]);
+      }
+      return;
+    }
+    index = (index + 1) % kTitleDrawProvenanceCapacity;
+  }
+  ++g_title_draw_provenance_overflow;
+}
+
+void EmitTitleDrawProvenanceSummary() {
+  if (!g_title_provenance_installed.exchange(false,
+                                              std::memory_order_acq_rel)) {
+    g_title_provenance_memory.store(nullptr, std::memory_order_release);
+    return;
+  }
+  uint64_t prepared_matches = 0;
+  uint64_t unprepared_matches = 0;
+  uint64_t prepared_aggregate_count = 0;
+  uint64_t unprepared_aggregate_count = 0;
+  for (const TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
+    if (!entry.calls) {
+      continue;
+    }
+    if (entry.prepared) {
+      prepared_matches += entry.calls;
+      ++prepared_aggregate_count;
+    } else {
+      unprepared_matches += entry.calls;
+      ++unprepared_aggregate_count;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.title_provenance_entry",
+        {{"origin_wrapper", DispatchWrapperName(entry.origin.wrapper)},
+         {"origin_wrapper_address",
+          DispatchWrapperAddress(entry.origin.wrapper)},
+         {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
+         {"outcome", entry.prepared ? "prepared" : "not_prepared"},
+         {"backend_signature",
+          fmt::format("{:016X}", entry.backend_signature)},
+         {"prepared_signature",
+          entry.prepared ? fmt::format("{:016X}", entry.backend_signature)
+                         : ""},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"first_draw", std::to_string(entry.first_draw)},
+         {"first_packet_physical_address",
+          fmt::format("{:08X}", entry.first_packet_physical_address)},
+         {"first_r3", fmt::format("{:08X}", entry.origin.arguments[0])},
+         {"first_r4", fmt::format("{:08X}", entry.origin.arguments[1])},
+         {"first_r5", fmt::format("{:08X}", entry.origin.arguments[2])},
+         {"first_r6", fmt::format("{:08X}", entry.origin.arguments[3])},
+         {"first_r7", fmt::format("{:08X}", entry.origin.arguments[4])},
+         {"first_r8", fmt::format("{:08X}", entry.origin.arguments[5])},
+         {"first_r9", fmt::format("{:08X}", entry.origin.arguments[6])},
+         {"first_r10", fmt::format("{:08X}", entry.origin.arguments[7])},
+         {"last_arguments",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.last_arguments[0], entry.last_arguments[1],
+                      entry.last_arguments[2], entry.last_arguments[3],
+                      entry.last_arguments[4], entry.last_arguments[5],
+                      entry.last_arguments[6], entry.last_arguments[7])},
+         {"minimum_arguments",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.minimum_arguments[0], entry.minimum_arguments[1],
+                      entry.minimum_arguments[2], entry.minimum_arguments[3],
+                      entry.minimum_arguments[4], entry.minimum_arguments[5],
+                      entry.minimum_arguments[6], entry.minimum_arguments[7])},
+         {"maximum_arguments",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.maximum_arguments[0], entry.maximum_arguments[1],
+                      entry.maximum_arguments[2], entry.maximum_arguments[3],
+                      entry.maximum_arguments[4], entry.maximum_arguments[5],
+                      entry.maximum_arguments[6], entry.maximum_arguments[7])},
+         {"varying_argument_mask",
+          fmt::format("{:02X}", entry.varying_argument_mask)},
+         {"semantic_identity", "unknown"},
+         {"xenos_draw", "preserved"},
+         {"suppression_eligible", "false"}});
+  }
+  uint64_t pending_packets = 0;
+  {
+    std::scoped_lock lock(g_title_packet_provenance_mutex);
+    for (const TitlePacketProvenanceEntry &entry :
+         g_title_packet_provenance) {
+      pending_packets += entry.occupied ? 1 : 0;
+    }
+  }
+  const bool packet_accounting_complete =
+      g_title_packets_recorded == g_title_packets_matched + pending_packets;
+  const uint64_t origins_pushed =
+      g_title_origins_pushed.load(std::memory_order_relaxed);
+  const uint64_t origins_consumed =
+      g_title_origins_consumed.load(std::memory_order_relaxed);
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.title_provenance_summary",
+      {{"title_packets_recorded", std::to_string(g_title_packets_recorded)},
+       {"backend_packet_matches", std::to_string(g_title_packets_matched)},
+       {"prepared_matches", std::to_string(prepared_matches)},
+       {"matched_unprepared_draws",
+        std::to_string(g_title_matched_unprepared_draws)},
+       {"pending_packets", std::to_string(pending_packets)},
+       {"backend_draws_without_title_packet",
+        std::to_string(g_title_backend_unattributed_draws)},
+       {"packet_address_failures",
+        std::to_string(g_title_packet_address_failures)},
+       {"reused_live_packet_addresses",
+        std::to_string(g_title_packet_reused_live_addresses)},
+       {"packet_table_overflow",
+        std::to_string(g_title_packet_table_overflow)},
+       {"forwarding_mismatches",
+        std::to_string(
+            g_title_forwarding_mismatches.load(std::memory_order_relaxed))},
+       {"origins_pushed", std::to_string(origins_pushed)},
+       {"origins_consumed", std::to_string(origins_consumed)},
+       {"origin_stack_overflow",
+        std::to_string(
+            g_title_origin_stack_overflow.load(std::memory_order_relaxed))},
+       {"packets_without_origin",
+        std::to_string(
+            g_title_packets_without_origin.load(std::memory_order_relaxed))},
+       {"origin_accounting_complete",
+        origins_pushed == origins_consumed ? "true" : "false"},
+       {"aggregate_count", std::to_string(g_title_draw_provenance_count)},
+       {"prepared_aggregate_count",
+        std::to_string(prepared_aggregate_count)},
+       {"unprepared_aggregate_count",
+        std::to_string(unprepared_aggregate_count)},
+       {"unprepared_aggregate_matches",
+        std::to_string(unprepared_matches)},
+       {"aggregate_overflow",
+        std::to_string(g_title_draw_provenance_overflow)},
+       {"packet_capacity", std::to_string(kTitlePacketProvenanceCapacity)},
+       {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
+       {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
+       {"packet_accounting_complete",
+        packet_accounting_complete ? "true" : "false"},
+       {"correlation", "exact_physical_pm4_header_address"},
+       {"semantic_identity", "unknown"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  g_title_provenance_memory.store(nullptr, std::memory_order_release);
+}
+
 bool IsOpaqueColorState(
     const rex::system::GraphicsDrawObservation &observation) {
   bool writes_color = false;
@@ -2394,6 +2852,8 @@ void ObservePreparedDraw(
     CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
+    RecordTitleDrawProvenance(prepared_signature, true, sample,
+                              g_pending_candidate.title_origin);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
@@ -4269,6 +4729,8 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   size_t sampled_target_count = 0;
   PendingCandidateObservation candidate;
   candidate.sample = observation;
+  ConsumeTitleDrawPacket(observation.packet_physical_address,
+                         candidate.title_origin);
   for (uint32_t fetch_index = 0; fetch_index < 32; ++fetch_index) {
     if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch_index))) {
       continue;
@@ -4302,6 +4764,12 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   const bool samples_resolved_target = sampled_target_count != 0;
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
+    if (g_pending_candidate.title_origin.valid) {
+      ++g_title_matched_unprepared_draws;
+      RecordTitleDrawProvenance(DrawSignature(g_pending_candidate.sample),
+                                false, g_pending_candidate.sample,
+                                g_pending_candidate.title_origin);
+    }
     DiscardPendingPassConsumer();
   }
   candidate.samples_resolved_target = samples_resolved_target;
@@ -4346,6 +4814,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
+  ConfigureTitleDrawProvenance(census_requested, memory);
   if (!census_requested && !g_sky_horizon_suppression.requested) {
     EmitSkyHorizonSuppressionControl();
     return;
@@ -4580,9 +5049,16 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
+    if (g_pending_candidate.title_origin.valid) {
+      ++g_title_matched_unprepared_draws;
+      RecordTitleDrawProvenance(DrawSignature(g_pending_candidate.sample),
+                                false, g_pending_candidate.sample,
+                                g_pending_candidate.title_origin);
+    }
     DiscardPendingPassConsumer();
     g_pending_candidate.valid = false;
   }
+  EmitTitleDrawProvenanceSummary();
   if (g_pass_consumer_trace.pending) {
     ++g_pass_consumer_trace.superseded_without_resolve;
     g_pass_consumer_trace.pending = false;
@@ -5047,6 +5523,9 @@ void PinyonShiftObserveDrawIndexedDispatch(
     PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kDrawIndexed, r12.u32, r3.u32, r4.u32,
                        r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+  CapturePacketWrapperOrigin(DispatchWrapper::kDrawIndexed, r12.u32, r3.u32,
+                             r4.u32, r5.u32, r6.u32, r7.u32, r8.u32,
+                             r9.u32, r10.u32);
 }
 
 void PinyonShiftObserveDrawImmediateDispatch(
@@ -5055,6 +5534,9 @@ void PinyonShiftObserveDrawImmediateDispatch(
     PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kDrawImmediate, r12.u32, r3.u32, r4.u32,
                        r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+  CapturePacketWrapperOrigin(DispatchWrapper::kDrawImmediate, r12.u32, r3.u32,
+                             r4.u32, r5.u32, r6.u32, r7.u32, r8.u32,
+                             r9.u32, r10.u32);
 }
 
 void PinyonShiftObserveDrawAdapterDispatch(
@@ -5063,6 +5545,12 @@ void PinyonShiftObserveDrawAdapterDispatch(
     PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kDrawAdapter, r12.u32, r3.u32, r4.u32,
                        r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+  CaptureAdapterOrigin(r12.u32, r3.u32, r4.u32, r5.u32, r6.u32, r7.u32,
+                       r8.u32, r9.u32, r10.u32);
+}
+
+void PinyonShiftObserveDrawPacketSubmission(PPCRegister &r3) {
+  RecordTitleDrawPacket(r3.u32 + sizeof(uint32_t));
 }
 
 void PinyonShiftObserveResolveControllerDispatch(

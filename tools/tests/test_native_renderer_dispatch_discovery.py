@@ -19,7 +19,10 @@ def fixture(address, body):
         [
             "DEFINE_REX_FUNC(sub_{:08X}) {{".format(address),
             "\tREX_FUNC_PROLOGUE();",
-            *["\t// {}".format(line) for line in body],
+            *[
+                line if line.startswith("loc_") else "\t// {}".format(line)
+                for line in body
+            ],
             "}",
         ]
     )
@@ -36,13 +39,19 @@ def reviewed_fixtures(include_immediate=True):
             ]
         )
     chunks = [
-        fixture(0x824079B8, ["mflr r12", "bl 0x8240f4d8"]),
+        fixture(
+            0x824079B8,
+            ["mflr r12", "loc_824079F8:", "bl 0x8240f4d8"],
+        ),
         fixture(
             0x8240F4D8,
             [
                 "mflr r12",
+                "loc_82410318:",
                 "oris r11,r11,49152",
+                "rlwimi r10,r29,16,0,15",
                 "ori r11,r11,13824",
+                "cmpwi cr6,r22,0",
                 "stwu r11,4(r3)",
                 *dirty_clears,
             ],
@@ -172,8 +181,11 @@ def reviewed_fixtures(include_immediate=True):
                 0x829F7C70,
                 [
                     "mflr r12",
+                    "loc_829F7CA0:",
                     "lis r11,-16384",
+                    "rlwinm r10,r29,16,0,15",
                     "ori r11,r11,13824",
+                    "or r10,r10,r30",
                     "stwu r11,4(r3)",
                 ],
             )
@@ -206,6 +218,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(document["totals"]["direct_calls"], 15)
         self.assertEqual(document["totals"]["tail_forwarded_calls"], 1)
         self.assertEqual(document["totals"]["runtime_correlation_calls"], 16)
+        self.assertEqual(document["totals"]["adapter_argument_leads"], 1)
         self.assertEqual(document["totals"]["dirty_state_clears"], 6)
         self.assertEqual(document["totals"]["query_state_transitions"], 2)
         indexed_packet = next(
@@ -215,6 +228,17 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             and item["opcode"] == "PM4_DRAW_INDX_2"
         )
         self.assertEqual(indexed_packet["header_source"], "dynamic_type3_count")
+        provenance = document["draw_packet_provenance"]
+        self.assertEqual(
+            provenance["correlation"], "exact_physical_pm4_header_address"
+        )
+        self.assertEqual(
+            [item["packet_hook_address"] for item in provenance["packet_sites"]],
+            ["82410328", "829F7CB0"],
+        )
+        self.assertEqual(
+            provenance["adapter_forward_return_address"], "824079FC"
+        )
         adapter_call = next(
             item
             for item in document["direct_calls"]
@@ -239,6 +263,33 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(forwarded["return_address"], "8246FB94")
         self.assertEqual(forwarded["forwarder_function"], "sub_829ED510")
         self.assertFalse(document["safety"]["suppression_allowed"])
+
+    def test_adapter_argument_leads_stop_at_calls_and_decode_loads(self):
+        caller = fixture(
+            0x82B00000,
+            [
+                "bl 0x82415f68",
+                "lwz r3,40(r31)",
+                "mr r4,r30",
+                "bl 0x824079b8",
+            ],
+        )
+        document = self.build([*reviewed_fixtures(), caller])
+        lead = document["adapter_argument_leads"][0]
+        by_register = {item["register"]: item for item in lead["arguments"]}
+        self.assertEqual(
+            by_register["r3"]["status"], "bounded_syntactic_definition"
+        )
+        self.assertEqual(
+            by_register["r3"]["memory_load"],
+            {"base_register": "r31", "offset": 40, "width": "lwz"},
+        )
+        self.assertEqual(by_register["r4"]["source_registers"], ["r30"])
+        self.assertEqual(
+            by_register["r5"]["status"], "unknown_across_call_boundary"
+        )
+        self.assertFalse(lead["object_identity_proved"])
+        self.assertFalse(lead["lifetime_proved"])
 
     def test_rejects_missing_reviewed_packet_evidence(self):
         incomplete = reviewed_fixtures(include_immediate=False)
@@ -287,6 +338,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveDrawPacketSubmission"'),
+            2,
+        )
+        self.assertEqual(
             analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
             1,
         )
@@ -318,11 +373,13 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         self.assertIn('address = 0x824079BC', analysis)
         self.assertIn('address = 0x8240F4DC', analysis)
+        self.assertIn('address = 0x82410328', analysis)
         self.assertIn('address = 0x824587DC', analysis)
         self.assertIn('address = 0x82458A8C', analysis)
         self.assertIn('address = 0x829F21A4', analysis)
         self.assertIn('address = 0x829F2284', analysis)
         self.assertIn('address = 0x829F7C74', analysis)
+        self.assertIn('address = 0x829F7CB0', analysis)
         self.assertIn('address = 0x82D951E4', analysis)
         self.assertIn('address = 0x82413ABC', analysis)
         self.assertIn('address = 0x824736F4', analysis)

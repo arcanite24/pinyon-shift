@@ -8,7 +8,7 @@ scene evidence supports a family name.
 The dispatch extension starts from Pinyon Shift `dev` merge
 `38bc3a2239b5c3d1689d0810ab2349e0527cadc6`, ReXGlue `v0.10.0` at
 `f5337cdc947ff6d4c4196737e2c807a48f2a1fc2`, and patch stack `0001` through
-`0079`. The supported `default.xex` SHA-256 remains
+`0080`. The supported `default.xex` SHA-256 remains
 `DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C`.
 
 ## Safety boundary
@@ -22,6 +22,13 @@ not read guest resource payloads or write guest state. The original wrapper,
 PM4 packet, Xenos work, arguments, registers, and control flow are preserved.
 Discovery records are never suppression evidence.
 
+The NR-05A packet-provenance extension adds exact header-store hooks at
+`0x82410328` and `0x829F7CB0`. It correlates title metadata with backend draws
+by physical PM4 header address, not by timing or FIFO order. Its fixed
+16,384-packet and 4,096-aggregate capacities, failure accounting, and
+promotion gate are documented in
+[`TITLE_DRAW_PROVENANCE.md`](TITLE_DRAW_PROVENANCE.md).
+
 ## Proved wrapper layers
 
 The generated AOT instruction inventory establishes ten runtime wrapper
@@ -30,7 +37,7 @@ families:
 | Entry | Static evidence | Reviewed identity | Runtime observation |
 | --- | --- | --- | --- |
 | `0x824079B8` | Directly adapts its entry arguments and calls `0x8240F4D8` at `0x824079F8` | Title draw adapter; semantic family unknown | Hook `0x824079BC`: entry `LR` and `r3-r10` |
-| `0x8240F4D8` | At `0x82410320`, stores a dynamic-count Type-3 `PM4_DRAW_INDX_2` (`0x36`) header | Indexed draw packet wrapper | Hook `0x8240F4DC`: entry `LR` and `r3-r10` |
+| `0x8240F4D8` | Constructs a dynamic-count Type-3 `PM4_DRAW_INDX_2` (`0x36`) header at `0x82410320` and stores it at `0x82410328` | Indexed draw packet wrapper | Entry hook `0x8240F4DC`; exact packet-address hook `0x82410328` |
 | `0x824587D8` | Calls `0x82458A88` at `0x82458828` and `0x824589E4` while managing resolve state | Title resolve controller | Hook `0x824587DC`: entry `LR` and `r3-r10` |
 | `0x82458A88` | Writes register `0x2208` (`RB_MODECONTROL`) followed by value 6 (`EdramMode::kCopy`) at `0x82458AC0`/`0x82458AD4` | Resolve state-packet setup wrapper | Hook `0x82458A8C`: entry `LR` and `r3-r10` |
 | `0x82413AB8` | Stores `PM4_SET_BIN_MASK_LO` and `PM4_SET_BIN_MASK_HI` packet headers | Xenos binning/scissor-state wrapper; semantic tiled-pass role unknown | Hook `0x82413ABC`: entry `LR` and `r3-r10` |
@@ -38,7 +45,7 @@ families:
 | `0x829F21A0` | At `0x829F225C`, stores `0xC0002300`; then marks the query ID active at `0x829F2270` | Visibility-query begin wrapper | Hook `0x829F21A4`: entry `LR` and `r3-r10` |
 | `0x829F2280` | At `0x829F22E4`, stores `0xC0002300`; then clears the active query ID at `0x829F2308` | Visibility-query end wrapper | Hook `0x829F2284`: entry `LR` and `r3-r10` |
 | `0x82D951E0` | Calls query begin at `0x82D95230`, performs five intervening work calls, then calls query end at `0x82D95378` | Visibility-query lifecycle owner; result semantics unknown | Hook `0x82D951E4`: entry `LR` and `r3-r10` |
-| `0x829F7C70` | At `0x829F7CA8`, stores fixed Type-3 count-one `PM4_DRAW_INDX_2` (`0x36`) header | Immediate/embedded-index draw wrapper | Hook `0x829F7C74`: entry `LR` and `r3-r10` |
+| `0x829F7C70` | Constructs fixed Type-3 count-one `PM4_DRAW_INDX_2` (`0x36`) at `0x829F7CA8` and stores it at `0x829F7CB0` | Immediate/embedded-index draw wrapper | Entry hook `0x829F7C74`; exact packet-address hook `0x829F7CB0` |
 
 Three additional opcode-`0x36` constructors at `0x829E82D0`, `0x829E8428`,
 and `0x829EDB68` build initialization templates. They are inventoried but are
@@ -245,6 +252,31 @@ query-result consumption, semantic tiled-pass ownership, resource lifetime,
 and semantic caller identities remain open title-side inventory work. Until
 those gates are met, all work stays on Xenos and no new draw family may be
 suppressed.
+
+For all 38 direct adapter callsites, the same static inventory now records
+`r3-r10`'s last syntactic definition since the nearest intervening call. Simple
+loads retain base register, offset, and width; values crossing a call boundary
+remain unknown. The exact runtime provenance report joins these leads with
+per-signature argument stability, but neither source alone proves an object
+type or lifetime.
+
+The packet-provenance bridge replaces “next draw” inference with an exact
+address match. The first consolidated runtime capture proved 232,506 exact
+title-to-backend matches, but all matched draws ended before the prepared
+callback and 40 live address generations reused an address. The bridge now
+retains those generations oldest-first for the same exact address, aggregates
+unprepared backend signatures instead of discarding them, and treats clean
+shutdown packets as accounted when `recorded = matched + pending` holds. The
+next milestone capture must show zero address, forwarding, origin, and capacity
+faults before any caller association is accepted; prepared semantic coverage
+remains unproved until a prepared outcome is actually observed.
+
+That follow-up capture, session `20260829T123251Z-p12356`, completed the exact
+accounting contract with 107,455 backend matches, 105 shutdown-pending packets,
+40 handled live-address reuses, 66 statically joined unprepared aggregates, and
+zero attribution faults. This qualifies the exact title-to-backend bridge. It
+does not qualify title-to-prepared provenance: every exact match retained the
+explicit `not_prepared` outcome.
 
 ## Side-effect-boundary qualification — 2026-08-29
 
