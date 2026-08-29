@@ -8,13 +8,24 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v1"
+SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v2"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 TITLE_CONFIG = "native_renderer.discovery.title_provenance_config"
 TITLE_SUMMARY = "native_renderer.discovery.title_provenance_summary"
 BATCH_ENTRY = "native_renderer.discovery.semantic_batch_entry"
 BATCH_SUMMARY = "native_renderer.discovery.semantic_batch_summary"
+EQUIVALENCE_ENTRY = (
+    "native_renderer.discovery.semantic_batch_equivalence_entry"
+)
+EQUIVALENCE_SUMMARY = (
+    "native_renderer.discovery.semantic_batch_equivalence_summary"
+)
 EXPECTED_ORDERING = "exact_consecutive_prepared_draw_order"
+EXPECTED_EQUIVALENCES = (
+    "mesh_material_instance",
+    "material_state_reuse",
+    "pipeline_state_reuse",
+)
 REJECTION_FIELDS = {
     "missing_title_resource": "reject_missing_title_resource",
     "non_opaque": "reject_non_opaque",
@@ -33,7 +44,14 @@ REJECTION_FIELDS = {
 
 def read_events(paths: list[pathlib.Path]) -> list[dict]:
     events = []
-    wanted = {TITLE_CONFIG, TITLE_SUMMARY, BATCH_ENTRY, BATCH_SUMMARY}
+    wanted = {
+        TITLE_CONFIG,
+        TITLE_SUMMARY,
+        BATCH_ENTRY,
+        BATCH_SUMMARY,
+        EQUIVALENCE_ENTRY,
+        EQUIVALENCE_SUMMARY,
+    }
     for path in paths:
         for line_number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
@@ -76,6 +94,12 @@ def _hex(mapping: dict, key: str, width: int) -> str:
     return value
 
 
+def _optional_hex(mapping: dict, key: str, width: int) -> str | None:
+    if mapping.get(key, "") == "":
+        return None
+    return _hex(mapping, key, width)
+
+
 def _boolean(mapping: dict, key: str) -> bool:
     value = str(mapping.get(key, "")).lower()
     if value not in {"true", "false"}:
@@ -113,6 +137,10 @@ def _validate_static(static: dict) -> dict:
         ),
         "semantic_batch_admission_census_required": True,
         "semantic_batch_ordering": EXPECTED_ORDERING,
+        "semantic_batch_equivalence_ladder_required": True,
+        "semantic_batch_pipeline_identity": (
+            "resource_free_layout_and_prepared_state"
+        ),
         "semantic_batch_execution_enabled": False,
         "native_rendering_enabled": False,
         "suppression_eligible": False,
@@ -120,6 +148,233 @@ def _validate_static(static: dict) -> dict:
     if any(contract.get(key) != value for key, value in expected.items()):
         raise ValueError("unsupported semantic-batch static contract")
     return contract
+
+
+def _build_equivalence_levels(
+    selected: list[dict], eligible_draws: int
+) -> dict[str, dict]:
+    result = {}
+    for equivalence in EXPECTED_EQUIVALENCES:
+        summaries = [
+            event
+            for event in selected
+            if event.get("event") == EQUIVALENCE_SUMMARY
+            and event.get("equivalence") == equivalence
+        ]
+        if len(summaries) != 1:
+            raise ValueError(
+                f"semantic-batch equivalence needs one summary: {equivalence}"
+            )
+        summary = summaries[0]
+        if (
+            summary.get("status") != "complete"
+            or summary.get("accounting_complete") != "true"
+            or summary.get("ordering") != EXPECTED_ORDERING
+            or summary.get("reordering") != "false"
+            or summary.get("parameterization") != "observed_not_executed"
+            or summary.get("native_batch_execution") != "false"
+            or summary.get("native_upload") != "false"
+            or summary.get("native_draw") != "false"
+            or summary.get("xenos_authority") != "true"
+            or summary.get("suppression_allowed") != "false"
+        ):
+            raise ValueError(
+                f"semantic-batch equivalence is incomplete or unsafe: {equivalence}"
+            )
+        expected_identity = {
+            "mesh_material_instance": (
+                "pipeline,draw_arguments,geometry,texture,render_target"
+            ),
+            "material_state_reuse": "pipeline,texture,render_target",
+            "pipeline_state_reuse": "pipeline",
+        }[equivalence]
+        if summary.get("identity") != expected_identity:
+            raise ValueError(
+                f"semantic-batch equivalence identity drifted: {equivalence}"
+            )
+
+        entries = []
+        seen_keys = set()
+        aggregates = {
+            "draws": 0,
+            "consecutive_runs": 0,
+            "multi_draw_runs": 0,
+            "multi_draw_draws": 0,
+            "maximum_run_length": 0,
+            "instance_switches": 0,
+            "same_instance_continuations": 0,
+            "parameter_switches": 0,
+            "same_parameter_continuations": 0,
+        }
+        for event in selected:
+            if (
+                event.get("event") != EQUIVALENCE_ENTRY
+                or event.get("equivalence") != equivalence
+            ):
+                continue
+            key = _hex(event, "opportunity_key", 16)
+            if key in seen_keys or int(key, 16) == 0:
+                raise ValueError(
+                    f"duplicate or zero equivalence key: {equivalence}"
+                )
+            seen_keys.add(key)
+            if (
+                event.get("ordering") != EXPECTED_ORDERING
+                or event.get("xenos_draw") != "preserved"
+                or event.get("native_batch") != "false"
+                or event.get("suppression_allowed") != "false"
+            ):
+                raise ValueError(
+                    f"semantic-batch equivalence crossed safety: {equivalence}"
+                )
+            item = {
+                "opportunity_key": key,
+                "pipeline_key": _hex(event, "pipeline_key", 16),
+                "draw_argument_hash": _optional_hex(
+                    event, "draw_argument_hash", 16
+                ),
+                "geometry_resource_hash": _optional_hex(
+                    event, "geometry_resource_hash", 16
+                ),
+                "texture_resource_hash": _optional_hex(
+                    event, "texture_resource_hash", 16
+                ),
+                "render_target_resource_hash": _optional_hex(
+                    event, "render_target_resource_hash", 16
+                ),
+                **{
+                    name: _integer(event, name)
+                    for name in (
+                        "draws",
+                        "frames",
+                        "first_frame",
+                        "last_frame",
+                        "consecutive_runs",
+                        "multi_draw_runs",
+                        "multi_draw_draws",
+                        "maximum_run_length",
+                        "instance_switches",
+                        "same_instance_continuations",
+                        "parameter_switches",
+                        "same_parameter_continuations",
+                    )
+                },
+            }
+            if (
+                item["draws"] <= 0
+                or item["frames"] <= 0
+                or item["last_frame"] < item["first_frame"]
+                or item["consecutive_runs"] <= 0
+                or item["maximum_run_length"] <= 0
+                or item["multi_draw_draws"] > item["draws"]
+            ):
+                raise ValueError(
+                    f"invalid semantic-batch equivalence entry: {equivalence}"
+                )
+            if equivalence == "mesh_material_instance":
+                if not all(
+                    item[name]
+                    for name in (
+                        "draw_argument_hash",
+                        "geometry_resource_hash",
+                        "texture_resource_hash",
+                        "render_target_resource_hash",
+                    )
+                ):
+                    raise ValueError("mesh-material identity is incomplete")
+            elif equivalence == "material_state_reuse":
+                if (
+                    item["draw_argument_hash"]
+                    or item["geometry_resource_hash"]
+                    or not item["texture_resource_hash"]
+                    or not item["render_target_resource_hash"]
+                ):
+                    raise ValueError("material identity is inconsistent")
+            elif any(
+                item[name]
+                for name in (
+                    "draw_argument_hash",
+                    "geometry_resource_hash",
+                    "texture_resource_hash",
+                    "render_target_resource_hash",
+                )
+            ):
+                raise ValueError("pipeline identity is inconsistent")
+            for name in aggregates:
+                if name == "maximum_run_length":
+                    aggregates[name] = max(aggregates[name], item[name])
+                else:
+                    aggregates[name] += item[name]
+            entries.append(item)
+
+        totals = {
+            name: _integer(summary, name)
+            for name in (
+                "eligible_draws",
+                "opportunity_entries",
+                "opportunity_overflow",
+                "consecutive_runs",
+                "multi_draw_runs",
+                "multi_draw_draws",
+                "maximum_run_length",
+                "instance_switches",
+                "same_instance_continuations",
+                "parameter_switches",
+                "same_parameter_continuations",
+                "potential_reduction",
+            )
+        }
+        totals["potential_reduction_percent"] = _number(
+            summary, "potential_reduction_percent"
+        )
+        continuation_count = (
+            totals["multi_draw_draws"] - totals["multi_draw_runs"]
+        )
+        if (
+            totals["eligible_draws"] != eligible_draws
+            or totals["opportunity_overflow"] != 0
+            or totals["opportunity_entries"] != len(entries)
+            or aggregates["draws"] != eligible_draws
+            or any(
+                totals[name] != aggregates[name]
+                for name in aggregates
+                if name != "draws"
+            )
+            or totals["instance_switches"]
+            + totals["same_instance_continuations"]
+            != continuation_count
+            or totals["parameter_switches"]
+            + totals["same_parameter_continuations"]
+            != continuation_count
+            or totals["potential_reduction"]
+            != eligible_draws - totals["consecutive_runs"]
+        ):
+            raise ValueError(
+                f"semantic-batch equivalence accounting failed: {equivalence}"
+            )
+        expected_percent = (
+            100.0 * totals["potential_reduction"] / eligible_draws
+            if eligible_draws
+            else 0.0
+        )
+        if (
+            abs(
+                totals["potential_reduction_percent"] - expected_percent
+            )
+            > 0.001
+        ):
+            raise ValueError(
+                f"semantic-batch equivalence percentage drifted: {equivalence}"
+            )
+        entries.sort(
+            key=lambda item: (
+                -item["multi_draw_draws"],
+                -item["draws"],
+                item["opportunity_key"],
+            )
+        )
+        result[equivalence] = {"groups": entries, "totals": totals}
+    return result
 
 
 def build(events: list[dict], static: dict, requested: str | None = None) -> dict:
@@ -144,6 +399,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         != "exact_consecutive_opaque_prepared_draw_order"
         or config.get("semantic_batch_execution")
         != "disabled_measurement_only"
+        or config.get("semantic_batch_equivalence_ladder")
+        != "mesh_material,material,pipeline"
+        or config.get("semantic_batch_pipeline_identity")
+        != "resource_free_layout_and_prepared_state"
+        or config.get("semantic_batch_instance_parameters")
+        != "shader_constants_and_semantic_instance"
+        or _integer(
+            config, "semantic_batch_maximum_parameter_payload_bytes"
+        )
+        <= 0
         or config.get("xenos_authority") != "true"
         or config.get("suppression_allowed") != "false"
     ):
@@ -297,6 +562,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "geometry_transitions",
             "texture_transitions",
             "title_resource_transitions",
+            "parameter_payload_bytes",
+            "maximum_parameter_payload_bytes",
+            "parameter_payload_limit_bytes",
             "projected_commands",
             "potential_command_reduction",
         )
@@ -334,6 +602,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         or totals["observations"]
         != _integer(title_summary, "semantic_draw_prepared_matches")
         or _integer(title_summary, "semantic_draw_unprepared_matches") != 0
+        or totals["parameter_payload_bytes"] <= 0
+        or totals["maximum_parameter_payload_bytes"] <= 0
+        or totals["maximum_parameter_payload_bytes"]
+        > totals["parameter_payload_limit_bytes"]
+        or totals["parameter_payload_bytes"]
+        > totals["eligible_draws"] * totals["parameter_payload_limit_bytes"]
+        or totals["parameter_payload_limit_bytes"]
+        != _integer(
+            config, "semantic_batch_maximum_parameter_payload_bytes"
+        )
     ):
         raise ValueError("semantic-batch aggregate accounting failed")
     expected_percent = (
@@ -341,6 +619,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     )
     if abs(totals["potential_command_reduction_percent"] - expected_percent) > 0.001:
         raise ValueError("semantic-batch reduction percentage drifted")
+
+    equivalence_levels = _build_equivalence_levels(
+        selected, totals["eligible_draws"]
+    )
 
     entries.sort(
         key=lambda item: (
@@ -355,6 +637,17 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and totals["multi_draw_runs"] > 0
         and totals["potential_command_reduction"] > 0
     )
+    mesh_material = equivalence_levels["mesh_material_instance"]["totals"]
+    instancing_parameter_path_required = (
+        mesh_material["multi_draw_runs"] > 0
+        and mesh_material["instance_switches"] > 0
+        and mesh_material["parameter_switches"] > 0
+    )
+    mesh_material_instancing_opportunity_proved = (
+        mesh_material["multi_draw_runs"] > 0
+        and mesh_material["potential_reduction"] > 0
+        and mesh_material["instance_switches"] > 0
+    )
     return {
         "schema": SCHEMA,
         "session": session,
@@ -363,7 +656,14 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "groups": entries,
         "totals": totals,
         "rejections": reported_rejections,
+        "equivalence_levels": equivalence_levels,
         "conservative_batch_plan_proved": conservative_batch_plan_proved,
+        "mesh_material_instancing_opportunity_proved": (
+            mesh_material_instancing_opportunity_proved
+        ),
+        "instancing_parameter_path_required": (
+            instancing_parameter_path_required
+        ),
         "execution_admitted": False,
         "contract": contract,
         "safety": {

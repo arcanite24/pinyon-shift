@@ -121,3 +121,9 @@ per-instance resource identity, or evaluate an order-preserving instancing
 path that can carry per-draw parameters explicitly. Any later executor must
 still retain per-item Xenos fallback and remain incapable of suppression until
 paired visual and side-effect qualification passes.
+
+The follow-up equivalence ladder now implements that measurement boundary.
+It separates a resource-free pipeline identity from draw arguments, geometry,
+textures, render targets, and shader-used constant values, then measures
+mesh/material instancing, material reuse, and pipeline reuse independently.
+See `SEMANTIC_BATCH_EQUIVALENCE.md`.

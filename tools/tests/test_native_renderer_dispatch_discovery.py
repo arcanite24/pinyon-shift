@@ -1190,6 +1190,15 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "exact_consecutive_prepared_draw_order",
             draw_association["semantic_batch_ordering"],
         )
+        self.assertTrue(
+            draw_association[
+                "semantic_batch_equivalence_ladder_required"
+            ]
+        )
+        self.assertEqual(
+            "resource_free_layout_and_prepared_state",
+            draw_association["semantic_batch_pipeline_identity"],
+        )
         self.assertFalse(
             draw_association["semantic_batch_execution_enabled"]
         )
