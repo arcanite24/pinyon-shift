@@ -302,14 +302,40 @@ See `PROCEDURAL_MODEL_SEMANTIC_EXTRACTION.md`.
 
 The next boundary follows the same record to resource-binding helper
 `82415BF8` and graphics-context submission. Hooks at `82417A74`, `82417A9C`,
-`82415C50`, `82415C6C`, and `82417B60` now join receiver-table resource keys
+`82415C50`, `82415C6C`, and `82417B60` join receiver-table resource keys
 in slots 0/1 to the exact opaque objects returned by resolver `82415AD0` and
-dispatched through graphics virtual slot 88. The submission also retains the
-proved descriptor-kind group, helper-state table family, opaque runtime
-submission object, and exact default/counted geometry-source tuple. This is
-resolved structural submission identity, not a proved texture, material,
-vertex, index, mesh, LOD, or streaming ABI. See
+dispatched through graphics virtual slot 88.
+
+The provider-chain extension proves resolver lookup `82410A58`, its shared
+five-entry key/object/usage cache, provider predicates at vtable bytes 24 and
+44, selected methods at bytes 36 and 40, and opaque secondary-resolution call
+`823E58D8`. Hooks at `82415B64`, `82415B80`, `82415BA4`, `82415BC0`, and
+`82415BE4` retain the exact provider, vtable, four method identities, selected
+route, object source, and final object. Separate mirrors follow the binding
+helper's per-slot unchanged-key cache and the resolver's actual shared guest
+cache-slot addresses, so either form of exact-key reuse cannot lose or
+substitute provenance.
+
+The submission also retains the proved descriptor-kind group, helper-state
+table family, opaque runtime submission object, and exact default/counted
+geometry-source tuple. This is resolved structural submission identity, not a
+proved provider class, secondary-resolution semantic, texture, material,
+vertex, index, mesh, LOD, streaming, or lifetime ABI. See
 `PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.
+
+AppData session `20260829T192106Z-p37612` runtime-qualified the provider chain
+across 695,696 exact submissions and 34 unique chains. Its 599,423 resolver
+operations comprised 422,946 shared-cache hits and 176,477 direct lookups;
+164,879 lookups selected provider method byte 36 and 11,598 used opaque
+secondary resolution after both predicates declined. Another 96,273 calls
+used the binding helper's per-slot exact-key cache. The runtime reconciles that
+cache against the title's actual shared key array at `834AD4CC` because other
+callers may update it. Lookup/resolution misses, null method results, protocol
+faults, unresolved joins, native admission, and suppression were all zero.
+Xenos remained authoritative at 29.334 median FPS with 59.983 Hz presentation
+and no deadline or XMA stalls.
+
+The two sessions below remain the pre-provider-chain structural baselines.
 
 AppData session `20260829T180132Z-p42336` qualified this contract across
 463,613 exact submissions and 605 retained tuples. All observations stayed on

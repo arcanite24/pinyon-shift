@@ -280,6 +280,35 @@ address = 0x82415C50
 name = "PinyonShiftObserveProceduralModelResourceResolutionResult"
 registers = ["r3", "r30", "r31"]
 
+# The resolver's cache-miss path exposes the opaque lookup provider, both
+# provider predicates/method routes, and the opaque secondary-resolution
+# result. The runtime joins this provenance to the final bound object without
+# changing the title call or suppressing Xenos replay.
+[[midasm_hook]]
+address = 0x82415B64
+name = "PinyonShiftObserveProceduralModelResourceProviderLookup"
+registers = ["r3", "r29", "r31"]
+
+[[midasm_hook]]
+address = 0x82415B80
+name = "PinyonShiftObserveProceduralModelResourceProviderPrimaryPredicate"
+registers = ["r3", "r30"]
+
+[[midasm_hook]]
+address = 0x82415BA4
+name = "PinyonShiftObserveProceduralModelResourceProviderFallbackPredicate"
+registers = ["r3", "r30"]
+
+[[midasm_hook]]
+address = 0x82415BC0
+name = "PinyonShiftObserveProceduralModelResourceProviderMethodResult"
+registers = ["r3", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82415BE4
+name = "PinyonShiftObserveProceduralModelResourceSecondaryResolutionResult"
+registers = ["r3", "r30", "r31"]
+
 [[midasm_hook]]
 address = 0x82415C6C
 name = "PinyonShiftObserveProceduralModelResourceBindDispatch"

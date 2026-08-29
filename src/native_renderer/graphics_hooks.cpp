@@ -38,7 +38,8 @@ REXCVAR_DEFINE_BOOL(
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_dispatch_discovery, false, "Pinyon Shift",
-    "Record bounded title graphics-wrapper caller metadata without changing rendering")
+                    "Record bounded title graphics-wrapper caller metadata "
+                    "without changing rendering")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_sky_horizon_suppression, false,
@@ -95,6 +96,7 @@ constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
 constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
 constexpr uint64_t kSemanticObservationPayloadBytes = 380;
 constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 56;
+constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -409,9 +411,25 @@ struct SemanticSubmissionEntry {
   uint32_t primary_resource_index = 0;
   uint32_t primary_resource_key = 0;
   uint32_t primary_bound_resource_object = 0;
+  uint32_t primary_resource_provider_object = 0;
+  uint32_t primary_resource_provider_vtable = 0;
+  uint32_t primary_resource_predicate_24_method = 0;
+  uint32_t primary_resource_primary_36_method = 0;
+  uint32_t primary_resource_fallback_40_method = 0;
+  uint32_t primary_resource_predicate_44_method = 0;
+  uint32_t primary_resource_provider_selection = 0;
+  uint32_t primary_resource_object_source = 0;
   int32_t secondary_resource_index = -1;
   uint32_t secondary_resource_key = 0;
   uint32_t secondary_bound_resource_object = 0;
+  uint32_t secondary_resource_provider_object = 0;
+  uint32_t secondary_resource_provider_vtable = 0;
+  uint32_t secondary_resource_predicate_24_method = 0;
+  uint32_t secondary_resource_primary_36_method = 0;
+  uint32_t secondary_resource_fallback_40_method = 0;
+  uint32_t secondary_resource_predicate_44_method = 0;
+  uint32_t secondary_resource_provider_selection = 0;
+  uint32_t secondary_resource_object_source = 0;
   uint32_t runtime_submission_object = 0;
   uint32_t primitive_type = 13;
   uint32_t count_units = 0;
@@ -419,6 +437,34 @@ struct SemanticSubmissionEntry {
   uint32_t source_address = 0;
   bool secondary_resource_present = false;
   bool counted_runtime_source = false;
+};
+
+enum class SemanticResourceProviderSelection : uint32_t {
+  kUnknown = 0,
+  kLookupMissing = 1,
+  kPrimaryMethod = 2,
+  kFallbackMethod = 3,
+  kUnavailable = 4,
+};
+
+enum class SemanticResourceObjectSource : uint32_t {
+  kUnknown = 0,
+  kProviderMethod = 1,
+  kSecondaryResolution = 2,
+  kNone = 3,
+};
+
+struct SemanticResourceProviderProvenance {
+  uint32_t provider_object = 0;
+  uint32_t provider_vtable = 0;
+  uint32_t predicate_24_method = 0;
+  uint32_t primary_36_method = 0;
+  uint32_t fallback_40_method = 0;
+  uint32_t predicate_44_method = 0;
+  SemanticResourceProviderSelection selection =
+      SemanticResourceProviderSelection::kUnknown;
+  SemanticResourceObjectSource object_source =
+      SemanticResourceObjectSource::kUnknown;
 };
 
 struct PendingSemanticResourceBindings {
@@ -429,17 +475,28 @@ struct PendingSemanticResourceBindings {
   uint32_t resource_lookup_context = 0;
   uint32_t primary_resource_key = 0;
   uint32_t primary_bound_resource_object = 0;
+  SemanticResourceProviderProvenance primary_provider{};
   uint32_t secondary_resource_key = 0;
   uint32_t secondary_bound_resource_object = 0;
+  SemanticResourceProviderProvenance secondary_provider{};
   bool primary_seen = false;
   bool primary_resolution_known = false;
   bool secondary_seen = false;
   bool secondary_resolution_known = false;
 };
 
-struct SemanticResolvedResourceSlot {
+struct SemanticBindingCacheSlot {
   uint32_t resource_key = 0;
   uint32_t bound_resource_object = 0;
+  SemanticResourceProviderProvenance provider{};
+  bool key_known = false;
+};
+
+struct SemanticResolverCacheSlot {
+  uint32_t resolver_cache_slot = 0;
+  uint32_t resource_key = 0;
+  uint32_t bound_resource_object = 0;
+  SemanticResourceProviderProvenance provider{};
   bool key_known = false;
 };
 
@@ -448,9 +505,20 @@ struct PendingSemanticResourceResolution {
   uint32_t binding_slot = 0;
   uint32_t graphics_context = 0;
   uint32_t resolved_resource_object = 0;
+  SemanticResourceProviderProvenance provider{};
+  uint32_t provider_method_result = 0;
+  uint32_t secondary_resolution_result = 0;
+  uint32_t resolver_cache_slot = 0;
+  int32_t resolver_cache_index = -1;
   bool active = false;
   bool result_seen = false;
   bool cache_candidate = false;
+  bool resolver_cache_candidate = false;
+  bool provider_lookup_seen = false;
+  bool primary_predicate_seen = false;
+  bool fallback_predicate_seen = false;
+  bool provider_method_result_seen = false;
+  bool secondary_resolution_result_seen = false;
 };
 
 std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
@@ -476,8 +544,21 @@ uint64_t g_semantic_resource_resolution_misses = 0;
 uint64_t g_semantic_resource_resolution_cache_hits = 0;
 uint64_t g_semantic_resource_bind_dispatches = 0;
 uint64_t g_semantic_resource_resolution_protocol_faults = 0;
+uint64_t g_semantic_provider_lookup_observations = 0;
+uint64_t g_semantic_provider_cache_hits = 0;
+uint64_t g_semantic_provider_lookup_misses = 0;
+uint64_t g_semantic_provider_primary_selections = 0;
+uint64_t g_semantic_provider_fallback_selections = 0;
+uint64_t g_semantic_provider_unavailable_selections = 0;
+uint64_t g_semantic_provider_method_results = 0;
+uint64_t g_semantic_provider_method_null_results = 0;
+uint64_t g_semantic_secondary_resolution_attempts = 0;
+uint64_t g_semantic_secondary_resolution_successes = 0;
+uint64_t g_semantic_secondary_resolution_misses = 0;
+uint64_t g_semantic_provider_metadata_bytes = 0;
 uint64_t g_semantic_submission_unresolved_resource_joins = 0;
-std::array<SemanticResolvedResourceSlot, 5> g_semantic_resolved_resource_slots{};
+std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
+std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
 thread_local PendingSemanticResourceResolution
     g_pending_semantic_resource_resolution{};
@@ -811,8 +892,21 @@ void ResetTitleDrawProvenance() {
     g_semantic_resource_resolution_cache_hits = 0;
     g_semantic_resource_bind_dispatches = 0;
     g_semantic_resource_resolution_protocol_faults = 0;
+    g_semantic_provider_lookup_observations = 0;
+    g_semantic_provider_cache_hits = 0;
+    g_semantic_provider_lookup_misses = 0;
+    g_semantic_provider_primary_selections = 0;
+    g_semantic_provider_fallback_selections = 0;
+    g_semantic_provider_unavailable_selections = 0;
+    g_semantic_provider_method_results = 0;
+    g_semantic_provider_method_null_results = 0;
+    g_semantic_secondary_resolution_attempts = 0;
+    g_semantic_secondary_resolution_successes = 0;
+    g_semantic_secondary_resolution_misses = 0;
+    g_semantic_provider_metadata_bytes = 0;
     g_semantic_submission_unresolved_resource_joins = 0;
-    g_semantic_resolved_resource_slots = {};
+    g_semantic_binding_cache_slots = {};
+    g_semantic_resolver_cache_slots = {};
   }
   g_pending_semantic_bindings = {};
   g_pending_semantic_resource_resolution = {};
@@ -3338,6 +3432,86 @@ void EmitProceduralModelSemanticInstances() {
        {"suppression_allowed", "false"}});
 }
 
+const char *SemanticResourceProviderSelectionName(
+    SemanticResourceProviderSelection selection) {
+  switch (selection) {
+  case SemanticResourceProviderSelection::kLookupMissing:
+    return "lookup_missing";
+  case SemanticResourceProviderSelection::kPrimaryMethod:
+    return "primary_method_36";
+  case SemanticResourceProviderSelection::kFallbackMethod:
+    return "fallback_method_40";
+  case SemanticResourceProviderSelection::kUnavailable:
+    return "provider_unavailable";
+  default:
+    return "unknown";
+  }
+}
+
+const char *SemanticResourceObjectSourceName(
+    SemanticResourceObjectSource source) {
+  switch (source) {
+  case SemanticResourceObjectSource::kProviderMethod:
+    return "provider_method";
+  case SemanticResourceObjectSource::kSecondaryResolution:
+    return "secondary_resolution";
+  case SemanticResourceObjectSource::kNone:
+    return "none";
+  default:
+    return "unknown";
+  }
+}
+
+bool IsResolvedSemanticResourceProviderProvenance(
+    const SemanticResourceProviderProvenance &provider) {
+  const bool selected_provider_path =
+      provider.selection == SemanticResourceProviderSelection::kPrimaryMethod ||
+      provider.selection ==
+          SemanticResourceProviderSelection::kFallbackMethod ||
+      provider.selection == SemanticResourceProviderSelection::kUnavailable;
+  const bool produced_object =
+      provider.object_source == SemanticResourceObjectSource::kProviderMethod ||
+      provider.object_source ==
+          SemanticResourceObjectSource::kSecondaryResolution;
+  return provider.provider_object && provider.provider_vtable &&
+         provider.predicate_24_method && provider.primary_36_method &&
+         provider.fallback_40_method && provider.predicate_44_method &&
+         selected_provider_path && produced_object;
+}
+
+void PublishProceduralModelResourceBinding(
+    uint32_t binding_slot, uint32_t bound_resource_object,
+    const SemanticResourceProviderProvenance &provider) {
+  if (binding_slot == 0) {
+    g_pending_semantic_bindings.primary_bound_resource_object =
+        bound_resource_object;
+    g_pending_semantic_bindings.primary_provider = provider;
+    g_pending_semantic_bindings.primary_resolution_known = true;
+  } else if (binding_slot == 1) {
+    g_pending_semantic_bindings.secondary_bound_resource_object =
+        bound_resource_object;
+    g_pending_semantic_bindings.secondary_provider = provider;
+    g_pending_semantic_bindings.secondary_resolution_known = true;
+  }
+}
+
+void InvalidateProceduralModelResolverCacheCandidate(
+    PendingSemanticResourceResolution &resolution) {
+  if (!resolution.resolver_cache_candidate) {
+    return;
+  }
+  if (resolution.resolver_cache_index >= 0 &&
+      size_t(resolution.resolver_cache_index) <
+          g_semantic_resolver_cache_slots.size()) {
+    g_semantic_resolver_cache_slots[size_t(resolution.resolver_cache_index)] =
+        {};
+  }
+  resolution.resolved_resource_object = 0;
+  resolution.provider = {};
+  resolution.resolver_cache_candidate = false;
+  resolution.resolver_cache_index = -1;
+}
+
 bool FinalizeProceduralModelResourceCacheCandidate() {
   PendingSemanticResourceResolution &resolution =
       g_pending_semantic_resource_resolution;
@@ -3347,17 +3521,18 @@ bool FinalizeProceduralModelResourceCacheCandidate() {
     return false;
   }
   ++g_semantic_resource_resolution_cache_hits;
-  if (resolution.binding_slot == 0) {
-    g_pending_semantic_bindings.primary_bound_resource_object =
-        resolution.resolved_resource_object;
-    g_pending_semantic_bindings.primary_resolution_known = true;
-  } else if (resolution.binding_slot == 1) {
-    g_pending_semantic_bindings.secondary_bound_resource_object =
-        resolution.resolved_resource_object;
-    g_pending_semantic_bindings.secondary_resolution_known = true;
-  } else {
+  if (resolution.binding_slot > 1) {
     return false;
   }
+  g_semantic_binding_cache_slots[resolution.binding_slot] = {
+      .resource_key = resolution.resource_key,
+      .bound_resource_object = resolution.resolved_resource_object,
+      .provider = resolution.provider,
+      .key_known = true,
+  };
+  PublishProceduralModelResourceBinding(resolution.binding_slot,
+                                        resolution.resolved_resource_object,
+                                        resolution.provider);
   resolution = {};
   return true;
 }
@@ -3413,11 +3588,57 @@ void RecordProceduralModelResourceBinding(
     g_pending_semantic_bindings.secondary_seen = true;
   }
 
-  const SemanticResolvedResourceSlot &cached =
-      g_semantic_resolved_resource_slots[binding_slot];
+  auto *kernel_state = rex::system::kernel_state();
+  auto *memory = kernel_state ? kernel_state->memory() : nullptr;
+  const uint32_t guest_cached_key =
+      memory ? LoadSemanticGuestU32(
+                   memory, kResourceBindingKeyCacheAddress + binding_slot * 4)
+             : ~resource_key;
+  const bool title_binding_cache_hit = int32_t(resource_key) >= 0 &&
+                                       guest_cached_key == resource_key;
+  SemanticBindingCacheSlot &cached_binding =
+      g_semantic_binding_cache_slots[binding_slot];
+  if (cached_binding.key_known &&
+      cached_binding.resource_key != guest_cached_key) {
+    cached_binding = {};
+  }
+  int32_t resolver_cache_index = -1;
+  for (size_t index = 0; index < g_semantic_resolver_cache_slots.size();
+       ++index) {
+    const SemanticResolverCacheSlot &candidate =
+        g_semantic_resolver_cache_slots[index];
+    if (candidate.key_known && candidate.resource_key == resource_key &&
+        candidate.bound_resource_object) {
+      resolver_cache_index = int32_t(index);
+      break;
+    }
+  }
+  const bool resolver_cache_candidate = resolver_cache_index >= 0;
+  const bool binding_mirror_candidate =
+      cached_binding.key_known && cached_binding.resource_key == resource_key &&
+      cached_binding.bound_resource_object;
   const bool cache_candidate =
-      cached.key_known && cached.resource_key == resource_key &&
-      cached.bound_resource_object;
+      title_binding_cache_hit &&
+      (binding_mirror_candidate || resolver_cache_candidate);
+  const SemanticResourceProviderProvenance cached_provider =
+      binding_mirror_candidate
+          ? cached_binding.provider
+          : resolver_cache_candidate
+                ? g_semantic_resolver_cache_slots[size_t(resolver_cache_index)]
+                      .provider
+                : SemanticResourceProviderProvenance{};
+  const uint32_t cached_object =
+      binding_mirror_candidate
+          ? cached_binding.bound_resource_object
+          : resolver_cache_candidate
+                ? g_semantic_resolver_cache_slots[size_t(resolver_cache_index)]
+                      .bound_resource_object
+                : 0;
+  const uint32_t cached_resolver_slot =
+      resolver_cache_candidate
+          ? g_semantic_resolver_cache_slots[size_t(resolver_cache_index)]
+                .resolver_cache_slot
+          : 0;
   if (!cache_candidate) {
     ++g_semantic_resource_resolution_attempts;
   }
@@ -3425,11 +3646,225 @@ void RecordProceduralModelResourceBinding(
       .resource_key = resource_key,
       .binding_slot = binding_slot,
       .graphics_context = graphics_context,
-      .resolved_resource_object =
-          cache_candidate ? cached.bound_resource_object : 0,
+      .resolved_resource_object = cached_object,
+      .provider = cached_provider,
+      .resolver_cache_slot = cached_resolver_slot,
+      .resolver_cache_index = resolver_cache_index,
       .active = true,
       .cache_candidate = cache_candidate,
+      .resolver_cache_candidate =
+          !title_binding_cache_hit && resolver_cache_candidate,
   };
+}
+
+void RecordProceduralModelResourceProviderLookup(uint32_t provider_object,
+                                                 uint32_t lookup_context,
+                                                 uint32_t resolver_cache_slot) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !g_pending_semantic_resource_resolution.active) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  PendingSemanticResourceResolution &resolution =
+      g_pending_semantic_resource_resolution;
+  if (!resolution.active || resolution.provider_lookup_seen ||
+      lookup_context != g_pending_semantic_bindings.resource_lookup_context ||
+      !resolver_cache_slot || (resolver_cache_slot & 3)) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  if (resolution.cache_candidate) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  InvalidateProceduralModelResolverCacheCandidate(resolution);
+  ++g_semantic_provider_lookup_observations;
+  resolution.provider_lookup_seen = true;
+  resolution.resolver_cache_slot = resolver_cache_slot;
+  int32_t cache_index = -1;
+  int32_t empty_index = -1;
+  for (size_t index = 0; index < g_semantic_resolver_cache_slots.size();
+       ++index) {
+    const SemanticResolverCacheSlot &candidate =
+        g_semantic_resolver_cache_slots[index];
+    if (candidate.resolver_cache_slot == resolver_cache_slot) {
+      cache_index = int32_t(index);
+      break;
+    }
+    if (!candidate.resolver_cache_slot && empty_index < 0) {
+      empty_index = int32_t(index);
+    }
+  }
+  if (cache_index < 0) {
+    cache_index = empty_index;
+  }
+  if (cache_index < 0) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  resolution.resolver_cache_index = cache_index;
+  g_semantic_resolver_cache_slots[size_t(cache_index)] = {
+      .resolver_cache_slot = resolver_cache_slot,
+  };
+  if (!provider_object) {
+    ++g_semantic_provider_lookup_misses;
+    resolution.provider.selection =
+        SemanticResourceProviderSelection::kLookupMissing;
+    return;
+  }
+  auto *kernel_state = rex::system::kernel_state();
+  if (!kernel_state || !kernel_state->memory() || (provider_object & 3)) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  auto *memory = kernel_state->memory();
+  const uint32_t provider_vtable =
+      LoadSemanticGuestU32(memory, provider_object);
+  if (!provider_vtable || (provider_vtable & 3) ||
+      provider_vtable > UINT32_MAX - 44) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  SemanticResourceProviderProvenance provider = {
+      .provider_object = provider_object,
+      .provider_vtable = provider_vtable,
+      .predicate_24_method = LoadSemanticGuestU32(memory, provider_vtable + 24),
+      .primary_36_method = LoadSemanticGuestU32(memory, provider_vtable + 36),
+      .fallback_40_method = LoadSemanticGuestU32(memory, provider_vtable + 40),
+      .predicate_44_method = LoadSemanticGuestU32(memory, provider_vtable + 44),
+  };
+  if (!provider.predicate_24_method || !provider.primary_36_method ||
+      !provider.fallback_40_method || !provider.predicate_44_method ||
+      (provider.predicate_24_method & 3) || (provider.primary_36_method & 3) ||
+      (provider.fallback_40_method & 3) || (provider.predicate_44_method & 3)) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  resolution.provider = provider;
+  g_semantic_provider_metadata_bytes += 20;
+}
+
+void RecordProceduralModelResourceProviderPrimaryPredicate(
+    uint32_t predicate_result, uint32_t provider_object) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !g_pending_semantic_resource_resolution.active) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  PendingSemanticResourceResolution &resolution =
+      g_pending_semantic_resource_resolution;
+  if (!resolution.active || !resolution.provider_lookup_seen ||
+      !resolution.provider.provider_object ||
+      resolution.provider.provider_object != provider_object ||
+      resolution.primary_predicate_seen) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  resolution.primary_predicate_seen = true;
+  if (predicate_result & 0xFF) {
+    resolution.provider.selection =
+        SemanticResourceProviderSelection::kPrimaryMethod;
+    ++g_semantic_provider_primary_selections;
+  }
+}
+
+void RecordProceduralModelResourceProviderFallbackPredicate(
+    uint32_t predicate_result, uint32_t provider_object) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !g_pending_semantic_resource_resolution.active) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  PendingSemanticResourceResolution &resolution =
+      g_pending_semantic_resource_resolution;
+  if (!resolution.active || !resolution.primary_predicate_seen ||
+      resolution.provider.selection !=
+          SemanticResourceProviderSelection::kUnknown ||
+      resolution.provider.provider_object != provider_object ||
+      resolution.fallback_predicate_seen) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  resolution.fallback_predicate_seen = true;
+  if (predicate_result & 0xFF) {
+    resolution.provider.selection =
+        SemanticResourceProviderSelection::kFallbackMethod;
+    ++g_semantic_provider_fallback_selections;
+  } else {
+    resolution.provider.selection =
+        SemanticResourceProviderSelection::kUnavailable;
+    ++g_semantic_provider_unavailable_selections;
+  }
+}
+
+void RecordProceduralModelResourceProviderMethodResult(
+    uint32_t provider_method_result, uint32_t provider_object,
+    uint32_t resolver_cache_slot) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !g_pending_semantic_resource_resolution.active) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  PendingSemanticResourceResolution &resolution =
+      g_pending_semantic_resource_resolution;
+  if (!resolution.active || resolution.provider_method_result_seen ||
+      resolution.provider.provider_object != provider_object ||
+      resolution.resolver_cache_slot != resolver_cache_slot ||
+      (resolution.provider.selection !=
+           SemanticResourceProviderSelection::kPrimaryMethod &&
+       resolution.provider.selection !=
+           SemanticResourceProviderSelection::kFallbackMethod)) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  ++g_semantic_provider_method_results;
+  if (!provider_method_result) {
+    ++g_semantic_provider_method_null_results;
+  }
+  resolution.provider_method_result_seen = true;
+  resolution.provider_method_result = provider_method_result;
+}
+
+void RecordProceduralModelResourceSecondaryResolutionResult(
+    uint32_t secondary_resolution_result, uint32_t provider_object,
+    uint32_t resolver_cache_slot) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !g_pending_semantic_resource_resolution.active) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  PendingSemanticResourceResolution &resolution =
+      g_pending_semantic_resource_resolution;
+  const bool secondary_resolution_expected =
+      resolution.provider.selection ==
+          SemanticResourceProviderSelection::kUnavailable ||
+      (resolution.provider_method_result_seen &&
+       !resolution.provider_method_result);
+  if (!resolution.active || !secondary_resolution_expected ||
+      resolution.secondary_resolution_result_seen ||
+      resolution.provider.provider_object != provider_object ||
+      resolution.resolver_cache_slot != resolver_cache_slot) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  ++g_semantic_secondary_resolution_attempts;
+  if (secondary_resolution_result) {
+    ++g_semantic_secondary_resolution_successes;
+  } else {
+    ++g_semantic_secondary_resolution_misses;
+  }
+  resolution.secondary_resolution_result_seen = true;
+  resolution.secondary_resolution_result = secondary_resolution_result;
 }
 
 void RecordProceduralModelResourceResolutionResult(
@@ -3450,9 +3885,62 @@ void RecordProceduralModelResourceResolutionResult(
     return;
   }
   if (resolution.cache_candidate) {
-    ++g_semantic_resource_resolution_attempts;
-    g_semantic_resolved_resource_slots[binding_slot] = {};
-    resolution.cache_candidate = false;
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  if (resolution.resolver_cache_candidate) {
+    if (resolution.provider_lookup_seen || !resolved_resource_object ||
+        resolved_resource_object != resolution.resolved_resource_object ||
+        !IsResolvedSemanticResourceProviderProvenance(resolution.provider)) {
+      ++g_semantic_resource_resolution_protocol_faults;
+      resolution = {};
+      return;
+    }
+    ++g_semantic_provider_cache_hits;
+    resolution.result_seen = true;
+    return;
+  }
+  bool provider_chain_valid = resolution.provider_lookup_seen;
+  if (resolution.provider.selection ==
+      SemanticResourceProviderSelection::kLookupMissing) {
+    provider_chain_valid = provider_chain_valid && !resolved_resource_object;
+    resolution.provider.object_source = SemanticResourceObjectSource::kNone;
+  } else if (resolution.provider.selection ==
+                 SemanticResourceProviderSelection::kPrimaryMethod ||
+             resolution.provider.selection ==
+                 SemanticResourceProviderSelection::kFallbackMethod) {
+    provider_chain_valid =
+        provider_chain_valid && resolution.provider_method_result_seen;
+    if (resolution.provider_method_result) {
+      provider_chain_valid =
+          provider_chain_valid &&
+          !resolution.secondary_resolution_result_seen &&
+          resolved_resource_object == resolution.provider_method_result;
+      resolution.provider.object_source =
+          SemanticResourceObjectSource::kProviderMethod;
+    } else {
+      provider_chain_valid =
+          provider_chain_valid && resolution.secondary_resolution_result_seen &&
+          resolved_resource_object == resolution.secondary_resolution_result;
+      resolution.provider.object_source =
+          SemanticResourceObjectSource::kSecondaryResolution;
+    }
+  } else if (resolution.provider.selection ==
+             SemanticResourceProviderSelection::kUnavailable) {
+    provider_chain_valid =
+        provider_chain_valid && !resolution.provider_method_result_seen &&
+        resolution.secondary_resolution_result_seen &&
+        resolved_resource_object == resolution.secondary_resolution_result;
+    resolution.provider.object_source =
+        SemanticResourceObjectSource::kSecondaryResolution;
+  } else {
+    provider_chain_valid = false;
+  }
+  if (!provider_chain_valid) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
   }
   resolution.result_seen = true;
   resolution.resolved_resource_object = resolved_resource_object;
@@ -3461,9 +3949,18 @@ void RecordProceduralModelResourceResolutionResult(
   }
 
   ++g_semantic_resource_resolution_misses;
-  g_semantic_resolved_resource_slots[binding_slot] = {
+  if (resolution.resolver_cache_index < 0 ||
+      size_t(resolution.resolver_cache_index) >=
+          g_semantic_resolver_cache_slots.size()) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  g_semantic_resolver_cache_slots[size_t(resolution.resolver_cache_index)] = {
+      .resolver_cache_slot = resolution.resolver_cache_slot,
       .resource_key = resolution.resource_key,
       .bound_resource_object = 0,
+      .provider = resolution.provider,
       .key_known = true,
   };
   if (binding_slot == 0) {
@@ -3498,20 +3995,28 @@ void RecordProceduralModelResourceBindDispatch(
 
   ++g_semantic_resource_resolution_successes;
   ++g_semantic_resource_bind_dispatches;
-  g_semantic_resolved_resource_slots[binding_slot] = {
+  if (resolution.resolver_cache_index < 0 ||
+      size_t(resolution.resolver_cache_index) >=
+          g_semantic_resolver_cache_slots.size()) {
+    ++g_semantic_resource_resolution_protocol_faults;
+    resolution = {};
+    return;
+  }
+  g_semantic_resolver_cache_slots[size_t(resolution.resolver_cache_index)] = {
+      .resolver_cache_slot = resolution.resolver_cache_slot,
       .resource_key = resolution.resource_key,
       .bound_resource_object = bound_resource_object,
+      .provider = resolution.provider,
       .key_known = true,
   };
-  if (binding_slot == 0) {
-    g_pending_semantic_bindings.primary_bound_resource_object =
-        bound_resource_object;
-    g_pending_semantic_bindings.primary_resolution_known = true;
-  } else {
-    g_pending_semantic_bindings.secondary_bound_resource_object =
-        bound_resource_object;
-    g_pending_semantic_bindings.secondary_resolution_known = true;
-  }
+  g_semantic_binding_cache_slots[binding_slot] = {
+      .resource_key = resolution.resource_key,
+      .bound_resource_object = bound_resource_object,
+      .provider = resolution.provider,
+      .key_known = true,
+  };
+  PublishProceduralModelResourceBinding(
+      binding_slot, bound_resource_object, resolution.provider);
   resolution = {};
 }
 
@@ -3651,7 +4156,8 @@ void RecordProceduralModelGeometrySubmission(
     return;
   }
   if (!pending.primary_resolution_known ||
-      !pending.primary_bound_resource_object) {
+      !pending.primary_bound_resource_object ||
+      !IsResolvedSemanticResourceProviderProvenance(pending.primary_provider)) {
     ++g_semantic_submission_unresolved_resource_joins;
     return;
   }
@@ -3675,7 +4181,9 @@ void RecordProceduralModelGeometrySubmission(
       return;
     }
     if (!pending.secondary_resolution_known ||
-        !pending.secondary_bound_resource_object) {
+        !pending.secondary_bound_resource_object ||
+        !IsResolvedSemanticResourceProviderProvenance(
+            pending.secondary_provider)) {
       ++g_semantic_submission_unresolved_resource_joins;
       return;
     }
@@ -3710,9 +4218,25 @@ void RecordProceduralModelGeometrySubmission(
         uint64_t(record_index), uint64_t(descriptor_kind),
         uint64_t(helper_state), uint64_t(primary_resource_key),
         uint64_t(pending.primary_bound_resource_object),
+        uint64_t(pending.primary_provider.provider_object),
+        uint64_t(pending.primary_provider.provider_vtable),
+        uint64_t(pending.primary_provider.predicate_24_method),
+        uint64_t(pending.primary_provider.primary_36_method),
+        uint64_t(pending.primary_provider.fallback_40_method),
+        uint64_t(pending.primary_provider.predicate_44_method),
+        uint64_t(pending.primary_provider.selection),
+        uint64_t(pending.primary_provider.object_source),
         uint64_t(secondary_resource_present),
         uint64_t(secondary_resource_key),
         uint64_t(pending.secondary_bound_resource_object),
+        uint64_t(pending.secondary_provider.provider_object),
+        uint64_t(pending.secondary_provider.provider_vtable),
+        uint64_t(pending.secondary_provider.predicate_24_method),
+        uint64_t(pending.secondary_provider.primary_36_method),
+        uint64_t(pending.secondary_provider.fallback_40_method),
+        uint64_t(pending.secondary_provider.predicate_44_method),
+        uint64_t(pending.secondary_provider.selection),
+        uint64_t(pending.secondary_provider.object_source),
         uint64_t(runtime_submission_object), uint64_t(count_bytes),
         uint64_t(source_address)}) {
     key = HashCombine(key, value);
@@ -3739,10 +4263,42 @@ void RecordProceduralModelGeometrySubmission(
           .primary_resource_key = primary_resource_key,
           .primary_bound_resource_object =
               pending.primary_bound_resource_object,
+          .primary_resource_provider_object =
+              pending.primary_provider.provider_object,
+          .primary_resource_provider_vtable =
+              pending.primary_provider.provider_vtable,
+          .primary_resource_predicate_24_method =
+              pending.primary_provider.predicate_24_method,
+          .primary_resource_primary_36_method =
+              pending.primary_provider.primary_36_method,
+          .primary_resource_fallback_40_method =
+              pending.primary_provider.fallback_40_method,
+          .primary_resource_predicate_44_method =
+              pending.primary_provider.predicate_44_method,
+          .primary_resource_provider_selection =
+              uint32_t(pending.primary_provider.selection),
+          .primary_resource_object_source =
+              uint32_t(pending.primary_provider.object_source),
           .secondary_resource_index = secondary_resource_index,
           .secondary_resource_key = secondary_resource_key,
           .secondary_bound_resource_object =
               pending.secondary_bound_resource_object,
+          .secondary_resource_provider_object =
+              pending.secondary_provider.provider_object,
+          .secondary_resource_provider_vtable =
+              pending.secondary_provider.provider_vtable,
+          .secondary_resource_predicate_24_method =
+              pending.secondary_provider.predicate_24_method,
+          .secondary_resource_primary_36_method =
+              pending.secondary_provider.primary_36_method,
+          .secondary_resource_fallback_40_method =
+              pending.secondary_provider.fallback_40_method,
+          .secondary_resource_predicate_44_method =
+              pending.secondary_provider.predicate_44_method,
+          .secondary_resource_provider_selection =
+              uint32_t(pending.secondary_provider.selection),
+          .secondary_resource_object_source =
+              uint32_t(pending.secondary_provider.object_source),
           .runtime_submission_object = runtime_submission_object,
           .primitive_type = 13,
           .count_units = count_units,
@@ -3765,11 +4321,43 @@ void RecordProceduralModelGeometrySubmission(
         entry.primary_resource_key == primary_resource_key &&
         entry.primary_bound_resource_object ==
             pending.primary_bound_resource_object &&
+        entry.primary_resource_provider_object ==
+            pending.primary_provider.provider_object &&
+        entry.primary_resource_provider_vtable ==
+            pending.primary_provider.provider_vtable &&
+        entry.primary_resource_predicate_24_method ==
+            pending.primary_provider.predicate_24_method &&
+        entry.primary_resource_primary_36_method ==
+            pending.primary_provider.primary_36_method &&
+        entry.primary_resource_fallback_40_method ==
+            pending.primary_provider.fallback_40_method &&
+        entry.primary_resource_predicate_44_method ==
+            pending.primary_provider.predicate_44_method &&
+        entry.primary_resource_provider_selection ==
+            uint32_t(pending.primary_provider.selection) &&
+        entry.primary_resource_object_source ==
+            uint32_t(pending.primary_provider.object_source) &&
         entry.secondary_resource_present == secondary_resource_present &&
         entry.secondary_resource_index == secondary_resource_index &&
         entry.secondary_resource_key == secondary_resource_key &&
         entry.secondary_bound_resource_object ==
             pending.secondary_bound_resource_object &&
+        entry.secondary_resource_provider_object ==
+            pending.secondary_provider.provider_object &&
+        entry.secondary_resource_provider_vtable ==
+            pending.secondary_provider.provider_vtable &&
+        entry.secondary_resource_predicate_24_method ==
+            pending.secondary_provider.predicate_24_method &&
+        entry.secondary_resource_primary_36_method ==
+            pending.secondary_provider.primary_36_method &&
+        entry.secondary_resource_fallback_40_method ==
+            pending.secondary_provider.fallback_40_method &&
+        entry.secondary_resource_predicate_44_method ==
+            pending.secondary_provider.predicate_44_method &&
+        entry.secondary_resource_provider_selection ==
+            uint32_t(pending.secondary_provider.selection) &&
+        entry.secondary_resource_object_source ==
+            uint32_t(pending.secondary_provider.object_source) &&
         entry.runtime_submission_object == runtime_submission_object &&
         entry.count_units == count_units &&
         entry.count_bytes == count_bytes &&
@@ -3811,6 +4399,25 @@ void EmitProceduralModelSemanticSubmissions() {
           fmt::format("{:08X}", entry.primary_resource_key)},
          {"primary_bound_resource_object",
           fmt::format("{:08X}", entry.primary_bound_resource_object)},
+         {"primary_resource_provider_object",
+          fmt::format("{:08X}", entry.primary_resource_provider_object)},
+         {"primary_resource_provider_vtable",
+          fmt::format("{:08X}", entry.primary_resource_provider_vtable)},
+         {"primary_resource_predicate_24_method",
+          fmt::format("{:08X}", entry.primary_resource_predicate_24_method)},
+         {"primary_resource_primary_36_method",
+          fmt::format("{:08X}", entry.primary_resource_primary_36_method)},
+         {"primary_resource_fallback_40_method",
+          fmt::format("{:08X}", entry.primary_resource_fallback_40_method)},
+         {"primary_resource_predicate_44_method",
+          fmt::format("{:08X}", entry.primary_resource_predicate_44_method)},
+         {"primary_resource_provider_selection",
+          SemanticResourceProviderSelectionName(
+              SemanticResourceProviderSelection(
+                  entry.primary_resource_provider_selection))},
+         {"primary_resource_object_source",
+          SemanticResourceObjectSourceName(SemanticResourceObjectSource(
+              entry.primary_resource_object_source))},
          {"secondary_resource_present",
           entry.secondary_resource_present ? "true" : "false"},
          {"secondary_resource_index",
@@ -3819,6 +4426,25 @@ void EmitProceduralModelSemanticSubmissions() {
           fmt::format("{:08X}", entry.secondary_resource_key)},
          {"secondary_bound_resource_object",
           fmt::format("{:08X}", entry.secondary_bound_resource_object)},
+         {"secondary_resource_provider_object",
+          fmt::format("{:08X}", entry.secondary_resource_provider_object)},
+         {"secondary_resource_provider_vtable",
+          fmt::format("{:08X}", entry.secondary_resource_provider_vtable)},
+         {"secondary_resource_predicate_24_method",
+          fmt::format("{:08X}", entry.secondary_resource_predicate_24_method)},
+         {"secondary_resource_primary_36_method",
+          fmt::format("{:08X}", entry.secondary_resource_primary_36_method)},
+         {"secondary_resource_fallback_40_method",
+          fmt::format("{:08X}", entry.secondary_resource_fallback_40_method)},
+         {"secondary_resource_predicate_44_method",
+          fmt::format("{:08X}", entry.secondary_resource_predicate_44_method)},
+         {"secondary_resource_provider_selection",
+          SemanticResourceProviderSelectionName(
+              SemanticResourceProviderSelection(
+                  entry.secondary_resource_provider_selection))},
+         {"secondary_resource_object_source",
+          SemanticResourceObjectSourceName(SemanticResourceObjectSource(
+              entry.secondary_resource_object_source))},
          {"runtime_submission_object",
           fmt::format("{:08X}", entry.runtime_submission_object)},
          {"primitive_type", std::to_string(entry.primitive_type)},
@@ -3870,10 +4496,36 @@ void EmitProceduralModelSemanticSubmissions() {
         std::to_string(g_semantic_resource_resolution_misses)},
        {"resource_resolution_cache_hits",
         std::to_string(g_semantic_resource_resolution_cache_hits)},
+       {"resource_binding_key_cache_hits",
+        std::to_string(g_semantic_resource_resolution_cache_hits)},
        {"resource_bind_dispatches",
         std::to_string(g_semantic_resource_bind_dispatches)},
        {"resource_resolution_protocol_faults",
         std::to_string(g_semantic_resource_resolution_protocol_faults)},
+       {"provider_lookup_observations",
+        std::to_string(g_semantic_provider_lookup_observations)},
+       {"provider_cache_hits", std::to_string(g_semantic_provider_cache_hits)},
+       {"provider_lookup_misses",
+        std::to_string(g_semantic_provider_lookup_misses)},
+       {"provider_primary_selections",
+        std::to_string(g_semantic_provider_primary_selections)},
+       {"provider_fallback_selections",
+        std::to_string(g_semantic_provider_fallback_selections)},
+       {"provider_unavailable_selections",
+        std::to_string(g_semantic_provider_unavailable_selections)},
+       {"provider_method_results",
+        std::to_string(g_semantic_provider_method_results)},
+       {"provider_method_null_results",
+        std::to_string(g_semantic_provider_method_null_results)},
+       {"secondary_resolution_attempts",
+        std::to_string(g_semantic_secondary_resolution_attempts)},
+       {"secondary_resolution_successes",
+        std::to_string(g_semantic_secondary_resolution_successes)},
+       {"secondary_resolution_misses",
+        std::to_string(g_semantic_secondary_resolution_misses)},
+       {"provider_metadata_bytes",
+        std::to_string(g_semantic_provider_metadata_bytes)},
+       {"provider_metadata_bytes_per_lookup", "20"},
        {"payload_bytes",
         std::to_string(g_semantic_submission_payload_bytes)},
        {"maximum_payload_bytes_per_live_observation",
@@ -8162,6 +8814,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"secondary_resource_binding_hook", "82417A9C"},
        {"geometry_submission_hook", "82417B60"},
        {"resource_binding_helper", "82415BF8"},
+       {"resource_lookup_function", "82410A58"},
+       {"resource_provider_lookup_hook", "82415B64"},
+       {"resource_provider_primary_predicate_hook", "82415B80"},
+       {"resource_provider_fallback_predicate_hook", "82415BA4"},
+       {"resource_provider_method_result_hook", "82415BC0"},
+       {"resource_secondary_resolution_result_hook", "82415BE4"},
        {"resource_resolution_result_hook", "82415C50"},
        {"resource_bind_dispatch_hook", "82415C6C"},
        {"resource_binding_slots", "0,1"},
@@ -9061,6 +9719,33 @@ void PinyonShiftObserveProceduralModelSecondaryResourceBinding(
 void PinyonShiftObserveProceduralModelResourceResolutionResult(
     PPCRegister &r3, PPCRegister &r30, PPCRegister &r31) {
   RecordProceduralModelResourceResolutionResult(r3.u32, r30.u32, r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelResourceProviderLookup(PPCRegister &r3,
+                                                             PPCRegister &r29,
+                                                             PPCRegister &r31) {
+  RecordProceduralModelResourceProviderLookup(r3.u32, r29.u32, r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelResourceProviderPrimaryPredicate(
+    PPCRegister &r3, PPCRegister &r30) {
+  RecordProceduralModelResourceProviderPrimaryPredicate(r3.u32, r30.u32);
+}
+
+void PinyonShiftObserveProceduralModelResourceProviderFallbackPredicate(
+    PPCRegister &r3, PPCRegister &r30) {
+  RecordProceduralModelResourceProviderFallbackPredicate(r3.u32, r30.u32);
+}
+
+void PinyonShiftObserveProceduralModelResourceProviderMethodResult(
+    PPCRegister &r3, PPCRegister &r30, PPCRegister &r31) {
+  RecordProceduralModelResourceProviderMethodResult(r3.u32, r30.u32, r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelResourceSecondaryResolutionResult(
+    PPCRegister &r3, PPCRegister &r30, PPCRegister &r31) {
+  RecordProceduralModelResourceSecondaryResolutionResult(r3.u32, r30.u32,
+                                                         r31.u32);
 }
 
 void PinyonShiftObserveProceduralModelResourceBindDispatch(

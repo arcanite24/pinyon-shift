@@ -206,6 +206,13 @@ PROCEDURAL_MODEL_RECEIVER = {
     "secondary_resource_binding_hook": 0x82417A9C,
     "geometry_submission_hook": 0x82417B60,
     "resource_binding_function": 0x82415BF8,
+    "resource_resolution_function": 0x82415AD0,
+    "resource_lookup_function": 0x82410A58,
+    "resource_provider_lookup_hook": 0x82415B64,
+    "resource_provider_primary_predicate_hook": 0x82415B80,
+    "resource_provider_fallback_predicate_hook": 0x82415BA4,
+    "resource_provider_method_result_hook": 0x82415BC0,
+    "resource_secondary_resolution_result_hook": 0x82415BE4,
     "resource_resolution_result_hook": 0x82415C50,
     "resource_bind_dispatch_hook": 0x82415C6C,
 }
@@ -816,6 +823,8 @@ def procedural_model_receiver_lifecycle(
         spec["render_state_function"],
         spec["render_item_function"],
         spec["resource_binding_function"],
+        spec["resource_resolution_function"],
+        spec["resource_lookup_function"],
     }
     lifecycle_functions = required - {spec["dispatch_function"]}
     if not lifecycle_functions & set(functions_by_address):
@@ -868,6 +877,18 @@ def procedural_model_receiver_lifecycle(
     resource_binding = {
         item["address"]: item["text"]
         for item in functions_by_address[spec["resource_binding_function"]][
+            "instructions"
+        ]
+    }
+    resource_resolution = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["resource_resolution_function"]][
+            "instructions"
+        ]
+    }
+    resource_lookup = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["resource_lookup_function"]][
             "instructions"
         ]
     }
@@ -1040,6 +1061,57 @@ def procedural_model_receiver_lifecycle(
     ):
         raise ValueError("procedural-model resource resolution evidence drifted")
 
+    resource_lookup_expected = {
+        spec["resource_lookup_function"]: "lwz r11,0(r4)",
+        0x82410A5C: "lwz r10,2812(r3)",
+        0x82410A60: "rlwinm r11,r11,2,0,29",
+        0x82410A64: "lwzx r3,r11,r10",
+        0x82410A68: "blr",
+    }
+    resource_resolution_expected = {
+        spec["resource_resolution_function"]: "mflr r12",
+        0x82415AE4: "mr r29,r5",
+        0x82415AF8: "lwz r10,0(r11)",
+        0x82415AFC: "lwz r8,-4(r11)",
+        0x82415B04: "cmpw cr6,r8,r4",
+        0x82415B10: "addi r9,r11,-8",
+        0x82415B40: "lwz r3,0(r9)",
+        0x82415B4C: "stw r4,4(r31)",
+        0x82415B50: "mr r3,r29",
+        0x82415B58: "addi r4,r1,80",
+        0x82415B60: "bl 0x82410a58",
+        spec["resource_provider_lookup_hook"]: "mr. r30,r3",
+        0x82415B6C: "lwz r11,0(r30)",
+        0x82415B74: "lwz r11,24(r11)",
+        0x82415B7C: "bctrl",
+        spec["resource_provider_primary_predicate_hook"]:
+            "clrlwi. r11,r3,24",
+        0x82415B90: "lwz r11,36(r11)",
+        0x82415B98: "lwz r11,44(r11)",
+        0x82415BA0: "bctrl",
+        spec["resource_provider_fallback_predicate_hook"]:
+            "clrlwi. r11,r3,24",
+        0x82415BB4: "lwz r11,40(r11)",
+        0x82415BBC: "bctrl",
+        spec["resource_provider_method_result_hook"]: "stw r3,0(r31)",
+        0x82415BC4: "lwz r11,0(r31)",
+        0x82415BD0: "lwz r11,8(r30)",
+        0x82415BE0: "bl 0x823e58d8",
+        spec["resource_secondary_resolution_result_hook"]:
+            "stw r3,0(r31)",
+        0x82415BE8: "lwz r3,0(r31)",
+    }
+    if any(
+        resource_lookup.get(address) != text
+        for address, text in resource_lookup_expected.items()
+    ):
+        raise ValueError("procedural-model resource lookup evidence drifted")
+    if any(
+        resource_resolution.get(address) != text
+        for address, text in resource_resolution_expected.items()
+    ):
+        raise ValueError("procedural-model provider chain evidence drifted")
+
     rtti_verified = False
     complete_object_locator = None
     type_descriptor = None
@@ -1199,7 +1271,54 @@ def procedural_model_receiver_lifecycle(
             "receiver_resource_table_offset": 8,
             "receiver_resource_table_stride": 8,
             "resource_binding_helper_function_address": "82415BF8",
-            "resource_resolution_function_address": "82415AD0",
+            "resource_resolution_function_address": "{:08X}".format(
+                spec["resource_resolution_function"]
+            ),
+            "resource_lookup_function_address": "{:08X}".format(
+                spec["resource_lookup_function"]
+            ),
+            "resource_provider_lookup_hook_address": "{:08X}".format(
+                spec["resource_provider_lookup_hook"]
+            ),
+            "resource_provider_primary_predicate_hook_address":
+                "{:08X}".format(
+                    spec["resource_provider_primary_predicate_hook"]
+                ),
+            "resource_provider_fallback_predicate_hook_address":
+                "{:08X}".format(
+                    spec["resource_provider_fallback_predicate_hook"]
+                ),
+            "resource_provider_method_result_hook_address": "{:08X}".format(
+                spec["resource_provider_method_result_hook"]
+            ),
+            "resource_secondary_resolution_result_hook_address":
+                "{:08X}".format(
+                    spec["resource_secondary_resolution_result_hook"]
+                ),
+            "resource_provider_vtable_method_offsets": [24, 36, 40, 44],
+            "resource_resolution_cache_entry_count": 5,
+            "resource_resolution_cache_entry_stride": 12,
+            "resource_resolution_cache_bound_object_offset": 0,
+            "resource_resolution_cache_key_offset": 4,
+            "resource_resolution_cache_usage_offset": 8,
+            "resource_resolution_cache_shared_across_binding_slots": True,
+            "resource_provider_routes": {
+                "primary_method_36": {
+                    "predicate_offset": 24,
+                    "method_offset": 36,
+                },
+                "fallback_method_40": {
+                    "predicate_offset": 44,
+                    "method_offset": 40,
+                },
+                "provider_unavailable": {
+                    "predicate_offset": 44,
+                    "secondary_resolution_function_address": "823E58D8",
+                },
+                "null_provider_method_result": {
+                    "secondary_resolution_function_address": "823E58D8",
+                },
+            },
             "resource_resolution_result_hook_address": "{:08X}".format(
                 spec["resource_resolution_result_hook"]
             ),
@@ -1208,6 +1327,11 @@ def procedural_model_receiver_lifecycle(
             ),
             "resource_bind_dispatch_vtable_offset": 88,
             "resource_binding_slots": [0, 1],
+            "resource_binding_key_cache_address": "834AD4CC",
+            "resource_binding_key_cache_entry_count": 5,
+            "resource_binding_key_cache_entry_stride": 4,
+            "resource_binding_key_cache_indexed_by_binding_slot": True,
+            "resource_binding_key_cache_skips_unchanged_bind": True,
             "runtime_submission_object_offset": 0,
             "runtime_default_source_address_offset": 24,
             "runtime_count_units_offset": 28,
@@ -1231,6 +1355,9 @@ def procedural_model_receiver_lifecycle(
             "runtime_scalar_offsets": [40],
             "resource_binding_derivation_proved": True,
             "resolved_resource_object_derivation_proved": True,
+            "resource_provider_chain_derivation_proved": True,
+            "resource_provider_method_identity_runtime_join_required": True,
+            "secondary_resolution_semantics_proved": False,
             "descriptor_kind_partition_proved": True,
             "helper_state_partition_proved": True,
             "record_join_proved": True,
