@@ -14,11 +14,17 @@ class NativeRendererContractTests(unittest.TestCase):
 
         self.assertNotIn("g_draw_census = {};", source)
         self.assertNotIn("g_dependency_census = {};", source)
+        self.assertNotIn("g_semantic_instances = {};", source)
         self.assertIn(
             "std::memset(&g_draw_census, 0, sizeof(g_draw_census));", source
         )
         self.assertIn(
             "std::memset(&g_dependency_census, 0, sizeof(g_dependency_census));",
+            source,
+        )
+        self.assertIn(
+            "std::memset(g_semantic_instances.data(), 0, "
+            "sizeof(g_semantic_instances));",
             source,
         )
 
@@ -50,7 +56,37 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("kRequiresRestart", source)
         self.assertIn('"mode", "pass_through"', source)
         self.assertNotIn("REX_STORE", source)
-        self.assertNotIn("GuestPtr", source)
+
+    def test_procedural_model_semantic_extraction_is_bounded_and_passive(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-semantic-instances.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveProceduralModelRenderItem"'),
+            1,
+        )
+        hook = analysis.split(
+            'name = "PinyonShiftObserveProceduralModelRenderItem"', 1
+        )[0].rsplit("[[midasm_hook]]", 1)[1]
+        self.assertIn("address = 0x8241741C", hook)
+        self.assertIn("kSemanticInstanceCapacity = 4096", source)
+        self.assertIn("kSemanticObservationPayloadBytes = 380", source)
+        self.assertIn("LoadSemanticGuestWords", source)
+        self.assertIn('"classification", "unclassified_material_or_state"', source)
+        self.assertIn('{"fallback", "xenos_replay"}', source)
+        self.assertIn('{"native_upload", "false"}', source)
+        self.assertIn('{"native_draw", "false"}', source)
+        self.assertIn('{"suppression_allowed", "false"}', source)
+        self.assertNotIn("SetDrawSuppression", source)
+        self.assertIn('"bounded_guest_read": True', summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
 
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

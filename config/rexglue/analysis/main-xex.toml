@@ -230,9 +230,9 @@ registers = ["r3"]
 address = 0x82E1CBD0
 name = "PinyonShiftObserveProceduralModelDestructorExit"
 
-# Vtable slots 14 and 40 bracket the exact visibility-preparation and render-
-# state preparation functions consumed by slot 41. These hooks record only the
-# live receiver generation and balanced invocation order.
+# Vtable slots 14 and 40 bracket optional visibility and render-state history.
+# These hooks record only the live receiver generation and balanced invocation
+# order; the stages are not universal slot-41 prerequisites.
 [[midasm_hook]]
 address = 0x82E1FD04
 name = "PinyonShiftObserveProceduralModelVisibilityEntry"
@@ -250,6 +250,16 @@ registers = ["r3"]
 [[midasm_hook]]
 address = 0x82417410
 name = "PinyonShiftObserveProceduralModelRenderStateExit"
+
+# Static argument flow proves that render-state slot 40 passes a live
+# CProceduralModels receiver in r3 and stores its descriptor index at caller
+# stack offset 84 before calling per-record helper 0x82417418. The entry hook
+# performs bounded read-only semantic extraction and leaves every sample on
+# the Xenos replay fallback.
+[[midasm_hook]]
+address = 0x8241741C
+name = "PinyonShiftObserveProceduralModelRenderItem"
+registers = ["r1", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"]
 
 [[midasm_hook]]
 address = 0x824095B4

@@ -447,6 +447,14 @@ def procedural_model_lifecycle_fixtures():
             0x824170D8,
             [
                 "mflr r12",
+                "loc_824171AC:",
+                "lwz r11,4(r30)",
+                "loc_824171C0:",
+                "lwz r3,0(r30)",
+                "loc_824171D0:",
+                "stw r11,84(r1)",
+                "loc_824171D4:",
+                "bl 0x82417418",
                 "loc_824172F8:",
                 "vmaddfp v1,v31,v0,v30",
                 "loc_82417304:",
@@ -460,6 +468,8 @@ def procedural_model_lifecycle_fixtures():
             0x82417418,
             [
                 "mflr r12",
+                "loc_8241742C:",
+                "mr r27,r3",
                 "loc_82417494:",
                 "addi r30,r27,448",
                 "loc_824174D8:",
@@ -468,6 +478,12 @@ def procedural_model_lifecycle_fixtures():
                 "addi r30,r27,384",
                 "loc_82417668:",
                 "lwz r10,124(r27)",
+                "loc_8241766C:",
+                "lwz r9,356(r1)",
+                "loc_82417670:",
+                "mulli r11,r9,92",
+                "loc_82417674:",
+                "lwz r10,0(r10)",
                 "loc_824176AC:",
                 "lwz r10,128(r27)",
                 "loc_824176B0:",
@@ -805,6 +821,12 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             68, lifecycle["field_layout"]["runtime_record_stride"]
         )
+        extraction = lifecycle["semantic_instance_extraction"]
+        self.assertEqual("8241741C", extraction["hook_address"])
+        self.assertEqual(84, extraction["descriptor_index_caller_stack_offset"])
+        self.assertEqual(380, extraction["bounded_payload_bytes_per_observation"])
+        self.assertTrue(extraction["argument_mapping_proved"])
+        self.assertFalse(extraction["native_rendering_enabled"])
         self.assertFalse(lifecycle["suppression_eligible"])
 
     def test_rejects_drifted_procedural_model_vtable_slot(self):

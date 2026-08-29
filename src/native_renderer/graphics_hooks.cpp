@@ -88,6 +88,11 @@ constexpr size_t kIndirectProducerStackCapacity = 32;
 constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
+constexpr size_t kSemanticInstanceCapacity = 4096;
+constexpr size_t kSemanticDescriptorWordCount = 92 / sizeof(uint32_t);
+constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
+constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
+constexpr uint64_t kSemanticObservationPayloadBytes = 380;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -346,6 +351,46 @@ std::atomic<uint64_t> g_semantic_render_state_exits{};
 std::atomic<uint64_t> g_semantic_render_state_open{};
 std::atomic<uint64_t> g_semantic_stage_stack_faults{};
 std::atomic<uint64_t> g_semantic_stage_unknown_receivers{};
+
+struct SemanticInstanceEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t descriptor_hash = 0;
+  uint64_t runtime_hash = 0;
+  uint64_t transform_hash = 0;
+  uint64_t descriptor_variations = 0;
+  uint64_t runtime_variations = 0;
+  uint64_t transform_variations = 0;
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
+  uint32_t descriptor_count = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t runtime_address = 0;
+  uint32_t descriptor_kind = 0;
+  uint32_t active_buffer_index = 0;
+  uint32_t per_record_resource_capacity = 0;
+  std::array<uint32_t, 7> helper_arguments{};
+  std::array<uint32_t, kSemanticDescriptorWordCount> descriptor_words{};
+  std::array<uint32_t, kSemanticRuntimeWordCount> runtime_words{};
+  std::array<uint32_t, kSemanticTransformWordCount> transform_words{};
+};
+
+std::array<SemanticInstanceEntry, kSemanticInstanceCapacity>
+    g_semantic_instances{};
+std::mutex g_semantic_instance_mutex;
+uint64_t g_semantic_instance_observations = 0;
+uint64_t g_semantic_instance_live_observations = 0;
+uint64_t g_semantic_instance_unknown_receivers = 0;
+uint64_t g_semantic_instance_invalid_layouts = 0;
+uint64_t g_semantic_instance_invalid_indices = 0;
+uint64_t g_semantic_instance_payload_bytes = 0;
+uint64_t g_semantic_instance_replay_fallbacks = 0;
+uint64_t g_semantic_instance_native_admissions = 0;
+uint64_t g_semantic_instance_overflow = 0;
+uint64_t g_semantic_instance_count = 0;
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -638,6 +683,20 @@ void ResetTitleDrawProvenance() {
   g_semantic_stage_stack_faults.store(0, std::memory_order_relaxed);
   g_semantic_stage_unknown_receivers.store(0,
                                             std::memory_order_relaxed);
+  {
+    std::scoped_lock lock(g_semantic_instance_mutex);
+    std::memset(g_semantic_instances.data(), 0, sizeof(g_semantic_instances));
+    g_semantic_instance_observations = 0;
+    g_semantic_instance_live_observations = 0;
+    g_semantic_instance_unknown_receivers = 0;
+    g_semantic_instance_invalid_layouts = 0;
+    g_semantic_instance_invalid_indices = 0;
+    g_semantic_instance_payload_bytes = 0;
+    g_semantic_instance_replay_fallbacks = 0;
+    g_semantic_instance_native_admissions = 0;
+    g_semantic_instance_overflow = 0;
+    g_semantic_instance_count = 0;
+  }
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -2924,6 +2983,242 @@ uint64_t HashCombine(uint64_t hash, uint64_t value) {
   return hash ^ value;
 }
 
+uint32_t LoadSemanticGuestU32(rex::memory::Memory *memory,
+                              uint32_t address) {
+  return static_cast<uint32_t>(
+      *rex::memory::GuestPtr<rex::be_u32 *>(memory->virtual_membase(),
+                                            address));
+}
+
+template <size_t N>
+void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
+                            std::array<uint32_t, N> &words) {
+  for (size_t i = 0; i < N; ++i) {
+    words[i] = LoadSemanticGuestU32(
+        memory, address + static_cast<uint32_t>(i * sizeof(uint32_t)));
+  }
+}
+
+template <size_t N>
+uint64_t HashSemanticWords(const std::array<uint32_t, N> &words) {
+  uint64_t hash = 0xCBF29CE484222325ull;
+  for (uint32_t word : words) {
+    hash = HashCombine(hash, word);
+  }
+  return hash ? hash : 1;
+}
+
+void RecordProceduralModelSemanticInstance(
+    uint32_t stack_pointer, uint32_t receiver_address,
+    std::array<uint32_t, 7> helper_arguments) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    return;
+  }
+
+  std::scoped_lock lock(g_semantic_instance_mutex);
+  ++g_semantic_instance_observations;
+  SemanticReceiverLifecycleEntry *lifecycle =
+      FindSemanticReceiverLifecycle(receiver_address);
+  if (!lifecycle ||
+      lifecycle->state.load(std::memory_order_acquire) !=
+          uint32_t(SemanticReceiverState::kLive)) {
+    ++g_semantic_instance_unknown_receivers;
+    return;
+  }
+  const uint32_t receiver_generation =
+      lifecycle->generation.load(std::memory_order_relaxed);
+  if (!receiver_generation || stack_pointer > UINT32_MAX - 84 ||
+      receiver_address > UINT32_MAX - 512) {
+    ++g_semantic_instance_invalid_layouts;
+    return;
+  }
+
+  const uint32_t record_index =
+      LoadSemanticGuestU32(memory, stack_pointer + 84);
+  const uint32_t owner =
+      LoadSemanticGuestU32(memory, receiver_address + 124);
+  const uint32_t runtime_base =
+      LoadSemanticGuestU32(memory, receiver_address + 128);
+  const uint32_t active_buffer_index =
+      LoadSemanticGuestU32(memory, receiver_address + 136);
+  const uint32_t per_record_resource_capacity =
+      LoadSemanticGuestU32(memory, receiver_address + 140);
+  if (!owner || !runtime_base || (owner & 3) || (runtime_base & 3) ||
+      owner > UINT32_MAX - 16) {
+    ++g_semantic_instance_invalid_layouts;
+    return;
+  }
+  const uint32_t descriptor_base = LoadSemanticGuestU32(memory, owner);
+  const uint32_t descriptor_count =
+      LoadSemanticGuestU32(memory, owner + 12);
+  if (!descriptor_base || (descriptor_base & 3) || !descriptor_count) {
+    ++g_semantic_instance_invalid_layouts;
+    return;
+  }
+  if (record_index >= descriptor_count) {
+    ++g_semantic_instance_invalid_indices;
+    return;
+  }
+  const uint64_t descriptor_address_64 =
+      uint64_t(descriptor_base) + uint64_t(record_index) * 92;
+  const uint64_t runtime_address_64 =
+      uint64_t(runtime_base) + uint64_t(record_index) * 68;
+  if (descriptor_address_64 + 92 > uint64_t(UINT32_MAX) + 1 ||
+      runtime_address_64 + 68 > uint64_t(UINT32_MAX) + 1) {
+    ++g_semantic_instance_invalid_layouts;
+    return;
+  }
+  const uint32_t descriptor_address = uint32_t(descriptor_address_64);
+  const uint32_t runtime_address = uint32_t(runtime_address_64);
+
+  std::array<uint32_t, kSemanticDescriptorWordCount> descriptor_words{};
+  std::array<uint32_t, kSemanticRuntimeWordCount> runtime_words{};
+  std::array<uint32_t, kSemanticTransformWordCount> transform_words{};
+  LoadSemanticGuestWords(memory, descriptor_address, descriptor_words);
+  LoadSemanticGuestWords(memory, runtime_address, runtime_words);
+  LoadSemanticGuestWords(memory, receiver_address + 320, transform_words);
+  const uint64_t descriptor_hash = HashSemanticWords(descriptor_words);
+  const uint64_t runtime_hash = HashSemanticWords(runtime_words);
+  const uint64_t transform_hash = HashSemanticWords(transform_words);
+  ++g_semantic_instance_live_observations;
+  g_semantic_instance_payload_bytes += kSemanticObservationPayloadBytes;
+  ++g_semantic_instance_replay_fallbacks;
+  uint64_t key = 0xCBF29CE484222325ull;
+  key = HashCombine(key, receiver_address);
+  key = HashCombine(key, receiver_generation);
+  key = HashCombine(key, record_index);
+  key = key ? key : 1;
+
+  size_t index = size_t(key % kSemanticInstanceCapacity);
+  for (size_t probe = 0; probe < kSemanticInstanceCapacity; ++probe) {
+    SemanticInstanceEntry &entry = g_semantic_instances[index];
+    if (!entry.key) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      entry.last_frame = entry.first_frame;
+      entry.descriptor_hash = descriptor_hash;
+      entry.runtime_hash = runtime_hash;
+      entry.transform_hash = transform_hash;
+      entry.receiver_address = receiver_address;
+      entry.receiver_generation = receiver_generation;
+      entry.record_index = record_index;
+      entry.descriptor_count = descriptor_count;
+      entry.descriptor_address = descriptor_address;
+      entry.runtime_address = runtime_address;
+      entry.descriptor_kind = descriptor_words[36 / sizeof(uint32_t)];
+      entry.active_buffer_index = active_buffer_index;
+      entry.per_record_resource_capacity = per_record_resource_capacity;
+      entry.helper_arguments = helper_arguments;
+      entry.descriptor_words = descriptor_words;
+      entry.runtime_words = runtime_words;
+      entry.transform_words = transform_words;
+      ++g_semantic_instance_count;
+      return;
+    }
+    if (entry.key == key && entry.receiver_address == receiver_address &&
+        entry.receiver_generation == receiver_generation &&
+        entry.record_index == record_index) {
+      ++entry.calls;
+      entry.last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      entry.descriptor_variations += entry.descriptor_hash != descriptor_hash;
+      entry.runtime_variations += entry.runtime_hash != runtime_hash;
+      entry.transform_variations += entry.transform_hash != transform_hash;
+      return;
+    }
+    index = (index + 1) % kSemanticInstanceCapacity;
+  }
+  ++g_semantic_instance_overflow;
+}
+
+void EmitProceduralModelSemanticInstances() {
+  std::scoped_lock lock(g_semantic_instance_mutex);
+  for (const SemanticInstanceEntry &entry : g_semantic_instances) {
+    if (!entry.key) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_instance_entry",
+        {{"class", "proceduralGeometry::CProceduralModels"},
+         {"key", fmt::format("{:016X}", entry.key)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"receiver_address",
+          fmt::format("{:08X}", entry.receiver_address)},
+         {"receiver_generation",
+          std::to_string(entry.receiver_generation)},
+         {"record_index", std::to_string(entry.record_index)},
+         {"descriptor_count", std::to_string(entry.descriptor_count)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"runtime_address", fmt::format("{:08X}", entry.runtime_address)},
+         {"descriptor_kind", std::to_string(entry.descriptor_kind)},
+         {"active_buffer_index",
+          std::to_string(entry.active_buffer_index)},
+         {"per_record_resource_capacity",
+          std::to_string(entry.per_record_resource_capacity)},
+         {"helper_arguments",
+          fmt::format(
+              "{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}",
+              entry.helper_arguments[0], entry.helper_arguments[1],
+              entry.helper_arguments[2], entry.helper_arguments[3],
+              entry.helper_arguments[4], entry.helper_arguments[5],
+              entry.helper_arguments[6])},
+         {"descriptor_hash", fmt::format("{:016X}", entry.descriptor_hash)},
+         {"runtime_hash", fmt::format("{:016X}", entry.runtime_hash)},
+         {"transform_hash", fmt::format("{:016X}", entry.transform_hash)},
+         {"descriptor_variations",
+          std::to_string(entry.descriptor_variations)},
+         {"runtime_variations", std::to_string(entry.runtime_variations)},
+         {"transform_variations",
+          std::to_string(entry.transform_variations)},
+         {"immutable_sample_words", "88"},
+         {"classification", "unclassified_material_or_state"},
+         {"fallback", "xenos_replay"},
+         {"guest_payload_read", "bounded_semantic_records_only"},
+         {"guest_state_changed", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_instance_summary",
+      {{"observations", std::to_string(g_semantic_instance_observations)},
+       {"live_observations",
+        std::to_string(g_semantic_instance_live_observations)},
+       {"unknown_receivers",
+        std::to_string(g_semantic_instance_unknown_receivers)},
+       {"invalid_layouts",
+        std::to_string(g_semantic_instance_invalid_layouts)},
+       {"invalid_indices",
+        std::to_string(g_semantic_instance_invalid_indices)},
+       {"payload_bytes",
+        std::to_string(g_semantic_instance_payload_bytes)},
+       {"replay_fallbacks",
+        std::to_string(g_semantic_instance_replay_fallbacks)},
+       {"native_admissions",
+        std::to_string(g_semantic_instance_native_admissions)},
+       {"entries", std::to_string(g_semantic_instance_count)},
+       {"capacity", std::to_string(kSemanticInstanceCapacity)},
+       {"overflow", std::to_string(g_semantic_instance_overflow)},
+       {"payload_bytes_per_live_observation",
+        std::to_string(kSemanticObservationPayloadBytes)},
+       {"fallback", "xenos_replay"},
+       {"guest_payload_read", "bounded_semantic_records_only"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 uint64_t PreparedPipelineHash(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   uint64_t hash = 0xCBF29CE484222325ull;
@@ -4312,6 +4607,7 @@ void RecordPreparedCommandBufferLineage(
 }
 
 void EmitCommandBufferLineageSummary() {
+  EmitProceduralModelSemanticInstances();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -7158,6 +7454,29 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"control_flow_changed", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_instance_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"hook", "82417418"},
+       {"hook_address", "8241741C"},
+       {"receiver", "entry_r3"},
+       {"descriptor_index", "caller_stack_plus_84"},
+       {"descriptor_record", "owner[0]+index*92"},
+       {"runtime_record", "receiver[128]+index*68"},
+       {"transform_ranges", "receiver+320:192"},
+       {"capacity", std::to_string(kSemanticInstanceCapacity)},
+       {"immutable_sample_words", "88"},
+       {"payload_bytes_per_live_observation",
+        std::to_string(kSemanticObservationPayloadBytes)},
+       {"classification", "semantic_extraction_no_rendering"},
+       {"fallback", "xenos_replay_unclassified_material_or_state"},
+       {"guest_payload_read", "bounded_semantic_records_only"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
   diagnostics::RecordEvent(
@@ -8001,6 +8320,15 @@ void PinyonShiftObserveProceduralModelRenderStateEntry(PPCRegister &r3) {
 
 void PinyonShiftObserveProceduralModelRenderStateExit() {
   EndSemanticReceiverStage(SemanticReceiverStage::kRenderState);
+}
+
+void PinyonShiftObserveProceduralModelRenderItem(
+    PPCRegister &r1, PPCRegister &r3, PPCRegister &r4, PPCRegister &r5,
+    PPCRegister &r6, PPCRegister &r7, PPCRegister &r8, PPCRegister &r9,
+    PPCRegister &r10) {
+  RecordProceduralModelSemanticInstance(
+      r1.u32, r3.u32,
+      {r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32});
 }
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
