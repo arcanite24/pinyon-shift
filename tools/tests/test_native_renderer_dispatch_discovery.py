@@ -1314,6 +1314,21 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(shadow["guest_state_changed"])
         self.assertTrue(shadow["xenos_authority"])
         self.assertFalse(shadow["suppression_allowed"])
+        spatial_shadow = lifecycle["visibility_spatial_shadow"]
+        self.assertEqual("82E2034C", spatial_shadow["input_hook_address"])
+        self.assertEqual("82E20350", spatial_shadow["result_hook_address"])
+        self.assertEqual("8243F9A0", spatial_shadow["helper_address"])
+        self.assertEqual(
+            "8243FD70", spatial_shadow["distance_helper_address"]
+        )
+        self.assertEqual(52, spatial_shadow["bounded_guest_payload_bytes"])
+        self.assertEqual(
+            "bounded_spatial_helper_inputs",
+            spatial_shadow["guest_payload_read"],
+        )
+        self.assertFalse(spatial_shadow["guest_state_changed"])
+        self.assertTrue(spatial_shadow["xenos_authority"])
+        self.assertFalse(spatial_shadow["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )

@@ -173,3 +173,26 @@ domain, changes no guest state or control flow, performs no native draw, and
 cannot suppress Xenos work. Its purpose is to prove the selection mapping before
 the next batch mirrors the spatial helper inputs independently. Release and
 AppData qualification are intentionally deferred to that consolidated batch.
+
+## Independent spatial-helper shadow
+
+The second model mirrors `0x8243F9A0` independently at its exact callsite. A
+pre-call hook at `0x82E2034C` reads only the helper's bounded arguments: six
+query floats at offsets 0, 4, 8, 16, 20, and 24 plus two three-float segment
+endpoints. The 52-byte payload contract is static, aligned, and record-scoped.
+
+The host mirror preserves the title's two-stage scalar policy. A negative query
+scalar at offset 20 accepts immediately. Otherwise it constructs the segment
+midpoint with the title's 0.5 factor, computes the squared half-segment and
+query distances, and accepts when query scalar 16 times the query distance is
+less than or equal to query scalar 24 times the squared half-segment. Every
+finite host prediction is compared with the low-byte title result at
+`0x82E20350`.
+
+Category/outcome telemetry reconciles one input and comparison with every
+in-scope oracle helper observation. Invalid inputs, missing input/result pairs,
+false positives, and false negatives fail closed. Unscoped continuation resumes
+are counted and excluded. The mirror writes no guest memory, changes no control
+flow, and still cannot cull, select LOD, draw, or suppress Xenos. Its runtime
+qualification is batched with the title-result shadow model in one Release and
+AppData session.
