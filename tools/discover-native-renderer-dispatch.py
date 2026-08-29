@@ -196,6 +196,13 @@ PROCEDURAL_MODEL_RECEIVER = {
     "visibility_vtable_slot": 14,
     "visibility_entry": 0x82E1FD04,
     "visibility_exit": 0x82E208CC,
+    "visibility_record_entry": 0x82E20094,
+    "visibility_lod_hooks": [0x82E205E4, 0x82E206DC],
+    "visibility_result": 0x82E206F8,
+    "visibility_record_exit": 0x82E2084C,
+    "visibility_spatial_prefilter": 0x82E1FEF0,
+    "visibility_spatial_helper": 0x8243F9A0,
+    "visibility_category_helper": 0x82441048,
     "render_state_function": 0x824170D8,
     "render_state_vtable_slot": 40,
     "render_state_entry": 0x824170DC,
@@ -951,7 +958,29 @@ def procedural_model_receiver_lifecycle(
         0x82E1FD4C: "lwz r11,136(r3)",
         0x82E1FE10: "lwz r11,128(r20)",
         0x82E1FEB8: "lwz r9,128(r20)",
+        0x82E1FEF0: "lwz r8,732(r1)",
+        0x82E1FEF4: "mulli r10,r15,192",
+        0x82E1FEF8: "lwz r11,4(r20)",
+        0x82E1FF0C: "add r14,r10,r8",
+        0x82E1FF20: "lfs f12,160(r14)",
+        0x82E1FF24: "lfs f13,164(r14)",
+        0x82E1FF28: "lfs f11,168(r14)",
+        0x82E1FF64: "lwz r11,4(r20)",
+        0x82E1FF80: "lvx128 v63,r11,r9",
+        0x82E1FF88: "lvx128 v62,r11,r8",
+        0x82E1FFA4: "bgt cr6,0x82e20878",
+        0x82E1FFAC: "lwz r4,740(r1)",
+        0x82E1FFDC: "add r3,r11,r4",
+        0x82E20024: "bl 0x8243f9a0",
+        0x82E2003C: "bl 0x82441048",
         0x82E20048: "lwz r11,124(r20)",
+        0x82E20080: "add r23,r11,r18",
+        0x82E20090: "add r21,r11,r17",
+        0x82E205E4: "stw r6,104(r25)",
+        0x82E206DC: "stw r6,104(r25)",
+        0x82E206F4: "lbz r11,18(r24)",
+        0x82E206F8: "cmplwi r11,0",
+        0x82E2084C: "lwz r11,124(r20)",
         0x82E20854: "addi r18,r18,92",
         0x82E20858: "addi r17,r17,68",
         spec["visibility_exit"]: "addi r1,r1,704",
@@ -1243,6 +1272,66 @@ def procedural_model_receiver_lifecycle(
         "visibility_exit_hook_address": "{:08X}".format(
             spec["visibility_exit"]
         ),
+        "visibility_selection": {
+            "record_entry_hook_address": "{:08X}".format(
+                spec["visibility_record_entry"]
+            ),
+            "lod_write_hook_addresses": [
+                "{:08X}".format(address)
+                for address in spec["visibility_lod_hooks"]
+            ],
+            "result_hook_address": "{:08X}".format(
+                spec["visibility_result"]
+            ),
+            "record_exit_hook_address": "{:08X}".format(
+                spec["visibility_record_exit"]
+            ),
+            "receiver_register": "r20",
+            "record_index_register": "r16",
+            "category_register": "r15",
+            "descriptor_register": "r23",
+            "runtime_register": "r21",
+            "selection_byte_offset": 18,
+            "lod_index_offset": 104,
+            "title_visibility_authority": True,
+            "passive_census_required": True,
+            "native_culling_enabled": False,
+            "native_lod_enabled": False,
+            "guest_payload_read": False,
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
+        "visibility_policy_inputs": {
+            "spatial_prefilter_address": "{:08X}".format(
+                spec["visibility_spatial_prefilter"]
+            ),
+            "receiver_spatial_context_pointer_offset": 4,
+            "receiver_spatial_vector_offsets": [16, 32],
+            "category_spatial_argument_register": "r4",
+            "category_spatial_stride": 192,
+            "category_spatial_scalar_offsets": [160, 164, 168],
+            "category_query_argument_register": "r5",
+            "category_query_stride": 32,
+            "spatial_helper_address": "{:08X}".format(
+                spec["visibility_spatial_helper"]
+            ),
+            "category_helper_address": "{:08X}".format(
+                spec["visibility_category_helper"]
+            ),
+            "descriptor_distance_scalar_offset": 60,
+            "runtime_distance_scalar_offset": 44,
+            "squared_distance_register": "f26",
+            "structural_derivation_proved": True,
+            "camera_semantics_proved": False,
+            "frustum_plane_layout_proved": False,
+            "bounds_shape_semantics_proved": False,
+            "native_policy_execution_enabled": False,
+            "guest_state_changed": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
         "render_state_function_address": "{:08X}".format(
             spec["render_state_function"]
         ),

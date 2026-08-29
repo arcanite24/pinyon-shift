@@ -242,6 +242,36 @@ registers = ["r3"]
 address = 0x82E208CC
 name = "PinyonShiftObserveProceduralModelVisibilityExit"
 
+# Slot 14's record loop exposes title-authoritative visibility and LOD
+# decisions without reconstructing or replacing its camera-space policy. The
+# hooks are observational: record identity is captured after r23/r21 are
+# formed, LOD stores are sampled before the guest write, the selection byte is
+# sampled after the title load, and completion is observed before index advance.
+[[midasm_hook]]
+address = 0x82E20094
+name = "PinyonShiftObserveProceduralModelVisibilityRecordEntry"
+registers = ["r15", "r16", "r20", "r21", "r23"]
+
+[[midasm_hook]]
+address = 0x82E205E4
+name = "PinyonShiftObserveProceduralModelVisibilityLodPrimary"
+registers = ["r6"]
+
+[[midasm_hook]]
+address = 0x82E206DC
+name = "PinyonShiftObserveProceduralModelVisibilityLodSecondary"
+registers = ["r6"]
+
+[[midasm_hook]]
+address = 0x82E206F8
+name = "PinyonShiftObserveProceduralModelVisibilityResult"
+registers = ["r11"]
+
+[[midasm_hook]]
+address = 0x82E2084C
+name = "PinyonShiftObserveProceduralModelVisibilityRecordExit"
+registers = ["r16", "r20"]
+
 [[midasm_hook]]
 address = 0x824170DC
 name = "PinyonShiftObserveProceduralModelRenderStateEntry"

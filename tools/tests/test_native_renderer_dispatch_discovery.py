@@ -432,7 +432,47 @@ def procedural_model_lifecycle_fixtures():
                 "lwz r11,128(r20)",
                 "loc_82E1FEB8:",
                 "lwz r9,128(r20)",
+                "loc_82E1FEF0:",
+                "lwz r8,732(r1)",
+                "mulli r10,r15,192",
+                "lwz r11,4(r20)",
+                "loc_82E1FF0C:",
+                "add r14,r10,r8",
+                "loc_82E1FF20:",
+                "lfs f12,160(r14)",
+                "lfs f13,164(r14)",
+                "lfs f11,168(r14)",
+                "loc_82E1FF64:",
+                "lwz r11,4(r20)",
+                "loc_82E1FF80:",
+                "lvx128 v63,r11,r9",
+                "loc_82E1FF88:",
+                "lvx128 v62,r11,r8",
+                "loc_82E1FFA4:",
+                "bgt cr6,0x82e20878",
+                "loc_82E1FFAC:",
+                "lwz r4,740(r1)",
+                "loc_82E1FFDC:",
+                "add r3,r11,r4",
+                "loc_82E20024:",
+                "bl 0x8243f9a0",
+                "loc_82E2003C:",
+                "bl 0x82441048",
                 "loc_82E20048:",
+                "lwz r11,124(r20)",
+                "loc_82E20080:",
+                "add r23,r11,r18",
+                "loc_82E20090:",
+                "add r21,r11,r17",
+                "loc_82E205E4:",
+                "stw r6,104(r25)",
+                "loc_82E206DC:",
+                "stw r6,104(r25)",
+                "loc_82E206F4:",
+                "lbz r11,18(r24)",
+                "loc_82E206F8:",
+                "cmplwi r11,0",
+                "loc_82E2084C:",
                 "lwz r11,124(r20)",
                 "loc_82E20854:",
                 "addi r18,r18,92",
@@ -1106,6 +1146,36 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(512, lifecycle["object_size"])
         self.assertTrue(lifecycle["visibility_preparation_boundary_proved"])
         self.assertTrue(lifecycle["render_state_boundary_proved"])
+        visibility = lifecycle["visibility_selection"]
+        self.assertEqual("82E20094", visibility["record_entry_hook_address"])
+        self.assertEqual(
+            ["82E205E4", "82E206DC"],
+            visibility["lod_write_hook_addresses"],
+        )
+        self.assertEqual("82E206F8", visibility["result_hook_address"])
+        self.assertEqual("82E2084C", visibility["record_exit_hook_address"])
+        self.assertEqual(18, visibility["selection_byte_offset"])
+        self.assertEqual(104, visibility["lod_index_offset"])
+        self.assertTrue(visibility["title_visibility_authority"])
+        self.assertTrue(visibility["passive_census_required"])
+        self.assertFalse(visibility["native_culling_enabled"])
+        self.assertFalse(visibility["native_lod_enabled"])
+        self.assertTrue(visibility["xenos_authority"])
+        self.assertFalse(visibility["suppression_allowed"])
+        policy = lifecycle["visibility_policy_inputs"]
+        self.assertEqual("82E1FEF0", policy["spatial_prefilter_address"])
+        self.assertEqual(4, policy["receiver_spatial_context_pointer_offset"])
+        self.assertEqual([16, 32], policy["receiver_spatial_vector_offsets"])
+        self.assertEqual(192, policy["category_spatial_stride"])
+        self.assertEqual([160, 164, 168], policy["category_spatial_scalar_offsets"])
+        self.assertEqual(32, policy["category_query_stride"])
+        self.assertEqual("8243F9A0", policy["spatial_helper_address"])
+        self.assertEqual("82441048", policy["category_helper_address"])
+        self.assertEqual(60, policy["descriptor_distance_scalar_offset"])
+        self.assertEqual(44, policy["runtime_distance_scalar_offset"])
+        self.assertTrue(policy["structural_derivation_proved"])
+        self.assertFalse(policy["camera_semantics_proved"])
+        self.assertFalse(policy["native_policy_execution_enabled"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )

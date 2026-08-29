@@ -89,6 +89,9 @@ constexpr size_t kIndirectProducerStackCapacity = 32;
 constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
+constexpr size_t kSemanticVisibilityCategoryCapacity = 32;
+constexpr size_t kSemanticVisibilityLodCapacity = 32;
+constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -610,6 +613,45 @@ std::atomic<uint64_t> g_semantic_render_state_open{};
 std::atomic<uint64_t> g_semantic_stage_stack_faults{};
 std::atomic<uint64_t> g_semantic_stage_unknown_receivers{};
 
+struct SemanticVisibilityCategoryStats {
+  std::atomic<uint64_t> entries{};
+  std::atomic<uint64_t> completions{};
+  std::atomic<uint64_t> selected{};
+  std::atomic<uint64_t> rejected{};
+  std::atomic<uint64_t> early_rejected{};
+  std::atomic<uint64_t> lod_writes{};
+};
+
+std::atomic<uint64_t> g_semantic_visibility_record_entries{};
+std::atomic<uint64_t> g_semantic_visibility_record_completions{};
+std::atomic<uint64_t> g_semantic_visibility_records_open{};
+std::atomic<uint64_t> g_semantic_visibility_result_observations{};
+std::atomic<uint64_t> g_semantic_visibility_selected_records{};
+std::atomic<uint64_t> g_semantic_visibility_rejected_records{};
+std::atomic<uint64_t> g_semantic_visibility_early_rejected_records{};
+std::atomic<uint64_t> g_semantic_visibility_lod_writes{};
+std::atomic<uint64_t> g_semantic_visibility_selected_with_lod{};
+std::atomic<uint64_t> g_semantic_visibility_selected_without_lod{};
+std::atomic<uint64_t> g_semantic_visibility_record_stack_faults{};
+std::atomic<uint64_t> g_semantic_visibility_entry_overlaps{};
+std::atomic<uint64_t> g_semantic_visibility_lod_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_lod_rewrites{};
+std::atomic<uint64_t> g_semantic_visibility_result_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_duplicate_result{};
+std::atomic<uint64_t> g_semantic_visibility_completion_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_exit_with_record{};
+std::atomic<uint64_t> g_semantic_visibility_record_identity_mismatches{};
+std::atomic<uint64_t> g_semantic_visibility_record_unknown_receivers{};
+std::atomic<uint64_t> g_semantic_visibility_category_overflow{};
+std::atomic<uint64_t> g_semantic_visibility_lod_overflow{};
+std::array<SemanticVisibilityCategoryStats,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_categories{};
+std::array<std::atomic<uint64_t>, kSemanticVisibilityLodCapacity>
+    g_semantic_visibility_lod_histogram{};
+std::array<std::atomic<uint64_t>, kSemanticVisibilityResultValueCapacity>
+    g_semantic_visibility_result_value_histogram{};
+
 struct SemanticInstanceEntry {
   uint64_t key = 0;
   uint64_t calls = 0;
@@ -888,6 +930,22 @@ thread_local std::array<SemanticReceiverStageScope,
     g_semantic_visibility_stack{};
 thread_local size_t g_semantic_visibility_stack_depth = 0;
 thread_local size_t g_semantic_visibility_overflow_depth = 0;
+struct ActiveSemanticVisibilityRecord {
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
+  uint32_t category = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t runtime_address = 0;
+  uint32_t lod_index = 0;
+  bool joined = false;
+  bool result_seen = false;
+  bool selected = false;
+  bool lod_seen = false;
+  bool active = false;
+};
+thread_local ActiveSemanticVisibilityRecord
+    g_active_semantic_visibility_record{};
 thread_local std::array<SemanticReceiverStageScope,
                         kSemanticReceiverStackCapacity>
     g_semantic_render_state_stack{};
@@ -1195,6 +1253,64 @@ void ResetTitleDrawProvenance() {
   g_semantic_stage_stack_faults.store(0, std::memory_order_relaxed);
   g_semantic_stage_unknown_receivers.store(0,
                                             std::memory_order_relaxed);
+  g_semantic_visibility_record_entries.store(0,
+                                               std::memory_order_relaxed);
+  g_semantic_visibility_record_completions.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_records_open.store(0,
+                                            std::memory_order_relaxed);
+  g_semantic_visibility_result_observations.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_selected_records.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_rejected_records.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_early_rejected_records.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_lod_writes.store(0,
+                                         std::memory_order_relaxed);
+  g_semantic_visibility_selected_with_lod.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_selected_without_lod.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_record_stack_faults.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_entry_overlaps.store(0,
+                                              std::memory_order_relaxed);
+  g_semantic_visibility_lod_without_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_lod_rewrites.store(0,
+                                            std::memory_order_relaxed);
+  g_semantic_visibility_result_without_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_duplicate_result.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_completion_without_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_exit_with_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_record_identity_mismatches.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_record_unknown_receivers.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_category_overflow.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_lod_overflow.store(0,
+                                            std::memory_order_relaxed);
+  for (auto &category : g_semantic_visibility_categories) {
+    category.entries.store(0, std::memory_order_relaxed);
+    category.completions.store(0, std::memory_order_relaxed);
+    category.selected.store(0, std::memory_order_relaxed);
+    category.rejected.store(0, std::memory_order_relaxed);
+    category.early_rejected.store(0, std::memory_order_relaxed);
+    category.lod_writes.store(0, std::memory_order_relaxed);
+  }
+  for (auto &lod : g_semantic_visibility_lod_histogram) {
+    lod.store(0, std::memory_order_relaxed);
+  }
+  for (auto &value : g_semantic_visibility_result_value_histogram) {
+    value.store(0, std::memory_order_relaxed);
+  }
   {
     std::scoped_lock lock(g_semantic_instance_mutex);
     std::memset(g_semantic_instances.data(), 0, sizeof(g_semantic_instances));
@@ -1307,6 +1423,7 @@ void ResetTitleDrawProvenance() {
   g_semantic_visibility_stack = {};
   g_semantic_visibility_stack_depth = 0;
   g_semantic_visibility_overflow_depth = 0;
+  g_active_semantic_visibility_record = {};
   g_semantic_render_state_stack = {};
   g_semantic_render_state_stack_depth = 0;
   g_semantic_render_state_overflow_depth = 0;
@@ -1904,6 +2021,184 @@ void EndSemanticReceiverStage(SemanticReceiverStage stage) {
     entry->render_state_preparations.fetch_add(1,
                                                 std::memory_order_relaxed);
     entry->render_state_epoch.fetch_add(1, std::memory_order_release);
+  }
+}
+
+void BeginSemanticVisibilityRecord(uint32_t receiver_address,
+                                   uint32_t record_index,
+                                   uint32_t category,
+                                   uint32_t descriptor_address,
+                                   uint32_t runtime_address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_visibility_record_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_active_semantic_visibility_record.active) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_entry_overlaps.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_records_open.fetch_sub(
+        1, std::memory_order_relaxed);
+    g_active_semantic_visibility_record = {};
+  }
+
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  record.active = true;
+  record.receiver_address = receiver_address;
+  record.record_index = record_index;
+  record.category = category;
+  record.descriptor_address = descriptor_address;
+  record.runtime_address = runtime_address;
+  g_semantic_visibility_records_open.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_semantic_visibility_stack_depth) {
+    const SemanticReceiverStageScope &scope =
+        g_semantic_visibility_stack[g_semantic_visibility_stack_depth - 1];
+    record.receiver_generation = scope.generation;
+    record.joined = scope.address == receiver_address && scope.generation &&
+                    descriptor_address && runtime_address &&
+                    !(descriptor_address & 3) && !(runtime_address & 3);
+  }
+  if (!record.joined) {
+    g_semantic_visibility_record_unknown_receivers.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (category < kSemanticVisibilityCategoryCapacity) {
+    g_semantic_visibility_categories[category].entries.fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    g_semantic_visibility_category_overflow.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
+void ObserveSemanticVisibilityLod(uint32_t lod_index) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_lod_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (record.lod_seen) {
+    record.lod_index = lod_index;
+    g_semantic_visibility_lod_rewrites.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.lod_seen = true;
+  record.lod_index = lod_index;
+  g_semantic_visibility_lod_writes.fetch_add(1,
+                                              std::memory_order_relaxed);
+  if (record.category < kSemanticVisibilityCategoryCapacity) {
+    g_semantic_visibility_categories[record.category].lod_writes.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (lod_index < kSemanticVisibilityLodCapacity) {
+    g_semantic_visibility_lod_histogram[lod_index].fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    g_semantic_visibility_lod_overflow.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
+void ObserveSemanticVisibilityResult(uint32_t selected) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_result_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (record.result_seen) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_duplicate_result.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.result_seen = true;
+  record.selected = selected != 0;
+  g_semantic_visibility_result_value_histogram[selected & 0xFF].fetch_add(
+      1, std::memory_order_relaxed);
+  g_semantic_visibility_result_observations.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void EndSemanticVisibilityRecord(uint32_t receiver_address,
+                                 uint32_t record_index) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_visibility_record_completions.fetch_add(
+      1, std::memory_order_relaxed);
+  ActiveSemanticVisibilityRecord record =
+      g_active_semantic_visibility_record;
+  g_active_semantic_visibility_record = {};
+  if (!record.active) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_completion_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_semantic_visibility_records_open.fetch_sub(
+      1, std::memory_order_relaxed);
+  if (record.receiver_address != receiver_address ||
+      record.record_index != record_index) {
+    g_semantic_visibility_record_identity_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+
+  SemanticVisibilityCategoryStats *category =
+      record.category < kSemanticVisibilityCategoryCapacity
+          ? &g_semantic_visibility_categories[record.category]
+          : nullptr;
+  if (category) {
+    category->completions.fetch_add(1, std::memory_order_relaxed);
+  }
+  if (!record.result_seen) {
+    g_semantic_visibility_early_rejected_records.fetch_add(
+        1, std::memory_order_relaxed);
+    if (category) {
+      category->early_rejected.fetch_add(1,
+                                          std::memory_order_relaxed);
+    }
+  } else if (record.selected) {
+    g_semantic_visibility_selected_records.fetch_add(
+        1, std::memory_order_relaxed);
+    if (category) {
+      category->selected.fetch_add(1, std::memory_order_relaxed);
+    }
+  } else {
+    g_semantic_visibility_rejected_records.fetch_add(
+        1, std::memory_order_relaxed);
+    if (category) {
+      category->rejected.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+  if (record.category == 9 && record.selected) {
+    (record.lod_seen ? g_semantic_visibility_selected_with_lod
+                     : g_semantic_visibility_selected_without_lod)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  if (record.lod_seen && record.result_seen && !record.selected) {
+    g_semantic_visibility_record_identity_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
   }
 }
 
@@ -8946,6 +9241,222 @@ void EmitSemanticStateCacheSummary() {
   }
 }
 
+void EmitSemanticVisibilityCensus() {
+  const uint64_t entries = g_semantic_visibility_record_entries.load(
+      std::memory_order_relaxed);
+  const uint64_t completions =
+      g_semantic_visibility_record_completions.load(
+          std::memory_order_relaxed);
+  const uint64_t results =
+      g_semantic_visibility_result_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t selected =
+      g_semantic_visibility_selected_records.load(
+          std::memory_order_relaxed);
+  const uint64_t rejected =
+      g_semantic_visibility_rejected_records.load(
+          std::memory_order_relaxed);
+  const uint64_t early_rejected =
+      g_semantic_visibility_early_rejected_records.load(
+          std::memory_order_relaxed);
+  const uint64_t lod_writes = g_semantic_visibility_lod_writes.load(
+      std::memory_order_relaxed);
+  uint64_t category_entries = 0;
+  uint64_t category_completions = 0;
+  uint64_t category_selected = 0;
+  uint64_t category_rejected = 0;
+  uint64_t category_early_rejected = 0;
+  uint64_t category_lod_writes = 0;
+  for (size_t index = 0; index < kSemanticVisibilityCategoryCapacity;
+       ++index) {
+    const SemanticVisibilityCategoryStats &category =
+        g_semantic_visibility_categories[index];
+    const uint64_t category_entry_count =
+        category.entries.load(std::memory_order_relaxed);
+    if (!category_entry_count) {
+      continue;
+    }
+    const uint64_t category_completion_count =
+        category.completions.load(std::memory_order_relaxed);
+    const uint64_t category_selected_count =
+        category.selected.load(std::memory_order_relaxed);
+    const uint64_t category_rejected_count =
+        category.rejected.load(std::memory_order_relaxed);
+    const uint64_t category_early_rejected_count =
+        category.early_rejected.load(std::memory_order_relaxed);
+    const uint64_t category_lod_count =
+        category.lod_writes.load(std::memory_order_relaxed);
+    const bool category_complete =
+        category_entry_count == category_completion_count &&
+        category_completion_count == category_selected_count +
+                                         category_rejected_count +
+                                         category_early_rejected_count;
+    category_entries += category_entry_count;
+    category_completions += category_completion_count;
+    category_selected += category_selected_count;
+    category_rejected += category_rejected_count;
+    category_early_rejected += category_early_rejected_count;
+    category_lod_writes += category_lod_count;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_visibility_category_summary",
+        {{"status", category_complete ? "complete" : "incomplete"},
+         {"category", std::to_string(index)},
+         {"entries", std::to_string(category_entry_count)},
+         {"completions", std::to_string(category_completion_count)},
+         {"selected", std::to_string(category_selected_count)},
+         {"rejected", std::to_string(category_rejected_count)},
+         {"early_rejected",
+          std::to_string(category_early_rejected_count)},
+         {"lod_writes", std::to_string(category_lod_count)},
+         {"title_visibility_authority", "true"},
+         {"native_culling", "false"},
+         {"native_lod", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  uint64_t lod_histogram_total = 0;
+  for (size_t index = 0; index < kSemanticVisibilityLodCapacity; ++index) {
+    const uint64_t count = g_semantic_visibility_lod_histogram[index].load(
+        std::memory_order_relaxed);
+    if (!count) {
+      continue;
+    }
+    lod_histogram_total += count;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_lod_summary",
+        {{"status", "complete"},
+         {"lod_index", std::to_string(index)},
+         {"writes", std::to_string(count)},
+         {"source", "title_selected_runtime_record_plus_104"},
+         {"native_lod", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  uint64_t result_value_histogram_total = 0;
+  for (size_t index = 0;
+       index < kSemanticVisibilityResultValueCapacity; ++index) {
+    const uint64_t count =
+        g_semantic_visibility_result_value_histogram[index].load(
+            std::memory_order_relaxed);
+    if (!count) {
+      continue;
+    }
+    result_value_histogram_total += count;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_visibility_result_value_summary",
+        {{"status", "complete"},
+         {"selection_value", std::to_string(index)},
+         {"observations", std::to_string(count)},
+         {"interpretation", index ? "selected_nonzero" : "rejected_zero"},
+         {"native_culling", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  const uint64_t category_overflow =
+      g_semantic_visibility_category_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t lod_overflow = g_semantic_visibility_lod_overflow.load(
+      std::memory_order_relaxed);
+  const uint64_t stack_faults =
+      g_semantic_visibility_record_stack_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t entry_overlaps =
+      g_semantic_visibility_entry_overlaps.load(
+          std::memory_order_relaxed);
+  const uint64_t lod_without_record =
+      g_semantic_visibility_lod_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t lod_rewrites =
+      g_semantic_visibility_lod_rewrites.load(
+          std::memory_order_relaxed);
+  const uint64_t result_without_record =
+      g_semantic_visibility_result_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t duplicate_result =
+      g_semantic_visibility_duplicate_result.load(
+          std::memory_order_relaxed);
+  const uint64_t completion_without_record =
+      g_semantic_visibility_completion_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t exit_with_record =
+      g_semantic_visibility_exit_with_record.load(
+          std::memory_order_relaxed);
+  const uint64_t detailed_protocol_faults =
+      entry_overlaps + lod_without_record + result_without_record +
+      duplicate_result + completion_without_record + exit_with_record;
+  const uint64_t identity_mismatches =
+      g_semantic_visibility_record_identity_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t unknown_receivers =
+      g_semantic_visibility_record_unknown_receivers.load(
+          std::memory_order_relaxed);
+  const uint64_t records_open = g_semantic_visibility_records_open.load(
+      std::memory_order_relaxed);
+  const bool accounting_complete =
+      entries && entries == completions &&
+      completions == selected + rejected + early_rejected &&
+      results == selected + rejected && !category_overflow &&
+      category_entries == entries && category_completions == completions &&
+      category_selected == selected && category_rejected == rejected &&
+      category_early_rejected == early_rejected &&
+      category_lod_writes == lod_writes &&
+      lod_histogram_total + lod_overflow == lod_writes && !lod_overflow &&
+      result_value_histogram_total == results &&
+      stack_faults == detailed_protocol_faults && !stack_faults &&
+      !identity_mismatches && !unknown_receivers &&
+      !records_open;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_summary",
+      {{"status", accounting_complete ? "complete" : "incomplete"},
+       {"record_entries", std::to_string(entries)},
+       {"record_completions", std::to_string(completions)},
+       {"result_observations", std::to_string(results)},
+       {"selected_records", std::to_string(selected)},
+       {"rejected_records", std::to_string(rejected)},
+       {"early_rejected_records", std::to_string(early_rejected)},
+       {"lod_writes", std::to_string(lod_writes)},
+       {"lod_category_selected_with_lod",
+        std::to_string(g_semantic_visibility_selected_with_lod.load(
+            std::memory_order_relaxed))},
+       {"lod_category_selected_without_lod",
+        std::to_string(g_semantic_visibility_selected_without_lod.load(
+            std::memory_order_relaxed))},
+       {"category_capacity",
+        std::to_string(kSemanticVisibilityCategoryCapacity)},
+       {"lod_capacity", std::to_string(kSemanticVisibilityLodCapacity)},
+       {"category_overflow", std::to_string(category_overflow)},
+       {"lod_overflow", std::to_string(lod_overflow)},
+       {"record_stack_faults", std::to_string(stack_faults)},
+       {"entry_overlaps", std::to_string(entry_overlaps)},
+       {"lod_without_record", std::to_string(lod_without_record)},
+       {"lod_rewrites", std::to_string(lod_rewrites)},
+       {"result_without_record", std::to_string(result_without_record)},
+       {"duplicate_result", std::to_string(duplicate_result)},
+       {"completion_without_record",
+        std::to_string(completion_without_record)},
+       {"visibility_exit_with_record", std::to_string(exit_with_record)},
+       {"record_identity_mismatches",
+        std::to_string(identity_mismatches)},
+       {"record_unknown_receivers", std::to_string(unknown_receivers)},
+       {"record_open_at_shutdown",
+        std::to_string(records_open)},
+       {"accounting_complete",
+        accounting_complete ? "true" : "false"},
+       {"classification",
+        "title_authoritative_visibility_and_lod_observation"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void EmitSemanticBatchOpportunitySummary() {
   FinalizeSemanticBatchRun();
   FinalizeSemanticBatchFrame();
@@ -11258,6 +11769,34 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"record_entry_hook", "82E20094"},
+       {"lod_write_hooks", "82E205E4,82E206DC"},
+       {"result_hook", "82E206F8"},
+       {"record_completion_hook", "82E2084C"},
+       {"record_identity",
+        "receiver_generation,record_index,category,descriptor,runtime"},
+       {"visibility_result", "runtime_selection_byte_18"},
+       {"lod_selection", "runtime_record_plus_104"},
+       {"category_capacity",
+        std::to_string(kSemanticVisibilityCategoryCapacity)},
+       {"lod_capacity", std::to_string(kSemanticVisibilityLodCapacity)},
+       {"result_value_capacity",
+        std::to_string(kSemanticVisibilityResultValueCapacity)},
+       {"classification",
+        "title_authoritative_visibility_and_lod_observation"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -11556,6 +12095,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     DiscardPendingPassConsumer();
     g_pending_candidate.valid = false;
   }
+  EmitSemanticVisibilityCensus();
   EmitTitleDrawProvenanceSummary();
   EmitSemanticBatchOpportunitySummary();
   EmitCommandBufferLineageSummary();
@@ -12186,7 +12726,42 @@ void PinyonShiftObserveProceduralModelVisibilityEntry(PPCRegister &r3) {
 }
 
 void PinyonShiftObserveProceduralModelVisibilityExit() {
+  if (g_active_semantic_visibility_record.active) {
+    g_semantic_visibility_record_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_exit_with_record.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_records_open.fetch_sub(
+        1, std::memory_order_relaxed);
+    g_active_semantic_visibility_record = {};
+  }
   EndSemanticReceiverStage(SemanticReceiverStage::kVisibility);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityRecordEntry(
+    PPCRegister &r15, PPCRegister &r16, PPCRegister &r20,
+    PPCRegister &r21, PPCRegister &r23) {
+  BeginSemanticVisibilityRecord(r20.u32, r16.u32, r15.u32, r23.u32,
+                                r21.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityLodPrimary(
+    PPCRegister &r6) {
+  ObserveSemanticVisibilityLod(r6.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityLodSecondary(
+    PPCRegister &r6) {
+  ObserveSemanticVisibilityLod(r6.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityResult(PPCRegister &r11) {
+  ObserveSemanticVisibilityResult(r11.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityRecordExit(
+    PPCRegister &r16, PPCRegister &r20) {
+  EndSemanticVisibilityRecord(r20.u32, r16.u32);
 }
 
 void PinyonShiftObserveProceduralModelRenderStateEntry(PPCRegister &r3) {
