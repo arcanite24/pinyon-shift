@@ -1,0 +1,281 @@
+{
+  "schema": "pinyon-shift.native-renderer-consumer-family-classifier.v1",
+  "producer_family": {
+    "anchor_signature": "747837906D0BF484",
+    "follower_signature": "1D253A52B55C9FB3"
+  },
+  "qualification": {
+    "scene": "open_world_day",
+    "session": "20260829T053639Z-p40004",
+    "inventory_sha256": "B58B6D100EE3BBD83B6DD4EA04CC079D2BC93211F4CABC3E6CD09CE12FDD5B80"
+  },
+  "maximum_drift_records": 64,
+  "rules": [
+    {
+      "shader_family_id": "2E5E0A854BE00027/BDFFA72B7ED2FBA4/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 1",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "D34A83D9E6B3A399/E9CD565D9C61D037/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 2",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "8DA8034341014FE7/E292B4109D327206/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 3",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "A08FA79F323EEC31/CD83FD3F10989AE4/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 4",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "C34795A841E7DEFF/21B70A5E4C9CFD11/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 5",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "FAEE9034403E7696/40524ECE99AA3018/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 6",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "2C24725629DBE122/1704F16A395F27AE/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 7",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "FE11D9B18886DE97/6D990AE660186BBD/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 8",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "2C53E1A563484076/21937679208E59A5/0000000000000001/0000400000000001",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 9",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "1A7B4317D178A09D/7C7DBB6416315028/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 10",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "DD93E28E162C04CA/DBD6CD1103FB255B/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 11",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "072FFD70C61DE537/C5DA08AD2DE8B1F7/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 12",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "356B59E653B0002A/D73B76038325E57A/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 13",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "CE0FFEB0986E9971/1D38BA65C9D3C506/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 14",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "D9D9962121E154B4/507643B27AFCACC4/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 15",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "E84208AF54F9464E/388107518063483F/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 16",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "0F6061F29F212B03/D895EFE654D43C08/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 17",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "2951F2FBFDF5908F/5A99B359F506955C/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 18",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "F9E04B937F210086/0518687FE751EB60/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 19",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "5E6CEC1D38E67E79/273782D17D7A1A7E/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 20",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "972F0220C6D5A9A2/129FCB5D371AE0FC/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 21",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "1E7DAED6AA662849/059B86B12B584964/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 22",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "793C8A91B885887F/31E9104FE3E14962/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 23",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "55E497FC06D749B4/7A218408334F7E65/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 24",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "BEE5D547E7838588/3958402C930D588E/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 25",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "DAF439851D7EAD1B/009894C77B556583/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 26",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "E5D399C47E9B946F/49DE5A3094315C75/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 27",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "14B5E28404443782/62B9ED4D3F129FFA/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 28",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "0192D7CBE94E8C93/6F012E173B6CBC9D/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 29",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "47DDD4386DF90CB4/63AE49A53A0B280F/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 30",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "4F34A6F5D0E151B6/0B062D2E75024FC5/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 31",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "54EB5E246BD06502/F5D0FD6C1333940D/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 32",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "840371BD234CAC5F/EE281696EDAA11A8/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 33",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "D6B8ED4513834126/0D656E9CC6DBFFF7/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 34",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "F2626E5F2A7719D4/9A94FC430D353637/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 35",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "29A241DE6F9EEAFA/B59C5BD1316B3744/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 36",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "5FE11090A1539CC6/D61DDDCCFED61E4A/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 37",
+      "native_coverage": false
+    },
+    {
+      "shader_family_id": "DEA366150B2DE02E/A23231ABA8455CCD/000000000000003F/000000000016003F",
+      "semantic_role": "retained_unknown",
+      "confidence": "identity_only",
+      "evidence": "exact shader family observed in qualified open-world session 20260829T053639Z-p40004 at activity rank 38",
+      "native_coverage": false
+    }
+  ]
+}

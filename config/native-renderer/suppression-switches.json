@@ -1,0 +1,19 @@
+{
+  "schema": "pinyon-shift.native-renderer-suppression-switches.v1",
+  "families": [
+    {
+      "family": "sky_horizon",
+      "anchor_signature": "747837906D0BF484",
+      "follower_signature": "1D253A52B55C9FB3",
+      "switch": "native_renderer.sky_horizon_suppression",
+      "scope": "exact_pass_family",
+      "activation": "startup_only",
+      "default_enabled": false,
+      "independent": true,
+      "implementation_status": "absent",
+      "draw_suppression_implemented": false,
+      "resolve_suppression_implemented": false,
+      "xenos_fallback": "mandatory"
+    }
+  ]
+}

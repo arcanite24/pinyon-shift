@@ -93,3 +93,12 @@ After discarding 120 warm-up samples, the enabled/control comparison was:
 The observed deltas were 10 us at median (0.06%) and 37 us at p95 (0.20%).
 This front-end result proves the disabled path has no material overhead in the
 captured scene; it does not replace the required open-world and race captures.
+
+## Exact consumer-family extension
+
+The retained sky/horizon producer has a separate exact shader-family classifier
+for its later GPU consumers. It is documented in
+[CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md) and does
+not change this draw-signature manifest. Its 38 initial rules prove identity
+only, retain unknown semantics and false native coverage, emit bounded drift,
+and cannot affect rendering or suppression.

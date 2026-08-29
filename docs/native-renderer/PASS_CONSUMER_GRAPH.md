@@ -88,9 +88,13 @@ in this qualification.
 The `later_gpu_consumers` admission gate is now `fail`, not `unknown`: later
 GPU consumers are positively observed and have not been replaced. This is
 useful closure of the dependency question, but it prohibits suppressing the
-producer family. The next implementation milestone must assign semantic roles
-to the 38 stable shader families and provide the native resource publication or
-native consumer coverage they require.
+producer family. The 38 stable shader families now have exact identity-only
+rules in
+[CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md).
+They deliberately remain `retained_unknown` with `native_coverage=false` until
+reproducible visual or high-level title evidence assigns semantic roles. The
+next implementation milestone must produce that evidence and then provide the
+native resource publication or native consumer coverage each role requires.
 
 Guest CPU visibility and the independent rollback switch remain separate
 gates. The same session fully armed all 348 exact-family resolve generations

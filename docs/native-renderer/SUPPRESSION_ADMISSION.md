@@ -49,7 +49,8 @@ behavior, and native GPU timing. It is not admitted for suppression yet:
 - guest CPU visibility passes for one bounded exact-family AppData
   qualification route, with zero reads across 348 fully armed resolve
   generations; and
-- no independently reversible suppression switch exists.
+- an independent default-off switch is specified but no suppression or
+  runtime-qualified rollback implementation exists.
 
 Consequently the next work is evidence collection and complete-pass comparison,
 not draw skipping. The Xenos copy, draw, resolve, query, fence, and memexport
@@ -78,5 +79,8 @@ zero guest CPU read or write events. This promotes `guest_cpu_visibility` from
 `unknown` to scene-bounded `pass`, as documented in
 [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md). The admission result is now
 10/12 passing gates, one failing gate (`later_gpu_consumers`), and one unknown
-gate (`rollback_switch`). Suppression is still prohibited. See
+gate (`rollback_switch`). The exact 38-family identity classifier and the
+fail-closed, unimplemented switch specification are documented in
+[CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md). They do
+not promote either remaining blocker. Suppression is still prohibited. See
 [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).
