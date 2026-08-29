@@ -343,6 +343,16 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("producer_return_address", source)
         self.assertIn("indirect_producer_stack_faults", source)
         self.assertIn("indirect_owner_producer_mismatches", source)
+        self.assertIn("kIndirectContextStackCapacity = 32", source)
+        self.assertIn("ExpectedIndirectContextFunction", source)
+        self.assertIn("DeriveIndirectContextRoot", source)
+        self.assertIn("context_function_address", source)
+        self.assertIn("sample_context_root_address", source)
+        self.assertIn("indirect_context_stack_faults", source)
+        self.assertIn("indirect_producer_context_mismatches", source)
+        self.assertIn(
+            "std::atomic<uint64_t> g_indirect_producer_entries", source
+        )
         self.assertIn("SetIndirectBufferObserver(&ObserveIndirectBuffer)", source)
         self.assertIn("SetIndirectBufferObserver(nullptr)", source)
         self.assertIn(

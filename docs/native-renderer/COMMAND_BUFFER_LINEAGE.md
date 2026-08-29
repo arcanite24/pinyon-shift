@@ -52,15 +52,19 @@ fall within the reported current-buffer bounds or the lineage is invalid.
 Pinyon validates the exact addresses, current-buffer length, and packet offset
 on every draw, then aggregates a stable ownership-class key in a fixed
 4,096-entry table: nesting depth, exact constructor store and return address,
-plus the exact upstream owner and producer function and return addresses when
-those are matched. Balanced entry/exit hooks on all six constructor functions
+plus the exact upstream owner, producer, and context function and return
+addresses when those are matched. Balanced entry/exit hooks on all six
+constructor functions
 carry the direct caller return address and bounded `r3-r10` entry metadata into
 the exact stored packet generation. A second balanced layer covers the four
 immediate constructor callers that produced every known-origin draw in the first
 qualification. A third balanced layer covers the three producer functions
 responsible for 85.1% of the owner-origin draws in the owner qualification.
-Each class retains statically resolved constructor, owner, and producer
-callsites when proved, independent argument samples and varying masks, and
+The fourth layer covers the four functions behind the five live producer
+caller edges. It verifies an exact entry-register-plus-offset equation for
+producer `r3` before retaining context provenance. Each class retains
+statically resolved constructor, owner, producer, and context roots when
+proved, independent argument samples and varying masks, and
 minimum and maximum current-buffer lengths, packet
 offsets, and parent-packet offsets from the first indirect root, plus a first
 prepared-signature sample and whether that signature varied. Absolute current,
@@ -145,3 +149,11 @@ The exact owner layer is documented and runtime-qualified in
 runtime-qualified its balanced accounting and resolved 4,400,708 producer-
 origin draws to five exact live caller edges. Neither refinement changes the
 qualified constructor baseline.
+
+The exact live caller-root refinement is documented in
+`INDIRECT_CONTEXT_ROOTS.md`. It adds balanced context accounting and exact
+static/runtime root-equation gates without interpreting the root as an object
+identity. Session `20260829T162653Z-p41196` runtime-qualified 5,311,650 exact
+context-origin draws with zero unresolved origins, stack faults, join faults,
+invalid lineages, or overflow. It remains metadata-only, Xenos-authoritative,
+and suppression-ineligible.

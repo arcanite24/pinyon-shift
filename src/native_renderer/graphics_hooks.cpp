@@ -85,6 +85,7 @@ constexpr size_t kTitleIndirectStackCapacity = 32;
 constexpr size_t kIndirectConstructorStackCapacity = 32;
 constexpr size_t kIndirectOwnerStackCapacity = 32;
 constexpr size_t kIndirectProducerStackCapacity = 32;
+constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -163,16 +164,28 @@ struct TitleIndirectPacketEntry {
   uint32_t producer_function_address = 0;
   uint32_t producer_return_address = 0;
   std::array<uint32_t, 8> producer_arguments{};
+  uint32_t context_function_address = 0;
+  uint32_t context_return_address = 0;
+  std::array<uint32_t, 8> context_arguments{};
+  uint32_t context_root_address = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
+  bool context_origin_known = false;
   bool occupied = false;
 };
 
 struct IndirectConstructorOrigin {
   struct Owner {
     struct Producer {
+      struct Context {
+        uint32_t function_address = 0;
+        uint32_t return_address = 0;
+        std::array<uint32_t, 8> arguments{};
+        uint32_t root_address = 0;
+        bool valid = false;
+      } context{};
       uint32_t function_address = 0;
       uint32_t return_address = 0;
       std::array<uint32_t, 8> arguments{};
@@ -241,24 +254,30 @@ uint64_t g_title_indirect_buffer_matches = 0;
 uint64_t g_title_indirect_buffer_unmatched = 0;
 uint64_t g_title_indirect_stack_faults = 0;
 uint64_t g_title_indirect_draw_stack_faults = 0;
-uint64_t g_indirect_constructor_entries = 0;
-uint64_t g_indirect_constructor_exits = 0;
-uint64_t g_indirect_constructor_stack_faults = 0;
-uint64_t g_indirect_packets_without_constructor_origin = 0;
-uint64_t g_indirect_owner_entries = 0;
-uint64_t g_indirect_owner_exits = 0;
-uint64_t g_indirect_owner_stack_faults = 0;
-uint64_t g_indirect_constructors_without_owner_origin = 0;
-uint64_t g_indirect_constructor_owner_mismatches = 0;
-uint64_t g_indirect_producer_entries = 0;
-uint64_t g_indirect_producer_exits = 0;
-uint64_t g_indirect_producer_stack_faults = 0;
-uint64_t g_indirect_owners_without_producer_origin = 0;
-uint64_t g_indirect_owner_producer_mismatches = 0;
+std::atomic<uint64_t> g_indirect_constructor_entries{};
+std::atomic<uint64_t> g_indirect_constructor_exits{};
+std::atomic<uint64_t> g_indirect_constructor_stack_faults{};
+std::atomic<uint64_t> g_indirect_packets_without_constructor_origin{};
+std::atomic<uint64_t> g_indirect_owner_entries{};
+std::atomic<uint64_t> g_indirect_owner_exits{};
+std::atomic<uint64_t> g_indirect_owner_stack_faults{};
+std::atomic<uint64_t> g_indirect_constructors_without_owner_origin{};
+std::atomic<uint64_t> g_indirect_constructor_owner_mismatches{};
+std::atomic<uint64_t> g_indirect_producer_entries{};
+std::atomic<uint64_t> g_indirect_producer_exits{};
+std::atomic<uint64_t> g_indirect_producer_stack_faults{};
+std::atomic<uint64_t> g_indirect_owners_without_producer_origin{};
+std::atomic<uint64_t> g_indirect_owner_producer_mismatches{};
+std::atomic<uint64_t> g_indirect_context_entries{};
+std::atomic<uint64_t> g_indirect_context_exits{};
+std::atomic<uint64_t> g_indirect_context_stack_faults{};
+std::atomic<uint64_t> g_indirect_producers_without_context_origin{};
+std::atomic<uint64_t> g_indirect_producer_context_mismatches{};
 std::atomic<uint64_t> g_title_indirect_buffers_open{};
 std::atomic<uint64_t> g_indirect_constructor_invocations_open{};
 std::atomic<uint64_t> g_indirect_owner_invocations_open{};
 std::atomic<uint64_t> g_indirect_producer_invocations_open{};
+std::atomic<uint64_t> g_indirect_context_invocations_open{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -281,6 +300,11 @@ thread_local std::array<IndirectConstructorOrigin::Owner::Producer,
     g_indirect_producer_stack;
 thread_local size_t g_indirect_producer_stack_depth = 0;
 thread_local size_t g_indirect_producer_stack_overflow_depth = 0;
+thread_local std::array<IndirectConstructorOrigin::Owner::Producer::Context,
+                        kIndirectContextStackCapacity>
+    g_indirect_context_stack;
+thread_local size_t g_indirect_context_stack_depth = 0;
+thread_local size_t g_indirect_context_stack_overflow_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -433,25 +457,38 @@ void ResetTitleDrawProvenance() {
   g_title_indirect_buffer_unmatched = 0;
   g_title_indirect_stack_faults = 0;
   g_title_indirect_draw_stack_faults = 0;
-  g_indirect_constructor_entries = 0;
-  g_indirect_constructor_exits = 0;
-  g_indirect_constructor_stack_faults = 0;
-  g_indirect_packets_without_constructor_origin = 0;
-  g_indirect_owner_entries = 0;
-  g_indirect_owner_exits = 0;
-  g_indirect_owner_stack_faults = 0;
-  g_indirect_constructors_without_owner_origin = 0;
-  g_indirect_constructor_owner_mismatches = 0;
-  g_indirect_producer_entries = 0;
-  g_indirect_producer_exits = 0;
-  g_indirect_producer_stack_faults = 0;
-  g_indirect_owners_without_producer_origin = 0;
-  g_indirect_owner_producer_mismatches = 0;
+  g_indirect_constructor_entries.store(0, std::memory_order_relaxed);
+  g_indirect_constructor_exits.store(0, std::memory_order_relaxed);
+  g_indirect_constructor_stack_faults.store(0, std::memory_order_relaxed);
+  g_indirect_packets_without_constructor_origin.store(
+      0, std::memory_order_relaxed);
+  g_indirect_owner_entries.store(0, std::memory_order_relaxed);
+  g_indirect_owner_exits.store(0, std::memory_order_relaxed);
+  g_indirect_owner_stack_faults.store(0, std::memory_order_relaxed);
+  g_indirect_constructors_without_owner_origin.store(
+      0, std::memory_order_relaxed);
+  g_indirect_constructor_owner_mismatches.store(
+      0, std::memory_order_relaxed);
+  g_indirect_producer_entries.store(0, std::memory_order_relaxed);
+  g_indirect_producer_exits.store(0, std::memory_order_relaxed);
+  g_indirect_producer_stack_faults.store(0, std::memory_order_relaxed);
+  g_indirect_owners_without_producer_origin.store(
+      0, std::memory_order_relaxed);
+  g_indirect_owner_producer_mismatches.store(
+      0, std::memory_order_relaxed);
+  g_indirect_context_entries.store(0, std::memory_order_relaxed);
+  g_indirect_context_exits.store(0, std::memory_order_relaxed);
+  g_indirect_context_stack_faults.store(0, std::memory_order_relaxed);
+  g_indirect_producers_without_context_origin.store(
+      0, std::memory_order_relaxed);
+  g_indirect_producer_context_mismatches.store(
+      0, std::memory_order_relaxed);
   g_title_indirect_buffers_open.store(0, std::memory_order_relaxed);
   g_indirect_constructor_invocations_open.store(0,
                                                 std::memory_order_relaxed);
   g_indirect_owner_invocations_open.store(0, std::memory_order_relaxed);
   g_indirect_producer_invocations_open.store(0, std::memory_order_relaxed);
+  g_indirect_context_invocations_open.store(0, std::memory_order_relaxed);
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -466,6 +503,9 @@ void ResetTitleDrawProvenance() {
   g_indirect_producer_stack = {};
   g_indirect_producer_stack_depth = 0;
   g_indirect_producer_stack_overflow_depth = 0;
+  g_indirect_context_stack = {};
+  g_indirect_context_stack_depth = 0;
+  g_indirect_context_stack_overflow_depth = 0;
 }
 
 void ConfigureTitleDrawProvenance(bool census_requested,
@@ -500,6 +540,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"owner_stack_capacity", std::to_string(kIndirectOwnerStackCapacity)},
        {"producer_stack_capacity",
         std::to_string(kIndirectProducerStackCapacity)},
+       {"context_stack_capacity",
+        std::to_string(kIndirectContextStackCapacity)},
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
         "backend_signature"},
@@ -652,6 +694,99 @@ uint32_t ExpectedIndirectProducerFunction(uint32_t owner_function_address,
   return 0;
 }
 
+uint32_t ExpectedIndirectContextFunction(uint32_t producer_function_address,
+                                         uint32_t producer_return_address) {
+  if (producer_function_address == 0x8240D070 &&
+      producer_return_address == 0x8240D000) {
+    return 0x8240CF68;
+  }
+  if (producer_function_address == 0x82417060 &&
+      (producer_return_address == 0x82418A28 ||
+       producer_return_address == 0x82418ECC)) {
+    return 0x82417BC0;
+  }
+  if (producer_function_address == 0x82417060 &&
+      producer_return_address == 0x82437048) {
+    return 0x824365B0;
+  }
+  if (producer_function_address == 0x829F6360 &&
+      producer_return_address == 0x829F67B0) {
+    return 0x829F6620;
+  }
+  return 0;
+}
+
+uint32_t DeriveIndirectContextRoot(
+    uint32_t function_address, const std::array<uint32_t, 8> &arguments) {
+  switch (function_address) {
+  case 0x8240CF68:
+  case 0x829F6620:
+    return arguments[0];
+  case 0x82417BC0:
+    return arguments[3] + 59712;
+  case 0x824365B0:
+    return arguments[0] + 59712;
+  default:
+    return 0;
+  }
+}
+
+void PushIndirectContextOrigin(uint32_t function_address,
+                               uint32_t return_address, uint32_t r3,
+                               uint32_t r4, uint32_t r5, uint32_t r6,
+                               uint32_t r7, uint32_t r8, uint32_t r9,
+                               uint32_t r10) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_indirect_context_entries.fetch_add(1, std::memory_order_relaxed);
+  if (g_indirect_context_stack_depth == kIndirectContextStackCapacity) {
+    g_indirect_context_stack_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    ++g_indirect_context_stack_overflow_depth;
+    return;
+  }
+  IndirectConstructorOrigin::Owner::Producer::Context &context =
+      g_indirect_context_stack[g_indirect_context_stack_depth++];
+  context = {};
+  context.function_address = function_address;
+  context.return_address = return_address;
+  context.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  context.root_address =
+      DeriveIndirectContextRoot(function_address, context.arguments);
+  context.valid = true;
+  g_indirect_context_invocations_open.fetch_add(1,
+                                                 std::memory_order_relaxed);
+}
+
+void PopIndirectContextOrigin(uint32_t function_address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_indirect_context_exits.fetch_add(1, std::memory_order_relaxed);
+  if (g_indirect_context_stack_overflow_depth) {
+    --g_indirect_context_stack_overflow_depth;
+    return;
+  }
+  if (!g_indirect_context_stack_depth) {
+    g_indirect_context_stack_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  if (g_indirect_context_stack[g_indirect_context_stack_depth - 1]
+          .function_address != function_address) {
+    g_indirect_context_stack_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    g_indirect_context_invocations_open.fetch_sub(
+        g_indirect_context_stack_depth, std::memory_order_relaxed);
+    g_indirect_context_stack_depth = 0;
+    return;
+  }
+  --g_indirect_context_stack_depth;
+  g_indirect_context_invocations_open.fetch_sub(1,
+                                                 std::memory_order_relaxed);
+}
+
 void PushIndirectProducerOrigin(uint32_t function_address,
                                 uint32_t return_address, uint32_t r3,
                                 uint32_t r4, uint32_t r5, uint32_t r6,
@@ -660,9 +795,10 @@ void PushIndirectProducerOrigin(uint32_t function_address,
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_producer_entries;
+  g_indirect_producer_entries.fetch_add(1, std::memory_order_relaxed);
   if (g_indirect_producer_stack_depth == kIndirectProducerStackCapacity) {
-    ++g_indirect_producer_stack_faults;
+    g_indirect_producer_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
     ++g_indirect_producer_stack_overflow_depth;
     return;
   }
@@ -672,6 +808,26 @@ void PushIndirectProducerOrigin(uint32_t function_address,
   producer.function_address = function_address;
   producer.return_address = return_address;
   producer.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  const uint32_t expected_context =
+      ExpectedIndirectContextFunction(function_address, return_address);
+  if (expected_context && g_indirect_context_stack_depth) {
+    const IndirectConstructorOrigin::Owner::Producer::Context &context =
+        g_indirect_context_stack[g_indirect_context_stack_depth - 1];
+    if (context.valid && context.function_address == expected_context &&
+        context.root_address == r3) {
+      producer.context = context;
+    } else {
+      g_indirect_producer_context_mismatches.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  } else if (expected_context) {
+    g_indirect_producer_context_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (!producer.context.valid) {
+    g_indirect_producers_without_context_origin.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   producer.valid = true;
   g_indirect_producer_invocations_open.fetch_add(
       1, std::memory_order_relaxed);
@@ -681,18 +837,20 @@ void PopIndirectProducerOrigin(uint32_t function_address) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_producer_exits;
+  g_indirect_producer_exits.fetch_add(1, std::memory_order_relaxed);
   if (g_indirect_producer_stack_overflow_depth) {
     --g_indirect_producer_stack_overflow_depth;
     return;
   }
   if (!g_indirect_producer_stack_depth) {
-    ++g_indirect_producer_stack_faults;
+    g_indirect_producer_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
     return;
   }
   if (g_indirect_producer_stack[g_indirect_producer_stack_depth - 1]
           .function_address != function_address) {
-    ++g_indirect_producer_stack_faults;
+    g_indirect_producer_stack_faults.fetch_add(1,
+                                                std::memory_order_relaxed);
     g_indirect_producer_invocations_open.fetch_sub(
         g_indirect_producer_stack_depth, std::memory_order_relaxed);
     g_indirect_producer_stack_depth = 0;
@@ -711,9 +869,10 @@ void PushIndirectOwnerOrigin(uint32_t function_address,
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_owner_entries;
+  g_indirect_owner_entries.fetch_add(1, std::memory_order_relaxed);
   if (g_indirect_owner_stack_depth == kIndirectOwnerStackCapacity) {
-    ++g_indirect_owner_stack_faults;
+    g_indirect_owner_stack_faults.fetch_add(1,
+                                             std::memory_order_relaxed);
     ++g_indirect_owner_stack_overflow_depth;
     return;
   }
@@ -731,13 +890,16 @@ void PushIndirectOwnerOrigin(uint32_t function_address,
     if (producer.valid && producer.function_address == expected_producer) {
       owner.producer = producer;
     } else {
-      ++g_indirect_owner_producer_mismatches;
+      g_indirect_owner_producer_mismatches.fetch_add(
+          1, std::memory_order_relaxed);
     }
   } else if (expected_producer) {
-    ++g_indirect_owner_producer_mismatches;
+    g_indirect_owner_producer_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
   }
   if (!owner.producer.valid) {
-    ++g_indirect_owners_without_producer_origin;
+    g_indirect_owners_without_producer_origin.fetch_add(
+        1, std::memory_order_relaxed);
   }
   owner.valid = true;
   g_indirect_owner_invocations_open.fetch_add(1,
@@ -748,18 +910,20 @@ void PopIndirectOwnerOrigin(uint32_t function_address) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_owner_exits;
+  g_indirect_owner_exits.fetch_add(1, std::memory_order_relaxed);
   if (g_indirect_owner_stack_overflow_depth) {
     --g_indirect_owner_stack_overflow_depth;
     return;
   }
   if (!g_indirect_owner_stack_depth) {
-    ++g_indirect_owner_stack_faults;
+    g_indirect_owner_stack_faults.fetch_add(1,
+                                             std::memory_order_relaxed);
     return;
   }
   if (g_indirect_owner_stack[g_indirect_owner_stack_depth - 1]
           .function_address != function_address) {
-    ++g_indirect_owner_stack_faults;
+    g_indirect_owner_stack_faults.fetch_add(1,
+                                             std::memory_order_relaxed);
     g_indirect_owner_invocations_open.fetch_sub(
         g_indirect_owner_stack_depth, std::memory_order_relaxed);
     g_indirect_owner_stack_depth = 0;
@@ -778,10 +942,12 @@ void PushIndirectConstructorOrigin(uint32_t function_address,
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_constructor_entries;
+  g_indirect_constructor_entries.fetch_add(1,
+                                             std::memory_order_relaxed);
   if (g_indirect_constructor_stack_depth ==
       kIndirectConstructorStackCapacity) {
-    ++g_indirect_constructor_stack_faults;
+    g_indirect_constructor_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
     ++g_indirect_constructor_stack_overflow_depth;
     return;
   }
@@ -799,13 +965,16 @@ void PushIndirectConstructorOrigin(uint32_t function_address,
     if (owner.valid && owner.function_address == expected_owner) {
       origin.owner = owner;
     } else {
-      ++g_indirect_constructor_owner_mismatches;
+      g_indirect_constructor_owner_mismatches.fetch_add(
+          1, std::memory_order_relaxed);
     }
   } else if (expected_owner) {
-    ++g_indirect_constructor_owner_mismatches;
+    g_indirect_constructor_owner_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
   }
   if (!origin.owner.valid) {
-    ++g_indirect_constructors_without_owner_origin;
+    g_indirect_constructors_without_owner_origin.fetch_add(
+        1, std::memory_order_relaxed);
   }
   origin.valid = true;
   g_indirect_constructor_invocations_open.fetch_add(
@@ -816,18 +985,21 @@ void PopIndirectConstructorOrigin(uint32_t function_address) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
-  ++g_indirect_constructor_exits;
+  g_indirect_constructor_exits.fetch_add(1,
+                                          std::memory_order_relaxed);
   if (g_indirect_constructor_stack_overflow_depth) {
     --g_indirect_constructor_stack_overflow_depth;
     return;
   }
   if (!g_indirect_constructor_stack_depth) {
-    ++g_indirect_constructor_stack_faults;
+    g_indirect_constructor_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
     return;
   }
   if (g_indirect_constructor_stack[g_indirect_constructor_stack_depth - 1]
           .function_address != function_address) {
-    ++g_indirect_constructor_stack_faults;
+    g_indirect_constructor_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
     g_indirect_constructor_invocations_open.fetch_sub(
         g_indirect_constructor_stack_depth, std::memory_order_relaxed);
     g_indirect_constructor_stack_depth = 0;
@@ -841,13 +1013,15 @@ void PopIndirectConstructorOrigin(uint32_t function_address) {
 IndirectConstructorOrigin CurrentIndirectConstructorOrigin(
     uint32_t function_address) {
   if (!g_indirect_constructor_stack_depth) {
-    ++g_indirect_packets_without_constructor_origin;
+    g_indirect_packets_without_constructor_origin.fetch_add(
+        1, std::memory_order_relaxed);
     return {};
   }
   const IndirectConstructorOrigin &origin =
       g_indirect_constructor_stack[g_indirect_constructor_stack_depth - 1];
   if (!origin.valid || origin.function_address != function_address) {
-    ++g_indirect_packets_without_constructor_origin;
+    g_indirect_packets_without_constructor_origin.fetch_add(
+        1, std::memory_order_relaxed);
     return {};
   }
   return origin;
@@ -911,10 +1085,16 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
   entry.producer_function_address = origin.owner.producer.function_address;
   entry.producer_return_address = origin.owner.producer.return_address;
   entry.producer_arguments = origin.owner.producer.arguments;
+  entry.context_function_address =
+      origin.owner.producer.context.function_address;
+  entry.context_return_address = origin.owner.producer.context.return_address;
+  entry.context_arguments = origin.owner.producer.context.arguments;
+  entry.context_root_address = origin.owner.producer.context.root_address;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
   entry.producer_origin_known = origin.owner.producer.valid;
+  entry.context_origin_known = origin.owner.producer.context.valid;
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
@@ -992,6 +1172,16 @@ void ObserveIndirectBuffer(
         matched.producer_arguments;
     active.constructor_origin.owner.producer.valid =
         matched.producer_origin_known;
+    active.constructor_origin.owner.producer.context.function_address =
+        matched.context_function_address;
+    active.constructor_origin.owner.producer.context.return_address =
+        matched.context_return_address;
+    active.constructor_origin.owner.producer.context.arguments =
+        matched.context_arguments;
+    active.constructor_origin.owner.producer.context.root_address =
+        matched.context_root_address;
+    active.constructor_origin.owner.producer.context.valid =
+        matched.context_origin_known;
     active.depth = observation.depth;
     g_title_indirect_buffers_open.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -1880,10 +2070,17 @@ struct CommandBufferLineageEntry {
   uint32_t producer_return_address = 0;
   std::array<uint32_t, 8> sample_producer_arguments{};
   uint32_t producer_argument_varying_mask = 0;
+  uint32_t context_function_address = 0;
+  uint32_t context_return_address = 0;
+  std::array<uint32_t, 8> sample_context_arguments{};
+  uint32_t context_argument_varying_mask = 0;
+  uint32_t sample_context_root_address = 0;
+  bool context_root_address_varied = false;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
+  bool context_origin_known = false;
   bool prepared_signature_varied = false;
 };
 
@@ -3374,6 +3571,8 @@ void RecordPreparedCommandBufferLineage(
         uint64_t(constructor_origin.owner.return_address),
         uint64_t(constructor_origin.owner.producer.function_address),
         uint64_t(constructor_origin.owner.producer.return_address),
+        uint64_t(constructor_origin.owner.producer.context.function_address),
+        uint64_t(constructor_origin.owner.producer.context.return_address),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -3422,6 +3621,16 @@ void RecordPreparedCommandBufferLineage(
           constructor_origin.owner.producer.arguments;
       entry.producer_origin_known =
           constructor_origin.owner.producer.valid;
+      entry.context_function_address =
+          constructor_origin.owner.producer.context.function_address;
+      entry.context_return_address =
+          constructor_origin.owner.producer.context.return_address;
+      entry.sample_context_arguments =
+          constructor_origin.owner.producer.context.arguments;
+      entry.sample_context_root_address =
+          constructor_origin.owner.producer.context.root_address;
+      entry.context_origin_known =
+          constructor_origin.owner.producer.context.valid;
       entry.depth = observation.command_buffer_depth;
       ++g_command_buffer_lineage_entry_count;
       return;
@@ -3435,6 +3644,10 @@ void RecordPreparedCommandBufferLineage(
             constructor_origin.owner.producer.function_address &&
         entry.producer_return_address ==
             constructor_origin.owner.producer.return_address &&
+        entry.context_function_address ==
+            constructor_origin.owner.producer.context.function_address &&
+        entry.context_return_address ==
+            constructor_origin.owner.producer.context.return_address &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.last_frame = observation.frame_sequence;
@@ -3484,6 +3697,19 @@ void RecordPreparedCommandBufferLineage(
             entry.producer_argument_varying_mask |= 1u << argument;
           }
         }
+      }
+      if (entry.context_origin_known &&
+          constructor_origin.owner.producer.context.valid) {
+        for (size_t argument = 0;
+             argument < entry.sample_context_arguments.size(); ++argument) {
+          if (entry.sample_context_arguments[argument] !=
+              constructor_origin.owner.producer.context.arguments[argument]) {
+            entry.context_argument_varying_mask |= 1u << argument;
+          }
+        }
+        entry.context_root_address_varied |=
+            entry.sample_context_root_address !=
+            constructor_origin.owner.producer.context.root_address;
       }
       return;
     }
@@ -3597,6 +3823,33 @@ void EmitCommandBufferLineageSummary() {
               entry.sample_producer_arguments[7])},
          {"producer_argument_varying_mask",
           fmt::format("{:02X}", entry.producer_argument_varying_mask)},
+         {"context_function_address",
+          entry.context_origin_known
+              ? fmt::format("{:08X}", entry.context_function_address)
+              : "unknown"},
+         {"context_return_address",
+          entry.context_origin_known
+              ? fmt::format("{:08X}", entry.context_return_address)
+              : "unknown"},
+         {"sample_context_arguments",
+          fmt::format(
+              "{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}",
+              entry.sample_context_arguments[0],
+              entry.sample_context_arguments[1],
+              entry.sample_context_arguments[2],
+              entry.sample_context_arguments[3],
+              entry.sample_context_arguments[4],
+              entry.sample_context_arguments[5],
+              entry.sample_context_arguments[6],
+              entry.sample_context_arguments[7])},
+         {"context_argument_varying_mask",
+          fmt::format("{:02X}", entry.context_argument_varying_mask)},
+         {"sample_context_root_address",
+          entry.context_origin_known
+              ? fmt::format("{:08X}", entry.sample_context_root_address)
+              : "unknown"},
+         {"context_root_address_varied",
+          entry.context_root_address_varied ? "true" : "false"},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
@@ -3638,40 +3891,74 @@ void EmitCommandBufferLineageSummary() {
        {"indirect_draw_stack_faults",
         std::to_string(g_title_indirect_draw_stack_faults)},
        {"indirect_constructor_entries",
-        std::to_string(g_indirect_constructor_entries)},
+        std::to_string(g_indirect_constructor_entries.load(
+            std::memory_order_relaxed))},
        {"indirect_constructor_exits",
-        std::to_string(g_indirect_constructor_exits)},
+        std::to_string(g_indirect_constructor_exits.load(
+            std::memory_order_relaxed))},
        {"indirect_constructor_invocations_open_at_shutdown",
         std::to_string(g_indirect_constructor_invocations_open.load(
             std::memory_order_relaxed))},
        {"indirect_constructor_stack_faults",
-        std::to_string(g_indirect_constructor_stack_faults)},
+        std::to_string(g_indirect_constructor_stack_faults.load(
+            std::memory_order_relaxed))},
        {"indirect_packets_without_constructor_origin",
-        std::to_string(g_indirect_packets_without_constructor_origin)},
-       {"indirect_owner_entries", std::to_string(g_indirect_owner_entries)},
-       {"indirect_owner_exits", std::to_string(g_indirect_owner_exits)},
+        std::to_string(g_indirect_packets_without_constructor_origin.load(
+            std::memory_order_relaxed))},
+       {"indirect_owner_entries",
+        std::to_string(
+            g_indirect_owner_entries.load(std::memory_order_relaxed))},
+       {"indirect_owner_exits",
+        std::to_string(
+            g_indirect_owner_exits.load(std::memory_order_relaxed))},
        {"indirect_owner_invocations_open_at_shutdown",
         std::to_string(g_indirect_owner_invocations_open.load(
             std::memory_order_relaxed))},
        {"indirect_owner_stack_faults",
-        std::to_string(g_indirect_owner_stack_faults)},
+        std::to_string(
+            g_indirect_owner_stack_faults.load(std::memory_order_relaxed))},
        {"indirect_constructors_without_owner_origin",
-        std::to_string(g_indirect_constructors_without_owner_origin)},
+        std::to_string(g_indirect_constructors_without_owner_origin.load(
+            std::memory_order_relaxed))},
        {"indirect_constructor_owner_mismatches",
-        std::to_string(g_indirect_constructor_owner_mismatches)},
+        std::to_string(g_indirect_constructor_owner_mismatches.load(
+            std::memory_order_relaxed))},
        {"indirect_producer_entries",
-        std::to_string(g_indirect_producer_entries)},
+        std::to_string(g_indirect_producer_entries.load(
+            std::memory_order_relaxed))},
        {"indirect_producer_exits",
-        std::to_string(g_indirect_producer_exits)},
+        std::to_string(
+            g_indirect_producer_exits.load(std::memory_order_relaxed))},
        {"indirect_producer_invocations_open_at_shutdown",
         std::to_string(g_indirect_producer_invocations_open.load(
             std::memory_order_relaxed))},
        {"indirect_producer_stack_faults",
-        std::to_string(g_indirect_producer_stack_faults)},
+        std::to_string(g_indirect_producer_stack_faults.load(
+            std::memory_order_relaxed))},
        {"indirect_owners_without_producer_origin",
-        std::to_string(g_indirect_owners_without_producer_origin)},
+        std::to_string(g_indirect_owners_without_producer_origin.load(
+            std::memory_order_relaxed))},
        {"indirect_owner_producer_mismatches",
-        std::to_string(g_indirect_owner_producer_mismatches)},
+        std::to_string(g_indirect_owner_producer_mismatches.load(
+            std::memory_order_relaxed))},
+       {"indirect_context_entries",
+        std::to_string(
+            g_indirect_context_entries.load(std::memory_order_relaxed))},
+       {"indirect_context_exits",
+        std::to_string(
+            g_indirect_context_exits.load(std::memory_order_relaxed))},
+       {"indirect_context_invocations_open_at_shutdown",
+        std::to_string(g_indirect_context_invocations_open.load(
+            std::memory_order_relaxed))},
+       {"indirect_context_stack_faults",
+        std::to_string(g_indirect_context_stack_faults.load(
+            std::memory_order_relaxed))},
+       {"indirect_producers_without_context_origin",
+        std::to_string(g_indirect_producers_without_context_origin.load(
+            std::memory_order_relaxed))},
+       {"indirect_producer_context_mismatches",
+        std::to_string(g_indirect_producer_context_mismatches.load(
+            std::memory_order_relaxed))},
        {"indirect_buffers_open_at_shutdown",
         std::to_string(g_title_indirect_buffers_open.load(
             std::memory_order_relaxed))},
@@ -6061,7 +6348,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"source",
         "title_store,constructor_function,constructor_return,r3-r10,"
         "owner_function,owner_return,owner_r3-r10,producer_function,"
-        "producer_return,producer_r3-r10,backend_packet,"
+        "producer_return,producer_r3-r10,context_function,context_return,"
+        "context_r3-r10,context_root,backend_packet,"
         "current_buffer,parent_packet,root_buffer,depth"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
@@ -6852,6 +7140,34 @@ PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(82417060)
 PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(829F6360)
 
 #undef PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS
+
+void ObserveIndirectContextEntry(
+    uint32_t function_address, PPCRegister &r3, PPCRegister &r4,
+    PPCRegister &r5, PPCRegister &r6, PPCRegister &r7, PPCRegister &r8,
+    PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {
+  PushIndirectContextOrigin(function_address, r12.u32, r3.u32, r4.u32,
+                            r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                            r10.u32);
+}
+
+#define PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(address)                           \
+  void PinyonShiftObserveIndirectContext##address##Entry(                      \
+      PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,      \
+      PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,     \
+      PPCRegister &r12) {                                                       \
+    ObserveIndirectContextEntry(0x##address, r3, r4, r5, r6, r7, r8, r9,      \
+                                r10, r12);                                     \
+  }                                                                             \
+  void PinyonShiftObserveIndirectContext##address##Exit() {                    \
+    PopIndirectContextOrigin(0x##address);                                      \
+  }
+
+PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(8240CF68)
+PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(82417BC0)
+PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(824365B0)
+PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS(829F6620)
+
+#undef PINYON_SHIFT_INDIRECT_CONTEXT_HOOKS
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
                                                PPCRegister &r28) {

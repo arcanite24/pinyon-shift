@@ -280,6 +280,86 @@ def producer_fixtures():
     ]
 
 
+def context_fixtures():
+    return [
+        fixture(
+            0x8240CF68,
+            [
+                "mflr r12",
+                "loc_8240CF80:",
+                "mr r31,r3",
+                "loc_8240CFF8:",
+                "mr r3,r31",
+                "bl 0x8240d070",
+                "loc_8240D054:",
+                "addi r1,r1,112",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82417BC0,
+            [
+                "mflr r12",
+                "loc_82417BF0:",
+                "stw r6,2156(r1)",
+                "loc_82418058:",
+                "lwz r8,2156(r1)",
+                "loc_82418068:",
+                "addis r24,r8,1",
+                "loc_8241807C:",
+                "addi r24,r24,-5824",
+                "loc_82418A20:",
+                "mr r3,r24",
+                "bl 0x82417060",
+                "loc_82418EC4:",
+                "mr r3,r24",
+                "bl 0x82417060",
+                "loc_82418F38:",
+                "addi r1,r1,2112",
+                "b 0x82a7de20",
+            ],
+        ),
+        fixture(
+            0x824365B0,
+            [
+                "mflr r12",
+                "loc_824365C0:",
+                "mr r29,r3",
+                "loc_8243667C:",
+                "addis r25,r29,1",
+                "loc_82436688:",
+                "addi r25,r25,-5824",
+                "loc_82436690:",
+                "stw r25,84(r1)",
+                "loc_82437030:",
+                "lwz r25,84(r1)",
+                "loc_82437040:",
+                "mr r3,r25",
+                "bl 0x82417060",
+                "loc_82437048:",
+                "addi r1,r1,1472",
+                "b 0x82a7de20",
+            ],
+        ),
+        fixture(
+            0x829F6620,
+            [
+                "mflr r12",
+                "loc_829F662C:",
+                "mr r28,r3",
+                "loc_829F67A8:",
+                "mr r3,r28",
+                "bl 0x829f6360",
+                "loc_829F67B4:",
+                "li r3,0",
+                "loc_829F67B8:",
+                "addi r1,r1,176",
+                "b 0x82a7de44",
+            ],
+        ),
+    ]
+
+
 class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
     def build(self, chunks):
         with tempfile.TemporaryDirectory() as directory:
@@ -508,6 +588,57 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(call["object_identity_proved"])
         self.assertFalse(call["lifetime_proved"])
 
+    def test_proves_live_producer_context_roots(self):
+        document = self.build(
+            [
+                *reviewed_fixtures(),
+                *producer_fixtures(),
+                *context_fixtures(),
+            ]
+        )
+        self.assertEqual(4, document["totals"]["indirect_context_runtime_hooks"])
+        self.assertEqual(5, document["totals"]["indirect_context_roots"])
+        hooks = {
+            item["function_address"]: item
+            for item in document["indirect_context_runtime_hooks"]
+        }
+        self.assertEqual("82418F38", hooks["82417BC0"]["exit_hook_address"])
+        self.assertEqual("829F67B8", hooks["829F6620"]["exit_hook_address"])
+        self.assertTrue(hooks["82417BC0"]["invocation_scope_proved"])
+        roots = {
+            (
+                item["context_function_address"],
+                item["producer_return_address"],
+            ): item
+            for item in document["indirect_context_roots"]
+        }
+        self.assertEqual(
+            "r3", roots[("8240CF68", "8240D000")]["derivation"]
+        )
+        self.assertEqual(
+            "r6+59712", roots[("82417BC0", "82418A28")]["derivation"]
+        )
+        self.assertEqual(
+            "r3+59712", roots[("824365B0", "82437048")]["derivation"]
+        )
+        self.assertEqual(
+            "r3", roots[("829F6620", "829F67B0")]["derivation"]
+        )
+        self.assertFalse(
+            roots[("824365B0", "82437048")]["object_lifetime_proved"]
+        )
+        self.assertFalse(
+            roots[("824365B0", "82437048")]["suppression_eligible"]
+        )
+
+    def test_rejects_drifted_context_producer_edge(self):
+        contexts = context_fixtures()
+        contexts[-1] = contexts[-1].replace(
+            "bl 0x829f6360", "bl 0x829f5ff0"
+        )
+        with self.assertRaisesRegex(ValueError, "producer edge drifted"):
+            self.build([*reviewed_fixtures(), *producer_fixtures(), *contexts])
+
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -665,7 +796,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
                 '"r9", "r10", "r12"]'
             ),
-            23,
+            27,
         )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture
