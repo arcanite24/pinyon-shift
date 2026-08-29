@@ -131,6 +131,22 @@ values still fail closed.
 
 This creates a title-oracle dataset suitable for a later shadow policy model.
 It remains register-only and passive: it reads no guest payload, changes no
-guest state or control flow, and does not execute native culling or LOD. Runtime
-qualification is intentionally batched with the next substantial NR-05D
-milestone.
+guest state or control flow, and does not execute native culling or LOD.
+
+The batched AppData-backed Release capture `20260829T233419Z-p43632` completed
+normally and reconciled 1,472,349 active title records. The ordered oracle
+observed 2,424,492 candidate-threshold comparisons; all passed. The local
+squared-distance gate admitted 208,775 of those candidates. Every admitted
+candidate passed the spatial helper, after which the six-vector helper returned
+0 for 163,907 observations, 1 for 8,620, and 2 for 36,248. Selected records
+included 44,868 nonzero helper results, which makes the classifier's 0/1/2
+domain materially useful for shadow-policy modeling rather than merely
+structurally reachable.
+
+All in-record ordering faults, invalid gate values, and invalid classifier
+results were zero. ReXGlue resumed 1,736 comparison continuations and 149 helper
+continuations outside an active entry scope; these were counted and excluded as
+specified above. The authoritative census had zero lifecycle, identity,
+overflow, or shutdown-open faults. Median performance was 30.224 FPS over 6,413
+frames, there were no present-deadline misses, no fatal log signatures, and
+Xenos remained the sole rendering authority.
