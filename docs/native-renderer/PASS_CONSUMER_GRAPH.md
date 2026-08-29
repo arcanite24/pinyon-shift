@@ -51,35 +51,35 @@ any event that does not preserve Xenos authority and prohibit suppression.
 
 ## Qualified open-world result
 
-The 2026-08-29 AppData-backed `open_world_day` run used executable SHA-256
-`C6DBC2AD3E98C68BE2DEF762C6C309DE70C9DAC2C015306B596DE1C82A450EFE` and
-session `20260829T044716Z-p33048`. It exited normally with no error, fatal,
+The latest 2026-08-29 AppData-backed `open_world_day` run used executable
+SHA-256 `F3E8DEF38B0AF876D1AD053067E33E7C63A255BA0237562162C061E01EBA14D4`
+and session `20260829T053639Z-p40004`. It exited normally with no error, fatal,
 crash, or device-loss event. The deterministic inventory reported:
 
-- 13,650 exact family occurrences.
-- 384 matching color-source resolves totaling 100,663,296 bytes.
+- 8,892 exact family occurrences.
+- 348 matching color-source resolves totaling 91,226,112 bytes.
 - Six rotating 262,144-byte guest destinations.
-- 378 resolves sampled before replacement by a later resolve.
-- 8,552 prepared resolve-to-consumer draws and texture references.
-- 51 distinct prepared consumer draw signatures grouped into 26 exact shader
+- 342 resolves sampled before replacement by a later resolve.
+- 9,229 prepared resolve-to-consumer draws and texture references.
+- 63 distinct prepared consumer draw signatures grouped into 38 exact shader
   specialization families, with zero signature overflow and zero missing
   prepared metadata.
-- 80 provisional fetch matches discarded because the backend did not reach the
+- 48 provisional fetch matches discarded because the backend did not reach the
   prepared-draw stage; these are not classified as GPU consumers.
 - Zero query-correlated and zero memexport-correlated sample events.
 - Six outputs overwritten without a sampled consumer in the observed interval.
 
 The local inventory SHA-256 is
-`2913349E4B666AD88B23F0896ADB3F644446CF08EF041319247800695587C3F6`.
+`B58B6D100EE3BBD83B6DD4EA04CC079D2BC93211F4CABC3E6CD09CE12FDD5B80`.
 It remains local because it includes a machine-specific diagnostic source path.
 
 The leading shader family used vertex shader `2E5E0A854BE00027` and pixel
-shader `BDFFA72B7ED2FBA4`; its two pipeline variants accounted for 1,220
-prepared consumer draws. This broad 26-family fan-out proves that the selected
+shader `BDFFA72B7ED2FBA4`; its two pipeline variants accounted for 1,186
+prepared consumer draws. This broad 38-family fan-out proves that the selected
 output is not a presentation-only leaf.
 
-Performance telemetry contained 5,570 samples: median 30.698 FPS, 1% low
-19.287 FPS, one present-deadline miss, and zero native GPU timing drops.
+Performance telemetry contained 5,143 samples: median 30.606 FPS, 1% low
+18.802 FPS, zero present-deadline misses, and zero native GPU timing drops.
 The diagnostic table therefore did not disturb the established 30 FPS cadence
 in this qualification.
 
@@ -89,9 +89,12 @@ The `later_gpu_consumers` admission gate is now `fail`, not `unknown`: later
 GPU consumers are positively observed and have not been replaced. This is
 useful closure of the dependency question, but it prohibits suppressing the
 producer family. The next implementation milestone must assign semantic roles
-to the 26 stable shader families and provide the native resource publication or
+to the 38 stable shader families and provide the native resource publication or
 native consumer coverage they require.
 
 Guest CPU visibility and the independent rollback switch remain separate
-unknown gates. Neither the absence of query/memexport correlation nor the
-visual parity result can substitute for those proofs.
+gates. The same session fully armed all 348 exact-family resolve generations
+and observed zero guest CPU reads or writes, promoting the scene-bounded CPU
+gate to `pass`. The bounded observer and interpretation contract are documented
+in [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md); this does not weaken the
+failing later-GPU-consumer gate.

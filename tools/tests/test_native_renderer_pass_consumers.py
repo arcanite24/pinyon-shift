@@ -76,8 +76,54 @@ def consumer_signature(signature="0123456789ABCDEF", sample_events=1, **fields):
     return event("consumer_signature", **values)
 
 
+def guest_cpu_target(**overrides):
+    values = {
+        "address": "00100000",
+        "latest_length": 4096,
+        "resolve_count": 2,
+        "read_page_events": 0,
+        "write_page_events": 0,
+        "read_generations": 0,
+        "write_generations": 0,
+        "guest_cpu_read": "unobserved",
+    }
+    values.update(overrides)
+    return event("guest_cpu_target", **values)
+
+
+def guest_cpu_summary(**overrides):
+    values = {
+        "armed_resolves": 2,
+        "armed_bytes": 8192,
+        "target_count": 1,
+        "target_overflow": 0,
+        "read_page_events": 0,
+        "write_page_events": 0,
+        "read_generations": 0,
+        "write_generations": 0,
+        "observation_complete": "true",
+        "guest_cpu_visibility": "pass",
+        "classification": "bounded_no_guest_cpu_read_observed",
+    }
+    values.update(overrides)
+    return event("guest_cpu_summary", **values)
+
+
 class PassConsumerSummaryTests(unittest.TestCase):
-    def write(self, root, records):
+    def write(self, root, records, add_cpu=True):
+        records = list(records)
+        has_consumer_summary = any(
+            record.get("event")
+            == "native_renderer.census.pass_family_consumer_summary"
+            for record in records
+        )
+        has_cpu_summary = any(
+            record.get("event")
+            == "native_renderer.census.pass_family_guest_cpu_summary"
+            for record in records
+        )
+        if add_cpu and has_consumer_summary and not has_cpu_summary:
+            records.extend([guest_cpu_target(), guest_cpu_summary()])
         path = Path(root) / "diagnostics.jsonl"
         path.write_text(
             "".join(json.dumps(record) + "\n" for record in records),
@@ -114,6 +160,10 @@ class PassConsumerSummaryTests(unittest.TestCase):
         self.assertEqual(
             "fail", result["admission"]["later_gpu_consumers"]["status"]
         )
+        self.assertEqual(
+            "pass", result["admission"]["guest_cpu_visibility"]["status"]
+        )
+        self.assertEqual(2, result["guest_cpu_visibility"]["counts"]["armed_resolves"])
 
     def test_unobserved_consumers_remain_fail_closed(self):
         record = summary(
@@ -141,6 +191,37 @@ class PassConsumerSummaryTests(unittest.TestCase):
             path = self.write(temp, [event("resolve")])
             with self.assertRaisesRegex(ValueError, "no matching completed"):
                 MODULE.summarize([path])
+
+    def test_rejects_missing_guest_cpu_summary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self.write(temp, [summary()], add_cpu=False)
+            with self.assertRaisesRegex(ValueError, "guest CPU visibility summary"):
+                MODULE.summarize([path])
+
+    def test_guest_cpu_read_closes_gate_as_failure(self):
+        records = [
+            event("resolve"),
+            event("consumer"),
+            event("resolve"),
+            consumer_signature(),
+            guest_cpu_target(
+                read_page_events=1,
+                read_generations=1,
+                guest_cpu_read="observed",
+            ),
+            guest_cpu_summary(
+                read_page_events=1,
+                read_generations=1,
+                guest_cpu_visibility="fail",
+                classification="guest_cpu_read_observed",
+            ),
+            summary(),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            result = MODULE.summarize([self.write(temp, records)])
+        self.assertEqual(
+            "fail", result["admission"]["guest_cpu_visibility"]["status"]
+        )
 
     def test_rejects_unsafe_event(self):
         unsafe = summary(suppression_eligible="true")

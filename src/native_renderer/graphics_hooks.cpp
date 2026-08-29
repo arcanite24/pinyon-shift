@@ -24,6 +24,7 @@
 #include <rex/memory.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/xmemory.h>
 
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/resource_identity.h"
@@ -46,6 +47,7 @@ constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
 constexpr size_t kPassConsumerDetailLimit = 64;
 constexpr size_t kPassConsumerSignatureCapacity = 1024;
+constexpr size_t kGuestCpuVisibilityTargetCapacity = 64;
 constexpr uint64_t kGuestPageSize = 4096;
 constexpr uint64_t kPhysicalApertureSize = UINT64_C(0x20000000);
 constexpr uint32_t kVertexIndexMask = 0x00FFFFFF;
@@ -290,6 +292,29 @@ uint64_t g_prepared_shader_pair_overflow = 0;
 uint64_t g_candidate_unprepared_draw_count = 0;
 uint64_t g_candidate_prepared_without_observation_count = 0;
 bool g_graphics_census_installed = false;
+rex::memory::Memory *g_graphics_census_memory = nullptr;
+void *g_guest_cpu_access_callback = nullptr;
+
+struct GuestCpuVisibilityTargetEntry {
+  std::atomic<uint32_t> address{};
+  std::atomic<uint32_t> length{};
+  std::atomic<uint64_t> generation{};
+  std::atomic<uint64_t> resolve_count{};
+  std::atomic<uint64_t> read_page_events{};
+  std::atomic<uint64_t> write_page_events{};
+  std::atomic<uint64_t> read_generations{};
+  std::atomic<uint64_t> write_generations{};
+  std::atomic<uint64_t> last_read_generation{};
+  std::atomic<uint64_t> last_write_generation{};
+};
+
+std::array<GuestCpuVisibilityTargetEntry,
+           kGuestCpuVisibilityTargetCapacity>
+    g_guest_cpu_visibility_targets{};
+std::atomic<size_t> g_guest_cpu_visibility_target_count{};
+std::atomic<uint64_t> g_guest_cpu_visibility_armed_resolves{};
+std::atomic<uint64_t> g_guest_cpu_visibility_armed_bytes{};
+std::atomic<uint64_t> g_guest_cpu_visibility_target_overflow{};
 
 struct PendingCandidateObservation {
   rex::system::GraphicsDrawObservation sample;
@@ -423,6 +448,101 @@ void ResetPreparedShaderPairs() {
 void ResetDependencyCensus() {
   std::memset(&g_dependency_census, 0, sizeof(g_dependency_census));
   std::memset(&g_pass_consumer_trace, 0, sizeof(g_pass_consumer_trace));
+}
+
+void ResetGuestCpuVisibility() {
+  for (auto &target : g_guest_cpu_visibility_targets) {
+    target.address.store(0, std::memory_order_relaxed);
+    target.length.store(0, std::memory_order_relaxed);
+    target.generation.store(0, std::memory_order_relaxed);
+    target.resolve_count.store(0, std::memory_order_relaxed);
+    target.read_page_events.store(0, std::memory_order_relaxed);
+    target.write_page_events.store(0, std::memory_order_relaxed);
+    target.read_generations.store(0, std::memory_order_relaxed);
+    target.write_generations.store(0, std::memory_order_relaxed);
+    target.last_read_generation.store(0, std::memory_order_relaxed);
+    target.last_write_generation.store(0, std::memory_order_relaxed);
+  }
+  g_guest_cpu_visibility_target_count.store(0, std::memory_order_relaxed);
+  g_guest_cpu_visibility_armed_resolves.store(0, std::memory_order_relaxed);
+  g_guest_cpu_visibility_armed_bytes.store(0, std::memory_order_relaxed);
+  g_guest_cpu_visibility_target_overflow.store(0,
+                                                std::memory_order_relaxed);
+}
+
+void ObserveGuestCpuAccess(void *, uint32_t physical_address, uint32_t length,
+                           bool is_write) {
+  const uint64_t access_first = physical_address;
+  const uint64_t access_last = access_first + length;
+  const size_t target_count = g_guest_cpu_visibility_target_count.load(
+      std::memory_order_acquire);
+  for (size_t i = 0; i < target_count; ++i) {
+    auto &target = g_guest_cpu_visibility_targets[i];
+    const uint64_t target_first =
+        target.address.load(std::memory_order_acquire);
+    const uint64_t target_length =
+        target.length.load(std::memory_order_acquire);
+    if (!target_length || access_first >= target_first + target_length ||
+        access_last <= target_first) {
+      continue;
+    }
+    const uint64_t generation =
+        target.generation.load(std::memory_order_acquire);
+    auto &page_events = is_write ? target.write_page_events
+                                 : target.read_page_events;
+    auto &generations = is_write ? target.write_generations
+                                 : target.read_generations;
+    auto &last_generation = is_write ? target.last_write_generation
+                                     : target.last_read_generation;
+    page_events.fetch_add(1, std::memory_order_relaxed);
+    uint64_t previous = last_generation.load(std::memory_order_relaxed);
+    while (previous != generation &&
+           !last_generation.compare_exchange_weak(
+               previous, generation, std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
+    if (previous != generation) {
+      generations.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
+void ArmGuestCpuVisibility(uint32_t address, uint32_t length) {
+  if (!g_graphics_census_memory || !g_guest_cpu_access_callback || !length) {
+    return;
+  }
+  size_t target_count = g_guest_cpu_visibility_target_count.load(
+      std::memory_order_relaxed);
+  GuestCpuVisibilityTargetEntry *target = nullptr;
+  for (size_t i = 0; i < target_count; ++i) {
+    if (g_guest_cpu_visibility_targets[i].address.load(
+            std::memory_order_relaxed) == address) {
+      target = &g_guest_cpu_visibility_targets[i];
+      break;
+    }
+  }
+  if (!target) {
+    if (target_count == kGuestCpuVisibilityTargetCapacity) {
+      g_guest_cpu_visibility_target_overflow.fetch_add(
+          1, std::memory_order_relaxed);
+      return;
+    }
+    target = &g_guest_cpu_visibility_targets[target_count];
+    target->address.store(address, std::memory_order_relaxed);
+    g_guest_cpu_visibility_target_count.store(target_count + 1,
+                                               std::memory_order_release);
+  }
+  const uint64_t generation =
+      g_guest_cpu_visibility_armed_resolves.fetch_add(
+          1, std::memory_order_relaxed) +
+      1;
+  g_guest_cpu_visibility_armed_bytes.fetch_add(length,
+                                                std::memory_order_relaxed);
+  target->length.store(length, std::memory_order_relaxed);
+  target->generation.store(generation, std::memory_order_release);
+  target->resolve_count.fetch_add(1, std::memory_order_relaxed);
+  g_graphics_census_memory->EnablePhysicalMemoryAccessCallbacks(
+      address, length, false, false, true);
 }
 
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
@@ -2931,6 +3051,8 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
     target.family_sample_reference_count = 0;
     ++g_pass_consumer_trace.family_resolves;
     g_pass_consumer_trace.family_resolve_bytes += observation.written_length;
+    ArmGuestCpuVisibility(observation.written_address,
+                          observation.written_length);
     if (ShouldEmitPassConsumerDetail()) {
       pinyon_shift::diagnostics::RecordEvent(
           "native_renderer.census.pass_family_resolve",
@@ -3170,18 +3292,28 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
 
 namespace pinyon_shift::native_renderer {
 
-void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
-  if (!graphics_system || !REXCVAR_GET(pinyon_shift_native_renderer_census)) {
+void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
+                           rex::memory::Memory *memory) {
+  if (!graphics_system || !memory ||
+      !REXCVAR_GET(pinyon_shift_native_renderer_census)) {
     return;
   }
   ResetDrawCensus();
   ResetPreparedShaderPairs();
   ResetDependencyCensus();
+  ResetGuestCpuVisibility();
   ConfigureIndexScan();
   ConfigureTextureScan();
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
   ConfigurePassFollower();
+  g_graphics_census_memory = memory;
+  if (g_pass_follower.requested && g_pass_follower.valid &&
+      g_isolated_draw.requested && g_isolated_draw.valid) {
+    g_guest_cpu_access_callback =
+        memory->RegisterPhysicalMemoryAccessCallback(&ObserveGuestCpuAccess,
+                                                     nullptr);
+  }
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
@@ -3196,6 +3328,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                             {"resolve_page_capacity", "32768"},
                             {"resolve_summary_limit", "32"},
                             {"prepared_shader_pair_capacity", "1024"},
+                            {"guest_cpu_visibility_target_capacity", "64"},
                             {"scene", scene},
                             {"mode", "pass_through"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
@@ -3285,6 +3418,15 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.census.guest_cpu_visibility_config",
+      {{"status", g_guest_cpu_access_callback ? "armed" : "disabled"},
+       {"scope", "exact_retained_pass_resolves"},
+       {"observation", "one_shot_guest_page_access"},
+       {"target_capacity",
+        std::to_string(kGuestCpuVisibilityTargetCapacity)},
+       {"xenos_draw", "preserved"},
+       {"suppression_eligible", "false"}});
 }
 
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
@@ -3296,6 +3438,13 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (!g_graphics_census_installed) {
     return;
+  }
+  const bool guest_cpu_observer_installed =
+      g_guest_cpu_access_callback != nullptr;
+  if (g_guest_cpu_access_callback && g_graphics_census_memory) {
+    g_graphics_census_memory->UnregisterPhysicalMemoryAccessCallback(
+        g_guest_cpu_access_callback);
+    g_guest_cpu_access_callback = nullptr;
   }
   if (g_isolated_draw.artifact_writer.joinable()) {
     g_isolated_draw.artifact_writer.join();
@@ -3326,6 +3475,84 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_pass_follower.requested && g_pass_follower.valid &&
       g_isolated_draw.requested && g_isolated_draw.valid) {
+    uint64_t guest_cpu_read_page_events = 0;
+    uint64_t guest_cpu_write_page_events = 0;
+    uint64_t guest_cpu_read_generations = 0;
+    uint64_t guest_cpu_write_generations = 0;
+    const size_t guest_cpu_target_count =
+        g_guest_cpu_visibility_target_count.load(std::memory_order_acquire);
+    for (size_t i = 0; i < guest_cpu_target_count; ++i) {
+      const auto &target = g_guest_cpu_visibility_targets[i];
+      const uint64_t read_page_events =
+          target.read_page_events.load(std::memory_order_relaxed);
+      const uint64_t write_page_events =
+          target.write_page_events.load(std::memory_order_relaxed);
+      const uint64_t read_generations =
+          target.read_generations.load(std::memory_order_relaxed);
+      const uint64_t write_generations =
+          target.write_generations.load(std::memory_order_relaxed);
+      guest_cpu_read_page_events += read_page_events;
+      guest_cpu_write_page_events += write_page_events;
+      guest_cpu_read_generations += read_generations;
+      guest_cpu_write_generations += write_generations;
+      diagnostics::RecordEvent(
+          "native_renderer.census.pass_family_guest_cpu_target",
+          {{"anchor_signature",
+            fmt::format("{:016X}", g_pass_follower.target_signature)},
+           {"follower_signature",
+            fmt::format("{:016X}", g_isolated_draw.target_signature)},
+           {"address", fmt::format(
+                           "{:08X}", target.address.load(
+                                             std::memory_order_relaxed))},
+           {"latest_length", std::to_string(target.length.load(
+                                 std::memory_order_relaxed))},
+           {"resolve_count", std::to_string(target.resolve_count.load(
+                                std::memory_order_relaxed))},
+           {"read_page_events", std::to_string(read_page_events)},
+           {"write_page_events", std::to_string(write_page_events)},
+           {"read_generations", std::to_string(read_generations)},
+           {"write_generations", std::to_string(write_generations)},
+           {"guest_cpu_read", read_generations ? "observed" : "unobserved"},
+           {"xenos_draw", "preserved"},
+           {"suppression_eligible", "false"}});
+    }
+    const uint64_t armed_resolves =
+        g_guest_cpu_visibility_armed_resolves.load(std::memory_order_relaxed);
+    const uint64_t target_overflow =
+        g_guest_cpu_visibility_target_overflow.load(std::memory_order_relaxed);
+    const bool guest_cpu_observation_complete =
+        guest_cpu_observer_installed && armed_resolves && !target_overflow &&
+        armed_resolves == g_pass_consumer_trace.family_resolves;
+    diagnostics::RecordEvent(
+        "native_renderer.census.pass_family_guest_cpu_summary",
+        {{"anchor_signature",
+          fmt::format("{:016X}", g_pass_follower.target_signature)},
+         {"follower_signature",
+          fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"armed_resolves", std::to_string(armed_resolves)},
+         {"armed_bytes",
+          std::to_string(g_guest_cpu_visibility_armed_bytes.load(
+              std::memory_order_relaxed))},
+         {"target_count", std::to_string(guest_cpu_target_count)},
+         {"target_overflow", std::to_string(target_overflow)},
+         {"read_page_events", std::to_string(guest_cpu_read_page_events)},
+         {"write_page_events", std::to_string(guest_cpu_write_page_events)},
+         {"read_generations", std::to_string(guest_cpu_read_generations)},
+         {"write_generations", std::to_string(guest_cpu_write_generations)},
+         {"observation_complete",
+          guest_cpu_observation_complete ? "true" : "false"},
+         {"guest_cpu_visibility",
+          !guest_cpu_observation_complete
+              ? "unknown"
+              : (guest_cpu_read_generations ? "fail" : "pass")},
+         {"classification",
+          !guest_cpu_observation_complete
+              ? "incomplete_guest_cpu_observation"
+              : (guest_cpu_read_generations
+                     ? "guest_cpu_read_observed"
+                     : "bounded_no_guest_cpu_read_observed")},
+         {"xenos_draw", "preserved"},
+         {"suppression_eligible", "false"}});
     uint64_t prepared_metadata_count = 0;
     for (size_t i = 0; i < g_pass_consumer_trace.consumer_signature_count; ++i) {
       const PassConsumerSignatureEntry &entry =
@@ -3457,6 +3684,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"suppression_eligible", "false"}});
   }
   g_graphics_census_installed = false;
+  g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);
   }

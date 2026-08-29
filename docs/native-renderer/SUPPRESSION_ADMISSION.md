@@ -43,9 +43,12 @@ The exact pair `747837906D0BF484` / `1D253A52B55C9FB3` has stable boundaries,
 complete-pass color/depth parity, continuous exact-frame output, fallback
 behavior, and native GPU timing. It is not admitted for suppression yet:
 
-- the exact-family graph positively observes 51 prepared later-GPU-consumer
-  signatures across 26 shader families that have not been replaced;
-- guest CPU visibility remains uninstrumented; and
+- the latest exact-family graph positively observes 63 prepared
+  later-GPU-consumer signatures across 38 shader families that have not been
+  replaced;
+- guest CPU visibility passes for one bounded exact-family AppData
+  qualification route, with zero reads across 348 fully armed resolve
+  generations; and
 - no independently reversible suppression switch exists.
 
 Consequently the next work is evidence collection and complete-pass comparison,
@@ -64,10 +67,16 @@ across 41,943,040 active bytes and exact two-sample depth/stencil parity across
 83,886,080 bytes. This promotes both `color_parity` and `depth_parity` to
 `pass`.
 
-The subsequent bounded consumer qualification linked 384 family resolves to
-51 distinct prepared later-draw signatures across 26 shader families, with zero
-signature overflow and complete prepared metadata. This promotes
-`later_gpu_consumers` from `unknown` to `fail`: consumers are proven present
-but are not native-replaced. The admission result remains 9/12 passing gates;
-`guest_cpu_visibility` and `rollback_switch` remain `unknown`, and suppression
-is still prohibited. See [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).
+The latest combined bounded qualification linked 348 family resolves to 63
+distinct prepared later-draw signatures across 38 shader families, with zero
+signature overflow and complete prepared metadata. This keeps
+`later_gpu_consumers` at `fail`: consumers are proven present but are not
+native-replaced.
+
+The same session armed every one of those 348 resolve generations and observed
+zero guest CPU read or write events. This promotes `guest_cpu_visibility` from
+`unknown` to scene-bounded `pass`, as documented in
+[GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md). The admission result is now
+10/12 passing gates, one failing gate (`later_gpu_consumers`), and one unknown
+gate (`rollback_switch`). Suppression is still prohibited. See
+[PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).

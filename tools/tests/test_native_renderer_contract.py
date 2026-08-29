@@ -108,6 +108,33 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"retained_unknown"', summarizer)
         self.assertIn('"retained_on_xenos"', summarizer)
 
+    def test_exact_pass_guest_cpu_visibility_is_bounded_and_passive(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT / "patches/rexglue/0074-physical-memory-read-observer.patch"
+        ).read_text(encoding="utf-8")
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-pass-consumers.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kGuestCpuVisibilityTargetCapacity = 64", source)
+        self.assertIn("RegisterPhysicalMemoryAccessCallback", source)
+        self.assertIn("EnablePhysicalMemoryAccessCallbacks", source)
+        self.assertIn('"native_renderer.census.pass_family_guest_cpu_summary"', source)
+        self.assertIn('"native_renderer.census.pass_family_guest_cpu_target"', source)
+        self.assertIn('{"xenos_draw", "preserved"}', source)
+        self.assertIn('{"suppression_eligible", "false"}', source)
+        self.assertIn("PhysicalMemoryAccessCallback", patch)
+        self.assertIn("notify_on_access", patch)
+        self.assertIn("notify_access_observers", patch)
+        self.assertIn("runtime::ThreadState::Get() != nullptr", patch)
+        self.assertIn("One-shot", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+        self.assertIn('"guest_cpu_visibility": guest_cpu_gate', summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
+
     def test_resolve_dependency_observer_is_passive_and_payload_free(self):
         patch = (
             ROOT

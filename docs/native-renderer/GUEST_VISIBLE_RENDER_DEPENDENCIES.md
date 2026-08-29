@@ -8,8 +8,10 @@ and which unknowns block future draw or resolve suppression.
 
 No render target is suppression-eligible yet. The census can prove that a
 successful D3D12 resolve destination is sampled by a later vertex or pixel
-shader texture fetch. It does not yet prove that an unsampled target is
-presentation-only, that the guest CPU never reads it, or that it has no query,
+shader texture fetch. For the retained exact pass family, it can also prove
+that every resolve generation was armed and no guest CPU read occurred in one
+bounded qualification scene. It does not prove that an unsampled target is
+presentation-only, that another scene never reads it, or that it has no query,
 memexport, livery, thumbnail, mirror, exposure, shadow, or rewind role.
 
 Those missing facts keep Gate B closed. Xenos executes every draw and resolve,
@@ -54,7 +56,7 @@ earlier resolve.
 | --- | --- | --- |
 | Later draw samples output | Resolve byte range matched against a used vertex/pixel base or mip fetch | `true` when observed; otherwise `unobserved`, not false |
 | Final presentation only | No native presentation-source observer yet | `unknown_uninstrumented` |
-| Guest CPU reads output | No bounded shared-memory read observer yet | `unknown_uninstrumented` |
+| Guest CPU reads output | Exact-family physical pages can be armed for one-shot real guest CPU read/write observation | `observed` when read; otherwise bounded scene evidence, never a global absence claim |
 | Query depends on output | Conditional and active visibility-query state are correlated with sampling draws, but causality is not established | `related_draw_observed` or `unknown_uninstrumented` |
 | Memexport interaction | Sampling draws record whether the vertex shader has memexport | Correlation only; never proof of independence |
 | Livery / thumbnail / mirror / exposure / shadow / rewind | No pass classifier has assigned semantic roles yet | `unknown_unclassified` |
@@ -122,12 +124,18 @@ that may be inferred from the absence of a texture-fetch match.
 ## Exact-family follow-up
 
 The retained sky/horizon pair now has a family-specific resolve-to-consumer
-inventory in [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md). Its qualified
-open-world run linked six rotating resolve destinations to 51 distinct prepared
-later-draw signatures across 26 shader families without overflowing the bounded
-signature table or missing prepared metadata. This proves the selected family
-is not presentation-only. Gate B remains closed because those consumers have
-not yet been replaced, and guest CPU visibility is still unknown.
+inventory in [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md). The latest
+qualified open-world run linked six rotating resolve destinations to 63
+distinct prepared later-draw signatures across 38 shader families without
+overflowing the bounded signature table or missing prepared metadata. This
+proves the selected family is not presentation-only. Gate B remains closed
+because those consumers have not yet been replaced.
+
+The same session armed all 348 exact-family resolve generations and observed
+zero guest CPU reads or writes. This promotes the scene-bounded CPU visibility
+gate to `pass`; [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md) records the
+full boundary and hashes. It does not convert absence in this route into a
+global claim about other scenes.
 
 NR-04D evaluates these unknowns per exact pass family with the fail-closed
 admission contract in [SUPPRESSION_ADMISSION.md](SUPPRESSION_ADMISSION.md).

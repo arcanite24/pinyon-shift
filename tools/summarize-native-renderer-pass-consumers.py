@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA = "pinyon-shift.native-renderer-pass-consumer-inventory.v2"
+SCHEMA = "pinyon-shift.native-renderer-pass-consumer-inventory.v3"
 PREFIX = "native_renderer.census.pass_family_"
 SUMMARY_EVENT = f"{PREFIX}consumer_summary"
 RESOLVE_EVENT = f"{PREFIX}resolve"
 CONSUMER_EVENT = f"{PREFIX}consumer"
 CONSUMER_SIGNATURE_EVENT = f"{PREFIX}consumer_signature"
+GUEST_CPU_SUMMARY_EVENT = f"{PREFIX}guest_cpu_summary"
+GUEST_CPU_TARGET_EVENT = f"{PREFIX}guest_cpu_target"
 SAFETY_FIELDS = {
     "xenos_draw": "preserved",
     "suppression_eligible": "false",
@@ -237,8 +239,22 @@ def summarize(
     consumer_signatures = [
         event for event in related if event.get("event") == CONSUMER_SIGNATURE_EVENT
     ]
-    for event in resolves + consumers + consumer_signatures:
+    guest_cpu_summaries = [
+        event for event in related if event.get("event") == GUEST_CPU_SUMMARY_EVENT
+    ]
+    guest_cpu_targets = [
+        event for event in related if event.get("event") == GUEST_CPU_TARGET_EVENT
+    ]
+    for event in (
+        resolves
+        + consumers
+        + consumer_signatures
+        + guest_cpu_summaries
+        + guest_cpu_targets
+    ):
         require_safety(event)
+    if len(guest_cpu_summaries) != 1:
+        raise ValueError("exactly one guest CPU visibility summary is required")
 
     counts: dict[str, int] = {}
     for field in COUNT_FIELDS:
@@ -332,6 +348,73 @@ def summarize(
             ),
         }
 
+    guest_cpu_summary = guest_cpu_summaries[0]
+    guest_cpu_count_fields = (
+        "armed_resolves",
+        "armed_bytes",
+        "target_count",
+        "target_overflow",
+        "read_page_events",
+        "write_page_events",
+        "read_generations",
+        "write_generations",
+    )
+    guest_cpu_counts: dict[str, int] = {}
+    for field in guest_cpu_count_fields:
+        try:
+            guest_cpu_counts[field] = int(guest_cpu_summary[field])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"guest CPU summary has invalid {field}") from error
+        if guest_cpu_counts[field] < 0:
+            raise ValueError(f"guest CPU summary has negative {field}")
+    if guest_cpu_counts["target_count"] != len(guest_cpu_targets):
+        raise ValueError("guest CPU target count does not match target records")
+    target_count_totals = {
+        field: sum(int(target[field]) for target in guest_cpu_targets)
+        for field in (
+            "resolve_count",
+            "read_page_events",
+            "write_page_events",
+            "read_generations",
+            "write_generations",
+        )
+    }
+    if target_count_totals["resolve_count"] != guest_cpu_counts["armed_resolves"]:
+        raise ValueError("guest CPU target resolves contradict armed resolves")
+    for field in (
+        "read_page_events",
+        "write_page_events",
+        "read_generations",
+        "write_generations",
+    ):
+        if target_count_totals[field] != guest_cpu_counts[field]:
+            raise ValueError(f"guest CPU target {field} contradicts summary")
+    expected_guest_cpu_complete = (
+        guest_cpu_counts["armed_resolves"] > 0
+        and guest_cpu_counts["armed_resolves"] == counts["family_resolves"]
+        and guest_cpu_counts["target_overflow"] == 0
+    )
+    if (guest_cpu_summary.get("observation_complete") == "true") != (
+        expected_guest_cpu_complete
+    ):
+        raise ValueError("guest CPU observation completeness contradicts counts")
+    expected_guest_cpu_gate = (
+        "unknown"
+        if not expected_guest_cpu_complete
+        else ("fail" if guest_cpu_counts["read_generations"] else "pass")
+    )
+    if guest_cpu_summary.get("guest_cpu_visibility") != expected_guest_cpu_gate:
+        raise ValueError("guest CPU visibility classification contradicts counts")
+    guest_cpu_gate = {
+        "status": expected_guest_cpu_gate,
+        "evidence": (
+            f"{guest_cpu_counts['read_generations']} of "
+            f"{guest_cpu_counts['armed_resolves']} armed resolve generations "
+            "were read by the guest CPU"
+            if expected_guest_cpu_complete
+            else "the bounded exact-family guest CPU observation is incomplete"
+        ),
+    }
     lineage_complete = (
         counts["family_occurrences"] > 0
         and counts["family_resolves"] > 0
@@ -361,6 +444,15 @@ def summarize(
             )
         ],
         "consumer_shader_families": shader_families,
+        "guest_cpu_visibility": {
+            "counts": guest_cpu_counts,
+            "targets": [
+                clean(event)
+                for event in sorted(
+                    guest_cpu_targets, key=lambda event: str(event["address"])
+                )
+            ],
+        },
         "classification_counts": {
             "classified_signatures": counts["prepared_metadata_count"],
             "unclassified_signatures": counts["prepared_metadata_missing"],
@@ -374,7 +466,10 @@ def summarize(
             if counts["sampled_draws"]
             else "no consumer was observed; absence is not proof of independence"
         ),
-        "admission": {"later_gpu_consumers": later_gpu_consumer_gate},
+        "admission": {
+            "later_gpu_consumers": later_gpu_consumer_gate,
+            "guest_cpu_visibility": guest_cpu_gate,
+        },
         "safety": {
             "xenos_authority": True,
             "suppression_allowed": False,
