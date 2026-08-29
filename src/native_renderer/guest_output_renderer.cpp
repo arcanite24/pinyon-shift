@@ -118,6 +118,9 @@ bool RenderDiagnosticOutput(
          {"display_height", std::to_string(context.display_height)},
          {"format", std::to_string(context.output_format)},
          {"mode", DiagnosticModeName(mode)},
+         {"composition", mode == DiagnosticMode::kRetainedPass
+                             ? "private_display_target"
+                             : "direct_guest_output"},
          {"xenos_draw", "preserved"},
          {"suppression", "disabled"}});
   }

@@ -148,3 +148,8 @@ NR-04A subsequently tightens this preview with the exact-frame publication
 contract documented in `FRAME_PUBLICATION.md`. A retained pass may now reach
 guest output only when it was reproduced in the same guest frame as the active
 swap; stale targets yield immediately to Xenos.
+
+NR-04B moves composition into the private full-size display target documented
+in `CONTINUOUS_COMPOSITION.md`. The command processor copies that completed
+target into guest output within the existing swap submission, retaining one
+presenter and the same fail-closed Xenos fallback.

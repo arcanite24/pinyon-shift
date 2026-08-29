@@ -304,6 +304,36 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('{"fallback", "xenos"}', output)
         self.assertIn('{"suppression", "disabled"}', output)
 
+    def test_continuous_composition_uses_a_private_display_target(self):
+        patch = (
+            ROOT / "patches/rexglue/0068-d3d12-native-display-target.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("native_guest_output_display_target_", patch)
+        self.assertIn("D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_COPY_SOURCE", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_COPY_DEST", patch)
+        self.assertIn(
+            "resource, native_guest_output_display_target_.Get()", patch
+        )
+        self.assertIn("resources_for_deletion_.emplace_back", patch)
+        self.assertIn("native_guest_output_display_target_.Reset()", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        output = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"private_display_target"', output)
+        self.assertIn('{"xenos_draw", "preserved"}', output)
+        self.assertIn('{"suppression", "disabled"}', output)
+
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("composition = $null", report)
+        self.assertIn(
+            "$nativeRenderer.composition = [string]$event.composition", report
+        )
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT
