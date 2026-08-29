@@ -51,6 +51,41 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("REX_STORE", source)
         self.assertNotIn("GuestPtr", source)
 
+    def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-pass-consumers.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kPassConsumerDetailLimit = 64", source)
+        self.assertIn("kPassConsumerSignatureCapacity = 1024", source)
+        self.assertIn("CopyReadsPassTarget", source)
+        self.assertIn("copy.surface_info != target.surface_info", source)
+        self.assertIn("copy.color_info[source] == target.color_info[source]", source)
+        self.assertIn("copy.depth_info == target.depth_info", source)
+        self.assertIn('"native_renderer.census.pass_family_resolve"', source)
+        self.assertIn('"native_renderer.census.pass_family_consumer"', source)
+        self.assertIn(
+            '"native_renderer.census.pass_family_consumer_summary"', source
+        )
+        self.assertIn(
+            '"native_renderer.census.pass_family_consumer_signature"', source
+        )
+        self.assertIn('"prepared_metadata"', source)
+        self.assertIn('"family_base_fetch_mask"', source)
+        self.assertIn('"family_mip_fetch_mask"', source)
+        self.assertIn('"prepared_metadata_count"', source)
+        self.assertIn('"prepared_metadata_missing"', source)
+        self.assertIn('"unprepared_consumer_draws"', source)
+        self.assertIn('"unprepared_consumer_references"', source)
+        self.assertIn('{"xenos_draw", "preserved"}', source)
+        self.assertIn('{"suppression_eligible", "false"}', source)
+        self.assertIn('"unobserved_means_independent": False', summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
+        self.assertIn('"later_gpu_consumers": later_gpu_consumer_gate', summarizer)
+
     def test_scene_markers_and_classifier_are_explicit_and_safe(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -547,7 +582,8 @@ class NativeRendererContractTests(unittest.TestCase):
             prepared_patch.index("// Update the textures"),
         )
         self.assertNotIn("SetDrawSuppression", prepared_patch)
-        self.assertIn("g_pending_candidate.sample = observation;", source)
+        self.assertIn("candidate.sample = observation;", source)
+        self.assertIn("g_pending_candidate = candidate;", source)
         self.assertIn(
             "sample.vertex_shader_hash = observation.vertex_shader_hash;",
             source,
