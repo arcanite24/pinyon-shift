@@ -2,8 +2,8 @@
 
 This tool is intentionally payload-free.  It reads generated C++ instruction
 comments, identifies stored draw and visibility-query packet headers, records
-the direct title call graph, and proves the dirty-mask transitions that happen
-inside the indexed draw wrapper.
+the direct title and indirect-constructor call graphs, and proves the dirty-mask
+transitions that happen inside the indexed draw wrapper.
 """
 
 from __future__ import annotations
@@ -99,6 +99,14 @@ INITIALIZATION_CONSTRUCTORS = {
     0x829E82D0,
     0x829E8428,
     0x829EDB68,
+}
+INDIRECT_CONSTRUCTOR_RUNTIME_HOOKS = {
+    0x82409398: {"entry": 0x8240939C, "exit": 0x82409660},
+    0x82416A00: {"entry": 0x82416A04, "exit": 0x82417054},
+    0x8246FB98: {"entry": 0x8246FB9C, "exit": 0x8246FC78},
+    0x8263BCB8: {"entry": 0x8263BCBC, "exit": 0x8263BDF0},
+    0x829E8E00: {"entry": 0x829E8E04, "exit": 0x829E8ED4},
+    0x829EC400: {"entry": 0x829EC404, "exit": 0x829EC5AC},
 }
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
@@ -278,6 +286,118 @@ def direct_calls(functions: list[dict], targets: set[int]) -> list[dict]:
                 }
             )
     return sorted(calls, key=lambda item: (item["wrapper"], item["callsite"]))
+
+
+def indirect_constructor_calls(
+    functions: list[dict], constructors: list[dict]
+) -> list[dict]:
+    """Inventory direct callers of every stored indirect-buffer constructor."""
+    indirect_by_function: dict[int, list[dict]] = collections.defaultdict(list)
+    for constructor in constructors:
+        if constructor["opcode"] in {
+            "PM4_INDIRECT_BUFFER",
+            "PM4_INDIRECT_BUFFER_PFD",
+        }:
+            indirect_by_function[int(constructor["function_address"], 16)].append(
+                constructor
+            )
+
+    calls = []
+    for function in functions:
+        for instruction in function["instructions"]:
+            match = CALL_RE.fullmatch(instruction["text"])
+            if not match:
+                continue
+            target = int(match.group(1), 16)
+            target_constructors = indirect_by_function.get(target)
+            if not target_constructors:
+                continue
+            calls.append(
+                {
+                    "constructor_function": "sub_{:08X}".format(target),
+                    "constructor_function_address": "{:08X}".format(target),
+                    "constructor_opcodes": sorted(
+                        {item["opcode"] for item in target_constructors}
+                    ),
+                    "constructor_store_addresses": sorted(
+                        {item["store_address"] for item in target_constructors}
+                    ),
+                    "caller_function": function["name"],
+                    "caller_function_address": "{:08X}".format(
+                        function["address"]
+                    ),
+                    "callsite": "{:08X}".format(instruction["address"]),
+                    "return_address": "{:08X}".format(
+                        instruction["address"] + 4
+                    ),
+                    "classification": "direct_static_callsite",
+                    "semantic_identity": "unknown",
+                    "suppression_eligible": False,
+                }
+            )
+    return sorted(
+        calls,
+        key=lambda item: (
+            item["constructor_function_address"],
+            item["callsite"],
+        ),
+    )
+
+
+def indirect_constructor_runtime_hooks(
+    functions_by_address: dict[int, dict], constructors: list[dict]
+) -> list[dict]:
+    indirect_functions = {
+        int(item["function_address"], 16)
+        for item in constructors
+        if item["opcode"] in {
+            "PM4_INDIRECT_BUFFER",
+            "PM4_INDIRECT_BUFFER_PFD",
+        }
+    }
+    observed_known = indirect_functions & set(INDIRECT_CONSTRUCTOR_RUNTIME_HOOKS)
+    if observed_known and observed_known != set(INDIRECT_CONSTRUCTOR_RUNTIME_HOOKS):
+        raise ValueError("known indirect-constructor function set drifted")
+    result = []
+    for address in sorted(observed_known):
+        function = functions_by_address[address]
+        hooks = INDIRECT_CONSTRUCTOR_RUNTIME_HOOKS[address]
+        instructions = function["instructions"]
+        if (
+            not instructions
+            or instructions[0] != {"address": address, "text": "mflr r12"}
+            or hooks["entry"] != address + 4
+            or len(instructions) < 2
+            or instructions[-2]["address"] != hooks["exit"]
+            or not instructions[-2]["text"].startswith("addi r1,r1,")
+            or not BRANCH_RE.fullmatch(instructions[-1]["text"])
+        ):
+            raise ValueError(
+                "indirect-constructor balanced hook evidence drifted: "
+                "{:08X}".format(address)
+            )
+        result.append(
+            {
+                "function": function["name"],
+                "function_address": "{:08X}".format(address),
+                "entry_hook_address": "{:08X}".format(hooks["entry"]),
+                "exit_hook_address": "{:08X}".format(hooks["exit"]),
+                "caller_lr_register": "r12_after_opening_mflr",
+                "entry_metadata": [
+                    "r3",
+                    "r4",
+                    "r5",
+                    "r6",
+                    "r7",
+                    "r8",
+                    "r9",
+                    "r10",
+                ],
+                "classification": "balanced_passive_constructor_origin",
+                "suppression_eligible": False,
+            }
+        )
+    return result
 
 
 def adapter_argument_leads(functions: list[dict], calls: list[dict]) -> list[dict]:
@@ -742,6 +862,10 @@ def build(paths: list[pathlib.Path]) -> dict:
                 "reviewed wrapper entry LR evidence missing: {:08X}".format(address)
             )
     constructors = packet_constructors(functions)
+    constructor_calls = indirect_constructor_calls(functions, constructors)
+    constructor_hooks = indirect_constructor_runtime_hooks(
+        functions_by_address, constructors
+    )
     constructor_evidence = {
         (int(item["function_address"], 16), int(item["opcode_value"], 16))
         for item in constructors
@@ -827,6 +951,8 @@ def build(paths: list[pathlib.Path]) -> dict:
             "functions": len(functions),
         },
         "packet_constructors": constructors,
+        "indirect_constructor_calls": constructor_calls,
+        "indirect_constructor_runtime_hooks": constructor_hooks,
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
@@ -882,6 +1008,8 @@ def build(paths: list[pathlib.Path]) -> dict:
         },
         "totals": {
             "packet_constructors": len(constructors),
+            "indirect_constructor_calls": len(constructor_calls),
+            "indirect_constructor_runtime_hooks": len(constructor_hooks),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),

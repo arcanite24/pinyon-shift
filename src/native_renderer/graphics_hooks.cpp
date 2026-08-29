@@ -82,6 +82,7 @@ constexpr size_t kTitleIndirectPacketWays = 4;
 constexpr size_t kTitleIndirectPacketCapacity =
     kTitleIndirectPacketBucketCount * kTitleIndirectPacketWays;
 constexpr size_t kTitleIndirectStackCapacity = 32;
+constexpr size_t kIndirectConstructorStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -151,8 +152,19 @@ struct TitleDrawProvenanceEntry {
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
+  uint32_t constructor_function_address = 0;
+  uint32_t constructor_return_address = 0;
+  std::array<uint32_t, 8> constructor_arguments{};
   uint64_t submission_sequence = 0;
+  bool constructor_origin_known = false;
   bool occupied = false;
+};
+
+struct IndirectConstructorOrigin {
+  uint32_t function_address = 0;
+  uint32_t return_address = 0;
+  std::array<uint32_t, 8> arguments{};
+  bool valid = false;
 };
 
 struct ActiveTitleIndirectBuffer {
@@ -161,6 +173,7 @@ struct ActiveTitleIndirectBuffer {
   uint32_t parent_packet_physical_address = UINT32_MAX;
   uint32_t root_buffer_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
+  IndirectConstructorOrigin constructor_origin{};
   uint32_t depth = 0;
 };
 
@@ -206,7 +219,12 @@ uint64_t g_title_indirect_buffer_matches = 0;
 uint64_t g_title_indirect_buffer_unmatched = 0;
 uint64_t g_title_indirect_stack_faults = 0;
 uint64_t g_title_indirect_draw_stack_faults = 0;
+uint64_t g_indirect_constructor_entries = 0;
+uint64_t g_indirect_constructor_exits = 0;
+uint64_t g_indirect_constructor_stack_faults = 0;
+uint64_t g_indirect_packets_without_constructor_origin = 0;
 std::atomic<uint64_t> g_title_indirect_buffers_open{};
+std::atomic<uint64_t> g_indirect_constructor_invocations_open{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -214,6 +232,11 @@ thread_local size_t g_title_origin_stack_depth = 0;
 thread_local std::array<ActiveTitleIndirectBuffer, kTitleIndirectStackCapacity>
     g_title_indirect_stack;
 thread_local size_t g_title_indirect_stack_depth = 0;
+thread_local std::array<IndirectConstructorOrigin,
+                        kIndirectConstructorStackCapacity>
+    g_indirect_constructor_stack;
+thread_local size_t g_indirect_constructor_stack_depth = 0;
+thread_local size_t g_indirect_constructor_stack_overflow_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -366,12 +389,21 @@ void ResetTitleDrawProvenance() {
   g_title_indirect_buffer_unmatched = 0;
   g_title_indirect_stack_faults = 0;
   g_title_indirect_draw_stack_faults = 0;
+  g_indirect_constructor_entries = 0;
+  g_indirect_constructor_exits = 0;
+  g_indirect_constructor_stack_faults = 0;
+  g_indirect_packets_without_constructor_origin = 0;
   g_title_indirect_buffers_open.store(0, std::memory_order_relaxed);
+  g_indirect_constructor_invocations_open.store(0,
+                                                std::memory_order_relaxed);
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
   g_title_indirect_stack = {};
   g_title_indirect_stack_depth = 0;
+  g_indirect_constructor_stack = {};
+  g_indirect_constructor_stack_depth = 0;
+  g_indirect_constructor_stack_overflow_depth = 0;
 }
 
 void ConfigureTitleDrawProvenance(bool census_requested,
@@ -401,6 +433,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"indirect_packet_ways", std::to_string(kTitleIndirectPacketWays)},
        {"indirect_stack_capacity",
         std::to_string(kTitleIndirectStackCapacity)},
+       {"constructor_stack_capacity",
+        std::to_string(kIndirectConstructorStackCapacity)},
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
         "backend_signature"},
@@ -510,8 +544,75 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
   ++g_title_packets_recorded;
 }
 
+void PushIndirectConstructorOrigin(uint32_t function_address,
+                                   uint32_t return_address, uint32_t r3,
+                                   uint32_t r4, uint32_t r5, uint32_t r6,
+                                   uint32_t r7, uint32_t r8, uint32_t r9,
+                                   uint32_t r10) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_indirect_constructor_entries;
+  if (g_indirect_constructor_stack_depth ==
+      kIndirectConstructorStackCapacity) {
+    ++g_indirect_constructor_stack_faults;
+    ++g_indirect_constructor_stack_overflow_depth;
+    return;
+  }
+  IndirectConstructorOrigin &origin =
+      g_indirect_constructor_stack[g_indirect_constructor_stack_depth++];
+  origin.function_address = function_address;
+  origin.return_address = return_address;
+  origin.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  origin.valid = true;
+  g_indirect_constructor_invocations_open.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void PopIndirectConstructorOrigin(uint32_t function_address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_indirect_constructor_exits;
+  if (g_indirect_constructor_stack_overflow_depth) {
+    --g_indirect_constructor_stack_overflow_depth;
+    return;
+  }
+  if (!g_indirect_constructor_stack_depth) {
+    ++g_indirect_constructor_stack_faults;
+    return;
+  }
+  if (g_indirect_constructor_stack[g_indirect_constructor_stack_depth - 1]
+          .function_address != function_address) {
+    ++g_indirect_constructor_stack_faults;
+    g_indirect_constructor_invocations_open.fetch_sub(
+        g_indirect_constructor_stack_depth, std::memory_order_relaxed);
+    g_indirect_constructor_stack_depth = 0;
+    return;
+  }
+  --g_indirect_constructor_stack_depth;
+  g_indirect_constructor_invocations_open.fetch_sub(
+      1, std::memory_order_relaxed);
+}
+
+IndirectConstructorOrigin CurrentIndirectConstructorOrigin(
+    uint32_t function_address) {
+  if (!g_indirect_constructor_stack_depth) {
+    ++g_indirect_packets_without_constructor_origin;
+    return {};
+  }
+  const IndirectConstructorOrigin &origin =
+      g_indirect_constructor_stack[g_indirect_constructor_stack_depth - 1];
+  if (!origin.valid || origin.function_address != function_address) {
+    ++g_indirect_packets_without_constructor_origin;
+    return {};
+  }
+  return origin;
+}
+
 void RecordTitleIndirectPacket(uint32_t packet_guest_address,
-                               uint32_t constructor_store_address) {
+                               uint32_t constructor_store_address,
+                               uint32_t constructor_function_address) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
@@ -554,14 +655,21 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
     ++g_title_indirect_packet_evictions;
   }
   TitleIndirectPacketEntry &entry = g_title_indirect_packets[selected];
+  const IndirectConstructorOrigin origin =
+      CurrentIndirectConstructorOrigin(constructor_function_address);
   entry.packet_physical_address = packet_physical_address;
   entry.constructor_store_address = constructor_store_address;
+  entry.constructor_function_address = origin.function_address;
+  entry.constructor_return_address = origin.return_address;
+  entry.constructor_arguments = origin.arguments;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
+  entry.constructor_origin_known = origin.valid;
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
 
-uint32_t MatchTitleIndirectPacket(uint32_t packet_physical_address) {
+TitleIndirectPacketEntry MatchTitleIndirectPacket(
+    uint32_t packet_physical_address) {
   std::scoped_lock lock(g_title_packet_provenance_mutex);
   const size_t bucket =
       (packet_physical_address >> 2) % kTitleIndirectPacketBucketCount;
@@ -580,14 +688,13 @@ uint32_t MatchTitleIndirectPacket(uint32_t packet_physical_address) {
   }
   if (oldest_match != kTitleIndirectPacketCapacity) {
     TitleIndirectPacketEntry &entry = g_title_indirect_packets[oldest_match];
-    const uint32_t constructor_store_address =
-        entry.constructor_store_address;
+    const TitleIndirectPacketEntry matched = entry;
     entry.occupied = false;
     ++g_title_indirect_buffer_matches;
-    return constructor_store_address;
+    return matched;
   }
   ++g_title_indirect_buffer_unmatched;
-  return 0;
+  return {};
 }
 
 void ObserveIndirectBuffer(
@@ -611,8 +718,15 @@ void ObserveIndirectBuffer(
         observation.packet_physical_address;
     active.root_buffer_physical_address =
         observation.root_buffer_physical_address;
-    active.constructor_store_address =
+    const TitleIndirectPacketEntry matched =
         MatchTitleIndirectPacket(observation.packet_physical_address);
+    active.constructor_store_address = matched.constructor_store_address;
+    active.constructor_origin.function_address =
+        matched.constructor_function_address;
+    active.constructor_origin.return_address =
+        matched.constructor_return_address;
+    active.constructor_origin.arguments = matched.constructor_arguments;
+    active.constructor_origin.valid = matched.constructor_origin_known;
     active.depth = observation.depth;
     g_title_indirect_buffers_open.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -636,17 +750,17 @@ void ObserveIndirectBuffer(
   g_title_indirect_buffers_open.fetch_sub(1, std::memory_order_relaxed);
 }
 
-uint32_t CurrentTitleIndirectConstructor(
+const ActiveTitleIndirectBuffer *CurrentTitleIndirectBuffer(
     const rex::system::GraphicsDrawObservation &observation) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
-    return 0;
+    return nullptr;
   }
   if (!observation.command_buffer_depth) {
-    return 0;
+    return nullptr;
   }
   if (!g_title_indirect_stack_depth) {
     ++g_title_indirect_draw_stack_faults;
-    return 0;
+    return nullptr;
   }
   const ActiveTitleIndirectBuffer &active =
       g_title_indirect_stack[g_title_indirect_stack_depth - 1];
@@ -658,9 +772,9 @@ uint32_t CurrentTitleIndirectConstructor(
       active.root_buffer_physical_address !=
           observation.command_buffer_root_physical_address) {
     ++g_title_indirect_draw_stack_faults;
-    return 0;
+    return nullptr;
   }
-  return active.constructor_store_address;
+  return &active;
 }
 
 bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
@@ -1489,7 +1603,12 @@ struct CommandBufferLineageEntry {
   uint32_t min_parent_root_offset_bytes = UINT32_MAX;
   uint32_t max_parent_root_offset_bytes = 0;
   uint32_t constructor_store_address = 0;
+  uint32_t constructor_function_address = 0;
+  uint32_t constructor_return_address = 0;
+  std::array<uint32_t, 8> sample_constructor_arguments{};
+  uint32_t constructor_argument_varying_mask = 0;
   uint32_t depth = 0;
+  bool constructor_origin_known = false;
   bool prepared_signature_varied = false;
 };
 
@@ -2966,11 +3085,16 @@ void RecordPreparedCommandBufferLineage(
           ? observation.command_buffer_parent_packet_physical_address -
                 observation.command_buffer_root_physical_address
           : UINT32_MAX;
+  const ActiveTitleIndirectBuffer *active =
+      CurrentTitleIndirectBuffer(observation);
   const uint32_t constructor_store_address =
-      CurrentTitleIndirectConstructor(observation);
+      active ? active->constructor_store_address : 0;
+  const IndirectConstructorOrigin constructor_origin =
+      active ? active->constructor_origin : IndirectConstructorOrigin{};
   uint64_t key = 0xCBF29CE484222325ull;
   for (uint64_t value :
        {uint64_t(constructor_store_address),
+        uint64_t(constructor_origin.return_address),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -3002,11 +3126,16 @@ void RecordPreparedCommandBufferLineage(
       entry.min_parent_root_offset_bytes = parent_root_offset_bytes;
       entry.max_parent_root_offset_bytes = parent_root_offset_bytes;
       entry.constructor_store_address = constructor_store_address;
+      entry.constructor_function_address = constructor_origin.function_address;
+      entry.constructor_return_address = constructor_origin.return_address;
+      entry.sample_constructor_arguments = constructor_origin.arguments;
+      entry.constructor_origin_known = constructor_origin.valid;
       entry.depth = observation.command_buffer_depth;
       ++g_command_buffer_lineage_entry_count;
       return;
     }
     if (entry.constructor_store_address == constructor_store_address &&
+        entry.constructor_return_address == constructor_origin.return_address &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.last_frame = observation.frame_sequence;
@@ -3029,6 +3158,15 @@ void RecordPreparedCommandBufferLineage(
                    parent_root_offset_bytes);
       entry.prepared_signature_varied |=
           entry.sample_prepared_signature != prepared_signature;
+      if (entry.constructor_origin_known && constructor_origin.valid) {
+        for (size_t argument = 0;
+             argument < entry.sample_constructor_arguments.size(); ++argument) {
+          if (entry.sample_constructor_arguments[argument] !=
+              constructor_origin.arguments[argument]) {
+            entry.constructor_argument_varying_mask |= 1u << argument;
+          }
+        }
+      }
       return;
     }
     index = (index + 1) % kCommandBufferLineageCapacity;
@@ -3082,6 +3220,27 @@ void EmitCommandBufferLineageSummary() {
           entry.constructor_store_address
               ? fmt::format("{:08X}", entry.constructor_store_address)
               : "unknown"},
+         {"constructor_function_address",
+          entry.constructor_origin_known
+              ? fmt::format("{:08X}", entry.constructor_function_address)
+              : "unknown"},
+         {"constructor_return_address",
+          entry.constructor_origin_known
+              ? fmt::format("{:08X}", entry.constructor_return_address)
+              : "unknown"},
+         {"sample_constructor_arguments",
+          fmt::format(
+              "{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}",
+              entry.sample_constructor_arguments[0],
+              entry.sample_constructor_arguments[1],
+              entry.sample_constructor_arguments[2],
+              entry.sample_constructor_arguments[3],
+              entry.sample_constructor_arguments[4],
+              entry.sample_constructor_arguments[5],
+              entry.sample_constructor_arguments[6],
+              entry.sample_constructor_arguments[7])},
+         {"constructor_argument_varying_mask",
+          fmt::format("{:02X}", entry.constructor_argument_varying_mask)},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
@@ -3122,6 +3281,17 @@ void EmitCommandBufferLineageSummary() {
         std::to_string(g_title_indirect_stack_faults)},
        {"indirect_draw_stack_faults",
         std::to_string(g_title_indirect_draw_stack_faults)},
+       {"indirect_constructor_entries",
+        std::to_string(g_indirect_constructor_entries)},
+       {"indirect_constructor_exits",
+        std::to_string(g_indirect_constructor_exits)},
+       {"indirect_constructor_invocations_open_at_shutdown",
+        std::to_string(g_indirect_constructor_invocations_open.load(
+            std::memory_order_relaxed))},
+       {"indirect_constructor_stack_faults",
+        std::to_string(g_indirect_constructor_stack_faults)},
+       {"indirect_packets_without_constructor_origin",
+        std::to_string(g_indirect_packets_without_constructor_origin)},
        {"indirect_buffers_open_at_shutdown",
         std::to_string(g_title_indirect_buffers_open.load(
             std::memory_order_relaxed))},
@@ -5509,7 +5679,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"scene", scene},
        {"capacity", std::to_string(kCommandBufferLineageCapacity)},
        {"source",
-        "title_store,backend_packet,current_buffer,parent_packet,root_buffer,depth"},
+        "title_store,constructor_function,constructor_return,r3-r10,"
+        "backend_packet,current_buffer,parent_packet,root_buffer,depth"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -6216,29 +6387,63 @@ void PinyonShiftObserveDrawPacketSubmission(PPCRegister &r3) {
   RecordTitleDrawPacket(r3.u32 + sizeof(uint32_t));
 }
 
+void ObserveIndirectConstructorEntry(
+    uint32_t function_address, PPCRegister &r3, PPCRegister &r4,
+    PPCRegister &r5, PPCRegister &r6, PPCRegister &r7, PPCRegister &r8,
+    PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {
+  PushIndirectConstructorOrigin(function_address, r12.u32, r3.u32, r4.u32,
+                                r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                                r10.u32);
+}
+
+#define PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(address)                       \
+  void PinyonShiftObserveIndirectConstructor##address##Entry(                  \
+      PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,      \
+      PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,     \
+      PPCRegister &r12) {                                                       \
+    ObserveIndirectConstructorEntry(0x##address, r3, r4, r5, r6, r7, r8, r9,  \
+                                    r10, r12);                                  \
+  }                                                                             \
+  void PinyonShiftObserveIndirectConstructor##address##Exit() {                \
+    PopIndirectConstructorOrigin(0x##address);                                  \
+  }
+
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(82409398)
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(82416A00)
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(8246FB98)
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(8263BCB8)
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(829E8E00)
+PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS(829EC400)
+
+#undef PINYON_SHIFT_INDIRECT_CONSTRUCTOR_HOOKS
+
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
                                                PPCRegister &r28) {
-  RecordTitleIndirectPacket(r11.u32 + r28.u32, 0x824095B4);
+  RecordTitleIndirectPacket(r11.u32 + r28.u32, 0x824095B4, 0x82409398);
 }
 
 void PinyonShiftObserveIndirectPacket82416EFC(PPCRegister &r30) {
-  RecordTitleIndirectPacket(r30.u32 + sizeof(uint32_t), 0x82416EFC);
+  RecordTitleIndirectPacket(r30.u32 + sizeof(uint32_t), 0x82416EFC,
+                            0x82416A00);
 }
 
 void PinyonShiftObserveIndirectPacket8246FC1C(PPCRegister &r11) {
-  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x8246FC1C);
+  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x8246FC1C,
+                            0x8246FB98);
 }
 
 void PinyonShiftObserveIndirectPacket8263BD64(PPCRegister &r9) {
-  RecordTitleIndirectPacket(r9.u32 + sizeof(uint32_t), 0x8263BD64);
+  RecordTitleIndirectPacket(r9.u32 + sizeof(uint32_t), 0x8263BD64,
+                            0x8263BCB8);
 }
 
 void PinyonShiftObserveIndirectPacket829E8E88(PPCRegister &r1) {
-  RecordTitleIndirectPacket(r1.u32 + 88, 0x829E8E88);
+  RecordTitleIndirectPacket(r1.u32 + 88, 0x829E8E88, 0x829E8E00);
 }
 
 void PinyonShiftObserveIndirectPacket829EC49C(PPCRegister &r11) {
-  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x829EC49C);
+  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x829EC49C,
+                            0x829EC400);
 }
 
 void PinyonShiftObserveResolveControllerDispatch(

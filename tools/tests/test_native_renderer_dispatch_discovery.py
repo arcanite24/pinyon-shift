@@ -319,7 +319,8 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 "stw r10,16(r4)",
             ],
         )
-        document = self.build([indirect, *reviewed_fixtures()])
+        caller = fixture(0x83070000, ["bl 0x83060000"])
+        document = self.build([indirect, caller, *reviewed_fixtures()])
         packets = [
             item
             for item in document["packet_constructors"]
@@ -335,6 +336,18 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(packets[0]["packet_register"], "r11")
         self.assertEqual(packets[0]["store_instruction"], "stwu r11,4(r3)")
+        self.assertEqual(document["totals"]["indirect_constructor_calls"], 1)
+        constructor_call = document["indirect_constructor_calls"][0]
+        self.assertEqual(
+            constructor_call["constructor_function_address"], "83060000"
+        )
+        self.assertEqual(constructor_call["callsite"], "83070000")
+        self.assertEqual(constructor_call["return_address"], "83070004")
+        self.assertEqual(
+            constructor_call["constructor_store_addresses"],
+            ["83060008", "83060014"],
+        )
+        self.assertFalse(constructor_call["suppression_eligible"])
 
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
@@ -385,6 +398,28 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 ),
                 1,
             )
+        for function, entry, exit_address in (
+            ("82409398", "8240939C", "82409660"),
+            ("82416A00", "82416A04", "82417054"),
+            ("8246FB98", "8246FB9C", "8246FC78"),
+            ("8263BCB8", "8263BCBC", "8263BDF0"),
+            ("829E8E00", "829E8E04", "829E8ED4"),
+            ("829EC400", "829EC404", "829EC5AC"),
+        ):
+            self.assertIn(f"address = 0x{entry}", analysis)
+            self.assertIn(f"address = 0x{exit_address}", analysis)
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectConstructor{function}Entry"'
+                ),
+                1,
+            )
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectConstructor{function}Exit"'
+                ),
+                1,
+            )
         self.assertEqual(
             analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
             1,
@@ -432,7 +467,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
                 '"r9", "r10", "r12"]'
             ),
-            10,
+            16,
         )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture

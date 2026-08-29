@@ -37,8 +37,65 @@ name = "PinyonShiftObserveDrawPacketSubmission"
 registers = ["r3"]
 
 # Record exact physical identities for the six stored indirect-buffer packet
-# sites. The original store executes after each hook; only its effective
-# address registers are observed.
+# sites. Each constructor entry runs after its opening mflr, preserving the
+# direct caller return address in r12 and the bounded r3-r10 entry metadata.
+# Its balanced exit hook runs before stack restoration. The original entry,
+# exit, and packet-store instructions execute after their hooks; no title state
+# or control flow is changed.
+[[midasm_hook]]
+address = 0x8240939C
+name = "PinyonShiftObserveIndirectConstructor82409398Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82409660
+name = "PinyonShiftObserveIndirectConstructor82409398Exit"
+
+[[midasm_hook]]
+address = 0x82416A04
+name = "PinyonShiftObserveIndirectConstructor82416A00Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82417054
+name = "PinyonShiftObserveIndirectConstructor82416A00Exit"
+
+[[midasm_hook]]
+address = 0x8246FB9C
+name = "PinyonShiftObserveIndirectConstructor8246FB98Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8246FC78
+name = "PinyonShiftObserveIndirectConstructor8246FB98Exit"
+
+[[midasm_hook]]
+address = 0x8263BCBC
+name = "PinyonShiftObserveIndirectConstructor8263BCB8Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8263BDF0
+name = "PinyonShiftObserveIndirectConstructor8263BCB8Exit"
+
+[[midasm_hook]]
+address = 0x829E8E04
+name = "PinyonShiftObserveIndirectConstructor829E8E00Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829E8ED4
+name = "PinyonShiftObserveIndirectConstructor829E8E00Exit"
+
+[[midasm_hook]]
+address = 0x829EC404
+name = "PinyonShiftObserveIndirectConstructor829EC400Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829EC5AC
+name = "PinyonShiftObserveIndirectConstructor829EC400Exit"
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

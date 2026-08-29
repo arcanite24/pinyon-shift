@@ -70,6 +70,29 @@ def _hex(mapping: dict, key: str, width: int) -> str:
     return value
 
 
+def _optional_hex(mapping: dict, key: str, width: int) -> str | None:
+    value = str(mapping.get(key, "unknown")).upper()
+    if value == "UNKNOWN":
+        return None
+    return _hex({key: value}, key, width)
+
+
+def _hex_arguments(mapping: dict, key: str) -> list[str]:
+    values = str(mapping.get(key, "")).upper().split(",")
+    if len(values) != 8:
+        raise ValueError(f"invalid constructor argument vector: {key}")
+    for value in values:
+        if len(value) != 8:
+            raise ValueError(f"invalid constructor argument vector: {key}")
+        try:
+            int(value, 16)
+        except ValueError as error:
+            raise ValueError(
+                f"invalid constructor argument vector: {key}"
+            ) from error
+    return values
+
+
 def build(events: list[dict], static: dict, requested: str | None = None) -> dict:
     if static.get("schema") != STATIC_SCHEMA:
         raise ValueError("unsupported static dispatch inventory schema")
@@ -82,6 +105,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         raise ValueError("static inventory has no stored indirect-buffer constructors")
     constructor_store_addresses = {
         str(item.get("store_address", "")).upper() for item in constructors
+    }
+    constructor_functions_by_store = {
+        str(item.get("store_address", "")).upper(): str(
+            item.get("function_address", "")
+        ).upper()
+        for item in constructors
+    }
+    static_constructor_calls = static.get("indirect_constructor_calls", [])
+    constructor_calls_by_return = {
+        (
+            str(item.get("constructor_function_address", "")).upper(),
+            str(item.get("return_address", "")).upper(),
+        ): item
+        for item in static_constructor_calls
     }
 
     session = select_session(events, requested)
@@ -181,6 +218,40 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                     "lineage entry references an unproved constructor store"
                 )
             constructor_store_address = constructor_text
+        constructor_function_address = _optional_hex(
+            event, "constructor_function_address", 8
+        )
+        constructor_return_address = _optional_hex(
+            event, "constructor_return_address", 8
+        )
+        if (constructor_function_address is None) != (
+            constructor_return_address is None
+        ):
+            raise ValueError("lineage entry has a partial constructor origin")
+        constructor_call = None
+        constructor_arguments = None
+        constructor_argument_varying_mask = None
+        if constructor_function_address is not None:
+            if constructor_store_address is None:
+                raise ValueError(
+                    "lineage entry has an origin without a constructor store"
+                )
+            if (
+                constructor_functions_by_store[constructor_store_address]
+                != constructor_function_address
+            ):
+                raise ValueError(
+                    "lineage entry constructor function does not own its store"
+                )
+            constructor_call = constructor_calls_by_return.get(
+                (constructor_function_address, constructor_return_address)
+            )
+            constructor_arguments = _hex_arguments(
+                event, "sample_constructor_arguments"
+            )
+            constructor_argument_varying_mask = int(
+                _hex(event, "constructor_argument_varying_mask", 2), 16
+            )
         if depth:
             if parent_value >= PHYSICAL_APERTURE_SIZE or parent_value & 3:
                 raise ValueError("indirect lineage entry has no valid parent packet")
@@ -253,6 +324,28 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "min_parent_root_offset_bytes": min_parent_root_offset,
                 "max_parent_root_offset_bytes": max_parent_root_offset,
                 "constructor_store_address": constructor_store_address,
+                "constructor_function_address": constructor_function_address,
+                "constructor_return_address": constructor_return_address,
+                "constructor_callsite": (
+                    constructor_call.get("callsite")
+                    if constructor_call is not None
+                    else None
+                ),
+                "constructor_caller_function": (
+                    constructor_call.get("caller_function")
+                    if constructor_call is not None
+                    else None
+                ),
+                "constructor_caller_function_address": (
+                    constructor_call.get("caller_function_address")
+                    if constructor_call is not None
+                    else None
+                ),
+                "constructor_callsite_proved": constructor_call is not None,
+                "sample_constructor_arguments": constructor_arguments,
+                "constructor_argument_varying_mask": (
+                    constructor_argument_varying_mask
+                ),
                 "depth": depth,
             }
         )
@@ -265,6 +358,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             if item["min_parent_root_offset_bytes"] is None
             else item["min_parent_root_offset_bytes"],
             item["constructor_store_address"] or "",
+            item["constructor_return_address"] or "",
         )
     )
 
@@ -293,6 +387,17 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     )
     indirect_stack_faults = _integer(summary, "indirect_buffer_stack_faults")
     draw_stack_faults = _integer(summary, "indirect_draw_stack_faults")
+    constructor_entries = _integer(summary, "indirect_constructor_entries")
+    constructor_exits = _integer(summary, "indirect_constructor_exits")
+    constructor_open = _integer(
+        summary, "indirect_constructor_invocations_open_at_shutdown"
+    )
+    constructor_stack_faults = _integer(
+        summary, "indirect_constructor_stack_faults"
+    )
+    packets_without_constructor_origin = _integer(
+        summary, "indirect_packets_without_constructor_origin"
+    )
     open_at_shutdown = _integer(
         summary, "indirect_buffers_open_at_shutdown"
     )
@@ -316,6 +421,18 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and not title_table_overflow
         and not indirect_stack_faults
         and not draw_stack_faults
+        and constructor_entries == constructor_exits + constructor_open
+        and not constructor_stack_faults
+        and (
+            not static_constructor_calls
+            or (
+                constructor_entries > 0
+                and any(
+                    item["constructor_return_address"] is not None
+                    for item in entries
+                )
+            )
+        )
     )
 
     shapes = []
@@ -343,6 +460,25 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "constructor_store_address": entry[
                     "constructor_store_address"
                 ],
+                "constructor_function_address": entry[
+                    "constructor_function_address"
+                ],
+                "constructor_return_address": entry[
+                    "constructor_return_address"
+                ],
+                "constructor_callsite": entry["constructor_callsite"],
+                "constructor_caller_function": entry[
+                    "constructor_caller_function"
+                ],
+                "constructor_callsite_proved": entry[
+                    "constructor_callsite_proved"
+                ],
+                "sample_constructor_arguments": entry[
+                    "sample_constructor_arguments"
+                ],
+                "constructor_argument_varying_mask": entry[
+                    "constructor_argument_varying_mask"
+                ],
                 "depth": entry["depth"],
                 "sample_prepared_signature": entry[
                     "sample_prepared_signature"
@@ -362,6 +498,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             if item["min_parent_root_offset_bytes"] is None
             else item["min_parent_root_offset_bytes"],
             item["constructor_store_address"] or "",
+            item["constructor_return_address"] or "",
         )
     )
 
@@ -373,6 +510,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "entries": entries,
         "shapes": shapes,
         "static_indirect_buffer_constructors": constructors,
+        "static_indirect_constructor_calls": static_constructor_calls,
         "totals": {
             "draws": draws,
             "primary_draws": primary_draws,
@@ -397,7 +535,32 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "indirect_buffer_constructor_unmatched": constructor_unmatched,
             "indirect_buffer_stack_faults": indirect_stack_faults,
             "indirect_draw_stack_faults": draw_stack_faults,
+            "indirect_constructor_entries": constructor_entries,
+            "indirect_constructor_exits": constructor_exits,
+            "indirect_constructor_invocations_open_at_shutdown": (
+                constructor_open
+            ),
+            "indirect_constructor_stack_faults": constructor_stack_faults,
+            "indirect_packets_without_constructor_origin": (
+                packets_without_constructor_origin
+            ),
             "indirect_buffers_open_at_shutdown": open_at_shutdown,
+            "constructor_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["constructor_return_address"] is not None
+            ),
+            "statically_resolved_constructor_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["constructor_callsite_proved"]
+            ),
+            "unresolved_constructor_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["constructor_return_address"] is not None
+                and not item["constructor_callsite_proved"]
+            ),
         },
         "qualification": "exact_title_store_to_backend_nested_command_buffer_lineage",
         "semantic_identity": "unknown",
