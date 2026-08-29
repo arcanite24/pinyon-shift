@@ -63,6 +63,9 @@ constexpr uint64_t kMaximumTextureScanResourceBytes = UINT64_C(16) << 20;
 constexpr uint64_t kMaximumTextureScanTotalBytes = UINT64_C(32) << 20;
 constexpr uint32_t kMaximumConsumerReadbackSamples = 16;
 constexpr uint64_t kPassPublicationDetailLimit = 64;
+constexpr uint64_t kSuppressionWarmupFrameCount = 8;
+constexpr uint64_t kSuppressionFailureCooldownFrameCount = 120;
+constexpr uint64_t kSuppressionStateDetailLimit = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -171,16 +174,173 @@ struct PassPublicationState {
 PassPublicationState g_pass_publication;
 
 struct SkyHorizonSuppressionState {
+  enum class RuntimeMode {
+    kDisabled,
+    kWarming,
+    kActive,
+    kCooldown,
+  };
+
   uint64_t attempts = 0;
   uint64_t suppressed = 0;
+  uint64_t suppressed_vertices = 0;
   uint64_t fallbacks = 0;
+  uint64_t unexpected_suppressions = 0;
+  uint64_t yielded_attempts = 0;
+  uint64_t yielded_vertices = 0;
+  uint64_t warmup_publications = 0;
+  uint64_t warmup_frames = 0;
+  uint64_t warmup_resets = 0;
+  uint64_t cooldown_entries = 0;
+  uint64_t state_detail_events = 0;
+  uint64_t state_detail_overflow = 0;
   uint64_t last_frame = 0;
   uint64_t last_draw = 0;
+  uint64_t last_successful_frame = 0;
+  uint64_t active_from_frame = 0;
+  uint64_t cooldown_until_frame = 0;
+  const char *last_yield_reason = "disabled";
+  RuntimeMode mode = RuntimeMode::kDisabled;
   bool requested = false;
   bool armed = false;
+  bool attempt_suppression_requested = false;
 };
 
 SkyHorizonSuppressionState g_sky_horizon_suppression;
+
+const char *SuppressionRuntimeModeName(
+    SkyHorizonSuppressionState::RuntimeMode mode) {
+  switch (mode) {
+  case SkyHorizonSuppressionState::RuntimeMode::kDisabled:
+    return "disabled";
+  case SkyHorizonSuppressionState::RuntimeMode::kWarming:
+    return "warming";
+  case SkyHorizonSuppressionState::RuntimeMode::kActive:
+    return "active";
+  case SkyHorizonSuppressionState::RuntimeMode::kCooldown:
+    return "cooldown";
+  }
+  return "invalid";
+}
+
+void RecordSuppressionStateTransition(
+    SkyHorizonSuppressionState::RuntimeMode previous,
+    SkyHorizonSuppressionState::RuntimeMode next, uint64_t frame,
+    const char *reason) {
+  if (previous == next) {
+    return;
+  }
+  if (g_sky_horizon_suppression.state_detail_events >=
+      kSuppressionStateDetailLimit) {
+    ++g_sky_horizon_suppression.state_detail_overflow;
+    return;
+  }
+  ++g_sky_horizon_suppression.state_detail_events;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.suppression_state",
+      {{"family", "sky_horizon"},
+       {"previous", SuppressionRuntimeModeName(previous)},
+       {"current", SuppressionRuntimeModeName(next)},
+       {"reason", reason},
+       {"frame", std::to_string(frame)},
+       {"warmup_frames",
+        std::to_string(g_sky_horizon_suppression.warmup_frames)},
+       {"cooldown_until_frame",
+        std::to_string(g_sky_horizon_suppression.cooldown_until_frame)},
+       {"xenos_fallback", "mandatory"}});
+}
+
+void SetSuppressionRuntimeMode(
+    SkyHorizonSuppressionState::RuntimeMode mode, uint64_t frame,
+    const char *reason) {
+  const auto previous = g_sky_horizon_suppression.mode;
+  g_sky_horizon_suppression.mode = mode;
+  RecordSuppressionStateTransition(previous, mode, frame, reason);
+}
+
+void ResetSuppressionWarmup(uint64_t frame, const char *reason) {
+  if (g_sky_horizon_suppression.warmup_frames ||
+      g_sky_horizon_suppression.mode ==
+          SkyHorizonSuppressionState::RuntimeMode::kActive) {
+    ++g_sky_horizon_suppression.warmup_resets;
+  }
+  g_sky_horizon_suppression.warmup_frames = 0;
+  g_sky_horizon_suppression.last_successful_frame = 0;
+  g_sky_horizon_suppression.active_from_frame = 0;
+  SetSuppressionRuntimeMode(
+      SkyHorizonSuppressionState::RuntimeMode::kWarming, frame, reason);
+}
+
+void EnterSuppressionCooldown(uint64_t frame, const char *reason) {
+  ++g_sky_horizon_suppression.cooldown_entries;
+  g_sky_horizon_suppression.warmup_frames = 0;
+  g_sky_horizon_suppression.last_successful_frame = 0;
+  g_sky_horizon_suppression.active_from_frame = 0;
+  g_sky_horizon_suppression.cooldown_until_frame =
+      frame + kSuppressionFailureCooldownFrameCount;
+  g_sky_horizon_suppression.last_yield_reason = reason;
+  SetSuppressionRuntimeMode(
+      SkyHorizonSuppressionState::RuntimeMode::kCooldown, frame, reason);
+}
+
+bool PrepareSuppressionAttempt(uint64_t frame) {
+  g_sky_horizon_suppression.attempt_suppression_requested = false;
+  if (!g_sky_horizon_suppression.armed) {
+    g_sky_horizon_suppression.last_yield_reason = "not_armed";
+    return false;
+  }
+  if (g_sky_horizon_suppression.mode ==
+      SkyHorizonSuppressionState::RuntimeMode::kCooldown) {
+    if (frame < g_sky_horizon_suppression.cooldown_until_frame) {
+      g_sky_horizon_suppression.last_yield_reason = "failure_cooldown";
+      return false;
+    }
+    ResetSuppressionWarmup(frame, "cooldown_expired");
+  }
+  if (g_sky_horizon_suppression.last_successful_frame &&
+      frame > g_sky_horizon_suppression.last_successful_frame + 1) {
+    ResetSuppressionWarmup(frame, "frame_gap");
+  }
+  if (g_sky_horizon_suppression.mode ==
+      SkyHorizonSuppressionState::RuntimeMode::kActive) {
+    if (frame >= g_sky_horizon_suppression.active_from_frame) {
+      g_sky_horizon_suppression.attempt_suppression_requested = true;
+      g_sky_horizon_suppression.last_yield_reason = "none";
+      return true;
+    }
+    g_sky_horizon_suppression.last_yield_reason = "warmup_frame_boundary";
+    return false;
+  }
+  g_sky_horizon_suppression.last_yield_reason = "warmup";
+  return false;
+}
+
+void AdvanceSuppressionWarmup(uint64_t frame) {
+  ++g_sky_horizon_suppression.warmup_publications;
+  if (g_sky_horizon_suppression.mode ==
+      SkyHorizonSuppressionState::RuntimeMode::kCooldown) {
+    return;
+  }
+  if (g_sky_horizon_suppression.last_successful_frame == frame) {
+    return;
+  }
+  if (g_sky_horizon_suppression.last_successful_frame + 1 == frame) {
+    ++g_sky_horizon_suppression.warmup_frames;
+  } else {
+    if (g_sky_horizon_suppression.warmup_frames) {
+      ++g_sky_horizon_suppression.warmup_resets;
+    }
+    g_sky_horizon_suppression.warmup_frames = 1;
+  }
+  g_sky_horizon_suppression.last_successful_frame = frame;
+  if (g_sky_horizon_suppression.warmup_frames >=
+      kSuppressionWarmupFrameCount) {
+    g_sky_horizon_suppression.active_from_frame = frame + 1;
+    SetSuppressionRuntimeMode(
+        SkyHorizonSuppressionState::RuntimeMode::kActive, frame,
+        "warmup_complete");
+  }
+}
 
 struct ConsumerFamilyMarkerState {
   uint64_t vertex_shader_hash = 0;
@@ -464,6 +624,10 @@ void EmitSkyHorizonSuppressionControl() {
        {"activation", "startup_only"},
        {"default_enabled", "false"},
        {"implementation", "fail_closed_follower_draw"},
+       {"state_gate", "consecutive_publication_warmup"},
+       {"warmup_frames", std::to_string(kSuppressionWarmupFrameCount)},
+       {"failure_cooldown_frames",
+        std::to_string(kSuppressionFailureCooldownFrameCount)},
        {"xenos_fallback", "mandatory"},
        {"xenos_draw", requested ? "anchor_preserved_follower_conditional"
                                   : "preserved"},
@@ -471,7 +635,7 @@ void EmitSkyHorizonSuppressionControl() {
                                         : "false"},
        {"resolve_suppression", "false"},
        {"suppression_allowed",
-        g_sky_horizon_suppression.armed ? "operator_requested" : "false"}});
+        g_sky_horizon_suppression.armed ? "after_state_gate" : "false"}});
 }
 
 void ArmSkyHorizonSuppression() {
@@ -482,6 +646,12 @@ void ArmSkyHorizonSuppression() {
       g_pass_follower.requested && g_pass_follower.valid &&
       g_pass_follower.target_signature == kSkyHorizonAnchorSignature &&
       g_pass_publication.requested && g_pass_publication.valid;
+  g_sky_horizon_suppression.mode =
+      g_sky_horizon_suppression.armed
+          ? SkyHorizonSuppressionState::RuntimeMode::kWarming
+          : SkyHorizonSuppressionState::RuntimeMode::kDisabled;
+  g_sky_horizon_suppression.last_yield_reason =
+      g_sky_horizon_suppression.armed ? "warmup" : "not_armed";
 }
 
 struct DrawSignatureEntry {
@@ -3107,13 +3277,37 @@ void CompleteRetainedPassPublication(
     ++g_pass_publication.failures;
   }
   if (g_sky_horizon_suppression.armed) {
-    ++g_sky_horizon_suppression.attempts;
     g_sky_horizon_suppression.last_frame = g_isolated_draw.frame;
     g_sky_horizon_suppression.last_draw = g_isolated_draw.draw;
-    if (result.guest_draw_suppressed) {
-      ++g_sky_horizon_suppression.suppressed;
+    if (g_sky_horizon_suppression.attempt_suppression_requested) {
+      ++g_sky_horizon_suppression.attempts;
     } else {
+      ++g_sky_horizon_suppression.yielded_attempts;
+      g_sky_horizon_suppression.yielded_vertices +=
+          g_isolated_draw.prepared_sample.index_count;
+    }
+    if (result.guest_draw_suppressed &&
+        !g_sky_horizon_suppression.attempt_suppression_requested) {
+      ++g_sky_horizon_suppression.unexpected_suppressions;
+      EnterSuppressionCooldown(g_isolated_draw.frame,
+                               "backend_ignored_state_yield");
+    } else if (result.guest_draw_suppressed &&
+               g_sky_horizon_suppression.attempt_suppression_requested) {
+      ++g_sky_horizon_suppression.suppressed;
+      g_sky_horizon_suppression.suppressed_vertices +=
+          g_isolated_draw.prepared_sample.index_count;
+      g_sky_horizon_suppression.last_successful_frame =
+          g_isolated_draw.frame;
+    } else if (g_sky_horizon_suppression.attempt_suppression_requested) {
       ++g_sky_horizon_suppression.fallbacks;
+      EnterSuppressionCooldown(g_isolated_draw.frame,
+                               published ? "backend_preserved_follower"
+                                         : "publication_failure");
+    } else if (published) {
+      AdvanceSuppressionWarmup(g_isolated_draw.frame);
+    } else {
+      EnterSuppressionCooldown(g_isolated_draw.frame,
+                               "warmup_publication_failure");
     }
   }
   const char *status = "unavailable";
@@ -3159,10 +3353,20 @@ void CompleteRetainedPassPublication(
        {"resolve_suppression", "false"},
        {"side_effects", "setup_barriers_resolves_consumers_preserved"},
        {"fallback", result.guest_draw_suppressed
-                        ? "not_needed"
-                        : "original_follower_executed"},
+                        ? (g_sky_horizon_suppression
+                                   .attempt_suppression_requested
+                               ? "not_needed"
+                               : "unsafe_unexpected_suppression")
+                        : (g_sky_horizon_suppression
+                                   .attempt_suppression_requested
+                               ? "original_follower_executed"
+                               : "state_gate_xenos")},
+       {"state_gate",
+        SuppressionRuntimeModeName(g_sky_horizon_suppression.mode)},
+       {"yield_reason", g_sky_horizon_suppression.last_yield_reason},
        {"suppression_eligible",
-        g_sky_horizon_suppression.armed ? "true" : "false"}});
+        g_sky_horizon_suppression.attempt_suppression_requested ? "true"
+                                                                 : "false"}});
 }
 
 void RequestIsolatedDraw(
@@ -3249,7 +3453,7 @@ void RequestIsolatedDraw(
       request.publish_to_guest_requested = true;
       request.publication_completion = &CompleteRetainedPassPublication;
       request.suppress_guest_draw_if_published =
-          g_sky_horizon_suppression.armed;
+          PrepareSuppressionAttempt(g_isolated_draw.frame);
     }
     if (!g_isolated_draw.completed) {
       g_isolated_draw.captured_signature = signature;
@@ -4439,15 +4643,43 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"scope", "exact_follower_draw_after_full_pair_publication"},
        {"attempts", std::to_string(g_sky_horizon_suppression.attempts)},
        {"suppressed", std::to_string(g_sky_horizon_suppression.suppressed)},
+       {"suppressed_vertices",
+        std::to_string(g_sky_horizon_suppression.suppressed_vertices)},
        {"fallbacks", std::to_string(g_sky_horizon_suppression.fallbacks)},
+       {"unexpected_suppressions",
+        std::to_string(g_sky_horizon_suppression.unexpected_suppressions)},
+       {"yielded_attempts",
+        std::to_string(g_sky_horizon_suppression.yielded_attempts)},
+       {"yielded_vertices",
+        std::to_string(g_sky_horizon_suppression.yielded_vertices)},
+       {"runtime_state",
+        SuppressionRuntimeModeName(g_sky_horizon_suppression.mode)},
+       {"warmup_publications",
+        std::to_string(g_sky_horizon_suppression.warmup_publications)},
+       {"warmup_frames",
+        std::to_string(g_sky_horizon_suppression.warmup_frames)},
+       {"warmup_resets",
+        std::to_string(g_sky_horizon_suppression.warmup_resets)},
+       {"cooldown_entries",
+        std::to_string(g_sky_horizon_suppression.cooldown_entries)},
+       {"state_detail_events",
+        std::to_string(g_sky_horizon_suppression.state_detail_events)},
+       {"state_detail_overflow",
+        std::to_string(g_sky_horizon_suppression.state_detail_overflow)},
+       {"last_yield_reason", g_sky_horizon_suppression.last_yield_reason},
        {"last_frame", std::to_string(g_sky_horizon_suppression.last_frame)},
        {"last_draw", std::to_string(g_sky_horizon_suppression.last_draw)},
        {"anchor_draw", "preserved"},
        {"follower_draw", g_sky_horizon_suppression.suppressed
                              ? "suppressed_after_publication"
                              : "preserved"},
+       {"pm4_parsing", "preserved"},
+       {"query_event_fence", "preserved"},
+       {"memexport", "preserved"},
+       {"resolves_consumers", "preserved"},
        {"resolve_suppression", "false"},
-       {"xenos_fallback", "mandatory_on_replay_or_publication_failure"}});
+       {"xenos_fallback",
+        "mandatory_on_state_yield_replay_or_publication_failure"}});
   g_graphics_census_installed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {

@@ -35,8 +35,8 @@ def logs():
         ),
         event(
             "native_renderer.retained_pass.publication_summary",
-            attempts="12",
-            published="12",
+            attempts="20",
+            published="20",
             failures="0",
         ),
         event(
@@ -45,6 +45,7 @@ def logs():
             attempts="12",
             suppressed="12",
             fallbacks="0",
+            yielded_attempts="8",
             anchor_draw="preserved",
             resolve_suppression="false",
         ),
@@ -73,6 +74,7 @@ class NativeRendererRollbackQualificationTests(unittest.TestCase):
         result = self.qualify(enabled, disabled)
         self.assertEqual(result["gate"]["rollback_switch"], "pass")
         self.assertEqual(result["enabled"]["suppressed"], 12)
+        self.assertEqual(result["enabled"]["yielded_attempts"], 8)
         self.assertEqual(result["disabled"]["suppressed"], 0)
         self.assertTrue(result["safety"]["anchor_xenos_draw_preserved"])
         self.assertFalse(result["safety"]["resolve_suppression_implemented"])
@@ -85,7 +87,7 @@ class NativeRendererRollbackQualificationTests(unittest.TestCase):
             self.qualify(enabled, disabled)
 
         enabled, disabled = logs()
-        enabled[2]["published"] = "11"
+        enabled[2]["published"] = "19"
         with self.assertRaisesRegex(ValueError, "publication was incomplete"):
             self.qualify(enabled, disabled)
 

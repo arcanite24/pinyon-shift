@@ -80,6 +80,40 @@ class NativeRendererSuppressionSwitchTests(unittest.TestCase):
         self.assertEqual("pass", result["summary"]["rollback_switch_gate"])
         self.assertTrue(result["safety"]["suppression_allowed"])
 
+    def test_state_yield_requires_fail_closed_contract_and_qualification(self):
+        document = manifest()
+        family = document["families"][0]
+        family.update(
+            {
+                "implementation_status": "implemented",
+                "draw_suppression_implemented": True,
+                "rollback_qualified": True,
+                "state_yield_implemented": True,
+                "state_yield_qualified": False,
+                "state_gate": "consecutive_publication_warmup",
+                "warmup_frames": 8,
+                "failure_cooldown_frames": 120,
+                "gap_behavior": "reset_warmup_and_execute_xenos",
+                "failure_behavior": "cooldown_and_execute_xenos",
+                "guest_side_effects_preserved": True,
+            }
+        )
+        result = MODULE.validate(document)
+        self.assertEqual(
+            "requires_runtime_test", result["summary"]["state_based_yield_gate"]
+        )
+        self.assertIn("state-yield", result["summary"]["reason"])
+        self.assertFalse(result["safety"]["suppression_allowed"])
+
+        family["state_yield_qualified"] = True
+        result = MODULE.validate(document)
+        self.assertEqual("pass", result["summary"]["state_based_yield_gate"])
+        self.assertTrue(result["safety"]["suppression_allowed"])
+
+        family["failure_behavior"] = "continue_suppression"
+        with self.assertRaisesRegex(ValueError, "yield after publication failure"):
+            MODULE.validate(document)
+
     def test_rejects_duplicate_switch(self):
         document = manifest()
         duplicate = copy.deepcopy(document["families"][0])
