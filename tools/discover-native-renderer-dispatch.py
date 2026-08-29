@@ -1469,6 +1469,10 @@ def procedural_model_receiver_lifecycle(
             "semantic_batch_ordering": (
                 "exact_consecutive_prepared_draw_order"
             ),
+            "semantic_batch_equivalence_ladder_required": True,
+            "semantic_batch_pipeline_identity": (
+                "resource_free_layout_and_prepared_state"
+            ),
             "semantic_batch_execution_enabled": False,
             "physical_pm4_packet_correlation_proved": False,
             "prepared_draw_lineage_proved": False,
