@@ -201,6 +201,7 @@ PROCEDURAL_MODEL_RECEIVER = {
     "render_state_entry": 0x824170DC,
     "render_state_exit": 0x82417410,
     "render_item_function": 0x82417418,
+    "render_item_entry_hook": 0x8241741C,
 }
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
@@ -917,12 +918,22 @@ def procedural_model_receiver_lifecycle(
     }
     render_item_expected = {
         spec["render_item_function"]: "mflr r12",
+        0x8241742C: "mr r27,r3",
         0x82417494: "addi r30,r27,448",
         0x824174D8: "addi r30,r27,320",
         0x8241751C: "addi r30,r27,384",
         0x82417668: "lwz r10,124(r27)",
+        0x8241766C: "lwz r9,356(r1)",
+        0x82417670: "mulli r11,r9,92",
+        0x82417674: "lwz r10,0(r10)",
         0x824176AC: "lwz r10,128(r27)",
         0x824176B0: "mulli r11,r9,68",
+    }
+    render_state_helper_expected = {
+        0x824171AC: "lwz r11,4(r30)",
+        0x824171C0: "lwz r3,0(r30)",
+        0x824171D0: "stw r11,84(r1)",
+        0x824171D4: "bl 0x82417418",
     }
     if any(
         render_state.get(address) != text
@@ -934,6 +945,11 @@ def procedural_model_receiver_lifecycle(
         for address, text in render_item_expected.items()
     ):
         raise ValueError("procedural-model render-item evidence drifted")
+    if any(
+        render_state.get(address) != text
+        for address, text in render_state_helper_expected.items()
+    ):
+        raise ValueError("procedural-model render-item call evidence drifted")
 
     rtti_verified = False
     complete_object_locator = None
@@ -1028,12 +1044,15 @@ def procedural_model_receiver_lifecycle(
         "render_item_function_address": "{:08X}".format(
             spec["render_item_function"]
         ),
+        "render_item_entry_hook_address": "{:08X}".format(
+            spec["render_item_entry_hook"]
+        ),
         "field_layout": {
             "descriptor_owner_pointer_offset": 124,
             "runtime_record_pointer_offset": 128,
             "auxiliary_allocation_pointer_offset": 132,
             "active_buffer_index_offset": 136,
-            "runtime_record_capacity_offset": 140,
+            "per_record_resource_capacity_offset": 140,
             "descriptor_record_stride": 92,
             "runtime_record_stride": 68,
             "matrix_ranges": [
@@ -1048,6 +1067,29 @@ def procedural_model_receiver_lifecycle(
         "visibility_preparation_boundary_proved": True,
         "render_state_boundary_proved": True,
         "render_item_layout_proved": True,
+        "semantic_instance_extraction": {
+            "hook_function_address": "{:08X}".format(
+                spec["render_item_function"]
+            ),
+            "hook_address": "{:08X}".format(
+                spec["render_item_entry_hook"]
+            ),
+            "receiver_register": "r3",
+            "descriptor_index_caller_stack_offset": 84,
+            "descriptor_index_callee_stack_offset": 356,
+            "descriptor_count_owner_offset": 12,
+            "descriptor_base_owner_offset": 0,
+            "descriptor_kind_offset": 36,
+            "descriptor_record_stride": 92,
+            "runtime_record_stride": 68,
+            "bounded_payload_bytes_per_observation": 380,
+            "immutable_sample_words": 88,
+            "fallback_policy": "replay_unclassified_material_or_state",
+            "argument_mapping_proved": True,
+            "record_address_derivation_proved": True,
+            "native_rendering_enabled": False,
+            "suppression_eligible": False,
+        },
         "runtime_address_join_required": True,
         "mesh_material_ownership_proved": False,
         "transform_matrix_ranges_proved": True,

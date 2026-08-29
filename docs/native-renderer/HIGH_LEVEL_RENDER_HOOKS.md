@@ -295,6 +295,11 @@ three 64-byte transform/constant matrix ranges. Balanced runtime epochs carry
 the optional stage history to slot 41 without reading guest payload; the
 AppData capture refutes treating both stages as a universal prerequisite.
 
+The first NR-05B boundary now observes slot 40's per-record helper at
+`8241741C`, extracts an exact live receiver generation and bounded immutable
+descriptor/runtime/transform sample, and leaves every sample on Xenos replay.
+See `PROCEDURAL_MODEL_SEMANTIC_EXTRACTION.md`.
+
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
 loads retain base register, offset, and width; values crossing a call boundary

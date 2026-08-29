@@ -52,7 +52,7 @@ evidence proves these structural fields:
 | 128 | parallel runtime-record pointer |
 | 132 | auxiliary allocation pointer |
 | 136 | active/double-buffer index |
-| 140 | runtime-record capacity |
+| 140 | per-record resource capacity |
 | 320–383 | 64-byte transform/constant matrix |
 | 384–447 | 64-byte transform/constant matrix |
 | 448–511 | 64-byte transform/constant matrix |
@@ -139,4 +139,6 @@ construction-to-destruction interval, record strides, matrix ranges, and the
 visibility/render-state stage histories. It does not prove which record
 members own meshes or materials, which entries are world instances, the exact
 LOD policy, or how streaming registration maps to destruction. Those remain
-required before NR-05B semantic extraction.
+open after the first NR-05B extraction census and are required before native
+admission. The bounded extraction boundary is documented in
+`PROCEDURAL_MODEL_SEMANTIC_EXTRACTION.md`.
