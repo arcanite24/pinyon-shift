@@ -85,20 +85,21 @@ in this qualification.
 
 ## Suppression consequence
 
-The `later_gpu_consumers` admission gate is now `fail`, not `unknown`: later
-GPU consumers are positively observed and have not been replaced. This is
-useful closure of the dependency question, but it prohibits suppressing the
-producer family. The 38 stable shader families now have exact identity-only
+This inventory initially set `later_gpu_consumers` to `fail`, not `unknown`:
+later GPU consumers were positively observed and had no preservation boundary.
+The bit-exact target-publication qualification in
+[PUBLICATION_QUALIFICATION.md](PUBLICATION_QUALIFICATION.md) preserves those
+consumers without replacing them and supersedes that result for the exact
+qualified family and scene. The 38 stable shader families retain exact identity-only
 rules in
 [CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md).
 They deliberately remain `retained_unknown` with `native_coverage=false` until
 reproducible visual or high-level title evidence assigns semantic roles. The
-next implementation milestone must produce that evidence and then provide the
-native resource publication or native consumer coverage each role requires.
+native resource publication now preserves their producer input while semantic
+classification remains future optimization work.
 
 Guest CPU visibility and the independent rollback switch remain separate
 gates. The same session fully armed all 348 exact-family resolve generations
 and observed zero guest CPU reads or writes, promoting the scene-bounded CPU
 gate to `pass`. The bounded observer and interpretation contract are documented
-in [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md); this does not weaken the
-failing later-GPU-consumer gate.
+in [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md).

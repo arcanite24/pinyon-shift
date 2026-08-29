@@ -71,7 +71,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 10", updated)
+            self.assertIn("pinyon_shift_config_schema = 11", updated)
             self.assertIn("xma_relaxed_padding_admission = false", updated)
             self.assertEqual(result["settings"]["occlusion_query"], "fast")
             self.assertIn('occlusion_query = "fast"', updated)
@@ -123,14 +123,16 @@ class GraphicsSettingsTests(unittest.TestCase):
             config = state / "config/pinyon_shift.toml"
             config.parent.mkdir(parents=True)
             config.write_text(
-                'pinyon_shift_config_schema = 10\n'
+                'pinyon_shift_config_schema = 11\n'
                 'pinyon_shift_native_renderer = "diagnostic_triangle"\n'
+                'pinyon_shift_native_renderer_sky_horizon_suppression = true\n'
                 'custom_value = 77\n',
                 encoding="utf-8",
             )
             result = self.run_tool(state, "-Action", "ResetRenderer")
             text = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["native_renderer"], "xenos")
+            self.assertFalse(result["settings"]["sky_horizon_suppression"])
             self.assertIn('pinyon_shift_native_renderer = "xenos"', text)
             self.assertIn("custom_value = 77", text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
@@ -141,7 +143,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             config = state / "config/pinyon_shift.toml"
             config.parent.mkdir(parents=True)
             config.write_text(
-                'pinyon_shift_config_schema = 10\n'
+                'pinyon_shift_config_schema = 11\n'
                 'pinyon_shift_native_renderer = "xenos"\n'
                 'custom_value = 77\n',
                 encoding="utf-8",
@@ -162,6 +164,21 @@ class GraphicsSettingsTests(unittest.TestCase):
             )
             self.assertIn("custom_value = 77", text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
+
+    def test_family_suppression_control_is_restart_gated_and_fail_closed(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            enabled = self.run_tool(
+                state, "-Action", "SetSkyHorizonSuppression",
+                "-SkyHorizonSuppression", "true",
+            )
+            self.assertTrue(enabled["settings"]["sky_horizon_suppression"])
+            self.assertTrue(enabled["restart_required"])
+            disabled = self.run_tool(
+                state, "-Action", "SetSkyHorizonSuppression",
+                "-SkyHorizonSuppression", "false",
+            )
+            self.assertFalse(disabled["settings"]["sky_horizon_suppression"])
 
     def test_experimental_3x_writes_4k_class_scale_with_fast_readback(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:

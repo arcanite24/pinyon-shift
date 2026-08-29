@@ -26,14 +26,14 @@
 
 #include <cstdio>
 
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 10, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 11, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 
 namespace {
 
-constexpr uint32_t kConfigSchema = 10;
+constexpr uint32_t kConfigSchema = 11;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -63,6 +63,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n"
               "pinyon_shift_native_renderer = \"xenos\"\n"
+              "pinyon_shift_native_renderer_sky_horizon_suppression = false\n"
               "anisotropic_override = 3\n"
               "swap_post_effect = \"none\"\n"
               "disable_motion_blur = false\n"
@@ -100,7 +101,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     if (schema == kConfigSchema) {
       return true;
     }
-    if (schema < 1 || schema > 9) {
+    if (schema < 1 || schema > 10) {
       return false;
     }
 
@@ -168,6 +169,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"zpd_end_fallback", "zpd_end_fallback = \"pairwise_sentinel\"\n"},
         {"pinyon_shift_native_renderer",
          "pinyon_shift_native_renderer = \"xenos\"\n"},
+        {"pinyon_shift_native_renderer_sky_horizon_suppression",
+         "pinyon_shift_native_renderer_sky_horizon_suppression = false\n"},
     };
     for (const auto& [name, line] : graphics_settings) {
       const std::regex setting_pattern("(?:^|\\n)\\s*" + std::string(name) +
@@ -314,6 +317,9 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"native_renderer",
                          rex::cvar::GetFlagByName(
                              "pinyon_shift_native_renderer")},
+                        {"native_renderer_sky_horizon_suppression",
+                         rex::cvar::GetFlagByName(
+                             "pinyon_shift_native_renderer_sky_horizon_suppression")},
                         {"occlusion_query", rex::cvar::GetFlagByName("occlusion_query")},
                         {"zpd_end_policy", rex::cvar::GetFlagByName("zpd_end_policy")},
                         {"zpd_end_fallback", rex::cvar::GetFlagByName("zpd_end_fallback")},

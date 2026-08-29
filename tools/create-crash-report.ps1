@@ -238,7 +238,8 @@ try {
         'zpd_end_policy', 'zpd_end_fallback', 'clear_memory_page_state',
         'readback_resolve', 'readback_resolve_half_pixel_offset',
         'readback_memexport', 'readback_memexport_fast',
-        'pinyon_shift_native_renderer'
+        'pinyon_shift_native_renderer',
+        'pinyon_shift_native_renderer_sky_horizon_suppression'
     )
     $configPath = Join-Path $resolvedStateRoot 'config/pinyon_shift.toml'
     $settings = [ordered]@{}
@@ -262,6 +263,16 @@ try {
         claimed_frames = [uint64]0
         waiting_reason = $null
         failure_reason = $null
+        sky_horizon_suppression = [ordered]@{
+            configured = if ($settings.Contains(
+                'pinyon_shift_native_renderer_sky_horizon_suppression')) {
+                [string]$settings[
+                    'pinyon_shift_native_renderer_sky_horizon_suppression']
+            } else { 'false' }
+            requested = $false
+            status = 'not_observed'
+            suppression_allowed = $false
+        }
     }
     $nativeShaderPack = [ordered]@{
         status = 'not_configured'
@@ -296,6 +307,14 @@ try {
                 'native_renderer.output.failure' {
                     $nativeRenderer.effective = 'xenos'
                     $nativeRenderer.failure_reason = [string]$event.reason
+                }
+                'native_renderer.suppression_control' {
+                    $nativeRenderer.sky_horizon_suppression.requested =
+                        [string]$event.requested -eq 'true'
+                    $nativeRenderer.sky_horizon_suppression.status =
+                        [string]$event.status
+                    $nativeRenderer.sky_horizon_suppression.suppression_allowed =
+                        [string]$event.suppression_allowed -eq 'true'
                 }
                 'native_renderer.shader_pack.ready' {
                     $nativeShaderPack.status = 'ready'

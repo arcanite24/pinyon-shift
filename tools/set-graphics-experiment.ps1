@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Get', 'Apply', 'Reset', 'Restore', 'SetRenderer',
-        'ResetRenderer')]
+        'ResetRenderer', 'SetSkyHorizonSuppression')]
     [string]$Action = 'Get',
     [ValidateSet(4, 8, 16)]
     [int]$Anisotropy = 4,
@@ -28,6 +28,8 @@ param(
     [ValidateSet('xenos', 'diagnostic_clear', 'diagnostic_triangle',
         'diagnostic_retained_pass', 'comparison_native', 'comparison_xenos')]
     [string]$NativeRenderer = 'xenos',
+    [ValidateSet('true', 'false')]
+    [string]$SkyHorizonSuppression = 'false',
     [string]$StateRoot,
     [switch]$Json
 )
@@ -48,8 +50,8 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 10 adds the recoverable native-renderer experiment.
-pinyon_shift_config_schema = 10
+# Schema 11 adds the fail-closed native-renderer family control plane.
+pinyon_shift_config_schema = 11
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -62,6 +64,7 @@ host_present_sleep_spin = true
 pinyon_shift_stabilize_vehicle_presentation = false
 pinyon_shift_skip_opening_movies = false
 pinyon_shift_native_renderer = "xenos"
+pinyon_shift_native_renderer_sky_horizon_suppression = false
 xma_relaxed_padding_admission = false
 anisotropic_override = 3
 swap_post_effect = "none"
@@ -177,6 +180,8 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             zpd_end_policy = Get-TomlValue $Text 'zpd_end_policy' 'report_layout'
             zpd_end_fallback = Get-TomlValue $Text 'zpd_end_fallback' 'pairwise_sentinel'
             native_renderer = Get-TomlValue $Text 'pinyon_shift_native_renderer' 'xenos'
+            sky_horizon_suppression =
+                (Get-TomlValue $Text 'pinyon_shift_native_renderer_sky_horizon_suppression' 'false') -eq 'true'
         }
         restart_required = $Operation -ne 'Get'
     }
@@ -190,7 +195,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-ConfigBackup
@@ -207,7 +212,7 @@ switch ($Action) {
         $backup = New-ConfigBackup
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) { throw "Backup uses unsupported schema: $schema" }
         Write-Config $text
     }
     'Apply' {
@@ -215,9 +220,9 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-ConfigBackup
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '10'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '11'
         if (-not [regex]::IsMatch($text, '(?m)^\s*xma_relaxed_padding_admission\s*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
         }
@@ -261,6 +266,11 @@ switch ($Action) {
         $text = Set-TomlValue $text 'zpd_end_policy' ('"' + $ZpdEndPolicy + '"')
         $text = Set-TomlValue $text 'zpd_end_fallback' ('"' + $ZpdEndFallback + '"')
         $text = Set-TomlValue $text 'pinyon_shift_native_renderer' ('"' + $NativeRenderer + '"')
+        if (-not [regex]::IsMatch($text,
+            '(?m)^\s*pinyon_shift_native_renderer_sky_horizon_suppression\s*=')) {
+            $text = Set-TomlValue $text `
+                'pinyon_shift_native_renderer_sky_horizon_suppression' 'false'
+        }
         Write-Config $text
     }
     'ResetRenderer' {
@@ -268,11 +278,14 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) {
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) {
             throw "Unsupported host configuration schema: $schema"
         }
         $backup = New-ConfigBackup
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '11'
         $text = Set-TomlValue $text 'pinyon_shift_native_renderer' '"xenos"'
+        $text = Set-TomlValue $text `
+            'pinyon_shift_native_renderer_sky_horizon_suppression' 'false'
         Write-Config $text
     }
     'SetRenderer' {
@@ -280,12 +293,27 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) {
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) {
             throw "Unsupported host configuration schema: $schema"
         }
         $backup = New-ConfigBackup
         $text = Set-TomlValue $text 'pinyon_shift_native_renderer' `
             ('"' + $NativeRenderer + '"')
+        Write-Config $text
+    }
+    'SetSkyHorizonSuppression' {
+        $text = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+            Get-Content -LiteralPath $configPath -Raw
+        } else { Get-DefaultConfigText }
+        $schema = Get-SchemaVersion $text
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) {
+            throw "Unsupported host configuration schema: $schema"
+        }
+        $backup = New-ConfigBackup
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '11'
+        $text = Set-TomlValue $text `
+            'pinyon_shift_native_renderer_sky_horizon_suppression' `
+            $SkyHorizonSuppression
         Write-Config $text
     }
 }
