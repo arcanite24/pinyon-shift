@@ -113,6 +113,7 @@ enum class DispatchWrapper : uint32_t {
   kVizQueryOwner = 8,
   kBinningScissorState = 9,
   kBinningStateReset = 10,
+  kProceduralModelDrawIndexed = 11,
 };
 
 struct DispatchCallerEntry {
@@ -676,6 +677,8 @@ const char *DispatchWrapperName(DispatchWrapper wrapper) {
     return "binning_scissor_state";
   case DispatchWrapper::kBinningStateReset:
     return "binning_state_reset";
+  case DispatchWrapper::kProceduralModelDrawIndexed:
+    return "procedural_model_draw_indexed";
   }
   return "unknown";
 }
@@ -702,6 +705,8 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
     return "82413AB8";
   case DispatchWrapper::kBinningStateReset:
     return "824736F0";
+  case DispatchWrapper::kProceduralModelDrawIndexed:
+    return "82415F68";
   }
   return "00000000";
 }
@@ -1035,6 +1040,7 @@ void ConfigureTitleDrawProvenance(bool census_requested,
       {{"status", armed ? "armed" : "disabled"},
        {"scene", CensusSceneMarker()},
        {"title_packet_hooks", "82410328,829F7CB0"},
+       {"semantic_packet_hooks", "82416260,824162F4"},
        {"title_indirect_packet_hooks",
         "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C"},
        {"packet_key", "physical_pm4_header_address"},
@@ -1111,12 +1117,9 @@ void CapturePacketWrapperOrigin(DispatchWrapper wrapper, uint32_t caller,
   ++g_title_origins_pushed;
 }
 
-void RecordTitleDrawPacket(uint32_t packet_guest_address) {
+void RecordTitleDrawPacketOrigin(uint32_t packet_guest_address,
+                                 const TitleDrawOrigin &origin) {
   if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
-    return;
-  }
-  if (!g_title_origin_stack_depth) {
-    ++g_title_packets_without_origin;
     return;
   }
   rex::memory::Memory *memory =
@@ -1124,9 +1127,6 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
   if (!memory) {
     return;
   }
-  const TitleDrawOrigin origin =
-      g_title_origin_stack[--g_title_origin_stack_depth];
-  ++g_title_origins_consumed;
   const uint32_t packet_physical_address =
       memory->GetPhysicalAddress(packet_guest_address);
   std::scoped_lock lock(g_title_packet_provenance_mutex);
@@ -1173,6 +1173,49 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
                                                 std::memory_order_relaxed);
   }
   ++g_title_packets_recorded;
+}
+
+void RecordTitleDrawPacket(uint32_t packet_guest_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (!g_title_provenance_memory.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (!g_title_origin_stack_depth) {
+    ++g_title_packets_without_origin;
+    return;
+  }
+  const TitleDrawOrigin origin =
+      g_title_origin_stack[--g_title_origin_stack_depth];
+  ++g_title_origins_consumed;
+  RecordTitleDrawPacketOrigin(packet_guest_address, origin);
+}
+
+void RecordProceduralModelSemanticDrawPacket(
+    uint32_t packet_guest_address, uint32_t constructor_store_address,
+    std::array<uint32_t, 8> arguments) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      !g_semantic_render_item_stack_depth) {
+    return;
+  }
+  SemanticDrawIdentity &semantic_draw =
+      g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+  if (!semantic_draw.valid) {
+    g_semantic_draw_scope_mismatches.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  TitleDrawOrigin origin{};
+  origin.wrapper = DispatchWrapper::kProceduralModelDrawIndexed;
+  origin.caller = constructor_store_address;
+  origin.arguments = arguments;
+  origin.semantic_draw = semantic_draw;
+  origin.valid = true;
+  ++semantic_draw.direct_title_origins;
+  g_semantic_draw_origins_captured.fetch_add(1,
+                                              std::memory_order_relaxed);
+  RecordTitleDrawPacketOrigin(packet_guest_address, origin);
 }
 
 uint32_t ExpectedIndirectOwnerFunction(uint32_t constructor_function_address,
@@ -6861,7 +6904,7 @@ void EmitTitleDrawProvenanceSummary() {
   const bool semantic_draw_accounting_complete =
       semantic_draw_overlap_probe_accounting_complete &&
       !semantic_dispatches_without_direct_title_origin &&
-      semantic_origins == semantic_scope_joins &&
+      semantic_origins >= semantic_scope_joins &&
       semantic_packets == semantic_origins &&
       semantic_packets == semantic_packet_matches + semantic_pending_packets &&
       semantic_packet_matches ==
@@ -9253,13 +9296,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"render_item_exit_hook", "82417B80"},
        {"geometry_submission_hook", "82417B60"},
        {"title_packet_hooks", "82410328,829F7CB0"},
+       {"semantic_packet_hooks", "82416260,824162F4"},
+       {"graphics_submission_wrapper", "82415CE0"},
+       {"graphics_submission_emitter", "82415F68"},
+       {"semantic_packet_opcode", "PM4_DRAW_INDX_0x22"},
        {"title_indirect_packet_hooks",
         "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C"},
        {"render_item_stack_capacity",
         std::to_string(kSemanticRenderItemStackCapacity)},
        {"correlation",
-        "exact_render_item_scope_with_packet_constructor_overlap_probe"},
-       {"classification", "procedural_submission_dispatch_boundary"},
+        "exact_render_item_scope_to_emitted_and_backend_pm4_header"},
+       {"classification", "procedural_submission_pm4_packet_boundary"},
        {"guest_payload_read", "bounded_submission_identity_only"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
@@ -10188,6 +10235,22 @@ void PinyonShiftObserveProceduralModelGeometrySubmission(
   RecordProceduralModelGeometrySubmission(
       r20.u32, r22.u32, r24.u32, r25.u32, r26.u32, r27.u32, r28.u32,
       r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelDirectDrawPacket(
+    PPCRegister &r23, PPCRegister &r24, PPCRegister &r25, PPCRegister &r28,
+    PPCRegister &r29, PPCRegister &r30) {
+  RecordProceduralModelSemanticDrawPacket(
+      r30.u32 + sizeof(uint32_t), 0x82416260,
+      {r23.u32, r24.u32, r25.u32, r28.u32, r29.u32, r30.u32, 0, 0});
+}
+
+void PinyonShiftObserveProceduralModelAlternateDrawPacket(
+    PPCRegister &r6, PPCRegister &r23, PPCRegister &r24, PPCRegister &r25,
+    PPCRegister &r28, PPCRegister &r29) {
+  RecordProceduralModelSemanticDrawPacket(
+      r6.u32 + sizeof(uint32_t), 0x824162F4,
+      {r23.u32, r24.u32, r25.u32, r28.u32, r29.u32, r6.u32, 0, 0});
 }
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,

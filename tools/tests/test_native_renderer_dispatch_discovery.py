@@ -740,6 +740,48 @@ def procedural_model_lifecycle_fixtures():
                 "b 0x82a7de34",
             ],
         ),
+        fixture(
+            0x82415CE0,
+            [
+                "mflr r12",
+                "loc_82415CFC:",
+                "mr r31,r3",
+                "loc_82415D00:",
+                "lwz r3,20(r3)",
+                "loc_82415D18:",
+                "bl 0x82415f68",
+                "loc_82415D1C:",
+                "addi r11,r31,172",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82415F68,
+            [
+                "mflr r12",
+                "loc_82415F80:",
+                "mr r31,r3",
+                "loc_824161D4:",
+                "lwz r3,48(r31)",
+                "loc_82416250:",
+                "lis r11,-16383",
+                "loc_82416258:",
+                "ori r11,r11,8705",
+                "loc_82416260:",
+                "stwu r11,4(r30)",
+                "loc_824162C8:",
+                "lis r9,-16383",
+                "loc_824162D0:",
+                "ori r9,r9,8705",
+                "loc_824162F4:",
+                "stwu r9,4(r6)",
+                "loc_82416350:",
+                "stw r11,48(r31)",
+                "loc_82416370:",
+                "b 0x824161d4",
+                "blr",
+            ],
+        ),
     ]
 
 
@@ -1118,6 +1160,20 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             ["82410328", "829F7CB0"],
             draw_association["title_draw_packet_hook_addresses"],
         )
+        self.assertEqual(
+            ["82416260", "824162F4"],
+            draw_association["semantic_draw_packet_hook_addresses"],
+        )
+        self.assertEqual(
+            "82415CE0", draw_association["graphics_submission_wrapper_address"]
+        )
+        self.assertEqual(
+            "82415F68", draw_association["graphics_submission_emitter_address"]
+        )
+        self.assertEqual(
+            "PM4_DRAW_INDX", draw_association["semantic_draw_packet_opcode"]
+        )
+        self.assertTrue(draw_association["semantic_pm4_packet_construction_proved"])
         self.assertTrue(draw_association["render_item_invocation_scope_proved"])
         self.assertTrue(draw_association["submission_before_draw_dispatch_proved"])
         self.assertEqual(160, draw_association["graphics_submission_vtable_offset"])

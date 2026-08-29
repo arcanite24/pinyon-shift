@@ -9,13 +9,13 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-draw-boundary.v2"
+SCHEMA = "pinyon-shift.native-renderer-semantic-draw-lineage.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 SEMANTIC_DRAW_PREFIX = "native_renderer.discovery.semantic_draw_"
 SEMANTIC_SUBMISSION_PREFIX = "native_renderer.discovery.semantic_submission_"
 TITLE_PREFIX = "native_renderer.discovery.title_provenance_"
 EXPECTED_CLASS = "proceduralGeometry::CProceduralModels"
-EXPECTED_CORRELATION = "exact_render_item_scope_with_packet_constructor_overlap_probe"
+EXPECTED_CORRELATION = "exact_render_item_scope_to_emitted_and_backend_pm4_header"
 EXPECTED_DIRECT_ASSOCIATION = "exact_render_item_scope_and_physical_pm4_header"
 
 
@@ -81,6 +81,7 @@ def _validate_static(static: dict) -> dict:
         "render_item_exit_hook_address": "82417B80",
         "geometry_submission_hook_address": "82417B60",
         "title_draw_packet_hook_addresses": ["82410328", "829F7CB0"],
+        "semantic_draw_packet_hook_addresses": ["82416260", "824162F4"],
         "title_indirect_packet_hook_addresses": [
             "824095B4",
             "82416EFC",
@@ -91,11 +92,17 @@ def _validate_static(static: dict) -> dict:
         ],
         "graphics_submission_vtable_offset": 160,
         "graphics_submission_target_runtime_join_required": True,
+        "graphics_submission_wrapper_address": "82415CE0",
+        "graphics_submission_emitter_address": "82415F68",
+        "semantic_draw_packet_opcode": "PM4_DRAW_INDX",
+        "semantic_draw_packet_opcode_value": 0x22,
         "direct_title_packet_overlap_probe": True,
         "indirect_packet_constructor_overlap_probe": True,
+        "semantic_pm4_packet_construction_proved": True,
+        "semantic_pm4_backend_join_required": True,
         "physical_pm4_packet_correlation_proved": False,
         "prepared_draw_lineage_proved": False,
-        "classification": "procedural_submission_dispatch_boundary",
+        "classification": "procedural_submission_pm4_packet_boundary",
         "native_rendering_enabled": False,
         "suppression_eligible": False,
     }
@@ -149,6 +156,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         or config.get("render_item_exit_hook") != "82417B80"
         or config.get("geometry_submission_hook") != "82417B60"
         or config.get("title_packet_hooks") != "82410328,829F7CB0"
+        or config.get("semantic_packet_hooks") != "82416260,824162F4"
+        or config.get("graphics_submission_wrapper") != "82415CE0"
+        or config.get("graphics_submission_emitter") != "82415F68"
+        or config.get("semantic_packet_opcode") != "PM4_DRAW_INDX_0x22"
         or config.get("title_indirect_packet_hooks")
         not in (
             None,
@@ -156,7 +167,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         )
         or config.get("correlation") != EXPECTED_CORRELATION
         or config.get("classification")
-        != "procedural_submission_dispatch_boundary"
+        != "procedural_submission_pm4_packet_boundary"
     ):
         raise ValueError("semantic-draw runtime contract drifted")
     safety = {
@@ -213,6 +224,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         record_index = _integer(event, "semantic_record_index")
         descriptor_address = _hex(event, "semantic_descriptor_address", 8)
         runtime_address = _hex(event, "semantic_runtime_address", 8)
+        origin_wrapper = str(event.get("origin_wrapper", ""))
+        origin_wrapper_address = _hex(event, "origin_wrapper_address", 8)
+        origin_caller = _hex(event, "origin_caller", 8)
         if (
             calls <= 0
             or event.get("semantic_draw_association") != EXPECTED_DIRECT_ASSOCIATION
@@ -222,6 +236,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             or receiver_address != submission["receiver_address"]
             or receiver_generation != submission["receiver_generation"]
             or record_index != submission["record_index"]
+            or origin_wrapper != "procedural_model_draw_indexed"
+            or origin_wrapper_address != "82415F68"
+            or origin_caller not in {"82416260", "824162F4"}
         ):
             raise ValueError("semantic draw identity or safety evidence is inconsistent")
         if outcome == "prepared":
@@ -246,9 +263,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "record_index": record_index,
                 "descriptor_address": descriptor_address,
                 "runtime_address": runtime_address,
-                "origin_wrapper": str(event.get("origin_wrapper", "unknown")),
-                "origin_wrapper_address": _hex(event, "origin_wrapper_address", 8),
-                "origin_caller": _hex(event, "origin_caller", 8),
+                "origin_wrapper": origin_wrapper,
+                "origin_wrapper_address": origin_wrapper_address,
+                "origin_caller": origin_caller,
                 "outcome": outcome,
                 "backend_outcome": str(event.get("backend_outcome", "")),
                 "backend_signature": backend_signature,
@@ -348,6 +365,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     submission_lineage.sort(
         key=lambda item: (-item["calls"], item["semantic_submission_key"])
     )
+    physical_pm4_packet_correlation_proved = (
+        counters["semantic_draw_dispatches_without_direct_title_origin"] == 0
+        and counters["semantic_draw_packets_recorded"] > 0
+        and counters["semantic_draw_packets_recorded"] == associated_calls + pending
+    )
+    prepared_draw_lineage_proved = (
+        physical_pm4_packet_correlation_proved
+        and prepared_calls > 0
+        and unprepared_calls == 0
+    )
     return {
         "schema": SCHEMA,
         "session": session,
@@ -377,10 +404,11 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             **faults,
         },
         "correlation": contract,
-        "qualification": "exact_semantic_submission_dispatch_boundary_and_direct_packet_overlap_census",
-        "prepared_draw_lineage_proved": (
-            counters["semantic_draw_dispatches_without_direct_title_origin"] == 0
+        "qualification": "exact_semantic_submission_to_pm4_and_backend_draw_lineage",
+        "physical_pm4_packet_correlation_proved": (
+            physical_pm4_packet_correlation_proved
         ),
+        "prepared_draw_lineage_proved": prepared_draw_lineage_proved,
         "safety": {
             "bounded_guest_read": True,
             "guest_state_changed": False,
