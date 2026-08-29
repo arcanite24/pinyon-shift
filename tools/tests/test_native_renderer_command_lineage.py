@@ -351,6 +351,114 @@ class NativeRendererCommandLineageTests(unittest.TestCase):
             12, document["totals"]["statically_resolved_owner_origin_draws"]
         )
 
+    def test_maps_balanced_producer_origin_to_static_caller(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function": "sub_82409668",
+                "caller_function_address": "82409668",
+                "callsite": "82409834",
+                "return_address": "82409838",
+            }
+        ]
+        static["indirect_owner_calls"] = [
+            {
+                "owner_function_address": "82409668",
+                "caller_function": "sub_8240D070",
+                "caller_function_address": "8240D070",
+                "callsite": "8240D1AC",
+                "return_address": "8240D1B0",
+            }
+        ]
+        static["indirect_producer_calls"] = [
+            {
+                "producer_function_address": "8240D070",
+                "caller_function": "sub_8240CF68",
+                "caller_function_address": "8240CF68",
+                "callsite": "8240CFFC",
+                "return_address": "8240D000",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "82409838",
+                "sample_constructor_arguments": "00000000," * 7 + "00000000",
+                "constructor_argument_varying_mask": "00",
+                "owner_function_address": "82409668",
+                "owner_return_address": "8240D1B0",
+                "sample_owner_arguments": "00000000," * 7 + "00000000",
+                "owner_argument_varying_mask": "00",
+                "producer_function_address": "8240D070",
+                "producer_return_address": "8240D000",
+                "sample_producer_arguments": (
+                    "10000000,20000000,00000001,00000000,00000000,"
+                    "00000000,00000000,00000000"
+                ),
+                "producer_argument_varying_mask": "03",
+            }
+        )
+        traced[-1].update(
+            {
+                "indirect_constructor_entries": "1",
+                "indirect_constructor_exits": "1",
+                "indirect_owner_entries": "1",
+                "indirect_owner_exits": "1",
+                "indirect_producer_entries": "1",
+                "indirect_producer_exits": "1",
+                "indirect_owner_producer_mismatches": "0",
+            }
+        )
+        document = MODULE.build(traced, static)
+        self.assertEqual("complete", document["status"])
+        shape = document["shapes"][0]
+        self.assertEqual("8240CFFC", shape["producer_callsite"])
+        self.assertEqual("sub_8240CF68", shape["producer_caller_function"])
+        self.assertEqual(3, shape["producer_argument_varying_mask"])
+        self.assertEqual(12, document["totals"]["producer_origin_draws"])
+        self.assertEqual(
+            12,
+            document["totals"]["statically_resolved_producer_origin_draws"],
+        )
+
+    def test_rejects_producer_that_does_not_contain_owner_callsite(self):
+        static = static_inventory()
+        static["indirect_constructor_calls"] = [
+            {
+                "constructor_function_address": "82409398",
+                "caller_function_address": "82409668",
+                "return_address": "82409838",
+            }
+        ]
+        static["indirect_owner_calls"] = [
+            {
+                "owner_function_address": "82409668",
+                "caller_function_address": "8240D070",
+                "return_address": "8240D1B0",
+            }
+        ]
+        traced = events()
+        traced[1].update(
+            {
+                "constructor_function_address": "82409398",
+                "constructor_return_address": "82409838",
+                "sample_constructor_arguments": "00000000," * 7 + "00000000",
+                "constructor_argument_varying_mask": "00",
+                "owner_function_address": "82409668",
+                "owner_return_address": "8240D1B0",
+                "sample_owner_arguments": "00000000," * 7 + "00000000",
+                "owner_argument_varying_mask": "00",
+                "producer_function_address": "829F6360",
+                "producer_return_address": "829F67B0",
+                "sample_producer_arguments": "00000000," * 7 + "00000000",
+                "producer_argument_varying_mask": "00",
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "does not contain"):
+            MODULE.build(traced, static)
+
     def test_rejects_owner_that_does_not_contain_constructor_callsite(self):
         static = static_inventory()
         static["indirect_constructor_calls"] = [

@@ -128,6 +128,14 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         ): item
         for item in static_owner_calls
     }
+    static_producer_calls = static.get("indirect_producer_calls", [])
+    producer_calls_by_return = {
+        (
+            str(item.get("producer_function_address", "")).upper(),
+            str(item.get("return_address", "")).upper(),
+        ): item
+        for item in static_producer_calls
+    }
 
     session = select_session(events, requested)
     selected = [event for event in events if event.get("session") == session]
@@ -290,6 +298,40 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             owner_argument_varying_mask = int(
                 _hex(event, "owner_argument_varying_mask", 2), 16
             )
+        producer_function_address = _optional_hex(
+            event, "producer_function_address", 8
+        )
+        producer_return_address = _optional_hex(
+            event, "producer_return_address", 8
+        )
+        if (producer_function_address is None) != (
+            producer_return_address is None
+        ):
+            raise ValueError("lineage entry has a partial producer origin")
+        producer_call = None
+        producer_arguments = None
+        producer_argument_varying_mask = None
+        if producer_function_address is not None:
+            if owner_call is None:
+                raise ValueError(
+                    "lineage entry has a producer without a proved owner caller"
+                )
+            if (
+                str(owner_call.get("caller_function_address", "")).upper()
+                != producer_function_address
+            ):
+                raise ValueError(
+                    "lineage producer does not contain the owner callsite"
+                )
+            producer_call = producer_calls_by_return.get(
+                (producer_function_address, producer_return_address)
+            )
+            producer_arguments = _hex_arguments(
+                event, "sample_producer_arguments"
+            )
+            producer_argument_varying_mask = int(
+                _hex(event, "producer_argument_varying_mask", 2), 16
+            )
         if depth:
             if parent_value >= PHYSICAL_APERTURE_SIZE or parent_value & 3:
                 raise ValueError("indirect lineage entry has no valid parent packet")
@@ -402,6 +444,28 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "owner_callsite_proved": owner_call is not None,
                 "sample_owner_arguments": owner_arguments,
                 "owner_argument_varying_mask": owner_argument_varying_mask,
+                "producer_function_address": producer_function_address,
+                "producer_return_address": producer_return_address,
+                "producer_callsite": (
+                    producer_call.get("callsite")
+                    if producer_call is not None
+                    else None
+                ),
+                "producer_caller_function": (
+                    producer_call.get("caller_function")
+                    if producer_call is not None
+                    else None
+                ),
+                "producer_caller_function_address": (
+                    producer_call.get("caller_function_address")
+                    if producer_call is not None
+                    else None
+                ),
+                "producer_callsite_proved": producer_call is not None,
+                "sample_producer_arguments": producer_arguments,
+                "producer_argument_varying_mask": (
+                    producer_argument_varying_mask
+                ),
                 "depth": depth,
             }
         )
@@ -416,6 +480,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             item["constructor_store_address"] or "",
             item["constructor_return_address"] or "",
             item["owner_return_address"] or "",
+            item["producer_return_address"] or "",
         )
     )
 
@@ -467,6 +532,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     constructor_owner_mismatches = _integer(
         summary, "indirect_constructor_owner_mismatches"
     )
+    producer_entries = _integer(summary, "indirect_producer_entries")
+    producer_exits = _integer(summary, "indirect_producer_exits")
+    producer_open = _integer(
+        summary, "indirect_producer_invocations_open_at_shutdown"
+    )
+    producer_stack_faults = _integer(
+        summary, "indirect_producer_stack_faults"
+    )
+    owners_without_producer_origin = _integer(
+        summary, "indirect_owners_without_producer_origin"
+    )
+    owner_producer_mismatches = _integer(
+        summary, "indirect_owner_producer_mismatches"
+    )
     open_at_shutdown = _integer(
         summary, "indirect_buffers_open_at_shutdown"
     )
@@ -495,6 +574,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and owner_entries == owner_exits + owner_open
         and not owner_stack_faults
         and not constructor_owner_mismatches
+        and producer_entries == producer_exits + producer_open
+        and not producer_stack_faults
+        and not owner_producer_mismatches
         and (
             not static_constructor_calls
             or (
@@ -511,6 +593,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 owner_entries > 0
                 and any(
                     item["owner_return_address"] is not None
+                    for item in entries
+                )
+            )
+        )
+        and (
+            not static_producer_calls
+            or (
+                producer_entries > 0
+                and any(
+                    item["producer_return_address"] is not None
                     for item in entries
                 )
             )
@@ -570,6 +662,23 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "owner_argument_varying_mask": entry[
                     "owner_argument_varying_mask"
                 ],
+                "producer_function_address": entry[
+                    "producer_function_address"
+                ],
+                "producer_return_address": entry["producer_return_address"],
+                "producer_callsite": entry["producer_callsite"],
+                "producer_caller_function": entry[
+                    "producer_caller_function"
+                ],
+                "producer_callsite_proved": entry[
+                    "producer_callsite_proved"
+                ],
+                "sample_producer_arguments": entry[
+                    "sample_producer_arguments"
+                ],
+                "producer_argument_varying_mask": entry[
+                    "producer_argument_varying_mask"
+                ],
                 "depth": entry["depth"],
                 "sample_prepared_signature": entry[
                     "sample_prepared_signature"
@@ -591,6 +700,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             item["constructor_store_address"] or "",
             item["constructor_return_address"] or "",
             item["owner_return_address"] or "",
+            item["producer_return_address"] or "",
         )
     )
 
@@ -604,6 +714,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "static_indirect_buffer_constructors": constructors,
         "static_indirect_constructor_calls": static_constructor_calls,
         "static_indirect_owner_calls": static_owner_calls,
+        "static_indirect_producer_calls": static_producer_calls,
         "totals": {
             "draws": draws,
             "primary_draws": primary_draws,
@@ -647,6 +758,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "indirect_constructor_owner_mismatches": (
                 constructor_owner_mismatches
             ),
+            "indirect_producer_entries": producer_entries,
+            "indirect_producer_exits": producer_exits,
+            "indirect_producer_invocations_open_at_shutdown": producer_open,
+            "indirect_producer_stack_faults": producer_stack_faults,
+            "indirect_owners_without_producer_origin": (
+                owners_without_producer_origin
+            ),
+            "indirect_owner_producer_mismatches": (
+                owner_producer_mismatches
+            ),
             "indirect_buffers_open_at_shutdown": open_at_shutdown,
             "constructor_origin_draws": sum(
                 item["calls"]
@@ -677,6 +798,22 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 for item in entries
                 if item["owner_return_address"] is not None
                 and not item["owner_callsite_proved"]
+            ),
+            "producer_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["producer_return_address"] is not None
+            ),
+            "statically_resolved_producer_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["producer_callsite_proved"]
+            ),
+            "unresolved_producer_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["producer_return_address"] is not None
+                and not item["producer_callsite_proved"]
             ),
         },
         "qualification": "exact_title_store_to_backend_nested_command_buffer_lineage",

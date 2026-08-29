@@ -120,6 +120,12 @@ This promotes owner-callsite provenance as an exact operational classifier.
 The observed argument variation supplies bounded leads for the next discovery
 batch, but still does not establish object identity or lifetime ownership.
 
+The next bounded layer selects the three producer functions responsible for
+85.1% of these owner-origin draws. Its seven direct caller edges and exact
+fail-closed propagation contract are documented in
+`INDIRECT_PRODUCER_PROVENANCE.md`. That layer does not reinterpret this
+qualified owner baseline or assign semantic identity.
+
 ## Safety boundary
 
 The hooks observe registers and packet addresses only. They read no guest

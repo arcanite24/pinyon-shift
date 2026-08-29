@@ -258,13 +258,23 @@ those gates are met, all work stays on Xenos and no new draw family may be
 suppressed.
 
 The constructor-provenance qualification identified four immediate caller
-functions covering every known-origin prepared draw. Static analysis now
-proves five constructor edges inside those functions and 32 exact direct
-callsites into them. The passive second-layer bridge in
-`INDIRECT_OWNER_PROVENANCE.md` captures those upstream return addresses and
-bounded entry arguments. Runtime qualification is still required before any
-of those callsites becomes an object or lifetime lead; all semantic identities
-remain unknown.
+functions covering every known-origin prepared draw. Static analysis proves
+five constructor edges inside those functions and 32 exact direct callsites
+into them. Session `20260829T152644Z-p16152` runtime-qualified the passive
+owner bridge with 390,818 balanced owner entries and exits, zero stack faults
+or constructor-to-owner mismatches, and 1,669,534 owner-origin draws resolved
+to ten live callsites. This is exact operational provenance, not object or
+lifetime identity; all semantic identities remain unknown.
+
+The next batched layer selects three producer functions behind 1,420,568 of
+those draws (85.1%). Static analysis proves seven direct calls into them and
+records bounded local argument leads. `INDIRECT_PRODUCER_PROVENANCE.md`
+defines the independent balanced stack, exact owner-to-producer join, and
+combined qualification gate. Session `20260829T155036Z-p13876` qualified that
+slice with 967,815 balanced producer entries and exits, zero stack faults or
+owner-to-producer mismatches, and 4,400,708 producer-origin draws resolved to
+five exact live caller edges. Semantic object and lifetime identity remains
+unknown.
 
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple

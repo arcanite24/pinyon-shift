@@ -114,6 +114,11 @@ INDIRECT_OWNER_RUNTIME_HOOKS = {
     0x8246E8F8: {"entry": 0x8246E8FC, "exit": 0x8246E938},
     0x829F5FF0: {"entry": 0x829F5FF4, "exit": 0x829F6358},
 }
+INDIRECT_PRODUCER_RUNTIME_HOOKS = {
+    0x8240D070: {"entry": 0x8240D074, "exit": 0x8240D1F0},
+    0x82417060: {"entry": 0x82417064, "exit": 0x824170C0},
+    0x829F6360: {"entry": 0x829F6364, "exit": 0x829F63FC},
+}
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -483,6 +488,96 @@ def indirect_owner_runtime_hooks(functions_by_address: dict[int, dict]) -> list[
                 ],
                 "classification": "balanced_passive_constructor_owner",
                 "semantic_identity": "unknown",
+                "suppression_eligible": False,
+            }
+        )
+    return result
+
+
+def indirect_producer_calls(functions: list[dict]) -> list[dict]:
+    """Inventory direct callers of the dominant live owner-caller functions."""
+    calls = []
+    for function in functions:
+        for instruction in function["instructions"]:
+            match = CALL_RE.fullmatch(instruction["text"])
+            if not match:
+                continue
+            target = int(match.group(1), 16)
+            if target not in INDIRECT_PRODUCER_RUNTIME_HOOKS:
+                continue
+            calls.append(
+                {
+                    "producer_function": "sub_{:08X}".format(target),
+                    "producer_function_address": "{:08X}".format(target),
+                    "caller_function": function["name"],
+                    "caller_function_address": "{:08X}".format(
+                        function["address"]
+                    ),
+                    "callsite": "{:08X}".format(instruction["address"]),
+                    "return_address": "{:08X}".format(
+                        instruction["address"] + 4
+                    ),
+                    "classification": "direct_static_producer_callsite",
+                    "semantic_identity": "unknown",
+                    "object_identity_proved": False,
+                    "lifetime_proved": False,
+                    "suppression_eligible": False,
+                }
+            )
+    return sorted(
+        calls,
+        key=lambda item: (
+            item["producer_function_address"], item["callsite"]
+        ),
+    )
+
+
+def indirect_producer_runtime_hooks(
+    functions_by_address: dict[int, dict]
+) -> list[dict]:
+    """Prove balanced passive hooks for the dominant owner producers."""
+    observed_known = set(functions_by_address) & set(
+        INDIRECT_PRODUCER_RUNTIME_HOOKS
+    )
+    if observed_known and observed_known != set(INDIRECT_PRODUCER_RUNTIME_HOOKS):
+        raise ValueError("known indirect-producer function set drifted")
+    result = []
+    for address in sorted(observed_known):
+        hooks = INDIRECT_PRODUCER_RUNTIME_HOOKS[address]
+        function = functions_by_address[address]
+        instructions = function["instructions"]
+        exit_instruction = next(
+            (
+                item for item in instructions
+                if item["address"] == hooks["exit"]
+            ),
+            None,
+        )
+        if (
+            not instructions
+            or instructions[0] != {"address": address, "text": "mflr r12"}
+            or hooks["entry"] != address + 4
+            or exit_instruction is None
+            or not exit_instruction["text"].startswith("addi r1,r1,")
+        ):
+            raise ValueError(
+                "indirect-producer balanced hook evidence drifted: "
+                "{:08X}".format(address)
+            )
+        result.append(
+            {
+                "function": function["name"],
+                "function_address": "{:08X}".format(address),
+                "entry_hook_address": "{:08X}".format(hooks["entry"]),
+                "exit_hook_address": "{:08X}".format(hooks["exit"]),
+                "caller_lr_register": "r12_after_opening_mflr",
+                "entry_metadata": [
+                    "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"
+                ],
+                "classification": "balanced_passive_owner_producer",
+                "semantic_identity": "unknown",
+                "object_identity_proved": False,
+                "lifetime_proved": False,
                 "suppression_eligible": False,
             }
         )
@@ -1039,11 +1134,16 @@ def build(paths: list[pathlib.Path]) -> dict:
     )
     owner_calls = indirect_owner_calls(functions)
     owner_hooks = indirect_owner_runtime_hooks(functions_by_address)
+    producer_calls = indirect_producer_calls(functions)
+    producer_hooks = indirect_producer_runtime_hooks(functions_by_address)
     constructor_argument_leads = argument_leads_for_calls(
         functions, constructor_calls, "constructor_function_address"
     )
     owner_argument_leads = argument_leads_for_calls(
         functions, owner_calls, "owner_function_address"
+    )
+    producer_argument_leads = argument_leads_for_calls(
+        functions, producer_calls, "producer_function_address"
     )
     constructor_evidence = {
         (int(item["function_address"], 16), int(item["opcode_value"], 16))
@@ -1136,6 +1236,9 @@ def build(paths: list[pathlib.Path]) -> dict:
         "indirect_owner_calls": owner_calls,
         "indirect_owner_runtime_hooks": owner_hooks,
         "indirect_owner_argument_leads": owner_argument_leads,
+        "indirect_producer_calls": producer_calls,
+        "indirect_producer_runtime_hooks": producer_hooks,
+        "indirect_producer_argument_leads": producer_argument_leads,
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
@@ -1199,6 +1302,11 @@ def build(paths: list[pathlib.Path]) -> dict:
             "indirect_owner_calls": len(owner_calls),
             "indirect_owner_runtime_hooks": len(owner_hooks),
             "indirect_owner_argument_leads": len(owner_argument_leads),
+            "indirect_producer_calls": len(producer_calls),
+            "indirect_producer_runtime_hooks": len(producer_hooks),
+            "indirect_producer_argument_leads": len(
+                producer_argument_leads
+            ),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),

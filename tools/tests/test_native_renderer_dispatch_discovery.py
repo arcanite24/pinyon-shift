@@ -245,6 +245,41 @@ def owner_fixtures():
     ]
 
 
+def producer_fixtures():
+    return [
+        fixture(
+            0x8240D070,
+            [
+                "mflr r12",
+                "bl 0x82409668",
+                "loc_8240D1F0:",
+                "addi r1,r1,128",
+                "b 0x82a7de58",
+            ],
+        ),
+        fixture(
+            0x82417060,
+            [
+                "mflr r12",
+                "bl 0x824167f8",
+                "loc_824170C0:",
+                "addi r1,r1,96",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x829F6360,
+            [
+                "mflr r12",
+                "bl 0x829f5ff0",
+                "loc_829F63FC:",
+                "addi r1,r1,128",
+                "b 0x82a7de54",
+            ],
+        ),
+    ]
+
+
 class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
     def build(self, chunks):
         with tempfile.TemporaryDirectory() as directory:
@@ -436,6 +471,43 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         self.assertFalse(lead["suppression_eligible"])
 
+    def test_inventories_balanced_dominant_producer_layer(self):
+        callers = [
+            fixture(0x83010000, ["lwz r3,40(r31)", "bl 0x8240d070"]),
+            fixture(0x83020000, ["bl 0x82417060"]),
+            fixture(0x83030000, ["bl 0x829f6360"]),
+        ]
+        document = self.build(
+            [*reviewed_fixtures(), *producer_fixtures(), *callers]
+        )
+        self.assertEqual(3, document["totals"]["indirect_producer_runtime_hooks"])
+        self.assertEqual(3, document["totals"]["indirect_producer_calls"])
+        self.assertEqual(
+            3, document["totals"]["indirect_producer_argument_leads"]
+        )
+        hooks = {
+            item["function_address"]: item
+            for item in document["indirect_producer_runtime_hooks"]
+        }
+        self.assertEqual("829F63FC", hooks["829F6360"]["exit_hook_address"])
+        call = next(
+            item
+            for item in document["indirect_producer_calls"]
+            if item["producer_function_address"] == "8240D070"
+        )
+        self.assertEqual("83010004", call["callsite"])
+        lead = next(
+            item
+            for item in document["indirect_producer_argument_leads"]
+            if item["producer_function_address"] == "8240D070"
+        )
+        self.assertEqual(
+            {"base_register": "r31", "offset": 40, "width": "lwz"},
+            lead["arguments"][0]["memory_load"],
+        )
+        self.assertFalse(call["object_identity_proved"])
+        self.assertFalse(call["lifetime_proved"])
+
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -527,6 +599,25 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 ),
                 1,
             )
+        for function, entry, exit_address in (
+            ("8240D070", "8240D074", "8240D1F0"),
+            ("82417060", "82417064", "824170C0"),
+            ("829F6360", "829F6364", "829F63FC"),
+        ):
+            self.assertIn(f"address = 0x{entry}", analysis)
+            self.assertIn(f"address = 0x{exit_address}", analysis)
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectProducer{function}Entry"'
+                ),
+                1,
+            )
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectProducer{function}Exit"'
+                ),
+                1,
+            )
         self.assertEqual(
             analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
             1,
@@ -574,7 +665,7 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
                 '"r9", "r10", "r12"]'
             ),
-            20,
+            23,
         )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture
