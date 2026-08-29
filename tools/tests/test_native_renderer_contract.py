@@ -143,6 +143,8 @@ class NativeRendererContractTests(unittest.TestCase):
         expected_hooks = {
             "PinyonShiftObserveProceduralModelPrimaryResourceBinding": "0x82417A74",
             "PinyonShiftObserveProceduralModelSecondaryResourceBinding": "0x82417A9C",
+            "PinyonShiftObserveProceduralModelResourceResolutionResult": "0x82415C50",
+            "PinyonShiftObserveProceduralModelResourceBindDispatch": "0x82415C6C",
             "PinyonShiftObserveProceduralModelGeometrySubmission": "0x82417B60",
         }
         for name, address in expected_hooks.items():
@@ -155,7 +157,9 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("kSemanticSubmissionMaximumPayloadBytes = 56", source)
         self.assertIn("runtime_record_24_default", source)
         self.assertIn("runtime_record_28_32", source)
-        self.assertIn('"classification", "structural_resource_and_geometry_submission"', source)
+        self.assertIn('"classification", "resolved_resource_and_state_variant_submission"', source)
+        self.assertIn("primary_bound_resource_object", source)
+        self.assertIn("ProceduralModelHelperStateFamily", source)
         self.assertIn('{"fallback", "xenos_replay"}', source)
         self.assertIn('{"native_upload", "false"}', source)
         self.assertIn('{"native_draw", "false"}', source)

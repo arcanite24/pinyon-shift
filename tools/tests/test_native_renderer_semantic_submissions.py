@@ -22,15 +22,20 @@ def static_inventory():
             "semantic_submission_extraction": {
                 "primary_resource_binding_hook_address": "82417A74",
                 "secondary_resource_binding_hook_address": "82417A9C",
+                "resource_resolution_result_hook_address": "82415C50",
+                "resource_bind_dispatch_hook_address": "82415C6C",
                 "geometry_submission_hook_address": "82417B60",
                 "resource_binding_helper_function_address": "82415BF8",
                 "resource_binding_slots": [0, 1],
                 "graphics_submission_primitive": 13,
                 "graphics_submission_count_scale": 4,
                 "resource_binding_derivation_proved": True,
+                "resolved_resource_object_derivation_proved": True,
                 "record_join_proved": True,
                 "geometry_submission_derivation_proved": True,
-                "classification": "structural_resource_and_geometry_submission",
+                "descriptor_kind_partition_proved": True,
+                "helper_state_partition_proved": True,
+                "classification": "resolved_resource_and_state_variant_submission",
                 "native_rendering_enabled": False,
                 "suppression_eligible": False,
             },
@@ -73,16 +78,20 @@ def events():
             "resource_lookup_context": "30000000",
             "primary_resource_index": "9",
             "primary_resource_key": "40000000",
+            "primary_bound_resource_object": "41000000",
             "secondary_resource_present": "true",
             "secondary_resource_index": "10",
             "secondary_resource_key": "50000000",
+            "secondary_bound_resource_object": "51000000",
             "runtime_submission_object": "60000000",
             "primitive_type": "13",
             "count_units": "16",
             "count_bytes": "64",
             "source_address": "70000000",
             "source_contract": "runtime_record_28_32",
-            "classification": "structural_resource_and_geometry_submission",
+            "descriptor_kind_group": "kind_4_5",
+            "helper_state_family": "state_6_8_table_100_124",
+            "classification": "resolved_resource_and_state_variant_submission",
         },
         {
             **common,
@@ -94,9 +103,16 @@ def events():
             "binding_mismatches": "0",
             "invalid_record_joins": "0",
             "invalid_resource_joins": "0",
+            "unresolved_resource_joins": "0",
             "invalid_geometry": "0",
             "primary_binding_observations": "12",
             "secondary_binding_observations": "12",
+            "resource_resolution_attempts": "2",
+            "resource_resolution_successes": "2",
+            "resource_resolution_misses": "0",
+            "resource_resolution_cache_hits": "22",
+            "resource_bind_dispatches": "2",
+            "resource_resolution_protocol_faults": "0",
             "payload_bytes": "672",
             "maximum_payload_bytes_per_live_observation": "56",
             "replay_fallbacks": "12",
@@ -104,7 +120,7 @@ def events():
             "entries": "1",
             "capacity": "8192",
             "overflow": "0",
-            "classification": "structural_resource_and_geometry_submission",
+            "classification": "resolved_resource_and_state_variant_submission",
         },
     ]
 
@@ -114,7 +130,16 @@ class SemanticSubmissionTests(unittest.TestCase):
         report = MODULE.build(events(), static_inventory())
         self.assertEqual(report["status"], "complete")
         self.assertEqual(report["coverage"]["source_contracts"], {"runtime_record_28_32": 12})
+        self.assertEqual(report["coverage"]["descriptor_kind_groups"], {"kind_4_5": 12})
+        self.assertEqual(
+            report["coverage"]["helper_state_families"],
+            {"state_6_8_table_100_124": 12},
+        )
         self.assertEqual(report["entries"][0]["resources"]["secondary_index"], 10)
+        self.assertEqual(
+            report["entries"][0]["resources"]["primary_bound_object"],
+            "41000000",
+        )
         self.assertFalse(report["safety"]["suppression_allowed"])
 
     def test_binding_mismatch_keeps_report_incomplete(self):
@@ -151,6 +176,21 @@ class SemanticSubmissionTests(unittest.TestCase):
         report = MODULE.build(sample, static_inventory())
         self.assertEqual(report["status"], "incomplete")
         self.assertIn("native_admissions is nonzero", report["failures"])
+
+    def test_state_family_must_match_the_proved_partition(self):
+        sample = copy.deepcopy(events())
+        sample[1]["helper_state_family"] = "default_table_52_76"
+        with self.assertRaisesRegex(ValueError, "structural evidence"):
+            MODULE.build(sample, static_inventory())
+
+    def test_resource_resolution_protocol_fault_is_rejected(self):
+        sample = copy.deepcopy(events())
+        sample[-1]["resource_resolution_protocol_faults"] = "1"
+        report = MODULE.build(sample, static_inventory())
+        self.assertEqual(report["status"], "incomplete")
+        self.assertIn(
+            "resource_resolution_protocol_faults is nonzero", report["failures"]
+        )
 
     def test_suppression_claim_is_rejected(self):
         sample = copy.deepcopy(events())

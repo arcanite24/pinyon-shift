@@ -205,6 +205,9 @@ PROCEDURAL_MODEL_RECEIVER = {
     "primary_resource_binding_hook": 0x82417A74,
     "secondary_resource_binding_hook": 0x82417A9C,
     "geometry_submission_hook": 0x82417B60,
+    "resource_binding_function": 0x82415BF8,
+    "resource_resolution_result_hook": 0x82415C50,
+    "resource_bind_dispatch_hook": 0x82415C6C,
 }
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
@@ -812,6 +815,7 @@ def procedural_model_receiver_lifecycle(
         spec["visibility_function"],
         spec["render_state_function"],
         spec["render_item_function"],
+        spec["resource_binding_function"],
     }
     lifecycle_functions = required - {spec["dispatch_function"]}
     if not lifecycle_functions & set(functions_by_address):
@@ -858,6 +862,12 @@ def procedural_model_receiver_lifecycle(
     render_item = {
         item["address"]: item["text"]
         for item in functions_by_address[spec["render_item_function"]][
+            "instructions"
+        ]
+    }
+    resource_binding = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["resource_binding_function"]][
             "instructions"
         ]
     }
@@ -933,8 +943,31 @@ def procedural_model_receiver_lifecycle(
         0x824176B0: "mulli r11,r9,68",
         0x824176B8: "add r26,r10,r11",
         0x824176C8: "lwz r24,24(r26)",
+        0x8241767C: "lwz r8,36(r28)",
+        0x82417680: "cmplwi cr6,r8,4",
+        0x82417688: "cmplwi cr6,r8,5",
+        0x82417694: "li r11,1",
+        0x8241769C: "clrlwi r23,r11,24",
+        0x824176D8: "cmplwi cr6,r8,1",
+        0x824176E0: "cmplwi cr6,r8,3",
+        0x824176EC: "li r11,1",
+        0x824176F4: "clrlwi r21,r11,24",
+        0x824176F8: "cmpwi cr6,r25,9",
+        0x82417704: "cmpwi cr6,r25,11",
+        0x8241770C: "cmpwi cr6,r25,6",
+        0x82417758: "cmpwi cr6,r25,0",
+        0x82417760: "cmpwi cr6,r25,5",
         0x824177C4: "lwz r22,28(r26)",
         0x824177C8: "lwz r24,32(r26)",
+        0x824177F8: "lfs f13,40(r26)",
+        0x82417870: "lwz r11,36(r28)",
+        0x82417890: "cmpwi cr6,r25,9",
+        0x824178C0: "cmpwi cr6,r25,11",
+        0x824178F0: "cmpwi cr6,r25,24",
+        0x824178F8: "cmpwi cr6,r25,27",
+        0x82417928: "cmpwi cr6,r25,6",
+        0x82417930: "cmpwi cr6,r25,8",
+        0x82417984: "lwz r11,-14300(r30)",
         0x82417A58: "lwz r11,0(r28)",
         0x82417A60: "lwz r10,8(r27)",
         0x82417A64: "li r5,0",
@@ -982,6 +1015,30 @@ def procedural_model_receiver_lifecycle(
         for address, text in render_state_helper_expected.items()
     ):
         raise ValueError("procedural-model render-item call evidence drifted")
+
+    resource_binding_expected = {
+        spec["resource_binding_function"]: "mflr r12",
+        0x82415C10: "mr r31,r5",
+        0x82415C14: "cmpwi cr6,r4,0",
+        0x82415C1C: "cmpwi cr6,r5,5",
+        0x82415C28: "rlwinm r10,r5,2,0,29",
+        0x82415C34: "cmpw cr6,r9,r4",
+        0x82415C3C: "stwx r4,r10,r11",
+        0x82415C44: "mr r5,r6",
+        0x82415C4C: "bl 0x82415ad0",
+        spec["resource_resolution_result_hook"]: "mr. r5,r3",
+        0x82415C54: "beq 0x82415c70",
+        0x82415C5C: "mr r4,r31",
+        0x82415C60: "mr r3,r30",
+        0x82415C64: "lwz r11,88(r11)",
+        0x82415C68: "mtctr r11",
+        spec["resource_bind_dispatch_hook"]: "bctrl",
+    }
+    if any(
+        resource_binding.get(address) != text
+        for address, text in resource_binding_expected.items()
+    ):
+        raise ValueError("procedural-model resource resolution evidence drifted")
 
     rtti_verified = False
     complete_object_locator = None
@@ -1142,6 +1199,14 @@ def procedural_model_receiver_lifecycle(
             "receiver_resource_table_offset": 8,
             "receiver_resource_table_stride": 8,
             "resource_binding_helper_function_address": "82415BF8",
+            "resource_resolution_function_address": "82415AD0",
+            "resource_resolution_result_hook_address": "{:08X}".format(
+                spec["resource_resolution_result_hook"]
+            ),
+            "resource_bind_dispatch_hook_address": "{:08X}".format(
+                spec["resource_bind_dispatch_hook"]
+            ),
+            "resource_bind_dispatch_vtable_offset": 88,
             "resource_binding_slots": [0, 1],
             "runtime_submission_object_offset": 0,
             "runtime_default_source_address_offset": 24,
@@ -1150,10 +1215,27 @@ def procedural_model_receiver_lifecycle(
             "graphics_submission_vtable_offset": 160,
             "graphics_submission_primitive": 13,
             "graphics_submission_count_scale": 4,
+            "descriptor_kind_groups": {
+                "kind_4_5": [4, 5],
+                "kind_1_3": [1, 3],
+                "other": "all_remaining_values",
+            },
+            "helper_state_families": {
+                "state_9_table_4_28": [9],
+                "state_11_table_196_220": [11],
+                "state_24_27_table_148_172": [24, 25, 26, 27],
+                "state_6_8_table_100_124": [6, 7, 8],
+                "default_table_52_76": "all_remaining_values",
+            },
+            "descriptor_scalar_offsets": [64, 68],
+            "runtime_scalar_offsets": [40],
             "resource_binding_derivation_proved": True,
+            "resolved_resource_object_derivation_proved": True,
+            "descriptor_kind_partition_proved": True,
+            "helper_state_partition_proved": True,
             "record_join_proved": True,
             "geometry_submission_derivation_proved": True,
-            "classification": "structural_resource_and_geometry_submission",
+            "classification": "resolved_resource_and_state_variant_submission",
             "fallback_policy": "replay_unclassified_material_or_state",
             "native_rendering_enabled": False,
             "suppression_eligible": False,

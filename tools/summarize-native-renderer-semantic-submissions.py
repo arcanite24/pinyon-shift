@@ -9,12 +9,18 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v1"
+SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v2"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.semantic_submission_"
 EXPECTED_CLASS = "proceduralGeometry::CProceduralModels"
-EXPECTED_CLASSIFICATION = "structural_resource_and_geometry_submission"
-EXPECTED_HOOKS = ("82417A74", "82417A9C", "82417B60")
+EXPECTED_CLASSIFICATION = "resolved_resource_and_state_variant_submission"
+EXPECTED_HOOKS = (
+    "82417A74",
+    "82417A9C",
+    "82415C50",
+    "82415C6C",
+    "82417B60",
+)
 EXPECTED_MAXIMUM_PAYLOAD_BYTES = 56
 
 
@@ -101,8 +107,11 @@ def _validate_static(static: dict) -> None:
         extraction.get(key)
         for key in (
             "resource_binding_derivation_proved",
+            "resolved_resource_object_derivation_proved",
             "record_join_proved",
             "geometry_submission_derivation_proved",
+            "descriptor_kind_partition_proved",
+            "helper_state_partition_proved",
         )
     ):
         raise ValueError("procedural-model submission derivation is unproved")
@@ -111,6 +120,8 @@ def _validate_static(static: dict) -> None:
         for key in (
             "primary_resource_binding_hook_address",
             "secondary_resource_binding_hook_address",
+            "resource_resolution_result_hook_address",
+            "resource_bind_dispatch_hook_address",
             "geometry_submission_hook_address",
         )
     )
@@ -149,8 +160,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     secondary_calls = 0
     descriptor_kinds: collections.Counter[int] = collections.Counter()
     helper_states: collections.Counter[int] = collections.Counter()
+    descriptor_kind_groups: collections.Counter[str] = collections.Counter()
+    helper_state_families: collections.Counter[str] = collections.Counter()
     source_contracts: collections.Counter[str] = collections.Counter()
-    resource_pairs: set[tuple[str, str]] = set()
+    resource_pairs: set[tuple[str, str, str, str]] = set()
     for event in selected:
         if event.get("event") != f"{PREFIX}entry":
             continue
@@ -165,7 +178,13 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         graphics_context = _hex(event, "graphics_context", 8)
         resource_lookup_context = _hex(event, "resource_lookup_context", 8)
         primary_resource_key = _hex(event, "primary_resource_key", 8)
+        primary_bound_resource_object = _hex(
+            event, "primary_bound_resource_object", 8
+        )
         secondary_resource_key = _hex(event, "secondary_resource_key", 8)
+        secondary_bound_resource_object = _hex(
+            event, "secondary_bound_resource_object", 8
+        )
         runtime_submission_object = _hex(event, "runtime_submission_object", 8)
         source_address = _hex(event, "source_address", 8)
         calls = _integer(event, "calls")
@@ -182,6 +201,27 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         count_units = _integer(event, "count_units")
         count_bytes = _integer(event, "count_bytes")
         source_contract = str(event.get("source_contract", ""))
+        descriptor_kind_group = str(event.get("descriptor_kind_group", ""))
+        helper_state_family = str(event.get("helper_state_family", ""))
+
+        expected_kind_group = (
+            "kind_4_5"
+            if descriptor_kind in (4, 5)
+            else "kind_1_3"
+            if descriptor_kind in (1, 3)
+            else "other"
+        )
+        expected_state_family = (
+            "state_9_table_4_28"
+            if helper_state == 9
+            else "state_11_table_196_220"
+            if helper_state == 11
+            else "state_24_27_table_148_172"
+            if 24 <= helper_state <= 27
+            else "state_6_8_table_100_124"
+            if 6 <= helper_state <= 8
+            else "default_table_52_76"
+        )
 
         if (
             calls <= 0
@@ -195,12 +235,17 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             or int(receiver_address, 16) == 0
             or int(graphics_context, 16) == 0
             or int(resource_lookup_context, 16) == 0
+            or int(primary_bound_resource_object, 16) == 0
             or int(runtime_submission_object, 16) == 0
             or int(source_address, 16) == 0
+            or descriptor_kind_group != expected_kind_group
+            or helper_state_family != expected_state_family
         ):
             raise ValueError("semantic-submission entry has invalid structural evidence")
         if secondary_present != (secondary_index >= 0):
             raise ValueError("semantic-submission secondary resource presence is inconsistent")
+        if secondary_present != (int(secondary_bound_resource_object, 16) != 0):
+            raise ValueError("semantic-submission resolved secondary resource is inconsistent")
         if source_contract == "runtime_record_24_default":
             if count_units != 0:
                 raise ValueError("default geometry source has a nonzero count")
@@ -212,8 +257,17 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         secondary_calls += calls if secondary_present else 0
         descriptor_kinds[descriptor_kind] += calls
         helper_states[helper_state] += calls
+        descriptor_kind_groups[descriptor_kind_group] += calls
+        helper_state_families[helper_state_family] += calls
         source_contracts[source_contract] += calls
-        resource_pairs.add((primary_resource_key, secondary_resource_key))
+        resource_pairs.add(
+            (
+                primary_resource_key,
+                primary_bound_resource_object,
+                secondary_resource_key,
+                secondary_bound_resource_object,
+            )
+        )
         entries.append(
             {
                 "key": key,
@@ -229,9 +283,15 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "resources": {
                     "primary_index": primary_index,
                     "primary_key": primary_resource_key,
+                    "primary_bound_object": primary_bound_resource_object,
                     "secondary_present": secondary_present,
                     "secondary_index": secondary_index,
                     "secondary_key": secondary_resource_key,
+                    "secondary_bound_object": secondary_bound_resource_object,
+                },
+                "state_variant": {
+                    "descriptor_kind_group": descriptor_kind_group,
+                    "helper_state_family": helper_state_family,
                 },
                 "geometry": {
                     "runtime_submission_object": runtime_submission_object,
@@ -258,9 +318,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "binding_mismatches",
             "invalid_record_joins",
             "invalid_resource_joins",
+            "unresolved_resource_joins",
             "invalid_geometry",
             "primary_binding_observations",
             "secondary_binding_observations",
+            "resource_resolution_attempts",
+            "resource_resolution_successes",
+            "resource_resolution_misses",
+            "resource_resolution_cache_hits",
+            "resource_bind_dispatches",
+            "resource_resolution_protocol_faults",
             "payload_bytes",
             "maximum_payload_bytes_per_live_observation",
             "replay_fallbacks",
@@ -279,6 +346,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "binding_mismatches",
             "invalid_record_joins",
             "invalid_resource_joins",
+            "unresolved_resource_joins",
             "invalid_geometry",
         )
     ):
@@ -297,12 +365,31 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         failures.append("primary binding accounting is inconsistent")
     if not totals["overflow"] and totals["secondary_binding_observations"] != secondary_calls:
         failures.append("secondary binding accounting is inconsistent")
+    total_binding_observations = (
+        totals["primary_binding_observations"]
+        + totals["secondary_binding_observations"]
+    )
+    if total_binding_observations != (
+        totals["resource_resolution_attempts"]
+        + totals["resource_resolution_cache_hits"]
+    ):
+        failures.append("resource resolution observation accounting is inconsistent")
+    if totals["resource_resolution_attempts"] != (
+        totals["resource_resolution_successes"]
+        + totals["resource_resolution_misses"]
+    ):
+        failures.append("resource resolution result accounting is inconsistent")
+    if totals["resource_bind_dispatches"] != totals["resource_resolution_successes"]:
+        failures.append("resource bind dispatch accounting is inconsistent")
     for key in (
         "unknown_receivers",
         "binding_mismatches",
         "invalid_record_joins",
         "invalid_resource_joins",
+        "unresolved_resource_joins",
         "invalid_geometry",
+        "resource_resolution_misses",
+        "resource_resolution_protocol_faults",
         "overflow",
         "native_admissions",
     ):
@@ -321,6 +408,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "coverage": {
             "descriptor_kinds": dict(sorted(descriptor_kinds.items())),
             "helper_states": dict(sorted(helper_states.items())),
+            "descriptor_kind_groups": dict(sorted(descriptor_kind_groups.items())),
+            "helper_state_families": dict(sorted(helper_state_families.items())),
             "source_contracts": dict(sorted(source_contracts.items())),
             "unique_resource_pairs": len(resource_pairs),
         },

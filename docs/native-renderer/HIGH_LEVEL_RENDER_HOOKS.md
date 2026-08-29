@@ -302,16 +302,28 @@ See `PROCEDURAL_MODEL_SEMANTIC_EXTRACTION.md`.
 
 The next boundary follows the same record to resource-binding helper
 `82415BF8` and graphics-context submission. Hooks at `82417A74`, `82417A9C`,
-and `82417B60` join receiver-table resource keys in slots 0/1 with the opaque
-runtime submission object and the exact default/counted geometry-source
-tuple. This is structural submission identity, not a proved texture,
-material, vertex, index, mesh, LOD, or streaming ABI. See
+`82415C50`, `82415C6C`, and `82417B60` now join receiver-table resource keys
+in slots 0/1 to the exact opaque objects returned by resolver `82415AD0` and
+dispatched through graphics virtual slot 88. The submission also retains the
+proved descriptor-kind group, helper-state table family, opaque runtime
+submission object, and exact default/counted geometry-source tuple. This is
+resolved structural submission identity, not a proved texture, material,
+vertex, index, mesh, LOD, or streaming ABI. See
 `PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.
 
 AppData session `20260829T180132Z-p42336` qualified this contract across
 463,613 exact submissions and 605 retained tuples. All observations stayed on
 Xenos replay with zero bad joins, binding mismatches, invalid geometry,
 overflow, or native admission. The same run remained at 30.215 median FPS.
+
+The resolved-object/state-family extension is qualified in AppData session
+`20260829T182827Z-p37932`. Its 910,008 submissions produced 862 exact retained
+tuples and 34 key/object resource pairs. All 784,056 direct resolutions reached
+virtual bind slot 88, 125,952 exact-key cache hits reused previously proved
+objects, and resolver miss, protocol-fault, unresolved-resource, bad-join,
+overflow, and native-admission counters were zero. Descriptor-kind coverage
+reached all three proved groups and helper-state coverage reached four of five
+proved families. The run remained at 30.012 median FPS with Xenos authoritative.
 
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
