@@ -8,8 +8,8 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v2"
-STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v2"
+SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v3"
+STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.dispatch_"
 
 
@@ -78,7 +78,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
 
     static_calls = {
         (item["wrapper"], item["return_address"]): item
-        for item in static.get("direct_calls", [])
+        for item in static.get(
+            "runtime_correlation_calls", static.get("direct_calls", [])
+        )
     }
     callers = []
     for event in selected:
@@ -109,6 +111,12 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                         "callsite": callsite["callsite"],
                         "wrapper_layer": callsite.get(
                             "wrapper_layer", "unknown"
+                        ),
+                        "dispatch_edge": callsite.get(
+                            "dispatch_edge", "direct"
+                        ),
+                        "forwarder_function": callsite.get(
+                            "forwarder_function"
                         ),
                     }
                     if callsite
@@ -146,7 +154,11 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "overflow_calls": int(summary.get("overflow_calls", 0)),
         },
         "resolve_boundary": static.get("resolve_boundary"),
-        "qualification": "wrapper_layer_identity_and_frequency_only",
+        "query_owner_lifecycle": static.get("query_owner_lifecycle"),
+        "side_effect_packets": static.get("side_effect_packets"),
+        "qualification": (
+            "wrapper_layer_side_effect_boundary_and_frequency_only"
+        ),
         "safety": {
             "metadata_only": True,
             "guest_payload_read": False,

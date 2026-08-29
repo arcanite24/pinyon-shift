@@ -39,9 +39,12 @@ Xenos suppression, or presentation changes. Its setting,
 | Immediate draw wrapper | `0x829F7C70` | Stored count-one `PM4_DRAW_INDX_2` header at `0x829F7CA8` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Visibility-query begin | `0x829F21A0` | Stored count-one `PM4_VIZ_QUERY` header at `0x829F225C`; active-query bit set at `0x829F2270` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Visibility-query end | `0x829F2280` | Stored count-one `PM4_VIZ_QUERY` header at `0x829F22E4`; active-query bit cleared at `0x829F2308` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
+| Visibility-query owner | `0x82D951E0` | Calls begin at `0x82D95230`, performs five work calls, then calls end at `0x82D95378`; two direct callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Lifecycle owner verified; result consumer and semantics unknown |
 | Draw packet backend | ReXGlue `PM4_DRAW_INDX` / `PM4_DRAW_INDX_2` | Generic command processor decodes the packet before backend `IssueDraw` | Register-derived draw state is consumed by the backend | Verified runtime boundary |
 | Resolve controller | `0x824587D8` | Two direct calls to setup wrapper `0x82458A88`; three direct controller callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Resolve setup | `0x82458A88` | Emits `RB_MODECONTROL` register index `0x2208` followed by `EdramMode::kCopy` value 6 | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Title setup verified; subsequent resolve draw ownership unknown |
+| Binning/scissor state | `0x82413AB8` | Stores `PM4_SET_BIN_MASK_LO/HI` headers; ten direct calls | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Xenos state boundary verified; semantic tiled role unknown |
+| Binning-state reset | `0x824736F0` | Stores all `PM4_SET_BIN_MASK/SELECT_LO/HI` headers and calls the scissor-state wrapper; four direct callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Xenos state boundary verified; semantic tiled role unknown |
 | Resolve/copy backend | ReXGlue backend `IssueCopy` | Triggered by a Xenos draw while `RB_MODECONTROL.edram_mode == kCopy` | Render-target and guest-memory dependencies may be produced | Verified runtime boundary |
 
 ## Bounded draw observation
@@ -92,14 +95,17 @@ read or serialize guest memory.
 - Prove whether the title has a stored `PM4_DRAW_INDX` (`0x22`) constructor.
 - Correlate the proved title resolve controller/setup with the subsequent copy
   draw and its semantic destination owner.
-- Locate query-result ownership beyond the proved begin/end packet wrappers.
+- Locate downstream query-result consumption beyond the proved lifecycle
+  owner.
+- Correlate the proved bin-mask/select wrappers with semantic tiled-pass
+  begin/end ownership.
 - Extend dirty-state proof beyond the six indexed-wrapper clear sites.
 - Inventory memexport-producing draws and guest-visible resolve destinations.
 - Map high-level world, vehicle, road, HUD, garage, mirror, shadow, exposure,
   livery, thumbnail, and rewind dispatch families.
 
-The proved wrapper entries, all 56 static direct calls, runtime correlation
-contract, and explicit semantic unknowns are recorded in
+The ten proved wrapper entries, all 72 static direct calls, one proved tail-
+forwarded correlation edge, and explicit semantic unknowns are recorded in
 [`HIGH_LEVEL_RENDER_HOOKS.md`](HIGH_LEVEL_RENDER_HOOKS.md).
 
 Resolve-to-texture dependency tracking is documented in
@@ -156,3 +162,17 @@ callback. Their signature includes the exact effective shader specialization,
 preventing a global guest-shader pair with multiple prepared variants from
 producing an ambiguous or guessed candidate identity. Draws that never reach a
 prepared pipeline are counted and excluded; Xenos remains authoritative.
+
+## Side-effect-boundary qualification — 2026-08-29
+
+Session `20260829T112833Z-p40656` qualified the ten-wrapper dispatch inventory
+against the installed AppData save. It reached live festival gameplay and
+exited normally after 6,916 frames. All 26 runtime callers matched the 72
+direct calls plus one tail-forwarded correlation edge; caller-table overflow
+was zero.
+
+The two newly active families were binning/scissor state with 978,620 calls
+from eight callers and binning-state reset with 11,845 calls from three
+callers. These frequencies prove runtime reachability only; semantic tiled-
+pass ownership remains unknown. Xenos performed every draw and resolve, and
+suppression stayed disabled.

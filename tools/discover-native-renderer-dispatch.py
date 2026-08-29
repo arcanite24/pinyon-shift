@@ -16,8 +16,17 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v2"
+SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PACKET_OPCODES = {
+    0x3C: "PM4_WAIT_REG_MEM",
+    0x3D: "PM4_MEM_WRITE",
+    0x46: "PM4_EVENT_WRITE",
+    0x5A: "PM4_EVENT_WRITE_EXT",
+    0x5B: "PM4_EVENT_WRITE_ZPD",
+    0x60: "PM4_SET_BIN_MASK_LO",
+    0x61: "PM4_SET_BIN_MASK_HI",
+    0x62: "PM4_SET_BIN_SELECT_LO",
+    0x63: "PM4_SET_BIN_SELECT_HI",
     0x23: "PM4_VIZ_QUERY",
     0x36: "PM4_DRAW_INDX_2",
 }
@@ -65,6 +74,24 @@ REVIEWED_WRAPPERS = {
         "packet_opcode": 0x36,
         "hook_address": 0x829F7C74,
     },
+    0x82D951E0: {
+        "kind": "viz_query_owner",
+        "layer": "query_pass_owner",
+        "evidence": "begin_draw_end_lifecycle",
+        "hook_address": 0x82D951E4,
+    },
+    0x82413AB8: {
+        "kind": "binning_scissor_state",
+        "layer": "state_packet_wrapper",
+        "packet_opcodes": [0x60, 0x61],
+        "hook_address": 0x82413ABC,
+    },
+    0x824736F0: {
+        "kind": "binning_state_reset",
+        "layer": "state_packet_wrapper",
+        "packet_opcodes": [0x60, 0x61, 0x62, 0x63],
+        "hook_address": 0x824736F4,
+    },
 }
 INITIALIZATION_CONSTRUCTORS = {
     0x829E82D0,
@@ -75,11 +102,12 @@ INITIALIZATION_CONSTRUCTORS = {
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
 COMMENT_RE = re.compile(r"^\s*//\s+(.+?)\s*$")
-ORI_RE = re.compile(r"ori (r\d+),\1,(\d+)$")
+ORI_RE = re.compile(r"ori (r\d+),(r\d+),(\d+)$")
 STORE_RE = re.compile(r"stw(?:u|x|ux)? (r\d+),.*$")
 LIS_RE = re.compile(r"lis (r\d+),(-?\d+)$")
 ORIS_RE = re.compile(r"oris (r\d+),\1,(\d+)$")
 CALL_RE = re.compile(r"bl 0x([0-9a-fA-F]{8})$")
+BRANCH_RE = re.compile(r"b 0x([0-9a-fA-F]{8})$")
 DIRTY_STORE_RE = re.compile(r"std (r\d+),(16|24|32)\(r31\)$")
 QUERY_STATE_STORE_RE = re.compile(r"std (r\d+),12424\(r31\)$")
 
@@ -135,29 +163,38 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
             match = ORI_RE.fullmatch(instruction["text"])
             if not match:
                 continue
-            opcode_value = int(match.group(2)) >> 8
+            opcode_value = int(match.group(3)) >> 8
             if (
-                int(match.group(2)) & 0xFF
+                int(match.group(3)) & 0xFF
                 or opcode_value not in PACKET_OPCODES
             ):
                 continue
             register = match.group(1)
-            stored = any(
-                (store := STORE_RE.fullmatch(item["text"]))
-                and store.group(1) == register
-                for item in instructions[index + 1 : index + 13]
+            source_register = match.group(2)
+            store_instruction = next(
+                (
+                    item
+                    for item in instructions[index + 1 : index + 65]
+                    if (store := STORE_RE.fullmatch(item["text"]))
+                    and store.group(1) == register
+                ),
+                None,
             )
-            if not stored:
+            if store_instruction is None:
                 continue
             lis_instruction, lis = find_prior(
-                instructions, index, LIS_RE, register
+                instructions, index, LIS_RE, source_register
             )
             oris_instruction, oris = find_prior(
-                instructions, index, ORIS_RE, register
+                instructions, index, ORIS_RE, source_register
             )
             header_source = "unknown"
-            if lis and int(lis.group(2)) == -16384:
-                header_source = "fixed_type3_count_1"
+            if lis:
+                upper = int(lis.group(2)) & 0xFFFF
+                if upper & 0xC000 == 0xC000:
+                    header_source = "fixed_type3_count_{}".format(
+                        (upper & 0x3FFF) + 1
+                    )
             elif (
                 oris
                 and int(oris.group(2)) == 49152
@@ -165,7 +202,10 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
                 header_source = "dynamic_type3_count"
             role = "unreviewed"
             reviewed = REVIEWED_WRAPPERS.get(function["address"])
-            if reviewed and reviewed.get("packet_opcode") == opcode_value:
+            reviewed_opcodes = set(reviewed.get("packet_opcodes", [])) if reviewed else set()
+            if reviewed and "packet_opcode" in reviewed:
+                reviewed_opcodes.add(reviewed["packet_opcode"])
+            if opcode_value in reviewed_opcodes:
                 role = "runtime_wrapper"
             elif (
                 opcode_value == 0x36
@@ -178,6 +218,9 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
                     "function_address": "{:08X}".format(function["address"]),
                     "constructor_address": "{:08X}".format(
                         instruction["address"]
+                    ),
+                    "store_address": "{:08X}".format(
+                        store_instruction["address"]
                     ),
                     "opcode": PACKET_OPCODES[opcode_value],
                     "opcode_value": "{:02X}".format(opcode_value),
@@ -216,6 +259,59 @@ def direct_calls(functions: list[dict], targets: set[int]) -> list[dict]:
                     "return_address": "{:08X}".format(
                         instruction["address"] + 4
                     ),
+                }
+            )
+    return sorted(calls, key=lambda item: (item["wrapper"], item["callsite"]))
+
+
+def tail_forwarded_calls(
+    functions: list[dict], targets: set[int]
+) -> list[dict]:
+    forwarders = {}
+    for function in functions:
+        branches = [
+            (instruction, int(match.group(1), 16))
+            for instruction in function["instructions"]
+            if (match := BRANCH_RE.fullmatch(instruction["text"]))
+            and int(match.group(1), 16) in targets
+        ]
+        if len(branches) > 1:
+            raise ValueError("reviewed wrapper tail-forwarder is ambiguous")
+        if branches:
+            forwarders[function["address"]] = branches[0]
+
+    calls = []
+    for function in functions:
+        for instruction in function["instructions"]:
+            match = CALL_RE.fullmatch(instruction["text"])
+            if not match:
+                continue
+            forwarder_address = int(match.group(1), 16)
+            forwarded = forwarders.get(forwarder_address)
+            if not forwarded:
+                continue
+            branch, target = forwarded
+            calls.append(
+                {
+                    "wrapper": "{:08X}".format(target),
+                    "wrapper_kind": REVIEWED_WRAPPERS[target]["kind"],
+                    "wrapper_layer": REVIEWED_WRAPPERS[target]["layer"],
+                    "caller_function": function["name"],
+                    "caller_function_address": "{:08X}".format(
+                        function["address"]
+                    ),
+                    "callsite": "{:08X}".format(instruction["address"]),
+                    "return_address": "{:08X}".format(
+                        instruction["address"] + 4
+                    ),
+                    "dispatch_edge": "tail_forwarded",
+                    "forwarder_function": "sub_{:08X}".format(
+                        forwarder_address
+                    ),
+                    "forwarder_function_address": "{:08X}".format(
+                        forwarder_address
+                    ),
+                    "forwarder_branch": "{:08X}".format(branch["address"]),
                 }
             )
     return sorted(calls, key=lambda item: (item["wrapper"], item["callsite"]))
@@ -365,6 +461,112 @@ def resolve_mode_writes(functions: list[dict]) -> list[dict]:
     return sites
 
 
+def query_owner_lifecycle(functions: list[dict]) -> dict:
+    owner_address = 0x82D951E0
+    begin_target = 0x829F21A0
+    end_target = 0x829F2280
+    function = next(
+        (item for item in functions if item["address"] == owner_address), None
+    )
+    if function is None:
+        return {}
+    calls = []
+    for instruction in function["instructions"]:
+        match = CALL_RE.fullmatch(instruction["text"])
+        if not match:
+            continue
+        calls.append(
+            {
+                "target": "{:08X}".format(int(match.group(1), 16)),
+                "callsite": "{:08X}".format(instruction["address"]),
+                "return_address": "{:08X}".format(
+                    instruction["address"] + 4
+                ),
+            }
+        )
+    begin_calls = [item for item in calls if item["target"] == "829F21A0"]
+    end_calls = [item for item in calls if item["target"] == "829F2280"]
+    if len(begin_calls) != 1 or len(end_calls) != 1:
+        raise ValueError("reviewed visibility-query owner lifecycle drifted")
+    begin_address = int(begin_calls[0]["callsite"], 16)
+    end_address = int(end_calls[0]["callsite"], 16)
+    if begin_address >= end_address:
+        raise ValueError("reviewed visibility-query owner order drifted")
+    work_calls = [
+        item
+        for item in calls
+        if begin_address < int(item["callsite"], 16) < end_address
+    ]
+    if not work_calls:
+        raise ValueError("reviewed visibility-query owner has no enclosed work")
+    return {
+        "owner": "82D951E0",
+        "owner_kind": "viz_query_owner",
+        "begin_wrapper": "829F21A0",
+        "begin_callsite": begin_calls[0]["callsite"],
+        "end_wrapper": "829F2280",
+        "end_callsite": end_calls[0]["callsite"],
+        "work_calls_between": work_calls,
+        "classification": "query_lifecycle_owner_proved_semantics_unknown",
+        "suppression_eligible": False,
+    }
+
+
+def reviewed_side_effect_packets(constructors: list[dict]) -> dict:
+    by_function = collections.defaultdict(list)
+    for constructor in constructors:
+        by_function[constructor["function_address"]].append(constructor)
+
+    controller = by_function["824587D8"]
+    setup = by_function["82458A88"]
+    expected_controller = collections.Counter(
+        {
+            "PM4_EVENT_WRITE": 1,
+            "PM4_MEM_WRITE": 2,
+            "PM4_WAIT_REG_MEM": 2,
+            "PM4_EVENT_WRITE_EXT": 1,
+        }
+    )
+    expected_setup = collections.Counter(
+        {
+            "PM4_SET_BIN_MASK_LO": 2,
+            "PM4_SET_BIN_MASK_HI": 2,
+            "PM4_EVENT_WRITE_ZPD": 1,
+        }
+    )
+    if collections.Counter(item["opcode"] for item in controller) != expected_controller:
+        raise ValueError("reviewed resolve-controller packet sequence drifted")
+    if collections.Counter(item["opcode"] for item in setup) != expected_setup:
+        raise ValueError("reviewed resolve-setup packet sequence drifted")
+
+    binning = {}
+    for address, expected in {
+        "82413AB8": {"PM4_SET_BIN_MASK_LO", "PM4_SET_BIN_MASK_HI"},
+        "824736F0": {
+            "PM4_SET_BIN_MASK_LO",
+            "PM4_SET_BIN_MASK_HI",
+            "PM4_SET_BIN_SELECT_LO",
+            "PM4_SET_BIN_SELECT_HI",
+        },
+    }.items():
+        observed = {item["opcode"] for item in by_function[address]}
+        if not expected.issubset(observed):
+            raise ValueError(
+                "reviewed binning-state packet evidence drifted: {}".format(
+                    address
+                )
+            )
+        binning[address] = by_function[address]
+
+    return {
+        "resolve_controller": controller,
+        "resolve_setup": setup,
+        "binning_state_wrappers": binning,
+        "semantic_identity": "unknown",
+        "suppression_eligible": False,
+    }
+
+
 def build(paths: list[pathlib.Path]) -> dict:
     functions = parse_functions(paths)
     functions_by_address = {item["address"]: item for item in functions}
@@ -385,11 +587,14 @@ def build(paths: list[pathlib.Path]) -> dict:
         (int(item["function_address"], 16), int(item["opcode_value"], 16))
         for item in constructors
     }
-    expected_packet_evidence = {
-        (address, int(wrapper["packet_opcode"]))
-        for address, wrapper in REVIEWED_WRAPPERS.items()
-        if "packet_opcode" in wrapper
-    }
+    expected_packet_evidence = set()
+    for address, wrapper in REVIEWED_WRAPPERS.items():
+        if "packet_opcode" in wrapper:
+            expected_packet_evidence.add((address, int(wrapper["packet_opcode"])))
+        expected_packet_evidence.update(
+            (address, int(opcode))
+            for opcode in wrapper.get("packet_opcodes", [])
+        )
     missing = expected_packet_evidence - constructor_evidence
     if missing:
         raise ValueError(
@@ -401,6 +606,13 @@ def build(paths: list[pathlib.Path]) -> dict:
             )
         )
     calls = direct_calls(functions, set(REVIEWED_WRAPPERS))
+    forwarded_calls = tail_forwarded_calls(
+        functions, set(REVIEWED_WRAPPERS)
+    )
+    correlation_calls = sorted(
+        [*calls, *forwarded_calls],
+        key=lambda item: (item["wrapper"], item["callsite"]),
+    )
     adapter_calls = [
         item
         for item in calls
@@ -437,6 +649,16 @@ def build(paths: list[pathlib.Path]) -> dict:
     resolve_writes = resolve_mode_writes(functions)
     if len(resolve_writes) != 1:
         raise ValueError("reviewed title resolve-mode write evidence drifted")
+    query_owner = query_owner_lifecycle(functions)
+    side_effect_packets = reviewed_side_effect_packets(constructors)
+    query_owner_callers = [
+        item
+        for item in calls
+        if item["wrapper_kind"] == "viz_query_owner"
+    ]
+    if len(query_owner_callers) != 2:
+        raise ValueError("reviewed visibility-query owner callers drifted")
+    query_owner["direct_callers"] = query_owner_callers
     return {
         "schema": SCHEMA,
         "input": {
@@ -452,7 +674,14 @@ def build(paths: list[pathlib.Path]) -> dict:
                 "evidence": (
                     wrapper["evidence"]
                     if "evidence" in wrapper
-                    else PACKET_OPCODES[wrapper["packet_opcode"]]
+                    else ",".join(
+                        PACKET_OPCODES[opcode]
+                        for opcode in (
+                            [wrapper["packet_opcode"]]
+                            if "packet_opcode" in wrapper
+                            else wrapper["packet_opcodes"]
+                        )
+                    )
                 ),
                 "runtime_trace": "entry_lr_and_bounded_r3_r10_metadata",
                 "hook_address": "{:08X}".format(wrapper["hook_address"]),
@@ -474,9 +703,13 @@ def build(paths: list[pathlib.Path]) -> dict:
             for address, wrapper in sorted(REVIEWED_WRAPPERS.items())
         ],
         "direct_calls": calls,
+        "tail_forwarded_calls": forwarded_calls,
+        "runtime_correlation_calls": correlation_calls,
         "dirty_state_clears": clears,
         "query_state_transitions": query_transitions,
+        "query_owner_lifecycle": query_owner,
         "resolve_mode_writes": resolve_writes,
+        "side_effect_packets": side_effect_packets,
         "resolve_boundary": {
             "backend": "IssueCopy",
             "trigger": "RB_MODECONTROL.edram_mode == kCopy during Xenos draw",
@@ -488,9 +721,12 @@ def build(paths: list[pathlib.Path]) -> dict:
             "packet_constructors": len(constructors),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
+            "tail_forwarded_calls": len(forwarded_calls),
+            "runtime_correlation_calls": len(correlation_calls),
             "dirty_state_clears": len(clears),
             "query_state_transitions": len(query_transitions),
             "resolve_mode_writes": len(resolve_writes),
+            "query_owner_callers": len(query_owner_callers),
         },
         "safety": {
             "guest_payload_read": False,

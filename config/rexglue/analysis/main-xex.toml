@@ -30,6 +30,11 @@ name = "PinyonShiftObserveDrawIndexedDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
 [[midasm_hook]]
+address = 0x82413ABC
+name = "PinyonShiftObserveBinningScissorStateDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
 address = 0x824587DC
 name = "PinyonShiftObserveResolveControllerDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
@@ -37,6 +42,11 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 [[midasm_hook]]
 address = 0x82458A8C
 name = "PinyonShiftObserveResolveSetupDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x824736F4
+name = "PinyonShiftObserveBinningStateResetDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
 [[midasm_hook]]
@@ -52,6 +62,11 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 [[midasm_hook]]
 address = 0x829F7C74
 name = "PinyonShiftObserveDrawImmediateDispatch"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82D951E4
+name = "PinyonShiftObserveVizQueryOwnerDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
 # Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
