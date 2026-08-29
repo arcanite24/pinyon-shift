@@ -22,6 +22,7 @@
 #include <rex/cvar.h>
 #include <rex/graphics/xenos.h>
 #include <rex/memory.h>
+#include <rex/ppc/context.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
@@ -33,6 +34,10 @@
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_census, false, "Pinyon Shift",
     "Record bounded native-renderer census metadata without changing rendering")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_dispatch_discovery, false, "Pinyon Shift",
+    "Record bounded title draw-wrapper caller metadata without changing rendering")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_sky_horizon_suppression, false,
@@ -66,9 +71,163 @@ constexpr uint64_t kPassPublicationDetailLimit = 64;
 constexpr uint64_t kSuppressionWarmupFrameCount = 8;
 constexpr uint64_t kSuppressionFailureCooldownFrameCount = 120;
 constexpr uint64_t kSuppressionStateDetailLimit = 32;
+constexpr size_t kDispatchCallerCapacity = 256;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
+
+enum class DispatchWrapper : uint32_t {
+  kDrawIndexed = 1,
+  kDrawImmediate = 2,
+};
+
+struct DispatchCallerEntry {
+  std::atomic<uint64_t> key{};
+  std::atomic<uint64_t> calls{};
+  std::atomic<uint64_t> first_frame{};
+  std::atomic<uint32_t> first_r3{};
+  std::atomic<uint32_t> first_r4{};
+  std::atomic<uint32_t> first_r5{};
+};
+
+std::array<DispatchCallerEntry, kDispatchCallerCapacity> g_dispatch_callers;
+std::atomic<uint64_t> g_dispatch_caller_overflow{};
+std::atomic<bool> g_dispatch_discovery_installed{};
+
+const char *DispatchWrapperName(DispatchWrapper wrapper) {
+  switch (wrapper) {
+  case DispatchWrapper::kDrawIndexed:
+    return "draw_indexed";
+  case DispatchWrapper::kDrawImmediate:
+    return "draw_immediate";
+  }
+  return "unknown";
+}
+
+const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
+  switch (wrapper) {
+  case DispatchWrapper::kDrawIndexed:
+    return "8240F4D8";
+  case DispatchWrapper::kDrawImmediate:
+    return "829F7C70";
+  }
+  return "00000000";
+}
+
+void ResetDispatchDiscovery() {
+  for (DispatchCallerEntry &entry : g_dispatch_callers) {
+    entry.key.store(0, std::memory_order_relaxed);
+    entry.calls.store(0, std::memory_order_relaxed);
+    entry.first_frame.store(0, std::memory_order_relaxed);
+    entry.first_r3.store(0, std::memory_order_relaxed);
+    entry.first_r4.store(0, std::memory_order_relaxed);
+    entry.first_r5.store(0, std::memory_order_relaxed);
+  }
+  g_dispatch_caller_overflow.store(0, std::memory_order_relaxed);
+}
+
+void ConfigureDispatchDiscovery() {
+  ResetDispatchDiscovery();
+  const bool requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
+  g_dispatch_discovery_installed.store(requested, std::memory_order_release);
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.dispatch_config",
+      {{"status", requested ? "armed" : "disabled"},
+       {"wrappers", "8240F4D8,829F7C70"},
+       {"caller_capacity", std::to_string(kDispatchCallerCapacity)},
+       {"metadata", "entry_lr_via_r12,r3,r4,r5,frame"},
+       {"guest_payload_read", "false"},
+       {"xenos_draw", "preserved"},
+       {"suppression_eligible", "false"}});
+}
+
+void ObserveTitleDispatch(DispatchWrapper wrapper, uint32_t caller,
+                          uint32_t r3, uint32_t r4, uint32_t r5) {
+  if (!g_dispatch_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const uint32_t caller_key = caller ? caller : 1;
+  const uint64_t key = (static_cast<uint64_t>(wrapper) << 32) | caller_key;
+  size_t index = (caller_key ^ (caller_key >> 11)) % kDispatchCallerCapacity;
+  for (size_t probe = 0; probe < kDispatchCallerCapacity; ++probe) {
+    DispatchCallerEntry &entry = g_dispatch_callers[index];
+    uint64_t observed = entry.key.load(std::memory_order_acquire);
+    if (observed == key) {
+      entry.calls.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+    if (observed == 0 &&
+        entry.key.compare_exchange_strong(observed, key,
+                                          std::memory_order_acq_rel)) {
+      // Publish the initial count before the descriptive first-sample fields.
+      // A second graphics thread may observe the claimed key immediately; its
+      // fetch_add must not be overwritten by a late initializing store.
+      entry.calls.store(1, std::memory_order_release);
+      entry.first_frame.store(g_frame_sequence.load(std::memory_order_relaxed),
+                              std::memory_order_relaxed);
+      entry.first_r3.store(r3, std::memory_order_relaxed);
+      entry.first_r4.store(r4, std::memory_order_relaxed);
+      entry.first_r5.store(r5, std::memory_order_relaxed);
+      return;
+    }
+    index = (index + 1) % kDispatchCallerCapacity;
+  }
+  g_dispatch_caller_overflow.fetch_add(1, std::memory_order_relaxed);
+}
+
+void EmitDispatchDiscoverySummary() {
+  if (!g_dispatch_discovery_installed.exchange(false,
+                                                std::memory_order_acq_rel)) {
+    return;
+  }
+  uint64_t tracked_calls = 0;
+  uint64_t tracked_callers = 0;
+  for (const DispatchCallerEntry &entry : g_dispatch_callers) {
+    const uint64_t calls = entry.calls.load(std::memory_order_acquire);
+    const uint64_t key = entry.key.load(std::memory_order_acquire);
+    if (!calls || !key) {
+      continue;
+    }
+    const auto wrapper = static_cast<DispatchWrapper>(key >> 32);
+    const uint32_t caller = static_cast<uint32_t>(key);
+    tracked_calls += calls;
+    ++tracked_callers;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.dispatch_caller",
+        {{"wrapper", DispatchWrapperName(wrapper)},
+         {"wrapper_address", DispatchWrapperAddress(wrapper)},
+         {"caller", fmt::format("{:08X}", caller)},
+         {"calls", std::to_string(calls)},
+         {"first_frame",
+          std::to_string(entry.first_frame.load(std::memory_order_relaxed))},
+         {"first_r3",
+          fmt::format("{:08X}",
+                      entry.first_r3.load(std::memory_order_relaxed))},
+         {"first_r4",
+          fmt::format("{:08X}",
+                      entry.first_r4.load(std::memory_order_relaxed))},
+         {"first_r5",
+          fmt::format("{:08X}",
+                      entry.first_r5.load(std::memory_order_relaxed))},
+         {"mode", "read_only_metadata"},
+         {"xenos_draw", "preserved"},
+         {"suppression_eligible", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.dispatch_summary",
+      {{"tracked_callers", std::to_string(tracked_callers)},
+       {"tracked_calls", std::to_string(tracked_calls)},
+       {"overflow_calls",
+        std::to_string(
+            g_dispatch_caller_overflow.load(std::memory_order_relaxed))},
+       {"capacity", std::to_string(kDispatchCallerCapacity)},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
 
 std::string CensusSceneMarker() {
   char *value = nullptr;
@@ -4104,6 +4263,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   if (!graphics_system || !memory) {
     return;
   }
+  ConfigureDispatchDiscovery();
   g_sky_horizon_suppression = {};
   g_sky_horizon_suppression.requested =
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
@@ -4312,6 +4472,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetPreparedDrawObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
+  EmitDispatchDiscoverySummary();
   if (!g_graphics_census_installed) {
     return;
   }
@@ -4773,7 +4934,11 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
 // All renderer experiments remain passive until their own explicit cvars are
 // enabled and must dispatch through this owner.
 void PinyonShiftObserveGraphicsFrame() {
-  if (!REXCVAR_GET(pinyon_shift_native_renderer_census)) {
+  const bool census_requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_census);
+  const bool dispatch_requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
+  if (!census_requested && !dispatch_requested) {
     return;
   }
 
@@ -4784,8 +4949,31 @@ void PinyonShiftObserveGraphicsFrame() {
   }
 
   const std::string frame = std::to_string(frame_sequence);
-  pinyon_shift::diagnostics::RecordEvent("native_renderer.census.frame",
-                                         {{"frame_sequence", frame},
-                                          {"guest_address", "829EFEB8"},
-                                          {"mode", "pass_through"}});
+  if (census_requested) {
+    pinyon_shift::diagnostics::RecordEvent("native_renderer.census.frame",
+                                           {{"frame_sequence", frame},
+                                            {"guest_address", "829EFEB8"},
+                                            {"mode", "pass_through"}});
+  }
+  if (dispatch_requested) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.dispatch_frame",
+        {{"frame_sequence", frame},
+         {"guest_address", "829EFEB8"},
+         {"mode", "read_only_metadata"}});
+  }
+}
+
+void PinyonShiftObserveDrawIndexedDispatch(PPCRegister &r3, PPCRegister &r4,
+                                           PPCRegister &r5,
+                                           PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kDrawIndexed, r12.u32, r3.u32, r4.u32,
+                       r5.u32);
+}
+
+void PinyonShiftObserveDrawImmediateDispatch(PPCRegister &r3, PPCRegister &r4,
+                                             PPCRegister &r5,
+                                             PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kDrawImmediate, r12.u32, r3.u32, r4.u32,
+                       r5.u32);
 }
