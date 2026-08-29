@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Get', 'Apply', 'Reset', 'Restore', 'ResetRenderer')]
+    [ValidateSet('Get', 'Apply', 'Reset', 'Restore', 'SetRenderer',
+        'ResetRenderer')]
     [string]$Action = 'Get',
     [ValidateSet(4, 8, 16)]
     [int]$Anisotropy = 4,
@@ -24,7 +25,8 @@ param(
     [string]$DisableMotionBlur = 'false',
     [ValidateSet('true', 'false')]
     [string]$DisableDepthOfField = 'false',
-    [ValidateSet('xenos', 'diagnostic_triangle', 'diagnostic_retained_pass')]
+    [ValidateSet('xenos', 'diagnostic_clear', 'diagnostic_triangle',
+        'diagnostic_retained_pass', 'comparison_native', 'comparison_xenos')]
     [string]$NativeRenderer = 'xenos',
     [string]$StateRoot,
     [switch]$Json
@@ -271,6 +273,19 @@ switch ($Action) {
         }
         $backup = New-ConfigBackup
         $text = Set-TomlValue $text 'pinyon_shift_native_renderer' '"xenos"'
+        Write-Config $text
+    }
+    'SetRenderer' {
+        $text = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+            Get-Content -LiteralPath $configPath -Raw
+        } else { Get-DefaultConfigText }
+        $schema = Get-SchemaVersion $text
+        if ($schema -notin @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) {
+            throw "Unsupported host configuration schema: $schema"
+        }
+        $backup = New-ConfigBackup
+        $text = Set-TomlValue $text 'pinyon_shift_native_renderer' `
+            ('"' + $NativeRenderer + '"')
         Write-Config $text
     }
 }

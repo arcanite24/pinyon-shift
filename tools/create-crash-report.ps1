@@ -257,6 +257,8 @@ try {
         } else { 'xenos' }
         effective = 'unknown'
         composition = $null
+        selected_output = $null
+        authority = $null
         claimed_frames = [uint64]0
         waiting_reason = $null
         failure_reason = $null
@@ -275,7 +277,15 @@ try {
                 'native_renderer.output.installed' { $nativeRenderer.effective = [string]$event.mode }
                 'native_renderer.output.frame' {
                     $nativeRenderer.effective = [string]$event.mode
-                    $nativeRenderer.composition = [string]$event.composition
+                    if ($event.PSObject.Properties['composition']) {
+                        $nativeRenderer.composition = [string]$event.composition
+                    }
+                    if ($event.PSObject.Properties['selected_output']) {
+                        $nativeRenderer.selected_output = [string]$event.selected_output
+                    }
+                    if ($event.PSObject.Properties['authority']) {
+                        $nativeRenderer.authority = [string]$event.authority
+                    }
                     $nativeRenderer.claimed_frames = [uint64]$event.claimed
                     $nativeRenderer.waiting_reason = $null
                 }

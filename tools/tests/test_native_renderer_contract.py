@@ -253,7 +253,7 @@ class NativeRendererContractTests(unittest.TestCase):
             ROOT / "src/native_renderer/guest_output_renderer.cpp"
         ).read_text(encoding="utf-8")
         self.assertIn('mode == "diagnostic_retained_pass"', source)
-        self.assertIn("context.draw_retained_pass(context)", source)
+        self.assertIn("context.draw_retained_pass(context, retained_mode)", source)
         self.assertIn('"retained_pass_unavailable"', source)
         self.assertIn('{"suppression", "disabled"}', source)
 
@@ -333,6 +333,74 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn(
             "$nativeRenderer.composition = [string]$event.composition", report
         )
+
+    def test_dual_path_comparison_has_one_controlled_output_authority(self):
+        patch = (
+            ROOT / "patches/rexglue/0069-d3d12-dual-path-comparison.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("NativeGuestOutputRetainedPassMode", patch)
+        self.assertIn("kCompareNative", patch)
+        self.assertIn("kCompareXenos", patch)
+        self.assertIn("PinyonShift NR-04C native display composition", patch)
+        self.assertIn("PinyonShift NR-04C native output selection", patch)
+        self.assertIn("if (present_native)", patch)
+        additions = "\n".join(
+            line[1:]
+            for line in patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        self.assertEqual(additions.count("D3DCopyResource"), 1)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        output = (
+            ROOT / "src/native_renderer/guest_output_renderer.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('mode == "comparison_native"', output)
+        self.assertIn('mode == "comparison_xenos"', output)
+        self.assertIn('"selected_output"', output)
+        self.assertIn('"authority"', output)
+        self.assertIn('{"xenos_draw", "preserved"}', output)
+        self.assertIn('{"suppression", "disabled"}', output)
+
+        settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'SetRenderer'", settings)
+        self.assertIn("'comparison_native'", settings)
+        self.assertIn("'comparison_xenos'", settings)
+
+        capture = (
+            ROOT / "tools/capture-native-renderer-output-comparison.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get -StateRoot", capture)
+        self.assertIn("-Action SetRenderer", capture)
+        self.assertIn("finally", capture)
+        self.assertIn("$originalRenderer", capture)
+
+        exporter = (
+            ROOT / "tools/export-native-renderer-output-comparison.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pinyon-shift.native-output-comparison.v1", exporter)
+        self.assertIn("copy.copySource", exporter)
+        self.assertIn("copy.copyDestination", exporter)
+        self.assertIn("copy.eventId - 1", exporter)
+        self.assertIn("GPUCounter.EventGPUDuration", exporter)
+        self.assertIn("native-private.png", exporter)
+        self.assertIn("xenos-output.png", exporter)
+
+        wrapper = (
+            ROOT / "tools/export-native-renderer-output-comparison.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Get-AuthenticodeSignature", wrapper)
+        self.assertIn("Capture must be below", wrapper)
+        self.assertIn("OutputDir must be below", wrapper)
+        self.assertIn("-WindowStyle Hidden", wrapper)
+
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("selected_output = $null", report)
+        self.assertIn("authority = $null", report)
 
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (

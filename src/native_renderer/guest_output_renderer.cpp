@@ -15,7 +15,8 @@ REXCVAR_DEFINE_BOOL(
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_STRING(pinyon_shift_native_renderer, "xenos", "Pinyon Shift",
                       "Guest-output renderer: xenos, diagnostic_clear, "
-                      "diagnostic_triangle, diagnostic_retained_pass")
+                      "diagnostic_triangle, diagnostic_retained_pass, "
+                      "comparison_native, comparison_xenos")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_STRING(
     pinyon_shift_native_shader_pack, "", "Pinyon Shift",
@@ -27,7 +28,13 @@ namespace {
 std::atomic<bool> g_failure_latched{};
 std::atomic<uint64_t> g_callback_count{};
 std::atomic<uint64_t> g_claimed_count{};
-enum class DiagnosticMode : uint32_t { kClear, kTriangle, kRetainedPass };
+enum class DiagnosticMode : uint32_t {
+  kClear,
+  kTriangle,
+  kRetainedPass,
+  kComparisonNative,
+  kComparisonXenos,
+};
 std::atomic<DiagnosticMode> g_mode{DiagnosticMode::kClear};
 pinyon_shift::native_renderer::ShaderPack g_shader_pack;
 
@@ -37,6 +44,10 @@ const char *DiagnosticModeName(DiagnosticMode mode) {
     return "diagnostic_triangle";
   case DiagnosticMode::kRetainedPass:
     return "diagnostic_retained_pass";
+  case DiagnosticMode::kComparisonNative:
+    return "comparison_native";
+  case DiagnosticMode::kComparisonXenos:
+    return "comparison_xenos";
   default:
     return "diagnostic_clear";
   }
@@ -63,11 +74,22 @@ bool RenderDiagnosticOutput(
   if (mode == DiagnosticMode::kTriangle && context.draw_diagnostic_triangle) {
     rendered = context.draw_diagnostic_triangle(
         context, uint32_t((context.submission / 120) & 1));
-  } else if (mode == DiagnosticMode::kRetainedPass &&
+  } else if ((mode == DiagnosticMode::kRetainedPass ||
+              mode == DiagnosticMode::kComparisonNative ||
+              mode == DiagnosticMode::kComparisonXenos) &&
              context.draw_retained_pass) {
     if (context.frame_sequence &&
         context.retained_pass_frame_sequence == context.frame_sequence) {
-      rendered = context.draw_retained_pass(context);
+      auto retained_mode =
+          rex::system::NativeGuestOutputRetainedPassMode::kPresentNative;
+      if (mode == DiagnosticMode::kComparisonNative) {
+        retained_mode =
+            rex::system::NativeGuestOutputRetainedPassMode::kCompareNative;
+      } else if (mode == DiagnosticMode::kComparisonXenos) {
+        retained_mode =
+            rex::system::NativeGuestOutputRetainedPassMode::kCompareXenos;
+      }
+      rendered = context.draw_retained_pass(context, retained_mode);
     }
   } else if (mode == DiagnosticMode::kClear && context.clear_color) {
     const bool alternate = ((context.submission / 120) & 1) != 0;
@@ -76,7 +98,10 @@ bool RenderDiagnosticOutput(
     rendered = context.clear_color(context, color);
   }
   if (!rendered) {
-    if (mode == DiagnosticMode::kRetainedPass && context.draw_retained_pass) {
+    if ((mode == DiagnosticMode::kRetainedPass ||
+         mode == DiagnosticMode::kComparisonNative ||
+         mode == DiagnosticMode::kComparisonXenos) &&
+        context.draw_retained_pass) {
       if (callback == 1 || callback % 300 == 0) {
         pinyon_shift::diagnostics::RecordEvent(
             "native_renderer.output.waiting",
@@ -118,9 +143,16 @@ bool RenderDiagnosticOutput(
          {"display_height", std::to_string(context.display_height)},
          {"format", std::to_string(context.output_format)},
          {"mode", DiagnosticModeName(mode)},
-         {"composition", mode == DiagnosticMode::kRetainedPass
+         {"composition", (mode == DiagnosticMode::kRetainedPass ||
+                           mode == DiagnosticMode::kComparisonNative ||
+                           mode == DiagnosticMode::kComparisonXenos)
                              ? "private_display_target"
                              : "direct_guest_output"},
+         {"selected_output", mode == DiagnosticMode::kComparisonXenos
+                                 ? "xenos"
+                                 : "native"},
+         {"authority", mode == DiagnosticMode::kComparisonXenos ? "xenos"
+                                                                  : "native"},
          {"xenos_draw", "preserved"},
          {"suppression", "disabled"}});
   }
@@ -165,16 +197,23 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (mode != "diagnostic_clear" && mode != "diagnostic_triangle" &&
       mode != "diagnostic_retained_pass" &&
+      mode != "comparison_native" && mode != "comparison_xenos" &&
       !(mode == "xenos" && legacy_clear)) {
     diagnostics::RecordEvent(
         "native_renderer.output.failure",
         {{"reason", "unsupported_mode"}, {"fallback", "xenos"}});
     return;
   }
-  const DiagnosticMode selected_mode =
-      mode == "diagnostic_triangle"        ? DiagnosticMode::kTriangle
-      : mode == "diagnostic_retained_pass" ? DiagnosticMode::kRetainedPass
-                                           : DiagnosticMode::kClear;
+  DiagnosticMode selected_mode = DiagnosticMode::kClear;
+  if (mode == "diagnostic_triangle") {
+    selected_mode = DiagnosticMode::kTriangle;
+  } else if (mode == "diagnostic_retained_pass") {
+    selected_mode = DiagnosticMode::kRetainedPass;
+  } else if (mode == "comparison_native") {
+    selected_mode = DiagnosticMode::kComparisonNative;
+  } else if (mode == "comparison_xenos") {
+    selected_mode = DiagnosticMode::kComparisonXenos;
+  }
   g_mode.store(selected_mode, std::memory_order_release);
   g_failure_latched.store(false, std::memory_order_release);
   g_callback_count.store(0, std::memory_order_release);
@@ -182,6 +221,10 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
   graphics_system->SetNativeGuestOutputRenderer(&RenderDiagnosticOutput);
   diagnostics::RecordEvent("native_renderer.output.installed",
                            {{"mode", DiagnosticModeName(selected_mode)},
+                            {"authority",
+                             selected_mode == DiagnosticMode::kComparisonXenos
+                                 ? "xenos"
+                                 : "native"},
                             {"fallback", "xenos"},
                             {"xenos_draw", "preserved"},
                             {"suppression", "disabled"}});
