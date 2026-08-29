@@ -29,6 +29,13 @@ address = 0x8240F4DC
 name = "PinyonShiftObserveDrawIndexedDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 
+# Record the physical identity of the exact PM4_DRAW_INDX_2 header without
+# reading or changing the packet. The original stwu executes after the hook.
+[[midasm_hook]]
+address = 0x82410328
+name = "PinyonShiftObserveDrawPacketSubmission"
+registers = ["r3"]
+
 [[midasm_hook]]
 address = 0x82413ABC
 name = "PinyonShiftObserveBinningScissorStateDispatch"
@@ -63,6 +70,11 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x829F7C74
 name = "PinyonShiftObserveDrawImmediateDispatch"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F7CB0
+name = "PinyonShiftObserveDrawPacketSubmission"
+registers = ["r3"]
 
 [[midasm_hook]]
 address = 0x82D951E4

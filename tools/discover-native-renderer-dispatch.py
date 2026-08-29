@@ -107,9 +107,20 @@ STORE_RE = re.compile(r"stw(?:u|x|ux)? (r\d+),.*$")
 LIS_RE = re.compile(r"lis (r\d+),(-?\d+)$")
 ORIS_RE = re.compile(r"oris (r\d+),\1,(\d+)$")
 CALL_RE = re.compile(r"bl 0x([0-9a-fA-F]{8})$")
+CALL_BOUNDARY_RE = re.compile(r"(?:bl 0x[0-9a-fA-F]{8}|bctrl|blrl)$")
 BRANCH_RE = re.compile(r"b 0x([0-9a-fA-F]{8})$")
 DIRTY_STORE_RE = re.compile(r"std (r\d+),(16|24|32)\(r31\)$")
 QUERY_STATE_STORE_RE = re.compile(r"std (r\d+),12424\(r31\)$")
+REGISTER_DEFINITION_RE = re.compile(r"([a-z0-9.]+) (r(?:[3-9]|10))(?:,|$)")
+MEMORY_LOAD_RE = re.compile(
+    r"(lbz|lhz|lwz|ld|lfs) (r(?:[3-9]|10)),(-?\d+)\((r\d+)\)$"
+)
+DEFINITION_OPERATIONS = {
+    "mr", "li", "lis", "mflr", "lbz", "lhz", "lwz", "ld", "lfs",
+    "addi", "addis", "add", "subf", "neg", "extsw", "or", "ori",
+    "oris", "and", "andc", "andi.", "andis.", "xor", "xori", "rlwinm",
+    "rlwimi", "rldicr", "clrlwi", "slwi", "srwi", "srawi",
+}
 
 
 def parse_functions(paths: list[pathlib.Path]) -> list[dict]:
@@ -262,6 +273,85 @@ def direct_calls(functions: list[dict], targets: set[int]) -> list[dict]:
                 }
             )
     return sorted(calls, key=lambda item: (item["wrapper"], item["callsite"]))
+
+
+def adapter_argument_leads(functions: list[dict], calls: list[dict]) -> list[dict]:
+    functions_by_address = {item["address"]: item for item in functions}
+    leads = []
+    for call in calls:
+        if call["wrapper"] != "824079B8":
+            continue
+        function = functions_by_address[int(call["caller_function_address"], 16)]
+        instructions = function["instructions"]
+        call_index = next(
+            index
+            for index, instruction in enumerate(instructions)
+            if instruction["address"] == int(call["callsite"], 16)
+        )
+        definitions = []
+        for register_index in range(3, 11):
+            register = f"r{register_index}"
+            definition = None
+            crossed_call = False
+            for instruction in reversed(instructions[:call_index]):
+                if CALL_BOUNDARY_RE.fullmatch(instruction["text"]):
+                    crossed_call = True
+                    break
+                match = REGISTER_DEFINITION_RE.match(instruction["text"])
+                if not match or match.group(2) != register:
+                    continue
+                if match.group(1) not in DEFINITION_OPERATIONS:
+                    continue
+                definition = instruction
+                break
+            if definition is None:
+                definitions.append(
+                    {
+                        "register": register,
+                        "status": (
+                            "unknown_across_call_boundary"
+                            if crossed_call
+                            else "entry_register"
+                        ),
+                    }
+                )
+                continue
+            text = definition["text"]
+            operation = text.split(" ", 1)[0]
+            operands = text.split(" ", 1)[1].split(",")
+            source_registers = re.findall(r"r\d+", ",".join(operands[1:]))
+            item = {
+                "register": register,
+                "status": "bounded_syntactic_definition",
+                "address": "{:08X}".format(definition["address"]),
+                "operation": operation,
+                "instruction": text,
+                "source_registers": source_registers,
+            }
+            memory = MEMORY_LOAD_RE.fullmatch(text)
+            if memory:
+                item["memory_load"] = {
+                    "base_register": memory.group(4),
+                    "offset": int(memory.group(3)),
+                    "width": memory.group(1),
+                }
+            definitions.append(item)
+        leads.append(
+            {
+                "wrapper": call["wrapper"],
+                "caller_function": call["caller_function"],
+                "caller_function_address": call["caller_function_address"],
+                "callsite": call["callsite"],
+                "return_address": call["return_address"],
+                "arguments": definitions,
+                "classification": "bounded_syntactic_object_lead_only",
+                "interprocedural_dataflow": False,
+                "object_identity_proved": False,
+                "lifetime_proved": False,
+                "suppression_eligible": False,
+            }
+        )
+    return leads
 
 
 def tail_forwarded_calls(
@@ -567,6 +657,70 @@ def reviewed_side_effect_packets(constructors: list[dict]) -> dict:
     }
 
 
+def draw_packet_provenance(constructors: list[dict], calls: list[dict]) -> dict:
+    expected = {
+        "8240F4D8": {
+            "constructor_address": "82410320",
+            "store_address": "82410328",
+            "packet_hook_address": "82410328",
+        },
+        "829F7C70": {
+            "constructor_address": "829F7CA8",
+            "store_address": "829F7CB0",
+            "packet_hook_address": "829F7CB0",
+        },
+    }
+    packet_sites = []
+    for wrapper, required in expected.items():
+        matches = [
+            item
+            for item in constructors
+            if item["function_address"] == wrapper
+            and item["opcode"] == "PM4_DRAW_INDX_2"
+            and item["role"] == "runtime_wrapper"
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "reviewed draw wrapper must have one runtime packet store: {}".format(
+                    wrapper
+                )
+            )
+        packet = matches[0]
+        for field in ("constructor_address", "store_address"):
+            if packet[field] != required[field]:
+                raise ValueError(
+                    "reviewed draw packet {} drifted for {}".format(field, wrapper)
+                )
+        packet_sites.append(
+            {
+                "wrapper": wrapper,
+                "wrapper_kind": REVIEWED_WRAPPERS[int(wrapper, 16)]["kind"],
+                **required,
+                "packet_opcode": "PM4_DRAW_INDX_2",
+                "packet_address_expression": "physical(r3_plus_4_before_stwu)",
+            }
+        )
+    adapter_forward = [
+        item
+        for item in calls
+        if item["caller_function_address"] == "824079B8"
+        and item["wrapper"] == "8240F4D8"
+    ]
+    if len(adapter_forward) != 1 or adapter_forward[0]["return_address"] != "824079FC":
+        raise ValueError("draw adapter forwarding return address drifted")
+    return {
+        "packet_sites": packet_sites,
+        "adapter_forward_return_address": "824079FC",
+        "backend_observation_field": "packet_physical_address",
+        "correlation": "exact_physical_pm4_header_address",
+        "guest_payload_read": False,
+        "guest_state_changed": False,
+        "control_flow_changed": False,
+        "xenos_authority": True,
+        "suppression_allowed": False,
+    }
+
+
 def build(paths: list[pathlib.Path]) -> dict:
     functions = parse_functions(paths)
     functions_by_address = {item["address"]: item for item in functions}
@@ -606,6 +760,7 @@ def build(paths: list[pathlib.Path]) -> dict:
             )
         )
     calls = direct_calls(functions, set(REVIEWED_WRAPPERS))
+    argument_leads = adapter_argument_leads(functions, calls)
     forwarded_calls = tail_forwarded_calls(
         functions, set(REVIEWED_WRAPPERS)
     )
@@ -651,6 +806,7 @@ def build(paths: list[pathlib.Path]) -> dict:
         raise ValueError("reviewed title resolve-mode write evidence drifted")
     query_owner = query_owner_lifecycle(functions)
     side_effect_packets = reviewed_side_effect_packets(constructors)
+    packet_provenance = draw_packet_provenance(constructors, calls)
     query_owner_callers = [
         item
         for item in calls
@@ -705,11 +861,13 @@ def build(paths: list[pathlib.Path]) -> dict:
         "direct_calls": calls,
         "tail_forwarded_calls": forwarded_calls,
         "runtime_correlation_calls": correlation_calls,
+        "adapter_argument_leads": argument_leads,
         "dirty_state_clears": clears,
         "query_state_transitions": query_transitions,
         "query_owner_lifecycle": query_owner,
         "resolve_mode_writes": resolve_writes,
         "side_effect_packets": side_effect_packets,
+        "draw_packet_provenance": packet_provenance,
         "resolve_boundary": {
             "backend": "IssueCopy",
             "trigger": "RB_MODECONTROL.edram_mode == kCopy during Xenos draw",
@@ -723,6 +881,7 @@ def build(paths: list[pathlib.Path]) -> dict:
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),
             "runtime_correlation_calls": len(correlation_calls),
+            "adapter_argument_leads": len(argument_leads),
             "dirty_state_clears": len(clears),
             "query_state_transitions": len(query_transitions),
             "resolve_mode_writes": len(resolve_writes),

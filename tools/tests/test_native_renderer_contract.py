@@ -214,6 +214,48 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("observation.rb_blendcontrol", signature)
         self.assertNotIn("samples_resolved_target", signature)
 
+    def test_draw_packet_provenance_is_exact_bounded_and_passive(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0080-graphics-draw-packet-provenance.patch"
+        ).read_text(encoding="utf-8")
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("packet_physical_address", patch)
+        self.assertIn("reader->buffer()", patch)
+        self.assertIn("reader->read_offset()", patch)
+        self.assertIn("memory_->physical_membase()", patch)
+        self.assertIn("observation.packet_physical_address =", patch)
+        self.assertIn("observation_packet_physical_address_", patch)
+        self.assertIn("kTitlePacketProvenanceCapacity = 16384", source)
+        self.assertIn("kTitleDrawProvenanceCapacity = 4096", source)
+        self.assertIn("kTitleOriginStackCapacity = 32", source)
+        self.assertIn("exact_physical_pm4_header_address", source)
+        self.assertIn("GetPhysicalAddress(packet_guest_address)", source)
+        self.assertIn("packet_accounting_complete", source)
+        self.assertNotIn("g_title_packet_provenance = {};", source)
+        self.assertNotIn("g_title_draw_provenance = {};", source)
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("title_draw_provenance", report)
+        self.assertIn(
+            "native_renderer.discovery.title_provenance_summary", report
+        )
+        self.assertIn("packet_address_failures", report)
+        self.assertIn('address = 0x82410328', analysis)
+        self.assertIn('address = 0x829F7CB0', analysis)
+        for forbidden in (
+            "SetDrawSuppression",
+            "SetCopySuppression",
+            "guest_payload_read\", \"true",
+        ):
+            self.assertNotIn(forbidden, patch + source + analysis)
+
     def test_census_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

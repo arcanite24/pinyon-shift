@@ -34,13 +34,14 @@ Xenos suppression, or presentation changes. Its setting,
 | System command-buffer request | `0x829EFD80` | `sub_829EFB30` calls `VdGetSystemCommandBuffer`; output pointers are passed in `r3` and `r4` | The returned buffer cursor is subsequently written into the graphics-device object | Verified, not hooked |
 | Frame submission | `0x829EFEB8` | `sub_829EFB30` calls the sole `VdSwap` import; continuation is `0x829EFEBC` | Device command-buffer cursor is updated after return | Verified, pass-through hook |
 | Xenos swap packet | ReXGlue `CommandProcessor::ExecutePacketType3_XE_SWAP` | Consumes the `VdSwap` packet and calls backend `IssueSwap` | ReXGlue snapshots/reset per-frame counters before decoding the packet payload | Verified runtime boundary |
-| Title draw adapter | `0x824079B8` | Direct call to indexed wrapper at `0x824079F8`; 38 call sites across 25 caller functions | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled; stack arguments remain unread | Verified, bounded pass-through hook; semantic family unknown |
+| Title draw adapter | `0x824079B8` | Direct call to indexed wrapper at `0x824079F8`; 38 call sites across 25 caller functions | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled; exact packet store is keyed at `0x82410328`; stack arguments remain unread | Verified, bounded pass-through hook; exact backend provenance qualified, prepared provenance not observed |
 | Indexed draw wrapper | `0x8240F4D8` | Stored `PM4_DRAW_INDX_2` header at `0x82410320`; dynamic Type-3 count | Entry `r3-r10` and caller `LR` are observed; six consume-then-clear dirty-mask sites are statically proved | Verified, bounded pass-through hook |
 | Immediate draw wrapper | `0x829F7C70` | Stored count-one `PM4_DRAW_INDX_2` header at `0x829F7CA8` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Visibility-query begin | `0x829F21A0` | Stored count-one `PM4_VIZ_QUERY` header at `0x829F225C`; active-query bit set at `0x829F2270` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Visibility-query end | `0x829F2280` | Stored count-one `PM4_VIZ_QUERY` header at `0x829F22E4`; active-query bit cleared at `0x829F2308` | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Visibility-query owner | `0x82D951E0` | Calls begin at `0x82D95230`, performs five work calls, then calls end at `0x82D95378`; two direct callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Lifecycle owner verified; result consumer and semantics unknown |
 | Draw packet backend | ReXGlue `PM4_DRAW_INDX` / `PM4_DRAW_INDX_2` | Generic command processor decodes the packet before backend `IssueDraw` | Register-derived draw state is consumed by the backend | Verified runtime boundary |
+| Draw packet provenance | Title stores `0x82410328` / `0x829F7CB0`; ReXGlue patch `0080` | Both sides normalize the same PM4 header to a physical address | Fixed outstanding table is consumed only on exact address equality; same-address generations are retained oldest-first | Runtime-qualified, passive: 107,455 exact matches and zero attribution faults; no prepared callback observed |
 | Resolve controller | `0x824587D8` | Two direct calls to setup wrapper `0x82458A88`; three direct controller callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Resolve setup | `0x82458A88` | Emits `RB_MODECONTROL` register index `0x2208` followed by `EdramMode::kCopy` value 6 | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Title setup verified; subsequent resolve draw ownership unknown |
 | Binning/scissor state | `0x82413AB8` | Stores `PM4_SET_BIN_MASK_LO/HI` headers; ten direct calls | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Xenos state boundary verified; semantic tiled role unknown |
@@ -103,6 +104,8 @@ read or serialize guest memory.
 - Inventory memexport-producing draws and guest-visible resolve destinations.
 - Map high-level world, vehicle, road, HUD, garage, mirror, shadow, exposure,
   livery, thumbnail, and rewind dispatch families.
+- Use exact title-packet provenance to associate those callers with prepared
+  signatures before reading object/lifetime structures.
 
 The ten proved wrapper entries, all 72 static direct calls, one proved tail-
 forwarded correlation edge, and explicit semantic unknowns are recorded in
