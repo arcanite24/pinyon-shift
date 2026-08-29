@@ -119,6 +119,16 @@ Gate B remains closed after this capture. CPU-read observation, presentation
 provenance, and semantic classification are separate evidence tasks, not facts
 that may be inferred from the absence of a texture-fetch match.
 
+## Exact-family follow-up
+
+The retained sky/horizon pair now has a family-specific resolve-to-consumer
+inventory in [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md). Its qualified
+open-world run linked six rotating resolve destinations to 51 distinct prepared
+later-draw signatures across 26 shader families without overflowing the bounded
+signature table or missing prepared metadata. This proves the selected family
+is not presentation-only. Gate B remains closed because those consumers have
+not yet been replaced, and guest CPU visibility is still unknown.
+
 NR-04D evaluates these unknowns per exact pass family with the fail-closed
 admission contract in [SUPPRESSION_ADMISSION.md](SUPPRESSION_ADMISSION.md).
 Neither this aggregate census nor a visually correct native output can bypass

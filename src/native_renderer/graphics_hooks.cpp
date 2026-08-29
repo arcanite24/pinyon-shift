@@ -44,6 +44,8 @@ constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
+constexpr size_t kPassConsumerDetailLimit = 64;
+constexpr size_t kPassConsumerSignatureCapacity = 1024;
 constexpr uint64_t kGuestPageSize = 4096;
 constexpr uint64_t kPhysicalApertureSize = UINT64_C(0x20000000);
 constexpr uint32_t kVertexIndexMask = 0x00FFFFFF;
@@ -111,6 +113,7 @@ struct IsolatedDrawState {
   uint64_t captured_draw = 0;
   uint64_t pass_anchor_frame = 0;
   uint64_t pass_anchor_draw = 0;
+  rex::system::GraphicsDrawObservation prepared_sample;
   std::filesystem::path output_root;
   std::jthread artifact_writer;
   std::jthread reference_artifact_writer;
@@ -290,6 +293,13 @@ bool g_graphics_census_installed = false;
 
 struct PendingCandidateObservation {
   rex::system::GraphicsDrawObservation sample;
+  std::array<size_t, 64> family_targets{};
+  size_t family_target_count = 0;
+  uint64_t family_base_fetch_mask = 0;
+  uint64_t family_mip_fetch_mask = 0;
+  uint64_t family_sample_references = 0;
+  uint32_t first_family_fetch_index = 0;
+  bool first_family_fetch_is_mip = false;
   bool samples_resolved_target = false;
   bool valid = false;
 };
@@ -314,7 +324,13 @@ struct ResolveTargetEntry {
   uint64_t memexport_sample_draw_count = 0;
   uint64_t window_resolve_count = 0;
   uint64_t window_sampled_draw_count = 0;
+  uint64_t family_frame = 0;
+  uint64_t family_draw = 0;
+  uint64_t family_sampled_draw_count = 0;
+  uint64_t family_sample_reference_count = 0;
   bool last_fetch_was_mip = false;
+  bool latest_resolve_from_traced_family = false;
+  bool family_consumer_reported = false;
   rex::system::GraphicsCopyObservation sample;
 };
 
@@ -345,8 +361,49 @@ struct DependencyCensus {
 
 DependencyCensus g_dependency_census;
 
+struct PassConsumerSignatureEntry {
+  uint64_t signature = 0;
+  uint64_t sample_events = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t query_sample_events = 0;
+  uint64_t memexport_sample_events = 0;
+  uint64_t family_base_fetch_mask = 0;
+  uint64_t family_mip_fetch_mask = 0;
+  bool prepared_valid = false;
+  rex::system::GraphicsDrawObservation sample;
+  rex::system::GraphicsPreparedDrawObservation prepared_sample;
+};
+
+struct PassConsumerTrace {
+  rex::system::GraphicsDrawObservation pending_target;
+  uint64_t pending_frame = 0;
+  uint64_t pending_draw = 0;
+  uint64_t family_occurrences = 0;
+  uint64_t family_resolves = 0;
+  uint64_t family_resolve_bytes = 0;
+  uint64_t sampled_resolves = 0;
+  uint64_t sampled_draws = 0;
+  uint64_t sample_references = 0;
+  uint64_t overwritten_unsampled = 0;
+  uint64_t active_unsampled = 0;
+  uint64_t superseded_without_resolve = 0;
+  uint64_t consumer_signature_count = 0;
+  uint64_t consumer_signature_overflow = 0;
+  uint64_t unprepared_consumer_draws = 0;
+  uint64_t unprepared_consumer_references = 0;
+  uint64_t detail_events = 0;
+  uint64_t detail_overflow = 0;
+  bool pending = false;
+  std::array<PassConsumerSignatureEntry, kPassConsumerSignatureCapacity>
+      consumer_signatures{};
+};
+
+PassConsumerTrace g_pass_consumer_trace;
+
 static_assert(std::is_trivially_copyable_v<DrawCensus>);
 static_assert(std::is_trivially_copyable_v<DependencyCensus>);
+static_assert(std::is_trivially_copyable_v<PassConsumerTrace>);
 
 void ResetDrawCensus() {
   std::memset(&g_draw_census, 0, sizeof(g_draw_census));
@@ -365,6 +422,7 @@ void ResetPreparedShaderPairs() {
 
 void ResetDependencyCensus() {
   std::memset(&g_dependency_census, 0, sizeof(g_dependency_census));
+  std::memset(&g_pass_consumer_trace, 0, sizeof(g_pass_consumer_trace));
 }
 
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
@@ -1561,6 +1619,10 @@ void RecordCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared);
+void CommitPassConsumer(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const PendingCandidateObservation &candidate);
 
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
@@ -1571,11 +1633,13 @@ void ObservePreparedDraw(
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
+    CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
+    g_isolated_draw.prepared_sample = sample;
     g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
         sample, g_pending_candidate.samples_resolved_target, observation);
     g_isolated_draw.prepared_candidate_valid = true;
@@ -2472,6 +2536,14 @@ void RequestIsolatedDraw(
         !g_isolated_draw.prepared_candidate_eligible) {
       return;
     }
+    if (g_pass_consumer_trace.pending) {
+      ++g_pass_consumer_trace.superseded_without_resolve;
+    }
+    g_pass_consumer_trace.pending_target = g_isolated_draw.prepared_sample;
+    g_pass_consumer_trace.pending_frame = g_isolated_draw.frame;
+    g_pass_consumer_trace.pending_draw = g_isolated_draw.draw;
+    ++g_pass_consumer_trace.family_occurrences;
+    g_pass_consumer_trace.pending = true;
     request.requested = true;
     request.frame_sequence = g_isolated_draw.frame;
     request.reuse_target = true;
@@ -2669,6 +2741,143 @@ void EmitDrawCensusWindow(uint64_t last_frame_value) {
   ResetDrawCensus();
 }
 
+bool CopyReadsPassTarget(
+    const rex::system::GraphicsCopyObservation &copy,
+    const rex::system::GraphicsDrawObservation &target) {
+  if (copy.surface_info != target.surface_info) {
+    return false;
+  }
+  const uint32_t source = copy.rb_copy_control & 7;
+  if (source < 4) {
+    return copy.color_info[source] == target.color_info[source];
+  }
+  return source == 4 && copy.depth_info == target.depth_info;
+}
+
+bool ShouldEmitPassConsumerDetail() {
+  if (g_pass_consumer_trace.detail_events == kPassConsumerDetailLimit) {
+    ++g_pass_consumer_trace.detail_overflow;
+    return false;
+  }
+  ++g_pass_consumer_trace.detail_events;
+  return true;
+}
+
+void ObservePassConsumerSignature(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint64_t base_fetch_mask, uint64_t mip_fetch_mask) {
+  const uint64_t signature = DrawSignature(observation);
+  PassConsumerSignatureEntry *entry = nullptr;
+  for (size_t i = 0; i < g_pass_consumer_trace.consumer_signature_count; ++i) {
+    if (g_pass_consumer_trace.consumer_signatures[i].signature == signature) {
+      entry = &g_pass_consumer_trace.consumer_signatures[i];
+      break;
+    }
+  }
+  if (!entry) {
+    if (g_pass_consumer_trace.consumer_signature_count ==
+        kPassConsumerSignatureCapacity) {
+      ++g_pass_consumer_trace.consumer_signature_overflow;
+      return;
+    }
+    entry = &g_pass_consumer_trace.consumer_signatures
+                 [g_pass_consumer_trace.consumer_signature_count++];
+    entry->signature = signature;
+    entry->first_frame = observation.frame_sequence;
+    entry->sample = observation;
+    entry->prepared_sample = prepared;
+    entry->prepared_valid = true;
+  }
+  ++entry->sample_events;
+  entry->last_frame = observation.frame_sequence;
+  if (observation.viz_query_condition || (observation.pa_sc_viz_query & 1)) {
+    ++entry->query_sample_events;
+  }
+  if (observation.vertex_memexport) {
+    ++entry->memexport_sample_events;
+  }
+  entry->family_base_fetch_mask |= base_fetch_mask;
+  entry->family_mip_fetch_mask |= mip_fetch_mask;
+}
+
+void CommitPassConsumer(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const PendingCandidateObservation &candidate) {
+  if (!candidate.family_sample_references) {
+    return;
+  }
+  bool active_family_target = false;
+  for (size_t i = 0; i < candidate.family_target_count; ++i) {
+    active_family_target |=
+        g_dependency_census.targets[candidate.family_targets[i]]
+            .latest_resolve_from_traced_family;
+  }
+  if (!active_family_target) {
+    return;
+  }
+  ++g_pass_consumer_trace.sampled_draws;
+  g_pass_consumer_trace.sample_references +=
+      candidate.family_sample_references;
+  ObservePassConsumerSignature(observation, prepared,
+                               candidate.family_base_fetch_mask,
+                               candidate.family_mip_fetch_mask);
+  for (size_t i = 0; i < candidate.family_target_count; ++i) {
+    ResolveTargetEntry &target =
+        g_dependency_census.targets[candidate.family_targets[i]];
+    if (!target.latest_resolve_from_traced_family) {
+      continue;
+    }
+    ++target.family_sampled_draw_count;
+    target.family_sample_reference_count +=
+        candidate.family_sample_references;
+    if (!target.family_consumer_reported) {
+      ++g_pass_consumer_trace.sampled_resolves;
+      target.family_consumer_reported = true;
+      if (ShouldEmitPassConsumerDetail()) {
+        pinyon_shift::diagnostics::RecordEvent(
+            "native_renderer.census.pass_family_consumer",
+            {{"anchor_signature",
+              fmt::format("{:016X}", g_pass_follower.target_signature)},
+             {"follower_signature",
+              fmt::format("{:016X}", g_isolated_draw.target_signature)},
+             {"family_frame", std::to_string(target.family_frame)},
+             {"family_follower_draw", std::to_string(target.family_draw)},
+             {"resolve_frame", std::to_string(target.last_resolve_frame)},
+             {"address", fmt::format("{:08X}", target.address)},
+             {"length", std::to_string(target.length)},
+             {"consumer_frame", std::to_string(observation.frame_sequence)},
+             {"consumer_draw", std::to_string(observation.draw_sequence)},
+             {"consumer_signature",
+              fmt::format("{:016X}", DrawSignature(observation))},
+             {"fetch_index",
+              std::to_string(candidate.first_family_fetch_index)},
+             {"fetch_kind",
+              candidate.first_family_fetch_is_mip ? "mip" : "base"},
+             {"query", observation.viz_query_condition ||
+                           (observation.pa_sc_viz_query & 1)
+                       ? "true"
+                       : "false"},
+             {"memexport", observation.vertex_memexport ? "true" : "false"},
+             {"prepared_metadata", "observed"},
+             {"xenos_draw", "preserved"},
+             {"suppression_eligible", "false"}});
+      }
+    }
+  }
+}
+
+void DiscardPendingPassConsumer() {
+  if (!g_pending_candidate.valid ||
+      !g_pending_candidate.family_sample_references) {
+    return;
+  }
+  ++g_pass_consumer_trace.unprepared_consumer_draws;
+  g_pass_consumer_trace.unprepared_consumer_references +=
+      g_pending_candidate.family_sample_references;
+}
+
 void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
   if (!observation.succeeded) {
@@ -2689,6 +2898,17 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   }
 
   ResolveTargetEntry &target = g_dependency_census.targets[target_index];
+  const bool family_resolve = g_pass_consumer_trace.pending &&
+                              CopyReadsPassTarget(
+                                  observation,
+                                  g_pass_consumer_trace.pending_target);
+  if (target.latest_resolve_from_traced_family) {
+    if (!target.family_sampled_draw_count) {
+      ++g_pass_consumer_trace.overwritten_unsampled;
+    }
+    target.latest_resolve_from_traced_family = false;
+    target.family_consumer_reported = false;
+  }
   if (!target.resolve_count) {
     target.address = observation.written_address;
     target.first_resolve_frame = observation.frame_sequence;
@@ -2702,6 +2922,35 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   target.last_resolve_frame = observation.frame_sequence;
   ++target.window_resolve_count;
   target.sample = observation;
+  if (family_resolve) {
+    target.latest_resolve_from_traced_family = true;
+    target.family_consumer_reported = false;
+    target.family_frame = g_pass_consumer_trace.pending_frame;
+    target.family_draw = g_pass_consumer_trace.pending_draw;
+    target.family_sampled_draw_count = 0;
+    target.family_sample_reference_count = 0;
+    ++g_pass_consumer_trace.family_resolves;
+    g_pass_consumer_trace.family_resolve_bytes += observation.written_length;
+    if (ShouldEmitPassConsumerDetail()) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.census.pass_family_resolve",
+          {{"anchor_signature",
+            fmt::format("{:016X}", g_pass_follower.target_signature)},
+           {"follower_signature",
+            fmt::format("{:016X}", g_isolated_draw.target_signature)},
+           {"family_frame", std::to_string(target.family_frame)},
+           {"family_follower_draw", std::to_string(target.family_draw)},
+           {"resolve_frame", std::to_string(observation.frame_sequence)},
+           {"resolve_sequence", std::to_string(observation.copy_sequence)},
+           {"address", fmt::format("{:08X}", observation.written_address)},
+           {"length", std::to_string(observation.written_length)},
+           {"copy_source", std::to_string(observation.rb_copy_control & 7)},
+           {"classification", "tracked_guest_gpu_output"},
+           {"xenos_draw", "preserved"},
+           {"suppression_eligible", "false"}});
+    }
+    g_pass_consumer_trace.pending = false;
+  }
   MapResolveRange(target_index, observation.written_address,
                   observation.written_length);
 }
@@ -2731,7 +2980,8 @@ void EmitResolvedTextureDependency(
 void ObserveResolvedFetch(
     const rex::system::GraphicsDrawObservation &observation,
     uint32_t fetch_index, uint32_t address, bool is_mip,
-    std::array<size_t, 64> &sampled_targets, size_t &sampled_target_count) {
+    std::array<size_t, 64> &sampled_targets, size_t &sampled_target_count,
+    PendingCandidateObservation &candidate) {
   if (!address) {
     return;
   }
@@ -2743,6 +2993,17 @@ void ObserveResolvedFetch(
   ResolveTargetEntry &target = g_dependency_census.targets[target_index];
   ++target.sample_reference_count;
   ++g_dependency_census.window_sample_reference_count;
+  if (target.latest_resolve_from_traced_family) {
+    if (!candidate.family_sample_references) {
+      candidate.first_family_fetch_index = fetch_index;
+      candidate.first_family_fetch_is_mip = is_mip;
+    }
+    ++candidate.family_sample_references;
+    if (fetch_index < 64) {
+      (is_mip ? candidate.family_mip_fetch_mask
+              : candidate.family_base_fetch_mask) |= UINT64_C(1) << fetch_index;
+    }
+  }
   target.last_fetch_index = fetch_index;
   target.last_fetch_was_mip = is_mip;
   for (size_t i = 0; i < sampled_target_count; ++i) {
@@ -2761,6 +3022,9 @@ void ObserveResolvedFetch(
   }
   ++target.sampled_draw_count;
   ++target.window_sampled_draw_count;
+  if (target.latest_resolve_from_traced_family) {
+    candidate.family_targets[candidate.family_target_count++] = target_index;
+  }
   target.last_sample_frame = observation.frame_sequence;
   if (observation.viz_query_condition) {
     ++target.conditional_sample_draw_count;
@@ -2838,16 +3102,20 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
 
   std::array<size_t, 64> sampled_targets{};
   size_t sampled_target_count = 0;
+  PendingCandidateObservation candidate;
+  candidate.sample = observation;
   for (uint32_t fetch_index = 0; fetch_index < 32; ++fetch_index) {
     if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch_index))) {
       continue;
     }
     ObserveResolvedFetch(observation, fetch_index,
                          observation.texture_fetch_addresses[fetch_index],
-                         false, sampled_targets, sampled_target_count);
+                         false, sampled_targets, sampled_target_count,
+                         candidate);
     ObserveResolvedFetch(observation, fetch_index,
                          observation.texture_fetch_mip_addresses[fetch_index],
-                         true, sampled_targets, sampled_target_count);
+                         true, sampled_targets, sampled_target_count,
+                         candidate);
   }
   if (sampled_target_count) {
     ++g_dependency_census.window_sampled_draw_count;
@@ -2869,9 +3137,10 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   const bool samples_resolved_target = sampled_target_count != 0;
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
+    DiscardPendingPassConsumer();
   }
-  g_pending_candidate.sample = observation;
-  g_pending_candidate.samples_resolved_target = samples_resolved_target;
+  candidate.samples_resolved_target = samples_resolved_target;
+  g_pending_candidate = candidate;
   g_pending_candidate.valid = true;
   const uint64_t signature = DrawSignature(observation);
   size_t index = size_t(signature % kSignatureCapacity);
@@ -3040,13 +3309,156 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (g_isolated_draw.reference_depth_artifact_writer.joinable()) {
     g_isolated_draw.reference_depth_artifact_writer.join();
   }
+  if (g_pending_candidate.valid) {
+    ++g_candidate_unprepared_draw_count;
+    DiscardPendingPassConsumer();
+    g_pending_candidate.valid = false;
+  }
+  if (g_pass_consumer_trace.pending) {
+    ++g_pass_consumer_trace.superseded_without_resolve;
+    g_pass_consumer_trace.pending = false;
+  }
+  for (const ResolveTargetEntry &target : g_dependency_census.targets) {
+    if (target.latest_resolve_from_traced_family &&
+        !target.family_sampled_draw_count) {
+      ++g_pass_consumer_trace.active_unsampled;
+    }
+  }
+  if (g_pass_follower.requested && g_pass_follower.valid &&
+      g_isolated_draw.requested && g_isolated_draw.valid) {
+    uint64_t prepared_metadata_count = 0;
+    for (size_t i = 0; i < g_pass_consumer_trace.consumer_signature_count; ++i) {
+      const PassConsumerSignatureEntry &entry =
+          g_pass_consumer_trace.consumer_signatures[i];
+      prepared_metadata_count += entry.prepared_valid ? 1 : 0;
+      const auto &sample = entry.sample;
+      const auto &prepared = entry.prepared_sample;
+      const std::string pipeline_state = fmt::format(
+          "color_mask={:08X};blend={:08X}:{:08X}:{:08X}:{:08X};"
+          "depth={:08X};raster={:08X};vertex={:08X}",
+          sample.rb_color_mask, sample.rb_blendcontrol[0],
+          sample.rb_blendcontrol[1], sample.rb_blendcontrol[2],
+          sample.rb_blendcontrol[3], sample.rb_depthcontrol,
+          sample.pa_su_sc_mode_cntl, sample.pa_su_vtx_cntl);
+      diagnostics::RecordEvent(
+          "native_renderer.census.pass_family_consumer_signature",
+          {{"anchor_signature",
+            fmt::format("{:016X}", g_pass_follower.target_signature)},
+           {"follower_signature",
+            fmt::format("{:016X}", g_isolated_draw.target_signature)},
+           {"consumer_signature", fmt::format("{:016X}", entry.signature)},
+           {"sample_events", std::to_string(entry.sample_events)},
+           {"first_frame", std::to_string(entry.first_frame)},
+           {"last_frame", std::to_string(entry.last_frame)},
+           {"query_sample_events",
+            std::to_string(entry.query_sample_events)},
+           {"memexport_sample_events",
+            std::to_string(entry.memexport_sample_events)},
+           {"family_base_fetch_mask",
+            fmt::format("{:016X}", entry.family_base_fetch_mask)},
+           {"family_mip_fetch_mask",
+            fmt::format("{:016X}", entry.family_mip_fetch_mask)},
+           {"vertex_shader", fmt::format("{:016X}", sample.vertex_shader_hash)},
+           {"pixel_shader", fmt::format("{:016X}", sample.pixel_shader_hash)},
+           {"vertex_specialization_mask",
+            entry.prepared_valid
+                ? fmt::format("{:016X}", prepared.vertex_specialization_mask)
+                : "unknown"},
+           {"pixel_specialization_mask",
+            entry.prepared_valid
+                ? fmt::format("{:016X}", prepared.pixel_specialization_mask)
+                : "unknown"},
+           {"prepared_pipeline_hash",
+            entry.prepared_valid
+                ? fmt::format("{:016X}", PreparedPipelineHash(prepared))
+                : "unknown"},
+           {"host_primitive",
+            entry.prepared_valid
+                ? std::to_string(prepared.host_primitive_type)
+                : "unknown"},
+           {"host_index_buffer_type",
+            entry.prepared_valid
+                ? std::to_string(prepared.index_buffer_type)
+                : "unknown"},
+           {"host_index_format",
+            entry.prepared_valid
+                ? std::to_string(prepared.host_index_format)
+                : "unknown"},
+           {"prepared_pipeline_flags",
+            entry.prepared_valid ? fmt::format("{:08X}", prepared.flags)
+                                 : "unknown"},
+           {"bound_render_target_bits",
+            entry.prepared_valid
+                ? fmt::format("{:08X}", prepared.bound_render_target_bits)
+                : "unknown"},
+           {"primitive", std::to_string(sample.primitive_type)},
+           {"source_select", std::to_string(sample.source_select)},
+           {"indexed", sample.indexed ? "true" : "false"},
+           {"index_count", std::to_string(sample.index_count)},
+           {"vertex_binding_count",
+            std::to_string(sample.vertex_binding_count)},
+           {"vertex_attribute_count",
+            std::to_string(sample.vertex_attribute_count)},
+           {"texture_fetch_count",
+            std::to_string(std::popcount(sample.texture_fetch_mask))},
+           {"pipeline_state", pipeline_state},
+           {"prepared_metadata", entry.prepared_valid ? "observed" : "missing"},
+           {"classification", "exact_family_guest_gpu_consumer"},
+           {"xenos_draw", "preserved"},
+           {"suppression_eligible", "false"}});
+    }
+    diagnostics::RecordEvent(
+        "native_renderer.census.pass_family_consumer_summary",
+        {{"anchor_signature",
+          fmt::format("{:016X}", g_pass_follower.target_signature)},
+         {"follower_signature",
+          fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"family_occurrences",
+          std::to_string(g_pass_consumer_trace.family_occurrences)},
+         {"family_resolves",
+          std::to_string(g_pass_consumer_trace.family_resolves)},
+         {"family_resolve_bytes",
+          std::to_string(g_pass_consumer_trace.family_resolve_bytes)},
+         {"sampled_resolves",
+          std::to_string(g_pass_consumer_trace.sampled_resolves)},
+         {"sampled_draws",
+          std::to_string(g_pass_consumer_trace.sampled_draws)},
+         {"sample_references",
+          std::to_string(g_pass_consumer_trace.sample_references)},
+         {"overwritten_unsampled",
+          std::to_string(g_pass_consumer_trace.overwritten_unsampled)},
+         {"active_unsampled",
+          std::to_string(g_pass_consumer_trace.active_unsampled)},
+         {"superseded_without_resolve",
+          std::to_string(
+              g_pass_consumer_trace.superseded_without_resolve)},
+         {"consumer_signature_count",
+          std::to_string(g_pass_consumer_trace.consumer_signature_count)},
+         {"consumer_signature_overflow",
+          std::to_string(g_pass_consumer_trace.consumer_signature_overflow)},
+         {"unprepared_consumer_draws",
+          std::to_string(g_pass_consumer_trace.unprepared_consumer_draws)},
+         {"unprepared_consumer_references",
+          std::to_string(
+              g_pass_consumer_trace.unprepared_consumer_references)},
+         {"prepared_metadata_count",
+          std::to_string(prepared_metadata_count)},
+         {"prepared_metadata_missing",
+          std::to_string(g_pass_consumer_trace.consumer_signature_count -
+                         prepared_metadata_count)},
+         {"detail_events",
+          std::to_string(g_pass_consumer_trace.detail_events)},
+         {"detail_overflow",
+          std::to_string(g_pass_consumer_trace.detail_overflow)},
+         {"classification", "bounded_exact_family_lineage"},
+         {"guest_gpu_consumers",
+          g_pass_consumer_trace.sampled_draws ? "observed" : "unobserved"},
+         {"xenos_draw", "preserved"},
+         {"suppression_eligible", "false"}});
+  }
   g_graphics_census_installed = false;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);
-  }
-  if (g_pending_candidate.valid) {
-    ++g_candidate_unprepared_draw_count;
-    g_pending_candidate.valid = false;
   }
   EmitDependencyCensusWindow();
   if (g_index_scan.requested && g_index_scan.valid && !g_index_scan.completed) {

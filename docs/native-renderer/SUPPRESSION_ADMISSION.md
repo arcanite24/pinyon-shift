@@ -40,12 +40,11 @@ code 1.
 ## Current retained sky/horizon family
 
 The exact pair `747837906D0BF484` / `1D253A52B55C9FB3` has stable boundaries,
-one-draw parity, continuous exact-frame output, fallback behavior, and native
-GPU timing. It is not admitted for suppression yet:
+complete-pass color/depth parity, continuous exact-frame output, fallback
+behavior, and native GPU timing. It is not admitted for suppression yet:
 
-- the current RenderDoc parity result covers the anchor draw, not the complete
-  two-draw retained pass;
-- the target's later GPU-consumer graph is not closed;
+- the exact-family graph positively observes 51 prepared later-GPU-consumer
+  signatures across 26 shader families that have not been replaced;
 - guest CPU visibility remains uninstrumented; and
 - no independently reversible suppression switch exists.
 
@@ -63,6 +62,12 @@ so both depth and stencil participate in the comparison.
 The 2026-08-29 same-frame qualification passed exact complete-pass color parity
 across 41,943,040 active bytes and exact two-sample depth/stencil parity across
 83,886,080 bytes. This promotes both `color_parity` and `depth_parity` to
-`pass`. The admission result is now 9/12; `later_gpu_consumers`,
-`guest_cpu_visibility`, and `rollback_switch` remain `unknown`, so suppression
-is still prohibited.
+`pass`.
+
+The subsequent bounded consumer qualification linked 384 family resolves to
+51 distinct prepared later-draw signatures across 26 shader families, with zero
+signature overflow and complete prepared metadata. This promotes
+`later_gpu_consumers` from `unknown` to `fail`: consumers are proven present
+but are not native-replaced. The admission result remains 9/12 passing gates;
+`guest_cpu_visibility` and `rollback_switch` remain `unknown`, and suppression
+is still prohibited. See [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).
