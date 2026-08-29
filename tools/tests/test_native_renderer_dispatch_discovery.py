@@ -1174,6 +1174,15 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "PM4_DRAW_INDX", draw_association["semantic_draw_packet_opcode"]
         )
         self.assertTrue(draw_association["semantic_pm4_packet_construction_proved"])
+        self.assertTrue(
+            draw_association[
+                "semantic_prepared_contract_runtime_join_required"
+            ]
+        )
+        self.assertEqual(
+            "immutable_template_and_dynamic_resource_instance",
+            draw_association["semantic_catalog_classification"],
+        )
         self.assertTrue(draw_association["render_item_invocation_scope_proved"])
         self.assertTrue(draw_association["submission_before_draw_dispatch_proved"])
         self.assertEqual(160, draw_association["graphics_submission_vtable_offset"])

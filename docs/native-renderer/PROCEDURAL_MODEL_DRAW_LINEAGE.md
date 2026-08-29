@@ -121,6 +121,13 @@ the procedural semantic submission to its physical PM4 header and prepared
 Xenos draw; it does not yet establish the resource ABI needed for native
 rendering.
 
+The next NR-05B layer now uses that exact bridge to separate immutable prepared
+templates from dynamic semantic instances and conservative batch groups. See
+`SEMANTIC_INSTANCE_CATALOG.md`. Session `20260829T210122Z-p37672` proved the
+compact catalog across 403,015 prepared associations, 900 composite templates,
+and 1,067 conservative batch groups, with bounded layouts and zero hidden
+template or resource variation. Native batching and admission remain disabled.
+
 ## Safety boundary
 
 All observations are passive and bounded. The implementation does not alter

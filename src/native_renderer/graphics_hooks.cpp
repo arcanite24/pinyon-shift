@@ -92,6 +92,8 @@ constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
+constexpr size_t kSemanticPreparedTemplateCapacity =
+    kTitleDrawProvenanceCapacity;
 constexpr size_t kSemanticDescriptorWordCount = 92 / sizeof(uint32_t);
 constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
 constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
@@ -162,6 +164,43 @@ struct TitlePacketProvenanceEntry {
   bool occupied = false;
 };
 
+struct SemanticPreparedDrawContract {
+  uint64_t template_key = 0;
+  uint64_t prepared_pipeline_hash = 0;
+  uint64_t geometry_layout_hash = 0;
+  uint64_t texture_layout_hash = 0;
+  uint64_t render_state_hash = 0;
+  uint64_t geometry_resource_hash = 0;
+  uint64_t texture_resource_hash = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t vertex_specialization_mask = 0;
+  uint64_t pixel_specialization_mask = 0;
+  uint64_t template_variations = 0;
+  uint64_t resource_variations = 0;
+  uint32_t primitive_type = 0;
+  uint32_t source_select = 0;
+  uint32_t minimum_index_count = 0;
+  uint32_t maximum_index_count = 0;
+  uint32_t index_buffer_address = 0;
+  uint32_t index_buffer_length = 0;
+  uint32_t index_format = 0;
+  uint32_t index_endianness = 0;
+  uint32_t vertex_binding_count = 0;
+  uint32_t vertex_attribute_count = 0;
+  uint32_t first_vertex_address = 0;
+  uint32_t first_vertex_size = 0;
+  uint32_t first_vertex_stride_words = 0;
+  uint32_t first_vertex_endianness = 0;
+  uint32_t texture_fetch_mask = 0;
+  uint32_t texture_layout_valid_mask = 0;
+  uint32_t texture_state_count = 0;
+  bool indexed = false;
+  bool geometry_bounded = false;
+  bool texture_layout_bounded = false;
+  bool valid = false;
+};
+
 struct TitleDrawProvenanceEntry {
   uint64_t backend_signature = 0;
   uint32_t backend_outcome = 0;
@@ -175,6 +214,7 @@ struct TitleDrawProvenanceEntry {
   std::array<uint32_t, 8> minimum_arguments{};
   std::array<uint32_t, 8> maximum_arguments{};
   uint32_t varying_argument_mask = 0;
+  SemanticPreparedDrawContract semantic_contract{};
   bool prepared = false;
 };
 
@@ -6657,10 +6697,269 @@ void EmitCommandBufferLineageSummary() {
        {"suppression_allowed", "false"}});
 }
 
+uint64_t SemanticGeometryLayoutHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(observation.primitive_type),
+        uint64_t(observation.source_select), uint64_t(observation.indexed),
+        uint64_t(observation.index_format),
+        uint64_t(observation.index_endianness),
+        uint64_t(observation.index_reset_enabled),
+        uint64_t(observation.index_reset),
+        uint64_t(observation.vertex_index_offset),
+        uint64_t(observation.vertex_index_min),
+        uint64_t(observation.vertex_index_max),
+        uint64_t(observation.vertex_binding_count),
+        uint64_t(observation.vertex_binding_overflow),
+        uint64_t(observation.vertex_attribute_count),
+        uint64_t(observation.vertex_attribute_overflow)}) {
+    hash = HashCombine(hash, value);
+  }
+  const uint32_t binding_count = std::min(
+      observation.vertex_binding_count,
+      rex::system::kGraphicsVertexBindingObservationLimit);
+  for (uint32_t i = 0; i < binding_count; ++i) {
+    const auto &binding = observation.vertex_bindings[i];
+    for (uint32_t value : {binding.fetch_constant, binding.size,
+                           binding.stride_words, binding.endianness}) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  const uint32_t attribute_count = std::min(
+      observation.vertex_attribute_count,
+      rex::system::kGraphicsVertexAttributeObservationLimit);
+  for (uint32_t i = 0; i < attribute_count; ++i) {
+    const auto &attribute = observation.vertex_attributes[i];
+    for (uint64_t value :
+         {uint64_t(attribute.binding_index),
+          uint64_t(attribute.fetch_constant),
+          uint64_t(uint32_t(attribute.offset_words)),
+          uint64_t(attribute.stride_words), uint64_t(attribute.data_format),
+          uint64_t(attribute.fetch_word_mask),
+          uint64_t(uint32_t(attribute.exp_adjust)),
+          uint64_t(attribute.signed_rf_mode),
+          uint64_t(attribute.result_storage_target),
+          uint64_t(attribute.result_storage_index),
+          uint64_t(attribute.result_write_mask),
+          uint64_t(attribute.result_components), uint64_t(attribute.flags)}) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t SemanticTextureLayoutHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  hash = HashCombine(hash, observation.texture_fetch_mask);
+  hash = HashCombine(hash, observation.texture_fetch_layout_valid_mask);
+  hash = HashCombine(hash, observation.texture_state_count);
+  hash = HashCombine(hash, observation.texture_state_overflow);
+  const uint32_t texture_count = std::min(
+      observation.texture_state_count,
+      rex::system::kGraphicsTextureFetchObservationLimit);
+  for (uint32_t i = 0; i < texture_count; ++i) {
+    const auto &state = observation.texture_states[i];
+    for (uint32_t value :
+         {state.stage, state.fetch_constant, state.opcode, state.dimension,
+          state.filters, state.flags, state.lod_bias, state.offsets,
+          state.result_storage_target, state.result_storage_index,
+          state.result_write_mask, state.result_components}) {
+      hash = HashCombine(hash, value);
+    }
+    for (uint32_t value : state.dwords) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t SemanticRenderStateHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {observation.vertex_shader_hash, observation.pixel_shader_hash,
+        uint64_t(observation.surface_info),
+        uint64_t(observation.color_info[0]),
+        uint64_t(observation.color_info[1]),
+        uint64_t(observation.color_info[2]),
+        uint64_t(observation.color_info[3]),
+        uint64_t(observation.depth_info),
+        uint64_t(observation.rb_modecontrol),
+        uint64_t(observation.rb_color_mask),
+        uint64_t(observation.rb_blendcontrol[0]),
+        uint64_t(observation.rb_blendcontrol[1]),
+        uint64_t(observation.rb_blendcontrol[2]),
+        uint64_t(observation.rb_blendcontrol[3]),
+        uint64_t(observation.rb_depthcontrol),
+        uint64_t(observation.pa_su_sc_mode_cntl),
+        uint64_t(observation.pa_su_vtx_cntl),
+        uint64_t(observation.vertex_float_constant_count),
+        uint64_t(observation.vertex_float_constant_overflow),
+        uint64_t(observation.pixel_float_constant_count),
+        uint64_t(observation.pixel_float_constant_overflow),
+        uint64_t(observation.loop_constant_bitmap)}) {
+    hash = HashCombine(hash, value);
+  }
+  for (uint32_t value : observation.bool_constant_bitmap) {
+    hash = HashCombine(hash, value);
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t SemanticGeometryResourceHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  hash = HashCombine(hash, observation.index_buffer_address);
+  hash = HashCombine(hash, observation.index_buffer_length);
+  const uint32_t binding_count = std::min(
+      observation.vertex_binding_count,
+      rex::system::kGraphicsVertexBindingObservationLimit);
+  for (uint32_t i = 0; i < binding_count; ++i) {
+    const auto &binding = observation.vertex_bindings[i];
+    hash = HashCombine(hash, binding.address);
+    hash = HashCombine(hash, binding.size);
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t SemanticTextureResourceHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t fetch = 0; fetch < 32; ++fetch) {
+    if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch))) {
+      continue;
+    }
+    hash = HashCombine(hash, fetch);
+    hash = HashCombine(hash, observation.texture_fetch_addresses[fetch]);
+    hash = HashCombine(hash, observation.texture_fetch_base_lengths[fetch]);
+    hash = HashCombine(hash, observation.texture_fetch_mip_addresses[fetch]);
+    hash = HashCombine(hash, observation.texture_fetch_mip_lengths[fetch]);
+  }
+  return hash ? hash : 1;
+}
+
+SemanticPreparedDrawContract BuildSemanticPreparedDrawContract(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  const uint32_t binding_count = std::min(
+      observation.vertex_binding_count,
+      rex::system::kGraphicsVertexBindingObservationLimit);
+  const bool geometry_bounded =
+      observation.index_count && observation.vertex_binding_count &&
+      !observation.vertex_binding_overflow &&
+      !observation.vertex_attribute_overflow &&
+      (!observation.indexed ||
+       (observation.index_buffer_address && observation.index_buffer_length));
+  const bool texture_layout_bounded =
+      !observation.texture_state_overflow &&
+      (observation.texture_fetch_layout_valid_mask &
+       observation.texture_fetch_mask) == observation.texture_fetch_mask;
+  SemanticPreparedDrawContract contract{
+      .prepared_pipeline_hash = PreparedPipelineHash(prepared),
+      .geometry_layout_hash = SemanticGeometryLayoutHash(observation),
+      .texture_layout_hash = SemanticTextureLayoutHash(observation),
+      .render_state_hash = SemanticRenderStateHash(observation),
+      .geometry_resource_hash = SemanticGeometryResourceHash(observation),
+      .texture_resource_hash = SemanticTextureResourceHash(observation),
+      .vertex_shader_hash = prepared.vertex_shader_hash,
+      .pixel_shader_hash = prepared.pixel_shader_hash,
+      .vertex_specialization_mask = prepared.vertex_specialization_mask,
+      .pixel_specialization_mask = prepared.pixel_specialization_mask,
+      .primitive_type = observation.primitive_type,
+      .source_select = observation.source_select,
+      .minimum_index_count = observation.index_count,
+      .maximum_index_count = observation.index_count,
+      .index_buffer_address = observation.index_buffer_address,
+      .index_buffer_length = observation.index_buffer_length,
+      .index_format = observation.index_format,
+      .index_endianness = observation.index_endianness,
+      .vertex_binding_count = observation.vertex_binding_count,
+      .vertex_attribute_count = observation.vertex_attribute_count,
+      .texture_fetch_mask = observation.texture_fetch_mask,
+      .texture_layout_valid_mask =
+          observation.texture_fetch_layout_valid_mask,
+      .texture_state_count = observation.texture_state_count,
+      .indexed = observation.indexed,
+      .geometry_bounded = geometry_bounded,
+      .texture_layout_bounded = texture_layout_bounded,
+      .valid = true,
+  };
+  if (binding_count) {
+    const auto &binding = observation.vertex_bindings[0];
+    contract.first_vertex_address = binding.address;
+    contract.first_vertex_size = binding.size;
+    contract.first_vertex_stride_words = binding.stride_words;
+    contract.first_vertex_endianness = binding.endianness;
+  }
+  uint64_t template_key = UINT64_C(0xCBF29CE484222325);
+  template_key = HashCombine(template_key, contract.prepared_pipeline_hash);
+  template_key = HashCombine(template_key, contract.geometry_layout_hash);
+  template_key = HashCombine(template_key, contract.texture_layout_hash);
+  template_key = HashCombine(template_key, contract.render_state_hash);
+  template_key = HashCombine(template_key, contract.vertex_shader_hash);
+  template_key = HashCombine(template_key, contract.pixel_shader_hash);
+  template_key =
+      HashCombine(template_key, contract.vertex_specialization_mask);
+  template_key = HashCombine(template_key, contract.pixel_specialization_mask);
+  template_key = HashCombine(template_key, contract.primitive_type);
+  template_key = HashCombine(template_key, contract.source_select);
+  template_key = HashCombine(template_key, contract.indexed ? 1 : 0);
+  template_key = HashCombine(template_key, contract.index_format);
+  template_key = HashCombine(template_key, contract.index_endianness);
+  template_key = HashCombine(template_key, contract.vertex_binding_count);
+  template_key = HashCombine(template_key, contract.vertex_attribute_count);
+  template_key = HashCombine(template_key, contract.first_vertex_stride_words);
+  template_key = HashCombine(template_key, contract.first_vertex_endianness);
+  template_key = HashCombine(template_key, contract.texture_fetch_mask);
+  template_key = HashCombine(template_key, contract.texture_layout_valid_mask);
+  template_key = HashCombine(template_key, contract.texture_state_count);
+  contract.template_key = template_key ? template_key : 1;
+  return contract;
+}
+
+void UpdateSemanticPreparedDrawContract(
+    SemanticPreparedDrawContract &contract,
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  const SemanticPreparedDrawContract current =
+      BuildSemanticPreparedDrawContract(observation, prepared);
+  if (!contract.valid) {
+    contract = current;
+    return;
+  }
+  if (contract.template_key != current.template_key ||
+      contract.prepared_pipeline_hash != current.prepared_pipeline_hash ||
+      contract.geometry_layout_hash != current.geometry_layout_hash ||
+      contract.texture_layout_hash != current.texture_layout_hash ||
+      contract.render_state_hash != current.render_state_hash ||
+      contract.vertex_shader_hash != current.vertex_shader_hash ||
+      contract.pixel_shader_hash != current.pixel_shader_hash ||
+      contract.vertex_specialization_mask !=
+          current.vertex_specialization_mask ||
+      contract.pixel_specialization_mask !=
+          current.pixel_specialization_mask) {
+    ++contract.template_variations;
+  }
+  if (contract.geometry_resource_hash != current.geometry_resource_hash ||
+      contract.texture_resource_hash != current.texture_resource_hash) {
+    ++contract.resource_variations;
+  }
+  contract.minimum_index_count =
+      std::min(contract.minimum_index_count, current.minimum_index_count);
+  contract.maximum_index_count =
+      std::max(contract.maximum_index_count, current.maximum_index_count);
+  contract.geometry_bounded &= current.geometry_bounded;
+  contract.texture_layout_bounded &= current.texture_layout_bounded;
+}
+
 void RecordTitleDrawProvenance(
     uint64_t backend_signature, bool prepared, uint32_t backend_outcome,
     const rex::system::GraphicsDrawObservation &observation,
-    const TitleDrawOrigin &origin) {
+    const TitleDrawOrigin &origin,
+    const rex::system::GraphicsPreparedDrawObservation *prepared_observation =
+        nullptr) {
   if (!origin.valid) {
     return;
   }
@@ -6669,11 +6968,17 @@ void RecordTitleDrawProvenance(
               : g_semantic_draw_unprepared_matches)
         .fetch_add(1, std::memory_order_relaxed);
   }
+  const SemanticPreparedDrawContract current_semantic_contract =
+      origin.semantic_draw.valid && prepared_observation
+          ? BuildSemanticPreparedDrawContract(observation,
+                                              *prepared_observation)
+          : SemanticPreparedDrawContract{};
   uint64_t key = backend_signature ^ (uint64_t(origin.caller) << 17) ^
                  (uint64_t(origin.wrapper) << 57) ^
                  (uint64_t(backend_outcome) << 41) ^
                  (prepared ? uint64_t(1) << 63 : 0);
   key = HashCombine(key, origin.semantic_draw.submission_key);
+  key = HashCombine(key, current_semantic_contract.template_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
     TitleDrawProvenanceEntry &entry = g_title_draw_provenance[index];
@@ -6691,6 +6996,9 @@ void RecordTitleDrawProvenance(
       entry.minimum_arguments = origin.arguments;
       entry.maximum_arguments = origin.arguments;
       entry.prepared = prepared;
+      if (current_semantic_contract.valid) {
+        entry.semantic_contract = current_semantic_contract;
+      }
       ++g_title_draw_provenance_count;
       return;
     }
@@ -6706,7 +7014,9 @@ void RecordTitleDrawProvenance(
         entry.origin.semantic_draw.receiver_generation ==
             origin.semantic_draw.receiver_generation &&
         entry.origin.semantic_draw.record_index ==
-            origin.semantic_draw.record_index) {
+            origin.semantic_draw.record_index &&
+        entry.semantic_contract.template_key ==
+            current_semantic_contract.template_key) {
       ++entry.calls;
       entry.last_frame = observation.frame_sequence;
       for (size_t i = 0; i < origin.arguments.size(); ++i) {
@@ -6718,6 +7028,11 @@ void RecordTitleDrawProvenance(
             std::min(entry.minimum_arguments[i], origin.arguments[i]);
         entry.maximum_arguments[i] =
             std::max(entry.maximum_arguments[i], origin.arguments[i]);
+      }
+      if (origin.semantic_draw.valid && prepared_observation) {
+        UpdateSemanticPreparedDrawContract(entry.semantic_contract,
+                                           observation,
+                                           *prepared_observation);
       }
       return;
     }
@@ -6736,6 +7051,14 @@ void EmitTitleDrawProvenanceSummary() {
   uint64_t unprepared_matches = 0;
   uint64_t prepared_aggregate_count = 0;
   uint64_t unprepared_aggregate_count = 0;
+  uint64_t semantic_contract_entries = 0;
+  uint64_t semantic_contract_calls = 0;
+  uint64_t semantic_bounded_geometry_calls = 0;
+  uint64_t semantic_bounded_texture_calls = 0;
+  uint64_t semantic_stable_template_calls = 0;
+  uint64_t semantic_stable_resource_calls = 0;
+  uint64_t semantic_template_variations = 0;
+  uint64_t semantic_resource_variations = 0;
   for (const TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
     if (!entry.calls) {
       continue;
@@ -6746,6 +7069,22 @@ void EmitTitleDrawProvenanceSummary() {
     } else {
       unprepared_matches += entry.calls;
       ++unprepared_aggregate_count;
+    }
+    const SemanticPreparedDrawContract &semantic_contract =
+        entry.semantic_contract;
+    if (semantic_contract.valid) {
+      ++semantic_contract_entries;
+      semantic_contract_calls += entry.calls;
+      semantic_bounded_geometry_calls +=
+          semantic_contract.geometry_bounded ? entry.calls : 0;
+      semantic_bounded_texture_calls +=
+          semantic_contract.texture_layout_bounded ? entry.calls : 0;
+      semantic_stable_template_calls +=
+          !semantic_contract.template_variations ? entry.calls : 0;
+      semantic_stable_resource_calls +=
+          !semantic_contract.resource_variations ? entry.calls : 0;
+      semantic_template_variations += semantic_contract.template_variations;
+      semantic_resource_variations += semantic_contract.resource_variations;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.title_provenance_entry",
@@ -6762,6 +7101,152 @@ void EmitTitleDrawProvenanceSummary() {
          {"prepared_signature",
           entry.prepared ? fmt::format("{:016X}", entry.backend_signature)
                          : ""},
+         {"semantic_template_key",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.template_key)
+              : ""},
+         {"semantic_prepared_pipeline_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}",
+                            semantic_contract.prepared_pipeline_hash)
+              : ""},
+         {"semantic_geometry_layout_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.geometry_layout_hash)
+              : ""},
+         {"semantic_texture_layout_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.texture_layout_hash)
+              : ""},
+         {"semantic_render_state_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.render_state_hash)
+              : ""},
+         {"semantic_geometry_resource_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}",
+                            semantic_contract.geometry_resource_hash)
+              : ""},
+         {"semantic_texture_resource_hash",
+          semantic_contract.valid
+              ? fmt::format("{:016X}",
+                            semantic_contract.texture_resource_hash)
+              : ""},
+         {"semantic_vertex_shader",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.vertex_shader_hash)
+              : ""},
+         {"semantic_pixel_shader",
+          semantic_contract.valid
+              ? fmt::format("{:016X}", semantic_contract.pixel_shader_hash)
+              : ""},
+         {"semantic_vertex_specialization",
+          semantic_contract.valid
+              ? fmt::format("{:016X}",
+                            semantic_contract.vertex_specialization_mask)
+              : ""},
+         {"semantic_pixel_specialization",
+          semantic_contract.valid
+              ? fmt::format("{:016X}",
+                            semantic_contract.pixel_specialization_mask)
+              : ""},
+         {"semantic_primitive_type",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.primitive_type)
+              : ""},
+         {"semantic_source_select",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.source_select)
+              : ""},
+         {"semantic_indexed",
+          semantic_contract.valid
+              ? (semantic_contract.indexed ? "true" : "false")
+              : ""},
+         {"semantic_minimum_index_count",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.minimum_index_count)
+              : ""},
+         {"semantic_maximum_index_count",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.maximum_index_count)
+              : ""},
+         {"semantic_index_buffer_address",
+          semantic_contract.valid
+              ? fmt::format("{:08X}",
+                            semantic_contract.index_buffer_address)
+              : ""},
+         {"semantic_index_buffer_length",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.index_buffer_length)
+              : ""},
+         {"semantic_index_format",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.index_format)
+              : ""},
+         {"semantic_index_endianness",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.index_endianness)
+              : ""},
+         {"semantic_vertex_binding_count",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.vertex_binding_count)
+              : ""},
+         {"semantic_vertex_attribute_count",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.vertex_attribute_count)
+              : ""},
+         {"semantic_first_vertex_address",
+          semantic_contract.valid
+              ? fmt::format("{:08X}",
+                            semantic_contract.first_vertex_address)
+              : ""},
+         {"semantic_first_vertex_size",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.first_vertex_size)
+              : ""},
+         {"semantic_first_vertex_stride_words",
+          semantic_contract.valid
+              ? std::to_string(
+                    semantic_contract.first_vertex_stride_words)
+              : ""},
+         {"semantic_first_vertex_endianness",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.first_vertex_endianness)
+              : ""},
+         {"semantic_texture_fetch_mask",
+          semantic_contract.valid
+              ? fmt::format("{:08X}",
+                            semantic_contract.texture_fetch_mask)
+              : ""},
+         {"semantic_texture_layout_valid_mask",
+          semantic_contract.valid
+              ? fmt::format("{:08X}",
+                            semantic_contract.texture_layout_valid_mask)
+              : ""},
+         {"semantic_texture_state_count",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.texture_state_count)
+              : ""},
+         {"semantic_geometry_bounded",
+          semantic_contract.valid
+              ? (semantic_contract.geometry_bounded ? "true" : "false")
+              : ""},
+         {"semantic_texture_layout_bounded",
+          semantic_contract.valid
+              ? (semantic_contract.texture_layout_bounded ? "true" : "false")
+              : ""},
+         {"semantic_template_variations",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.template_variations)
+              : ""},
+         {"semantic_resource_variations",
+          semantic_contract.valid
+              ? std::to_string(semantic_contract.resource_variations)
+              : ""},
+         {"semantic_catalog_classification",
+          semantic_contract.valid
+              ? "immutable_template_and_dynamic_resource_instance"
+              : "unavailable"},
          {"calls", std::to_string(entry.calls)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -6991,6 +7476,24 @@ void EmitTitleDrawProvenanceSummary() {
         std::to_string(semantic_pending_packets)},
        {"semantic_draw_accounting_complete",
         semantic_draw_accounting_complete ? "true" : "false"},
+       {"semantic_contract_entries",
+        std::to_string(semantic_contract_entries)},
+       {"semantic_contract_calls", std::to_string(semantic_contract_calls)},
+       {"semantic_bounded_geometry_calls",
+        std::to_string(semantic_bounded_geometry_calls)},
+       {"semantic_bounded_texture_calls",
+        std::to_string(semantic_bounded_texture_calls)},
+       {"semantic_stable_template_calls",
+        std::to_string(semantic_stable_template_calls)},
+       {"semantic_stable_resource_calls",
+        std::to_string(semantic_stable_resource_calls)},
+       {"semantic_template_variations",
+        std::to_string(semantic_template_variations)},
+       {"semantic_resource_variations",
+        std::to_string(semantic_resource_variations)},
+       {"semantic_catalog_accounting_complete",
+        semantic_contract_calls == semantic_prepared_matches ? "true"
+                                                              : "false"},
        {"backend_draws_without_title_packet",
         std::to_string(g_title_backend_unattributed_draws)},
        {"packet_address_failures",
@@ -7122,7 +7625,8 @@ void ObservePreparedDraw(
         sample, g_pending_candidate.samples_resolved_target, observation);
     RecordPreparedCommandBufferLineage(prepared_signature, sample);
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
-                              g_pending_candidate.title_origin);
+                              g_pending_candidate.title_origin,
+                              &observation);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
@@ -9300,6 +9804,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"graphics_submission_wrapper", "82415CE0"},
        {"graphics_submission_emitter", "82415F68"},
        {"semantic_packet_opcode", "PM4_DRAW_INDX_0x22"},
+       {"semantic_catalog",
+        "prepared_template_dynamic_resource_instance_and_batch_key"},
+       {"semantic_catalog_capacity",
+        std::to_string(kSemanticPreparedTemplateCapacity)},
        {"title_indirect_packet_hooks",
         "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C"},
        {"render_item_stack_capacity",

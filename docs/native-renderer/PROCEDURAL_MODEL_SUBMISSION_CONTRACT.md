@@ -95,6 +95,12 @@ physical packet headers. See
 qualification, mesh/material ABI, and native eligibility remain separate
 runtime gates.
 
+The prepared backend association now feeds the catalog described in
+`SEMANTIC_INSTANCE_CATALOG.md`. It joins this submission key back to the
+immutable semantic-instance record, keeps decoded geometry/texture resource
+identity separate from the prepared layout, and builds only conservative
+batch keys. This is a classification boundary, not native admission.
+
 ## Bounded runtime join
 
 The resource hooks retain only the pending receiver, descriptor/runtime
