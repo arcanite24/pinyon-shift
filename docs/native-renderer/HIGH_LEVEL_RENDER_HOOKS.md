@@ -52,8 +52,12 @@ and `0x829EDB68` build initialization templates. They are inventoried but are
 not runtime draw hooks.
 
 No `PM4_DRAW_INDX` (`0x22`) title constructor has yet passed the same stored-
-header proof. The scanner reports 91 proved stored packet constructors across
-the draw, query, resolve side-effect, and binning-state opcodes it recognizes.
+header proof. The scanner reports 98 proved stored packet constructors across
+the draw, query, resolve side-effect, binning-state, and indirect-buffer
+opcodes it recognizes. Seven are `PM4_INDIRECT_BUFFER` or
+`PM4_INDIRECT_BUFFER_PFD` constructors across six functions. Their exact
+backend draw lineage contract is documented in
+[`COMMAND_BUFFER_LINEAGE.md`](COMMAND_BUFFER_LINEAGE.md).
 It explicitly rejects a matching numeric operation in `sub_83051E48` because
 its result is not stored as a command packet.
 
@@ -270,6 +274,38 @@ shutdown packets as accounted when `recorded = matched + pending` holds. The
 next milestone capture must show zero address, forwarding, origin, and capacity
 faults before any caller association is accepted; prepared semantic coverage
 remains unproved until a prepared outcome is actually observed.
+
+The next ownership bridge validates exact current, parent, and root
+command-buffer lineage for each prepared backend draw, then aggregates bounded
+ownership classes by nesting depth and exact constructor store. Current-buffer
+lengths plus packet and parent/root offsets remain bounded evidence ranges.
+Prepared signatures remain samples because they describe draw state, not
+buffer ownership. Its
+milestone capture must show zero invalid relationships and zero capacity
+overflow before any ownership-class association is accepted. Static
+constructor identity remains separate until an exact title-to-buffer join is
+proved.
+
+That join is now implemented for the six stored indirect-buffer packet sites.
+Title hooks record only each store's effective physical address. ReXGlue patch
+`0083` brackets synchronous indirect execution with balanced observations, so
+the active stack can attach a store address to a prepared draw only through an
+exact parent-packet, target-buffer, root, and depth match. Copied templates and
+other producers remain unknown; no guest payload is read.
+This ownership bridge follows the renderer-census lifecycle directly and does
+not depend on the optional title dispatch-discovery toggle.
+Its constructor join uses a bounded four-way generational cache: exact backend
+addresses consume the oldest retained title generation, while collision
+evictions and all unmatched producers remain explicit unknowns.
+
+Session `20260829T143627Z-p19532` runtime-qualified this bridge on the installed
+AppData save. It covered 9,016,083 draws and 8,758,586 prepared draws in four
+ownership classes, with 1,792,929 exact constructor matches. The run had zero
+invalid lineages, aggregation overflow, address failures, table overflow, stack
+faults, or draw-stack mismatches. All 2,203,962 enters reconciled with
+2,203,961 exits and one buffer open at shutdown. The bounded cache reported
+14,438 evictions and retained 411,033 executions as unknown rather than
+guessing ownership. Xenos remained authoritative and suppression stayed off.
 
 That follow-up capture, session `20260829T123251Z-p12356`, completed the exact
 accounting contract with 107,455 backend matches, 105 shutdown-pending packets,

@@ -36,6 +36,39 @@ address = 0x82410328
 name = "PinyonShiftObserveDrawPacketSubmission"
 registers = ["r3"]
 
+# Record exact physical identities for the six stored indirect-buffer packet
+# sites. The original store executes after each hook; only its effective
+# address registers are observed.
+[[midasm_hook]]
+address = 0x824095B4
+name = "PinyonShiftObserveIndirectPacket824095B4"
+registers = ["r11", "r28"]
+
+[[midasm_hook]]
+address = 0x82416EFC
+name = "PinyonShiftObserveIndirectPacket82416EFC"
+registers = ["r30"]
+
+[[midasm_hook]]
+address = 0x8246FC1C
+name = "PinyonShiftObserveIndirectPacket8246FC1C"
+registers = ["r11"]
+
+[[midasm_hook]]
+address = 0x8263BD64
+name = "PinyonShiftObserveIndirectPacket8263BD64"
+registers = ["r9"]
+
+[[midasm_hook]]
+address = 0x829E8E88
+name = "PinyonShiftObserveIndirectPacket829E8E88"
+registers = ["r1"]
+
+[[midasm_hook]]
+address = 0x829EC49C
+name = "PinyonShiftObserveIndirectPacket829EC49C"
+registers = ["r11"]
+
 [[midasm_hook]]
 address = 0x82413ABC
 name = "PinyonShiftObserveBinningScissorStateDispatch"

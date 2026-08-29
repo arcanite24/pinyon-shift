@@ -43,6 +43,7 @@ Xenos suppression, or presentation changes. Its setting,
 | Draw packet backend | ReXGlue `PM4_DRAW_INDX` / `PM4_DRAW_INDX_2` | Generic command processor decodes the packet before backend `IssueDraw` | Register-derived draw state is consumed by the backend | Verified runtime boundary |
 | Draw packet provenance | Title stores `0x82410328` / `0x829F7CB0`; ReXGlue patch `0080` | Both sides normalize the same PM4 header to a physical address | Fixed outstanding table is consumed only on exact address equality; same-address generations are retained oldest-first | Runtime-qualified, passive: 107,455 exact matches and zero attribution faults; no prepared callback observed |
 | Draw backend outcome | D3D12 `IssueDraw`; ReXGlue patch `0081` | One callback at every backend return carries frame, draw, and exact packet identity | 18 bounded outcomes separate prepared completion, EDRAM copy, no-effect paths, pending pipelines, and failures | Runtime-qualified, passive: 8,478,174 outcomes, zero callback faults; all 132,568 exact title matches were EDRAM copies |
+| Draw command-buffer lineage | ReXGlue command processor; patches `0082`/`0083`; six exact title store hooks | Draw packet is bounded by its current buffer and carries exact parent packet, first indirect root, nesting depth, and exact constructor store when matched | Census-lifecycle enter/exit stack; bounded four-way title generations; fixed 4,096-entry ownership classes by depth/constructor with buffer-length, packet-offset, and parent/root ranges; faults and overflow fail closed | Runtime-qualified, passive: 9,016,083 draws, four ownership classes, 1,792,929 exact constructor matches, zero lineage/stack/overflow faults |
 | Resolve controller | `0x824587D8` | Two direct calls to setup wrapper `0x82458A88`; three direct controller callers | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Verified, bounded pass-through hook |
 | Resolve setup | `0x82458A88` | Emits `RB_MODECONTROL` register index `0x2208` followed by `EdramMode::kCopy` value 6 | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Title setup verified; subsequent resolve draw ownership unknown |
 | Binning/scissor state | `0x82413AB8` | Stores `PM4_SET_BIN_MASK_LO/HI` headers; ten direct calls | Entry `r3-r10` and caller `LR` are observed only when discovery is enabled | Xenos state boundary verified; semantic tiled role unknown |
@@ -107,6 +108,8 @@ read or serialize guest memory.
   livery, thumbnail, and rewind dispatch families.
 - Use exact title-packet provenance to associate those callers with prepared
   signatures before reading object/lifetime structures.
+- Use the qualified stored-packet-to-indirect-execution join to identify
+  semantic object and lifetime ownership without inferring unmatched producers.
 
 The ten proved wrapper entries, all 72 static direct calls, one proved tail-
 forwarded correlation edge, and explicit semantic unknowns are recorded in

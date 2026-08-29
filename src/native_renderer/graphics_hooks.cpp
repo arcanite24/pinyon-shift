@@ -53,6 +53,7 @@ constexpr size_t kSignatureCapacity = 4096;
 constexpr size_t kSummaryLimit = 16;
 constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
+constexpr size_t kCommandBufferLineageCapacity = 4096;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -76,6 +77,11 @@ constexpr size_t kDispatchCallerCapacity = 256;
 constexpr size_t kTitlePacketProvenanceCapacity = 16384;
 constexpr size_t kTitleDrawProvenanceCapacity = 4096;
 constexpr size_t kTitleOriginStackCapacity = 32;
+constexpr size_t kTitleIndirectPacketBucketCount = 4096;
+constexpr size_t kTitleIndirectPacketWays = 4;
+constexpr size_t kTitleIndirectPacketCapacity =
+    kTitleIndirectPacketBucketCount * kTitleIndirectPacketWays;
+constexpr size_t kTitleIndirectStackCapacity = 32;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -142,13 +148,33 @@ struct TitleDrawProvenanceEntry {
   bool prepared = false;
 };
 
+struct TitleIndirectPacketEntry {
+  uint32_t packet_physical_address = UINT32_MAX;
+  uint32_t constructor_store_address = 0;
+  uint64_t submission_sequence = 0;
+  bool occupied = false;
+};
+
+struct ActiveTitleIndirectBuffer {
+  uint32_t packet_physical_address = UINT32_MAX;
+  uint32_t target_buffer_physical_address = UINT32_MAX;
+  uint32_t parent_packet_physical_address = UINT32_MAX;
+  uint32_t root_buffer_physical_address = UINT32_MAX;
+  uint32_t constructor_store_address = 0;
+  uint32_t depth = 0;
+};
+
 std::array<TitlePacketProvenanceEntry, kTitlePacketProvenanceCapacity>
     g_title_packet_provenance{};
 std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
     g_title_draw_provenance{};
+std::array<TitleIndirectPacketEntry, kTitleIndirectPacketCapacity>
+    g_title_indirect_packets{};
 std::mutex g_title_packet_provenance_mutex;
 std::atomic<bool> g_title_provenance_installed{};
 std::atomic<rex::memory::Memory *> g_title_provenance_memory{};
+std::atomic<bool> g_command_buffer_lineage_installed{};
+std::atomic<rex::memory::Memory *> g_command_buffer_lineage_memory{};
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -169,10 +195,25 @@ std::atomic<uint64_t> g_title_packets_without_origin{};
 uint64_t g_title_draw_provenance_count = 0;
 uint64_t g_title_draw_provenance_overflow = 0;
 uint64_t g_title_packet_submission_sequence = 0;
+uint64_t g_title_indirect_packets_recorded = 0;
+uint64_t g_title_indirect_packet_address_failures = 0;
+uint64_t g_title_indirect_packet_table_overflow = 0;
+uint64_t g_title_indirect_packet_evictions = 0;
+uint64_t g_title_indirect_packet_submission_sequence = 0;
+uint64_t g_title_indirect_buffer_enters = 0;
+uint64_t g_title_indirect_buffer_exits = 0;
+uint64_t g_title_indirect_buffer_matches = 0;
+uint64_t g_title_indirect_buffer_unmatched = 0;
+uint64_t g_title_indirect_stack_faults = 0;
+uint64_t g_title_indirect_draw_stack_faults = 0;
+std::atomic<uint64_t> g_title_indirect_buffers_open{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
 thread_local size_t g_title_origin_stack_depth = 0;
+thread_local std::array<ActiveTitleIndirectBuffer, kTitleIndirectStackCapacity>
+    g_title_indirect_stack;
+thread_local size_t g_title_indirect_stack_depth = 0;
 
 const char *DispatchWrapperName(DispatchWrapper wrapper) {
   switch (wrapper) {
@@ -291,6 +332,9 @@ void ResetTitleDrawProvenance() {
   for (TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
     entry = {};
   }
+  for (TitleIndirectPacketEntry &entry : g_title_indirect_packets) {
+    entry = {};
+  }
   g_title_packets_recorded = 0;
   g_title_packets_matched = 0;
   g_title_packet_address_failures = 0;
@@ -311,9 +355,23 @@ void ResetTitleDrawProvenance() {
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
   g_title_packet_submission_sequence = 0;
+  g_title_indirect_packets_recorded = 0;
+  g_title_indirect_packet_address_failures = 0;
+  g_title_indirect_packet_table_overflow = 0;
+  g_title_indirect_packet_evictions = 0;
+  g_title_indirect_packet_submission_sequence = 0;
+  g_title_indirect_buffer_enters = 0;
+  g_title_indirect_buffer_exits = 0;
+  g_title_indirect_buffer_matches = 0;
+  g_title_indirect_buffer_unmatched = 0;
+  g_title_indirect_stack_faults = 0;
+  g_title_indirect_draw_stack_faults = 0;
+  g_title_indirect_buffers_open.store(0, std::memory_order_relaxed);
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
+  g_title_indirect_stack = {};
+  g_title_indirect_stack_depth = 0;
 }
 
 void ConfigureTitleDrawProvenance(bool census_requested,
@@ -330,10 +388,19 @@ void ConfigureTitleDrawProvenance(bool census_requested,
       {{"status", armed ? "armed" : "disabled"},
        {"scene", CensusSceneMarker()},
        {"title_packet_hooks", "82410328,829F7CB0"},
+       {"title_indirect_packet_hooks",
+        "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C"},
        {"packet_key", "physical_pm4_header_address"},
        {"packet_capacity", std::to_string(kTitlePacketProvenanceCapacity)},
        {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
        {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
+       {"indirect_packet_capacity",
+        std::to_string(kTitleIndirectPacketCapacity)},
+       {"indirect_packet_bucket_count",
+        std::to_string(kTitleIndirectPacketBucketCount)},
+       {"indirect_packet_ways", std::to_string(kTitleIndirectPacketWays)},
+       {"indirect_stack_capacity",
+        std::to_string(kTitleIndirectStackCapacity)},
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
         "backend_signature"},
@@ -441,6 +508,159 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
     ++g_title_packet_reused_live_addresses;
   }
   ++g_title_packets_recorded;
+}
+
+void RecordTitleIndirectPacket(uint32_t packet_guest_address,
+                               uint32_t constructor_store_address) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    return;
+  }
+  const uint32_t packet_physical_address =
+      memory->GetPhysicalAddress(packet_guest_address);
+  std::scoped_lock lock(g_title_packet_provenance_mutex);
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (packet_physical_address == UINT32_MAX ||
+      (packet_physical_address & 3)) {
+    ++g_title_indirect_packet_address_failures;
+    return;
+  }
+  const size_t bucket =
+      (packet_physical_address >> 2) % kTitleIndirectPacketBucketCount;
+  const size_t first = bucket * kTitleIndirectPacketWays;
+  size_t selected = first;
+  uint64_t oldest_sequence = UINT64_MAX;
+  bool found_free = false;
+  for (size_t way = 0; way < kTitleIndirectPacketWays; ++way) {
+    const size_t index = first + way;
+    const TitleIndirectPacketEntry &entry = g_title_indirect_packets[index];
+    if (!entry.occupied) {
+      selected = index;
+      found_free = true;
+      break;
+    }
+    if (entry.submission_sequence < oldest_sequence) {
+      selected = index;
+      oldest_sequence = entry.submission_sequence;
+    }
+  }
+  if (!found_free) {
+    ++g_title_indirect_packet_evictions;
+  }
+  TitleIndirectPacketEntry &entry = g_title_indirect_packets[selected];
+  entry.packet_physical_address = packet_physical_address;
+  entry.constructor_store_address = constructor_store_address;
+  entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
+  entry.occupied = true;
+  ++g_title_indirect_packets_recorded;
+}
+
+uint32_t MatchTitleIndirectPacket(uint32_t packet_physical_address) {
+  std::scoped_lock lock(g_title_packet_provenance_mutex);
+  const size_t bucket =
+      (packet_physical_address >> 2) % kTitleIndirectPacketBucketCount;
+  const size_t first = bucket * kTitleIndirectPacketWays;
+  size_t oldest_match = kTitleIndirectPacketCapacity;
+  uint64_t oldest_sequence = UINT64_MAX;
+  for (size_t way = 0; way < kTitleIndirectPacketWays; ++way) {
+    const size_t index = first + way;
+    const TitleIndirectPacketEntry &entry = g_title_indirect_packets[index];
+    if (entry.occupied &&
+        entry.packet_physical_address == packet_physical_address &&
+        entry.submission_sequence < oldest_sequence) {
+      oldest_match = index;
+      oldest_sequence = entry.submission_sequence;
+    }
+  }
+  if (oldest_match != kTitleIndirectPacketCapacity) {
+    TitleIndirectPacketEntry &entry = g_title_indirect_packets[oldest_match];
+    const uint32_t constructor_store_address =
+        entry.constructor_store_address;
+    entry.occupied = false;
+    ++g_title_indirect_buffer_matches;
+    return constructor_store_address;
+  }
+  ++g_title_indirect_buffer_unmatched;
+  return 0;
+}
+
+void ObserveIndirectBuffer(
+    const rex::system::GraphicsIndirectBufferObservation &observation) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (observation.entering) {
+    ++g_title_indirect_buffer_enters;
+    if (g_title_indirect_stack_depth == kTitleIndirectStackCapacity ||
+        observation.depth != g_title_indirect_stack_depth + 1) {
+      ++g_title_indirect_stack_faults;
+      return;
+    }
+    ActiveTitleIndirectBuffer &active =
+        g_title_indirect_stack[g_title_indirect_stack_depth++];
+    active.packet_physical_address = observation.packet_physical_address;
+    active.target_buffer_physical_address =
+        observation.target_buffer_physical_address;
+    active.parent_packet_physical_address =
+        observation.packet_physical_address;
+    active.root_buffer_physical_address =
+        observation.root_buffer_physical_address;
+    active.constructor_store_address =
+        MatchTitleIndirectPacket(observation.packet_physical_address);
+    active.depth = observation.depth;
+    g_title_indirect_buffers_open.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
+
+  ++g_title_indirect_buffer_exits;
+  if (!g_title_indirect_stack_depth) {
+    ++g_title_indirect_stack_faults;
+    return;
+  }
+  const ActiveTitleIndirectBuffer &active =
+      g_title_indirect_stack[g_title_indirect_stack_depth - 1];
+  if (active.packet_physical_address != observation.packet_physical_address ||
+      active.target_buffer_physical_address !=
+          observation.target_buffer_physical_address ||
+      active.depth != observation.depth) {
+    ++g_title_indirect_stack_faults;
+    return;
+  }
+  --g_title_indirect_stack_depth;
+  g_title_indirect_buffers_open.fetch_sub(1, std::memory_order_relaxed);
+}
+
+uint32_t CurrentTitleIndirectConstructor(
+    const rex::system::GraphicsDrawObservation &observation) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return 0;
+  }
+  if (!observation.command_buffer_depth) {
+    return 0;
+  }
+  if (!g_title_indirect_stack_depth) {
+    ++g_title_indirect_draw_stack_faults;
+    return 0;
+  }
+  const ActiveTitleIndirectBuffer &active =
+      g_title_indirect_stack[g_title_indirect_stack_depth - 1];
+  if (active.depth != observation.command_buffer_depth ||
+      active.target_buffer_physical_address !=
+          observation.command_buffer_physical_address ||
+      active.parent_packet_physical_address !=
+          observation.command_buffer_parent_packet_physical_address ||
+      active.root_buffer_physical_address !=
+          observation.command_buffer_root_physical_address) {
+    ++g_title_indirect_draw_stack_faults;
+    return 0;
+  }
+  return active.constructor_store_address;
 }
 
 bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
@@ -1249,6 +1469,39 @@ uint64_t g_prepared_shader_pair_count = 0;
 uint64_t g_prepared_shader_pair_overflow = 0;
 uint64_t g_candidate_unprepared_draw_count = 0;
 uint64_t g_candidate_prepared_without_observation_count = 0;
+
+struct CommandBufferLineageEntry {
+  uint64_t sample_prepared_signature = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t first_draw = 0;
+  uint64_t last_draw = 0;
+  uint32_t packet_physical_address = UINT32_MAX;
+  uint32_t command_buffer_physical_address = UINT32_MAX;
+  uint32_t sample_command_buffer_length_dwords = 0;
+  uint32_t min_command_buffer_length_dwords = UINT32_MAX;
+  uint32_t max_command_buffer_length_dwords = 0;
+  uint32_t min_packet_offset_bytes = UINT32_MAX;
+  uint32_t max_packet_offset_bytes = 0;
+  uint32_t parent_packet_physical_address = UINT32_MAX;
+  uint32_t root_physical_address = UINT32_MAX;
+  uint32_t min_parent_root_offset_bytes = UINT32_MAX;
+  uint32_t max_parent_root_offset_bytes = 0;
+  uint32_t constructor_store_address = 0;
+  uint32_t depth = 0;
+  bool prepared_signature_varied = false;
+};
+
+std::array<CommandBufferLineageEntry, kCommandBufferLineageCapacity>
+    g_command_buffer_lineages{};
+uint64_t g_command_buffer_lineage_draws = 0;
+uint64_t g_command_buffer_lineage_primary_draws = 0;
+uint64_t g_command_buffer_lineage_indirect_draws = 0;
+uint64_t g_command_buffer_lineage_invalid = 0;
+uint64_t g_command_buffer_lineage_prepared_draws = 0;
+uint64_t g_command_buffer_lineage_entry_count = 0;
+uint64_t g_command_buffer_lineage_overflow = 0;
 bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
@@ -1402,6 +1655,18 @@ void ResetPreparedShaderPairs() {
   g_candidate_unprepared_draw_count = 0;
   g_candidate_prepared_without_observation_count = 0;
   g_pending_candidate.valid = false;
+}
+
+void ResetCommandBufferLineage() {
+  std::memset(g_command_buffer_lineages.data(), 0,
+              sizeof(g_command_buffer_lineages));
+  g_command_buffer_lineage_draws = 0;
+  g_command_buffer_lineage_primary_draws = 0;
+  g_command_buffer_lineage_indirect_draws = 0;
+  g_command_buffer_lineage_invalid = 0;
+  g_command_buffer_lineage_prepared_draws = 0;
+  g_command_buffer_lineage_entry_count = 0;
+  g_command_buffer_lineage_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -2632,6 +2897,244 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
   return hash ? hash : 1;
 }
 
+bool HasValidCommandBufferLineage(
+    const rex::system::GraphicsDrawObservation &observation) {
+  if (observation.packet_physical_address == UINT32_MAX ||
+      observation.command_buffer_physical_address == UINT32_MAX ||
+      observation.command_buffer_root_physical_address == UINT32_MAX ||
+      !observation.command_buffer_length_dwords) {
+    return false;
+  }
+  const uint64_t buffer_begin =
+      observation.command_buffer_physical_address;
+  const uint64_t buffer_end =
+      buffer_begin + uint64_t(observation.command_buffer_length_dwords) * 4;
+  if ((buffer_begin & 3) ||
+      observation.command_buffer_root_physical_address >=
+          kPhysicalApertureSize ||
+      (observation.command_buffer_root_physical_address & 3) ||
+      buffer_end > kPhysicalApertureSize ||
+      observation.packet_physical_address < buffer_begin ||
+      observation.packet_physical_address >= buffer_end ||
+      (observation.packet_physical_address & 3)) {
+    return false;
+  }
+  if (!observation.command_buffer_depth) {
+    return observation.command_buffer_parent_packet_physical_address ==
+               UINT32_MAX &&
+           observation.command_buffer_root_physical_address ==
+               observation.command_buffer_physical_address;
+  }
+  if (observation.command_buffer_parent_packet_physical_address >=
+          kPhysicalApertureSize ||
+      (observation.command_buffer_parent_packet_physical_address & 3)) {
+    return false;
+  }
+  if (observation.command_buffer_depth == 1) {
+    return observation.command_buffer_root_physical_address ==
+           observation.command_buffer_physical_address;
+  }
+  return observation.command_buffer_parent_packet_physical_address >=
+         observation.command_buffer_root_physical_address;
+}
+
+void ObserveCommandBufferLineage(
+    const rex::system::GraphicsDrawObservation &observation) {
+  ++g_command_buffer_lineage_draws;
+  if (observation.command_buffer_depth) {
+    ++g_command_buffer_lineage_indirect_draws;
+  } else {
+    ++g_command_buffer_lineage_primary_draws;
+  }
+  if (!HasValidCommandBufferLineage(observation)) {
+    ++g_command_buffer_lineage_invalid;
+  }
+}
+
+void RecordPreparedCommandBufferLineage(
+    uint64_t prepared_signature,
+    const rex::system::GraphicsDrawObservation &observation) {
+  if (!HasValidCommandBufferLineage(observation)) {
+    return;
+  }
+  ++g_command_buffer_lineage_prepared_draws;
+  const uint32_t packet_offset_bytes =
+      observation.packet_physical_address -
+      observation.command_buffer_physical_address;
+  const uint32_t parent_root_offset_bytes =
+      observation.command_buffer_depth > 1
+          ? observation.command_buffer_parent_packet_physical_address -
+                observation.command_buffer_root_physical_address
+          : UINT32_MAX;
+  const uint32_t constructor_store_address =
+      CurrentTitleIndirectConstructor(observation);
+  uint64_t key = 0xCBF29CE484222325ull;
+  for (uint64_t value :
+       {uint64_t(constructor_store_address),
+        uint64_t(observation.command_buffer_depth)}) {
+    key = HashCombine(key, value);
+  }
+  size_t index = size_t(key % kCommandBufferLineageCapacity);
+  for (size_t probe = 0; probe < kCommandBufferLineageCapacity; ++probe) {
+    CommandBufferLineageEntry &entry = g_command_buffer_lineages[index];
+    if (!entry.calls) {
+      entry.sample_prepared_signature = prepared_signature;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.first_draw = observation.draw_sequence;
+      entry.last_draw = observation.draw_sequence;
+      entry.packet_physical_address = observation.packet_physical_address;
+      entry.command_buffer_physical_address =
+          observation.command_buffer_physical_address;
+      entry.sample_command_buffer_length_dwords =
+          observation.command_buffer_length_dwords;
+      entry.min_command_buffer_length_dwords =
+          observation.command_buffer_length_dwords;
+      entry.max_command_buffer_length_dwords =
+          observation.command_buffer_length_dwords;
+      entry.min_packet_offset_bytes = packet_offset_bytes;
+      entry.max_packet_offset_bytes = packet_offset_bytes;
+      entry.parent_packet_physical_address =
+          observation.command_buffer_parent_packet_physical_address;
+      entry.root_physical_address =
+          observation.command_buffer_root_physical_address;
+      entry.min_parent_root_offset_bytes = parent_root_offset_bytes;
+      entry.max_parent_root_offset_bytes = parent_root_offset_bytes;
+      entry.constructor_store_address = constructor_store_address;
+      entry.depth = observation.command_buffer_depth;
+      ++g_command_buffer_lineage_entry_count;
+      return;
+    }
+    if (entry.constructor_store_address == constructor_store_address &&
+        entry.depth == observation.command_buffer_depth) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.last_draw = observation.draw_sequence;
+      entry.min_packet_offset_bytes =
+          std::min(entry.min_packet_offset_bytes, packet_offset_bytes);
+      entry.max_packet_offset_bytes =
+          std::max(entry.max_packet_offset_bytes, packet_offset_bytes);
+      entry.min_command_buffer_length_dwords =
+          std::min(entry.min_command_buffer_length_dwords,
+                   observation.command_buffer_length_dwords);
+      entry.max_command_buffer_length_dwords =
+          std::max(entry.max_command_buffer_length_dwords,
+                   observation.command_buffer_length_dwords);
+      entry.min_parent_root_offset_bytes =
+          std::min(entry.min_parent_root_offset_bytes,
+                   parent_root_offset_bytes);
+      entry.max_parent_root_offset_bytes =
+          std::max(entry.max_parent_root_offset_bytes,
+                   parent_root_offset_bytes);
+      entry.prepared_signature_varied |=
+          entry.sample_prepared_signature != prepared_signature;
+      return;
+    }
+    index = (index + 1) % kCommandBufferLineageCapacity;
+  }
+  ++g_command_buffer_lineage_overflow;
+}
+
+void EmitCommandBufferLineageSummary() {
+  for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.command_buffer_lineage_entry",
+        {{"sample_prepared_signature",
+          fmt::format("{:016X}", entry.sample_prepared_signature)},
+         {"prepared_signature_varied",
+          entry.prepared_signature_varied ? "true" : "false"},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"first_draw", std::to_string(entry.first_draw)},
+         {"last_draw", std::to_string(entry.last_draw)},
+         {"sample_packet_physical_address",
+          fmt::format("{:08X}", entry.packet_physical_address)},
+         {"sample_command_buffer_physical_address",
+          fmt::format("{:08X}", entry.command_buffer_physical_address)},
+         {"sample_command_buffer_length_dwords",
+          std::to_string(entry.sample_command_buffer_length_dwords)},
+         {"min_command_buffer_length_dwords",
+          std::to_string(entry.min_command_buffer_length_dwords)},
+         {"max_command_buffer_length_dwords",
+          std::to_string(entry.max_command_buffer_length_dwords)},
+         {"min_packet_offset_bytes",
+          std::to_string(entry.min_packet_offset_bytes)},
+         {"max_packet_offset_bytes",
+          std::to_string(entry.max_packet_offset_bytes)},
+         {"sample_parent_packet_physical_address",
+          fmt::format("{:08X}", entry.parent_packet_physical_address)},
+         {"sample_root_physical_address",
+          fmt::format("{:08X}", entry.root_physical_address)},
+         {"min_parent_root_offset_bytes",
+          entry.min_parent_root_offset_bytes == UINT32_MAX
+              ? "none"
+              : std::to_string(entry.min_parent_root_offset_bytes)},
+         {"max_parent_root_offset_bytes",
+          entry.max_parent_root_offset_bytes == UINT32_MAX
+              ? "none"
+              : std::to_string(entry.max_parent_root_offset_bytes)},
+         {"constructor_store_address",
+          entry.constructor_store_address
+              ? fmt::format("{:08X}", entry.constructor_store_address)
+              : "unknown"},
+         {"depth", std::to_string(entry.depth)},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.command_buffer_lineage_summary",
+      {{"draws", std::to_string(g_command_buffer_lineage_draws)},
+       {"primary_draws",
+        std::to_string(g_command_buffer_lineage_primary_draws)},
+       {"indirect_draws",
+        std::to_string(g_command_buffer_lineage_indirect_draws)},
+       {"invalid_lineages",
+        std::to_string(g_command_buffer_lineage_invalid)},
+       {"prepared_draws",
+        std::to_string(g_command_buffer_lineage_prepared_draws)},
+       {"entries", std::to_string(g_command_buffer_lineage_entry_count)},
+       {"overflow", std::to_string(g_command_buffer_lineage_overflow)},
+       {"capacity", std::to_string(kCommandBufferLineageCapacity)},
+       {"title_indirect_packets_recorded",
+        std::to_string(g_title_indirect_packets_recorded)},
+       {"title_indirect_packet_address_failures",
+        std::to_string(g_title_indirect_packet_address_failures)},
+       {"title_indirect_packet_table_overflow",
+        std::to_string(g_title_indirect_packet_table_overflow)},
+       {"title_indirect_packet_evictions",
+        std::to_string(g_title_indirect_packet_evictions)},
+       {"indirect_buffer_enters",
+        std::to_string(g_title_indirect_buffer_enters)},
+       {"indirect_buffer_exits",
+        std::to_string(g_title_indirect_buffer_exits)},
+       {"indirect_buffer_constructor_matches",
+        std::to_string(g_title_indirect_buffer_matches)},
+       {"indirect_buffer_constructor_unmatched",
+        std::to_string(g_title_indirect_buffer_unmatched)},
+       {"indirect_buffer_stack_faults",
+        std::to_string(g_title_indirect_stack_faults)},
+       {"indirect_draw_stack_faults",
+        std::to_string(g_title_indirect_draw_stack_faults)},
+       {"indirect_buffers_open_at_shutdown",
+        std::to_string(g_title_indirect_buffers_open.load(
+            std::memory_order_relaxed))},
+       {"correlation",
+        "exact_title_store_to_backend_nested_command_buffer_shape"},
+       {"semantic_identity", "unknown"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void RecordTitleDrawProvenance(
     uint64_t backend_signature, bool prepared, uint32_t backend_outcome,
     const rex::system::GraphicsDrawObservation &observation,
@@ -2938,6 +3441,7 @@ void ObservePreparedDraw(
     CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
+    RecordPreparedCommandBufferLineage(prepared_signature, sample);
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin);
     g_isolated_draw.prepared_signature = prepared_signature;
@@ -4844,6 +5348,7 @@ void RecordCandidate(
 
 void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
+  ObserveCommandBufferLineage(observation);
   const bool query_draw =
       observation.viz_query_condition || (observation.pa_sc_viz_query & 1);
   if (query_draw) {
@@ -4944,12 +5449,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   ConfigureTitleDrawProvenance(census_requested, memory);
+  const bool lineage_armed = census_requested && memory;
+  g_command_buffer_lineage_installed.store(false, std::memory_order_release);
+  g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
   if (!census_requested && !g_sky_horizon_suppression.requested) {
     EmitSkyHorizonSuppressionControl();
     return;
   }
   ResetDrawCensus();
   ResetPreparedShaderPairs();
+  ResetCommandBufferLineage();
   ResetDependencyCensus();
   ResetGuestCpuVisibility();
   ConfigureIndexScan();
@@ -4962,6 +5471,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   EmitSkyHorizonSuppressionControl();
   ConfigureConsumerFamilyMarker();
   g_graphics_census_memory = memory;
+  g_command_buffer_lineage_memory.store(lineage_armed ? memory : nullptr,
+                                        std::memory_order_release);
+  g_command_buffer_lineage_installed.store(lineage_armed,
+                                           std::memory_order_release);
   if (g_pass_follower.requested && g_pass_follower.valid &&
       g_isolated_draw.requested && g_isolated_draw.valid) {
     g_guest_cpu_access_callback =
@@ -4970,6 +5483,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   }
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
+  graphics_system->SetIndirectBufferObserver(&ObserveIndirectBuffer);
   graphics_system->SetCopyObserver(&ObserveCopy);
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
   graphics_system->SetDrawOutcomeObserver(&ObserveDrawOutcome);
@@ -4983,11 +5497,24 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                             {"resolve_page_capacity", "32768"},
                             {"resolve_summary_limit", "32"},
                             {"prepared_shader_pair_capacity", "1024"},
+                            {"command_buffer_lineage_capacity", "4096"},
                             {"guest_cpu_visibility_target_capacity", "64"},
                             {"scene", scene},
                             {"mode", g_sky_horizon_suppression.armed
                                          ? "experimental_suppression"
                                          : "pass_through"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.command_buffer_lineage_config",
+      {{"status", "armed"},
+       {"scene", scene},
+       {"capacity", std::to_string(kCommandBufferLineageCapacity)},
+       {"source",
+        "title_store,backend_packet,current_buffer,parent_packet,root_buffer,depth"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
   diagnostics::RecordEvent(
@@ -5144,11 +5671,14 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
+    graphics_system->SetIndirectBufferObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
     graphics_system->SetPreparedDrawObserver(nullptr);
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
+  g_command_buffer_lineage_installed.store(false, std::memory_order_release);
+  g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
   EmitDispatchDiscoverySummary();
   if (!g_graphics_census_installed) {
     return;
@@ -5191,6 +5721,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     g_pending_candidate.valid = false;
   }
   EmitTitleDrawProvenanceSummary();
+  EmitCommandBufferLineageSummary();
   if (g_pass_consumer_trace.pending) {
     ++g_pass_consumer_trace.superseded_without_resolve;
     g_pass_consumer_trace.pending = false;
@@ -5683,6 +6214,31 @@ void PinyonShiftObserveDrawAdapterDispatch(
 
 void PinyonShiftObserveDrawPacketSubmission(PPCRegister &r3) {
   RecordTitleDrawPacket(r3.u32 + sizeof(uint32_t));
+}
+
+void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,
+                                               PPCRegister &r28) {
+  RecordTitleIndirectPacket(r11.u32 + r28.u32, 0x824095B4);
+}
+
+void PinyonShiftObserveIndirectPacket82416EFC(PPCRegister &r30) {
+  RecordTitleIndirectPacket(r30.u32 + sizeof(uint32_t), 0x82416EFC);
+}
+
+void PinyonShiftObserveIndirectPacket8246FC1C(PPCRegister &r11) {
+  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x8246FC1C);
+}
+
+void PinyonShiftObserveIndirectPacket8263BD64(PPCRegister &r9) {
+  RecordTitleIndirectPacket(r9.u32 + sizeof(uint32_t), 0x8263BD64);
+}
+
+void PinyonShiftObserveIndirectPacket829E8E88(PPCRegister &r1) {
+  RecordTitleIndirectPacket(r1.u32 + 88, 0x829E8E88);
+}
+
+void PinyonShiftObserveIndirectPacket829EC49C(PPCRegister &r11) {
+  RecordTitleIndirectPacket(r11.u32 + sizeof(uint32_t), 0x829EC49C);
 }
 
 void PinyonShiftObserveResolveControllerDispatch(

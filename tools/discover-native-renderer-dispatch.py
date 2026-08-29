@@ -29,6 +29,8 @@ PACKET_OPCODES = {
     0x63: "PM4_SET_BIN_SELECT_HI",
     0x23: "PM4_VIZ_QUERY",
     0x36: "PM4_DRAW_INDX_2",
+    0x37: "PM4_INDIRECT_BUFFER_PFD",
+    0x3F: "PM4_INDIRECT_BUFFER",
 }
 REVIEWED_WRAPPERS = {
     0x824079B8: {
@@ -230,9 +232,12 @@ def packet_constructors(functions: list[dict]) -> list[dict]:
                     "constructor_address": "{:08X}".format(
                         instruction["address"]
                     ),
+                    "constructor_instruction": instruction["text"],
                     "store_address": "{:08X}".format(
                         store_instruction["address"]
                     ),
+                    "store_instruction": store_instruction["text"],
+                    "packet_register": register,
                     "opcode": PACKET_OPCODES[opcode_value],
                     "opcode_value": "{:02X}".format(opcode_value),
                     "header_source": header_source,

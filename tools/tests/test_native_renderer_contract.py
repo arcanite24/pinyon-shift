@@ -281,6 +281,76 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("SetDrawOutcomeObserver(nullptr)", source)
         self.assertNotIn("suppression_allowed\", \"true", patch + source)
 
+    def test_draw_command_buffer_lineage_is_exact_bounded_and_passive(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0082-graphics-command-buffer-lineage.patch"
+        ).read_text(encoding="utf-8")
+        patch += (
+            ROOT
+            / "patches/rexglue/0083-graphics-indirect-buffer-observer.patch"
+        ).read_text(encoding="utf-8")
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+            encoding="utf-8"
+        )
+        for token in (
+            "command_buffer_physical_address",
+            "command_buffer_length_dwords",
+            "command_buffer_parent_packet_physical_address",
+            "command_buffer_root_physical_address",
+            "command_buffer_depth",
+            "ObservationCommandBufferContext",
+            "ExecutePrimaryBuffer",
+            "ExecuteIndirectBuffer",
+            "ExecutePacket(uint32_t ptr, uint32_t count)",
+            "GraphicsIndirectBufferObservation",
+            "SetIndirectBufferObserver",
+            "indirect_buffer_observer",
+            "entering = true",
+            "entering = false",
+        ):
+            self.assertIn(token, patch)
+        self.assertGreaterEqual(
+            patch.count("previous_observation_command_buffer"), 6
+        )
+        self.assertIn("kCommandBufferLineageCapacity = 4096", source)
+        self.assertIn("HasValidCommandBufferLineage", source)
+        self.assertIn("packet_offset_bytes", source)
+        self.assertIn("sample_command_buffer_length_dwords", source)
+        self.assertIn("min_command_buffer_length_dwords", source)
+        self.assertIn("max_command_buffer_length_dwords", source)
+        self.assertIn("min_parent_root_offset_bytes", source)
+        self.assertIn("max_parent_root_offset_bytes", source)
+        self.assertIn("g_title_indirect_buffers_open", source)
+        self.assertIn("indirect_buffers_open_at_shutdown", source)
+        self.assertIn("kTitleIndirectPacketWays = 4", source)
+        self.assertIn("title_indirect_packet_evictions", source)
+        self.assertIn("entry.occupied = false", source)
+        self.assertIn("g_command_buffer_lineage_installed", source)
+        self.assertIn("g_command_buffer_lineage_memory", source)
+        self.assertIn("constructor_store_address", source)
+        self.assertIn("CurrentTitleIndirectConstructor", source)
+        self.assertIn("SetIndirectBufferObserver(&ObserveIndirectBuffer)", source)
+        self.assertIn("SetIndirectBufferObserver(nullptr)", source)
+        self.assertIn(
+            "exact_title_store_to_backend_nested_command_buffer_shape", source
+        )
+        self.assertIn(
+            "native_renderer.discovery.command_buffer_lineage_summary",
+            source,
+        )
+        self.assertIn("command_buffer_lineage", report)
+        for forbidden in (
+            "SetDrawSuppression",
+            "SetCopySuppression",
+            'guest_payload_read\", \"true',
+            'suppression_allowed\", \"true',
+        ):
+            self.assertNotIn(forbidden, patch + source)
+
     def test_census_has_no_native_renderer_or_suppression_api(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
