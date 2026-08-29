@@ -488,6 +488,64 @@ def procedural_model_lifecycle_fixtures():
                 "lwz r10,128(r27)",
                 "loc_824176B0:",
                 "mulli r11,r9,68",
+                "loc_824176B8:",
+                "add r26,r10,r11",
+                "loc_824176C8:",
+                "lwz r24,24(r26)",
+                "loc_824177C4:",
+                "lwz r22,28(r26)",
+                "loc_824177C8:",
+                "lwz r24,32(r26)",
+                "loc_82417A58:",
+                "lwz r11,0(r28)",
+                "loc_82417A60:",
+                "lwz r10,8(r27)",
+                "loc_82417A64:",
+                "li r5,0",
+                "loc_82417A68:",
+                "rlwinm r11,r11,3,0,28",
+                "loc_82417A70:",
+                "lwzx r4,r11,r10",
+                "loc_82417A74:",
+                "bl 0x82415bf8",
+                "loc_82417A78:",
+                "lwz r11,4(r28)",
+                "loc_82417A80:",
+                "blt cr6,0x82417aa0",
+                "loc_82417A84:",
+                "lwz r10,8(r27)",
+                "loc_82417A88:",
+                "rlwinm r11,r11,3,0,28",
+                "loc_82417A90:",
+                "li r5,1",
+                "loc_82417A98:",
+                "lwzx r4,r11,r10",
+                "loc_82417A9C:",
+                "bl 0x82415bf8",
+                "loc_82417B44:",
+                "lwz r11,0(r31)",
+                "loc_82417B48:",
+                "li r4,0",
+                "loc_82417B50:",
+                "lwz r5,0(r26)",
+                "loc_82417B54:",
+                "lwz r11,124(r11)",
+                "loc_82417B5C:",
+                "bctrl",
+                "loc_82417B60:",
+                "lwz r11,0(r31)",
+                "loc_82417B64:",
+                "mr r6,r24",
+                "loc_82417B68:",
+                "rlwinm r5,r22,2,0,29",
+                "loc_82417B6C:",
+                "li r4,13",
+                "loc_82417B70:",
+                "mr r3,r31",
+                "loc_82417B74:",
+                "lwz r11,160(r11)",
+                "loc_82417B7C:",
+                "bctrl",
                 "blr",
             ],
         ),
@@ -827,6 +885,16 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(380, extraction["bounded_payload_bytes_per_observation"])
         self.assertTrue(extraction["argument_mapping_proved"])
         self.assertFalse(extraction["native_rendering_enabled"])
+        submission = lifecycle["semantic_submission_extraction"]
+        self.assertEqual("82417A74", submission["primary_resource_binding_hook_address"])
+        self.assertEqual("82417A9C", submission["secondary_resource_binding_hook_address"])
+        self.assertEqual("82417B60", submission["geometry_submission_hook_address"])
+        self.assertEqual([0, 1], submission["resource_binding_slots"])
+        self.assertEqual(13, submission["graphics_submission_primitive"])
+        self.assertEqual(4, submission["graphics_submission_count_scale"])
+        self.assertTrue(submission["resource_binding_derivation_proved"])
+        self.assertTrue(submission["geometry_submission_derivation_proved"])
+        self.assertFalse(submission["native_rendering_enabled"])
         self.assertFalse(lifecycle["suppression_eligible"])
 
     def test_rejects_drifted_procedural_model_vtable_slot(self):

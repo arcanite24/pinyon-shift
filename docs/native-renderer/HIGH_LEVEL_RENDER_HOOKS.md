@@ -300,6 +300,19 @@ The first NR-05B boundary now observes slot 40's per-record helper at
 descriptor/runtime/transform sample, and leaves every sample on Xenos replay.
 See `PROCEDURAL_MODEL_SEMANTIC_EXTRACTION.md`.
 
+The next boundary follows the same record to resource-binding helper
+`82415BF8` and graphics-context submission. Hooks at `82417A74`, `82417A9C`,
+and `82417B60` join receiver-table resource keys in slots 0/1 with the opaque
+runtime submission object and the exact default/counted geometry-source
+tuple. This is structural submission identity, not a proved texture,
+material, vertex, index, mesh, LOD, or streaming ABI. See
+`PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.
+
+AppData session `20260829T180132Z-p42336` qualified this contract across
+463,613 exact submissions and 605 retained tuples. All observations stayed on
+Xenos replay with zero bad joins, binding mismatches, invalid geometry,
+overflow, or native admission. The same run remained at 30.215 median FPS.
+
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
 loads retain base register, offset, and width; values crossing a call boundary

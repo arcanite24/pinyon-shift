@@ -261,6 +261,25 @@ address = 0x8241741C
 name = "PinyonShiftObserveProceduralModelRenderItem"
 registers = ["r1", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"]
 
+# The helper resolves descriptor resource-table entries into binding slots 0
+# and 1, then submits an exact runtime-object/count/source tuple through the
+# graphics interface. These hooks observe those structural semantics only;
+# every call remains on Xenos replay.
+[[midasm_hook]]
+address = 0x82417A74
+name = "PinyonShiftObserveProceduralModelPrimaryResourceBinding"
+registers = ["r3", "r4", "r5", "r6", "r20", "r26", "r27", "r28", "r31"]
+
+[[midasm_hook]]
+address = 0x82417A9C
+name = "PinyonShiftObserveProceduralModelSecondaryResourceBinding"
+registers = ["r3", "r4", "r5", "r6", "r20", "r26", "r27", "r28", "r31"]
+
+[[midasm_hook]]
+address = 0x82417B60
+name = "PinyonShiftObserveProceduralModelGeometrySubmission"
+registers = ["r20", "r22", "r24", "r25", "r26", "r27", "r28", "r31"]
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

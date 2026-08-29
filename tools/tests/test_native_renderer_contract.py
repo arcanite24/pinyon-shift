@@ -15,6 +15,7 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("g_draw_census = {};", source)
         self.assertNotIn("g_dependency_census = {};", source)
         self.assertNotIn("g_semantic_instances = {};", source)
+        self.assertNotIn("g_semantic_submissions = {};", source)
         self.assertIn(
             "std::memset(&g_draw_census, 0, sizeof(g_draw_census));", source
         )
@@ -25,6 +26,11 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn(
             "std::memset(g_semantic_instances.data(), 0, "
             "sizeof(g_semantic_instances));",
+            source,
+        )
+        self.assertIn(
+            "std::memset(g_semantic_submissions.data(), 0,\n"
+            "                sizeof(g_semantic_submissions));",
             source,
         )
 
@@ -122,6 +128,40 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"unobserved_means_independent": False', summarizer)
         self.assertIn('"suppression_allowed": False', summarizer)
         self.assertIn('"later_gpu_consumers": later_gpu_consumer_gate', summarizer)
+
+    def test_procedural_model_submission_contract_is_bounded_and_passive(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
+        summarizer = (
+            ROOT / "tools/summarize-native-renderer-semantic-submissions.py"
+        ).read_text(encoding="utf-8")
+
+        expected_hooks = {
+            "PinyonShiftObserveProceduralModelPrimaryResourceBinding": "0x82417A74",
+            "PinyonShiftObserveProceduralModelSecondaryResourceBinding": "0x82417A9C",
+            "PinyonShiftObserveProceduralModelGeometrySubmission": "0x82417B60",
+        }
+        for name, address in expected_hooks.items():
+            self.assertEqual(analysis.count(f'name = "{name}"'), 1)
+            hook = analysis.split(f'name = "{name}"', 1)[0].rsplit(
+                "[[midasm_hook]]", 1
+            )[1]
+            self.assertIn(f"address = {address}", hook)
+        self.assertIn("kSemanticSubmissionCapacity = 8192", source)
+        self.assertIn("kSemanticSubmissionMaximumPayloadBytes = 56", source)
+        self.assertIn("runtime_record_24_default", source)
+        self.assertIn("runtime_record_28_32", source)
+        self.assertIn('"classification", "structural_resource_and_geometry_submission"', source)
+        self.assertIn('{"fallback", "xenos_replay"}', source)
+        self.assertIn('{"native_upload", "false"}', source)
+        self.assertIn('{"native_draw", "false"}', source)
+        self.assertIn('{"suppression_allowed", "false"}', source)
+        self.assertIn('"bounded_guest_read": True', summarizer)
+        self.assertIn('"suppression_allowed": False', summarizer)
 
     def test_scene_markers_and_classifier_are_explicit_and_safe(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

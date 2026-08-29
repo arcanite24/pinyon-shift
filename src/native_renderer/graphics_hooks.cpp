@@ -89,10 +89,12 @@ constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kSemanticInstanceCapacity = 4096;
+constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticDescriptorWordCount = 92 / sizeof(uint32_t);
 constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
 constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
 constexpr uint64_t kSemanticObservationPayloadBytes = 380;
+constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 56;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 std::atomic<uint64_t> g_frame_sequence{};
@@ -391,6 +393,62 @@ uint64_t g_semantic_instance_replay_fallbacks = 0;
 uint64_t g_semantic_instance_native_admissions = 0;
 uint64_t g_semantic_instance_overflow = 0;
 uint64_t g_semantic_instance_count = 0;
+
+struct SemanticSubmissionEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
+  uint32_t descriptor_kind = 0;
+  uint32_t helper_state = 0;
+  uint32_t graphics_context = 0;
+  uint32_t resource_lookup_context = 0;
+  uint32_t primary_resource_index = 0;
+  uint32_t primary_resource_key = 0;
+  int32_t secondary_resource_index = -1;
+  uint32_t secondary_resource_key = 0;
+  uint32_t runtime_submission_object = 0;
+  uint32_t primitive_type = 13;
+  uint32_t count_units = 0;
+  uint32_t count_bytes = 0;
+  uint32_t source_address = 0;
+  bool secondary_resource_present = false;
+  bool counted_runtime_source = false;
+};
+
+struct PendingSemanticResourceBindings {
+  uint32_t receiver_address = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t runtime_address = 0;
+  uint32_t graphics_context = 0;
+  uint32_t resource_lookup_context = 0;
+  uint32_t primary_resource_key = 0;
+  uint32_t secondary_resource_key = 0;
+  bool primary_seen = false;
+  bool secondary_seen = false;
+};
+
+std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
+    g_semantic_submissions{};
+std::mutex g_semantic_submission_mutex;
+uint64_t g_semantic_submission_observations = 0;
+uint64_t g_semantic_submission_live_observations = 0;
+uint64_t g_semantic_submission_unknown_receivers = 0;
+uint64_t g_semantic_submission_binding_mismatches = 0;
+uint64_t g_semantic_submission_invalid_record_joins = 0;
+uint64_t g_semantic_submission_invalid_resource_joins = 0;
+uint64_t g_semantic_submission_invalid_geometry = 0;
+uint64_t g_semantic_submission_payload_bytes = 0;
+uint64_t g_semantic_submission_replay_fallbacks = 0;
+uint64_t g_semantic_submission_native_admissions = 0;
+uint64_t g_semantic_submission_overflow = 0;
+uint64_t g_semantic_submission_count = 0;
+uint64_t g_semantic_primary_binding_observations = 0;
+uint64_t g_semantic_secondary_binding_observations = 0;
+thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -697,6 +755,26 @@ void ResetTitleDrawProvenance() {
     g_semantic_instance_overflow = 0;
     g_semantic_instance_count = 0;
   }
+  {
+    std::scoped_lock lock(g_semantic_submission_mutex);
+    std::memset(g_semantic_submissions.data(), 0,
+                sizeof(g_semantic_submissions));
+    g_semantic_submission_observations = 0;
+    g_semantic_submission_live_observations = 0;
+    g_semantic_submission_unknown_receivers = 0;
+    g_semantic_submission_binding_mismatches = 0;
+    g_semantic_submission_invalid_record_joins = 0;
+    g_semantic_submission_invalid_resource_joins = 0;
+    g_semantic_submission_invalid_geometry = 0;
+    g_semantic_submission_payload_bytes = 0;
+    g_semantic_submission_replay_fallbacks = 0;
+    g_semantic_submission_native_admissions = 0;
+    g_semantic_submission_overflow = 0;
+    g_semantic_submission_count = 0;
+    g_semantic_primary_binding_observations = 0;
+    g_semantic_secondary_binding_observations = 0;
+  }
+  g_pending_semantic_bindings = {};
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -3219,6 +3297,357 @@ void EmitProceduralModelSemanticInstances() {
        {"suppression_allowed", "false"}});
 }
 
+void RecordProceduralModelResourceBinding(
+    uint32_t expected_slot, uint32_t graphics_argument,
+    uint32_t resource_key, uint32_t binding_slot,
+    uint32_t lookup_argument, uint32_t lookup_context,
+    uint32_t runtime_address, uint32_t receiver_address,
+    uint32_t descriptor_address, uint32_t graphics_context) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  if (expected_slot == 0) {
+    ++g_semantic_primary_binding_observations;
+    g_pending_semantic_bindings = {};
+  } else {
+    ++g_semantic_secondary_binding_observations;
+  }
+  if (binding_slot != expected_slot || graphics_argument != graphics_context ||
+      lookup_argument != lookup_context || !receiver_address ||
+      !descriptor_address || !runtime_address || !graphics_context) {
+    g_pending_semantic_bindings = {};
+    return;
+  }
+  if (expected_slot == 0) {
+    g_pending_semantic_bindings = {
+        .receiver_address = receiver_address,
+        .descriptor_address = descriptor_address,
+        .runtime_address = runtime_address,
+        .graphics_context = graphics_context,
+        .resource_lookup_context = lookup_context,
+        .primary_resource_key = resource_key,
+        .primary_seen = true,
+    };
+    return;
+  }
+  if (!g_pending_semantic_bindings.primary_seen ||
+      g_pending_semantic_bindings.receiver_address != receiver_address ||
+      g_pending_semantic_bindings.descriptor_address != descriptor_address ||
+      g_pending_semantic_bindings.runtime_address != runtime_address ||
+      g_pending_semantic_bindings.graphics_context != graphics_context ||
+      g_pending_semantic_bindings.resource_lookup_context != lookup_context) {
+    g_pending_semantic_bindings = {};
+    return;
+  }
+  g_pending_semantic_bindings.secondary_resource_key = resource_key;
+  g_pending_semantic_bindings.secondary_seen = true;
+}
+
+void RecordProceduralModelGeometrySubmission(
+    uint32_t resource_lookup_context, uint32_t count_units,
+    uint32_t source_address, uint32_t helper_state,
+    uint32_t runtime_address, uint32_t receiver_address,
+    uint32_t descriptor_address, uint32_t graphics_context) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    return;
+  }
+
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  ++g_semantic_submission_observations;
+  const PendingSemanticResourceBindings pending =
+      g_pending_semantic_bindings;
+  g_pending_semantic_bindings = {};
+  if (!pending.primary_seen || pending.receiver_address != receiver_address ||
+      pending.descriptor_address != descriptor_address ||
+      pending.runtime_address != runtime_address ||
+      pending.graphics_context != graphics_context ||
+      pending.resource_lookup_context != resource_lookup_context) {
+    ++g_semantic_submission_binding_mismatches;
+    return;
+  }
+
+  SemanticReceiverLifecycleEntry *lifecycle =
+      FindSemanticReceiverLifecycle(receiver_address);
+  if (!lifecycle ||
+      lifecycle->state.load(std::memory_order_acquire) !=
+          uint32_t(SemanticReceiverState::kLive)) {
+    ++g_semantic_submission_unknown_receivers;
+    return;
+  }
+  const uint32_t receiver_generation =
+      lifecycle->generation.load(std::memory_order_relaxed);
+  if (!receiver_generation || receiver_address > UINT32_MAX - 144 ||
+      (descriptor_address & 3) || (runtime_address & 3)) {
+    ++g_semantic_submission_invalid_record_joins;
+    return;
+  }
+
+  const uint32_t owner =
+      LoadSemanticGuestU32(memory, receiver_address + 124);
+  const uint32_t runtime_base =
+      LoadSemanticGuestU32(memory, receiver_address + 128);
+  const uint32_t resource_table =
+      LoadSemanticGuestU32(memory, receiver_address + 8);
+  if (!owner || !runtime_base || !resource_table || (owner & 3) ||
+      (runtime_base & 3) || (resource_table & 3) ||
+      owner > UINT32_MAX - 16) {
+    ++g_semantic_submission_invalid_record_joins;
+    return;
+  }
+  const uint32_t descriptor_base = LoadSemanticGuestU32(memory, owner);
+  const uint32_t descriptor_count = LoadSemanticGuestU32(memory, owner + 12);
+  if (!descriptor_base || (descriptor_base & 3) || !descriptor_count ||
+      descriptor_address < descriptor_base || runtime_address < runtime_base) {
+    ++g_semantic_submission_invalid_record_joins;
+    return;
+  }
+  const uint32_t descriptor_delta = descriptor_address - descriptor_base;
+  const uint32_t runtime_delta = runtime_address - runtime_base;
+  if (descriptor_delta % 92 || runtime_delta % 68) {
+    ++g_semantic_submission_invalid_record_joins;
+    return;
+  }
+  const uint32_t record_index = descriptor_delta / 92;
+  if (runtime_delta / 68 != record_index || record_index >= descriptor_count) {
+    ++g_semantic_submission_invalid_record_joins;
+    return;
+  }
+
+  const uint32_t primary_resource_index =
+      LoadSemanticGuestU32(memory, descriptor_address);
+  const int32_t secondary_resource_index = int32_t(
+      LoadSemanticGuestU32(memory, descriptor_address + 4));
+  const uint32_t descriptor_kind =
+      LoadSemanticGuestU32(memory, descriptor_address + 36);
+  const uint32_t runtime_submission_object =
+      LoadSemanticGuestU32(memory, runtime_address);
+  const uint32_t runtime_default_source =
+      LoadSemanticGuestU32(memory, runtime_address + 24);
+  const uint32_t runtime_count_units =
+      LoadSemanticGuestU32(memory, runtime_address + 28);
+  const uint32_t runtime_counted_source =
+      LoadSemanticGuestU32(memory, runtime_address + 32);
+  const uint64_t primary_resource_address_64 =
+      uint64_t(resource_table) + uint64_t(primary_resource_index) * 8;
+  if (primary_resource_address_64 + 4 > uint64_t(UINT32_MAX) + 1) {
+    ++g_semantic_submission_invalid_resource_joins;
+    return;
+  }
+  const uint32_t primary_resource_key = LoadSemanticGuestU32(
+      memory, uint32_t(primary_resource_address_64));
+  if (primary_resource_key != pending.primary_resource_key) {
+    ++g_semantic_submission_invalid_resource_joins;
+    return;
+  }
+
+  uint32_t secondary_resource_key = 0;
+  const bool secondary_resource_present = secondary_resource_index >= 0;
+  uint64_t payload_bytes = 52;
+  if (secondary_resource_present) {
+    const uint64_t secondary_resource_address_64 =
+        uint64_t(resource_table) + uint64_t(secondary_resource_index) * 8;
+    if (secondary_resource_address_64 + 4 > uint64_t(UINT32_MAX) + 1 ||
+        !pending.secondary_seen) {
+      ++g_semantic_submission_invalid_resource_joins;
+      return;
+    }
+    secondary_resource_key = LoadSemanticGuestU32(
+        memory, uint32_t(secondary_resource_address_64));
+    payload_bytes += 4;
+    if (secondary_resource_key != pending.secondary_resource_key) {
+      ++g_semantic_submission_invalid_resource_joins;
+      return;
+    }
+  } else if (pending.secondary_seen) {
+    ++g_semantic_submission_invalid_resource_joins;
+    return;
+  }
+
+  const bool counted_runtime_source_matches =
+      count_units == runtime_count_units &&
+      source_address == runtime_counted_source;
+  const bool default_runtime_source =
+      count_units == 0 && source_address == runtime_default_source;
+  if (!runtime_submission_object || !source_address ||
+      (!counted_runtime_source_matches && !default_runtime_source)) {
+    ++g_semantic_submission_invalid_geometry;
+    return;
+  }
+  // Prefer the default classification when both zero-count source fields are
+  // identical. The submitted tuple is exact even though those equal values do
+  // not distinguish which earlier title branch selected it.
+  const bool counted_runtime_source =
+      counted_runtime_source_matches && !default_runtime_source;
+
+  ++g_semantic_submission_live_observations;
+  g_semantic_submission_payload_bytes += payload_bytes;
+  ++g_semantic_submission_replay_fallbacks;
+  const uint32_t count_bytes = count_units << 2;
+  uint64_t key = 0xCBF29CE484222325ull;
+  for (uint64_t value :
+       {uint64_t(receiver_address), uint64_t(receiver_generation),
+        uint64_t(record_index), uint64_t(descriptor_kind),
+        uint64_t(helper_state), uint64_t(primary_resource_key),
+        uint64_t(secondary_resource_present),
+        uint64_t(secondary_resource_key),
+        uint64_t(runtime_submission_object), uint64_t(count_bytes),
+        uint64_t(source_address)}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+
+  size_t index = size_t(key % kSemanticSubmissionCapacity);
+  for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
+    SemanticSubmissionEntry &entry = g_semantic_submissions[index];
+    if (!entry.key) {
+      entry = {
+          .key = key,
+          .calls = 1,
+          .first_frame = g_frame_sequence.load(std::memory_order_relaxed),
+          .last_frame = g_frame_sequence.load(std::memory_order_relaxed),
+          .receiver_address = receiver_address,
+          .receiver_generation = receiver_generation,
+          .record_index = record_index,
+          .descriptor_kind = descriptor_kind,
+          .helper_state = helper_state,
+          .graphics_context = graphics_context,
+          .resource_lookup_context = resource_lookup_context,
+          .primary_resource_index = primary_resource_index,
+          .primary_resource_key = primary_resource_key,
+          .secondary_resource_index = secondary_resource_index,
+          .secondary_resource_key = secondary_resource_key,
+          .runtime_submission_object = runtime_submission_object,
+          .primitive_type = 13,
+          .count_units = count_units,
+          .count_bytes = count_bytes,
+          .source_address = source_address,
+          .secondary_resource_present = secondary_resource_present,
+          .counted_runtime_source = counted_runtime_source,
+      };
+      ++g_semantic_submission_count;
+      return;
+    }
+    if (entry.key == key && entry.receiver_address == receiver_address &&
+        entry.receiver_generation == receiver_generation &&
+        entry.record_index == record_index &&
+        entry.descriptor_kind == descriptor_kind &&
+        entry.helper_state == helper_state &&
+        entry.graphics_context == graphics_context &&
+        entry.resource_lookup_context == resource_lookup_context &&
+        entry.primary_resource_index == primary_resource_index &&
+        entry.primary_resource_key == primary_resource_key &&
+        entry.secondary_resource_present == secondary_resource_present &&
+        entry.secondary_resource_index == secondary_resource_index &&
+        entry.secondary_resource_key == secondary_resource_key &&
+        entry.runtime_submission_object == runtime_submission_object &&
+        entry.count_units == count_units &&
+        entry.count_bytes == count_bytes &&
+        entry.source_address == source_address &&
+        entry.counted_runtime_source == counted_runtime_source) {
+      ++entry.calls;
+      entry.last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      return;
+    }
+    index = (index + 1) % kSemanticSubmissionCapacity;
+  }
+  ++g_semantic_submission_overflow;
+}
+
+void EmitProceduralModelSemanticSubmissions() {
+  std::scoped_lock lock(g_semantic_submission_mutex);
+  for (const SemanticSubmissionEntry &entry : g_semantic_submissions) {
+    if (!entry.key) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_submission_entry",
+        {{"class", "proceduralGeometry::CProceduralModels"},
+         {"key", fmt::format("{:016X}", entry.key)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"receiver_address", fmt::format("{:08X}", entry.receiver_address)},
+         {"receiver_generation", std::to_string(entry.receiver_generation)},
+         {"record_index", std::to_string(entry.record_index)},
+         {"descriptor_kind", std::to_string(entry.descriptor_kind)},
+         {"helper_state", std::to_string(entry.helper_state)},
+         {"graphics_context", fmt::format("{:08X}", entry.graphics_context)},
+         {"resource_lookup_context",
+          fmt::format("{:08X}", entry.resource_lookup_context)},
+         {"primary_resource_index",
+          std::to_string(entry.primary_resource_index)},
+         {"primary_resource_key",
+          fmt::format("{:08X}", entry.primary_resource_key)},
+         {"secondary_resource_present",
+          entry.secondary_resource_present ? "true" : "false"},
+         {"secondary_resource_index",
+          std::to_string(entry.secondary_resource_index)},
+         {"secondary_resource_key",
+          fmt::format("{:08X}", entry.secondary_resource_key)},
+         {"runtime_submission_object",
+          fmt::format("{:08X}", entry.runtime_submission_object)},
+         {"primitive_type", std::to_string(entry.primitive_type)},
+         {"count_units", std::to_string(entry.count_units)},
+         {"count_bytes", std::to_string(entry.count_bytes)},
+         {"source_address", fmt::format("{:08X}", entry.source_address)},
+         {"source_contract", entry.counted_runtime_source
+                                 ? "runtime_record_28_32"
+                                 : "runtime_record_24_default"},
+         {"classification", "structural_resource_and_geometry_submission"},
+         {"fallback", "xenos_replay"},
+         {"guest_payload_read", "bounded_submission_fields_only"},
+         {"guest_state_changed", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_submission_summary",
+      {{"observations", std::to_string(g_semantic_submission_observations)},
+       {"live_observations",
+        std::to_string(g_semantic_submission_live_observations)},
+       {"unknown_receivers",
+        std::to_string(g_semantic_submission_unknown_receivers)},
+       {"binding_mismatches",
+        std::to_string(g_semantic_submission_binding_mismatches)},
+       {"invalid_record_joins",
+        std::to_string(g_semantic_submission_invalid_record_joins)},
+       {"invalid_resource_joins",
+        std::to_string(g_semantic_submission_invalid_resource_joins)},
+       {"invalid_geometry",
+        std::to_string(g_semantic_submission_invalid_geometry)},
+       {"primary_binding_observations",
+        std::to_string(g_semantic_primary_binding_observations)},
+       {"secondary_binding_observations",
+        std::to_string(g_semantic_secondary_binding_observations)},
+       {"payload_bytes",
+        std::to_string(g_semantic_submission_payload_bytes)},
+       {"maximum_payload_bytes_per_live_observation",
+        std::to_string(kSemanticSubmissionMaximumPayloadBytes)},
+       {"replay_fallbacks",
+        std::to_string(g_semantic_submission_replay_fallbacks)},
+       {"native_admissions",
+        std::to_string(g_semantic_submission_native_admissions)},
+       {"entries", std::to_string(g_semantic_submission_count)},
+       {"capacity", std::to_string(kSemanticSubmissionCapacity)},
+       {"overflow", std::to_string(g_semantic_submission_overflow)},
+       {"classification", "structural_resource_and_geometry_submission"},
+       {"fallback", "xenos_replay"},
+       {"guest_payload_read", "bounded_submission_fields_only"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 uint64_t PreparedPipelineHash(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   uint64_t hash = 0xCBF29CE484222325ull;
@@ -4608,6 +5037,7 @@ void RecordPreparedCommandBufferLineage(
 
 void EmitCommandBufferLineageSummary() {
   EmitProceduralModelSemanticInstances();
+  EmitProceduralModelSemanticSubmissions();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -7477,6 +7907,33 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_submission_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"primary_resource_binding_hook", "82417A74"},
+       {"secondary_resource_binding_hook", "82417A9C"},
+       {"geometry_submission_hook", "82417B60"},
+       {"resource_binding_helper", "82415BF8"},
+       {"resource_binding_slots", "0,1"},
+       {"descriptor_resource_indices", "offsets_0_4"},
+       {"receiver_resource_table", "receiver_plus_8_stride_8"},
+       {"runtime_submission_object", "runtime_plus_0"},
+       {"geometry_source_contract",
+        "runtime_plus_24_or_count_at_28_source_at_32"},
+       {"primitive_type", "13"},
+       {"count_scale", "4"},
+       {"capacity", std::to_string(kSemanticSubmissionCapacity)},
+       {"maximum_payload_bytes_per_live_observation",
+        std::to_string(kSemanticSubmissionMaximumPayloadBytes)},
+       {"classification", "structural_resource_and_geometry_submission"},
+       {"fallback", "xenos_replay_unclassified_material_or_state"},
+       {"guest_payload_read", "bounded_submission_fields_only"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
   diagnostics::RecordEvent("native_renderer.census.scene_marker",
                            {{"scene", scene}, {"source", "operator"}});
   diagnostics::RecordEvent(
@@ -8329,6 +8786,33 @@ void PinyonShiftObserveProceduralModelRenderItem(
   RecordProceduralModelSemanticInstance(
       r1.u32, r3.u32,
       {r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32});
+}
+
+void PinyonShiftObserveProceduralModelPrimaryResourceBinding(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r20, PPCRegister &r26, PPCRegister &r27, PPCRegister &r28,
+    PPCRegister &r31) {
+  RecordProceduralModelResourceBinding(
+      0, r3.u32, r4.u32, r5.u32, r6.u32, r20.u32, r26.u32, r27.u32,
+      r28.u32, r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelSecondaryResourceBinding(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r20, PPCRegister &r26, PPCRegister &r27, PPCRegister &r28,
+    PPCRegister &r31) {
+  RecordProceduralModelResourceBinding(
+      1, r3.u32, r4.u32, r5.u32, r6.u32, r20.u32, r26.u32, r27.u32,
+      r28.u32, r31.u32);
+}
+
+void PinyonShiftObserveProceduralModelGeometrySubmission(
+    PPCRegister &r20, PPCRegister &r22, PPCRegister &r24, PPCRegister &r25,
+    PPCRegister &r26, PPCRegister &r27, PPCRegister &r28,
+    PPCRegister &r31) {
+  RecordProceduralModelGeometrySubmission(
+      r20.u32, r22.u32, r24.u32, r25.u32, r26.u32, r27.u32, r28.u32,
+      r31.u32);
 }
 
 void PinyonShiftObserveIndirectPacket824095B4(PPCRegister &r11,

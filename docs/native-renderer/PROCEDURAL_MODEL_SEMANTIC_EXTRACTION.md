@@ -79,6 +79,12 @@ materials, textures, visibility bits, LOD policy, or streaming ownership.
 Those meanings must be proved before an instance is eligible for native
 admission or batching.
 
+The next static and runtime contract now follows these same records through
+their exact resource-binding and geometry-submission operations. It classifies
+structural resource keys, binding slots, an opaque runtime submission object,
+and the two geometry-source paths without claiming a mesh/material ABI. See
+`PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.
+
 ## AppData qualification
 
 Release executable SHA-256
