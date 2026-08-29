@@ -11,7 +11,7 @@ import sys
 
 
 SCHEMA = "pinyon-shift.native-renderer-dispatch-scenes.v1"
-RUNTIME_SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v2"
+RUNTIME_SCHEMA = "pinyon-shift.native-renderer-dispatch-runtime.v3"
 SCENE_RE = re.compile(r"^[a-z_]{1,32}$")
 
 

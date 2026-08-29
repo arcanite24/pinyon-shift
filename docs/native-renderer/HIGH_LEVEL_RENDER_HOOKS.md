@@ -24,7 +24,7 @@ Discovery records are never suppression evidence.
 
 ## Proved wrapper layers
 
-The generated AOT instruction inventory establishes seven runtime wrapper
+The generated AOT instruction inventory establishes ten runtime wrapper
 families:
 
 | Entry | Static evidence | Reviewed identity | Runtime observation |
@@ -33,8 +33,11 @@ families:
 | `0x8240F4D8` | At `0x82410320`, stores a dynamic-count Type-3 `PM4_DRAW_INDX_2` (`0x36`) header | Indexed draw packet wrapper | Hook `0x8240F4DC`: entry `LR` and `r3-r10` |
 | `0x824587D8` | Calls `0x82458A88` at `0x82458828` and `0x824589E4` while managing resolve state | Title resolve controller | Hook `0x824587DC`: entry `LR` and `r3-r10` |
 | `0x82458A88` | Writes register `0x2208` (`RB_MODECONTROL`) followed by value 6 (`EdramMode::kCopy`) at `0x82458AC0`/`0x82458AD4` | Resolve state-packet setup wrapper | Hook `0x82458A8C`: entry `LR` and `r3-r10` |
+| `0x82413AB8` | Stores `PM4_SET_BIN_MASK_LO` and `PM4_SET_BIN_MASK_HI` packet headers | Xenos binning/scissor-state wrapper; semantic tiled-pass role unknown | Hook `0x82413ABC`: entry `LR` and `r3-r10` |
+| `0x824736F0` | Stores all four `PM4_SET_BIN_MASK/SELECT_LO/HI` packet headers and calls `0x82413AB8` | Xenos binning-state reset wrapper; semantic tiled-pass role unknown | Hook `0x824736F4`: entry `LR` and `r3-r10` |
 | `0x829F21A0` | At `0x829F225C`, stores `0xC0002300`; then marks the query ID active at `0x829F2270` | Visibility-query begin wrapper | Hook `0x829F21A4`: entry `LR` and `r3-r10` |
 | `0x829F2280` | At `0x829F22E4`, stores `0xC0002300`; then clears the active query ID at `0x829F2308` | Visibility-query end wrapper | Hook `0x829F2284`: entry `LR` and `r3-r10` |
+| `0x82D951E0` | Calls query begin at `0x82D95230`, performs five intervening work calls, then calls query end at `0x82D95378` | Visibility-query lifecycle owner; result semantics unknown | Hook `0x82D951E4`: entry `LR` and `r3-r10` |
 | `0x829F7C70` | At `0x829F7CA8`, stores fixed Type-3 count-one `PM4_DRAW_INDX_2` (`0x36`) header | Immediate/embedded-index draw wrapper | Hook `0x829F7C74`: entry `LR` and `r3-r10` |
 
 Three additional opcode-`0x36` constructors at `0x829E82D0`, `0x829E8428`,
@@ -42,9 +45,10 @@ and `0x829EDB68` build initialization templates. They are inventoried but are
 not runtime draw hooks.
 
 No `PM4_DRAW_INDX` (`0x22`) title constructor has yet passed the same stored-
-header proof. The scanner reports only proved stored opcode-`0x36` and
-opcode-`0x23` headers and explicitly rejects a matching numeric operation in
-`sub_83051E48` because its result is not stored as a command packet.
+header proof. The scanner reports 91 proved stored packet constructors across
+the draw, query, resolve side-effect, and binning-state opcodes it recognizes.
+It explicitly rejects a matching numeric operation in `sub_83051E48` because
+its result is not stored as a command packet.
 
 The adapter ABI exposes `r3-r10` at entry and reads two additional stack words
 at entry-stack offsets 92 and 100 before calling the packet wrapper. Those
@@ -72,15 +76,35 @@ the copy rectangle or which semantic system owns the destination. The
 inventory records `title_resolve_setup_and_backend_copy_proved` without using
 timing or dimensions as identity evidence.
 
+The controller also proves the surrounding side-effect order: one
+`PM4_EVENT_WRITE`, two `PM4_MEM_WRITE`, two `PM4_WAIT_REG_MEM`, and one
+`PM4_EVENT_WRITE_EXT` packet. The setup wrapper proves four bin-mask/select
+writes and one `PM4_EVENT_WRITE_ZPD` packet. These are exact command-stream
+boundaries, not permission to reproduce, reorder, or suppress their effects.
+
+## Query and binning boundaries
+
+`sub_82D951E0` is the proved owner of one visibility-query lifecycle: it calls
+the begin wrapper, performs five intervening work calls, and calls the end
+wrapper. Exactly two direct callers reach it, at `0x82D9566C` and
+`0x82DA9458`. This locates lifecycle ownership but does not identify how the
+result is consumed or what semantic object the query represents.
+
+`sub_82413AB8` and `sub_824736F0` bound Xenos bin-mask/select and scissor-state
+submission. They provide a concrete lead for tiled rendering, but packet
+identity alone does not prove semantic tiled-pass begin/end ownership.
+
 ## Static direct callers
 
 `tools/discover-native-renderer-dispatch.py` scans all generated AOT C++ files,
 reconstructs instruction addresses from function entries and labels, and
 produces a deterministic payload-free JSON inventory. At the current baseline
-it finds 56 direct call sites: 38 into the promoted adapter, nine into the
+it finds 72 direct call sites: 38 into the promoted adapter, nine into the
 indexed packet wrapper, two into the immediate wrapper, two into resolve
 setup, three into the resolve controller, and one into each visibility-query
-wrapper. The adapter's 38 sites group into 25 caller functions:
+wrapper. The remaining 16 sites are ten into binning/scissor state, four into
+binning-state reset, and two into the query lifecycle owner. The adapter's 38
+sites group into 25 caller functions:
 
 | Caller function | Adapter call sites |
 | --- | --- |
@@ -114,6 +138,12 @@ The exact lower-wrapper and query-wrapper sites, return addresses, wrapper
 layers, packet constructors, dirty transitions, and hook ABIs remain in the
 versioned JSON rather than a second hand-maintained table.
 
+One additional runtime correlation edge is tail-forwarded: `sub_8246FB90`
+calls `sub_829ED510` at `0x8246FC74`, and that function preserves the caller
+`LR` while tail-branching to `0x82413AB8`. The static inventory records the
+original return address `0x8246FC78`, the forwarder, and its branch separately
+from the 72 direct wrapper calls.
+
 The entry `LR` is sufficient to correlate runtime frequency with this table.
 It is not sufficient to name a call site terrain, road, vehicle, HUD, or any
 other semantic family. Those names remain `unknown`.
@@ -145,6 +175,22 @@ The summarizer requires one read-only session summary, verifies aggregate
 caller counts, rejects any session that does not prove the no-mutation safety
 boundary, and labels every semantic identity `unknown`. An unmatched `LR` is
 retained rather than guessed.
+
+Combine the same diagnostics stream with the static inventory to produce a
+bounded side-effect report:
+
+```powershell
+python .\tools\summarize-native-renderer-side-effects.py `
+    <diagnostics.jsonl> `
+    --static .local\qualification\native-dispatch-static.json `
+    --output .local\qualification\native-side-effects.json
+```
+
+The report aggregates query and memexport draws, resolve counts and bytes,
+capacity overflow, wrapper activity, and the static query/resolve/binning
+proofs. A zero observation is always `unobserved_not_absent`; it is never
+absence evidence. The report preserves Xenos authority and suppression stays
+disabled.
 
 Repeat each marked scene at least twice, then build a conservative cross-scene
 matrix from the runtime reports:
@@ -192,8 +238,37 @@ material, transform, visibility, LOD, streaming, and destruction ownership is
 understood. Required coverage remains world, vehicle, road, HUD, garage,
 mirror, shadow, exposure, livery, thumbnail, and rewind.
 
-Query begin/end, resolve setup/controller, and the indexed-wrapper dirty-state
-clears are now proved. Resolve-draw ownership, query result ownership,
-tiled-rendering, resource lifetime, and semantic caller identities remain open
-title-side inventory work. Until those gates are met, all work stays on Xenos
-and no new draw family may be suppressed.
+Query begin/end and lifecycle ownership, resolve setup/controller and its
+side-effect packet order, Xenos binning-state submission, and the indexed-
+wrapper dirty-state clears are now proved. Resolve-draw ownership, downstream
+query-result consumption, semantic tiled-pass ownership, resource lifetime,
+and semantic caller identities remain open title-side inventory work. Until
+those gates are met, all work stays on Xenos and no new draw family may be
+suppressed.
+
+## Side-effect-boundary qualification — 2026-08-29
+
+Clean Release executable
+`9C0D2318A9B361014457FEBD96802559C694339640287CD3331EC63A92A93CC0`
+ran the installed `0.1.0` AppData save through menu, save load, and live
+festival gameplay. Session `20260829T112833Z-p40656` exited normally after
+6,916 frames.
+
+The ten passive hooks recorded 1,304,743 calls from 26 runtime callers. Static
+correlation matched all 26, including the tail-forwarded binning-state edge;
+there were zero unknown callers and zero caller-table overflow. The new
+binning/scissor wrapper observed 978,620 calls from eight callers, while the
+binning-state reset wrapper observed 11,845 calls from three callers. Query
+and resolve title wrappers were not exercised in this scene and remain
+unclassified.
+
+Twenty-four bounded census windows recorded 263,328 resolves totaling
+149,780,066,304 bytes, with zero target/page overflow. Query and memexport
+draw counts were zero and are classified `unobserved_not_absent`. Xenos stayed
+authoritative, suppression remained disabled, and the report proves no guest
+payload read, guest-state mutation, or control-flow change.
+
+Median derived performance was 30.463 FPS over 207.904 seconds; simulation and
+presentation cadence were 29.716 Hz and 59.984 Hz. Texture/pipeline cache hit
+rates were 99.983%/100%. No crash, fatal error, device loss, or unexpected
+shutdown marker appeared.

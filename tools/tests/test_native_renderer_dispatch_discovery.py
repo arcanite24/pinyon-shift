@@ -51,6 +51,24 @@ def reviewed_fixtures(include_immediate=True):
             0x824587D8,
             [
                 "mflr r12",
+                "lis r20,-16384",
+                "ori r20,r20,17920",
+                "stwu r20,4(r3)",
+                "lis r21,-16383",
+                "ori r21,r21,15616",
+                "stwu r21,4(r3)",
+                "lis r22,-16383",
+                "ori r22,r22,15616",
+                "stwu r22,4(r3)",
+                "lis r23,-16380",
+                "ori r23,r23,15360",
+                "stwu r23,4(r3)",
+                "lis r24,-16380",
+                "ori r24,r24,15360",
+                "stwu r24,4(r3)",
+                "lis r25,-16383",
+                "ori r25,r25,23040",
+                "stwu r25,4(r3)",
                 "bl 0x82458a88",
                 "bl 0x82458a88",
             ],
@@ -64,6 +82,21 @@ def reviewed_fixtures(include_immediate=True):
                 "stwu r11,4(r3)",
                 "lis r11,1",
                 "stwu r10,4(r3)",
+                "lis r20,-16384",
+                "ori r20,r20,24576",
+                "stwu r20,4(r3)",
+                "lis r21,-16384",
+                "ori r21,r21,24832",
+                "stwu r21,4(r3)",
+                "lis r22,-16384",
+                "ori r22,r22,24576",
+                "stwu r22,4(r3)",
+                "lis r23,-16384",
+                "ori r23,r23,24832",
+                "stwu r23,4(r3)",
+                "lis r24,-16384",
+                "ori r24,r24,23296",
+                "stwu r24,4(r3)",
             ],
         ),
         fixture(
@@ -88,6 +121,50 @@ def reviewed_fixtures(include_immediate=True):
                 "std r11,12424(r31)",
             ],
         ),
+        fixture(
+            0x82D951E0,
+            [
+                "mflr r12",
+                "bl 0x829f21a0",
+                "bl 0x82415f68",
+                "bl 0x829f2280",
+            ],
+        ),
+        fixture(
+            0x82413AB8,
+            [
+                "mflr r12",
+                "lis r20,-16384",
+                "ori r20,r20,24576",
+                "stwu r20,4(r3)",
+                "lis r21,-16384",
+                "ori r21,r21,24832",
+                "stwu r21,4(r3)",
+            ],
+        ),
+        fixture(
+            0x824736F0,
+            [
+                "mflr r12",
+                "lis r20,-16384",
+                "ori r20,r20,24576",
+                "stwu r20,4(r3)",
+                "lis r21,-16384",
+                "ori r21,r21,24832",
+                "stwu r21,4(r3)",
+                "lis r22,-16384",
+                "ori r22,r22,25088",
+                "stwu r22,4(r3)",
+                "lis r23,-16384",
+                "ori r23,r23,25344",
+                "stwu r23,4(r3)",
+                "bl 0x82413ab8",
+            ],
+        ),
+        fixture(0x82D95408, ["bl 0x82d951e0"]),
+        fixture(0x82DA8CB0, ["bl 0x82d951e0"]),
+        fixture(0x829ED510, ["b 0x82413ab8"]),
+        fixture(0x8246FB90, ["bl 0x829ed510"]),
     ]
     if include_immediate:
         chunks.append(
@@ -120,21 +197,24 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                 "bl 0x829f21a0",
                 "bl 0x829f2280",
                 "bl 0x829f7c70",
+                "bl 0x82413ab8",
+                "bl 0x824736f0",
             ],
         )
         document = self.build([*reviewed_fixtures(), caller])
-        self.assertEqual(document["totals"]["reviewed_wrappers"], 7)
-        self.assertEqual(document["totals"]["direct_calls"], 8)
+        self.assertEqual(document["totals"]["reviewed_wrappers"], 10)
+        self.assertEqual(document["totals"]["direct_calls"], 15)
+        self.assertEqual(document["totals"]["tail_forwarded_calls"], 1)
+        self.assertEqual(document["totals"]["runtime_correlation_calls"], 16)
         self.assertEqual(document["totals"]["dirty_state_clears"], 6)
         self.assertEqual(document["totals"]["query_state_transitions"], 2)
-        self.assertEqual(
-            document["packet_constructors"][0]["header_source"],
-            "dynamic_type3_count",
+        indexed_packet = next(
+            item
+            for item in document["packet_constructors"]
+            if item["function_address"] == "8240F4D8"
+            and item["opcode"] == "PM4_DRAW_INDX_2"
         )
-        self.assertEqual(
-            document["packet_constructors"][1]["header_source"],
-            "fixed_type3_count_1",
-        )
+        self.assertEqual(indexed_packet["header_source"], "dynamic_type3_count")
         adapter_call = next(
             item
             for item in document["direct_calls"]
@@ -146,6 +226,18 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "title_resolve_setup_and_backend_copy_proved",
         )
         self.assertEqual(document["totals"]["resolve_mode_writes"], 1)
+        self.assertEqual(document["totals"]["query_owner_callers"], 2)
+        self.assertEqual(
+            document["query_owner_lifecycle"]["classification"],
+            "query_lifecycle_owner_proved_semantics_unknown",
+        )
+        self.assertEqual(
+            len(document["side_effect_packets"]["resolve_controller"]), 6
+        )
+        forwarded = document["tail_forwarded_calls"][0]
+        self.assertEqual(forwarded["wrapper"], "82413AB8")
+        self.assertEqual(forwarded["return_address"], "8246FB94")
+        self.assertEqual(forwarded["forwarder_function"], "sub_829ED510")
         self.assertFalse(document["safety"]["suppression_allowed"])
 
     def test_rejects_missing_reviewed_packet_evidence(self):
@@ -210,6 +302,20 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             analysis.count('name = "PinyonShiftObserveResolveSetupDispatch"'),
             1,
         )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveVizQueryOwnerDispatch"'),
+            1,
+        )
+        self.assertEqual(
+            analysis.count(
+                'name = "PinyonShiftObserveBinningScissorStateDispatch"'
+            ),
+            1,
+        )
+        self.assertEqual(
+            analysis.count('name = "PinyonShiftObserveBinningStateResetDispatch"'),
+            1,
+        )
         self.assertIn('address = 0x824079BC', analysis)
         self.assertIn('address = 0x8240F4DC', analysis)
         self.assertIn('address = 0x824587DC', analysis)
@@ -217,16 +323,20 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertIn('address = 0x829F21A4', analysis)
         self.assertIn('address = 0x829F2284', analysis)
         self.assertIn('address = 0x829F7C74', analysis)
+        self.assertIn('address = 0x82D951E4', analysis)
+        self.assertIn('address = 0x82413ABC', analysis)
+        self.assertIn('address = 0x824736F4', analysis)
         self.assertEqual(
             analysis.count(
                 'registers = ["r3", "r4", "r5", "r6", "r7", "r8", '
                 '"r9", "r10", "r12"]'
             ),
-            7,
+            10,
         )
         self.assertIn(
             "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY", capture
         )
+        self.assertIn("REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS", capture)
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SCENE", capture)
         self.assertIn("[string]$Scene = 'unmarked'", capture)
         self.assertIn("launch-preview.ps1", capture)

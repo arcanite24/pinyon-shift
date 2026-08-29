@@ -66,6 +66,25 @@ An address absent from the dependency stream is not proof that it is
 presentation-only. Capacity overflow, an unobserved CPU read, a non-texture
 consumer, or an unclassified scene role may still exist.
 
+## Title side-effect boundaries
+
+The static dispatch inventory proves a visibility-query lifecycle owner at
+`0x82D951E0`: query begin at `0x82D95230`, five intervening work calls, and
+query end at `0x82D95378`. This establishes ownership of the begin/end pair,
+not the downstream query-result consumer or semantic purpose.
+
+The title resolve controller at `0x824587D8` emits, in order, one
+`PM4_EVENT_WRITE`, two `PM4_MEM_WRITE`, two `PM4_WAIT_REG_MEM`, and one
+`PM4_EVENT_WRITE_EXT` packet around its resolve setup. The setup wrapper at
+`0x82458A88` additionally emits four bin-mask/select writes and one
+`PM4_EVENT_WRITE_ZPD` packet. These packets are guest-visible ordering and
+memory-effect dependencies. A future native path must preserve their proved
+semantics before any corresponding Xenos work can be suppressed.
+
+Two additional wrappers bound Xenos bin-mask/select and scissor-state
+submission. This is tiled-rendering evidence, but it does not yet establish
+semantic tiled-pass ownership or a safe replacement boundary.
+
 ## Capture and inventory workflow
 
 Run the default-off census through the normal preview launcher. With the
@@ -98,6 +117,20 @@ resolve target, every observed resolve-to-texture dependency, overflow totals,
 and an explicit safety object that keeps suppression disabled. Retaining the
 target inventory lets later candidate selection reject a texture address even
 when the draw-window dependency bit did not observe the transition.
+
+For a combined query, memexport, resolve, and wrapper report, run:
+
+```powershell
+python .\tools\summarize-native-renderer-side-effects.py `
+  $eventLog.FullName `
+  --static .local\qualification\native-dispatch-static.json `
+  --output .local\qualification\native-side-effects.json
+```
+
+This report is bounded, rejects unsafe or overlapping windows, and retains
+capacity-overflow totals. Zero query or memexport draws are classified as
+`unobserved_not_absent`; absence is never inferred from one scene. Xenos stays
+authoritative and suppression remains disabled.
 
 ## Qualification status
 
@@ -141,3 +174,16 @@ NR-04D evaluates these unknowns per exact pass family with the fail-closed
 admission contract in [SUPPRESSION_ADMISSION.md](SUPPRESSION_ADMISSION.md).
 Neither this aggregate census nor a visually correct native output can bypass
 those family-specific gates.
+
+## Side-effect report qualification — 2026-08-29
+
+The combined side-effect report processed AppData-backed session
+`20260829T112833Z-p40656`. Across 24 non-overlapping windows it recorded
+263,328 resolves totaling 149,780,066,304 bytes with zero target/page
+overflow. Query and memexport draw observations were both zero and therefore
+remain `unobserved_not_absent`.
+
+The same session matched all 26 observed dispatch callers to the static
+inventory, including one tail-forwarded binning-state edge, and reported zero
+caller-table overflow. It exited normally with Xenos authoritative and no
+suppression, guest payload read, guest-state mutation, or control-flow change.

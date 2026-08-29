@@ -84,6 +84,9 @@ enum class DispatchWrapper : uint32_t {
   kVizQueryEnd = 5,
   kResolveController = 6,
   kResolveSetup = 7,
+  kVizQueryOwner = 8,
+  kBinningScissorState = 9,
+  kBinningStateReset = 10,
 };
 
 struct DispatchCallerEntry {
@@ -120,6 +123,12 @@ const char *DispatchWrapperName(DispatchWrapper wrapper) {
     return "resolve_controller";
   case DispatchWrapper::kResolveSetup:
     return "resolve_setup";
+  case DispatchWrapper::kVizQueryOwner:
+    return "viz_query_owner";
+  case DispatchWrapper::kBinningScissorState:
+    return "binning_scissor_state";
+  case DispatchWrapper::kBinningStateReset:
+    return "binning_state_reset";
   }
   return "unknown";
 }
@@ -140,6 +149,12 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
     return "824587D8";
   case DispatchWrapper::kResolveSetup:
     return "82458A88";
+  case DispatchWrapper::kVizQueryOwner:
+    return "82D951E0";
+  case DispatchWrapper::kBinningScissorState:
+    return "82413AB8";
+  case DispatchWrapper::kBinningStateReset:
+    return "824736F0";
   }
   return "00000000";
 }
@@ -173,7 +188,8 @@ void ConfigureDispatchDiscovery() {
       {{"status", requested ? "armed" : "disabled"},
        {"scene", CensusSceneMarker()},
        {"wrappers",
-        "824079B8,8240F4D8,824587D8,82458A88,829F21A0,829F2280,829F7C70"},
+        "824079B8,8240F4D8,82413AB8,824587D8,82458A88,824736F0,"
+        "829F21A0,829F2280,829F7C70,82D951E0"},
        {"caller_capacity", std::to_string(kDispatchCallerCapacity)},
        {"metadata", "entry_lr_via_r12,r3-r10,frame"},
        {"guest_payload_read", "false"},
@@ -5081,4 +5097,31 @@ void PinyonShiftObserveVizQueryEndDispatch(
     PPCRegister &r12) {
   ObserveTitleDispatch(DispatchWrapper::kVizQueryEnd, r12.u32, r3.u32, r4.u32,
                        r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32);
+}
+
+void PinyonShiftObserveVizQueryOwnerDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kVizQueryOwner, r12.u32, r3.u32,
+                       r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                       r10.u32);
+}
+
+void PinyonShiftObserveBinningScissorStateDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kBinningScissorState, r12.u32, r3.u32,
+                       r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                       r10.u32);
+}
+
+void PinyonShiftObserveBinningStateResetDispatch(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    PPCRegister &r7, PPCRegister &r8, PPCRegister &r9, PPCRegister &r10,
+    PPCRegister &r12) {
+  ObserveTitleDispatch(DispatchWrapper::kBinningStateReset, r12.u32, r3.u32,
+                       r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
+                       r10.u32);
 }
