@@ -11,6 +11,7 @@ param(
     [string]$PassAnchorSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
+    [string]$ConsumerReadbackDir,
     [string]$IsolatedDrawDir,
     [Parameter(Mandatory)]
     [string]$CaptureDir,
@@ -47,6 +48,20 @@ if ($IsolatedDrawDir) {
         throw "IsolatedDrawDir already exists: $resolvedIsolatedDrawDir"
     }
     $IsolatedDrawDir = $resolvedIsolatedDrawDir
+}
+if ($ConsumerReadbackDir) {
+    if (-not $ConsumerFamily) {
+        throw 'ConsumerReadbackDir requires ConsumerFamily'
+    }
+    $resolvedConsumerReadbackDir = [IO.Path]::GetFullPath($ConsumerReadbackDir)
+    if (-not $resolvedConsumerReadbackDir.StartsWith(
+            $localPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "ConsumerReadbackDir must be below $localRoot"
+    }
+    if (Test-Path -LiteralPath $resolvedConsumerReadbackDir) {
+        throw "ConsumerReadbackDir already exists: $resolvedConsumerReadbackDir"
+    }
+    $ConsumerReadbackDir = $resolvedConsumerReadbackDir
 }
 
 $profile = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'user') `
@@ -86,6 +101,7 @@ $saved = @{
     draw_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
     pass_anchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
     consumer_family = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
+    consumer_readback_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
 }
 try {
     $env:PINYON_SHIFT_STATE_ROOT = $resolvedStateRoot
@@ -103,6 +119,7 @@ try {
             $null
         }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     & $renderdoc capture -w `
         -d (Split-Path $executable -Parent) `
         -c (Join-Path $resolvedCaptureDir 'reference') `
@@ -121,6 +138,8 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $saved.draw_dir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $saved.pass_anchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $saved.consumer_family
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR =
+        $saved.consumer_readback_dir
 }
 
 $captures = @(Get-ChildItem -LiteralPath $resolvedCaptureDir -File -Filter '*.rdc')

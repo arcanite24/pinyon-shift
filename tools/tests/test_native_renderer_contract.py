@@ -593,6 +593,37 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("operator_review_required", exporter)
         self.assertIn("MAX_CONSUMER_MARKER_EVENT_IDS = 64", exporter)
 
+    def test_consumer_family_readback_is_paired_bounded_and_passive(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT / "patches/rexglue/0076-d3d12-consumer-family-readback.patch"
+        ).read_text(encoding="utf-8")
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        analyzer = (
+            ROOT / "tools/analyze-native-renderer-consumer-readback.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR", hooks
+        )
+        self.assertIn("consumer_reference_readback_requested", patch)
+        self.assertIn("QueueGuestConsumerColorReadback", patch)
+        self.assertIn("guest_consumer_before_readback_", patch)
+        self.assertIn("guest_consumer_after_readback_", patch)
+        self.assertIn("before_after_color", hooks)
+        self.assertIn("[string]$ConsumerReadbackDir", capture)
+        self.assertIn("operator_review_required", analyzer)
+        self.assertIn('"xenos_draw_preserved": True', analyzer)
+        self.assertIn('"draw_suppression": False', analyzer)
+        self.assertIn('"resolve_suppression": False', analyzer)
+        self.assertIn('"suppression_allowed": False', analyzer)
+        self.assertNotIn("SetDrawSuppression", hooks + patch + analyzer)
+        self.assertNotIn("SetCopySuppression", hooks + patch + analyzer)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT

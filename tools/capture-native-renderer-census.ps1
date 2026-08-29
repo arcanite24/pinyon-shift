@@ -20,6 +20,7 @@ param(
     [string]$PassAnchorSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
+    [string]$ConsumerReadbackDir,
     [switch]$Json
 )
 
@@ -98,6 +99,28 @@ if ($IsolatedDrawDir) {
     $IsolatedDrawDir = $resolvedIsolatedDrawDir
 }
 
+if ($ConsumerReadbackDir) {
+    if (-not $ConsumerFamily) {
+        throw 'ConsumerReadbackDir requires ConsumerFamily'
+    }
+    $repositoryRoot = Split-Path $PSScriptRoot -Parent
+    $localRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.local'))
+    $resolvedConsumerReadbackDir = [IO.Path]::GetFullPath($ConsumerReadbackDir)
+    $localPrefix = $localRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedConsumerReadbackDir.StartsWith(
+            $localPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "ConsumerReadbackDir must be below $localRoot"
+    }
+    if (Test-Path -LiteralPath $resolvedConsumerReadbackDir) {
+        throw "ConsumerReadbackDir already exists: $resolvedConsumerReadbackDir"
+    }
+    if (Test-Path -LiteralPath "$resolvedConsumerReadbackDir.partial") {
+        throw "Consumer readback staging directory already exists: $resolvedConsumerReadbackDir.partial"
+    }
+    $ConsumerReadbackDir = $resolvedConsumerReadbackDir
+}
+
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
@@ -108,6 +131,7 @@ $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
+$savedConsumerReadbackDir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -119,6 +143,7 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -134,4 +159,5 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $savedConsumerReadbackDir
 }
