@@ -499,6 +499,35 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"resolve_suppression_implemented": False', evaluator)
         self.assertNotIn("SetDrawSuppression", evaluator)
 
+    def test_publication_qualification_preserves_consumers_fail_closed(self):
+        qualifier = (
+            ROOT / "tools/qualify-native-renderer-publication.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '"pinyon-shift.native-renderer-publication-qualification.v1"',
+            qualifier,
+        )
+        self.assertIn('"later_gpu_consumers": "pass"', qualifier)
+        self.assertIn('"xenos_consumers_preserved": True', qualifier)
+        self.assertIn('"suppression_allowed": False', qualifier)
+
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "pinyon_shift_native_renderer_sky_horizon_suppression", hooks
+        )
+        self.assertIn('"blocked_not_admitted"', hooks)
+        self.assertIn('"draw_suppression", "false"', hooks)
+        self.assertIn('"resolve_suppression", "false"', hooks)
+        self.assertNotIn("SetDrawSuppression", hooks)
+
+        settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'SetSkyHorizonSuppression'", settings)
+        self.assertIn("pinyon_shift_config_schema = 11", settings)
+
     def test_consumer_family_classifier_is_exact_and_fail_closed(self):
         classifier = json.loads(
             (ROOT / "config/native-renderer/consumer-family-classifier.json").read_text(
@@ -523,7 +552,7 @@ class NativeRendererContractTests(unittest.TestCase):
             all(rule["native_coverage"] is False for rule in classifier["rules"])
         )
 
-    def test_suppression_switch_spec_is_default_off_and_unimplemented(self):
+    def test_suppression_switch_spec_is_default_off_and_diagnostic_only(self):
         switches = json.loads(
             (ROOT / "config/native-renderer/suppression-switches.json").read_text(
                 encoding="utf-8"
@@ -532,7 +561,11 @@ class NativeRendererContractTests(unittest.TestCase):
         family = switches["families"][0]
         self.assertFalse(family["default_enabled"])
         self.assertTrue(family["independent"])
-        self.assertEqual("absent", family["implementation_status"])
+        self.assertEqual("diagnostic_only", family["implementation_status"])
+        self.assertEqual(
+            "pinyon_shift_native_renderer_sky_horizon_suppression",
+            family["cvar"],
+        )
         self.assertFalse(family["draw_suppression_implemented"])
         self.assertFalse(family["resolve_suppression_implemented"])
 

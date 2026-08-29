@@ -40,8 +40,10 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
         require(isinstance(entry, dict), f"family {index} must be an object")
         family = str(entry.get("family", "")).strip()
         switch = str(entry.get("switch", "")).strip()
+        cvar = str(entry.get("cvar", "")).strip()
         require(bool(family), f"family {index} requires a name")
         require(bool(switch), f"family {index} requires a switch")
+        require(bool(cvar), f"family {index} requires a cvar")
         require(family not in family_names, f"duplicate family: {family}")
         require(switch not in switch_names, f"duplicate switch: {switch}")
         family_names.add(family)
@@ -85,6 +87,7 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
                 "anchor_signature": anchor,
                 "follower_signature": follower,
                 "switch": switch,
+                "cvar": cvar,
                 "scope": "exact_pass_family",
                 "activation": "startup_only",
                 "default_enabled": False,
@@ -105,6 +108,10 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
             "family_count": len(normalized),
             "implemented_count": sum(
                 entry["implementation_status"] == "implemented"
+                for entry in normalized
+            ),
+            "diagnostic_control_count": sum(
+                entry["implementation_status"] == "diagnostic_only"
                 for entry in normalized
             ),
             "rollback_switch_gate": "unknown",

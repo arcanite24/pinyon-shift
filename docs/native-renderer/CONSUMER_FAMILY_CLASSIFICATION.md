@@ -191,11 +191,11 @@ preserved, and both draw and resolve suppression stayed false.
 ## Rollback-switch boundary
 
 `config/native-renderer/suppression-switches.json` reserves one independent,
-startup-only, default-off switch name for the exact producer family. The
-validator reports its implementation as absent and the rollback gate as
-`unknown`. This is intentional: specifying a switch before suppression exists
-prevents a future global or default-on implementation, but it is not evidence
-that rollback behavior has been runtime-qualified.
+startup-only, default-off switch name and concrete CVar for the exact producer
+family. The control plane is diagnostic-only: requesting it emits a fail-closed
+runtime status but cannot skip a draw or resolve. The validator therefore keeps
+the rollback gate `unknown`. This prevents a future global or default-on
+implementation without pretending rollback has been qualified.
 
 Validate the specification with:
 

@@ -34,6 +34,11 @@ REXCVAR_DEFINE_BOOL(
     pinyon_shift_native_renderer_census, false, "Pinyon Shift",
     "Record bounded native-renderer census metadata without changing rendering")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_sky_horizon_suppression, false,
+    "Pinyon Shift",
+    "Request the fail-closed sky/horizon suppression experiment")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
 
@@ -409,6 +414,26 @@ void ConfigurePassPublication() {
       g_isolated_draw.valid && g_pass_follower.requested &&
       g_pass_follower.valid &&
       g_isolated_draw.target_signature != g_pass_follower.target_signature;
+}
+
+void EmitSkyHorizonSuppressionControl() {
+  const bool requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.suppression_control",
+      {{"family", "sky_horizon"},
+       {"anchor_signature", "747837906D0BF484"},
+       {"follower_signature", "1D253A52B55C9FB3"},
+       {"requested", requested ? "true" : "false"},
+       {"status", requested ? "blocked_not_admitted" : "disabled"},
+       {"activation", "startup_only"},
+       {"default_enabled", "false"},
+       {"implementation", "diagnostic_only"},
+       {"xenos_fallback", "mandatory"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"suppression_allowed", "false"}});
 }
 
 struct DrawSignatureEntry {
@@ -3805,8 +3830,11 @@ namespace pinyon_shift::native_renderer {
 
 void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                            rex::memory::Memory *memory) {
-  if (!graphics_system || !memory ||
-      !REXCVAR_GET(pinyon_shift_native_renderer_census)) {
+  if (!graphics_system || !memory) {
+    return;
+  }
+  EmitSkyHorizonSuppressionControl();
+  if (!REXCVAR_GET(pinyon_shift_native_renderer_census)) {
     return;
   }
   ResetDrawCensus();

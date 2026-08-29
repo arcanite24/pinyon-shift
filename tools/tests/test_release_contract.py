@@ -190,7 +190,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 10", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 11", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
@@ -250,11 +250,11 @@ class ReleaseContractTests(unittest.TestCase):
         launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 10;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*10,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 11;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*11,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
-        self.assertIn("schema < 1 || schema > 9", app)
+        self.assertIn("schema < 1 || schema > 10", app)
         self.assertIn('"occlusion_query = \\"legacy\\"\\n"', app)
         self.assertIn('"zpd_end_policy = \\"report_layout\\"\\n"', app)
         self.assertIn('"readback_resolve = \\"none\\"\\n"', app)

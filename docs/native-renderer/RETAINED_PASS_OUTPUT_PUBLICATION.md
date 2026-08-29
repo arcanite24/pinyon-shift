@@ -114,14 +114,16 @@ The AppData-backed `open_world_day` session
 - the process exited normally with no error-level, fatal, device-loss, or
   device-removed diagnostic.
 
-This is scene-bounded publication evidence. It does not yet promote the
-`later_gpu_consumers` gate or authorize suppression.
+This is scene-bounded publication evidence. Its deterministic combination with
+the exact comparisons, consumer inventory, and consumer attachment corpus is
+documented in [PUBLICATION_QUALIFICATION.md](PUBLICATION_QUALIFICATION.md). The
+combined proof promotes `later_gpu_consumers`; this runtime report alone does
+not authorize suppression.
 
 ## Suppression boundary
 
-This bridge does not enable suppression and does not by itself pass the
-`later_gpu_consumers` admission gate. Qualification must first prove that the
-published native target reaches the original resolves and downstream consumers
-with parity across required scenes. Only a later independent, default-off PR
-may consider skipping the exact anchor/follower draw pair. Xenos fallback and
-all guest side effects remain mandatory.
+This bridge does not enable suppression. Qualification proves that bit-exact
+published targets reach unchanged resolves and downstream consumers, but an
+independent rollback switch must still be runtime-qualified before the exact
+anchor/follower draw pair may be skipped. Xenos fallback and all guest side
+effects remain mandatory.

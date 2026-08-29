@@ -22,6 +22,7 @@ def manifest():
                 "anchor_signature": "747837906D0BF484",
                 "follower_signature": "1D253A52B55C9FB3",
                 "switch": "native_renderer.sky_horizon_suppression",
+                "cvar": "pinyon_shift_native_renderer_sky_horizon_suppression",
                 "scope": "exact_pass_family",
                 "activation": "startup_only",
                 "default_enabled": False,
@@ -48,6 +49,14 @@ class NativeRendererSuppressionSwitchTests(unittest.TestCase):
         document["families"][0]["default_enabled"] = True
         with self.assertRaisesRegex(ValueError, "default off"):
             MODULE.validate(document)
+
+    def test_reports_diagnostic_control_without_claiming_rollback(self):
+        document = manifest()
+        document["families"][0]["implementation_status"] = "diagnostic_only"
+        result = MODULE.validate(document)
+        self.assertEqual(1, result["summary"]["diagnostic_control_count"])
+        self.assertEqual("unknown", result["summary"]["rollback_switch_gate"])
+        self.assertFalse(result["safety"]["suppression_allowed"])
 
     def test_rejects_suppression_claim_before_implementation(self):
         document = manifest()

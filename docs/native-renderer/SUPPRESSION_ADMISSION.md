@@ -19,7 +19,7 @@ that a separate, default-off implementation PR may begin.
 | `complete_native_coverage` | Every draw in the selected target phase is reproduced |
 | `color_parity` | Complete-pass color comparison passes the documented tolerance |
 | `depth_parity` | Complete-pass depth comparison passes or proves no depth effect |
-| `later_gpu_consumers` | Every later GPU consumer is replaced or proven absent |
+| `later_gpu_consumers` | Every later GPU consumer is replaced, proven absent, or preserved behind a bit-exact native publication boundary |
 | `guest_cpu_visibility` | CPU reads are preserved/replaced or proven absent |
 | `query_side_effects` | Query behavior is preserved or proven unrelated |
 | `memexport_side_effects` | Memexport behavior is preserved or proven absent |
@@ -68,28 +68,28 @@ across 41,943,040 active bytes and exact two-sample depth/stencil parity across
 83,886,080 bytes. This promotes both `color_parity` and `depth_parity` to
 `pass`.
 
-The latest combined bounded qualification linked 348 family resolves to 63
-distinct prepared later-draw signatures across 38 shader families, with zero
-signature overflow and complete prepared metadata. This keeps
-`later_gpu_consumers` at `fail`: consumers are proven present but are not
-native-replaced.
+The combined bounded census linked 348 family resolves to 63 distinct prepared
+later-draw signatures across 38 shader families, with zero signature overflow
+and complete prepared metadata. That initially kept `later_gpu_consumers` at
+`fail`: consumers were proven present but had no preservation boundary.
 
 [RETAINED_PASS_OUTPUT_PUBLICATION.md](RETAINED_PASS_OUTPUT_PUBLICATION.md)
 defines the next preservation boundary. A default-off diagnostic path copies
 the parity-qualified native color and depth/stencil result back into the exact
 guest targets only after both original Xenos draws. This is intended to let the
 existing resolves and all 38 consumer families continue unchanged. Its
-implementation does not promote the gate: scene qualification must still prove
-that published outputs reach downstream consumers with parity before any
-suppression implementation may begin.
+implementation alone does not promote the gate. The deterministic evidence
+combination in [PUBLICATION_QUALIFICATION.md](PUBLICATION_QUALIFICATION.md)
+proves that exact published outputs reach the unchanged resolve and consumer
+chain and promotes the gate for the qualified scene.
 
 The same session armed every one of those 348 resolve generations and observed
 zero guest CPU read or write events. This promotes `guest_cpu_visibility` from
 `unknown` to scene-bounded `pass`, as documented in
 [GUEST_CPU_VISIBILITY.md](GUEST_CPU_VISIBILITY.md). The admission result is now
-10/12 passing gates, one failing gate (`later_gpu_consumers`), and one unknown
-gate (`rollback_switch`). The exact 38-family identity classifier and the
-fail-closed, unimplemented switch specification are documented in
+11/12 passing gates and one unknown gate (`rollback_switch`). The exact
+38-family identity classifier and the fail-closed, diagnostic-only switch
+control are documented in
 [CONSUMER_FAMILY_CLASSIFICATION.md](CONSUMER_FAMILY_CLASSIFICATION.md). They do
-not promote either remaining blocker. Suppression is still prohibited. See
+not promote the remaining blocker. Suppression is still prohibited. See
 [PASS_CONSUMER_GRAPH.md](PASS_CONSUMER_GRAPH.md).
