@@ -261,6 +261,13 @@ address = 0x8241741C
 name = "PinyonShiftObserveProceduralModelRenderItem"
 registers = ["r1", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"]
 
+# Every render-item path converges at the helper epilogue immediately after
+# the graphics virtual-slot-160 submission returns. Together with the entry
+# hook this bounds an exact per-item scope; it remains observation-only.
+[[midasm_hook]]
+address = 0x82417B80
+name = "PinyonShiftObserveProceduralModelRenderItemExit"
+
 # The helper resolves descriptor resource-table entries into binding slots 0
 # and 1, then submits an exact runtime-object/count/source tuple through the
 # graphics interface. These hooks observe those structural semantics only;

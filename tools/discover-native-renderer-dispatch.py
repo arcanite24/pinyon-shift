@@ -202,6 +202,7 @@ PROCEDURAL_MODEL_RECEIVER = {
     "render_state_exit": 0x82417410,
     "render_item_function": 0x82417418,
     "render_item_entry_hook": 0x8241741C,
+    "render_item_exit_hook": 0x82417B80,
     "primary_resource_binding_hook": 0x82417A74,
     "secondary_resource_binding_hook": 0x82417A9C,
     "geometry_submission_hook": 0x82417B60,
@@ -1014,6 +1015,8 @@ def procedural_model_receiver_lifecycle(
         0x82417B70: "mr r3,r31",
         0x82417B74: "lwz r11,160(r11)",
         0x82417B7C: "bctrl",
+        spec["render_item_exit_hook"]: "addi r1,r1,272",
+        0x82417B88: "b 0x82a7de34",
     }
     render_state_helper_expected = {
         0x824171AC: "lwz r11,4(r30)",
@@ -1208,6 +1211,9 @@ def procedural_model_receiver_lifecycle(
         "render_item_entry_hook_address": "{:08X}".format(
             spec["render_item_entry_hook"]
         ),
+        "render_item_exit_hook_address": "{:08X}".format(
+            spec["render_item_exit_hook"]
+        ),
         "field_layout": {
             "descriptor_owner_pointer_offset": 124,
             "runtime_record_pointer_offset": 128,
@@ -1362,8 +1368,40 @@ def procedural_model_receiver_lifecycle(
             "helper_state_partition_proved": True,
             "record_join_proved": True,
             "geometry_submission_derivation_proved": True,
-            "classification": "resolved_resource_and_state_variant_submission",
+            "graphics_submission_vtable_runtime_join_required": True,
+            "classification": "resolved_resource_state_variant_and_dispatch_submission",
             "fallback_policy": "replay_unclassified_material_or_state",
+            "native_rendering_enabled": False,
+            "suppression_eligible": False,
+        },
+        "semantic_draw_association": {
+            "render_item_entry_hook_address": "{:08X}".format(
+                spec["render_item_entry_hook"]
+            ),
+            "render_item_exit_hook_address": "{:08X}".format(
+                spec["render_item_exit_hook"]
+            ),
+            "geometry_submission_hook_address": "{:08X}".format(
+                spec["geometry_submission_hook"]
+            ),
+            "title_draw_packet_hook_addresses": ["82410328", "829F7CB0"],
+            "title_indirect_packet_hook_addresses": [
+                "824095B4",
+                "82416EFC",
+                "8246FC1C",
+                "8263BD64",
+                "829E8E88",
+                "829EC49C",
+            ],
+            "graphics_submission_vtable_offset": 160,
+            "graphics_submission_target_runtime_join_required": True,
+            "render_item_invocation_scope_proved": True,
+            "submission_before_draw_dispatch_proved": True,
+            "direct_title_packet_overlap_probe": True,
+            "indirect_packet_constructor_overlap_probe": True,
+            "physical_pm4_packet_correlation_proved": False,
+            "prepared_draw_lineage_proved": False,
+            "classification": "procedural_submission_dispatch_boundary",
             "native_rendering_enabled": False,
             "suppression_eligible": False,
         },

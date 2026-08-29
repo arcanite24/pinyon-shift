@@ -91,11 +91,12 @@ constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
+constexpr size_t kSemanticRenderItemStackCapacity = 32;
 constexpr size_t kSemanticDescriptorWordCount = 92 / sizeof(uint32_t);
 constexpr size_t kSemanticRuntimeWordCount = 68 / sizeof(uint32_t);
 constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
 constexpr uint64_t kSemanticObservationPayloadBytes = 380;
-constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 56;
+constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 64;
 constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
@@ -132,10 +133,23 @@ std::array<DispatchCallerEntry, kDispatchCallerCapacity> g_dispatch_callers;
 std::atomic<uint64_t> g_dispatch_caller_overflow{};
 std::atomic<bool> g_dispatch_discovery_installed{};
 
+struct SemanticDrawIdentity {
+  uint64_t submission_key = 0;
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t runtime_address = 0;
+  uint32_t direct_title_origins = 0;
+  uint32_t indirect_packet_origins = 0;
+  bool valid = false;
+};
+
 struct TitleDrawOrigin {
   DispatchWrapper wrapper = DispatchWrapper::kDrawIndexed;
   uint32_t caller = 0;
   std::array<uint32_t, 8> arguments{};
+  SemanticDrawIdentity semantic_draw{};
   bool valid = false;
 };
 
@@ -407,6 +421,8 @@ struct SemanticSubmissionEntry {
   uint32_t descriptor_kind = 0;
   uint32_t helper_state = 0;
   uint32_t graphics_context = 0;
+  uint32_t graphics_vtable = 0;
+  uint32_t graphics_submission_method = 0;
   uint32_t resource_lookup_context = 0;
   uint32_t primary_resource_index = 0;
   uint32_t primary_resource_key = 0;
@@ -531,6 +547,7 @@ uint64_t g_semantic_submission_binding_mismatches = 0;
 uint64_t g_semantic_submission_invalid_record_joins = 0;
 uint64_t g_semantic_submission_invalid_resource_joins = 0;
 uint64_t g_semantic_submission_invalid_geometry = 0;
+uint64_t g_semantic_submission_invalid_dispatch_targets = 0;
 uint64_t g_semantic_submission_payload_bytes = 0;
 uint64_t g_semantic_submission_replay_fallbacks = 0;
 uint64_t g_semantic_submission_native_admissions = 0;
@@ -557,11 +574,36 @@ uint64_t g_semantic_secondary_resolution_successes = 0;
 uint64_t g_semantic_secondary_resolution_misses = 0;
 uint64_t g_semantic_provider_metadata_bytes = 0;
 uint64_t g_semantic_submission_unresolved_resource_joins = 0;
+std::atomic<uint64_t> g_semantic_render_item_entries{};
+std::atomic<uint64_t> g_semantic_render_item_exits{};
+std::atomic<uint64_t> g_semantic_render_items_open{};
+std::atomic<uint64_t> g_semantic_render_item_stack_faults{};
+std::atomic<uint64_t> g_semantic_render_item_valid_scopes{};
+std::atomic<uint64_t> g_semantic_render_item_scopes_without_submission{};
+std::atomic<uint64_t> g_semantic_draw_scope_joins{};
+std::atomic<uint64_t> g_semantic_draw_scope_mismatches{};
+std::atomic<uint64_t> g_semantic_draw_origins_captured{};
+std::atomic<uint64_t> g_semantic_draw_dispatches_with_direct_title_origin{};
+std::atomic<uint64_t>
+    g_semantic_draw_dispatches_without_direct_title_origin{};
+std::atomic<uint64_t> g_semantic_draw_indirect_packet_origins_captured{};
+std::atomic<uint64_t> g_semantic_draw_dispatches_with_indirect_packet_origin{};
+std::atomic<uint64_t>
+    g_semantic_draw_dispatches_without_indirect_packet_origin{};
+std::atomic<uint64_t> g_semantic_draw_packets_recorded{};
+std::atomic<uint64_t> g_semantic_draw_packet_matches{};
+std::atomic<uint64_t> g_semantic_draw_prepared_matches{};
+std::atomic<uint64_t> g_semantic_draw_unprepared_matches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
 thread_local PendingSemanticResourceResolution
     g_pending_semantic_resource_resolution{};
+thread_local std::array<SemanticDrawIdentity,
+                        kSemanticRenderItemStackCapacity>
+    g_semantic_render_item_stack{};
+thread_local size_t g_semantic_render_item_stack_depth = 0;
+thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -717,6 +759,14 @@ TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
   origin.wrapper = wrapper;
   origin.caller = caller;
   origin.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  if (g_semantic_render_item_stack_depth) {
+    SemanticDrawIdentity &semantic_draw =
+        g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+    if (semantic_draw.valid) {
+      origin.semantic_draw = semantic_draw;
+      ++semantic_draw.direct_title_origins;
+    }
+  }
   origin.valid = true;
   return origin;
 }
@@ -879,6 +929,7 @@ void ResetTitleDrawProvenance() {
     g_semantic_submission_invalid_record_joins = 0;
     g_semantic_submission_invalid_resource_joins = 0;
     g_semantic_submission_invalid_geometry = 0;
+    g_semantic_submission_invalid_dispatch_targets = 0;
     g_semantic_submission_payload_bytes = 0;
     g_semantic_submission_replay_fallbacks = 0;
     g_semantic_submission_native_admissions = 0;
@@ -908,8 +959,37 @@ void ResetTitleDrawProvenance() {
     g_semantic_binding_cache_slots = {};
     g_semantic_resolver_cache_slots = {};
   }
+  g_semantic_render_item_entries.store(0, std::memory_order_relaxed);
+  g_semantic_render_item_exits.store(0, std::memory_order_relaxed);
+  g_semantic_render_items_open.store(0, std::memory_order_relaxed);
+  g_semantic_render_item_stack_faults.store(0,
+                                             std::memory_order_relaxed);
+  g_semantic_render_item_valid_scopes.store(0,
+                                             std::memory_order_relaxed);
+  g_semantic_render_item_scopes_without_submission.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_scope_joins.store(0, std::memory_order_relaxed);
+  g_semantic_draw_scope_mismatches.store(0, std::memory_order_relaxed);
+  g_semantic_draw_origins_captured.store(0, std::memory_order_relaxed);
+  g_semantic_draw_dispatches_with_direct_title_origin.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_dispatches_without_direct_title_origin.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_indirect_packet_origins_captured.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_dispatches_with_indirect_packet_origin.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_dispatches_without_indirect_packet_origin.store(
+      0, std::memory_order_relaxed);
+  g_semantic_draw_packets_recorded.store(0, std::memory_order_relaxed);
+  g_semantic_draw_packet_matches.store(0, std::memory_order_relaxed);
+  g_semantic_draw_prepared_matches.store(0, std::memory_order_relaxed);
+  g_semantic_draw_unprepared_matches.store(0, std::memory_order_relaxed);
   g_pending_semantic_bindings = {};
   g_pending_semantic_resource_resolution = {};
+  g_semantic_render_item_stack = {};
+  g_semantic_render_item_stack_depth = 0;
+  g_semantic_render_item_stack_overflow_depth = 0;
   g_pending_adapter_origin = {};
   g_title_origin_stack = {};
   g_title_origin_stack_depth = 0;
@@ -961,6 +1041,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"packet_capacity", std::to_string(kTitlePacketProvenanceCapacity)},
        {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
        {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
+       {"semantic_render_item_stack_capacity",
+        std::to_string(kSemanticRenderItemStackCapacity)},
        {"indirect_packet_capacity",
         std::to_string(kTitleIndirectPacketCapacity)},
        {"indirect_packet_bucket_count",
@@ -977,7 +1059,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
         std::to_string(kIndirectContextStackCapacity)},
        {"metadata",
         "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
-        "backend_signature"},
+        "backend_signature,semantic_submission_key,semantic_receiver,"
+        "semantic_record_index"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -1019,6 +1102,10 @@ void CapturePacketWrapperOrigin(DispatchWrapper wrapper, uint32_t caller,
   if (g_title_origin_stack_depth == kTitleOriginStackCapacity) {
     ++g_title_origin_stack_overflow;
     return;
+  }
+  if (origin.semantic_draw.valid) {
+    g_semantic_draw_origins_captured.fetch_add(1,
+                                                std::memory_order_relaxed);
   }
   g_title_origin_stack[g_title_origin_stack_depth++] = origin;
   ++g_title_origins_pushed;
@@ -1080,6 +1167,10 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
   entry.occupied = true;
   if (reused_live_address) {
     ++g_title_packet_reused_live_addresses;
+  }
+  if (origin.semantic_draw.valid) {
+    g_semantic_draw_packets_recorded.fetch_add(1,
+                                                std::memory_order_relaxed);
   }
   ++g_title_packets_recorded;
 }
@@ -1848,6 +1939,15 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
     ++g_title_indirect_packet_address_failures;
     return;
   }
+  if (g_semantic_render_item_stack_depth) {
+    SemanticDrawIdentity &semantic_draw =
+        g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+    if (semantic_draw.valid) {
+      ++semantic_draw.indirect_packet_origins;
+      g_semantic_draw_indirect_packet_origins_captured.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   const size_t bucket =
       (packet_physical_address >> 2) % kTitleIndirectPacketBucketCount;
   const size_t first = bucket * kTitleIndirectPacketWays;
@@ -2088,6 +2188,10 @@ bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
         g_title_packet_provenance[oldest_match];
     origin = entry.origin;
     entry.occupied = false;
+    if (origin.semantic_draw.valid) {
+      g_semantic_draw_packet_matches.fetch_add(1,
+                                                std::memory_order_relaxed);
+    }
     ++g_title_packets_matched;
     return true;
   }
@@ -3221,16 +3325,17 @@ uint64_t HashSemanticWords(const std::array<uint32_t, N> &words) {
   return hash ? hash : 1;
 }
 
-void RecordProceduralModelSemanticInstance(
+bool RecordProceduralModelSemanticInstance(
     uint32_t stack_pointer, uint32_t receiver_address,
-    std::array<uint32_t, 7> helper_arguments) {
+    std::array<uint32_t, 7> helper_arguments,
+    SemanticDrawIdentity *semantic_draw) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
-    return;
+    return false;
   }
   rex::memory::Memory *memory =
       g_command_buffer_lineage_memory.load(std::memory_order_acquire);
   if (!memory) {
-    return;
+    return false;
   }
 
   std::scoped_lock lock(g_semantic_instance_mutex);
@@ -3241,14 +3346,14 @@ void RecordProceduralModelSemanticInstance(
       lifecycle->state.load(std::memory_order_acquire) !=
           uint32_t(SemanticReceiverState::kLive)) {
     ++g_semantic_instance_unknown_receivers;
-    return;
+    return false;
   }
   const uint32_t receiver_generation =
       lifecycle->generation.load(std::memory_order_relaxed);
   if (!receiver_generation || stack_pointer > UINT32_MAX - 84 ||
       receiver_address > UINT32_MAX - 512) {
     ++g_semantic_instance_invalid_layouts;
-    return;
+    return false;
   }
 
   const uint32_t record_index =
@@ -3264,18 +3369,18 @@ void RecordProceduralModelSemanticInstance(
   if (!owner || !runtime_base || (owner & 3) || (runtime_base & 3) ||
       owner > UINT32_MAX - 16) {
     ++g_semantic_instance_invalid_layouts;
-    return;
+    return false;
   }
   const uint32_t descriptor_base = LoadSemanticGuestU32(memory, owner);
   const uint32_t descriptor_count =
       LoadSemanticGuestU32(memory, owner + 12);
   if (!descriptor_base || (descriptor_base & 3) || !descriptor_count) {
     ++g_semantic_instance_invalid_layouts;
-    return;
+    return false;
   }
   if (record_index >= descriptor_count) {
     ++g_semantic_instance_invalid_indices;
-    return;
+    return false;
   }
   const uint64_t descriptor_address_64 =
       uint64_t(descriptor_base) + uint64_t(record_index) * 92;
@@ -3284,10 +3389,17 @@ void RecordProceduralModelSemanticInstance(
   if (descriptor_address_64 + 92 > uint64_t(UINT32_MAX) + 1 ||
       runtime_address_64 + 68 > uint64_t(UINT32_MAX) + 1) {
     ++g_semantic_instance_invalid_layouts;
-    return;
+    return false;
   }
   const uint32_t descriptor_address = uint32_t(descriptor_address_64);
   const uint32_t runtime_address = uint32_t(runtime_address_64);
+  *semantic_draw = {
+      .receiver_address = receiver_address,
+      .receiver_generation = receiver_generation,
+      .record_index = record_index,
+      .descriptor_address = descriptor_address,
+      .runtime_address = runtime_address,
+  };
 
   std::array<uint32_t, kSemanticDescriptorWordCount> descriptor_words{};
   std::array<uint32_t, kSemanticRuntimeWordCount> runtime_words{};
@@ -3332,7 +3444,7 @@ void RecordProceduralModelSemanticInstance(
       entry.runtime_words = runtime_words;
       entry.transform_words = transform_words;
       ++g_semantic_instance_count;
-      return;
+      return true;
     }
     if (entry.key == key && entry.receiver_address == receiver_address &&
         entry.receiver_generation == receiver_generation &&
@@ -3342,11 +3454,75 @@ void RecordProceduralModelSemanticInstance(
       entry.descriptor_variations += entry.descriptor_hash != descriptor_hash;
       entry.runtime_variations += entry.runtime_hash != runtime_hash;
       entry.transform_variations += entry.transform_hash != transform_hash;
-      return;
+      return true;
     }
     index = (index + 1) % kSemanticInstanceCapacity;
   }
   ++g_semantic_instance_overflow;
+  return true;
+}
+
+void BeginProceduralModelRenderItem(
+    uint32_t stack_pointer, uint32_t receiver_address,
+    std::array<uint32_t, 7> helper_arguments) {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_render_item_entries.fetch_add(1, std::memory_order_relaxed);
+  if (g_semantic_render_item_stack_depth ==
+      kSemanticRenderItemStackCapacity) {
+    g_semantic_render_item_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    ++g_semantic_render_item_stack_overflow_depth;
+    return;
+  }
+  SemanticDrawIdentity &semantic_draw =
+      g_semantic_render_item_stack[g_semantic_render_item_stack_depth++];
+  semantic_draw = {};
+  if (RecordProceduralModelSemanticInstance(
+          stack_pointer, receiver_address, helper_arguments,
+          &semantic_draw)) {
+    g_semantic_render_item_valid_scopes.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  g_semantic_render_items_open.fetch_add(1, std::memory_order_relaxed);
+}
+
+void EndProceduralModelRenderItem() {
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_semantic_render_item_exits.fetch_add(1, std::memory_order_relaxed);
+  if (g_semantic_render_item_stack_overflow_depth) {
+    --g_semantic_render_item_stack_overflow_depth;
+    return;
+  }
+  if (!g_semantic_render_item_stack_depth) {
+    g_semantic_render_item_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const SemanticDrawIdentity &semantic_draw =
+      g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+  if (semantic_draw.receiver_generation && !semantic_draw.valid) {
+    g_semantic_render_item_scopes_without_submission.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (semantic_draw.valid && semantic_draw.direct_title_origins) {
+    g_semantic_draw_dispatches_with_direct_title_origin.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (semantic_draw.valid) {
+    g_semantic_draw_dispatches_without_direct_title_origin.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  if (semantic_draw.valid && semantic_draw.indirect_packet_origins) {
+    g_semantic_draw_dispatches_with_indirect_packet_origin.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (semantic_draw.valid) {
+    g_semantic_draw_dispatches_without_indirect_packet_origin.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  --g_semantic_render_item_stack_depth;
+  g_semantic_render_items_open.fetch_sub(1, std::memory_order_relaxed);
 }
 
 void EmitProceduralModelSemanticInstances() {
@@ -4046,6 +4222,34 @@ const char *ProceduralModelHelperStateFamily(uint32_t helper_state) {
   return "default_table_52_76";
 }
 
+void JoinProceduralModelSemanticDraw(uint64_t submission_key,
+                                     uint32_t receiver_address,
+                                     uint32_t receiver_generation,
+                                     uint32_t record_index,
+                                     uint32_t descriptor_address,
+                                     uint32_t runtime_address) {
+  if (!g_semantic_render_item_stack_depth) {
+    g_semantic_draw_scope_mismatches.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  SemanticDrawIdentity &semantic_draw =
+      g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+  if (!submission_key || semantic_draw.valid ||
+      semantic_draw.receiver_address != receiver_address ||
+      semantic_draw.receiver_generation != receiver_generation ||
+      semantic_draw.record_index != record_index ||
+      semantic_draw.descriptor_address != descriptor_address ||
+      semantic_draw.runtime_address != runtime_address) {
+    g_semantic_draw_scope_mismatches.fetch_add(1,
+                                                std::memory_order_relaxed);
+    return;
+  }
+  semantic_draw.submission_key = submission_key;
+  semantic_draw.valid = true;
+  g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
+}
+
 void RecordProceduralModelGeometrySubmission(
     uint32_t resource_lookup_context, uint32_t count_units,
     uint32_t source_address, uint32_t helper_state,
@@ -4143,6 +4347,24 @@ void RecordProceduralModelGeometrySubmission(
       LoadSemanticGuestU32(memory, runtime_address + 28);
   const uint32_t runtime_counted_source =
       LoadSemanticGuestU32(memory, runtime_address + 32);
+  if (!graphics_context || (graphics_context & 3) ||
+      graphics_context > UINT32_MAX - 4) {
+    ++g_semantic_submission_invalid_dispatch_targets;
+    return;
+  }
+  const uint32_t graphics_vtable =
+      LoadSemanticGuestU32(memory, graphics_context);
+  if (!graphics_vtable || (graphics_vtable & 3) ||
+      graphics_vtable > UINT32_MAX - 164) {
+    ++g_semantic_submission_invalid_dispatch_targets;
+    return;
+  }
+  const uint32_t graphics_submission_method =
+      LoadSemanticGuestU32(memory, graphics_vtable + 160);
+  if (!graphics_submission_method || (graphics_submission_method & 3)) {
+    ++g_semantic_submission_invalid_dispatch_targets;
+    return;
+  }
   const uint64_t primary_resource_address_64 =
       uint64_t(resource_table) + uint64_t(primary_resource_index) * 8;
   if (primary_resource_address_64 + 4 > uint64_t(UINT32_MAX) + 1) {
@@ -4164,7 +4386,7 @@ void RecordProceduralModelGeometrySubmission(
 
   uint32_t secondary_resource_key = 0;
   const bool secondary_resource_present = secondary_resource_index >= 0;
-  uint64_t payload_bytes = 52;
+  uint64_t payload_bytes = 60;
   if (secondary_resource_present) {
     const uint64_t secondary_resource_address_64 =
         uint64_t(resource_table) + uint64_t(secondary_resource_index) * 8;
@@ -4216,7 +4438,8 @@ void RecordProceduralModelGeometrySubmission(
   for (uint64_t value :
        {uint64_t(receiver_address), uint64_t(receiver_generation),
         uint64_t(record_index), uint64_t(descriptor_kind),
-        uint64_t(helper_state), uint64_t(primary_resource_key),
+        uint64_t(helper_state), uint64_t(graphics_vtable),
+        uint64_t(graphics_submission_method), uint64_t(primary_resource_key),
         uint64_t(pending.primary_bound_resource_object),
         uint64_t(pending.primary_provider.provider_object),
         uint64_t(pending.primary_provider.provider_vtable),
@@ -4242,6 +4465,9 @@ void RecordProceduralModelGeometrySubmission(
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
+  JoinProceduralModelSemanticDraw(
+      key, receiver_address, receiver_generation, record_index,
+      descriptor_address, runtime_address);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -4258,6 +4484,8 @@ void RecordProceduralModelGeometrySubmission(
           .descriptor_kind = descriptor_kind,
           .helper_state = helper_state,
           .graphics_context = graphics_context,
+          .graphics_vtable = graphics_vtable,
+          .graphics_submission_method = graphics_submission_method,
           .resource_lookup_context = resource_lookup_context,
           .primary_resource_index = primary_resource_index,
           .primary_resource_key = primary_resource_key,
@@ -4316,6 +4544,8 @@ void RecordProceduralModelGeometrySubmission(
         entry.descriptor_kind == descriptor_kind &&
         entry.helper_state == helper_state &&
         entry.graphics_context == graphics_context &&
+        entry.graphics_vtable == graphics_vtable &&
+        entry.graphics_submission_method == graphics_submission_method &&
         entry.resource_lookup_context == resource_lookup_context &&
         entry.primary_resource_index == primary_resource_index &&
         entry.primary_resource_key == primary_resource_key &&
@@ -4391,6 +4621,10 @@ void EmitProceduralModelSemanticSubmissions() {
          {"descriptor_kind", std::to_string(entry.descriptor_kind)},
          {"helper_state", std::to_string(entry.helper_state)},
          {"graphics_context", fmt::format("{:08X}", entry.graphics_context)},
+         {"graphics_vtable", fmt::format("{:08X}", entry.graphics_vtable)},
+         {"graphics_submission_vtable_offset", "160"},
+         {"graphics_submission_method",
+          fmt::format("{:08X}", entry.graphics_submission_method)},
          {"resource_lookup_context",
           fmt::format("{:08X}", entry.resource_lookup_context)},
          {"primary_resource_index",
@@ -4458,9 +4692,11 @@ void EmitProceduralModelSemanticSubmissions() {
           ProceduralModelDescriptorKindGroup(entry.descriptor_kind)},
          {"helper_state_family",
           ProceduralModelHelperStateFamily(entry.helper_state)},
-         {"classification", "resolved_resource_and_state_variant_submission"},
+         {"classification",
+          "resolved_resource_state_variant_and_dispatch_submission"},
          {"fallback", "xenos_replay"},
-         {"guest_payload_read", "bounded_submission_fields_only"},
+         {"guest_payload_read",
+          "bounded_submission_and_dispatch_fields_only"},
          {"guest_state_changed", "false"},
          {"native_upload", "false"},
          {"native_draw", "false"},
@@ -4484,6 +4720,8 @@ void EmitProceduralModelSemanticSubmissions() {
         std::to_string(g_semantic_submission_unresolved_resource_joins)},
        {"invalid_geometry",
         std::to_string(g_semantic_submission_invalid_geometry)},
+       {"invalid_dispatch_targets",
+        std::to_string(g_semantic_submission_invalid_dispatch_targets)},
        {"primary_binding_observations",
         std::to_string(g_semantic_primary_binding_observations)},
        {"secondary_binding_observations",
@@ -4537,9 +4775,11 @@ void EmitProceduralModelSemanticSubmissions() {
        {"entries", std::to_string(g_semantic_submission_count)},
        {"capacity", std::to_string(kSemanticSubmissionCapacity)},
        {"overflow", std::to_string(g_semantic_submission_overflow)},
-       {"classification", "resolved_resource_and_state_variant_submission"},
+       {"classification",
+        "resolved_resource_state_variant_and_dispatch_submission"},
        {"fallback", "xenos_replay"},
-       {"guest_payload_read", "bounded_submission_fields_only"},
+       {"guest_payload_read",
+        "bounded_submission_and_dispatch_fields_only"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -6381,11 +6621,16 @@ void RecordTitleDrawProvenance(
   if (!origin.valid) {
     return;
   }
-  const uint64_t key = backend_signature ^
-                       (uint64_t(origin.caller) << 17) ^
-                       (uint64_t(origin.wrapper) << 57) ^
-                       (uint64_t(backend_outcome) << 41) ^
-                       (prepared ? uint64_t(1) << 63 : 0);
+  if (origin.semantic_draw.valid) {
+    (prepared ? g_semantic_draw_prepared_matches
+              : g_semantic_draw_unprepared_matches)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t key = backend_signature ^ (uint64_t(origin.caller) << 17) ^
+                 (uint64_t(origin.wrapper) << 57) ^
+                 (uint64_t(backend_outcome) << 41) ^
+                 (prepared ? uint64_t(1) << 63 : 0);
+  key = HashCombine(key, origin.semantic_draw.submission_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
     TitleDrawProvenanceEntry &entry = g_title_draw_provenance[index];
@@ -6410,7 +6655,15 @@ void RecordTitleDrawProvenance(
         entry.backend_outcome == backend_outcome &&
         entry.prepared == prepared &&
         entry.origin.wrapper == origin.wrapper &&
-        entry.origin.caller == origin.caller) {
+        entry.origin.caller == origin.caller &&
+        entry.origin.semantic_draw.submission_key ==
+            origin.semantic_draw.submission_key &&
+        entry.origin.semantic_draw.receiver_address ==
+            origin.semantic_draw.receiver_address &&
+        entry.origin.semantic_draw.receiver_generation ==
+            origin.semantic_draw.receiver_generation &&
+        entry.origin.semantic_draw.record_index ==
+            origin.semantic_draw.record_index) {
       ++entry.calls;
       entry.last_frame = observation.frame_sequence;
       for (size_t i = 0; i < origin.arguments.size(); ++i) {
@@ -6472,6 +6725,39 @@ void EmitTitleDrawProvenanceSummary() {
          {"first_draw", std::to_string(entry.first_draw)},
          {"first_packet_physical_address",
           fmt::format("{:08X}", entry.first_packet_physical_address)},
+         {"semantic_submission_key",
+          entry.origin.semantic_draw.valid
+              ? fmt::format("{:016X}",
+                            entry.origin.semantic_draw.submission_key)
+              : ""},
+         {"semantic_receiver_address",
+          entry.origin.semantic_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.semantic_draw.receiver_address)
+              : ""},
+         {"semantic_receiver_generation",
+          entry.origin.semantic_draw.valid
+              ? std::to_string(
+                    entry.origin.semantic_draw.receiver_generation)
+              : ""},
+         {"semantic_record_index",
+          entry.origin.semantic_draw.valid
+              ? std::to_string(entry.origin.semantic_draw.record_index)
+              : ""},
+         {"semantic_descriptor_address",
+          entry.origin.semantic_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.semantic_draw.descriptor_address)
+              : ""},
+         {"semantic_runtime_address",
+          entry.origin.semantic_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.semantic_draw.runtime_address)
+              : ""},
+         {"semantic_draw_association",
+          entry.origin.semantic_draw.valid
+              ? "exact_render_item_scope_and_physical_pm4_header"
+              : "none"},
          {"first_r3", fmt::format("{:08X}", entry.origin.arguments[0])},
          {"first_r4", fmt::format("{:08X}", entry.origin.arguments[1])},
          {"first_r5", fmt::format("{:08X}", entry.origin.arguments[2])},
@@ -6500,16 +6786,22 @@ void EmitTitleDrawProvenanceSummary() {
                       entry.maximum_arguments[6], entry.maximum_arguments[7])},
          {"varying_argument_mask",
           fmt::format("{:02X}", entry.varying_argument_mask)},
-         {"semantic_identity", "unknown"},
+         {"semantic_identity",
+          entry.origin.semantic_draw.valid
+              ? "procedural_model_submission"
+              : "unknown"},
          {"xenos_draw", "preserved"},
          {"suppression_eligible", "false"}});
   }
   uint64_t pending_packets = 0;
+  uint64_t semantic_pending_packets = 0;
   {
     std::scoped_lock lock(g_title_packet_provenance_mutex);
     for (const TitlePacketProvenanceEntry &entry :
          g_title_packet_provenance) {
       pending_packets += entry.occupied ? 1 : 0;
+      semantic_pending_packets +=
+          entry.occupied && entry.origin.semantic_draw.valid ? 1 : 0;
     }
   }
   const bool packet_accounting_complete =
@@ -6518,6 +6810,64 @@ void EmitTitleDrawProvenanceSummary() {
       g_title_origins_pushed.load(std::memory_order_relaxed);
   const uint64_t origins_consumed =
       g_title_origins_consumed.load(std::memory_order_relaxed);
+  const uint64_t semantic_scope_joins =
+      g_semantic_draw_scope_joins.load(std::memory_order_relaxed);
+  const uint64_t semantic_scope_mismatches =
+      g_semantic_draw_scope_mismatches.load(std::memory_order_relaxed);
+  const uint64_t semantic_origins =
+      g_semantic_draw_origins_captured.load(std::memory_order_relaxed);
+  const uint64_t semantic_dispatches_with_direct_title_origin =
+      g_semantic_draw_dispatches_with_direct_title_origin.load(
+          std::memory_order_relaxed);
+  const uint64_t semantic_dispatches_without_direct_title_origin =
+      g_semantic_draw_dispatches_without_direct_title_origin.load(
+          std::memory_order_relaxed);
+  const uint64_t semantic_indirect_packet_origins =
+      g_semantic_draw_indirect_packet_origins_captured.load(
+          std::memory_order_relaxed);
+  const uint64_t semantic_dispatches_with_indirect_packet_origin =
+      g_semantic_draw_dispatches_with_indirect_packet_origin.load(
+          std::memory_order_relaxed);
+  const uint64_t semantic_dispatches_without_indirect_packet_origin =
+      g_semantic_draw_dispatches_without_indirect_packet_origin.load(
+          std::memory_order_relaxed);
+  const uint64_t semantic_packets =
+      g_semantic_draw_packets_recorded.load(std::memory_order_relaxed);
+  const uint64_t semantic_packet_matches =
+      g_semantic_draw_packet_matches.load(std::memory_order_relaxed);
+  const uint64_t semantic_prepared_matches =
+      g_semantic_draw_prepared_matches.load(std::memory_order_relaxed);
+  const uint64_t semantic_unprepared_matches =
+      g_semantic_draw_unprepared_matches.load(std::memory_order_relaxed);
+  const uint64_t semantic_render_item_entries =
+      g_semantic_render_item_entries.load(std::memory_order_relaxed);
+  const uint64_t semantic_render_item_exits =
+      g_semantic_render_item_exits.load(std::memory_order_relaxed);
+  const uint64_t semantic_render_items_open =
+      g_semantic_render_items_open.load(std::memory_order_relaxed);
+  const uint64_t semantic_render_item_stack_faults =
+      g_semantic_render_item_stack_faults.load(std::memory_order_relaxed);
+  const bool semantic_draw_overlap_probe_accounting_complete =
+      semantic_scope_joins == g_semantic_submission_live_observations &&
+      semantic_scope_joins ==
+          semantic_dispatches_with_direct_title_origin +
+              semantic_dispatches_without_direct_title_origin &&
+      semantic_scope_joins ==
+          semantic_dispatches_with_indirect_packet_origin +
+              semantic_dispatches_without_indirect_packet_origin &&
+      semantic_render_item_entries ==
+          semantic_render_item_exits + semantic_render_items_open &&
+      !semantic_render_item_stack_faults && !semantic_scope_mismatches;
+  const bool semantic_draw_accounting_complete =
+      semantic_draw_overlap_probe_accounting_complete &&
+      !semantic_dispatches_without_direct_title_origin &&
+      semantic_origins == semantic_scope_joins &&
+      semantic_packets == semantic_origins &&
+      semantic_packets == semantic_packet_matches + semantic_pending_packets &&
+      semantic_packet_matches ==
+          semantic_prepared_matches + semantic_unprepared_matches &&
+      semantic_render_item_entries ==
+          semantic_render_item_exits + semantic_render_items_open;
   uint64_t title_backend_outcomes = 0;
   for (size_t outcome = 1; outcome < g_backend_draw_outcome_counts.size();
        ++outcome) {
@@ -6551,6 +6901,53 @@ void EmitTitleDrawProvenanceSummary() {
        {"title_backend_outcomes",
         std::to_string(title_backend_outcomes)},
        {"pending_packets", std::to_string(pending_packets)},
+       {"semantic_submission_live_observations",
+        std::to_string(g_semantic_submission_live_observations)},
+       {"semantic_render_item_entries",
+        std::to_string(semantic_render_item_entries)},
+       {"semantic_render_item_exits",
+        std::to_string(semantic_render_item_exits)},
+       {"semantic_render_items_open_at_shutdown",
+        std::to_string(semantic_render_items_open)},
+       {"semantic_render_item_valid_scopes",
+        std::to_string(g_semantic_render_item_valid_scopes.load(
+            std::memory_order_relaxed))},
+       {"semantic_render_item_scopes_without_submission",
+        std::to_string(
+            g_semantic_render_item_scopes_without_submission.load(
+                std::memory_order_relaxed))},
+       {"semantic_render_item_stack_faults",
+        std::to_string(semantic_render_item_stack_faults)},
+       {"semantic_draw_scope_joins",
+        std::to_string(semantic_scope_joins)},
+       {"semantic_draw_scope_mismatches",
+        std::to_string(semantic_scope_mismatches)},
+       {"semantic_draw_origins_captured",
+        std::to_string(semantic_origins)},
+       {"semantic_draw_dispatches_with_direct_title_origin",
+        std::to_string(semantic_dispatches_with_direct_title_origin)},
+       {"semantic_draw_dispatches_without_direct_title_origin",
+        std::to_string(semantic_dispatches_without_direct_title_origin)},
+       {"semantic_draw_overlap_probe_accounting_complete",
+        semantic_draw_overlap_probe_accounting_complete ? "true" : "false"},
+       {"semantic_draw_indirect_packet_origins_captured",
+        std::to_string(semantic_indirect_packet_origins)},
+       {"semantic_draw_dispatches_with_indirect_packet_origin",
+        std::to_string(semantic_dispatches_with_indirect_packet_origin)},
+       {"semantic_draw_dispatches_without_indirect_packet_origin",
+        std::to_string(semantic_dispatches_without_indirect_packet_origin)},
+       {"semantic_draw_packets_recorded",
+        std::to_string(semantic_packets)},
+       {"semantic_draw_packet_matches",
+        std::to_string(semantic_packet_matches)},
+       {"semantic_draw_prepared_matches",
+        std::to_string(semantic_prepared_matches)},
+       {"semantic_draw_unprepared_matches",
+        std::to_string(semantic_unprepared_matches)},
+       {"semantic_draw_pending_packets",
+        std::to_string(semantic_pending_packets)},
+       {"semantic_draw_accounting_complete",
+        semantic_draw_accounting_complete ? "true" : "false"},
        {"backend_draws_without_title_packet",
         std::to_string(g_title_backend_unattributed_draws)},
        {"packet_address_failures",
@@ -6587,7 +6984,7 @@ void EmitTitleDrawProvenanceSummary() {
        {"packet_accounting_complete",
         packet_accounting_complete ? "true" : "false"},
        {"correlation", "exact_physical_pm4_header_address"},
-       {"semantic_identity", "unknown"},
+       {"semantic_identity", "direct_procedural_packet_overlap_probe"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -8813,6 +9210,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"primary_resource_binding_hook", "82417A74"},
        {"secondary_resource_binding_hook", "82417A9C"},
        {"geometry_submission_hook", "82417B60"},
+       {"graphics_submission_vtable_offset", "160"},
        {"resource_binding_helper", "82415BF8"},
        {"resource_lookup_function", "82410A58"},
        {"resource_provider_lookup_hook", "82415B64"},
@@ -8836,9 +9234,33 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"capacity", std::to_string(kSemanticSubmissionCapacity)},
        {"maximum_payload_bytes_per_live_observation",
         std::to_string(kSemanticSubmissionMaximumPayloadBytes)},
-       {"classification", "resolved_resource_and_state_variant_submission"},
+       {"classification",
+        "resolved_resource_state_variant_and_dispatch_submission"},
        {"fallback", "xenos_replay"},
-       {"guest_payload_read", "bounded_submission_fields_only"},
+       {"guest_payload_read",
+        "bounded_submission_and_dispatch_fields_only"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_draw_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"scene", scene},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"render_item_entry_hook", "8241741C"},
+       {"render_item_exit_hook", "82417B80"},
+       {"geometry_submission_hook", "82417B60"},
+       {"title_packet_hooks", "82410328,829F7CB0"},
+       {"title_indirect_packet_hooks",
+        "824095B4,82416EFC,8246FC1C,8263BD64,829E8E88,829EC49C"},
+       {"render_item_stack_capacity",
+        std::to_string(kSemanticRenderItemStackCapacity)},
+       {"correlation",
+        "exact_render_item_scope_with_packet_constructor_overlap_probe"},
+       {"classification", "procedural_submission_dispatch_boundary"},
+       {"guest_payload_read", "bounded_submission_identity_only"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -9693,9 +10115,13 @@ void PinyonShiftObserveProceduralModelRenderItem(
     PPCRegister &r1, PPCRegister &r3, PPCRegister &r4, PPCRegister &r5,
     PPCRegister &r6, PPCRegister &r7, PPCRegister &r8, PPCRegister &r9,
     PPCRegister &r10) {
-  RecordProceduralModelSemanticInstance(
+  BeginProceduralModelRenderItem(
       r1.u32, r3.u32,
       {r4.u32, r5.u32, r6.u32, r7.u32, r8.u32, r9.u32, r10.u32});
+}
+
+void PinyonShiftObserveProceduralModelRenderItemExit() {
+  EndProceduralModelRenderItem();
 }
 
 void PinyonShiftObserveProceduralModelPrimaryResourceBinding(
