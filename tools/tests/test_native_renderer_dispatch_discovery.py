@@ -469,6 +469,14 @@ def procedural_model_lifecycle_fixtures():
                 "loc_82E201AC:",
                 "fmuls f0,f0,f0",
                 "fcmpu cr6,f26,f0",
+                "loc_82E2034C:",
+                "bl 0x8243f9a0",
+                "loc_82E20350:",
+                "clrlwi. r11,r3,24",
+                "loc_82E20364:",
+                "bl 0x82441048",
+                "loc_82E20368:",
+                "cmpwi r3,0",
                 "loc_82E20080:",
                 "add r23,r11,r18",
                 "loc_82E20090:",
@@ -1254,6 +1262,15 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual("82E20134", policy["runtime_threshold_hook_address"])
         self.assertEqual(
             "82E201B0", policy["descriptor_threshold_hook_address"]
+        )
+        self.assertEqual(
+            "82E20350", policy["spatial_helper_result_hook_address"]
+        )
+        self.assertEqual(
+            "82E20368", policy["category_helper_result_hook_address"]
+        )
+        self.assertEqual(
+            "ordered_per_record_return_trace", policy["helper_result_capture"]
         )
         self.assertTrue(policy["passive_input_outcome_correlation_required"])
         spatial_helper = policy["spatial_helper_contract"]

@@ -100,3 +100,26 @@ present-deadline misses and a normal exit.
 This qualifies the passive structural input/outcome contract for semantic
 hypothesis testing. It still does not prove camera, frustum, bounds, or unit
 semantics, and it does not enable native policy execution.
+
+## Ordered helper oracle
+
+The next passive checkpoint traces the title's two proved helper returns at
+their exact slot-14 callsites:
+
+| Return boundary | Address | Captured value |
+| --- | --- | --- |
+| spatial helper return | `0x82E20350` | low-byte boolean result from `0x8243F9A0` |
+| six-vector helper return | `0x82E20368` | result 0, 1, or 2 from `0x82441048` |
+
+The trace is ordered within the active title record. It counts repeated spatial
+tests, spatial passes, subsequent six-vector classifications, and each proved
+classifier return value by title category and final title outcome. The
+accounting requires every classifier call to follow an observed spatial pass,
+every classifier result to remain in the statically proved 0/1/2 domain, and
+all records to reconcile with the authoritative visibility census.
+
+This creates a title-oracle dataset suitable for a later shadow policy model.
+It remains register-only and passive: it reads no guest payload, changes no
+guest state or control flow, and does not execute native culling or LOD. Runtime
+qualification is intentionally batched with the next substantial NR-05D
+milestone.

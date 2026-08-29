@@ -639,6 +639,14 @@ struct SemanticVisibilityPolicyStats {
   std::atomic<uint64_t> descriptor_distance_exceeded{};
 };
 
+struct SemanticVisibilityOracleStats {
+  std::atomic<uint64_t> records{};
+  std::atomic<uint64_t> spatial_helper_observations{};
+  std::atomic<uint64_t> spatial_helper_passes{};
+  std::atomic<uint64_t> category_helper_observations{};
+  std::array<std::atomic<uint64_t>, 3> category_results{};
+};
+
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
 std::atomic<uint64_t> g_semantic_visibility_record_completions{};
 std::atomic<uint64_t> g_semantic_visibility_records_open{};
@@ -683,6 +691,14 @@ std::atomic<uint64_t> g_semantic_visibility_runtime_threshold_without_record{};
 std::atomic<uint64_t> g_semantic_visibility_duplicate_runtime_threshold{};
 std::atomic<uint64_t> g_semantic_visibility_descriptor_threshold_without_record{};
 std::atomic<uint64_t> g_semantic_visibility_duplicate_descriptor_threshold{};
+std::array<std::array<SemanticVisibilityOracleStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_oracle_categories{};
+std::atomic<uint64_t> g_semantic_visibility_spatial_helper_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_category_helper_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_category_helper_without_spatial_pass{};
+std::atomic<uint64_t> g_semantic_visibility_category_helper_invalid_result{};
 
 struct SemanticInstanceEntry {
   uint64_t key = 0;
@@ -980,6 +996,10 @@ struct ActiveSemanticVisibilityRecord {
   bool runtime_distance_less = false;
   bool descriptor_threshold_seen = false;
   bool descriptor_distance_exceeded = false;
+  uint32_t spatial_helper_observations = 0;
+  uint32_t spatial_helper_passes = 0;
+  uint32_t category_helper_observations = 0;
+  std::array<uint32_t, 3> category_helper_results{};
   bool active = false;
 };
 thread_local ActiveSemanticVisibilityRecord
@@ -2221,6 +2241,50 @@ void ObserveSemanticVisibilityDescriptorThreshold(
       spatial_distance_squared > threshold_squared;
 }
 
+void ObserveSemanticVisibilitySpatialHelperResult(uint32_t result) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_spatial_helper_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  ++record.spatial_helper_observations;
+  if ((result & 0xFF) != 0) {
+    ++record.spatial_helper_passes;
+  }
+}
+
+void ObserveSemanticVisibilityCategoryHelperResult(uint32_t result) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_category_helper_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (record.category_helper_observations >=
+      record.spatial_helper_passes) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_category_helper_without_spatial_pass.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  ++record.category_helper_observations;
+  if (result < record.category_helper_results.size()) {
+    ++record.category_helper_results[result];
+  } else {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_category_helper_invalid_result.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
 void ObserveSemanticVisibilityLod(uint32_t lod_index) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
@@ -2366,6 +2430,22 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
         policy.descriptor_distance_exceeded.fetch_add(
             1, std::memory_order_relaxed);
       }
+    }
+    SemanticVisibilityOracleStats &oracle =
+        g_semantic_visibility_oracle_categories[record.category]
+                                                [policy_outcome_index];
+    oracle.records.fetch_add(1, std::memory_order_relaxed);
+    oracle.spatial_helper_observations.fetch_add(
+        record.spatial_helper_observations, std::memory_order_relaxed);
+    oracle.spatial_helper_passes.fetch_add(
+        record.spatial_helper_passes, std::memory_order_relaxed);
+    oracle.category_helper_observations.fetch_add(
+        record.category_helper_observations, std::memory_order_relaxed);
+    for (size_t result = 0; result < record.category_helper_results.size();
+         ++result) {
+      oracle.category_results[result].fetch_add(
+          record.category_helper_results[result],
+          std::memory_order_relaxed);
     }
   }
   if (record.spatial_sample_valid) {
@@ -9718,6 +9798,125 @@ void EmitSemanticVisibilityCensus() {
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
 
+  uint64_t oracle_records = 0;
+  uint64_t oracle_spatial_observations = 0;
+  uint64_t oracle_spatial_passes = 0;
+  uint64_t oracle_category_observations = 0;
+  std::array<uint64_t, 3> oracle_category_results{};
+  bool oracle_category_accounting_complete = true;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      SemanticVisibilityOracleStats &oracle =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                  [outcome_index];
+      const uint64_t records =
+          oracle.records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t spatial_observations =
+          oracle.spatial_helper_observations.load(
+              std::memory_order_relaxed);
+      const uint64_t spatial_passes =
+          oracle.spatial_helper_passes.load(std::memory_order_relaxed);
+      const uint64_t category_observations =
+          oracle.category_helper_observations.load(
+              std::memory_order_relaxed);
+      std::array<uint64_t, 3> category_results{};
+      uint64_t category_result_total = 0;
+      for (size_t result = 0; result < category_results.size(); ++result) {
+        category_results[result] =
+            oracle.category_results[result].load(std::memory_order_relaxed);
+        category_result_total += category_results[result];
+        oracle_category_results[result] += category_results[result];
+      }
+      const bool category_complete =
+          records == expected_records[outcome_index] &&
+          category_result_total == category_observations &&
+          category_observations <= spatial_passes &&
+          spatial_passes <= spatial_observations;
+      oracle_category_accounting_complete &= category_complete;
+      oracle_records += records;
+      oracle_spatial_observations += spatial_observations;
+      oracle_spatial_passes += spatial_passes;
+      oracle_category_observations += category_observations;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_oracle_category_summary",
+          {{"status", category_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome",
+            SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"spatial_helper_observations",
+            std::to_string(spatial_observations)},
+           {"spatial_helper_passes", std::to_string(spatial_passes)},
+           {"category_helper_observations",
+            std::to_string(category_observations)},
+           {"category_result_0", std::to_string(category_results[0])},
+           {"category_result_1", std::to_string(category_results[1])},
+           {"category_result_2", std::to_string(category_results[2])},
+           {"native_policy_execution", "false"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+  const uint64_t spatial_helper_without_record =
+      g_semantic_visibility_spatial_helper_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t category_helper_without_record =
+      g_semantic_visibility_category_helper_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t category_without_spatial_pass =
+      g_semantic_visibility_category_helper_without_spatial_pass.load(
+          std::memory_order_relaxed);
+  const uint64_t category_invalid_result =
+      g_semantic_visibility_category_helper_invalid_result.load(
+          std::memory_order_relaxed);
+  const bool oracle_complete =
+      oracle_category_accounting_complete && oracle_records == completions &&
+      oracle_category_observations == oracle_category_results[0] +
+                                                oracle_category_results[1] +
+                                                oracle_category_results[2] &&
+      oracle_category_observations <= oracle_spatial_passes &&
+      oracle_spatial_passes <= oracle_spatial_observations &&
+      !spatial_helper_without_record && !category_helper_without_record &&
+      !category_without_spatial_pass && !category_invalid_result;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_oracle_summary",
+      {{"status", oracle_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(oracle_records)},
+       {"spatial_helper_observations",
+        std::to_string(oracle_spatial_observations)},
+       {"spatial_helper_passes", std::to_string(oracle_spatial_passes)},
+       {"category_helper_observations",
+        std::to_string(oracle_category_observations)},
+       {"category_result_0", std::to_string(oracle_category_results[0])},
+       {"category_result_1", std::to_string(oracle_category_results[1])},
+       {"category_result_2", std::to_string(oracle_category_results[2])},
+       {"spatial_helper_without_record",
+        std::to_string(spatial_helper_without_record)},
+       {"category_helper_without_record",
+        std::to_string(category_helper_without_record)},
+       {"category_helper_without_spatial_pass",
+        std::to_string(category_without_spatial_pass)},
+       {"category_helper_invalid_result",
+        std::to_string(category_invalid_result)},
+       {"accounting_complete", oracle_complete ? "true" : "false"},
+       {"classification", "title_ordered_visibility_helper_oracle"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+
   const uint64_t category_overflow =
       g_semantic_visibility_category_overflow.load(
           std::memory_order_relaxed);
@@ -12167,6 +12366,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"record_entry_hook", "82E20094"},
        {"runtime_threshold_hook", "82E20134"},
        {"descriptor_threshold_hook", "82E201B0"},
+       {"spatial_helper_result_hook", "82E20350"},
+       {"category_helper_result_hook", "82E20368"},
        {"spatial_distance_source", "f26"},
        {"threshold_source", "f0"},
        {"runtime_distance_scalar_offset", "44"},
@@ -12176,6 +12377,28 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"outcomes", "early_rejected,rejected,selected"},
        {"classification",
         "title_spatial_policy_input_outcome_correlation"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_oracle_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"record_entry_hook", "82E20094"},
+       {"spatial_helper", "8243F9A0"},
+       {"spatial_helper_result_hook", "82E20350"},
+       {"category_helper", "82441048"},
+       {"category_helper_result_hook", "82E20368"},
+       {"category_result_domain", "0,1,2"},
+       {"outcomes", "early_rejected,rejected,selected"},
+       {"classification", "title_ordered_visibility_helper_oracle"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -13142,6 +13365,16 @@ void PinyonShiftObserveProceduralModelVisibilityRuntimeThreshold(
 void PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold(
     PPCRegister &f0, PPCRegister &f26) {
   ObserveSemanticVisibilityDescriptorThreshold(f26.f64, f0.f64);
+}
+
+void PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult(
+    PPCRegister &r3) {
+  ObserveSemanticVisibilitySpatialHelperResult(r3.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult(
+    PPCRegister &r3) {
+  ObserveSemanticVisibilityCategoryHelperResult(r3.u32);
 }
 
 void PinyonShiftObserveProceduralModelVisibilityLodPrimary(
