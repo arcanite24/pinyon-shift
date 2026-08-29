@@ -302,6 +302,31 @@ try {
             xenos_authority = $true
             suppression_allowed = $false
         }
+        command_buffer_lineage = [ordered]@{
+            status = 'not_observed'
+            correlation = $null
+            draws = [uint64]0
+            primary_draws = [uint64]0
+            indirect_draws = [uint64]0
+            invalid_lineages = [uint64]0
+            prepared_draws = [uint64]0
+            entries = [uint64]0
+            overflow = [uint64]0
+            capacity = [uint64]0
+            title_indirect_packets_recorded = [uint64]0
+            title_indirect_packet_address_failures = [uint64]0
+            title_indirect_packet_table_overflow = [uint64]0
+            title_indirect_packet_evictions = [uint64]0
+            indirect_buffer_enters = [uint64]0
+            indirect_buffer_exits = [uint64]0
+            indirect_buffers_open_at_shutdown = [uint64]0
+            indirect_buffer_constructor_matches = [uint64]0
+            indirect_buffer_constructor_unmatched = [uint64]0
+            indirect_buffer_stack_faults = [uint64]0
+            indirect_draw_stack_faults = [uint64]0
+            xenos_authority = $true
+            suppression_allowed = $false
+        }
     }
     $nativeShaderPack = [ordered]@{
         status = 'not_configured'
@@ -378,6 +403,35 @@ try {
                     $provenance.xenos_authority =
                         [string]$event.xenos_authority -eq 'true'
                     $provenance.suppression_allowed =
+                        [string]$event.suppression_allowed -eq 'true'
+                }
+                'native_renderer.discovery.command_buffer_lineage_config' {
+                    $nativeRenderer.command_buffer_lineage.status =
+                        [string]$event.status
+                }
+                'native_renderer.discovery.command_buffer_lineage_summary' {
+                    $lineage = $nativeRenderer.command_buffer_lineage
+                    $lineage.status = 'summary_observed'
+                    $lineage.correlation = [string]$event.correlation
+                    foreach ($field in @(
+                            'draws', 'primary_draws', 'indirect_draws',
+                            'invalid_lineages', 'prepared_draws', 'entries',
+                            'overflow', 'capacity',
+                            'title_indirect_packets_recorded',
+                            'title_indirect_packet_address_failures',
+                            'title_indirect_packet_table_overflow',
+                            'title_indirect_packet_evictions',
+                            'indirect_buffer_enters', 'indirect_buffer_exits',
+                            'indirect_buffers_open_at_shutdown',
+                            'indirect_buffer_constructor_matches',
+                            'indirect_buffer_constructor_unmatched',
+                            'indirect_buffer_stack_faults',
+                            'indirect_draw_stack_faults')) {
+                        $lineage[$field] = [uint64]$event.$field
+                    }
+                    $lineage.xenos_authority =
+                        [string]$event.xenos_authority -eq 'true'
+                    $lineage.suppression_allowed =
                         [string]$event.suppression_allowed -eq 'true'
                 }
                 'native_renderer.shader_pack.ready' {

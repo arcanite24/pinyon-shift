@@ -307,6 +307,35 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         }
         self.assertNotIn("83051E48", addresses)
 
+    def test_inventories_stored_indirect_buffer_packets(self):
+        indirect = fixture(
+            0x83060000,
+            [
+                "lis r11,-16382",
+                "ori r11,r11,16128",
+                "stwu r11,4(r3)",
+                "lis r10,-16382",
+                "ori r10,r10,14080",
+                "stw r10,16(r4)",
+            ],
+        )
+        document = self.build([indirect, *reviewed_fixtures()])
+        packets = [
+            item
+            for item in document["packet_constructors"]
+            if item["function_address"] == "83060000"
+        ]
+        self.assertEqual(
+            [item["opcode"] for item in packets],
+            ["PM4_INDIRECT_BUFFER", "PM4_INDIRECT_BUFFER_PFD"],
+        )
+        self.assertEqual(
+            [item["header_source"] for item in packets],
+            ["fixed_type3_count_3", "fixed_type3_count_3"],
+        )
+        self.assertEqual(packets[0]["packet_register"], "r11")
+        self.assertEqual(packets[0]["store_instruction"], "stwu r11,4(r3)")
+
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -341,6 +370,21 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             analysis.count('name = "PinyonShiftObserveDrawPacketSubmission"'),
             2,
         )
+        for address in (
+            "824095B4",
+            "82416EFC",
+            "8246FC1C",
+            "8263BD64",
+            "829E8E88",
+            "829EC49C",
+        ):
+            self.assertIn(f"address = 0x{address}", analysis)
+            self.assertEqual(
+                analysis.count(
+                    f'name = "PinyonShiftObserveIndirectPacket{address}"'
+                ),
+                1,
+            )
         self.assertEqual(
             analysis.count('name = "PinyonShiftObserveVizQueryBeginDispatch"'),
             1,
