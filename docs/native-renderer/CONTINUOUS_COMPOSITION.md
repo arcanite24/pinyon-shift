@@ -67,3 +67,7 @@ lasted 238.54 measured seconds and exited normally.
 
 After qualification, the AppData configuration was returned to the default
 `xenos` renderer while preserving the existing graphics settings.
+
+NR-04C builds on this surface with the controlled selector, paired visual
+qualification, and strict capture workflow documented in
+[DUAL_PATH_COMPARISON.md](DUAL_PATH_COMPARISON.md).

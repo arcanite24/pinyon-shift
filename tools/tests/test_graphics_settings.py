@@ -135,6 +135,34 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn("custom_value = 77", text)
             self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
 
+    def test_set_renderer_selects_comparison_without_changing_other_settings(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            config = state / "config/pinyon_shift.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                'pinyon_shift_config_schema = 10\n'
+                'pinyon_shift_native_renderer = "xenos"\n'
+                'custom_value = 77\n',
+                encoding="utf-8",
+            )
+            result = self.run_tool(
+                state,
+                "-Action",
+                "SetRenderer",
+                "-NativeRenderer",
+                "comparison_native",
+            )
+            text = config.read_text(encoding="utf-8")
+            self.assertEqual(
+                result["settings"]["native_renderer"], "comparison_native"
+            )
+            self.assertIn(
+                'pinyon_shift_native_renderer = "comparison_native"', text
+            )
+            self.assertIn("custom_value = 77", text)
+            self.assertTrue(pathlib.Path(result["backup_path"]).is_file())
+
     def test_experimental_3x_writes_4k_class_scale_with_fast_readback(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
             state = pathlib.Path(temporary)
