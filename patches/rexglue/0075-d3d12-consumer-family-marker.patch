@@ -1,0 +1,60 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -404,6 +404,9 @@ struct GraphicsIsolatedDrawRequest {
+   bool depth_readback_requested = false;
+   bool reference_depth_readback_requested = false;
+   bool reference_marker_requested = false;
++  // Mark the authoritative guest draw as an exact later-consumer-family
++  // target. This never duplicates, redirects, or suppresses the draw.
++  bool consumer_reference_marker_requested = false;
+   bool retain_target = false;
+   // Rebind the retained private target without copying the guest target. This
+   // is valid only for the immediately following draw of an isolated pass.
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3382,7 +3382,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         isolated_draw_request.completion(isolated_result);
+       }
+     }
+-    if (isolated_draw_request.reference_marker_requested) {
++    if (isolated_draw_request.consumer_reference_marker_requested) {
++      deferred_command_list_.BeginDebugMarker(
++          "PinyonShift NR-00E authoritative consumer family draw");
++    } else if (isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.BeginDebugMarker(
+           isolated_draw_request.reuse_target
+               ? "PinyonShift NR-02F authoritative Xenos pass follower"
+@@ -3392,7 +3395,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     PROFILE_VERTICES(primitive_processing_result.host_draw_vertex_count);
+     deferred_command_list_.D3DDrawInstanced(primitive_processing_result.host_draw_vertex_count, 1,
+                                             0, 0);
+-    if (isolated_draw_request.reference_marker_requested) {
++    if (isolated_draw_request.consumer_reference_marker_requested ||
++        isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.EndDebugMarker();
+     }
+     if (isolated_draw_request.reference_readback_requested &&
+@@ -3544,7 +3548,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         isolated_draw_request.completion(isolated_result);
+       }
+     }
+-    if (isolated_draw_request.reference_marker_requested) {
++    if (isolated_draw_request.consumer_reference_marker_requested) {
++      deferred_command_list_.BeginDebugMarker(
++          "PinyonShift NR-00E authoritative consumer family draw");
++    } else if (isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.BeginDebugMarker(
+           isolated_draw_request.retain_target
+               ? "PinyonShift NR-02F authoritative Xenos pass anchor"
+@@ -3554,7 +3561,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     PROFILE_VERTICES(primitive_processing_result.host_draw_vertex_count);
+     deferred_command_list_.D3DDrawIndexedInstanced(
+         primitive_processing_result.host_draw_vertex_count, 1, 0, 0, 0);
+-    if (isolated_draw_request.reference_marker_requested) {
++    if (isolated_draw_request.consumer_reference_marker_requested ||
++        isolated_draw_request.reference_marker_requested) {
+       deferred_command_list_.EndDebugMarker();
+     }
+     if (isolated_draw_request.reference_readback_requested &&

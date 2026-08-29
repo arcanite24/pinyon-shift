@@ -8,6 +8,7 @@ so RenderDoc's command-line parser never needs to understand tool arguments.
 import hashlib
 import json
 import os
+import re
 import sys
 import traceback
 
@@ -25,12 +26,25 @@ XENOS_MARKER = os.environ.get(
 COMPLETE_PASS = os.environ.get(
     "PINYON_SHIFT_RENDERDOC_COMPLETE_PASS", "0"
 ) == "1"
+CONSUMER_FAMILY = os.environ.get(
+    "PINYON_SHIFT_RENDERDOC_CONSUMER_FAMILY", ""
+)
+CONSUMER_FAMILY_MARKER = (
+    "PinyonShift NR-00E authoritative consumer family draw"
+)
 PASS_NATIVE_ANCHOR_MARKER = "PinyonShift NR-02F isolated native pass anchor"
 PASS_XENOS_ANCHOR_MARKER = "PinyonShift NR-02F authoritative Xenos pass anchor"
 PASS_NATIVE_FOLLOWER_MARKER = "PinyonShift NR-02F isolated native pass follower"
 PASS_XENOS_FOLLOWER_MARKER = "PinyonShift NR-02F authoritative Xenos pass follower"
 SCHEMA = "pinyon-shift.native-renderer-renderdoc-export.v1"
 COMPLETE_PASS_SCHEMA = "pinyon-shift.native-renderer-pass-renderdoc-export.v1"
+CONSUMER_FAMILY_SCHEMA = (
+    "pinyon-shift.native-renderer-consumer-family-renderdoc-export.v1"
+)
+CONSUMER_FAMILY_PATTERN = re.compile(
+    r"^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$"
+)
+MAX_CONSUMER_MARKER_EVENT_IDS = 64
 
 
 def _flatten(actions):
@@ -311,6 +325,60 @@ def _export_complete_pass(controller, actions, capture_path, output_dir):
     }
 
 
+def _export_consumer_family(
+    controller, actions, capture_path, output_dir, consumer_family
+):
+    if not CONSUMER_FAMILY_PATTERN.fullmatch(consumer_family):
+        raise RuntimeError("consumer family id is malformed")
+    markers = [
+        action for action in actions
+        if action.customName == CONSUMER_FAMILY_MARKER
+    ]
+    if not markers:
+        available_markers = sorted(
+            set(
+                action.customName
+                for action in actions
+                if action.customName and "PinyonShift" in action.customName
+            )
+        )
+        raise RuntimeError(
+            "no authoritative consumer-family marker was found; "
+            "available PinyonShift markers={}".format(available_markers)
+        )
+    return {
+        "schema": CONSUMER_FAMILY_SCHEMA,
+        "capture": {
+            "path": os.path.basename(capture_path),
+            "sha256": _sha256(capture_path),
+        },
+        "consumer_family": consumer_family.upper(),
+        "marker": CONSUMER_FAMILY_MARKER,
+        "marker_count": len(markers),
+        "marker_event_ids": [
+            marker.eventId
+            for marker in markers[:MAX_CONSUMER_MARKER_EVENT_IDS]
+        ],
+        "marker_event_id_overflow": max(
+            0, len(markers) - MAX_CONSUMER_MARKER_EVENT_IDS
+        ),
+        "first_authoritative_draw": _export_marker(
+            controller, markers[0], output_dir, "consumer-family-first"
+        ),
+        "evidence": {
+            "scope": "exact_lineage_consumer_and_four_field_family",
+            "comparison": "bound_color_and_depth_before_after_first_draw",
+            "semantic_role": "operator_review_required",
+        },
+        "safety": {
+            "xenos_draws_preserved": True,
+            "draw_suppression_implemented": False,
+            "resolve_suppression_implemented": False,
+            "suppression_allowed": False,
+        },
+    }
+
+
 def main():
     capture_path = os.environ["PINYON_SHIFT_RENDERDOC_CAPTURE"]
     output_dir = os.environ["PINYON_SHIFT_RENDERDOC_EXPORT_DIR"]
@@ -331,6 +399,20 @@ def main():
             raise RuntimeError("could not initialise replay: {}".format(result))
 
         actions = _flatten(controller.GetRootActions())
+        if CONSUMER_FAMILY:
+            if COMPLETE_PASS:
+                raise RuntimeError(
+                    "consumer-family and complete-pass exports are mutually exclusive"
+                )
+            report = _export_consumer_family(
+                controller, actions, capture_path, output_dir,
+                CONSUMER_FAMILY,
+            )
+            with open(report_path, "w") as output:
+                json.dump(report, output, indent=2, sort_keys=True)
+                output.write("\n")
+            print(report_path)
+            return 0
         if COMPLETE_PASS:
             report = _export_complete_pass(
                 controller, actions, capture_path, output_dir

@@ -9,6 +9,8 @@ param(
     [string]$IsolatedDrawSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
+    [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
+    [string]$ConsumerFamily,
     [string]$IsolatedDrawDir,
     [Parameter(Mandatory)]
     [string]$CaptureDir,
@@ -83,6 +85,7 @@ $saved = @{
     draw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
     draw_dir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
     pass_anchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
+    consumer_family = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
 }
 try {
     $env:PINYON_SHIFT_STATE_ROOT = $resolvedStateRoot
@@ -99,6 +102,7 @@ try {
         } else {
             $null
         }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
     & $renderdoc capture -w `
         -d (Split-Path $executable -Parent) `
         -c (Join-Path $resolvedCaptureDir 'reference') `
@@ -116,6 +120,7 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $saved.draw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $saved.draw_dir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $saved.pass_anchor
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $saved.consumer_family
 }
 
 $captures = @(Get-ChildItem -LiteralPath $resolvedCaptureDir -File -Filter '*.rdc')

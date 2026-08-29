@@ -554,6 +554,45 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("PINYON_SHIFT_RENDERDOC_COMPLETE_PASS", wrapper)
         self.assertNotIn("SetDrawSuppression", exporter)
 
+    def test_consumer_family_marker_is_exact_passive_and_exportable(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT / "patches/rexglue/0075-d3d12-consumer-family-marker.patch"
+        ).read_text(encoding="utf-8")
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        exporter = (
+            ROOT / "tools/export-native-renderer-renderdoc.py"
+        ).read_text(encoding="utf-8")
+        wrapper = (
+            ROOT / "tools/export-native-renderer-renderdoc.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY", hooks)
+        for field in (
+            "vertex_shader_hash",
+            "pixel_shader_hash",
+            "vertex_specialization_mask",
+            "pixel_specialization_mask",
+        ):
+            self.assertIn(field, hooks)
+        self.assertIn("consumer_reference_marker_requested", hooks)
+        self.assertIn("authoritative_draw_marker_only", hooks)
+        self.assertIn("consumer_reference_marker_requested", patch)
+        self.assertIn(
+            "PinyonShift NR-00E authoritative consumer family draw", patch
+        )
+        self.assertNotIn("SetDrawSuppression", hooks + patch)
+        self.assertNotIn("SetCopySuppression", hooks + patch)
+        self.assertIn("[string]$ConsumerFamily", capture)
+        self.assertIn("PINYON_SHIFT_RENDERDOC_CONSUMER_FAMILY", wrapper)
+        self.assertIn("CONSUMER_FAMILY_SCHEMA", exporter)
+        self.assertIn("operator_review_required", exporter)
+        self.assertIn("MAX_CONSUMER_MARKER_EVENT_IDS = 64", exporter)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT

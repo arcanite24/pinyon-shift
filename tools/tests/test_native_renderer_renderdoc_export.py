@@ -52,6 +52,44 @@ def span(resource_id):
 
 
 class NativeRendererRenderDocExportTests(unittest.TestCase):
+    def test_consumer_family_exports_bounded_exact_marker_evidence(self):
+        family = (
+            "2E5E0A854BE00027/BDFFA72B7ED2FBA4/"
+            "000000000000003F/000000000016003F"
+        )
+        markers = [
+            Action(MODULE.CONSUMER_FAMILY_MARKER, index)
+            for index in range(1, 67)
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = Path(temporary) / "capture.rdc"
+            capture.write_bytes(b"capture")
+            with mock.patch.object(
+                MODULE, "_export_marker", return_value={"draw_event_id": 2}
+            ):
+                result = MODULE._export_consumer_family(
+                    object(), markers, str(capture), temporary, family.lower()
+                )
+
+        self.assertEqual(result["schema"], MODULE.CONSUMER_FAMILY_SCHEMA)
+        self.assertEqual(result["consumer_family"], family)
+        self.assertEqual(result["marker_count"], 66)
+        self.assertEqual(len(result["marker_event_ids"]), 64)
+        self.assertEqual(result["marker_event_id_overflow"], 2)
+        self.assertEqual(
+            result["evidence"]["semantic_role"], "operator_review_required"
+        )
+        self.assertFalse(result["safety"]["suppression_allowed"])
+
+    def test_consumer_family_rejects_malformed_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = Path(temporary) / "capture.rdc"
+            capture.write_bytes(b"capture")
+            with self.assertRaisesRegex(RuntimeError, "malformed"):
+                MODULE._export_consumer_family(
+                    object(), [], str(capture), temporary, "not-a-family"
+                )
+
     def test_complete_pass_requires_ordered_distinct_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = Path(temporary) / "capture.rdc"
