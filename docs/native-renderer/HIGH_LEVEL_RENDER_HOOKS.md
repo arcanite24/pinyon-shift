@@ -278,6 +278,14 @@ zero attribution faults. This qualifies the exact title-to-backend bridge. It
 does not qualify title-to-prepared provenance: every exact match retained the
 explicit `not_prepared` outcome.
 
+The follow-up NR-05A bridge adds a one-per-attempt D3D12 outcome observer for
+all 21 `IssueDraw` returns. Session `20260829T125853Z-p38524` observed 8,478,174
+outcomes with zero missing or mismatched callbacks: 8,216,916 completed,
+261,210 EDRAM copies, and 48 no-rasterization/memexport exits. Every one of the
+132,568 exact title matches was an EDRAM copy. The bridge therefore explains
+the absent prepared callbacks while remaining passive, Xenos-authoritative,
+and suppression-ineligible.
+
 ## Side-effect-boundary qualification — 2026-08-29
 
 Clean Release executable

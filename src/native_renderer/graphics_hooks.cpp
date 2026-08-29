@@ -128,6 +128,7 @@ struct TitlePacketProvenanceEntry {
 
 struct TitleDrawProvenanceEntry {
   uint64_t backend_signature = 0;
+  uint32_t backend_outcome = 0;
   uint64_t calls = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
@@ -155,6 +156,11 @@ uint64_t g_title_packet_reused_live_addresses = 0;
 uint64_t g_title_packet_table_overflow = 0;
 uint64_t g_title_backend_unattributed_draws = 0;
 uint64_t g_title_matched_unprepared_draws = 0;
+uint64_t g_backend_draw_outcomes_observed = 0;
+uint64_t g_backend_draw_outcome_mismatches = 0;
+uint64_t g_backend_draw_outcome_missing = 0;
+std::array<uint64_t, 19> g_backend_draw_outcome_counts{};
+std::array<uint64_t, 19> g_title_backend_outcome_counts{};
 std::atomic<uint64_t> g_title_forwarding_mismatches{};
 std::atomic<uint64_t> g_title_origins_pushed{};
 std::atomic<uint64_t> g_title_origins_consumed{};
@@ -220,6 +226,49 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
   return "00000000";
 }
 
+const char *DrawOutcomeName(uint32_t outcome) {
+  using Status = rex::system::GraphicsDrawOutcomeStatus;
+  switch (Status(outcome)) {
+  case Status::kCompleted:
+    return "completed";
+  case Status::kEdramCopy:
+    return "edram_copy";
+  case Status::kMissingVertexShader:
+    return "missing_vertex_shader";
+  case Status::kZeroSurfacePitch:
+    return "zero_surface_pitch";
+  case Status::kNoRasterizationOrMemexport:
+    return "no_rasterization_or_memexport";
+  case Status::kSubmissionFailed:
+    return "submission_failed";
+  case Status::kPrimitiveProcessingFailed:
+    return "primitive_processing_failed";
+  case Status::kNoHostVertices:
+    return "no_host_vertices";
+  case Status::kRenderTargetUpdateFailed:
+    return "render_target_update_failed";
+  case Status::kPipelineConfigurationFailed:
+    return "pipeline_configuration_failed";
+  case Status::kPipelinePending:
+    return "pipeline_pending";
+  case Status::kBindingUpdateFailed:
+    return "binding_update_failed";
+  case Status::kInvalidVertexFetch:
+    return "invalid_vertex_fetch";
+  case Status::kVertexResidencyFailed:
+    return "vertex_residency_failed";
+  case Status::kMemexportResidencyFailed:
+    return "memexport_residency_failed";
+  case Status::kUnsupportedPrimitive:
+    return "unsupported_primitive";
+  case Status::kScratchIndexBufferFailed:
+    return "scratch_index_buffer_failed";
+  case Status::kUnsupportedIndexBuffer:
+    return "unsupported_index_buffer";
+  }
+  return "observer_missing";
+}
+
 std::string CensusSceneMarker();
 
 TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
@@ -249,6 +298,11 @@ void ResetTitleDrawProvenance() {
   g_title_packet_table_overflow = 0;
   g_title_backend_unattributed_draws = 0;
   g_title_matched_unprepared_draws = 0;
+  g_backend_draw_outcomes_observed = 0;
+  g_backend_draw_outcome_mismatches = 0;
+  g_backend_draw_outcome_missing = 0;
+  g_backend_draw_outcome_counts = {};
+  g_title_backend_outcome_counts = {};
   g_title_forwarding_mismatches.store(0, std::memory_order_relaxed);
   g_title_origins_pushed.store(0, std::memory_order_relaxed);
   g_title_origins_consumed.store(0, std::memory_order_relaxed);
@@ -281,7 +335,8 @@ void ConfigureTitleDrawProvenance(bool census_requested,
        {"aggregate_capacity", std::to_string(kTitleDrawProvenanceCapacity)},
        {"origin_stack_capacity", std::to_string(kTitleOriginStackCapacity)},
        {"metadata",
-        "origin_wrapper,entry_lr,r3-r10,outcome,backend_signature"},
+        "origin_wrapper,entry_lr,r3-r10,outcome,backend_outcome,"
+        "backend_signature"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -2578,7 +2633,7 @@ CandidateSignature(const rex::system::GraphicsDrawObservation &observation,
 }
 
 void RecordTitleDrawProvenance(
-    uint64_t backend_signature, bool prepared,
+    uint64_t backend_signature, bool prepared, uint32_t backend_outcome,
     const rex::system::GraphicsDrawObservation &observation,
     const TitleDrawOrigin &origin) {
   if (!origin.valid) {
@@ -2587,12 +2642,14 @@ void RecordTitleDrawProvenance(
   const uint64_t key = backend_signature ^
                        (uint64_t(origin.caller) << 17) ^
                        (uint64_t(origin.wrapper) << 57) ^
+                       (uint64_t(backend_outcome) << 41) ^
                        (prepared ? uint64_t(1) << 63 : 0);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
     TitleDrawProvenanceEntry &entry = g_title_draw_provenance[index];
     if (!entry.calls) {
       entry.backend_signature = backend_signature;
+      entry.backend_outcome = backend_outcome;
       entry.calls = 1;
       entry.first_frame = observation.frame_sequence;
       entry.last_frame = observation.frame_sequence;
@@ -2608,6 +2665,7 @@ void RecordTitleDrawProvenance(
       return;
     }
     if (entry.backend_signature == backend_signature &&
+        entry.backend_outcome == backend_outcome &&
         entry.prepared == prepared &&
         entry.origin.wrapper == origin.wrapper &&
         entry.origin.caller == origin.caller) {
@@ -2658,6 +2716,9 @@ void EmitTitleDrawProvenanceSummary() {
           DispatchWrapperAddress(entry.origin.wrapper)},
          {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
          {"outcome", entry.prepared ? "prepared" : "not_prepared"},
+         {"backend_outcome",
+          entry.prepared ? "prepared_callback"
+                         : DrawOutcomeName(entry.backend_outcome)},
          {"backend_signature",
           fmt::format("{:016X}", entry.backend_signature)},
          {"prepared_signature",
@@ -2715,6 +2776,23 @@ void EmitTitleDrawProvenanceSummary() {
       g_title_origins_pushed.load(std::memory_order_relaxed);
   const uint64_t origins_consumed =
       g_title_origins_consumed.load(std::memory_order_relaxed);
+  uint64_t title_backend_outcomes = 0;
+  for (size_t outcome = 1; outcome < g_backend_draw_outcome_counts.size();
+       ++outcome) {
+    const uint64_t backend_draws = g_backend_draw_outcome_counts[outcome];
+    const uint64_t title_matches = g_title_backend_outcome_counts[outcome];
+    title_backend_outcomes += title_matches;
+    if (!backend_draws && !title_matches) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.title_provenance_outcome",
+        {{"backend_outcome", DrawOutcomeName(uint32_t(outcome))},
+         {"backend_draws", std::to_string(backend_draws)},
+         {"title_matches", std::to_string(title_matches)},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.title_provenance_summary",
       {{"title_packets_recorded", std::to_string(g_title_packets_recorded)},
@@ -2722,6 +2800,14 @@ void EmitTitleDrawProvenanceSummary() {
        {"prepared_matches", std::to_string(prepared_matches)},
        {"matched_unprepared_draws",
         std::to_string(g_title_matched_unprepared_draws)},
+       {"backend_draw_outcomes_observed",
+        std::to_string(g_backend_draw_outcomes_observed)},
+       {"backend_draw_outcome_mismatches",
+        std::to_string(g_backend_draw_outcome_mismatches)},
+       {"backend_draw_outcome_missing",
+        std::to_string(g_backend_draw_outcome_missing)},
+       {"title_backend_outcomes",
+        std::to_string(title_backend_outcomes)},
        {"pending_packets", std::to_string(pending_packets)},
        {"backend_draws_without_title_packet",
         std::to_string(g_title_backend_unattributed_draws)},
@@ -2852,7 +2938,7 @@ void ObservePreparedDraw(
     CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
-    RecordTitleDrawProvenance(prepared_signature, true, sample,
+    RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
@@ -4501,6 +4587,48 @@ void DiscardPendingPassConsumer() {
       g_pending_candidate.family_sample_references;
 }
 
+void ObserveDrawOutcome(
+    const rex::system::GraphicsDrawOutcomeObservation &observation) {
+  ++g_backend_draw_outcomes_observed;
+  const uint32_t outcome = uint32_t(observation.status);
+  if (outcome >= g_backend_draw_outcome_counts.size()) {
+    ++g_backend_draw_outcome_mismatches;
+  } else {
+    ++g_backend_draw_outcome_counts[outcome];
+  }
+  if (observation.prepared) {
+    if (g_pending_candidate.valid) {
+      ++g_backend_draw_outcome_mismatches;
+      DiscardPendingPassConsumer();
+      g_pending_candidate.valid = false;
+    }
+    return;
+  }
+  if (!g_pending_candidate.valid) {
+    ++g_backend_draw_outcome_mismatches;
+    return;
+  }
+  const bool exact_candidate =
+      observation.frame_sequence ==
+          g_pending_candidate.sample.frame_sequence &&
+      observation.draw_sequence == g_pending_candidate.sample.draw_sequence &&
+      observation.packet_physical_address ==
+          g_pending_candidate.sample.packet_physical_address;
+  ++g_candidate_unprepared_draw_count;
+  if (!exact_candidate || !outcome ||
+      outcome >= g_backend_draw_outcome_counts.size()) {
+    ++g_backend_draw_outcome_mismatches;
+  } else if (g_pending_candidate.title_origin.valid) {
+    ++g_title_matched_unprepared_draws;
+    ++g_title_backend_outcome_counts[outcome];
+    RecordTitleDrawProvenance(DrawSignature(g_pending_candidate.sample),
+                              false, outcome, g_pending_candidate.sample,
+                              g_pending_candidate.title_origin);
+  }
+  DiscardPendingPassConsumer();
+  g_pending_candidate.valid = false;
+}
+
 void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
   if (!observation.succeeded) {
@@ -4764,10 +4892,11 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   const bool samples_resolved_target = sampled_target_count != 0;
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
+    ++g_backend_draw_outcome_missing;
     if (g_pending_candidate.title_origin.valid) {
       ++g_title_matched_unprepared_draws;
       RecordTitleDrawProvenance(DrawSignature(g_pending_candidate.sample),
-                                false, g_pending_candidate.sample,
+                                false, 0, g_pending_candidate.sample,
                                 g_pending_candidate.title_origin);
     }
     DiscardPendingPassConsumer();
@@ -4843,6 +4972,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   graphics_system->SetDrawObserver(&ObserveDraw);
   graphics_system->SetCopyObserver(&ObserveCopy);
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
+  graphics_system->SetDrawOutcomeObserver(&ObserveDrawOutcome);
   graphics_system->SetIsolatedDrawRequestObserver(&RequestIsolatedDraw);
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
@@ -5016,6 +5146,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
     graphics_system->SetPreparedDrawObserver(nullptr);
+    graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
   EmitDispatchDiscoverySummary();
@@ -5049,10 +5180,11 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
+    ++g_backend_draw_outcome_missing;
     if (g_pending_candidate.title_origin.valid) {
       ++g_title_matched_unprepared_draws;
       RecordTitleDrawProvenance(DrawSignature(g_pending_candidate.sample),
-                                false, g_pending_candidate.sample,
+                                false, 0, g_pending_candidate.sample,
                                 g_pending_candidate.title_origin);
     }
     DiscardPendingPassConsumer();

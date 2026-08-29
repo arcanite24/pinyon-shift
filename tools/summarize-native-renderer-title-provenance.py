@@ -8,12 +8,32 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-title-provenance.v2"
+SCHEMA = "pinyon-shift.native-renderer-title-provenance.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.title_provenance_"
 KNOWN_PREPARED_FAMILIES = {
     "747837906D0BF484": "retained_sky_horizon_anchor",
     "1D253A52B55C9FB3": "retained_sky_horizon_follower",
+}
+BACKEND_OUTCOMES = {
+    "completed",
+    "edram_copy",
+    "missing_vertex_shader",
+    "zero_surface_pitch",
+    "no_rasterization_or_memexport",
+    "submission_failed",
+    "primitive_processing_failed",
+    "no_host_vertices",
+    "render_target_update_failed",
+    "pipeline_configuration_failed",
+    "pipeline_pending",
+    "binding_update_failed",
+    "invalid_vertex_fetch",
+    "vertex_residency_failed",
+    "memexport_residency_failed",
+    "unsupported_primitive",
+    "scratch_index_buffer_failed",
+    "unsupported_index_buffer",
 }
 
 
@@ -120,6 +140,12 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         outcome = str(event.get("outcome", ""))
         if outcome not in {"prepared", "not_prepared"}:
             raise ValueError("invalid backend outcome in title provenance entry")
+        backend_outcome = str(event.get("backend_outcome", ""))
+        if outcome == "prepared":
+            if backend_outcome != "prepared_callback":
+                raise ValueError("prepared entry has an invalid backend outcome")
+        elif backend_outcome not in BACKEND_OUTCOMES:
+            raise ValueError("unprepared entry has an invalid backend outcome")
         backend_signature = str(event.get("backend_signature", "")).upper()
         if len(backend_signature) != 16:
             raise ValueError("invalid backend signature in title provenance entry")
@@ -146,6 +172,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "origin_wrapper_address": wrapper,
                 "origin_caller": caller,
                 "outcome": outcome,
+                "backend_outcome": backend_outcome,
                 "backend_signature": backend_signature,
                 "prepared_signature": signature or None,
                 "prepared_family": family,
@@ -213,6 +240,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             -item["calls"],
             item["origin_wrapper_address"],
             item["origin_caller"],
+            item["backend_outcome"],
             item["backend_signature"],
         )
     )
@@ -222,6 +250,25 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     ]
     prepared_matches = sum(item["calls"] for item in prepared_entries)
     unprepared_aggregate_matches = sum(item["calls"] for item in unprepared_entries)
+    outcome_entries = []
+    for event in selected:
+        if event.get("event") != f"{PREFIX}outcome":
+            continue
+        backend_outcome = str(event.get("backend_outcome", ""))
+        if backend_outcome not in BACKEND_OUTCOMES:
+            raise ValueError("invalid draw outcome summary entry")
+        outcome_entries.append(
+            {
+                "backend_outcome": backend_outcome,
+                "backend_draws": _integer(event, "backend_draws"),
+                "title_matches": _integer(event, "title_matches"),
+            }
+        )
+    if len({item["backend_outcome"] for item in outcome_entries}) != len(
+        outcome_entries
+    ):
+        raise ValueError("duplicate draw outcome summary entry")
+    outcome_entries.sort(key=lambda item: (-item["backend_draws"], item["backend_outcome"]))
     if prepared_matches != _integer(summary, "prepared_matches"):
         raise ValueError("title provenance entry counts do not match the summary")
     if len(entries) != _integer(summary, "aggregate_count"):
@@ -242,6 +289,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     unattributed_backend = _integer(summary, "backend_draws_without_title_packet")
     origins_pushed = _integer(summary, "origins_pushed")
     origins_consumed = _integer(summary, "origins_consumed")
+    backend_outcomes_observed = _integer(summary, "backend_draw_outcomes_observed")
+    title_backend_outcomes = _integer(summary, "title_backend_outcomes")
     fault_fields = (
         "packet_address_failures",
         "packet_table_overflow",
@@ -249,6 +298,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "origin_stack_overflow",
         "packets_without_origin",
         "aggregate_overflow",
+        "backend_draw_outcome_mismatches",
+        "backend_draw_outcome_missing",
     )
     faults = {field: _integer(summary, field) for field in fault_fields}
     reused_live_addresses = _integer(summary, "reused_live_packet_addresses")
@@ -259,6 +310,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and recorded == backend_matches + pending
         and backend_matches == prepared_matches + unprepared
         and unprepared == unprepared_aggregate_matches
+        and title_backend_outcomes == unprepared
+        and sum(item["title_matches"] for item in outcome_entries) == unprepared
+        and sum(item["backend_draws"] for item in outcome_entries)
+        == backend_outcomes_observed
         and origins_pushed == origins_consumed
         and not any(faults.values())
     )
@@ -280,6 +335,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "stable_argument_candidates": set(entry["stable_registers"]),
                 "varying_registers": set(entry["varying_registers"]),
                 "prepared_families": set(),
+                "backend_outcomes": set(),
             },
         )
         aggregate["calls"] += entry["calls"]
@@ -288,6 +344,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             aggregate["prepared_families"].add(entry["prepared_family"])
         else:
             aggregate["unprepared_signatures"] += 1
+            aggregate["backend_outcomes"].add(entry["backend_outcome"])
         aggregate["stable_argument_candidates"].intersection_update(
             entry["stable_registers"]
         )
@@ -302,6 +359,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         )
         aggregate["varying_registers"] = sorted(aggregate["varying_registers"])
         aggregate["prepared_families"] = sorted(aggregate["prepared_families"])
+        aggregate["backend_outcomes"] = sorted(aggregate["backend_outcomes"])
         caller_summaries.append(aggregate)
 
     return {
@@ -310,6 +368,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "scene": str(configs[0].get("scene", "unmarked")),
         "status": "complete" if complete else "incomplete_fail_closed",
         "entries": entries,
+        "backend_outcomes": outcome_entries,
         "callers": sorted(
             caller_summaries,
             key=lambda item: (-item["calls"], item["origin_caller"]),
@@ -319,6 +378,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "backend_packet_matches": backend_matches,
             "prepared_matches": prepared_matches,
             "matched_unprepared_draws": unprepared,
+            "backend_draw_outcomes_observed": backend_outcomes_observed,
+            "title_backend_outcomes": title_backend_outcomes,
             "pending_packets": pending,
             "backend_draws_without_title_packet": unattributed_backend,
             "aggregate_count": len(entries),

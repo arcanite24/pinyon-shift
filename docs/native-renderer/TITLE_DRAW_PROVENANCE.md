@@ -35,9 +35,9 @@ physical address of the stored PM4 header.
    are consumed oldest-first for that exact address. This is a per-address
    generation rule, not attribution to the next global draw.
 7. The synchronous prepared-draw callback adds the existing exact prepared
-   signature. If no callback occurs before the next draw, the bridge records
-   the exact backend draw signature with `outcome=not_prepared` instead of
-   discarding the caller evidence.
+   signature. ReXGlue patch `0081` then reports the exact `IssueDraw` return
+   outcome for the same frame, draw, and packet identity. A missing outcome
+   callback fails closed instead of silently treating the draw as unprepared.
 
 This preserves direct evidence across producer/consumer threads without
 serializing guest payloads or modifying the command stream.
@@ -124,6 +124,33 @@ formed 66 statically joined unprepared aggregates, with zero address,
 forwarding, origin, table, stack, or aggregate faults. No matched title draw
 reached the prepared callback in this scene, so `prepared_coverage` correctly
 remains `none_observed` and no semantic promotion follows from this capture.
+
+## Exact backend outcome contract
+
+ReXGlue patch `0081` closes the remaining ambiguity after an exact packet
+match. D3D12 now emits one passive outcome for every `IssueDraw` exit. The
+bounded vocabulary distinguishes completed and prepared work from EDRAM copy,
+missing shader, zero-pitch, no-effect rasterization, zero host vertices,
+pipeline-pending, and explicit backend failure paths. Each observation carries
+the same frame, draw, and physical packet identity as the pre-submit draw
+observation.
+
+Pinyon consumes an unprepared candidate only when all three identities match.
+Prepared outcomes must arrive after the synchronous prepared callback has
+already consumed that candidate. Missing, duplicate, out-of-order, or
+identity-mismatched outcomes are fail-closed accounting faults. The report
+emits backend-wide outcome totals and exact title-match totals, and includes
+the outcome in every unprepared caller/signature aggregate. None of these
+outcomes permits draw suppression or changes Xenos execution.
+
+Milestone session `20260829T125853Z-p38524` qualified this outcome contract
+over 5,878 frames and 8,478,174 backend draw attempts. The backend reported
+8,216,916 completed draws, 261,210 EDRAM copies, and 48
+`no_rasterization_or_memexport` exits. All 132,568 exact title matches were
+EDRAM copies. Outcome identity had zero mismatches and zero missing callbacks;
+110 title packets remained validly pending at clean shutdown. This establishes
+why the observed title path did not reach prepared-pipeline callbacks without
+promoting it to a semantic render-object boundary.
 
 The report recognizes only the two prepared signatures already qualified by
 independent visual evidence: retained sky/horizon anchor

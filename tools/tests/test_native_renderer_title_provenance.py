@@ -74,6 +74,7 @@ def events(safe=True, fault=False):
             "origin_wrapper_address": "824079B8",
             "origin_caller": "823E6F50",
             "outcome": "prepared",
+            "backend_outcome": "prepared_callback",
             "backend_signature": "747837906D0BF484",
             "prepared_signature": "747837906D0BF484",
             "calls": "12",
@@ -94,12 +95,23 @@ def events(safe=True, fault=False):
             "varying_argument_mask": "05",
         },
         {
+            "event": "native_renderer.discovery.title_provenance_outcome",
+            "session": "run",
+            "backend_outcome": "completed",
+            "backend_draws": "12",
+            "title_matches": "0",
+        },
+        {
             "event": "native_renderer.discovery.title_provenance_summary",
             "session": "run",
             "title_packets_recorded": "12",
             "backend_packet_matches": "12",
             "prepared_matches": "12",
             "matched_unprepared_draws": "0",
+            "backend_draw_outcomes_observed": "12",
+            "backend_draw_outcome_mismatches": "0",
+            "backend_draw_outcome_missing": "0",
+            "title_backend_outcomes": "0",
             "pending_packets": "0",
             "backend_draws_without_title_packet": "25",
             "packet_address_failures": "0",
@@ -167,10 +179,20 @@ class NativeRendererTitleProvenanceTests(unittest.TestCase):
         self.assertEqual(document["totals"]["aggregate_overflow"], 1)
         self.assertEqual(len(document["entries"]), 1)
 
+    def test_missing_backend_outcome_fails_closed(self):
+        capture = events()
+        capture[-1]["backend_draw_outcome_missing"] = "1"
+
+        document = MODULE.build(capture, static_inventory())
+
+        self.assertEqual(document["status"], "incomplete_fail_closed")
+        self.assertEqual(document["totals"]["backend_draw_outcome_missing"], 1)
+
     def test_accounts_pending_and_reused_addresses_with_unprepared_evidence(self):
         capture = events()
         entry = capture[1]
         entry["outcome"] = "not_prepared"
+        entry["backend_outcome"] = "edram_copy"
         entry["backend_signature"] = "0123456789ABCDEF"
         entry["prepared_signature"] = ""
         entry["calls"] = "10"
@@ -179,11 +201,16 @@ class NativeRendererTitleProvenanceTests(unittest.TestCase):
         summary["backend_packet_matches"] = "10"
         summary["prepared_matches"] = "0"
         summary["matched_unprepared_draws"] = "10"
+        summary["backend_draw_outcomes_observed"] = "10"
+        summary["title_backend_outcomes"] = "10"
         summary["pending_packets"] = "2"
         summary["reused_live_packet_addresses"] = "3"
         summary["prepared_aggregate_count"] = "0"
         summary["unprepared_aggregate_count"] = "1"
         summary["unprepared_aggregate_matches"] = "10"
+        capture[2]["backend_outcome"] = "edram_copy"
+        capture[2]["backend_draws"] = "10"
+        capture[2]["title_matches"] = "10"
 
         document = MODULE.build(capture, static_inventory())
 
@@ -192,9 +219,11 @@ class NativeRendererTitleProvenanceTests(unittest.TestCase):
         self.assertEqual(document["totals"]["pending_packets"], 2)
         self.assertEqual(document["totals"]["reused_live_packet_addresses"], 3)
         self.assertEqual(document["entries"][0]["outcome"], "not_prepared")
+        self.assertEqual(document["entries"][0]["backend_outcome"], "edram_copy")
         self.assertIsNone(document["entries"][0]["prepared_signature"])
         self.assertEqual(document["entries"][0]["semantic_identity"], "unknown")
         self.assertEqual(document["callers"][0]["unprepared_signatures"], 1)
+        self.assertEqual(document["callers"][0]["backend_outcomes"], ["edram_copy"])
 
     def test_rejects_unsafe_or_drifted_contracts(self):
         with self.assertRaisesRegex(ValueError, "safety"):
@@ -205,6 +234,11 @@ class NativeRendererTitleProvenanceTests(unittest.TestCase):
         ] = "82410320"
         with self.assertRaisesRegex(ValueError, "drifted"):
             MODULE.build(events(), drifted)
+
+        invalid_outcome = events()
+        invalid_outcome[1]["backend_outcome"] = "guessed"
+        with self.assertRaisesRegex(ValueError, "backend outcome"):
+            MODULE.build(invalid_outcome, static_inventory())
 
     def test_rejects_count_mismatch(self):
         mismatched = events()

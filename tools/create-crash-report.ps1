@@ -280,6 +280,10 @@ try {
             backend_packet_matches = [uint64]0
             prepared_matches = [uint64]0
             matched_unprepared_draws = [uint64]0
+            backend_draw_outcomes_observed = [uint64]0
+            backend_draw_outcome_mismatches = [uint64]0
+            backend_draw_outcome_missing = [uint64]0
+            title_backend_outcomes = [uint64]0
             pending_packets = [uint64]0
             backend_draws_without_title_packet = [uint64]0
             packet_address_failures = [uint64]0
@@ -352,6 +356,10 @@ try {
                     foreach ($field in @(
                             'title_packets_recorded', 'backend_packet_matches',
                             'prepared_matches', 'matched_unprepared_draws',
+                            'backend_draw_outcomes_observed',
+                            'backend_draw_outcome_mismatches',
+                            'backend_draw_outcome_missing',
+                            'title_backend_outcomes',
                             'pending_packets', 'backend_draws_without_title_packet',
                             'packet_address_failures',
                             'reused_live_packet_addresses', 'packet_table_overflow',
