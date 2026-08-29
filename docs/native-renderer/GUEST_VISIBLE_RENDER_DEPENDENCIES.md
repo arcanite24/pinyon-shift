@@ -118,3 +118,8 @@ source log contains machine-specific paths and session identifiers.
 Gate B remains closed after this capture. CPU-read observation, presentation
 provenance, and semantic classification are separate evidence tasks, not facts
 that may be inferred from the absence of a texture-fetch match.
+
+NR-04D evaluates these unknowns per exact pass family with the fail-closed
+admission contract in [SUPPRESSION_ADMISSION.md](SUPPRESSION_ADMISSION.md).
+Neither this aggregate census nor a visually correct native output can bypass
+those family-specific gates.
