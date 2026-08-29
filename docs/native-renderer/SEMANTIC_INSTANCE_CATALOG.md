@@ -125,3 +125,13 @@ The live 3072x1728 screenshot is
 `.local/qualification/native-renderer-semantic-instance-catalog-progress.png`,
 SHA-256
 `F792181CBF2A11251259D1F54A79F0F22CE0161098FAEE6643BC0E5007AF1941`.
+
+The next NR-05C checkpoint converts these global groups into a conservative
+execution-order census. It admits only exact consecutive opaque prepared draws
+within one frame, records every rejection reason, and measures projected
+command reduction without issuing native work. See
+`SEMANTIC_BATCH_ADMISSION.md`.
+
+Session `20260829T211909Z-p31988` completed that census and found no adjacent
+multi-draw runs under the exact full-resource identity. An executor remains
+deferred pending a safely coarser equivalence boundary.

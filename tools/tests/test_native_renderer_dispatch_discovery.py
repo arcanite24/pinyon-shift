@@ -1183,6 +1183,16 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "immutable_template_and_dynamic_resource_instance",
             draw_association["semantic_catalog_classification"],
         )
+        self.assertTrue(
+            draw_association["semantic_batch_admission_census_required"]
+        )
+        self.assertEqual(
+            "exact_consecutive_prepared_draw_order",
+            draw_association["semantic_batch_ordering"],
+        )
+        self.assertFalse(
+            draw_association["semantic_batch_execution_enabled"]
+        )
         self.assertTrue(draw_association["render_item_invocation_scope_proved"])
         self.assertTrue(draw_association["submission_before_draw_dispatch_proved"])
         self.assertEqual(160, draw_association["graphics_submission_vtable_offset"])
