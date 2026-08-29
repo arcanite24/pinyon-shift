@@ -517,10 +517,21 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn(
             "pinyon_shift_native_renderer_sky_horizon_suppression", hooks
         )
-        self.assertIn('"blocked_not_admitted"', hooks)
-        self.assertIn('"draw_suppression", "false"', hooks)
+        self.assertIn('"armed_experimental"', hooks)
+        self.assertIn('"fail_closed_follower_draw"', hooks)
+        self.assertIn('"follower_after_publication_only"', hooks)
         self.assertIn('"resolve_suppression", "false"', hooks)
         self.assertNotIn("SetDrawSuppression", hooks)
+
+        patch = (
+            ROOT
+            / "patches/rexglue/0079-d3d12-fail-closed-retained-pass-suppression.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("suppress_guest_draw_if_published", patch)
+        self.assertIn("guest_draw_suppressed", patch)
+        self.assertIn("PublishIsolatedReplayTarget", patch)
+        self.assertIn("if (!suppress_guest_draw)", patch)
+        self.assertNotIn("SetCopySuppression", patch)
 
         settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(
             encoding="utf-8"
@@ -552,7 +563,7 @@ class NativeRendererContractTests(unittest.TestCase):
             all(rule["native_coverage"] is False for rule in classifier["rules"])
         )
 
-    def test_suppression_switch_spec_is_default_off_and_diagnostic_only(self):
+    def test_suppression_switch_spec_is_default_off_and_fail_closed(self):
         switches = json.loads(
             (ROOT / "config/native-renderer/suppression-switches.json").read_text(
                 encoding="utf-8"
@@ -561,13 +572,17 @@ class NativeRendererContractTests(unittest.TestCase):
         family = switches["families"][0]
         self.assertFalse(family["default_enabled"])
         self.assertTrue(family["independent"])
-        self.assertEqual("diagnostic_only", family["implementation_status"])
+        self.assertEqual("implemented", family["implementation_status"])
         self.assertEqual(
             "pinyon_shift_native_renderer_sky_horizon_suppression",
             family["cvar"],
         )
-        self.assertFalse(family["draw_suppression_implemented"])
+        self.assertTrue(family["draw_suppression_implemented"])
         self.assertFalse(family["resolve_suppression_implemented"])
+        self.assertTrue(family["anchor_draw_preserved"])
+        self.assertEqual(
+            "execute_original_follower", family["publication_failure_behavior"]
+        )
 
     def test_complete_pass_export_spans_anchor_and_follower(self):
         exporter = (

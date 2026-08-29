@@ -64,6 +64,22 @@ class NativeRendererSuppressionSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "before implementation"):
             MODULE.validate(document)
 
+    def test_implemented_switch_requires_runtime_rollback_qualification(self):
+        document = manifest()
+        family = document["families"][0]
+        family["implementation_status"] = "implemented"
+        family["draw_suppression_implemented"] = True
+        family["rollback_qualified"] = False
+        result = MODULE.validate(document)
+        self.assertEqual("requires_runtime_test", result["families"][0]["rollback_gate"])
+        self.assertEqual("unknown", result["summary"]["rollback_switch_gate"])
+        self.assertFalse(result["safety"]["suppression_allowed"])
+
+        family["rollback_qualified"] = True
+        result = MODULE.validate(document)
+        self.assertEqual("pass", result["summary"]["rollback_switch_gate"])
+        self.assertTrue(result["safety"]["suppression_allowed"])
+
     def test_rejects_duplicate_switch(self):
         document = manifest()
         duplicate = copy.deepcopy(document["families"][0])

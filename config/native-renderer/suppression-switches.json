@@ -11,8 +11,12 @@
       "activation": "startup_only",
       "default_enabled": false,
       "independent": true,
-      "implementation_status": "diagnostic_only",
-      "draw_suppression_implemented": false,
+      "implementation_status": "implemented",
+      "rollback_qualified": true,
+      "draw_suppression_implemented": true,
+      "draw_suppression_scope": "follower_after_full_pair_publication",
+      "anchor_draw_preserved": true,
+      "publication_failure_behavior": "execute_original_follower",
       "resolve_suppression_implemented": false,
       "xenos_fallback": "mandatory"
     }
