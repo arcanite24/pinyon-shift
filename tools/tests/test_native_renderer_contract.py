@@ -349,6 +349,17 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("context_function_address", source)
         self.assertIn("sample_context_root_address", source)
         self.assertIn("indirect_context_stack_faults", source)
+        self.assertIn("kSemanticReceiverLifecycleCapacity = 1024", source)
+        self.assertIn("FindOrClaimSemanticReceiverLifecycle", source)
+        self.assertIn("ResolveSemanticReceiver", source)
+        self.assertIn("semantic_receiver_unregistered_dispatches", source)
+        self.assertIn("semantic_visibility_epoch", source)
+        self.assertIn("semantic_render_state_epoch", source)
+        self.assertIn("BeginSemanticReceiverStage", source)
+        self.assertIn("semantic_stage_unknown_receivers", source)
+        self.assertIn(
+            "proceduralGeometry::CProceduralModels", source
+        )
         self.assertIn("indirect_producer_context_mismatches", source)
         self.assertIn(
             "std::atomic<uint64_t> g_indirect_producer_entries", source

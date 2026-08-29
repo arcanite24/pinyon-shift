@@ -209,6 +209,160 @@ def context_root_events():
     return traced
 
 
+def procedural_model_inventory():
+    static = context_root_inventory()
+    static["indirect_constructor_calls"][0].update(
+        {
+            "caller_function": "sub_824167F8",
+            "caller_function_address": "824167F8",
+            "callsite": "82416894",
+            "return_address": "82416898",
+        }
+    )
+    static["indirect_owner_calls"][0].update(
+        {
+            "owner_function_address": "824167F8",
+            "caller_function": "sub_82417060",
+            "caller_function_address": "82417060",
+            "callsite": "824170B8",
+            "return_address": "824170BC",
+        }
+    )
+    static["indirect_producer_calls"][0].update(
+        {
+            "producer_function_address": "82417060",
+            "caller_function": "sub_82417BC0",
+            "caller_function_address": "82417BC0",
+            "callsite": "82418A24",
+            "return_address": "82418A28",
+        }
+    )
+    static["indirect_context_roots"][0].update(
+        {
+            "context_function": "sub_82417BC0",
+            "context_function_address": "82417BC0",
+            "producer_function": "sub_82417060",
+            "producer_function_address": "82417060",
+            "producer_return_address": "82418A28",
+            "root_entry_register": "r6",
+            "root_offset": 59712,
+            "derivation": "r6+59712",
+        }
+    )
+    static["procedural_model_receiver_lifecycle"] = {
+        "class_name": "proceduralGeometry::CProceduralModels",
+        "dispatch_function_address": "82417BC0",
+        "rtti_vtable_identity_proved": True,
+        "object_extent_proved": True,
+        "visibility_preparation_boundary_proved": True,
+        "render_state_boundary_proved": True,
+        "transform_matrix_ranges_proved": True,
+    }
+    return static
+
+
+def procedural_model_events():
+    traced = context_root_events()
+    traced[1].update(
+        {
+            "constructor_return_address": "82416898",
+            "owner_function_address": "824167F8",
+            "owner_return_address": "824170BC",
+            "producer_function_address": "82417060",
+            "producer_return_address": "82418A28",
+            "sample_producer_arguments": (
+                "1000E940,20000000,00000001,00000000,00000000,"
+                "00000000,00000000,00000000"
+            ),
+            "context_function_address": "82417BC0",
+            "sample_context_arguments": (
+                "20000000,30000000,00000002,10000000,00000000,"
+                "00000000,00000000,00000000"
+            ),
+            "sample_context_root_address": "1000E940",
+            "semantic_receiver_class": (
+                "proceduralGeometry::CProceduralModels"
+            ),
+            "semantic_receiver_address": "20000000",
+            "semantic_receiver_generation": "1",
+            "semantic_visibility_epoch": "2",
+            "semantic_render_state_epoch": "1",
+            "semantic_render_state_visibility_epoch": "2",
+            "semantic_preparation_epoch_varied": "true",
+        }
+    )
+    summary = traced.pop()
+    summary.update(
+        {
+            "semantic_receiver_constructor_entries": "1",
+            "semantic_receiver_constructor_exits": "1",
+            "semantic_receiver_constructor_open_at_shutdown": "0",
+            "semantic_receiver_destructor_entries": "0",
+            "semantic_receiver_destructor_exits": "0",
+            "semantic_receiver_destructor_open_at_shutdown": "0",
+            "semantic_receiver_stack_faults": "0",
+            "semantic_receiver_instances_published": "1",
+            "semantic_receiver_instances_destroyed": "0",
+            "semantic_receiver_address_reuses": "0",
+            "semantic_receiver_table_overflow": "0",
+            "semantic_receiver_dispatches": "1",
+            "semantic_receiver_live_dispatches": "1",
+            "semantic_receiver_unregistered_dispatches": "0",
+            "semantic_receiver_destroying_dispatches": "0",
+            "semantic_receiver_destroyed_dispatches": "0",
+            "semantic_receiver_destructors_without_instance": "0",
+            "semantic_receivers_tracked": "1",
+            "semantic_receivers_live_at_shutdown": "1",
+            "semantic_receivers_destroying_at_shutdown": "0",
+            "semantic_receivers_destroyed": "0",
+            "semantic_visibility_entries": "2",
+            "semantic_visibility_exits": "2",
+            "semantic_visibility_open_at_shutdown": "0",
+            "semantic_render_state_entries": "1",
+            "semantic_render_state_exits": "1",
+            "semantic_render_state_open_at_shutdown": "0",
+            "semantic_stage_stack_faults": "0",
+            "semantic_stage_unknown_receivers": "0",
+        }
+    )
+    traced.extend(
+        [
+            {
+                "session": "lineage-session",
+                "event": "native_renderer.discovery.semantic_receiver_config",
+                "status": "armed",
+            },
+            {
+                "session": "lineage-session",
+                "event": (
+                    "native_renderer.discovery."
+                    "semantic_receiver_lifecycle_entry"
+                ),
+                "class": "proceduralGeometry::CProceduralModels",
+                "address": "20000000",
+                "generation": "1",
+                "state": "live",
+                "dispatches": "1",
+                "visibility_preparations": "2",
+                "render_state_preparations": "1",
+                "visibility_epoch": "2",
+                "render_state_epoch": "1",
+                "render_state_visibility_epoch": "2",
+                "dispatches_with_preparation": "1",
+                "dispatches_without_preparation": "0",
+                "dispatches_without_visibility": "0",
+                "dispatches_without_render_state": "0",
+                "identity_join": "exact_constructor_receiver_address",
+                "guest_payload_read": "false",
+                "xenos_authority": "true",
+                "suppression_allowed": "false",
+            },
+            summary,
+        ]
+    )
+    return traced
+
+
 class NativeRendererCommandLineageTests(unittest.TestCase):
     def test_builds_complete_exact_lineage_report(self):
         document = MODULE.build(events(), static_inventory())
@@ -239,6 +393,48 @@ class NativeRendererCommandLineageTests(unittest.TestCase):
             "824095B4", document["shapes"][0]["constructor_store_address"]
         )
         self.assertFalse(document["safety"]["suppression_allowed"])
+
+    def test_proves_procedural_model_receiver_generation(self):
+        document = MODULE.build(
+            procedural_model_events(), procedural_model_inventory()
+        )
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(
+            "procedural_model_receiver_stage_history",
+            document["semantic_identity"],
+        )
+        self.assertEqual(
+            "20000000", document["entries"][0]["semantic_receiver_address"]
+        )
+        self.assertEqual(
+            1, document["entries"][0]["semantic_receiver_generation"]
+        )
+        self.assertEqual(
+            12,
+            document["totals"]["procedural_model_receiver_origin_draws"],
+        )
+
+    def test_accepts_observed_alternate_procedural_model_stage_routes(self):
+        traced = procedural_model_events()
+        traced[-2]["dispatches_with_preparation"] = "0"
+        traced[-2]["dispatches_without_preparation"] = "1"
+        document = MODULE.build(traced, procedural_model_inventory())
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(
+            1,
+            document["totals"][
+                "semantic_dispatches_before_both_observed_stages"
+            ],
+        )
+
+    def test_fails_closed_on_unregistered_procedural_model_dispatch(self):
+        traced = procedural_model_events()
+        traced[-1]["semantic_receiver_unregistered_dispatches"] = "1"
+        traced[-1]["semantic_receiver_live_dispatches"] = "0"
+        traced[-2]["dispatches"] = "0"
+        traced[-2]["dispatches_with_preparation"] = "0"
+        document = MODULE.build(traced, procedural_model_inventory())
+        self.assertEqual("incomplete_fail_closed", document["status"])
 
     def test_fails_closed_on_invalid_or_overflowed_lineage(self):
         broken = events()

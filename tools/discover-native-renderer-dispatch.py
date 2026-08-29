@@ -17,6 +17,7 @@ import sys
 
 
 SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
+IMAGE_BASE = 0x82000000
 PACKET_OPCODES = {
     0x3C: "PM4_WAIT_REG_MEM",
     0x3D: "PM4_MEM_WRITE",
@@ -175,6 +176,31 @@ INDIRECT_CONTEXT_RUNTIME_HOOKS = {
             (0x829F67A8, "mr r3,r28"),
         ],
     },
+}
+
+PROCEDURAL_MODEL_RECEIVER = {
+    "class_name": "proceduralGeometry::CProceduralModels",
+    "decorated_name": ".?AVCProceduralModels@proceduralGeometry@@",
+    "vtable_address": 0x82002B5C,
+    "vtable_slot": 41,
+    "dispatch_function": 0x82417BC0,
+    "constructor_function": 0x82E1C9A0,
+    "constructor_entry": 0x82E1C9A4,
+    "constructor_exit": 0x82E1CA0C,
+    "destructor_function": 0x82E1CA28,
+    "destructor_entry": 0x82E1CA2C,
+    "destructor_exit": 0x82E1CBD0,
+    "deleting_destructor_function": 0x82E1D9B0,
+    "array_constructor_function": 0x82E1CDC8,
+    "visibility_function": 0x82E1FD00,
+    "visibility_vtable_slot": 14,
+    "visibility_entry": 0x82E1FD04,
+    "visibility_exit": 0x82E208CC,
+    "render_state_function": 0x824170D8,
+    "render_state_vtable_slot": 40,
+    "render_state_entry": 0x824170DC,
+    "render_state_exit": 0x82417410,
+    "render_item_function": 0x82417418,
 }
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
@@ -743,6 +769,296 @@ def indirect_context_roots(functions_by_address: dict[int, dict]) -> list[dict]:
     return roots
 
 
+def _image_u32(image: bytes, address: int) -> int:
+    offset = address - IMAGE_BASE
+    if offset < 0 or offset + 4 > len(image):
+        raise ValueError(
+            "semantic receiver image address is out of range: {:08X}".format(
+                address
+            )
+        )
+    return int.from_bytes(image[offset : offset + 4], "big")
+
+
+def _image_c_string(image: bytes, address: int) -> str:
+    offset = address - IMAGE_BASE
+    if offset < 0 or offset >= len(image):
+        raise ValueError(
+            "semantic receiver type name is out of range: {:08X}".format(
+                address
+            )
+        )
+    end = image.find(b"\0", offset, min(len(image), offset + 256))
+    if end < 0:
+        raise ValueError("semantic receiver type name is not terminated")
+    return image[offset:end].decode("ascii")
+
+
+def procedural_model_receiver_lifecycle(
+    functions_by_address: dict[int, dict], image: bytes | None = None
+) -> dict:
+    """Prove the first semantic receiver and its construction lifetime."""
+    spec = PROCEDURAL_MODEL_RECEIVER
+    required = {
+        spec["dispatch_function"],
+        spec["constructor_function"],
+        spec["destructor_function"],
+        spec["deleting_destructor_function"],
+        spec["array_constructor_function"],
+        spec["visibility_function"],
+        spec["render_state_function"],
+        spec["render_item_function"],
+    }
+    lifecycle_functions = required - {spec["dispatch_function"]}
+    if not lifecycle_functions & set(functions_by_address):
+        return {}
+    if not required <= set(functions_by_address):
+        raise ValueError("procedural-model receiver function set drifted")
+
+    constructor = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["constructor_function"]][
+            "instructions"
+        ]
+    }
+    destructor = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["destructor_function"]][
+            "instructions"
+        ]
+    }
+    deleting_destructor = {
+        item["address"]: item["text"]
+        for item in functions_by_address[
+            spec["deleting_destructor_function"]
+        ]["instructions"]
+    }
+    array_constructor = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["array_constructor_function"]][
+            "instructions"
+        ]
+    }
+    visibility = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["visibility_function"]][
+            "instructions"
+        ]
+    }
+    render_state = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["render_state_function"]][
+            "instructions"
+        ]
+    }
+    render_item = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["render_item_function"]][
+            "instructions"
+        ]
+    }
+    expected = {
+        spec["constructor_function"]: "mflr r12",
+        0x82E1C9B8: "bl 0x82e19478",
+        0x82E1C9BC: "lis r11,-32256",
+        0x82E1C9C4: "addi r11,r11,11100",
+        0x82E1C9D0: "stw r11,0(r31)",
+        spec["constructor_exit"]: "addi r1,r1,112",
+    }
+    if any(constructor.get(address) != text for address, text in expected.items()):
+        raise ValueError("procedural-model constructor evidence drifted")
+    expected = {
+        spec["destructor_function"]: "mflr r12",
+        0x82E1CA3C: "lis r11,-32256",
+        0x82E1CA48: "addi r11,r11,11100",
+        0x82E1CA50: "stw r11,0(r3)",
+        0x82E1CBCC: "bl 0x82e1c0c0",
+        spec["destructor_exit"]: "addi r1,r1,112",
+    }
+    if any(destructor.get(address) != text for address, text in expected.items()):
+        raise ValueError("procedural-model destructor evidence drifted")
+    if deleting_destructor.get(0x82E1D9CC) != "bl 0x82e1ca28":
+        raise ValueError("procedural-model deleting destructor evidence drifted")
+
+    array_expected = {
+        0x82E1CDD8: "rlwinm r3,r3,9,0,22",
+        0x82E1CDFC: "bl 0x82e1c9a0",
+        0x82E1CE04: "addi r31,r31,512",
+    }
+    if any(
+        array_constructor.get(address) != text
+        for address, text in array_expected.items()
+    ):
+        raise ValueError("procedural-model object-size evidence drifted")
+
+    visibility_expected = {
+        spec["visibility_function"]: "mflr r12",
+        0x82E1FD20: "mr r20,r3",
+        0x82E1FD40: "lwz r11,124(r3)",
+        0x82E1FD4C: "lwz r11,136(r3)",
+        0x82E1FE10: "lwz r11,128(r20)",
+        0x82E1FEB8: "lwz r9,128(r20)",
+        0x82E20048: "lwz r11,124(r20)",
+        0x82E20854: "addi r18,r18,92",
+        0x82E20858: "addi r17,r17,68",
+        spec["visibility_exit"]: "addi r1,r1,704",
+    }
+    if any(
+        visibility.get(address) != text
+        for address, text in visibility_expected.items()
+    ):
+        raise ValueError("procedural-model visibility evidence drifted")
+
+    render_state_expected = {
+        spec["render_state_function"]: "mflr r12",
+        0x824172F8: "vmaddfp v1,v31,v0,v30",
+        0x82417304: "mr r3,r31",
+        0x82417410: "addi r1,r1,256",
+    }
+    render_item_expected = {
+        spec["render_item_function"]: "mflr r12",
+        0x82417494: "addi r30,r27,448",
+        0x824174D8: "addi r30,r27,320",
+        0x8241751C: "addi r30,r27,384",
+        0x82417668: "lwz r10,124(r27)",
+        0x824176AC: "lwz r10,128(r27)",
+        0x824176B0: "mulli r11,r9,68",
+    }
+    if any(
+        render_state.get(address) != text
+        for address, text in render_state_expected.items()
+    ):
+        raise ValueError("procedural-model render-state evidence drifted")
+    if any(
+        render_item.get(address) != text
+        for address, text in render_item_expected.items()
+    ):
+        raise ValueError("procedural-model render-item evidence drifted")
+
+    rtti_verified = False
+    complete_object_locator = None
+    type_descriptor = None
+    decorated_name = None
+    if image is not None:
+        vtable = spec["vtable_address"]
+        complete_object_locator = _image_u32(image, vtable - 4)
+        type_descriptor = _image_u32(image, complete_object_locator + 12)
+        decorated_name = _image_c_string(image, type_descriptor + 8)
+        slot_target = _image_u32(image, vtable + spec["vtable_slot"] * 4)
+        visibility_target = _image_u32(
+            image, vtable + spec["visibility_vtable_slot"] * 4
+        )
+        render_state_target = _image_u32(
+            image, vtable + spec["render_state_vtable_slot"] * 4
+        )
+        deleting_target = _image_u32(image, vtable)
+        if (
+            decorated_name != spec["decorated_name"]
+            or slot_target != spec["dispatch_function"]
+            or visibility_target != spec["visibility_function"]
+            or render_state_target != spec["render_state_function"]
+            or deleting_target != spec["deleting_destructor_function"]
+        ):
+            raise ValueError("procedural-model RTTI/vtable evidence drifted")
+        rtti_verified = True
+
+    return {
+        "class_name": spec["class_name"] if rtti_verified else "unknown",
+        "decorated_name": decorated_name or "unverified_without_image",
+        "complete_object_locator": (
+            "{:08X}".format(complete_object_locator)
+            if complete_object_locator is not None
+            else "unverified_without_image"
+        ),
+        "type_descriptor": (
+            "{:08X}".format(type_descriptor)
+            if type_descriptor is not None
+            else "unverified_without_image"
+        ),
+        "vtable_address": "{:08X}".format(spec["vtable_address"]),
+        "vtable_slot": spec["vtable_slot"],
+        "dispatch_function_address": "{:08X}".format(
+            spec["dispatch_function"]
+        ),
+        "receiver_entry_register": "r3",
+        "command_root_derivation": "r6+59712",
+        "receiver_is_command_root": False,
+        "constructor_function_address": "{:08X}".format(
+            spec["constructor_function"]
+        ),
+        "constructor_entry_hook_address": "{:08X}".format(
+            spec["constructor_entry"]
+        ),
+        "constructor_exit_hook_address": "{:08X}".format(
+            spec["constructor_exit"]
+        ),
+        "destructor_function_address": "{:08X}".format(
+            spec["destructor_function"]
+        ),
+        "destructor_entry_hook_address": "{:08X}".format(
+            spec["destructor_entry"]
+        ),
+        "destructor_exit_hook_address": "{:08X}".format(
+            spec["destructor_exit"]
+        ),
+        "deleting_destructor_function_address": "{:08X}".format(
+            spec["deleting_destructor_function"]
+        ),
+        "object_size": 512,
+        "visibility_function_address": "{:08X}".format(
+            spec["visibility_function"]
+        ),
+        "visibility_vtable_slot": spec["visibility_vtable_slot"],
+        "visibility_entry_hook_address": "{:08X}".format(
+            spec["visibility_entry"]
+        ),
+        "visibility_exit_hook_address": "{:08X}".format(
+            spec["visibility_exit"]
+        ),
+        "render_state_function_address": "{:08X}".format(
+            spec["render_state_function"]
+        ),
+        "render_state_vtable_slot": spec["render_state_vtable_slot"],
+        "render_state_entry_hook_address": "{:08X}".format(
+            spec["render_state_entry"]
+        ),
+        "render_state_exit_hook_address": "{:08X}".format(
+            spec["render_state_exit"]
+        ),
+        "render_item_function_address": "{:08X}".format(
+            spec["render_item_function"]
+        ),
+        "field_layout": {
+            "descriptor_owner_pointer_offset": 124,
+            "runtime_record_pointer_offset": 128,
+            "auxiliary_allocation_pointer_offset": 132,
+            "active_buffer_index_offset": 136,
+            "runtime_record_capacity_offset": 140,
+            "descriptor_record_stride": 92,
+            "runtime_record_stride": 68,
+            "matrix_ranges": [
+                {"offset": 320, "size": 64},
+                {"offset": 384, "size": 64},
+                {"offset": 448, "size": 64},
+            ],
+        },
+        "rtti_vtable_identity_proved": rtti_verified,
+        "constructor_destructor_pair_proved": True,
+        "object_extent_proved": True,
+        "visibility_preparation_boundary_proved": True,
+        "render_state_boundary_proved": True,
+        "render_item_layout_proved": True,
+        "runtime_address_join_required": True,
+        "mesh_material_ownership_proved": False,
+        "transform_matrix_ranges_proved": True,
+        "visibility_runtime_join_required": True,
+        "render_state_runtime_join_required": True,
+        "lod_meaning_proved": False,
+        "streaming_registration_proved": False,
+        "suppression_eligible": False,
+    }
+
+
 def argument_leads_for_calls(
     functions: list[dict], calls: list[dict], target_key: str
 ) -> list[dict]:
@@ -1271,7 +1587,7 @@ def draw_packet_provenance(constructors: list[dict], calls: list[dict]) -> dict:
     }
 
 
-def build(paths: list[pathlib.Path]) -> dict:
+def build(paths: list[pathlib.Path], image: bytes | None = None) -> dict:
     functions = parse_functions(paths)
     functions_by_address = {item["address"]: item for item in functions}
     for address, wrapper in REVIEWED_WRAPPERS.items():
@@ -1297,6 +1613,9 @@ def build(paths: list[pathlib.Path]) -> dict:
     producer_hooks = indirect_producer_runtime_hooks(functions_by_address)
     context_hooks = indirect_context_runtime_hooks(functions_by_address)
     context_roots = indirect_context_roots(functions_by_address)
+    semantic_receiver = procedural_model_receiver_lifecycle(
+        functions_by_address, image
+    )
     constructor_argument_leads = argument_leads_for_calls(
         functions, constructor_calls, "constructor_function_address"
     )
@@ -1402,6 +1721,7 @@ def build(paths: list[pathlib.Path]) -> dict:
         "indirect_producer_argument_leads": producer_argument_leads,
         "indirect_context_runtime_hooks": context_hooks,
         "indirect_context_roots": context_roots,
+        "procedural_model_receiver_lifecycle": semantic_receiver,
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
@@ -1472,6 +1792,7 @@ def build(paths: list[pathlib.Path]) -> dict:
             ),
             "indirect_context_runtime_hooks": len(context_hooks),
             "indirect_context_roots": len(context_roots),
+            "procedural_model_receiver_lifecycles": bool(semantic_receiver),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),
@@ -1495,13 +1816,15 @@ def build(paths: list[pathlib.Path]) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("generated_root", type=pathlib.Path)
+    parser.add_argument("--image", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
         paths = list(args.generated_root.glob("pinyon_shift_recomp.*.cpp"))
         if not paths:
             raise ValueError("no generated AOT C++ files found")
-        document = build(paths)
+        image = args.image.read_bytes() if args.image else None
+        document = build(paths, image)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n",

@@ -11,6 +11,7 @@ import sys
 SCHEMA = "pinyon-shift.native-renderer-command-lineage.v1"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.command_buffer_lineage_"
+SEMANTIC_RECEIVER_PREFIX = "native_renderer.discovery.semantic_receiver_"
 INDIRECT_OPCODES = {"PM4_INDIRECT_BUFFER", "PM4_INDIRECT_BUFFER_PFD"}
 PHYSICAL_APERTURE_SIZE = 0x20000000
 KNOWN_PREPARED_FAMILIES = {
@@ -31,7 +32,10 @@ def read_events(paths: list[pathlib.Path]) -> list[dict]:
                 event = json.loads(line)
             except json.JSONDecodeError as error:
                 raise ValueError(f"{path}:{line_number}: invalid JSON: {error}") from error
-            if str(event.get("event", "")).startswith(PREFIX):
+            event_name = str(event.get("event", ""))
+            if event_name.startswith(PREFIX) or event_name.startswith(
+                SEMANTIC_RECEIVER_PREFIX
+            ):
                 events.append(event)
     return events
 
@@ -137,6 +141,23 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         for item in static_producer_calls
     }
     static_context_roots = static.get("indirect_context_roots", [])
+    static_semantic_receiver = static.get(
+        "procedural_model_receiver_lifecycle", {}
+    )
+    if static_semantic_receiver and not static_semantic_receiver.get(
+        "rtti_vtable_identity_proved"
+    ):
+        raise ValueError("procedural-model receiver RTTI identity is unproved")
+    if static_semantic_receiver and not all(
+        static_semantic_receiver.get(key)
+        for key in (
+            "object_extent_proved",
+            "visibility_preparation_boundary_proved",
+            "render_state_boundary_proved",
+            "transform_matrix_ranges_proved",
+        )
+    ):
+        raise ValueError("procedural-model preparation layout is unproved")
     context_roots_by_producer_return = {
         (
             str(item.get("producer_function_address", "")).upper(),
@@ -158,6 +179,14 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     ]
     if len(configs) != 1 or len(summaries) != 1:
         raise ValueError("lineage session needs one armed config and summary")
+    semantic_configs = [
+        event
+        for event in selected
+        if event.get("event") == f"{SEMANTIC_RECEIVER_PREFIX}config"
+        and event.get("status") == "armed"
+    ]
+    if static_semantic_receiver and len(semantic_configs) != 1:
+        raise ValueError("lineage session needs one semantic receiver config")
     summary = summaries[0]
     required_safety = {
         "guest_payload_read": "false",
@@ -347,6 +376,13 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         context_root_address = None
         context_root_address_varied = None
         context_root = None
+        semantic_receiver_class = None
+        semantic_receiver_address = None
+        semantic_receiver_generation = None
+        semantic_visibility_epoch = None
+        semantic_render_state_epoch = None
+        semantic_render_state_visibility_epoch = None
+        semantic_preparation_epoch_varied = None
         if static_context_roots:
             context_function_address = _optional_hex(
                 event, "context_function_address", 8
@@ -408,6 +444,76 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                     raise ValueError(
                         "runtime context root does not match its static derivation"
                     )
+                if static_semantic_receiver and (
+                    context_function_address
+                    == static_semantic_receiver["dispatch_function_address"]
+                ):
+                    semantic_receiver_class = str(
+                        event.get("semantic_receiver_class", "unknown")
+                    )
+                    semantic_receiver_address = _optional_hex(
+                        event, "semantic_receiver_address", 8
+                    )
+                    generation_text = str(
+                        event.get("semantic_receiver_generation", "unknown")
+                    )
+                    if generation_text != "unknown":
+                        try:
+                            semantic_receiver_generation = int(generation_text)
+                        except ValueError as error:
+                            raise ValueError(
+                                "invalid semantic receiver generation"
+                            ) from error
+                    epoch_fields = []
+                    for key in (
+                        "semantic_visibility_epoch",
+                        "semantic_render_state_epoch",
+                        "semantic_render_state_visibility_epoch",
+                    ):
+                        text = str(event.get(key, "unknown"))
+                        try:
+                            epoch_fields.append(
+                                None if text == "unknown" else int(text)
+                            )
+                        except ValueError as error:
+                            raise ValueError(
+                                "invalid procedural-model preparation epoch"
+                            ) from error
+                    (
+                        semantic_visibility_epoch,
+                        semantic_render_state_epoch,
+                        semantic_render_state_visibility_epoch,
+                    ) = epoch_fields
+                    semantic_preparation_epoch_varied = (
+                        str(
+                            event.get(
+                                "semantic_preparation_epoch_varied", "false"
+                            )
+                        ).lower()
+                        == "true"
+                    )
+                    if (
+                        semantic_receiver_class
+                        != static_semantic_receiver["class_name"]
+                        or semantic_receiver_address is None
+                        or not semantic_receiver_generation
+                        or semantic_receiver_address != context_arguments[0]
+                        or (
+                            semantic_render_state_visibility_epoch
+                            and not semantic_render_state_epoch
+                        )
+                        or (
+                            semantic_render_state_visibility_epoch
+                            and (
+                                not semantic_visibility_epoch
+                                or semantic_render_state_visibility_epoch
+                                > semantic_visibility_epoch
+                            )
+                        )
+                    ):
+                        raise ValueError(
+                            "procedural-model receiver has no exact stage-history join"
+                        )
         if depth:
             if parent_value >= PHYSICAL_APERTURE_SIZE or parent_value & 3:
                 raise ValueError("indirect lineage entry has no valid parent packet")
@@ -556,6 +662,17 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 ),
                 "sample_context_root_address": context_root_address,
                 "context_root_address_varied": context_root_address_varied,
+                "semantic_receiver_class": semantic_receiver_class,
+                "semantic_receiver_address": semantic_receiver_address,
+                "semantic_receiver_generation": semantic_receiver_generation,
+                "semantic_visibility_epoch": semantic_visibility_epoch,
+                "semantic_render_state_epoch": semantic_render_state_epoch,
+                "semantic_render_state_visibility_epoch": (
+                    semantic_render_state_visibility_epoch
+                ),
+                "semantic_preparation_epoch_varied": (
+                    semantic_preparation_epoch_varied
+                ),
                 "depth": depth,
             }
         )
@@ -654,6 +771,219 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     open_at_shutdown = _integer(
         summary, "indirect_buffers_open_at_shutdown"
     )
+    semantic_lifecycle_entries = []
+    semantic_constructor_entries = 0
+    semantic_constructor_exits = 0
+    semantic_constructor_open = 0
+    semantic_destructor_entries = 0
+    semantic_destructor_exits = 0
+    semantic_destructor_open = 0
+    semantic_stack_faults = 0
+    semantic_instances_published = 0
+    semantic_instances_destroyed = 0
+    semantic_address_reuses = 0
+    semantic_table_overflow = 0
+    semantic_dispatches = 0
+    semantic_live_dispatches = 0
+    semantic_unregistered_dispatches = 0
+    semantic_destroying_dispatches = 0
+    semantic_destroyed_dispatches = 0
+    semantic_destructors_without_instance = 0
+    semantic_receivers_tracked = 0
+    semantic_receivers_live = 0
+    semantic_receivers_destroying = 0
+    semantic_receivers_destroyed = 0
+    semantic_visibility_entries = 0
+    semantic_visibility_exits = 0
+    semantic_visibility_open = 0
+    semantic_render_state_entries = 0
+    semantic_render_state_exits = 0
+    semantic_render_state_open = 0
+    semantic_stage_stack_faults = 0
+    semantic_stage_unknown_receivers = 0
+    if static_semantic_receiver:
+        seen_receiver_addresses = set()
+        for event in selected:
+            if event.get("event") != f"{SEMANTIC_RECEIVER_PREFIX}lifecycle_entry":
+                continue
+            receiver_class = str(event.get("class", "unknown"))
+            address = _hex(event, "address", 8)
+            generation = _integer(event, "generation")
+            state = str(event.get("state", ""))
+            dispatches = _integer(event, "dispatches")
+            visibility_preparations = _integer(
+                event, "visibility_preparations"
+            )
+            render_state_preparations = _integer(
+                event, "render_state_preparations"
+            )
+            visibility_epoch = _integer(event, "visibility_epoch")
+            render_state_epoch = _integer(event, "render_state_epoch")
+            render_state_visibility_epoch = _integer(
+                event, "render_state_visibility_epoch"
+            )
+            dispatches_with_preparation = _integer(
+                event, "dispatches_with_preparation"
+            )
+            dispatches_without_preparation = _integer(
+                event, "dispatches_without_preparation"
+            )
+            dispatches_without_visibility = _integer(
+                event, "dispatches_without_visibility"
+            )
+            dispatches_without_render_state = _integer(
+                event, "dispatches_without_render_state"
+            )
+            if (
+                receiver_class != static_semantic_receiver["class_name"]
+                or address in seen_receiver_addresses
+                or not generation
+                or state not in {"live", "destroying", "destroyed"}
+                or dispatches < 0
+                or min(
+                    visibility_preparations,
+                    render_state_preparations,
+                    visibility_epoch,
+                    render_state_epoch,
+                    render_state_visibility_epoch,
+                    dispatches_with_preparation,
+                    dispatches_without_preparation,
+                    dispatches_without_visibility,
+                    dispatches_without_render_state,
+                )
+                < 0
+                or visibility_preparations != visibility_epoch
+                or render_state_preparations != render_state_epoch
+                or render_state_visibility_epoch > visibility_epoch
+                or dispatches
+                != dispatches_with_preparation
+                + dispatches_without_preparation
+                or str(event.get("identity_join"))
+                != "exact_constructor_receiver_address"
+                or str(event.get("guest_payload_read")).lower() != "false"
+                or str(event.get("xenos_authority")).lower() != "true"
+                or str(event.get("suppression_allowed")).lower() != "false"
+            ):
+                raise ValueError("invalid semantic receiver lifecycle entry")
+            seen_receiver_addresses.add(address)
+            semantic_lifecycle_entries.append(
+                {
+                    "class": receiver_class,
+                    "address": address,
+                    "generation": generation,
+                    "state": state,
+                    "dispatches": dispatches,
+                    "visibility_preparations": visibility_preparations,
+                    "render_state_preparations": render_state_preparations,
+                    "visibility_epoch": visibility_epoch,
+                    "render_state_epoch": render_state_epoch,
+                    "render_state_visibility_epoch": (
+                        render_state_visibility_epoch
+                    ),
+                    "dispatches_with_preparation": (
+                        dispatches_with_preparation
+                    ),
+                    "dispatches_without_preparation": (
+                        dispatches_without_preparation
+                    ),
+                    "dispatches_without_visibility": (
+                        dispatches_without_visibility
+                    ),
+                    "dispatches_without_render_state": (
+                        dispatches_without_render_state
+                    ),
+                }
+            )
+        semantic_constructor_entries = _integer(
+            summary, "semantic_receiver_constructor_entries"
+        )
+        semantic_constructor_exits = _integer(
+            summary, "semantic_receiver_constructor_exits"
+        )
+        semantic_constructor_open = _integer(
+            summary, "semantic_receiver_constructor_open_at_shutdown"
+        )
+        semantic_destructor_entries = _integer(
+            summary, "semantic_receiver_destructor_entries"
+        )
+        semantic_destructor_exits = _integer(
+            summary, "semantic_receiver_destructor_exits"
+        )
+        semantic_destructor_open = _integer(
+            summary, "semantic_receiver_destructor_open_at_shutdown"
+        )
+        semantic_stack_faults = _integer(
+            summary, "semantic_receiver_stack_faults"
+        )
+        semantic_instances_published = _integer(
+            summary, "semantic_receiver_instances_published"
+        )
+        semantic_instances_destroyed = _integer(
+            summary, "semantic_receiver_instances_destroyed"
+        )
+        semantic_address_reuses = _integer(
+            summary, "semantic_receiver_address_reuses"
+        )
+        semantic_table_overflow = _integer(
+            summary, "semantic_receiver_table_overflow"
+        )
+        semantic_dispatches = _integer(
+            summary, "semantic_receiver_dispatches"
+        )
+        semantic_live_dispatches = _integer(
+            summary, "semantic_receiver_live_dispatches"
+        )
+        semantic_unregistered_dispatches = _integer(
+            summary, "semantic_receiver_unregistered_dispatches"
+        )
+        semantic_destroying_dispatches = _integer(
+            summary, "semantic_receiver_destroying_dispatches"
+        )
+        semantic_destroyed_dispatches = _integer(
+            summary, "semantic_receiver_destroyed_dispatches"
+        )
+        semantic_destructors_without_instance = _integer(
+            summary, "semantic_receiver_destructors_without_instance"
+        )
+        semantic_receivers_tracked = _integer(
+            summary, "semantic_receivers_tracked"
+        )
+        semantic_receivers_live = _integer(
+            summary, "semantic_receivers_live_at_shutdown"
+        )
+        semantic_receivers_destroying = _integer(
+            summary, "semantic_receivers_destroying_at_shutdown"
+        )
+        semantic_receivers_destroyed = _integer(
+            summary, "semantic_receivers_destroyed"
+        )
+        semantic_visibility_entries = _integer(
+            summary, "semantic_visibility_entries"
+        )
+        semantic_visibility_exits = _integer(
+            summary, "semantic_visibility_exits"
+        )
+        semantic_visibility_open = _integer(
+            summary, "semantic_visibility_open_at_shutdown"
+        )
+        semantic_render_state_entries = _integer(
+            summary, "semantic_render_state_entries"
+        )
+        semantic_render_state_exits = _integer(
+            summary, "semantic_render_state_exits"
+        )
+        semantic_render_state_open = _integer(
+            summary, "semantic_render_state_open_at_shutdown"
+        )
+        semantic_stage_stack_faults = _integer(
+            summary, "semantic_stage_stack_faults"
+        )
+        semantic_stage_unknown_receivers = _integer(
+            summary, "semantic_stage_unknown_receivers"
+        )
+        semantic_lifecycle_entries.sort(
+            key=lambda item: (item["address"], item["generation"])
+        )
     retained_title_generations = (
         title_packets - constructor_matches - title_evictions
     )
@@ -721,6 +1051,74 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 context_entries > 0
                 and any(
                     item["context_return_address"] is not None
+                    for item in entries
+                )
+            )
+        )
+        and (
+            not static_semantic_receiver
+            or (
+                semantic_constructor_entries
+                == semantic_constructor_exits + semantic_constructor_open
+                and semantic_destructor_entries
+                == semantic_destructor_exits + semantic_destructor_open
+                and semantic_constructor_exits == semantic_instances_published
+                and semantic_destructor_exits == semantic_instances_destroyed
+                and semantic_instances_published
+                == semantic_instances_destroyed
+                + semantic_receivers_live
+                + semantic_receivers_destroying
+                and not semantic_stack_faults
+                and not semantic_table_overflow
+                and not semantic_unregistered_dispatches
+                and not semantic_destroying_dispatches
+                and not semantic_destroyed_dispatches
+                and not semantic_destructors_without_instance
+                and semantic_dispatches == semantic_live_dispatches
+                and semantic_live_dispatches > 0
+                and semantic_visibility_entries
+                == semantic_visibility_exits + semantic_visibility_open
+                and semantic_render_state_entries
+                == semantic_render_state_exits + semantic_render_state_open
+                and semantic_visibility_exits > 0
+                and semantic_render_state_exits > 0
+                and not semantic_stage_stack_faults
+                and not semantic_stage_unknown_receivers
+                and semantic_receivers_tracked == len(semantic_lifecycle_entries)
+                and semantic_receivers_live
+                == sum(
+                    item["state"] == "live"
+                    for item in semantic_lifecycle_entries
+                )
+                and semantic_receivers_destroying
+                == sum(
+                    item["state"] == "destroying"
+                    for item in semantic_lifecycle_entries
+                )
+                and semantic_receivers_destroyed
+                == sum(
+                    item["state"] == "destroyed"
+                    for item in semantic_lifecycle_entries
+                )
+                and semantic_live_dispatches
+                == sum(
+                    item["dispatches"] for item in semantic_lifecycle_entries
+                )
+                and semantic_visibility_exits
+                == sum(
+                    item["visibility_preparations"]
+                    for item in semantic_lifecycle_entries
+                )
+                and semantic_render_state_exits
+                == sum(
+                    item["render_state_preparations"]
+                    for item in semantic_lifecycle_entries
+                )
+                and any(
+                    item["semantic_receiver_address"] is not None
+                    and item["semantic_visibility_epoch"]
+                    and item["semantic_render_state_epoch"]
+                    and item["semantic_render_state_visibility_epoch"]
                     for item in entries
                 )
             )
@@ -817,6 +1215,27 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "context_root_address_varied": entry[
                     "context_root_address_varied"
                 ],
+                "semantic_receiver_class": entry[
+                    "semantic_receiver_class"
+                ],
+                "semantic_receiver_address": entry[
+                    "semantic_receiver_address"
+                ],
+                "semantic_receiver_generation": entry[
+                    "semantic_receiver_generation"
+                ],
+                "semantic_visibility_epoch": entry[
+                    "semantic_visibility_epoch"
+                ],
+                "semantic_render_state_epoch": entry[
+                    "semantic_render_state_epoch"
+                ],
+                "semantic_render_state_visibility_epoch": entry[
+                    "semantic_render_state_visibility_epoch"
+                ],
+                "semantic_preparation_epoch_varied": entry[
+                    "semantic_preparation_epoch_varied"
+                ],
                 "depth": entry["depth"],
                 "sample_prepared_signature": entry[
                     "sample_prepared_signature"
@@ -855,6 +1274,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "static_indirect_owner_calls": static_owner_calls,
         "static_indirect_producer_calls": static_producer_calls,
         "static_indirect_context_roots": static_context_roots,
+        "static_procedural_model_receiver_lifecycle": (
+            static_semantic_receiver
+        ),
+        "semantic_receiver_lifecycles": semantic_lifecycle_entries,
         "totals": {
             "draws": draws,
             "primary_draws": primary_draws,
@@ -918,6 +1341,69 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "indirect_producer_context_mismatches": (
                 producer_context_mismatches
             ),
+            "semantic_receiver_constructor_entries": (
+                semantic_constructor_entries
+            ),
+            "semantic_receiver_constructor_exits": semantic_constructor_exits,
+            "semantic_receiver_constructor_open_at_shutdown": (
+                semantic_constructor_open
+            ),
+            "semantic_receiver_destructor_entries": semantic_destructor_entries,
+            "semantic_receiver_destructor_exits": semantic_destructor_exits,
+            "semantic_receiver_destructor_open_at_shutdown": (
+                semantic_destructor_open
+            ),
+            "semantic_receiver_stack_faults": semantic_stack_faults,
+            "semantic_receiver_instances_published": (
+                semantic_instances_published
+            ),
+            "semantic_receiver_instances_destroyed": (
+                semantic_instances_destroyed
+            ),
+            "semantic_receiver_address_reuses": semantic_address_reuses,
+            "semantic_receiver_table_overflow": semantic_table_overflow,
+            "semantic_receiver_dispatches": semantic_dispatches,
+            "semantic_receiver_live_dispatches": semantic_live_dispatches,
+            "semantic_receiver_unregistered_dispatches": (
+                semantic_unregistered_dispatches
+            ),
+            "semantic_receiver_destroying_dispatches": (
+                semantic_destroying_dispatches
+            ),
+            "semantic_receiver_destroyed_dispatches": (
+                semantic_destroyed_dispatches
+            ),
+            "semantic_receiver_destructors_without_instance": (
+                semantic_destructors_without_instance
+            ),
+            "semantic_receivers_tracked": semantic_receivers_tracked,
+            "semantic_receivers_live_at_shutdown": semantic_receivers_live,
+            "semantic_receivers_destroying_at_shutdown": (
+                semantic_receivers_destroying
+            ),
+            "semantic_receivers_destroyed": semantic_receivers_destroyed,
+            "semantic_visibility_entries": semantic_visibility_entries,
+            "semantic_visibility_exits": semantic_visibility_exits,
+            "semantic_visibility_open_at_shutdown": (
+                semantic_visibility_open
+            ),
+            "semantic_render_state_entries": semantic_render_state_entries,
+            "semantic_render_state_exits": semantic_render_state_exits,
+            "semantic_render_state_open_at_shutdown": (
+                semantic_render_state_open
+            ),
+            "semantic_stage_stack_faults": semantic_stage_stack_faults,
+            "semantic_stage_unknown_receivers": (
+                semantic_stage_unknown_receivers
+            ),
+            "semantic_dispatches_after_both_observed_stages": sum(
+                item["dispatches_with_preparation"]
+                for item in semantic_lifecycle_entries
+            ),
+            "semantic_dispatches_before_both_observed_stages": sum(
+                item["dispatches_without_preparation"]
+                for item in semantic_lifecycle_entries
+            ),
             "indirect_buffers_open_at_shutdown": open_at_shutdown,
             "constructor_origin_draws": sum(
                 item["calls"]
@@ -979,9 +1465,18 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 if item["context_return_address"] is not None
                 and not item["context_root_proved"]
             ),
+            "procedural_model_receiver_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["semantic_receiver_address"] is not None
+            ),
         },
         "qualification": "exact_title_store_to_backend_nested_command_buffer_lineage",
-        "semantic_identity": "unknown",
+        "semantic_identity": (
+            "procedural_model_receiver_stage_history"
+            if static_semantic_receiver
+            else "unknown"
+        ),
         "safety": {
             "guest_payload_read": False,
             "guest_state_changed": False,
