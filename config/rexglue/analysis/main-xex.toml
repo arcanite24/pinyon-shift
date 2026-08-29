@@ -250,7 +250,17 @@ name = "PinyonShiftObserveProceduralModelVisibilityExit"
 [[midasm_hook]]
 address = 0x82E20094
 name = "PinyonShiftObserveProceduralModelVisibilityRecordEntry"
-registers = ["r15", "r16", "r20", "r21", "r23"]
+registers = ["r15", "r16", "r20", "r21", "r23", "f26"]
+
+[[midasm_hook]]
+address = 0x82E20134
+name = "PinyonShiftObserveProceduralModelVisibilityRuntimeThreshold"
+registers = ["f0", "f26"]
+
+[[midasm_hook]]
+address = 0x82E201B0
+name = "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold"
+registers = ["f0", "f26"]
 
 [[midasm_hook]]
 address = 0x82E205E4

@@ -460,6 +460,15 @@ def procedural_model_lifecycle_fixtures():
                 "bl 0x82441048",
                 "loc_82E20048:",
                 "lwz r11,124(r20)",
+                "loc_82E2012C:",
+                "lfs f0,44(r21)",
+                "fmuls f0,f0,f0",
+                "fcmpu cr6,f26,f0",
+                "loc_82E201A0:",
+                "lfs f0,60(r23)",
+                "loc_82E201AC:",
+                "fmuls f0,f0,f0",
+                "fcmpu cr6,f26,f0",
                 "loc_82E20080:",
                 "add r23,r11,r18",
                 "loc_82E20090:",
@@ -480,6 +489,75 @@ def procedural_model_lifecycle_fixtures():
                 "addi r17,r17,68",
                 "loc_82E208CC:",
                 "addi r1,r1,704",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x8243F9A0,
+            [
+                "mflr r12",
+                "loc_8243F9B0:",
+                "lfs f13,20(r3)",
+                "loc_8243F9CC:",
+                "lvx128 v63,r0,r4",
+                "lvx128 v62,r0,r5",
+                "loc_8243F9DC:",
+                "vsubfp128 v62,v62,v63",
+                "loc_8243F9F8:",
+                "vmsum3fp128 v62,v62,v62",
+                "loc_8243FA04:",
+                "lfs f1,96(r1)",
+                "bl 0x8243fd70",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x8243FD70,
+            [
+                "lis r11,-32256",
+                "lfs f13,20(r3)",
+                "loc_8243FD8C:",
+                "lvx128 v63,r0,r3",
+                "loc_8243FD94:",
+                "lvx128 v62,r0,r4",
+                "vsubfp128 v63,v62,v63",
+                "lfs f0,16(r3)",
+                "lfs f13,24(r3)",
+                "loc_8243FDAC:",
+                "vmsum3fp128 v63,v63,v63",
+                "loc_8243FDB8:",
+                "fmuls f0,f0,f12",
+                "fcmpu cr6,f0,f13",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82441048,
+            [
+                "vor128 v62,v1,v1",
+                "loc_8244105C:",
+                "addi r11,r3,64",
+                "loc_8244106C:",
+                "addi r10,r3,80",
+                "loc_82441074:",
+                "addi r9,r3,48",
+                "loc_8244107C:",
+                "lvx128 v52,r0,r3",
+                "loc_82441084:",
+                "lvx128 v58,r0,r11",
+                "loc_82441094:",
+                "lvx128 v57,r0,r10",
+                "loc_824410A0:",
+                "addi r10,r3,32",
+                "lvx128 v54,r0,r9",
+                "loc_824410B0:",
+                "lvx128 v45,r0,r11",
+                "loc_824410C4:",
+                "lvx128 v43,r0,r10",
+                "loc_824412AC:",
+                "li r3,0",
+                "loc_824412C4:",
+                "addi r3,r11,1",
                 "blr",
             ],
         ),
@@ -1173,6 +1251,26 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual("82441048", policy["category_helper_address"])
         self.assertEqual(60, policy["descriptor_distance_scalar_offset"])
         self.assertEqual(44, policy["runtime_distance_scalar_offset"])
+        self.assertEqual("82E20134", policy["runtime_threshold_hook_address"])
+        self.assertEqual(
+            "82E201B0", policy["descriptor_threshold_hook_address"]
+        )
+        self.assertTrue(policy["passive_input_outcome_correlation_required"])
+        spatial_helper = policy["spatial_helper_contract"]
+        self.assertEqual("8243FD70", spatial_helper["distance_helper_address"])
+        self.assertEqual([16, 20, 24], spatial_helper["query_scalar_offsets"])
+        self.assertTrue(spatial_helper["distance_test_structure_proved"])
+        self.assertFalse(spatial_helper["world_space_semantics_proved"])
+        category_helper = policy["category_helper_contract"]
+        self.assertEqual(
+            [0, 16, 32, 48, 64, 80],
+            category_helper["vector_block_offsets"],
+        )
+        self.assertEqual([0, 1, 2], category_helper["return_domain"])
+        self.assertTrue(
+            category_helper["six_vector_classifier_structure_proved"]
+        )
+        self.assertFalse(category_helper["frustum_semantics_proved"])
         self.assertTrue(policy["structural_derivation_proved"])
         self.assertFalse(policy["camera_semantics_proved"])
         self.assertFalse(policy["native_policy_execution_enabled"])

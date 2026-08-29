@@ -92,6 +92,8 @@ constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kSemanticVisibilityCategoryCapacity = 32;
 constexpr size_t kSemanticVisibilityLodCapacity = 32;
 constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
+constexpr size_t kSemanticVisibilityPolicyOutcomeCapacity = 3;
+constexpr size_t kSemanticVisibilitySpatialExponentCapacity = 256;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -622,6 +624,21 @@ struct SemanticVisibilityCategoryStats {
   std::atomic<uint64_t> lod_writes{};
 };
 
+enum class SemanticVisibilityPolicyOutcome : size_t {
+  kEarlyRejected,
+  kRejected,
+  kSelected,
+};
+
+struct SemanticVisibilityPolicyStats {
+  std::atomic<uint64_t> records{};
+  std::atomic<uint64_t> spatial_samples{};
+  std::atomic<uint64_t> runtime_threshold_observations{};
+  std::atomic<uint64_t> runtime_distance_less{};
+  std::atomic<uint64_t> descriptor_threshold_observations{};
+  std::atomic<uint64_t> descriptor_distance_exceeded{};
+};
+
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
 std::atomic<uint64_t> g_semantic_visibility_record_completions{};
 std::atomic<uint64_t> g_semantic_visibility_records_open{};
@@ -651,6 +668,21 @@ std::array<std::atomic<uint64_t>, kSemanticVisibilityLodCapacity>
     g_semantic_visibility_lod_histogram{};
 std::array<std::atomic<uint64_t>, kSemanticVisibilityResultValueCapacity>
     g_semantic_visibility_result_value_histogram{};
+std::array<std::array<SemanticVisibilityPolicyStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_policy_categories{};
+std::array<std::array<std::atomic<uint64_t>,
+                      kSemanticVisibilitySpatialExponentCapacity>,
+           kSemanticVisibilityPolicyOutcomeCapacity>
+    g_semantic_visibility_spatial_exponents{};
+std::atomic<uint64_t> g_semantic_visibility_policy_invalid_spatial_values{};
+std::atomic<uint64_t> g_semantic_visibility_policy_invalid_threshold_values{};
+std::atomic<uint64_t> g_semantic_visibility_policy_hook_faults{};
+std::atomic<uint64_t> g_semantic_visibility_runtime_threshold_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_duplicate_runtime_threshold{};
+std::atomic<uint64_t> g_semantic_visibility_descriptor_threshold_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_duplicate_descriptor_threshold{};
 
 struct SemanticInstanceEntry {
   uint64_t key = 0;
@@ -938,10 +970,16 @@ struct ActiveSemanticVisibilityRecord {
   uint32_t descriptor_address = 0;
   uint32_t runtime_address = 0;
   uint32_t lod_index = 0;
+  uint8_t spatial_exponent = 0;
   bool joined = false;
   bool result_seen = false;
   bool selected = false;
   bool lod_seen = false;
+  bool spatial_sample_valid = false;
+  bool runtime_threshold_seen = false;
+  bool runtime_distance_less = false;
+  bool descriptor_threshold_seen = false;
+  bool descriptor_distance_exceeded = false;
   bool active = false;
 };
 thread_local ActiveSemanticVisibilityRecord
@@ -1311,6 +1349,38 @@ void ResetTitleDrawProvenance() {
   for (auto &value : g_semantic_visibility_result_value_histogram) {
     value.store(0, std::memory_order_relaxed);
   }
+  for (auto &category : g_semantic_visibility_policy_categories) {
+    for (auto &outcome : category) {
+      outcome.records.store(0, std::memory_order_relaxed);
+      outcome.spatial_samples.store(0, std::memory_order_relaxed);
+      outcome.runtime_threshold_observations.store(
+          0, std::memory_order_relaxed);
+      outcome.runtime_distance_less.store(0, std::memory_order_relaxed);
+      outcome.descriptor_threshold_observations.store(
+          0, std::memory_order_relaxed);
+      outcome.descriptor_distance_exceeded.store(
+          0, std::memory_order_relaxed);
+    }
+  }
+  for (auto &outcome : g_semantic_visibility_spatial_exponents) {
+    for (auto &bucket : outcome) {
+      bucket.store(0, std::memory_order_relaxed);
+    }
+  }
+  g_semantic_visibility_policy_invalid_spatial_values.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_policy_invalid_threshold_values.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_policy_hook_faults.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_runtime_threshold_without_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_duplicate_runtime_threshold.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_descriptor_threshold_without_record.store(
+      0, std::memory_order_relaxed);
+  g_semantic_visibility_duplicate_descriptor_threshold.store(
+      0, std::memory_order_relaxed);
   {
     std::scoped_lock lock(g_semantic_instance_mutex);
     std::memset(g_semantic_instances.data(), 0, sizeof(g_semantic_instances));
@@ -2024,11 +2094,21 @@ void EndSemanticReceiverStage(SemanticReceiverStage stage) {
   }
 }
 
+bool SemanticVisibilitySpatialExponent(double value, uint8_t *exponent) {
+  const float narrowed = static_cast<float>(value);
+  if (!std::isfinite(narrowed) || narrowed < 0.0f) {
+    return false;
+  }
+  *exponent = uint8_t((std::bit_cast<uint32_t>(narrowed) >> 23) & 0xFF);
+  return true;
+}
+
 void BeginSemanticVisibilityRecord(uint32_t receiver_address,
                                    uint32_t record_index,
                                    uint32_t category,
                                    uint32_t descriptor_address,
-                                   uint32_t runtime_address) {
+                                   uint32_t runtime_address,
+                                   double spatial_distance_squared) {
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire)) {
     return;
   }
@@ -2052,6 +2132,12 @@ void BeginSemanticVisibilityRecord(uint32_t receiver_address,
   record.category = category;
   record.descriptor_address = descriptor_address;
   record.runtime_address = runtime_address;
+  record.spatial_sample_valid = SemanticVisibilitySpatialExponent(
+      spatial_distance_squared, &record.spatial_exponent);
+  if (!record.spatial_sample_valid) {
+    g_semantic_visibility_policy_invalid_spatial_values.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   g_semantic_visibility_records_open.fetch_add(
       1, std::memory_order_relaxed);
   if (g_semantic_visibility_stack_depth) {
@@ -2073,6 +2159,66 @@ void BeginSemanticVisibilityRecord(uint32_t receiver_address,
     g_semantic_visibility_category_overflow.fetch_add(
         1, std::memory_order_relaxed);
   }
+}
+
+void ObserveSemanticVisibilityRuntimeThreshold(
+    double spatial_distance_squared, double threshold_squared) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_runtime_threshold_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (record.runtime_threshold_seen) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_duplicate_runtime_threshold.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.runtime_threshold_seen = true;
+  if (!std::isfinite(spatial_distance_squared) ||
+      !std::isfinite(threshold_squared) || spatial_distance_squared < 0.0 ||
+      threshold_squared < 0.0) {
+    g_semantic_visibility_policy_invalid_threshold_values.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.runtime_distance_less =
+      spatial_distance_squared < threshold_squared;
+}
+
+void ObserveSemanticVisibilityDescriptorThreshold(
+    double spatial_distance_squared, double threshold_squared) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_descriptor_threshold_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (record.descriptor_threshold_seen) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_semantic_visibility_duplicate_descriptor_threshold.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.descriptor_threshold_seen = true;
+  if (!std::isfinite(spatial_distance_squared) ||
+      !std::isfinite(threshold_squared) || spatial_distance_squared < 0.0 ||
+      threshold_squared < 0.0) {
+    g_semantic_visibility_policy_invalid_threshold_values.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  record.descriptor_distance_exceeded =
+      spatial_distance_squared > threshold_squared;
 }
 
 void ObserveSemanticVisibilityLod(uint32_t lod_index) {
@@ -2190,6 +2336,42 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
     if (category) {
       category->rejected.fetch_add(1, std::memory_order_relaxed);
     }
+  }
+  const SemanticVisibilityPolicyOutcome policy_outcome =
+      !record.result_seen
+          ? SemanticVisibilityPolicyOutcome::kEarlyRejected
+          : (record.selected ? SemanticVisibilityPolicyOutcome::kSelected
+                             : SemanticVisibilityPolicyOutcome::kRejected);
+  const size_t policy_outcome_index = size_t(policy_outcome);
+  if (record.category < kSemanticVisibilityCategoryCapacity) {
+    SemanticVisibilityPolicyStats &policy =
+        g_semantic_visibility_policy_categories[record.category]
+                                              [policy_outcome_index];
+    policy.records.fetch_add(1, std::memory_order_relaxed);
+    if (record.spatial_sample_valid) {
+      policy.spatial_samples.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (record.runtime_threshold_seen) {
+      policy.runtime_threshold_observations.fetch_add(
+          1, std::memory_order_relaxed);
+      if (record.runtime_distance_less) {
+        policy.runtime_distance_less.fetch_add(
+            1, std::memory_order_relaxed);
+      }
+    }
+    if (record.descriptor_threshold_seen) {
+      policy.descriptor_threshold_observations.fetch_add(
+          1, std::memory_order_relaxed);
+      if (record.descriptor_distance_exceeded) {
+        policy.descriptor_distance_exceeded.fetch_add(
+            1, std::memory_order_relaxed);
+      }
+    }
+  }
+  if (record.spatial_sample_valid) {
+    g_semantic_visibility_spatial_exponents[policy_outcome_index]
+                                            [record.spatial_exponent]
+        .fetch_add(1, std::memory_order_relaxed);
   }
   if (record.category == 9 && record.selected) {
     (record.lod_seen ? g_semantic_visibility_selected_with_lod
@@ -9241,6 +9423,18 @@ void EmitSemanticStateCacheSummary() {
   }
 }
 
+const char *SemanticVisibilityPolicyOutcomeName(size_t outcome) {
+  switch (SemanticVisibilityPolicyOutcome(outcome)) {
+  case SemanticVisibilityPolicyOutcome::kEarlyRejected:
+    return "early_rejected";
+  case SemanticVisibilityPolicyOutcome::kRejected:
+    return "rejected";
+  case SemanticVisibilityPolicyOutcome::kSelected:
+    return "selected";
+  }
+  return "unknown";
+}
+
 void EmitSemanticVisibilityCensus() {
   const uint64_t entries = g_semantic_visibility_record_entries.load(
       std::memory_order_relaxed);
@@ -9354,6 +9548,175 @@ void EmitSemanticVisibilityCensus() {
          {"xenos_authority", "true"},
          {"suppression_allowed", "false"}});
   }
+
+  uint64_t policy_records = 0;
+  uint64_t policy_spatial_samples = 0;
+  uint64_t policy_runtime_observations = 0;
+  uint64_t policy_runtime_less = 0;
+  uint64_t policy_descriptor_observations = 0;
+  uint64_t policy_descriptor_exceeded = 0;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    const SemanticVisibilityCategoryStats &category =
+        g_semantic_visibility_categories[category_index];
+    const std::array<uint64_t, kSemanticVisibilityPolicyOutcomeCapacity>
+        expected_records = {
+            category.early_rejected.load(std::memory_order_relaxed),
+            category.rejected.load(std::memory_order_relaxed),
+            category.selected.load(std::memory_order_relaxed),
+        };
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      const SemanticVisibilityPolicyStats &policy =
+          g_semantic_visibility_policy_categories[category_index]
+                                                  [outcome_index];
+      const uint64_t records =
+          policy.records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t spatial_samples =
+          policy.spatial_samples.load(std::memory_order_relaxed);
+      const uint64_t runtime_observations =
+          policy.runtime_threshold_observations.load(
+              std::memory_order_relaxed);
+      const uint64_t runtime_less =
+          policy.runtime_distance_less.load(std::memory_order_relaxed);
+      const uint64_t descriptor_observations =
+          policy.descriptor_threshold_observations.load(
+              std::memory_order_relaxed);
+      const uint64_t descriptor_exceeded =
+          policy.descriptor_distance_exceeded.load(
+              std::memory_order_relaxed);
+      const bool policy_complete =
+          records == expected_records[outcome_index] &&
+          spatial_samples == records && runtime_less <= runtime_observations &&
+          runtime_observations <= records &&
+          descriptor_exceeded <= descriptor_observations &&
+          descriptor_observations <= records;
+      policy_records += records;
+      policy_spatial_samples += spatial_samples;
+      policy_runtime_observations += runtime_observations;
+      policy_runtime_less += runtime_less;
+      policy_descriptor_observations += descriptor_observations;
+      policy_descriptor_exceeded += descriptor_exceeded;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_policy_category_summary",
+          {{"status", policy_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome",
+            SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"spatial_samples", std::to_string(spatial_samples)},
+           {"runtime_threshold_observations",
+            std::to_string(runtime_observations)},
+           {"runtime_distance_less", std::to_string(runtime_less)},
+           {"descriptor_threshold_observations",
+            std::to_string(descriptor_observations)},
+           {"descriptor_distance_exceeded",
+            std::to_string(descriptor_exceeded)},
+           {"native_policy_execution", "false"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+
+  uint64_t policy_spatial_histogram_total = 0;
+  for (size_t outcome_index = 0;
+       outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+       ++outcome_index) {
+    for (size_t exponent = 0;
+         exponent < kSemanticVisibilitySpatialExponentCapacity;
+         ++exponent) {
+      const uint64_t records =
+          g_semantic_visibility_spatial_exponents[outcome_index][exponent]
+              .load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      policy_spatial_histogram_total += records;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_spatial_exponent_summary",
+          {{"status", "complete"},
+           {"outcome",
+            SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"float_exponent", std::to_string(exponent)},
+           {"records", std::to_string(records)},
+           {"source", "title_shared_spatial_distance_squared_f26"},
+           {"native_policy_execution", "false"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+
+  const uint64_t policy_invalid_spatial =
+      g_semantic_visibility_policy_invalid_spatial_values.load(
+          std::memory_order_relaxed);
+  const uint64_t policy_invalid_threshold =
+      g_semantic_visibility_policy_invalid_threshold_values.load(
+          std::memory_order_relaxed);
+  const uint64_t policy_hook_faults =
+      g_semantic_visibility_policy_hook_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t runtime_without_record =
+      g_semantic_visibility_runtime_threshold_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t duplicate_runtime =
+      g_semantic_visibility_duplicate_runtime_threshold.load(
+          std::memory_order_relaxed);
+  const uint64_t descriptor_without_record =
+      g_semantic_visibility_descriptor_threshold_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t duplicate_descriptor =
+      g_semantic_visibility_duplicate_descriptor_threshold.load(
+          std::memory_order_relaxed);
+  const bool policy_complete =
+      policy_records == completions && policy_spatial_samples == entries &&
+      policy_spatial_histogram_total == policy_spatial_samples &&
+      !policy_invalid_spatial && !policy_invalid_threshold &&
+      !policy_hook_faults &&
+      policy_hook_faults == runtime_without_record + duplicate_runtime +
+                                descriptor_without_record +
+                                duplicate_descriptor;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_policy_summary",
+      {{"status", policy_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(policy_records)},
+       {"spatial_samples", std::to_string(policy_spatial_samples)},
+       {"runtime_threshold_observations",
+        std::to_string(policy_runtime_observations)},
+       {"runtime_distance_less", std::to_string(policy_runtime_less)},
+       {"descriptor_threshold_observations",
+        std::to_string(policy_descriptor_observations)},
+       {"descriptor_distance_exceeded",
+        std::to_string(policy_descriptor_exceeded)},
+       {"spatial_histogram_records",
+        std::to_string(policy_spatial_histogram_total)},
+       {"invalid_spatial_values", std::to_string(policy_invalid_spatial)},
+       {"invalid_threshold_values",
+        std::to_string(policy_invalid_threshold)},
+       {"hook_faults", std::to_string(policy_hook_faults)},
+       {"runtime_threshold_without_record",
+        std::to_string(runtime_without_record)},
+       {"duplicate_runtime_threshold", std::to_string(duplicate_runtime)},
+       {"descriptor_threshold_without_record",
+        std::to_string(descriptor_without_record)},
+       {"duplicate_descriptor_threshold",
+        std::to_string(duplicate_descriptor)},
+       {"accounting_complete", policy_complete ? "true" : "false"},
+       {"classification", "title_spatial_policy_input_outcome_correlation"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
 
   const uint64_t category_overflow =
       g_semantic_visibility_category_overflow.load(
@@ -11797,6 +12160,32 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_policy_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"record_entry_hook", "82E20094"},
+       {"runtime_threshold_hook", "82E20134"},
+       {"descriptor_threshold_hook", "82E201B0"},
+       {"spatial_distance_source", "f26"},
+       {"threshold_source", "f0"},
+       {"runtime_distance_scalar_offset", "44"},
+       {"descriptor_distance_scalar_offset", "60"},
+       {"spatial_exponent_capacity",
+        std::to_string(kSemanticVisibilitySpatialExponentCapacity)},
+       {"outcomes", "early_rejected,rejected,selected"},
+       {"classification",
+        "title_spatial_policy_input_outcome_correlation"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "false"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -12740,9 +13129,19 @@ void PinyonShiftObserveProceduralModelVisibilityExit() {
 
 void PinyonShiftObserveProceduralModelVisibilityRecordEntry(
     PPCRegister &r15, PPCRegister &r16, PPCRegister &r20,
-    PPCRegister &r21, PPCRegister &r23) {
+    PPCRegister &r21, PPCRegister &r23, PPCRegister &f26) {
   BeginSemanticVisibilityRecord(r20.u32, r16.u32, r15.u32, r23.u32,
-                                r21.u32);
+                                r21.u32, f26.f64);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityRuntimeThreshold(
+    PPCRegister &f0, PPCRegister &f26) {
+  ObserveSemanticVisibilityRuntimeThreshold(f26.f64, f0.f64);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold(
+    PPCRegister &f0, PPCRegister &f26) {
+  ObserveSemanticVisibilityDescriptorThreshold(f26.f64, f0.f64);
 }
 
 void PinyonShiftObserveProceduralModelVisibilityLodPrimary(

@@ -203,6 +203,9 @@ PROCEDURAL_MODEL_RECEIVER = {
     "visibility_spatial_prefilter": 0x82E1FEF0,
     "visibility_spatial_helper": 0x8243F9A0,
     "visibility_category_helper": 0x82441048,
+    "visibility_spatial_distance_helper": 0x8243FD70,
+    "visibility_runtime_threshold_hook": 0x82E20134,
+    "visibility_descriptor_threshold_hook": 0x82E201B0,
     "render_state_function": 0x824170D8,
     "render_state_vtable_slot": 40,
     "render_state_entry": 0x824170DC,
@@ -831,6 +834,9 @@ def procedural_model_receiver_lifecycle(
         spec["deleting_destructor_function"],
         spec["array_constructor_function"],
         spec["visibility_function"],
+        spec["visibility_spatial_helper"],
+        spec["visibility_spatial_distance_helper"],
+        spec["visibility_category_helper"],
         spec["render_state_function"],
         spec["render_item_function"],
         spec["resource_binding_function"],
@@ -872,6 +878,24 @@ def procedural_model_receiver_lifecycle(
     visibility = {
         item["address"]: item["text"]
         for item in functions_by_address[spec["visibility_function"]][
+            "instructions"
+        ]
+    }
+    visibility_spatial_helper = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["visibility_spatial_helper"]][
+            "instructions"
+        ]
+    }
+    visibility_spatial_distance_helper = {
+        item["address"]: item["text"]
+        for item in functions_by_address[
+            spec["visibility_spatial_distance_helper"]
+        ]["instructions"]
+    }
+    visibility_category_helper = {
+        item["address"]: item["text"]
+        for item in functions_by_address[spec["visibility_category_helper"]][
             "instructions"
         ]
     }
@@ -974,6 +998,12 @@ def procedural_model_receiver_lifecycle(
         0x82E20024: "bl 0x8243f9a0",
         0x82E2003C: "bl 0x82441048",
         0x82E20048: "lwz r11,124(r20)",
+        0x82E2012C: "lfs f0,44(r21)",
+        0x82E20130: "fmuls f0,f0,f0",
+        0x82E20134: "fcmpu cr6,f26,f0",
+        0x82E201A0: "lfs f0,60(r23)",
+        0x82E201AC: "fmuls f0,f0,f0",
+        0x82E201B0: "fcmpu cr6,f26,f0",
         0x82E20080: "add r23,r11,r18",
         0x82E20090: "add r21,r11,r17",
         0x82E205E4: "stw r6,104(r25)",
@@ -990,6 +1020,53 @@ def procedural_model_receiver_lifecycle(
         for address, text in visibility_expected.items()
     ):
         raise ValueError("procedural-model visibility evidence drifted")
+
+    spatial_helper_expected = {
+        0x8243F9A0: "mflr r12",
+        0x8243F9B0: "lfs f13,20(r3)",
+        0x8243F9CC: "lvx128 v63,r0,r4",
+        0x8243F9D0: "lvx128 v62,r0,r5",
+        0x8243F9DC: "vsubfp128 v62,v62,v63",
+        0x8243F9F8: "vmsum3fp128 v62,v62,v62",
+        0x8243FA04: "lfs f1,96(r1)",
+        0x8243FA08: "bl 0x8243fd70",
+    }
+    distance_helper_expected = {
+        0x8243FD74: "lfs f13,20(r3)",
+        0x8243FD8C: "lvx128 v63,r0,r3",
+        0x8243FD94: "lvx128 v62,r0,r4",
+        0x8243FD98: "vsubfp128 v63,v62,v63",
+        0x8243FD9C: "lfs f0,16(r3)",
+        0x8243FDA0: "lfs f13,24(r3)",
+        0x8243FDAC: "vmsum3fp128 v63,v63,v63",
+        0x8243FDB8: "fmuls f0,f0,f12",
+        0x8243FDBC: "fcmpu cr6,f0,f13",
+    }
+    category_helper_expected = {
+        0x8244105C: "addi r11,r3,64",
+        0x8244106C: "addi r10,r3,80",
+        0x82441074: "addi r9,r3,48",
+        0x8244107C: "lvx128 v52,r0,r3",
+        0x82441084: "lvx128 v58,r0,r11",
+        0x82441094: "lvx128 v57,r0,r10",
+        0x824410A0: "addi r10,r3,32",
+        0x824410A4: "lvx128 v54,r0,r9",
+        0x824410B0: "lvx128 v45,r0,r11",
+        0x824410C4: "lvx128 v43,r0,r10",
+        0x824412AC: "li r3,0",
+        0x824412C4: "addi r3,r11,1",
+    }
+    if any(
+        visibility_spatial_helper.get(address) != text
+        for address, text in spatial_helper_expected.items()
+    ) or any(
+        visibility_spatial_distance_helper.get(address) != text
+        for address, text in distance_helper_expected.items()
+    ) or any(
+        visibility_category_helper.get(address) != text
+        for address, text in category_helper_expected.items()
+    ):
+        raise ValueError("procedural-model visibility helper evidence drifted")
 
     render_state_expected = {
         spec["render_state_function"]: "mflr r12",
@@ -1323,6 +1400,33 @@ def procedural_model_receiver_lifecycle(
             "descriptor_distance_scalar_offset": 60,
             "runtime_distance_scalar_offset": 44,
             "squared_distance_register": "f26",
+            "threshold_register": "f0",
+            "runtime_threshold_hook_address": "{:08X}".format(
+                spec["visibility_runtime_threshold_hook"]
+            ),
+            "descriptor_threshold_hook_address": "{:08X}".format(
+                spec["visibility_descriptor_threshold_hook"]
+            ),
+            "passive_input_outcome_correlation_required": True,
+            "spatial_helper_contract": {
+                "distance_helper_address": "{:08X}".format(
+                    spec["visibility_spatial_distance_helper"]
+                ),
+                "query_vector_offset": 0,
+                "query_scalar_offsets": [16, 20, 24],
+                "segment_endpoint_registers": ["v1", "v2"],
+                "squared_delta_operation": "vmsum3fp128",
+                "distance_test_structure_proved": True,
+                "world_space_semantics_proved": False,
+            },
+            "category_helper_contract": {
+                "vector_block_offsets": [0, 16, 32, 48, 64, 80],
+                "vector_block_count": 6,
+                "input_registers": ["v1", "v2"],
+                "return_domain": [0, 1, 2],
+                "six_vector_classifier_structure_proved": True,
+                "frustum_semantics_proved": False,
+            },
             "structural_derivation_proved": True,
             "camera_semantics_proved": False,
             "frustum_plane_layout_proved": False,

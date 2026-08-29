@@ -130,6 +130,12 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelVisibilityRecordExit": (
                 "0x82E2084C"
             ),
+            "PinyonShiftObserveProceduralModelVisibilityRuntimeThreshold": (
+                "0x82E20134"
+            ),
+            "PinyonShiftObserveProceduralModelVisibilityDescriptorThreshold": (
+                "0x82E201B0"
+            ),
         }
         for name, address in hooks.items():
             self.assertEqual(analysis.count(f'name = "{name}"'), 1)
@@ -146,6 +152,21 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"native_lod": False', summarizer)
         self.assertIn('"xenos_authority": True', summarizer)
         self.assertIn('"suppression_allowed": False', summarizer)
+
+        policy_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-policy.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "kSemanticVisibilitySpatialExponentCapacity = 256", source
+        )
+        self.assertIn(
+            "title_spatial_policy_input_outcome_correlation", source
+        )
+        self.assertIn(
+            '"native_policy_execution_enabled": False', policy_summarizer
+        )
+        self.assertIn('"xenos_authority": True', policy_summarizer)
+        self.assertIn('"suppression_allowed": False', policy_summarizer)
 
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
