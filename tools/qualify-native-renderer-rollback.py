@@ -73,14 +73,26 @@ def qualify(enabled_path: Path, disabled_path: Path) -> dict[str, Any]:
     attempts = _integer(enabled_summary, "attempts")
     suppressed = _integer(enabled_summary, "suppressed")
     fallbacks = _integer(enabled_summary, "fallbacks")
+    yielded_attempts = (
+        _integer(enabled_summary, "yielded_attempts")
+        if "yielded_attempts" in enabled_summary
+        else 0
+    )
     _require(enabled_summary.get("status") == "active", "enabled suppression was not active")
     _require(attempts > 0 and suppressed == attempts, "not every enabled attempt suppressed the follower")
     _require(fallbacks == 0, "enabled qualification observed a fallback")
     _require(enabled_summary.get("anchor_draw") == "preserved", "anchor draw was not preserved")
     _require(enabled_summary.get("resolve_suppression") == "false", "enabled run suppressed resolves")
     publication = _one(enabled, "native_renderer.retained_pass.publication_summary")
-    _require(_integer(publication, "attempts") == attempts, "publication attempt count drift")
-    _require(_integer(publication, "published") == attempts, "publication was incomplete")
+    publication_attempts = attempts + yielded_attempts
+    _require(
+        _integer(publication, "attempts") == publication_attempts,
+        "publication attempt count drift",
+    )
+    _require(
+        _integer(publication, "published") == publication_attempts,
+        "publication was incomplete",
+    )
     _require(_integer(publication, "failures") == 0, "publication failure observed")
 
     disabled_control = _one(disabled, "native_renderer.suppression_control")
@@ -104,6 +116,7 @@ def qualify(enabled_path: Path, disabled_path: Path) -> dict[str, Any]:
             "attempts": attempts,
             "suppressed": suppressed,
             "fallbacks": fallbacks,
+            "yielded_attempts": yielded_attempts,
             "normal_shutdown": True,
         },
         "disabled": {

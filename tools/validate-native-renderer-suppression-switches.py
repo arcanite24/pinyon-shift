@@ -86,6 +86,47 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
             status == "implemented" or rollback_qualified is False,
             f"family {family} cannot qualify rollback before implementation",
         )
+        state_yield_implemented = entry.get("state_yield_implemented", False)
+        state_yield_qualified = entry.get("state_yield_qualified", False)
+        require(
+            isinstance(state_yield_implemented, bool),
+            f"family {family} state-yield implementation flag must be boolean",
+        )
+        require(
+            isinstance(state_yield_qualified, bool),
+            f"family {family} state-yield qualification flag must be boolean",
+        )
+        require(
+            state_yield_implemented or state_yield_qualified is False,
+            f"family {family} cannot qualify state yield before implementation",
+        )
+        if state_yield_implemented:
+            require(
+                entry.get("state_gate") == "consecutive_publication_warmup",
+                f"family {family} must use the publication warmup gate",
+            )
+            require(
+                isinstance(entry.get("warmup_frames"), int)
+                and entry["warmup_frames"] > 0,
+                f"family {family} warmup frames must be positive",
+            )
+            require(
+                isinstance(entry.get("failure_cooldown_frames"), int)
+                and entry["failure_cooldown_frames"] > 0,
+                f"family {family} failure cooldown must be positive",
+            )
+            require(
+                entry.get("gap_behavior") == "reset_warmup_and_execute_xenos",
+                f"family {family} must yield after a frame gap",
+            )
+            require(
+                entry.get("failure_behavior") == "cooldown_and_execute_xenos",
+                f"family {family} must yield after publication failure",
+            )
+            require(
+                entry.get("guest_side_effects_preserved") is True,
+                f"family {family} must preserve guest side effects",
+            )
         require(
             entry.get("xenos_fallback") == "mandatory",
             f"family {family} must retain mandatory Xenos fallback",
@@ -105,6 +146,8 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
                 "draw_suppression_implemented": draw_implemented,
                 "resolve_suppression_implemented": resolve_implemented,
                 "rollback_qualified": rollback_qualified,
+                "state_yield_implemented": state_yield_implemented,
+                "state_yield_qualified": state_yield_qualified,
                 "xenos_fallback": "mandatory",
                 "rollback_gate": (
                     "pass"
@@ -129,16 +172,38 @@ def validate(document: dict[str, Any]) -> dict[str, Any]:
             "rollback_switch_gate": (
                 "pass" if all(entry["rollback_qualified"] for entry in normalized) else "unknown"
             ),
+            "state_based_yield_gate": (
+                "pass"
+                if all(
+                    not entry["state_yield_implemented"]
+                    or entry["state_yield_qualified"]
+                    for entry in normalized
+                )
+                else "requires_runtime_test"
+            ),
             "reason": (
-                "every implemented switch has a same-build enabled/disabled rollback qualification"
-                if all(entry["rollback_qualified"] for entry in normalized)
-                else "one or more switches still require runtime rollback qualification"
+                "one or more state-yield gates still require runtime qualification"
+                if any(
+                    entry["state_yield_implemented"]
+                    and not entry["state_yield_qualified"]
+                    for entry in normalized
+                )
+                else (
+                    "every implemented switch has runtime rollback and state-yield qualification"
+                    if all(entry["rollback_qualified"] for entry in normalized)
+                    else "one or more switches still require runtime rollback qualification"
+                )
             ),
         },
         "safety": {
             "xenos_authority": True,
             "suppression_allowed": all(
-                entry["rollback_qualified"] and entry["draw_suppression_implemented"]
+                entry["rollback_qualified"]
+                and entry["draw_suppression_implemented"]
+                and (
+                    not entry["state_yield_implemented"]
+                    or entry["state_yield_qualified"]
+                )
                 for entry in normalized
             ),
         },

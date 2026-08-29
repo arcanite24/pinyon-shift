@@ -57,6 +57,18 @@ follower boundary in
 [EXACT_FAMILY_SUPPRESSION.md](EXACT_FAMILY_SUPPRESSION.md). The Xenos anchor,
 copy, resolve, query, fence, memexport, and later-consumer paths remain
 unchanged, and failed replay/publication executes the original follower.
+The additional warm-up, frame-gap yield, and failure cooldown contract is
+documented in [STATE_BASED_YIELD.md](STATE_BASED_YIELD.md); it must receive its
+own enabled AppData runtime qualification before the safety manifest admits
+the hardened route.
+
+That qualification passed on executable
+`0D35FDBA928E4A1315A9B3C508272E6796010D033796108264CA6063D2F2334A`:
+enabled session `20260829T095155Z-p3564` yielded 48 warm-up publications and
+suppressed 12,223 of 12,223 active followers with zero failures, while disabled
+session `20260829T095601Z-p32088` suppressed zero draws. Both shut down
+normally, promoting the state-based-yield and rollback gates for this exact
+family only.
 
 The complete-pass color and depth gates use the paired asynchronous readback
 described in [VISUAL_COMPARISON.md](VISUAL_COMPARISON.md). It captures

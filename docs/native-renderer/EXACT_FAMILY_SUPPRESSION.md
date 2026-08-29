@@ -16,6 +16,12 @@ draw:
 5. the complete native color and depth/stencil pair was published into the
    exact guest targets.
 
+NR-04E/NR-04F add a runtime state gate on top of those per-draw conditions.
+Eight consecutive successful publication frames are required before the first
+suppression. Any exact-family frame gap resets the warm-up; any replay or
+publication failure executes Xenos and starts a 120-frame cooldown. See
+[STATE_BASED_YIELD.md](STATE_BASED_YIELD.md).
+
 The backend decides after publication, not before it. If replay is unavailable
 or either attachment cannot be published, it executes the original follower
 draw. It never suppresses the anchor, a resolve, query, event, fence, memexport
@@ -37,7 +43,8 @@ An armed run emits:
 - per-attempt `native_renderer.retained_pass.publication` events that identify
   whether the follower was suppressed or the original fallback executed; and
 - `native_renderer.suppression_summary` with attempts, suppressed followers,
-  fallbacks, and the last matching frame/draw.
+  state-gated Xenos yields, fallbacks, cooldowns, unexpected suppressions, and
+  the last matching frame/draw.
 
 ## Rollback qualification
 
@@ -60,3 +67,10 @@ world geometry, crowds, vehicles, UI, and post-processing.
 the manifest now records `rollback_qualified=true` and suppression admission is
 12/12 for this exact, operator-requested family. The feature remains
 restart-gated and default-off.
+
+The hardened PR build passed its enabled AppData state-yield qualification and
+same-build rollback pair. Enabled session `20260829T095155Z-p3564` yielded 48
+complete publications during warm-up and then suppressed 12,223 of 12,223
+eligible followers with zero failures, fallbacks, cooldowns, or unexpected
+suppressions. Disabled session `20260829T095601Z-p32088` suppressed zero draws.
+The manifest therefore records `state_yield_qualified=true`.

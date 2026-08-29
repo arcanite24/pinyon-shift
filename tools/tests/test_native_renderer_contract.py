@@ -579,6 +579,27 @@ class NativeRendererContractTests(unittest.TestCase):
         )
         self.assertTrue(family["draw_suppression_implemented"])
         self.assertFalse(family["resolve_suppression_implemented"])
+        self.assertTrue(family["state_yield_implemented"])
+        self.assertTrue(family["state_yield_qualified"])
+        self.assertEqual("consecutive_publication_warmup", family["state_gate"])
+        self.assertEqual(8, family["warmup_frames"])
+        self.assertEqual(120, family["failure_cooldown_frames"])
+        self.assertTrue(family["guest_side_effects_preserved"])
+        graphics_hooks = (
+            ROOT / "src" / "native_renderer" / "graphics_hooks.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PrepareSuppressionAttempt", graphics_hooks)
+        self.assertIn("EnterSuppressionCooldown", graphics_hooks)
+        self.assertIn("consecutive_publication_warmup", graphics_hooks)
+        self.assertIn("backend_ignored_state_yield", graphics_hooks)
+        qualifier = (
+            ROOT / "tools" / "qualify-native-renderer-state-yield.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon-shift.native-renderer-state-yield-qualification.v1",
+            qualifier,
+        )
+        self.assertIn("unexpected_suppressions", qualifier)
         self.assertTrue(family["anchor_draw_preserved"])
         self.assertEqual(
             "execute_original_follower", family["publication_failure_behavior"]
