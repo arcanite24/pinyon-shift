@@ -81,6 +81,15 @@ PRESENTATION_COLUMNS = (
     "duplicate_present_count",
     "dropped_present_count",
 )
+NATIVE_GPU_TIMING_COLUMNS = (
+    "guest_frame_gpu_time_ns",
+    "native_composition_gpu_time_ns",
+    "native_selection_gpu_time_ns",
+    "guest_frame_gpu_timing_samples",
+    "native_composition_gpu_timing_samples",
+    "native_selection_gpu_timing_samples",
+    "native_gpu_timing_drops",
+)
 
 
 class CaptureError(ValueError):
@@ -147,6 +156,20 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 "capture has an incomplete presentation counter set: "
                 + ", ".join(missing_presentation)
             )
+        available_native_gpu_timing = columns.intersection(
+            NATIVE_GPU_TIMING_COLUMNS
+        )
+        if (
+            available_native_gpu_timing
+            and available_native_gpu_timing != set(NATIVE_GPU_TIMING_COLUMNS)
+        ):
+            missing_native_gpu_timing = sorted(
+                set(NATIVE_GPU_TIMING_COLUMNS) - available_native_gpu_timing
+            )
+            raise CaptureError(
+                "capture has an incomplete native GPU timing counter set: "
+                + ", ".join(missing_native_gpu_timing)
+            )
 
         frame_times: list[float] = []
         totals = {name: 0.0 for name in TOTAL_COLUMNS}
@@ -158,6 +181,11 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
         presentation_totals = (
             {name: 0.0 for name in PRESENTATION_COLUMNS}
             if available_presentation else None
+        )
+        native_gpu_timing_totals = (
+            {name: 0.0 for name in NATIVE_GPU_TIMING_COLUMNS}
+            if available_native_gpu_timing
+            else None
         )
         presentation_delta_samples = {
             "guest_vblank_delta_ns": 0,
@@ -183,6 +211,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 name: finite_number(row[name], column=name, row_number=row_number)
                 for name in PRESENTATION_COLUMNS
             } if presentation_totals is not None else {})
+            row_native_gpu_timing = ({
+                name: finite_number(row[name], column=name, row_number=row_number)
+                for name in NATIVE_GPU_TIMING_COLUMNS
+            } if native_gpu_timing_totals is not None else {})
             # The runtime writes one initialization row with frame_time_us == 0.
             # It is valid CSV, but not a displayed frame and must not skew latency.
             if frame_time == 0:
@@ -202,6 +234,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 presentation_totals[name] += value
                 if name in presentation_delta_samples and value > 0:
                     presentation_delta_samples[name] += 1
+            for name, value in row_native_gpu_timing.items():
+                native_gpu_timing_totals[name] += value
 
     if rows_seen == 0:
         raise CaptureError("capture contains a header but no rows")
@@ -282,6 +316,35 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 ),
             },
         }
+    if native_gpu_timing_totals is not None:
+        counters = {
+            name: int(value) if value.is_integer() else value
+            for name, value in native_gpu_timing_totals.items()
+        }
+
+        def mean_microseconds(time_name: str, sample_name: str) -> float | None:
+            samples = counters[sample_name]
+            if not samples:
+                return None
+            return round(counters[time_name] / samples / 1000.0, 3)
+
+        result["native_renderer_gpu_timing"] = {
+            "counters": counters,
+            "mean_microseconds": {
+                "guest_frame": mean_microseconds(
+                    "guest_frame_gpu_time_ns",
+                    "guest_frame_gpu_timing_samples",
+                ),
+                "native_composition": mean_microseconds(
+                    "native_composition_gpu_time_ns",
+                    "native_composition_gpu_timing_samples",
+                ),
+                "native_selection": mean_microseconds(
+                    "native_selection_gpu_time_ns",
+                    "native_selection_gpu_timing_samples",
+                ),
+            },
+        }
     return result
 
 
@@ -354,6 +417,18 @@ def markdown(summary: dict[str, Any]) -> str:
             f"- Present deadline misses: {pacing['counters']['present_deadline_misses']}",
             f"- Duplicate presents: {pacing['counters']['duplicate_present_count']}",
             f"- Dropped presents: {pacing['counters']['dropped_present_count']}",
+        ])
+    if "native_renderer_gpu_timing" in summary:
+        timing = summary["native_renderer_gpu_timing"]
+        means = timing["mean_microseconds"]
+        lines.extend([
+            "",
+            "## Native renderer GPU timing",
+            "",
+            f"- Guest frame bucket: {means['guest_frame'] if means['guest_frame'] is not None else 'n/a'} us",
+            f"- Native composition: {means['native_composition'] if means['native_composition'] is not None else 'n/a'} us",
+            f"- Native selection: {means['native_selection'] if means['native_selection'] is not None else 'n/a'} us",
+            f"- Dropped samples: {timing['counters']['native_gpu_timing_drops']}",
         ])
     return "\n".join(lines) + "\n"
 

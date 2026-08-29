@@ -112,8 +112,18 @@ proof that native display authority is real, not a readiness signal for pass
 suppression or default enablement.
 
 Per-pass RenderDoc GPU-duration samples were unavailable from the captured
-boundary. The runtime frame summaries above are the current timing evidence;
-marker-level GPU timing remains an explicit follow-up before suppression work.
+boundary. Engine-owned asynchronous D3D12 timestamp queries now close that
+instrumentation gap. The same clean timing build and AppData scene produced:
+
+- `comparison_native` session `20260829T015610Z-p25896`: 32,604.962 us mean
+  guest-frame GPU time, 90.184 us native composition, 20.682 us native
+  selection, and zero dropped samples;
+- `comparison_xenos` session `20260829T015923Z-p23056`: 34,848.473 us mean
+  guest-frame GPU time, 73.845 us native composition, no selection samples as
+  expected, and zero dropped samples.
+
+See [GPU_TIMING.md](GPU_TIMING.md) for the query lifecycle, counter schema,
+full build identity, and safety boundary.
 
 ## Qualification gates
 
@@ -125,7 +135,7 @@ marker-level GPU timing remains an explicit follow-up before suppression work.
 - When the command-processor submission is captured, the strict export contains
   distinct Xenos/native resources and identical hashes for the private and
   selected native output; otherwise it fails closed.
-- Runtime frame timing is recorded for both authorities. Marker-level GPU
-  duration remains required before pass suppression.
+- Runtime frame timing and native GPU buckets are recorded for both authorities
+  with no CPU wait and no dropped samples in qualification.
 - Unsupported/startup frames yield to Xenos without an output-state fault.
 - Clean exit, relaunch, and renderer restoration remain correct.
