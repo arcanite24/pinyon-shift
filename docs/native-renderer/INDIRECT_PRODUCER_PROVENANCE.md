@@ -95,6 +95,11 @@ This qualifies producer-caller provenance as an exact operational classifier.
 The observed caller and argument variation can nominate a later object/lifetime
 investigation, but it does not establish semantic identity on its own.
 
+The five live producer edges are refined one bounded layer further in
+`INDIRECT_CONTEXT_ROOTS.md`. That milestone proves exact equations from four
+caller-entry register sets to producer `r3`; it still does not assign an engine
+type, instance identity, ownership, or lifetime.
+
 ## Safety boundary
 
 The hooks observe registers and packet addresses only. They read no guest

@@ -276,6 +276,13 @@ owner-to-producer mismatches, and 4,400,708 producer-origin draws resolved to
 five exact live caller edges. Semantic object and lifetime identity remains
 unknown.
 
+Those five live edges now have four proved caller scopes and exact producer
+root equations. `INDIRECT_CONTEXT_ROOTS.md` specifies the balanced passive
+hooks and the fail-closed runtime join: context function, producer return, and
+the entry-register-plus-offset root must all match producer `r3`. This narrows
+the next object/lifetime investigation without claiming a type, instance,
+registration, destruction, or suppression candidate.
+
 For all 38 direct adapter callsites, the same static inventory now records
 `r3-r10`'s last syntactic definition since the nearest intervening call. Simple
 loads retain base register, offset, and width; values crossing a call boundary

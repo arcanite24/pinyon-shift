@@ -168,6 +168,46 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x829F63FC
 name = "PinyonShiftObserveIndirectProducer829F6360Exit"
 
+# Balanced passive context scopes for the four functions behind the five live
+# producer callsites. Entries retain the caller LR and r3-r10; exits are the
+# proved common stack-restoration points. Runtime checks verify only the exact
+# statically derived producer root. Object lifetime and semantics remain unknown.
+[[midasm_hook]]
+address = 0x8240CF6C
+name = "PinyonShiftObserveIndirectContext8240CF68Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8240D054
+name = "PinyonShiftObserveIndirectContext8240CF68Exit"
+
+[[midasm_hook]]
+address = 0x82417BC4
+name = "PinyonShiftObserveIndirectContext82417BC0Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82418F38
+name = "PinyonShiftObserveIndirectContext82417BC0Exit"
+
+[[midasm_hook]]
+address = 0x824365B4
+name = "PinyonShiftObserveIndirectContext824365B0Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82437048
+name = "PinyonShiftObserveIndirectContext824365B0Exit"
+
+[[midasm_hook]]
+address = 0x829F6624
+name = "PinyonShiftObserveIndirectContext829F6620Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F67B8
+name = "PinyonShiftObserveIndirectContext829F6620Exit"
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

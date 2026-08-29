@@ -136,6 +136,14 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         ): item
         for item in static_producer_calls
     }
+    static_context_roots = static.get("indirect_context_roots", [])
+    context_roots_by_producer_return = {
+        (
+            str(item.get("producer_function_address", "")).upper(),
+            str(item.get("producer_return_address", "")).upper(),
+        ): item
+        for item in static_context_roots
+    }
 
     session = select_session(events, requested)
     selected = [event for event in events if event.get("session") == session]
@@ -332,6 +340,74 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             producer_argument_varying_mask = int(
                 _hex(event, "producer_argument_varying_mask", 2), 16
             )
+        context_function_address = None
+        context_return_address = None
+        context_arguments = None
+        context_argument_varying_mask = None
+        context_root_address = None
+        context_root_address_varied = None
+        context_root = None
+        if static_context_roots:
+            context_function_address = _optional_hex(
+                event, "context_function_address", 8
+            )
+            context_return_address = _optional_hex(
+                event, "context_return_address", 8
+            )
+            context_root_address = _optional_hex(
+                event, "sample_context_root_address", 8
+            )
+            if (
+                (context_function_address is None)
+                != (context_return_address is None)
+                or (context_function_address is None)
+                != (context_root_address is None)
+            ):
+                raise ValueError("lineage entry has a partial context origin")
+            if context_function_address is not None:
+                if producer_call is None or producer_arguments is None:
+                    raise ValueError(
+                        "lineage entry has a context without a proved producer caller"
+                    )
+                context_root = context_roots_by_producer_return.get(
+                    (producer_function_address, producer_return_address)
+                )
+                if context_root is None:
+                    raise ValueError(
+                        "lineage context has no proved producer-root edge"
+                    )
+                if (
+                    str(context_root.get("context_function_address", "")).upper()
+                    != context_function_address
+                ):
+                    raise ValueError(
+                        "lineage context does not contain the producer callsite"
+                    )
+                context_arguments = _hex_arguments(
+                    event, "sample_context_arguments"
+                )
+                context_argument_varying_mask = int(
+                    _hex(event, "context_argument_varying_mask", 2), 16
+                )
+                context_root_address_varied = (
+                    str(event.get("context_root_address_varied", "")).lower()
+                    == "true"
+                )
+                register = str(context_root.get("root_entry_register", ""))
+                if register not in {f"r{index}" for index in range(3, 11)}:
+                    raise ValueError("static context root has an invalid register")
+                argument_index = int(register[1:]) - 3
+                expected_root = (
+                    int(context_arguments[argument_index], 16)
+                    + int(context_root.get("root_offset", 0))
+                ) & 0xFFFFFFFF
+                if (
+                    int(context_root_address, 16) != expected_root
+                    or int(producer_arguments[0], 16) != expected_root
+                ):
+                    raise ValueError(
+                        "runtime context root does not match its static derivation"
+                    )
         if depth:
             if parent_value >= PHYSICAL_APERTURE_SIZE or parent_value & 3:
                 raise ValueError("indirect lineage entry has no valid parent packet")
@@ -466,6 +542,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "producer_argument_varying_mask": (
                     producer_argument_varying_mask
                 ),
+                "context_function_address": context_function_address,
+                "context_return_address": context_return_address,
+                "context_root_derivation": (
+                    context_root.get("derivation")
+                    if context_root is not None
+                    else None
+                ),
+                "context_root_proved": context_root is not None,
+                "sample_context_arguments": context_arguments,
+                "context_argument_varying_mask": (
+                    context_argument_varying_mask
+                ),
+                "sample_context_root_address": context_root_address,
+                "context_root_address_varied": context_root_address_varied,
                 "depth": depth,
             }
         )
@@ -481,6 +571,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             item["constructor_return_address"] or "",
             item["owner_return_address"] or "",
             item["producer_return_address"] or "",
+            item["context_return_address"] or "",
         )
     )
 
@@ -546,6 +637,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     owner_producer_mismatches = _integer(
         summary, "indirect_owner_producer_mismatches"
     )
+    context_entries = _integer(summary, "indirect_context_entries")
+    context_exits = _integer(summary, "indirect_context_exits")
+    context_open = _integer(
+        summary, "indirect_context_invocations_open_at_shutdown"
+    )
+    context_stack_faults = _integer(
+        summary, "indirect_context_stack_faults"
+    )
+    producers_without_context_origin = _integer(
+        summary, "indirect_producers_without_context_origin"
+    )
+    producer_context_mismatches = _integer(
+        summary, "indirect_producer_context_mismatches"
+    )
     open_at_shutdown = _integer(
         summary, "indirect_buffers_open_at_shutdown"
     )
@@ -577,6 +682,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and producer_entries == producer_exits + producer_open
         and not producer_stack_faults
         and not owner_producer_mismatches
+        and context_entries == context_exits + context_open
+        and not context_stack_faults
+        and not producer_context_mismatches
         and (
             not static_constructor_calls
             or (
@@ -603,6 +711,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 producer_entries > 0
                 and any(
                     item["producer_return_address"] is not None
+                    for item in entries
+                )
+            )
+        )
+        and (
+            not static_context_roots
+            or (
+                context_entries > 0
+                and any(
+                    item["context_return_address"] is not None
                     for item in entries
                 )
             )
@@ -679,6 +797,26 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "producer_argument_varying_mask": entry[
                     "producer_argument_varying_mask"
                 ],
+                "context_function_address": entry[
+                    "context_function_address"
+                ],
+                "context_return_address": entry["context_return_address"],
+                "context_root_derivation": entry[
+                    "context_root_derivation"
+                ],
+                "context_root_proved": entry["context_root_proved"],
+                "sample_context_arguments": entry[
+                    "sample_context_arguments"
+                ],
+                "context_argument_varying_mask": entry[
+                    "context_argument_varying_mask"
+                ],
+                "sample_context_root_address": entry[
+                    "sample_context_root_address"
+                ],
+                "context_root_address_varied": entry[
+                    "context_root_address_varied"
+                ],
                 "depth": entry["depth"],
                 "sample_prepared_signature": entry[
                     "sample_prepared_signature"
@@ -701,6 +839,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             item["constructor_return_address"] or "",
             item["owner_return_address"] or "",
             item["producer_return_address"] or "",
+            item["context_return_address"] or "",
         )
     )
 
@@ -715,6 +854,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "static_indirect_constructor_calls": static_constructor_calls,
         "static_indirect_owner_calls": static_owner_calls,
         "static_indirect_producer_calls": static_producer_calls,
+        "static_indirect_context_roots": static_context_roots,
         "totals": {
             "draws": draws,
             "primary_draws": primary_draws,
@@ -768,6 +908,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "indirect_owner_producer_mismatches": (
                 owner_producer_mismatches
             ),
+            "indirect_context_entries": context_entries,
+            "indirect_context_exits": context_exits,
+            "indirect_context_invocations_open_at_shutdown": context_open,
+            "indirect_context_stack_faults": context_stack_faults,
+            "indirect_producers_without_context_origin": (
+                producers_without_context_origin
+            ),
+            "indirect_producer_context_mismatches": (
+                producer_context_mismatches
+            ),
             "indirect_buffers_open_at_shutdown": open_at_shutdown,
             "constructor_origin_draws": sum(
                 item["calls"]
@@ -814,6 +964,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 for item in entries
                 if item["producer_return_address"] is not None
                 and not item["producer_callsite_proved"]
+            ),
+            "context_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["context_return_address"] is not None
+            ),
+            "statically_resolved_context_origin_draws": sum(
+                item["calls"] for item in entries if item["context_root_proved"]
+            ),
+            "unresolved_context_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["context_return_address"] is not None
+                and not item["context_root_proved"]
             ),
         },
         "qualification": "exact_title_store_to_backend_nested_command_buffer_lineage",

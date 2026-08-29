@@ -115,6 +115,100 @@ def nested_events():
     return result
 
 
+def context_root_inventory():
+    static = static_inventory()
+    static["indirect_constructor_calls"] = [
+        {
+            "constructor_function_address": "82409398",
+            "caller_function": "sub_82409668",
+            "caller_function_address": "82409668",
+            "callsite": "82409834",
+            "return_address": "82409838",
+        }
+    ]
+    static["indirect_owner_calls"] = [
+        {
+            "owner_function_address": "82409668",
+            "caller_function": "sub_8240D070",
+            "caller_function_address": "8240D070",
+            "callsite": "8240D1AC",
+            "return_address": "8240D1B0",
+        }
+    ]
+    static["indirect_producer_calls"] = [
+        {
+            "producer_function_address": "8240D070",
+            "caller_function": "sub_8240CF68",
+            "caller_function_address": "8240CF68",
+            "callsite": "8240CFFC",
+            "return_address": "8240D000",
+        }
+    ]
+    static["indirect_context_roots"] = [
+        {
+            "context_function": "sub_8240CF68",
+            "context_function_address": "8240CF68",
+            "producer_function": "sub_8240D070",
+            "producer_function_address": "8240D070",
+            "producer_return_address": "8240D000",
+            "root_entry_register": "r3",
+            "root_offset": 0,
+            "derivation": "r3",
+        }
+    ]
+    return static
+
+
+def context_root_events():
+    traced = events()
+    traced[1].update(
+        {
+            "constructor_function_address": "82409398",
+            "constructor_return_address": "82409838",
+            "sample_constructor_arguments": "00000000," * 7 + "00000000",
+            "constructor_argument_varying_mask": "00",
+            "owner_function_address": "82409668",
+            "owner_return_address": "8240D1B0",
+            "sample_owner_arguments": "00000000," * 7 + "00000000",
+            "owner_argument_varying_mask": "00",
+            "producer_function_address": "8240D070",
+            "producer_return_address": "8240D000",
+            "sample_producer_arguments": (
+                "10000000,20000000,00000001,00000000,00000000,"
+                "00000000,00000000,00000000"
+            ),
+            "producer_argument_varying_mask": "03",
+            "context_function_address": "8240CF68",
+            "context_return_address": "83000000",
+            "sample_context_arguments": (
+                "10000000,30000000,00000002,00000000,00000000,"
+                "00000000,00000000,00000000"
+            ),
+            "context_argument_varying_mask": "05",
+            "sample_context_root_address": "10000000",
+            "context_root_address_varied": "false",
+        }
+    )
+    traced[-1].update(
+        {
+            "indirect_constructor_entries": "1",
+            "indirect_constructor_exits": "1",
+            "indirect_owner_entries": "1",
+            "indirect_owner_exits": "1",
+            "indirect_producer_entries": "1",
+            "indirect_producer_exits": "1",
+            "indirect_owner_producer_mismatches": "0",
+            "indirect_context_entries": "1",
+            "indirect_context_exits": "1",
+            "indirect_context_invocations_open_at_shutdown": "0",
+            "indirect_context_stack_faults": "0",
+            "indirect_producers_without_context_origin": "0",
+            "indirect_producer_context_mismatches": "0",
+        }
+    )
+    return traced
+
+
 class NativeRendererCommandLineageTests(unittest.TestCase):
     def test_builds_complete_exact_lineage_report(self):
         document = MODULE.build(events(), static_inventory())
@@ -422,6 +516,33 @@ class NativeRendererCommandLineageTests(unittest.TestCase):
             12,
             document["totals"]["statically_resolved_producer_origin_draws"],
         )
+
+    def test_proves_balanced_runtime_context_root(self):
+        document = MODULE.build(context_root_events(), context_root_inventory())
+        self.assertEqual("complete", document["status"])
+        shape = document["shapes"][0]
+        self.assertEqual("8240CF68", shape["context_function_address"])
+        self.assertEqual("r3", shape["context_root_derivation"])
+        self.assertTrue(shape["context_root_proved"])
+        self.assertEqual("10000000", shape["sample_context_root_address"])
+        self.assertEqual(5, shape["context_argument_varying_mask"])
+        self.assertEqual(12, document["totals"]["context_origin_draws"])
+        self.assertEqual(
+            12,
+            document["totals"]["statically_resolved_context_origin_draws"],
+        )
+
+    def test_rejects_runtime_context_root_derivation_mismatch(self):
+        traced = context_root_events()
+        traced[1]["sample_context_root_address"] = "10000004"
+        with self.assertRaisesRegex(ValueError, "static derivation"):
+            MODULE.build(traced, context_root_inventory())
+
+    def test_fails_closed_on_context_producer_mismatch(self):
+        traced = context_root_events()
+        traced[-1]["indirect_producer_context_mismatches"] = "1"
+        document = MODULE.build(traced, context_root_inventory())
+        self.assertEqual("incomplete_fail_closed", document["status"])
 
     def test_rejects_producer_that_does_not_contain_owner_callsite(self):
         static = static_inventory()

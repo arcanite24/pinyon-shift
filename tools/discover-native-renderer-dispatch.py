@@ -119,6 +119,63 @@ INDIRECT_PRODUCER_RUNTIME_HOOKS = {
     0x82417060: {"entry": 0x82417064, "exit": 0x824170C0},
     0x829F6360: {"entry": 0x829F6364, "exit": 0x829F63FC},
 }
+INDIRECT_CONTEXT_RUNTIME_HOOKS = {
+    0x8240CF68: {
+        "entry": 0x8240CF6C,
+        "exit": 0x8240D054,
+        "root_entry_register": "r3",
+        "root_offset": 0,
+        "producer_edges": [(0x8240D070, 0x8240D000)],
+        "proof": [
+            (0x8240CF80, "mr r31,r3"),
+            (0x8240CFF8, "mr r3,r31"),
+        ],
+    },
+    0x82417BC0: {
+        "entry": 0x82417BC4,
+        "exit": 0x82418F38,
+        "root_entry_register": "r6",
+        "root_offset": 59712,
+        "producer_edges": [
+            (0x82417060, 0x82418A28),
+            (0x82417060, 0x82418ECC),
+        ],
+        "proof": [
+            (0x82417BF0, "stw r6,2156(r1)"),
+            (0x82418058, "lwz r8,2156(r1)"),
+            (0x82418068, "addis r24,r8,1"),
+            (0x8241807C, "addi r24,r24,-5824"),
+            (0x82418A20, "mr r3,r24"),
+            (0x82418EC4, "mr r3,r24"),
+        ],
+    },
+    0x824365B0: {
+        "entry": 0x824365B4,
+        "exit": 0x82437048,
+        "root_entry_register": "r3",
+        "root_offset": 59712,
+        "producer_edges": [(0x82417060, 0x82437048)],
+        "proof": [
+            (0x824365C0, "mr r29,r3"),
+            (0x8243667C, "addis r25,r29,1"),
+            (0x82436688, "addi r25,r25,-5824"),
+            (0x82436690, "stw r25,84(r1)"),
+            (0x82437030, "lwz r25,84(r1)"),
+            (0x82437040, "mr r3,r25"),
+        ],
+    },
+    0x829F6620: {
+        "entry": 0x829F6624,
+        "exit": 0x829F67B8,
+        "root_entry_register": "r3",
+        "root_offset": 0,
+        "producer_edges": [(0x829F6360, 0x829F67B0)],
+        "proof": [
+            (0x829F662C, "mr r28,r3"),
+            (0x829F67A8, "mr r3,r28"),
+        ],
+    },
+}
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -582,6 +639,108 @@ def indirect_producer_runtime_hooks(
             }
         )
     return result
+
+
+def indirect_context_runtime_hooks(
+    functions_by_address: dict[int, dict]
+) -> list[dict]:
+    """Prove balanced scopes for the four live producer contexts."""
+    observed_known = set(functions_by_address) & set(
+        INDIRECT_CONTEXT_RUNTIME_HOOKS
+    )
+    if observed_known and observed_known != set(INDIRECT_CONTEXT_RUNTIME_HOOKS):
+        raise ValueError("known indirect-context function set drifted")
+    result = []
+    for address in sorted(observed_known):
+        hooks = INDIRECT_CONTEXT_RUNTIME_HOOKS[address]
+        function = functions_by_address[address]
+        by_address = {
+            item["address"]: item["text"] for item in function["instructions"]
+        }
+        if (
+            not function["instructions"]
+            or function["instructions"][0]
+            != {"address": address, "text": "mflr r12"}
+            or hooks["entry"] != address + 4
+            or not by_address.get(hooks["exit"], "").startswith("addi r1,r1,")
+            or any(
+                by_address.get(proof_address) != proof_text
+                for proof_address, proof_text in hooks["proof"]
+            )
+        ):
+            raise ValueError(
+                "indirect-context root evidence drifted: {:08X}".format(address)
+            )
+        result.append(
+            {
+                "function": function["name"],
+                "function_address": "{:08X}".format(address),
+                "entry_hook_address": "{:08X}".format(hooks["entry"]),
+                "exit_hook_address": "{:08X}".format(hooks["exit"]),
+                "caller_lr_register": "r12_after_opening_mflr",
+                "entry_metadata": [
+                    "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"
+                ],
+                "root_entry_register": hooks["root_entry_register"],
+                "root_offset": hooks["root_offset"],
+                "classification": "balanced_passive_producer_context",
+                "semantic_identity": "unknown",
+                "object_identity_proved": False,
+                "object_lifetime_proved": False,
+                "invocation_scope_proved": True,
+                "suppression_eligible": False,
+            }
+        )
+    return result
+
+
+def indirect_context_roots(functions_by_address: dict[int, dict]) -> list[dict]:
+    """Describe exact entry-register roots for the five live producer edges."""
+    if not set(functions_by_address) & set(INDIRECT_CONTEXT_RUNTIME_HOOKS):
+        return []
+    roots = []
+    for address, hooks in sorted(INDIRECT_CONTEXT_RUNTIME_HOOKS.items()):
+        function = functions_by_address[address]
+        by_address = {
+            item["address"]: item["text"] for item in function["instructions"]
+        }
+        for producer_function, producer_return in hooks["producer_edges"]:
+            expected_call = "bl 0x{:08x}".format(producer_function)
+            if by_address.get(producer_return - 4) != expected_call:
+                raise ValueError(
+                    "indirect-context producer edge drifted: "
+                    "{:08X}->{:08X}".format(address, producer_return)
+                )
+            roots.append(
+                {
+                    "context_function": "sub_{:08X}".format(address),
+                    "context_function_address": "{:08X}".format(address),
+                    "producer_function": "sub_{:08X}".format(
+                        producer_function
+                    ),
+                    "producer_function_address": "{:08X}".format(
+                        producer_function
+                    ),
+                    "producer_return_address": "{:08X}".format(
+                        producer_return
+                    ),
+                    "root_entry_register": hooks["root_entry_register"],
+                    "root_offset": hooks["root_offset"],
+                    "derivation": (
+                        hooks["root_entry_register"]
+                        if not hooks["root_offset"]
+                        else "{}+{}".format(
+                            hooks["root_entry_register"], hooks["root_offset"]
+                        )
+                    ),
+                    "classification": "exact_producer_context_root",
+                    "semantic_identity": "unknown",
+                    "object_identity_proved": False,
+                    "object_lifetime_proved": False,
+                    "suppression_eligible": False,
+                }
+            )
+    return roots
 
 
 def argument_leads_for_calls(
@@ -1136,6 +1295,8 @@ def build(paths: list[pathlib.Path]) -> dict:
     owner_hooks = indirect_owner_runtime_hooks(functions_by_address)
     producer_calls = indirect_producer_calls(functions)
     producer_hooks = indirect_producer_runtime_hooks(functions_by_address)
+    context_hooks = indirect_context_runtime_hooks(functions_by_address)
+    context_roots = indirect_context_roots(functions_by_address)
     constructor_argument_leads = argument_leads_for_calls(
         functions, constructor_calls, "constructor_function_address"
     )
@@ -1239,6 +1400,8 @@ def build(paths: list[pathlib.Path]) -> dict:
         "indirect_producer_calls": producer_calls,
         "indirect_producer_runtime_hooks": producer_hooks,
         "indirect_producer_argument_leads": producer_argument_leads,
+        "indirect_context_runtime_hooks": context_hooks,
+        "indirect_context_roots": context_roots,
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
@@ -1307,6 +1470,8 @@ def build(paths: list[pathlib.Path]) -> dict:
             "indirect_producer_argument_leads": len(
                 producer_argument_leads
             ),
+            "indirect_context_runtime_hooks": len(context_hooks),
+            "indirect_context_roots": len(context_roots),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),
