@@ -21,6 +21,8 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{16}(?:/[0-9A-Fa-f]{16}){3}$')]
     [string]$ConsumerFamily,
     [string]$ConsumerReadbackDir,
+    [ValidateRange(1, 16)]
+    [int]$ConsumerReadbackSamples = 1,
     [switch]$Json
 )
 
@@ -132,6 +134,7 @@ $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
 $savedConsumerReadbackDir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
+$savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -144,6 +147,8 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $ConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
+        if ($ConsumerReadbackDir) { [string]$ConsumerReadbackSamples } else { $null }
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
         -Json:$Json
@@ -160,4 +165,6 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $savedConsumerReadbackDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
+        $savedConsumerReadbackSamples
 }

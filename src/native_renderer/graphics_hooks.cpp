@@ -56,6 +56,7 @@ constexpr uint64_t kMaximumIndexScanBytes = UINT64_C(4) << 20;
 constexpr uint32_t kMaximumTextureScanResources = 4;
 constexpr uint64_t kMaximumTextureScanResourceBytes = UINT64_C(16) << 20;
 constexpr uint64_t kMaximumTextureScanTotalBytes = UINT64_C(32) << 20;
+constexpr uint32_t kMaximumConsumerReadbackSamples = 16;
 std::atomic<uint64_t> g_frame_sequence{};
 
 std::string CensusSceneMarker() {
@@ -158,12 +159,15 @@ struct ConsumerFamilyMarkerState {
   uint64_t marker_requests = 0;
   uint64_t readback_requests = 0;
   uint64_t readback_completions = 0;
+  uint64_t readback_samples_completed = 0;
+  uint32_t readback_sample_limit = 1;
+  uint32_t current_capture_completions = 0;
+  uint32_t current_capture_index = 0;
   std::filesystem::path readback_root;
-  std::jthread before_artifact_writer;
-  std::jthread after_artifact_writer;
+  std::vector<std::jthread> artifact_writers;
   bool requested = false;
   bool readback_requested = false;
-  bool readback_queued = false;
+  bool readback_in_flight = false;
   bool valid = true;
   bool current_match = false;
 };
@@ -262,7 +266,30 @@ void ConfigureConsumerFamilyMarker() {
   if (!g_consumer_family_marker.valid ||
       !IsLocalArtifactRoot(g_consumer_family_marker.readback_root)) {
     g_consumer_family_marker.valid = false;
+    return;
   }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES") !=
+          0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string sample_setting(value);
+  std::free(value);
+  uint32_t sample_limit = 0;
+  const auto parsed = std::from_chars(
+      sample_setting.data(), sample_setting.data() + sample_setting.size(),
+      sample_limit, 10);
+  if (parsed.ec != std::errc{} ||
+      parsed.ptr != sample_setting.data() + sample_setting.size() ||
+      !sample_limit || sample_limit > kMaximumConsumerReadbackSamples) {
+    g_consumer_family_marker.valid = false;
+    return;
+  }
+  g_consumer_family_marker.readback_sample_limit = sample_limit;
 }
 
 std::string ConsumerFamilyId() {
@@ -2207,8 +2234,15 @@ float HalfToFloat(uint16_t value) {
 
 void CompleteConsumerFamilyReadbackArtifact(
     const rex::system::GraphicsIsolatedDrawReadback &readback,
-    const char *phase, std::jthread &artifact_writer) {
+    const char *attachment, const char *phase) {
   ++g_consumer_family_marker.readback_completions;
+  const auto finish = []() {
+    ++g_consumer_family_marker.current_capture_completions;
+    if (g_consumer_family_marker.current_capture_completions == 4) {
+      ++g_consumer_family_marker.readback_samples_completed;
+      g_consumer_family_marker.readback_in_flight = false;
+    }
+  };
   const auto reject = [&](const char *status) {
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.census.consumer_family_readback",
@@ -2217,11 +2251,15 @@ void CompleteConsumerFamilyReadbackArtifact(
          {"detail", fmt::format("0x{:08X}", readback.detail)},
          {"frame", std::to_string(g_consumer_family_marker.capture_frame)},
          {"draw", std::to_string(g_consumer_family_marker.capture_draw)},
+         {"sample",
+          std::to_string(g_consumer_family_marker.current_capture_index)},
+         {"attachment", attachment},
          {"phase", phase},
          {"xenos_draw", "preserved"},
          {"draw_suppression", "false"},
          {"resolve_suppression", "false"},
          {"suppression_eligible", "false"}});
+    finish();
   };
   if (readback.status !=
       rex::system::GraphicsIsolatedDrawReadbackStatus::kReady) {
@@ -2244,16 +2282,46 @@ void CompleteConsumerFamilyReadbackArtifact(
 
   constexpr uint32_t kR16G16B16A16Float = 10;
   constexpr uint32_t kR8G8B8A8Unorm = 28;
-  const uint32_t bytes_per_pixel =
-      readback.format == kR16G16B16A16Float
-          ? 8
-          : (readback.format == kR8G8B8A8Unorm ? 4 : 0);
+  const bool is_color = std::strcmp(attachment, "color") == 0;
+  const uint32_t bytes_per_pixel = is_color
+                                       ? (readback.format ==
+                                                  kR16G16B16A16Float
+                                              ? 8
+                                              : (readback.format ==
+                                                         kR8G8B8A8Unorm
+                                                     ? 4
+                                                     : 0))
+                                       : 0;
   const uint64_t required_size =
-      uint64_t(readback.row_pitch) * readback.height;
-  if (!bytes_per_pixel || !readback.data || !readback.width ||
-      !readback.height ||
-      uint64_t(readback.width) * bytes_per_pixel > readback.row_pitch ||
-      required_size > readback.data_size || required_size > SIZE_MAX) {
+      is_color ? uint64_t(readback.row_pitch) * readback.height
+               : readback.data_size;
+  bool layout_valid = readback.data && readback.width && readback.height &&
+                      required_size && required_size <= readback.data_size &&
+                      required_size <= SIZE_MAX;
+  if (is_color) {
+    layout_valid &= bytes_per_pixel && readback.sample_count &&
+                    uint64_t(readback.width) * bytes_per_pixel <=
+                        readback.row_pitch;
+  } else {
+    layout_valid &= readback.sample_count && readback.plane_count &&
+                    readback.plane_count <=
+                        rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes;
+    for (uint32_t plane = 0;
+         layout_valid && plane < readback.plane_count; ++plane) {
+      const uint64_t plane_end =
+          readback.plane_offsets[plane] +
+          uint64_t(readback.plane_row_pitches[plane]) *
+              (readback.plane_row_counts[plane] - 1) +
+          readback.plane_row_sizes[plane];
+      layout_valid &= readback.plane_row_pitches[plane] &&
+                      readback.plane_row_sizes[plane] &&
+                      readback.plane_row_sizes[plane] <=
+                          readback.plane_row_pitches[plane] &&
+                      readback.plane_row_counts[plane] &&
+                      plane_end <= required_size;
+    }
+  }
+  if (!layout_valid) {
     reject("unsupported_layout");
     return;
   }
@@ -2263,15 +2331,48 @@ void CompleteConsumerFamilyReadbackArtifact(
   const std::string family = ConsumerFamilyId();
   const uint64_t frame = g_consumer_family_marker.capture_frame;
   const uint64_t draw = g_consumer_family_marker.capture_draw;
-  const auto output_root = g_consumer_family_marker.readback_root / phase;
+  const uint32_t sample = g_consumer_family_marker.current_capture_index;
+  std::filesystem::path capture_root =
+      g_consumer_family_marker.readback_root;
+  if (g_consumer_family_marker.readback_sample_limit > 1) {
+    capture_root /= fmt::format("sample-{:04}", sample);
+  }
+  const auto output_root = is_color
+                               ? capture_root / phase
+                               : capture_root / L"depth" / phase;
   const uint32_t width = readback.width;
   const uint32_t height = readback.height;
   const uint32_t row_pitch = readback.row_pitch;
   const uint32_t format = readback.format;
-  artifact_writer = std::jthread(
-      [bytes = std::move(bytes), family, frame, draw, output_root, width,
-       height, row_pitch, format, bytes_per_pixel,
-       phase = std::string(phase)]() {
+  const uint32_t source_sample_count = readback.sample_count;
+  // D3D12 color MSAA readback is resolved before it reaches this callback.
+  // Depth/stencil MSAA is extracted per sample and remains multisampled.
+  const uint32_t sample_count = is_color ? 1 : source_sample_count;
+  const uint32_t plane_count = readback.plane_count;
+  std::string planes = "[";
+  for (uint32_t plane = 0; plane < plane_count; ++plane) {
+    if (plane) {
+      planes += ',';
+    }
+    planes += fmt::format(
+        "{{\"offset\":{},\"row_pitch\":{},\"row_size\":{},"
+        "\"row_count\":{}}}",
+        readback.plane_offsets[plane], readback.plane_row_pitches[plane],
+        readback.plane_row_sizes[plane],
+        readback.plane_row_counts[plane]);
+  }
+  planes += ']';
+  const std::string encoding =
+      is_color
+          ? (format == kR16G16B16A16Float ? "rgba16_float"
+                                          : "rgba8_unorm")
+          : (sample_count > 1 ? "depth32_stencil8_sample_tuples"
+                              : "d3d12_planar_depth_stencil");
+  g_consumer_family_marker.artifact_writers.emplace_back(
+      [bytes = std::move(bytes), family, frame, draw, sample, output_root,
+       width, height, row_pitch, format, bytes_per_pixel, sample_count,
+       source_sample_count, plane_count, planes = std::move(planes), encoding,
+       attachment = std::string(attachment), phase = std::string(phase)]() {
         std::filesystem::path staging = output_root;
         staging += L".partial";
         std::error_code error;
@@ -2284,6 +2385,8 @@ void CompleteConsumerFamilyReadbackArtifact(
                {"status", "output_directory_unavailable"},
                {"frame", std::to_string(frame)},
                {"draw", std::to_string(draw)},
+               {"sample", std::to_string(sample)},
+               {"attachment", attachment},
                {"phase", phase},
                {"xenos_draw", "preserved"},
                {"suppression_eligible", "false"}});
@@ -2293,10 +2396,15 @@ void CompleteConsumerFamilyReadbackArtifact(
             "{{\n  \"schema\": "
             "\"pinyon-shift.consumer-family-readback.v1\",\n"
             "  \"consumer_family\": \"{}\",\n  \"frame\": {},\n"
-            "  \"draw\": {},\n  \"phase\": \"{}\",\n"
+            "  \"draw\": {},\n  \"sample\": {},\n"
+            "  \"attachment\": \"{}\",\n"
+            "  \"phase\": \"{}\",\n"
             "  \"source\": {{\"width\":{},\"height\":{},"
             "\"row_pitch\":{},\"dxgi_format\":{},"
-            "\"bytes_per_pixel\":{},\"bytes\":{},"
+            "\"bytes_per_pixel\":{},\"sample_count\":{},"
+            "\"source_sample_count\":{},"
+            "\"plane_count\":{},\"planes\":{},"
+            "\"encoding\":\"{}\",\"bytes\":{},"
             "\"hash\":\"{:016X}\"}},\n"
             "  \"payload\": {{\"file\":\"target.bin\"}},\n"
             "  \"safety\": {{\"output_authority\":\"xenos\","
@@ -2304,8 +2412,9 @@ void CompleteConsumerFamilyReadbackArtifact(
             "\"draw_suppression\":false,"
             "\"resolve_suppression\":false,"
             "\"suppression_allowed\":false}}\n}}\n",
-            family, frame, draw, phase, width, height, row_pitch, format,
-            bytes_per_pixel, bytes.size(),
+            family, frame, draw, sample, attachment, phase, width, height,
+            row_pitch, format, bytes_per_pixel, sample_count,
+            source_sample_count, plane_count, planes, encoding, bytes.size(),
             HashBytes(bytes.data(), bytes.size()));
         const auto metadata_bytes = std::span(
             reinterpret_cast<const uint8_t *>(metadata.data()),
@@ -2319,6 +2428,8 @@ void CompleteConsumerFamilyReadbackArtifact(
                {"status", "artifact_write_failed"},
                {"frame", std::to_string(frame)},
                {"draw", std::to_string(draw)},
+               {"sample", std::to_string(sample)},
+               {"attachment", attachment},
                {"phase", phase},
                {"xenos_draw", "preserved"},
                {"suppression_eligible", "false"}});
@@ -2331,6 +2442,8 @@ void CompleteConsumerFamilyReadbackArtifact(
              {"status", error ? "artifact_commit_failed" : "captured"},
              {"frame", std::to_string(frame)},
              {"draw", std::to_string(draw)},
+             {"sample", std::to_string(sample)},
+             {"attachment", attachment},
              {"phase", phase},
              {"source_width", std::to_string(width)},
              {"source_height", std::to_string(height)},
@@ -2340,18 +2453,31 @@ void CompleteConsumerFamilyReadbackArtifact(
              {"resolve_suppression", "false"},
              {"suppression_eligible", "false"}});
       });
+  finish();
 }
 
 void CompleteConsumerFamilyBeforeReadback(
     const rex::system::GraphicsIsolatedDrawReadback &readback) {
   CompleteConsumerFamilyReadbackArtifact(
-      readback, "before", g_consumer_family_marker.before_artifact_writer);
+      readback, "color", "before");
 }
 
 void CompleteConsumerFamilyAfterReadback(
     const rex::system::GraphicsIsolatedDrawReadback &readback) {
   CompleteConsumerFamilyReadbackArtifact(
-      readback, "after", g_consumer_family_marker.after_artifact_writer);
+      readback, "color", "after");
+}
+
+void CompleteConsumerFamilyBeforeDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  CompleteConsumerFamilyReadbackArtifact(readback, "depth_stencil",
+                                         "before");
+}
+
+void CompleteConsumerFamilyAfterDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  CompleteConsumerFamilyReadbackArtifact(readback, "depth_stencil",
+                                         "after");
 }
 
 void CompleteIsolatedReadbackArtifact(
@@ -2862,14 +2988,24 @@ void RequestIsolatedDraw(
     request.consumer_reference_marker_requested = true;
     ++g_consumer_family_marker.marker_requests;
     if (g_consumer_family_marker.readback_requested &&
-        !g_consumer_family_marker.readback_queued) {
-      g_consumer_family_marker.readback_queued = true;
+        !g_consumer_family_marker.readback_in_flight &&
+        g_consumer_family_marker.readback_requests <
+            g_consumer_family_marker.readback_sample_limit) {
+      g_consumer_family_marker.readback_in_flight = true;
+      g_consumer_family_marker.current_capture_completions = 0;
       ++g_consumer_family_marker.readback_requests;
+      g_consumer_family_marker.current_capture_index =
+          uint32_t(g_consumer_family_marker.readback_requests);
       request.consumer_reference_readback_requested = true;
+      request.consumer_reference_depth_readback_requested = true;
       request.consumer_reference_before_readback_completion =
           &CompleteConsumerFamilyBeforeReadback;
       request.consumer_reference_after_readback_completion =
           &CompleteConsumerFamilyAfterReadback;
+      request.consumer_reference_before_depth_readback_completion =
+          &CompleteConsumerFamilyBeforeDepthReadback;
+      request.consumer_reference_after_depth_readback_completion =
+          &CompleteConsumerFamilyAfterDepthReadback;
     }
   }
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
@@ -3210,7 +3346,9 @@ void CommitPassConsumer(
     g_consumer_family_marker.current_match = true;
     ++g_consumer_family_marker.matched_draws;
     if (g_consumer_family_marker.readback_requested &&
-        !g_consumer_family_marker.readback_queued) {
+        !g_consumer_family_marker.readback_in_flight &&
+        g_consumer_family_marker.readback_requests <
+            g_consumer_family_marker.readback_sample_limit) {
       g_consumer_family_marker.capture_frame = observation.frame_sequence;
       g_consumer_family_marker.capture_draw = observation.draw_sequence;
     }
@@ -3661,11 +3799,14 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                              : "invalid_configuration")},
        {"consumer_family", ConsumerFamilyId()},
        {"mode", g_consumer_family_marker.readback_requested
-                    ? "authoritative_draw_marker_and_paired_async_readback"
+                    ? "authoritative_draw_marker_and_bounded_attachment_corpus"
                     : "authoritative_draw_marker_only"},
        {"readback",
-        g_consumer_family_marker.readback_requested ? "before_after_color"
-                                                    : "disabled"},
+        g_consumer_family_marker.readback_requested
+            ? "before_after_color_and_depth_stencil"
+            : "disabled"},
+       {"readback_sample_limit",
+        std::to_string(g_consumer_family_marker.readback_sample_limit)},
        {"readback_output",
         g_consumer_family_marker.readback_requested ? "local_only" : ""},
        {"xenos_draw", "preserved"},
@@ -3756,11 +3897,11 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (g_isolated_draw.reference_depth_artifact_writer.joinable()) {
     g_isolated_draw.reference_depth_artifact_writer.join();
   }
-  if (g_consumer_family_marker.before_artifact_writer.joinable()) {
-    g_consumer_family_marker.before_artifact_writer.join();
-  }
-  if (g_consumer_family_marker.after_artifact_writer.joinable()) {
-    g_consumer_family_marker.after_artifact_writer.join();
+  for (std::jthread &artifact_writer :
+       g_consumer_family_marker.artifact_writers) {
+    if (artifact_writer.joinable()) {
+      artifact_writer.join();
+    }
   }
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
@@ -4004,11 +4145,19 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
         std::to_string(g_consumer_family_marker.readback_requests)},
        {"readback_completions",
         std::to_string(g_consumer_family_marker.readback_completions)},
+       {"readback_sample_limit",
+        std::to_string(g_consumer_family_marker.readback_sample_limit)},
+       {"readback_samples_completed",
+        std::to_string(g_consumer_family_marker.readback_samples_completed)},
+       {"readback_expected_completions",
+        std::to_string(g_consumer_family_marker.readback_requests * 4)},
+       {"readback_in_flight",
+        g_consumer_family_marker.readback_in_flight ? "true" : "false"},
        {"capture_frame",
         std::to_string(g_consumer_family_marker.capture_frame)},
        {"capture_draw", std::to_string(g_consumer_family_marker.capture_draw)},
        {"mode", g_consumer_family_marker.readback_requested
-                    ? "authoritative_draw_marker_and_paired_async_readback"
+                    ? "authoritative_draw_marker_and_bounded_attachment_corpus"
                     : "authoritative_draw_marker_only"},
        {"xenos_draw", "preserved"},
        {"draw_suppression", "false"},
