@@ -74,6 +74,15 @@ signature overflow and complete prepared metadata. This keeps
 `later_gpu_consumers` at `fail`: consumers are proven present but are not
 native-replaced.
 
+[RETAINED_PASS_OUTPUT_PUBLICATION.md](RETAINED_PASS_OUTPUT_PUBLICATION.md)
+defines the next preservation boundary. A default-off diagnostic path copies
+the parity-qualified native color and depth/stencil result back into the exact
+guest targets only after both original Xenos draws. This is intended to let the
+existing resolves and all 38 consumer families continue unchanged. Its
+implementation does not promote the gate: scene qualification must still prove
+that published outputs reach downstream consumers with parity before any
+suppression implementation may begin.
+
 The same session armed every one of those 348 resolve generations and observed
 zero guest CPU read or write events. This promotes `guest_cpu_visibility` from
 `unknown` to scene-bounded `pass`, as documented in
