@@ -80,9 +80,12 @@ Those meanings must be proved before an instance is eligible for native
 admission or batching.
 
 The next static and runtime contract now follows these same records through
-their exact resource-binding and geometry-submission operations. It classifies
-structural resource keys, binding slots, an opaque runtime submission object,
-and the two geometry-source paths without claiming a mesh/material ABI. See
+their exact resource-provider lookup, shared resolver cache, reconciled
+resource-binding key cache, and geometry-submission operations. It classifies
+structural resource keys,
+opaque provider/vtable/method identities and selection routes, binding slots,
+an opaque runtime submission object, and the two geometry-source paths without
+claiming a provider class, secondary-resolution semantic, or mesh/material ABI. See
 `PROCEDURAL_MODEL_SUBMISSION_CONTRACT.md`.
 
 ## AppData qualification

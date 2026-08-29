@@ -22,15 +22,35 @@ def static_inventory():
             "semantic_submission_extraction": {
                 "primary_resource_binding_hook_address": "82417A74",
                 "secondary_resource_binding_hook_address": "82417A9C",
+                "resource_provider_lookup_hook_address": "82415B64",
+                "resource_provider_primary_predicate_hook_address": "82415B80",
+                "resource_provider_fallback_predicate_hook_address": "82415BA4",
+                "resource_provider_method_result_hook_address": "82415BC0",
+                "resource_secondary_resolution_result_hook_address": "82415BE4",
                 "resource_resolution_result_hook_address": "82415C50",
                 "resource_bind_dispatch_hook_address": "82415C6C",
                 "geometry_submission_hook_address": "82417B60",
                 "resource_binding_helper_function_address": "82415BF8",
                 "resource_binding_slots": [0, 1],
+                "resource_binding_key_cache_address": "834AD4CC",
+                "resource_binding_key_cache_entry_count": 5,
+                "resource_binding_key_cache_entry_stride": 4,
+                "resource_binding_key_cache_indexed_by_binding_slot": True,
+                "resource_binding_key_cache_skips_unchanged_bind": True,
+                "resource_lookup_function_address": "82410A58",
+                "resource_provider_vtable_method_offsets": [24, 36, 40, 44],
+                "resource_resolution_cache_entry_count": 5,
+                "resource_resolution_cache_entry_stride": 12,
+                "resource_resolution_cache_bound_object_offset": 0,
+                "resource_resolution_cache_key_offset": 4,
+                "resource_resolution_cache_usage_offset": 8,
+                "resource_resolution_cache_shared_across_binding_slots": True,
                 "graphics_submission_primitive": 13,
                 "graphics_submission_count_scale": 4,
                 "resource_binding_derivation_proved": True,
                 "resolved_resource_object_derivation_proved": True,
+                "resource_provider_chain_derivation_proved": True,
+                "secondary_resolution_semantics_proved": False,
                 "record_join_proved": True,
                 "geometry_submission_derivation_proved": True,
                 "descriptor_kind_partition_proved": True,
@@ -59,6 +79,17 @@ def events():
             **common,
             "event": "native_renderer.discovery.semantic_submission_config",
             "status": "armed",
+            "primary_resource_binding_hook": "82417A74",
+            "secondary_resource_binding_hook": "82417A9C",
+            "resource_lookup_function": "82410A58",
+            "resource_provider_lookup_hook": "82415B64",
+            "resource_provider_primary_predicate_hook": "82415B80",
+            "resource_provider_fallback_predicate_hook": "82415BA4",
+            "resource_provider_method_result_hook": "82415BC0",
+            "resource_secondary_resolution_result_hook": "82415BE4",
+            "resource_resolution_result_hook": "82415C50",
+            "resource_bind_dispatch_hook": "82415C6C",
+            "geometry_submission_hook": "82417B60",
         },
         {
             **common,
@@ -79,10 +110,26 @@ def events():
             "primary_resource_index": "9",
             "primary_resource_key": "40000000",
             "primary_bound_resource_object": "41000000",
+            "primary_resource_provider_object": "42000000",
+            "primary_resource_provider_vtable": "43000000",
+            "primary_resource_predicate_24_method": "82420018",
+            "primary_resource_primary_36_method": "82420024",
+            "primary_resource_fallback_40_method": "82420028",
+            "primary_resource_predicate_44_method": "8242002C",
+            "primary_resource_provider_selection": "primary_method_36",
+            "primary_resource_object_source": "provider_method",
             "secondary_resource_present": "true",
             "secondary_resource_index": "10",
             "secondary_resource_key": "50000000",
             "secondary_bound_resource_object": "51000000",
+            "secondary_resource_provider_object": "52000000",
+            "secondary_resource_provider_vtable": "53000000",
+            "secondary_resource_predicate_24_method": "82430018",
+            "secondary_resource_primary_36_method": "82430024",
+            "secondary_resource_fallback_40_method": "82430028",
+            "secondary_resource_predicate_44_method": "8243002C",
+            "secondary_resource_provider_selection": "fallback_method_40",
+            "secondary_resource_object_source": "provider_method",
             "runtime_submission_object": "60000000",
             "primitive_type": "13",
             "count_units": "16",
@@ -111,8 +158,22 @@ def events():
             "resource_resolution_successes": "2",
             "resource_resolution_misses": "0",
             "resource_resolution_cache_hits": "22",
+            "resource_binding_key_cache_hits": "22",
             "resource_bind_dispatches": "2",
             "resource_resolution_protocol_faults": "0",
+            "provider_lookup_observations": "2",
+            "provider_cache_hits": "0",
+            "provider_lookup_misses": "0",
+            "provider_primary_selections": "1",
+            "provider_fallback_selections": "1",
+            "provider_unavailable_selections": "0",
+            "provider_method_results": "2",
+            "provider_method_null_results": "0",
+            "secondary_resolution_attempts": "0",
+            "secondary_resolution_successes": "0",
+            "secondary_resolution_misses": "0",
+            "provider_metadata_bytes": "40",
+            "provider_metadata_bytes_per_lookup": "20",
             "payload_bytes": "672",
             "maximum_payload_bytes_per_live_observation": "56",
             "replay_fallbacks": "12",
@@ -140,6 +201,11 @@ class SemanticSubmissionTests(unittest.TestCase):
             report["entries"][0]["resources"]["primary_bound_object"],
             "41000000",
         )
+        self.assertEqual(
+            report["entries"][0]["resources"]["primary_provider"]["selection"],
+            "primary_method_36",
+        )
+        self.assertEqual(report["coverage"]["unique_provider_chains"], 1)
         self.assertFalse(report["safety"]["suppression_allowed"])
 
     def test_binding_mismatch_keeps_report_incomplete(self):
@@ -191,6 +257,44 @@ class SemanticSubmissionTests(unittest.TestCase):
         self.assertIn(
             "resource_resolution_protocol_faults is nonzero", report["failures"]
         )
+
+    def test_provider_chain_is_required(self):
+        sample = copy.deepcopy(events())
+        sample[1]["primary_resource_provider_object"] = "00000000"
+        with self.assertRaisesRegex(ValueError, "structural evidence"):
+            MODULE.build(sample, static_inventory())
+
+    def test_runtime_provider_hook_contract_is_required(self):
+        sample = copy.deepcopy(events())
+        sample[0]["resource_provider_method_result_hook"] = "82415BC4"
+        with self.assertRaisesRegex(ValueError, "runtime hook contract drifted"):
+            MODULE.build(sample, static_inventory())
+
+    def test_provider_accounting_is_enforced(self):
+        sample = copy.deepcopy(events())
+        sample[-1]["provider_primary_selections"] = "0"
+        report = MODULE.build(sample, static_inventory())
+        self.assertEqual(report["status"], "incomplete")
+        self.assertIn("provider selection accounting is inconsistent", report["failures"])
+
+    def test_secondary_resolution_source_is_reconciled(self):
+        sample = copy.deepcopy(events())
+        sample[1]["primary_resource_object_source"] = "secondary_resolution"
+        sample[-1]["provider_method_null_results"] = "1"
+        sample[-1]["secondary_resolution_attempts"] = "1"
+        sample[-1]["secondary_resolution_successes"] = "1"
+        report = MODULE.build(sample, static_inventory())
+        self.assertEqual(report["status"], "complete")
+
+    def test_shared_provider_cache_hit_is_reconciled(self):
+        sample = copy.deepcopy(events())
+        sample[-1]["provider_lookup_observations"] = "1"
+        sample[-1]["provider_cache_hits"] = "1"
+        sample[-1]["provider_fallback_selections"] = "0"
+        sample[-1]["provider_method_results"] = "1"
+        sample[-1]["provider_metadata_bytes"] = "20"
+        report = MODULE.build(sample, static_inventory())
+        self.assertEqual(report["status"], "complete")
 
     def test_suppression_claim_is_rejected(self):
         sample = copy.deepcopy(events())

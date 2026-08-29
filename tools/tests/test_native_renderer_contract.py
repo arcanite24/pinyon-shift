@@ -143,6 +143,11 @@ class NativeRendererContractTests(unittest.TestCase):
         expected_hooks = {
             "PinyonShiftObserveProceduralModelPrimaryResourceBinding": "0x82417A74",
             "PinyonShiftObserveProceduralModelSecondaryResourceBinding": "0x82417A9C",
+            "PinyonShiftObserveProceduralModelResourceProviderLookup": "0x82415B64",
+            "PinyonShiftObserveProceduralModelResourceProviderPrimaryPredicate": "0x82415B80",
+            "PinyonShiftObserveProceduralModelResourceProviderFallbackPredicate": "0x82415BA4",
+            "PinyonShiftObserveProceduralModelResourceProviderMethodResult": "0x82415BC0",
+            "PinyonShiftObserveProceduralModelResourceSecondaryResolutionResult": "0x82415BE4",
             "PinyonShiftObserveProceduralModelResourceResolutionResult": "0x82415C50",
             "PinyonShiftObserveProceduralModelResourceBindDispatch": "0x82415C6C",
             "PinyonShiftObserveProceduralModelGeometrySubmission": "0x82417B60",
@@ -159,6 +164,9 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("runtime_record_28_32", source)
         self.assertIn('"classification", "resolved_resource_and_state_variant_submission"', source)
         self.assertIn("primary_bound_resource_object", source)
+        self.assertIn("SemanticResourceProviderProvenance", source)
+        self.assertIn("provider_metadata_bytes_per_lookup", source)
+        self.assertIn("resource_provider_chain_derivation_proved", summarizer)
         self.assertIn("ProceduralModelHelperStateFamily", source)
         self.assertIn('{"fallback", "xenos_replay"}', source)
         self.assertIn('{"native_upload", "false"}', source)

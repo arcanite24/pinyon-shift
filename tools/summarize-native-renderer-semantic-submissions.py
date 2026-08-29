@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v2"
+SCHEMA = "pinyon-shift.native-renderer-semantic-submissions.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 PREFIX = "native_renderer.discovery.semantic_submission_"
 EXPECTED_CLASS = "proceduralGeometry::CProceduralModels"
@@ -17,6 +17,11 @@ EXPECTED_CLASSIFICATION = "resolved_resource_and_state_variant_submission"
 EXPECTED_HOOKS = (
     "82417A74",
     "82417A9C",
+    "82415B64",
+    "82415B80",
+    "82415BA4",
+    "82415BC0",
+    "82415BE4",
     "82415C50",
     "82415C6C",
     "82417B60",
@@ -108,6 +113,7 @@ def _validate_static(static: dict) -> None:
         for key in (
             "resource_binding_derivation_proved",
             "resolved_resource_object_derivation_proved",
+            "resource_provider_chain_derivation_proved",
             "record_join_proved",
             "geometry_submission_derivation_proved",
             "descriptor_kind_partition_proved",
@@ -120,6 +126,11 @@ def _validate_static(static: dict) -> None:
         for key in (
             "primary_resource_binding_hook_address",
             "secondary_resource_binding_hook_address",
+            "resource_provider_lookup_hook_address",
+            "resource_provider_primary_predicate_hook_address",
+            "resource_provider_fallback_predicate_hook_address",
+            "resource_provider_method_result_hook_address",
+            "resource_secondary_resolution_result_hook_address",
             "resource_resolution_result_hook_address",
             "resource_bind_dispatch_hook_address",
             "geometry_submission_hook_address",
@@ -129,6 +140,27 @@ def _validate_static(static: dict) -> None:
         hooks != EXPECTED_HOOKS
         or extraction.get("resource_binding_helper_function_address") != "82415BF8"
         or extraction.get("resource_binding_slots") != [0, 1]
+        or extraction.get("resource_binding_key_cache_address") != "834AD4CC"
+        or extraction.get("resource_binding_key_cache_entry_count") != 5
+        or extraction.get("resource_binding_key_cache_entry_stride") != 4
+        or extraction.get(
+            "resource_binding_key_cache_indexed_by_binding_slot"
+        ) is not True
+        or extraction.get(
+            "resource_binding_key_cache_skips_unchanged_bind"
+        ) is not True
+        or extraction.get("resource_lookup_function_address") != "82410A58"
+        or extraction.get("resource_provider_vtable_method_offsets")
+        != [24, 36, 40, 44]
+        or extraction.get("resource_resolution_cache_entry_count") != 5
+        or extraction.get("resource_resolution_cache_entry_stride") != 12
+        or extraction.get("resource_resolution_cache_bound_object_offset") != 0
+        or extraction.get("resource_resolution_cache_key_offset") != 4
+        or extraction.get("resource_resolution_cache_usage_offset") != 8
+        or extraction.get(
+            "resource_resolution_cache_shared_across_binding_slots"
+        ) is not True
+        or extraction.get("secondary_resolution_semantics_proved") is not False
         or extraction.get("graphics_submission_primitive") != 13
         or extraction.get("graphics_submission_count_scale") != 4
         or extraction.get("classification") != EXPECTED_CLASSIFICATION
@@ -153,6 +185,21 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     ]
     if len(configs) != 1 or len(summaries) != 1:
         raise ValueError("semantic-submission session needs one armed config and summary")
+    expected_runtime_hooks = {
+        "primary_resource_binding_hook": "82417A74",
+        "secondary_resource_binding_hook": "82417A9C",
+        "resource_lookup_function": "82410A58",
+        "resource_provider_lookup_hook": "82415B64",
+        "resource_provider_primary_predicate_hook": "82415B80",
+        "resource_provider_fallback_predicate_hook": "82415BA4",
+        "resource_provider_method_result_hook": "82415BC0",
+        "resource_secondary_resolution_result_hook": "82415BE4",
+        "resource_resolution_result_hook": "82415C50",
+        "resource_bind_dispatch_hook": "82415C6C",
+        "geometry_submission_hook": "82417B60",
+    }
+    if any(configs[0].get(key) != value for key, value in expected_runtime_hooks.items()):
+        raise ValueError("semantic-submission runtime hook contract drifted")
 
     entries = []
     entry_calls = 0
@@ -164,6 +211,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     helper_state_families: collections.Counter[str] = collections.Counter()
     source_contracts: collections.Counter[str] = collections.Counter()
     resource_pairs: set[tuple[str, str, str, str]] = set()
+    provider_chains: set[tuple[str, ...]] = set()
+    provider_selections: collections.Counter[str] = collections.Counter()
+    object_sources: collections.Counter[str] = collections.Counter()
     for event in selected:
         if event.get("event") != f"{PREFIX}entry":
             continue
@@ -181,9 +231,43 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         primary_bound_resource_object = _hex(
             event, "primary_bound_resource_object", 8
         )
+        primary_provider_fields = tuple(
+            _hex(event, key, 8)
+            for key in (
+                "primary_resource_provider_object",
+                "primary_resource_provider_vtable",
+                "primary_resource_predicate_24_method",
+                "primary_resource_primary_36_method",
+                "primary_resource_fallback_40_method",
+                "primary_resource_predicate_44_method",
+            )
+        )
+        primary_provider_selection = str(
+            event.get("primary_resource_provider_selection", "")
+        )
+        primary_object_source = str(
+            event.get("primary_resource_object_source", "")
+        )
         secondary_resource_key = _hex(event, "secondary_resource_key", 8)
         secondary_bound_resource_object = _hex(
             event, "secondary_bound_resource_object", 8
+        )
+        secondary_provider_fields = tuple(
+            _hex(event, key, 8)
+            for key in (
+                "secondary_resource_provider_object",
+                "secondary_resource_provider_vtable",
+                "secondary_resource_predicate_24_method",
+                "secondary_resource_primary_36_method",
+                "secondary_resource_fallback_40_method",
+                "secondary_resource_predicate_44_method",
+            )
+        )
+        secondary_provider_selection = str(
+            event.get("secondary_resource_provider_selection", "")
+        )
+        secondary_object_source = str(
+            event.get("secondary_resource_object_source", "")
         )
         runtime_submission_object = _hex(event, "runtime_submission_object", 8)
         source_address = _hex(event, "source_address", 8)
@@ -236,6 +320,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             or int(graphics_context, 16) == 0
             or int(resource_lookup_context, 16) == 0
             or int(primary_bound_resource_object, 16) == 0
+            or any(int(value, 16) == 0 for value in primary_provider_fields)
+            or primary_provider_selection
+            not in ("primary_method_36", "fallback_method_40", "provider_unavailable")
+            or primary_object_source not in ("provider_method", "secondary_resolution")
             or int(runtime_submission_object, 16) == 0
             or int(source_address, 16) == 0
             or descriptor_kind_group != expected_kind_group
@@ -246,6 +334,28 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             raise ValueError("semantic-submission secondary resource presence is inconsistent")
         if secondary_present != (int(secondary_bound_resource_object, 16) != 0):
             raise ValueError("semantic-submission resolved secondary resource is inconsistent")
+        if secondary_present:
+            if (
+                any(int(value, 16) == 0 for value in secondary_provider_fields)
+                or secondary_provider_selection
+                not in ("primary_method_36", "fallback_method_40", "provider_unavailable")
+                or secondary_object_source
+                not in ("provider_method", "secondary_resolution")
+            ):
+                raise ValueError("semantic-submission secondary provider chain is incomplete")
+        elif (
+            any(int(value, 16) != 0 for value in secondary_provider_fields)
+            or secondary_provider_selection != "unknown"
+            or secondary_object_source != "unknown"
+        ):
+            raise ValueError("semantic-submission absent secondary provider is inconsistent")
+        for selection, source in (
+            (primary_provider_selection, primary_object_source),
+            *(([(secondary_provider_selection, secondary_object_source)])
+              if secondary_present else []),
+        ):
+            if selection == "provider_unavailable" and source != "secondary_resolution":
+                raise ValueError("unavailable provider cannot be the object source")
         if source_contract == "runtime_record_24_default":
             if count_units != 0:
                 raise ValueError("default geometry source has a nonzero count")
@@ -260,12 +370,31 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         descriptor_kind_groups[descriptor_kind_group] += calls
         helper_state_families[helper_state_family] += calls
         source_contracts[source_contract] += calls
+        provider_selections[primary_provider_selection] += calls
+        object_sources[primary_object_source] += calls
+        if secondary_present:
+            provider_selections[secondary_provider_selection] += calls
+            object_sources[secondary_object_source] += calls
         resource_pairs.add(
             (
                 primary_resource_key,
                 primary_bound_resource_object,
                 secondary_resource_key,
                 secondary_bound_resource_object,
+            )
+        )
+        provider_chains.add(
+            (
+                primary_resource_key,
+                primary_bound_resource_object,
+                *primary_provider_fields,
+                primary_provider_selection,
+                primary_object_source,
+                secondary_resource_key,
+                secondary_bound_resource_object,
+                *secondary_provider_fields,
+                secondary_provider_selection,
+                secondary_object_source,
             )
         )
         entries.append(
@@ -284,10 +413,30 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                     "primary_index": primary_index,
                     "primary_key": primary_resource_key,
                     "primary_bound_object": primary_bound_resource_object,
+                    "primary_provider": {
+                        "object": primary_provider_fields[0],
+                        "vtable": primary_provider_fields[1],
+                        "predicate_24_method": primary_provider_fields[2],
+                        "primary_36_method": primary_provider_fields[3],
+                        "fallback_40_method": primary_provider_fields[4],
+                        "predicate_44_method": primary_provider_fields[5],
+                        "selection": primary_provider_selection,
+                        "object_source": primary_object_source,
+                    },
                     "secondary_present": secondary_present,
                     "secondary_index": secondary_index,
                     "secondary_key": secondary_resource_key,
                     "secondary_bound_object": secondary_bound_resource_object,
+                    "secondary_provider": {
+                        "object": secondary_provider_fields[0],
+                        "vtable": secondary_provider_fields[1],
+                        "predicate_24_method": secondary_provider_fields[2],
+                        "primary_36_method": secondary_provider_fields[3],
+                        "fallback_40_method": secondary_provider_fields[4],
+                        "predicate_44_method": secondary_provider_fields[5],
+                        "selection": secondary_provider_selection,
+                        "object_source": secondary_object_source,
+                    },
                 },
                 "state_variant": {
                     "descriptor_kind_group": descriptor_kind_group,
@@ -326,8 +475,22 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "resource_resolution_successes",
             "resource_resolution_misses",
             "resource_resolution_cache_hits",
+            "resource_binding_key_cache_hits",
             "resource_bind_dispatches",
             "resource_resolution_protocol_faults",
+            "provider_lookup_observations",
+            "provider_cache_hits",
+            "provider_lookup_misses",
+            "provider_primary_selections",
+            "provider_fallback_selections",
+            "provider_unavailable_selections",
+            "provider_method_results",
+            "provider_method_null_results",
+            "secondary_resolution_attempts",
+            "secondary_resolution_successes",
+            "secondary_resolution_misses",
+            "provider_metadata_bytes",
+            "provider_metadata_bytes_per_lookup",
             "payload_bytes",
             "maximum_payload_bytes_per_live_observation",
             "replay_fallbacks",
@@ -374,6 +537,11 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         + totals["resource_resolution_cache_hits"]
     ):
         failures.append("resource resolution observation accounting is inconsistent")
+    if (
+        totals["resource_binding_key_cache_hits"]
+        != totals["resource_resolution_cache_hits"]
+    ):
+        failures.append("binding key cache accounting is inconsistent")
     if totals["resource_resolution_attempts"] != (
         totals["resource_resolution_successes"]
         + totals["resource_resolution_misses"]
@@ -381,6 +549,58 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         failures.append("resource resolution result accounting is inconsistent")
     if totals["resource_bind_dispatches"] != totals["resource_resolution_successes"]:
         failures.append("resource bind dispatch accounting is inconsistent")
+    if (
+        totals["provider_lookup_observations"]
+        + totals["provider_cache_hits"]
+        != totals["resource_resolution_attempts"]
+    ):
+        failures.append("provider lookup accounting is inconsistent")
+    if totals["provider_lookup_observations"] != sum(
+        totals[key]
+        for key in (
+            "provider_lookup_misses",
+            "provider_primary_selections",
+            "provider_fallback_selections",
+            "provider_unavailable_selections",
+        )
+    ):
+        failures.append("provider selection accounting is inconsistent")
+    if totals["provider_method_results"] != (
+        totals["provider_primary_selections"]
+        + totals["provider_fallback_selections"]
+    ):
+        failures.append("provider method result accounting is inconsistent")
+    if totals["provider_method_null_results"] > totals["provider_method_results"]:
+        failures.append("provider null result accounting is inconsistent")
+    if totals["secondary_resolution_attempts"] != (
+        totals["provider_unavailable_selections"]
+        + totals["provider_method_null_results"]
+    ):
+        failures.append("secondary resolution route accounting is inconsistent")
+    if totals["secondary_resolution_attempts"] != (
+        totals["secondary_resolution_successes"]
+        + totals["secondary_resolution_misses"]
+    ):
+        failures.append("secondary resolution result accounting is inconsistent")
+    if totals["resource_resolution_successes"] != (
+        totals["provider_cache_hits"]
+        + totals["provider_method_results"]
+        - totals["provider_method_null_results"]
+        + totals["secondary_resolution_successes"]
+    ):
+        failures.append("resolved object source accounting is inconsistent")
+    if totals["resource_resolution_misses"] != (
+        totals["provider_lookup_misses"]
+        + totals["secondary_resolution_misses"]
+    ):
+        failures.append("resource miss source accounting is inconsistent")
+    if (
+        totals["provider_metadata_bytes_per_lookup"] != 20
+        or totals["provider_metadata_bytes"]
+        != (totals["provider_lookup_observations"] - totals["provider_lookup_misses"])
+        * 20
+    ):
+        failures.append("provider metadata accounting is inconsistent")
     for key in (
         "unknown_receivers",
         "binding_mismatches",
@@ -411,7 +631,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "descriptor_kind_groups": dict(sorted(descriptor_kind_groups.items())),
             "helper_state_families": dict(sorted(helper_state_families.items())),
             "source_contracts": dict(sorted(source_contracts.items())),
+            "provider_selections": dict(sorted(provider_selections.items())),
+            "object_sources": dict(sorted(object_sources.items())),
             "unique_resource_pairs": len(resource_pairs),
+            "unique_provider_chains": len(provider_chains),
         },
         "safety": {
             "bounded_guest_read": True,

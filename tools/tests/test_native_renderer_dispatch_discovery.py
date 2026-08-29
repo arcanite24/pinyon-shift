@@ -465,6 +465,111 @@ def procedural_model_lifecycle_fixtures():
             ],
         ),
         fixture(
+            0x82410A58,
+            [
+                "lwz r11,0(r4)",
+                "lwz r10,2812(r3)",
+                "rlwinm r11,r11,2,0,29",
+                "lwzx r3,r11,r10",
+                "blr",
+            ],
+        ),
+        fixture(
+            0x82415AD0,
+            [
+                "mflr r12",
+                "bl 0x82a7de08",
+                "loc_82415AD8:",
+                "stwu r1,-128(r1)",
+                "li r10,5",
+                "li r28,0",
+                "mr r29,r5",
+                "addi r11,r3,8",
+                "mr r9,r28",
+                "mr r31,r28",
+                "mtctr r10",
+                "loc_82415AF8:",
+                "lwz r10,0(r11)",
+                "lwz r8,-4(r11)",
+                "addi r10,r10,1",
+                "cmpw cr6,r8,r4",
+                "stw r10,0(r11)",
+                "bne cr6,0x82415b18",
+                "addi r9,r11,-8",
+                "b 0x82415b30",
+                "loc_82415B18:",
+                "cmplwi cr6,r31,0",
+                "beq cr6,0x82415b2c",
+                "lwz r8,8(r31)",
+                "cmpw cr6,r10,r8",
+                "ble cr6,0x82415b30",
+                "loc_82415B2C:",
+                "addi r31,r11,-8",
+                "loc_82415B30:",
+                "addi r11,r11,12",
+                "bdnz 0x82415af8",
+                "cmplwi cr6,r9,0",
+                "beq cr6,0x82415b4c",
+                "lwz r3,0(r9)",
+                "stw r28,8(r9)",
+                "b 0x82415bf0",
+                "loc_82415B4C:",
+                "stw r4,4(r31)",
+                "mr r3,r29",
+                "stw r4,80(r1)",
+                "addi r4,r1,80",
+                "stw r28,0(r31)",
+                "bl 0x82410a58",
+                "loc_82415B64:",
+                "mr. r30,r3",
+                "beq 0x82415be8",
+                "lwz r11,0(r30)",
+                "mr r3,r30",
+                "lwz r11,24(r11)",
+                "mtctr r11",
+                "bctrl",
+                "loc_82415B80:",
+                "clrlwi. r11,r3,24",
+                "lwz r11,0(r30)",
+                "mr r3,r30",
+                "beq 0x82415b98",
+                "lwz r11,36(r11)",
+                "b 0x82415bb8",
+                "loc_82415B98:",
+                "lwz r11,44(r11)",
+                "mtctr r11",
+                "bctrl",
+                "loc_82415BA4:",
+                "clrlwi. r11,r3,24",
+                "beq 0x82415bc4",
+                "lwz r11,0(r30)",
+                "mr r3,r30",
+                "lwz r11,40(r11)",
+                "loc_82415BB8:",
+                "mtctr r11",
+                "bctrl",
+                "loc_82415BC0:",
+                "stw r3,0(r31)",
+                "loc_82415BC4:",
+                "lwz r11,0(r31)",
+                "cmplwi cr6,r11,0",
+                "bne cr6,0x82415be8",
+                "lwz r11,8(r30)",
+                "addis r3,r29,1",
+                "addi r3,r3,-18544",
+                "rlwinm r4,r11,19,13,31",
+                "bl 0x823e58d8",
+                "loc_82415BE4:",
+                "stw r3,0(r31)",
+                "loc_82415BE8:",
+                "lwz r3,0(r31)",
+                "stw r28,8(r31)",
+                "loc_82415BF0:",
+                "addi r1,r1,128",
+                "b 0x82a7de58",
+            ],
+        ),
+        fixture(
             0x82415BF8,
             [
                 "mflr r12",
@@ -974,10 +1079,25 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual("82417B60", submission["geometry_submission_hook_address"])
         self.assertEqual("82415C50", submission["resource_resolution_result_hook_address"])
         self.assertEqual("82415C6C", submission["resource_bind_dispatch_hook_address"])
+        self.assertEqual("82410A58", submission["resource_lookup_function_address"])
+        self.assertEqual("82415B64", submission["resource_provider_lookup_hook_address"])
+        self.assertEqual("82415B80", submission["resource_provider_primary_predicate_hook_address"])
+        self.assertEqual("82415BA4", submission["resource_provider_fallback_predicate_hook_address"])
+        self.assertEqual("82415BC0", submission["resource_provider_method_result_hook_address"])
+        self.assertEqual("82415BE4", submission["resource_secondary_resolution_result_hook_address"])
+        self.assertEqual([24, 36, 40, 44], submission["resource_provider_vtable_method_offsets"])
+        self.assertEqual(5, submission["resource_resolution_cache_entry_count"])
+        self.assertEqual(12, submission["resource_resolution_cache_entry_stride"])
+        self.assertTrue(submission["resource_resolution_cache_shared_across_binding_slots"])
+        self.assertTrue(submission["resource_provider_chain_derivation_proved"])
+        self.assertFalse(submission["secondary_resolution_semantics_proved"])
         self.assertTrue(submission["resolved_resource_object_derivation_proved"])
         self.assertTrue(submission["descriptor_kind_partition_proved"])
         self.assertTrue(submission["helper_state_partition_proved"])
         self.assertEqual([0, 1], submission["resource_binding_slots"])
+        self.assertEqual("834AD4CC", submission["resource_binding_key_cache_address"])
+        self.assertEqual(5, submission["resource_binding_key_cache_entry_count"])
+        self.assertTrue(submission["resource_binding_key_cache_skips_unchanged_bind"])
         self.assertEqual(13, submission["graphics_submission_primitive"])
         self.assertEqual(4, submission["graphics_submission_count_scale"])
         self.assertTrue(submission["resource_binding_derivation_proved"])
@@ -997,6 +1117,17 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
                     *procedural_model_lifecycle_fixtures(),
                 ],
                 bytes(image),
+            )
+
+    def test_rejects_drifted_resource_provider_route(self):
+        lifecycle = [
+            chunk.replace("lwz r11,40(r11)", "lwz r11,48(r11)")
+            for chunk in procedural_model_lifecycle_fixtures()
+        ]
+        with self.assertRaisesRegex(ValueError, "provider chain evidence drifted"):
+            self.build(
+                [*reviewed_fixtures(), *context_fixtures(), *lifecycle],
+                procedural_model_image(),
             )
 
     def test_runtime_hooks_are_default_off_bounded_and_passive(self):
