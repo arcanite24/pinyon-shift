@@ -22,7 +22,15 @@ XENOS_MARKER = os.environ.get(
     "PINYON_SHIFT_RENDERDOC_XENOS_MARKER",
     "PinyonShift NR-02E authoritative Xenos draw",
 )
+COMPLETE_PASS = os.environ.get(
+    "PINYON_SHIFT_RENDERDOC_COMPLETE_PASS", "0"
+) == "1"
+PASS_NATIVE_ANCHOR_MARKER = "PinyonShift NR-02F isolated native pass anchor"
+PASS_XENOS_ANCHOR_MARKER = "PinyonShift NR-02F authoritative Xenos pass anchor"
+PASS_NATIVE_FOLLOWER_MARKER = "PinyonShift NR-02F isolated native pass follower"
+PASS_XENOS_FOLLOWER_MARKER = "PinyonShift NR-02F authoritative Xenos pass follower"
 SCHEMA = "pinyon-shift.native-renderer-renderdoc-export.v1"
+COMPLETE_PASS_SCHEMA = "pinyon-shift.native-renderer-pass-renderdoc-export.v1"
 
 
 def _flatten(actions):
@@ -98,6 +106,76 @@ def _bound_targets(controller):
     return colors, depth
 
 
+def _first_named_after(actions, name, event_id):
+    return next(
+        (action for action in actions
+         if action.customName == name and action.eventId > event_id),
+        None,
+    )
+
+
+def _export_bound_state(controller, output_dir, basename):
+    colors, depth = _bound_targets(controller)
+    if not colors:
+        raise RuntimeError("complete pass has no color output at {}".format(basename))
+    result = {
+        "color": _export_texture(
+            controller, colors[0], os.path.join(output_dir, basename + ".png")
+        ),
+        "depth": None,
+    }
+    if depth.resource != rd.ResourceId.Null():
+        result["depth"] = _export_texture(
+            controller,
+            depth,
+            os.path.join(output_dir, basename + "-depth.png"),
+            channel_extract=0,
+        )
+    return result
+
+
+def _export_pass_span(controller, first_marker, last_marker, output_dir, basename):
+    first_draw = _first_draw(first_marker)
+    last_draw = _first_draw(last_marker)
+    if first_draw is None or last_draw is None:
+        raise RuntimeError("complete-pass marker span contains no draw")
+    if not (
+        first_marker.eventId <= first_draw.eventId < last_marker.eventId <= last_draw.eventId
+    ):
+        raise RuntimeError("complete-pass marker/draw order is invalid")
+
+    controller.SetFrameEvent(first_marker.eventId, True)
+    before = _export_bound_state(controller, output_dir, basename + "-before")
+    controller.SetFrameEvent(last_draw.eventId, True)
+    after = _export_bound_state(controller, output_dir, basename)
+
+    for target in ("color", "depth"):
+        before_target = before[target]
+        after_target = after[target]
+        if (before_target is None) != (after_target is None):
+            raise RuntimeError("{} attachment presence changed across pass".format(target))
+        if before_target is None:
+            continue
+        if before_target["resource_id"] != after_target["resource_id"]:
+            raise RuntimeError("{} resource changed across pass".format(target))
+        if (before_target["width"], before_target["height"]) != (
+            after_target["width"], after_target["height"]
+        ):
+            raise RuntimeError("{} dimensions changed across pass".format(target))
+
+    return {
+        "start_marker": first_marker.customName,
+        "start_marker_event_id": first_marker.eventId,
+        "start_draw_event_id": first_draw.eventId,
+        "end_marker": last_marker.customName,
+        "end_marker_event_id": last_marker.eventId,
+        "end_draw_event_id": last_draw.eventId,
+        "draw_count": 2,
+        "before": before,
+        "after": after,
+    }
+
+
 def _export_marker(controller, marker, output_dir, basename):
     draw = _first_draw(marker)
     if draw is None:
@@ -148,6 +226,91 @@ def _export_marker(controller, marker, output_dir, basename):
     return result
 
 
+def _export_complete_pass(controller, actions, capture_path, output_dir):
+    native_anchors = [
+        action for action in actions
+        if action.customName == PASS_NATIVE_ANCHOR_MARKER
+    ]
+    if not native_anchors:
+        available_markers = sorted(
+            set(
+                action.customName
+                for action in actions
+                if action.customName and "PinyonShift" in action.customName
+            )
+        )
+        raise RuntimeError(
+            "no complete-pass native anchor marker was found; "
+            "available PinyonShift markers={}".format(available_markers)
+        )
+    native_anchor = native_anchors[0]
+    xenos_anchor = _first_named_after(
+        actions, PASS_XENOS_ANCHOR_MARKER, native_anchor.eventId
+    )
+    native_follower = _first_named_after(
+        actions, PASS_NATIVE_FOLLOWER_MARKER,
+        xenos_anchor.eventId if xenos_anchor else native_anchor.eventId,
+    )
+    xenos_follower = _first_named_after(
+        actions, PASS_XENOS_FOLLOWER_MARKER,
+        native_follower.eventId if native_follower else native_anchor.eventId,
+    )
+    if not xenos_anchor or not native_follower or not xenos_follower:
+        raise RuntimeError("a complete native/Xenos anchor/follower marker chain was not found")
+    marker_order = [
+        native_anchor.eventId,
+        xenos_anchor.eventId,
+        native_follower.eventId,
+        xenos_follower.eventId,
+    ]
+    if marker_order != sorted(marker_order) or len(set(marker_order)) != 4:
+        raise RuntimeError("complete-pass markers are not strictly ordered")
+
+    native = _export_pass_span(
+        controller, native_anchor, native_follower, output_dir, "isolated-native"
+    )
+    xenos = _export_pass_span(
+        controller, xenos_anchor, xenos_follower, output_dir, "authoritative-xenos"
+    )
+    native_color = native["after"]["color"]
+    xenos_color = xenos["after"]["color"]
+    if native_color["resource_id"] == xenos_color["resource_id"]:
+        raise RuntimeError("native and Xenos pass outputs alias")
+    if (native_color["width"], native_color["height"]) != (
+        xenos_color["width"], xenos_color["height"]
+    ):
+        raise RuntimeError("native and Xenos pass output dimensions differ")
+
+    return {
+        "schema": COMPLETE_PASS_SCHEMA,
+        "capture": {
+            "path": os.path.basename(capture_path),
+            "sha256": _sha256(capture_path),
+        },
+        "marker_counts": {
+            "native_anchor": len(native_anchors),
+            "xenos_anchor": sum(
+                action.customName == PASS_XENOS_ANCHOR_MARKER for action in actions
+            ),
+            "native_follower": sum(
+                action.customName == PASS_NATIVE_FOLLOWER_MARKER for action in actions
+            ),
+            "xenos_follower": sum(
+                action.customName == PASS_XENOS_FOLLOWER_MARKER for action in actions
+            ),
+        },
+        "marker_order": marker_order,
+        "native_pass": native,
+        "xenos_pass": xenos,
+        "safety": {
+            "xenos_draws_preserved": True,
+            "draw_suppression_implemented": False,
+            "resolve_suppression_implemented": False,
+            "suppression_allowed": False,
+        },
+    }
+
+
 def main():
     capture_path = os.environ["PINYON_SHIFT_RENDERDOC_CAPTURE"]
     output_dir = os.environ["PINYON_SHIFT_RENDERDOC_EXPORT_DIR"]
@@ -168,6 +331,16 @@ def main():
             raise RuntimeError("could not initialise replay: {}".format(result))
 
         actions = _flatten(controller.GetRootActions())
+        if COMPLETE_PASS:
+            report = _export_complete_pass(
+                controller, actions, capture_path, output_dir
+            )
+            with open(report_path, "w") as output:
+                json.dump(report, output, indent=2, sort_keys=True)
+                output.write("\n")
+            print(report_path)
+            return 0
+
         isolated = [a for a in actions if a.customName == ISOLATED_MARKER]
         xenos = [a for a in actions if a.customName == XENOS_MARKER]
         if not isolated or not xenos:
@@ -220,16 +393,23 @@ def main():
         capture.Shutdown()
 
 
-try:
-    sys.exit(main())
-except Exception as error:
-    message = "native renderer RenderDoc export failed: {}\n{}".format(
-        error, traceback.format_exc()
-    )
-    output_dir = os.environ.get("PINYON_SHIFT_RENDERDOC_EXPORT_DIR")
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, "renderdoc-export-error.txt"), "w") as output:
-            output.write(message)
-    sys.stderr.write(message)
-    sys.exit(1)
+def _entrypoint():
+    try:
+        return main()
+    except Exception as error:
+        message = "native renderer RenderDoc export failed: {}\n{}".format(
+            error, traceback.format_exc()
+        )
+        output_dir = os.environ.get("PINYON_SHIFT_RENDERDOC_EXPORT_DIR")
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            with open(
+                os.path.join(output_dir, "renderdoc-export-error.txt"), "w"
+            ) as output:
+                output.write(message)
+        sys.stderr.write(message)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(_entrypoint())

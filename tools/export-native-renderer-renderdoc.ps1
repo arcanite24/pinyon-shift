@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory)]
     [string]$OutputDir,
     [string]$NativeMarker = 'PinyonShift NR-02E isolated native draw',
-    [string]$XenosMarker = 'PinyonShift NR-02E authoritative Xenos draw'
+    [string]$XenosMarker = 'PinyonShift NR-02E authoritative Xenos draw',
+    [switch]$CompletePass
 )
 
 Set-StrictMode -Version Latest
@@ -46,11 +47,13 @@ $savedCapture = $env:PINYON_SHIFT_RENDERDOC_CAPTURE
 $savedOutput = $env:PINYON_SHIFT_RENDERDOC_EXPORT_DIR
 $savedNativeMarker = $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER
 $savedXenosMarker = $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER
+$savedCompletePass = $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS
 try {
     $env:PINYON_SHIFT_RENDERDOC_CAPTURE = $resolvedCapture
     $env:PINYON_SHIFT_RENDERDOC_EXPORT_DIR = $resolvedOutputDir
     $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER = $NativeMarker
     $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER = $XenosMarker
+    $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS = if ($CompletePass) { '1' } else { '0' }
     $process = Start-Process -FilePath $qrenderdoc `
         -ArgumentList @('--python', $script) -PassThru -Wait
     if ($process.ExitCode) {
@@ -62,6 +65,7 @@ finally {
     $env:PINYON_SHIFT_RENDERDOC_EXPORT_DIR = $savedOutput
     $env:PINYON_SHIFT_RENDERDOC_NATIVE_MARKER = $savedNativeMarker
     $env:PINYON_SHIFT_RENDERDOC_XENOS_MARKER = $savedXenosMarker
+    $env:PINYON_SHIFT_RENDERDOC_COMPLETE_PASS = $savedCompletePass
 }
 
 $report = Join-Path $resolvedOutputDir 'renderdoc-export.json'
