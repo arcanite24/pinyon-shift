@@ -152,14 +152,25 @@ struct ConsumerFamilyMarkerState {
   uint64_t pixel_shader_hash = 0;
   uint64_t vertex_specialization_mask = 0;
   uint64_t pixel_specialization_mask = 0;
+  uint64_t capture_frame = 0;
+  uint64_t capture_draw = 0;
   uint64_t matched_draws = 0;
   uint64_t marker_requests = 0;
+  uint64_t readback_requests = 0;
+  uint64_t readback_completions = 0;
+  std::filesystem::path readback_root;
+  std::jthread before_artifact_writer;
+  std::jthread after_artifact_writer;
   bool requested = false;
+  bool readback_requested = false;
+  bool readback_queued = false;
   bool valid = true;
   bool current_match = false;
 };
 
 ConsumerFamilyMarkerState g_consumer_family_marker;
+
+bool IsLocalArtifactRoot(const std::filesystem::path &path);
 
 void ConfigureSignatureScan(const char *name, uint64_t &target_signature,
                             bool &requested, bool &valid) {
@@ -234,6 +245,22 @@ void ConfigureConsumerFamilyMarker() {
   }
   if (!g_consumer_family_marker.vertex_shader_hash ||
       !g_consumer_family_marker.pixel_shader_hash) {
+    g_consumer_family_marker.valid = false;
+  }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  g_consumer_family_marker.readback_requested = true;
+  g_consumer_family_marker.readback_root =
+      std::filesystem::absolute(std::filesystem::path(value)).lexically_normal();
+  std::free(value);
+  if (!g_consumer_family_marker.valid ||
+      !IsLocalArtifactRoot(g_consumer_family_marker.readback_root)) {
     g_consumer_family_marker.valid = false;
   }
 }
@@ -2178,6 +2205,155 @@ float HalfToFloat(uint16_t value) {
   return std::bit_cast<float>(bits);
 }
 
+void CompleteConsumerFamilyReadbackArtifact(
+    const rex::system::GraphicsIsolatedDrawReadback &readback,
+    const char *phase, std::jthread &artifact_writer) {
+  ++g_consumer_family_marker.readback_completions;
+  const auto reject = [&](const char *status) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.census.consumer_family_readback",
+        {{"consumer_family", ConsumerFamilyId()},
+         {"status", status},
+         {"detail", fmt::format("0x{:08X}", readback.detail)},
+         {"frame", std::to_string(g_consumer_family_marker.capture_frame)},
+         {"draw", std::to_string(g_consumer_family_marker.capture_draw)},
+         {"phase", phase},
+         {"xenos_draw", "preserved"},
+         {"draw_suppression", "false"},
+         {"resolve_suppression", "false"},
+         {"suppression_eligible", "false"}});
+  };
+  if (readback.status !=
+      rex::system::GraphicsIsolatedDrawReadbackStatus::kReady) {
+    if (readback.status ==
+        rex::system::GraphicsIsolatedDrawReadbackStatus::
+            kResolveAllocationFailed) {
+      reject("resolve_allocation_failed");
+    } else if (readback.status ==
+               rex::system::GraphicsIsolatedDrawReadbackStatus::
+                   kAllocationFailed) {
+      reject("allocation_failed");
+    } else if (readback.status ==
+               rex::system::GraphicsIsolatedDrawReadbackStatus::kMapFailed) {
+      reject("map_failed");
+    } else {
+      reject("unsupported_target");
+    }
+    return;
+  }
+
+  constexpr uint32_t kR16G16B16A16Float = 10;
+  constexpr uint32_t kR8G8B8A8Unorm = 28;
+  const uint32_t bytes_per_pixel =
+      readback.format == kR16G16B16A16Float
+          ? 8
+          : (readback.format == kR8G8B8A8Unorm ? 4 : 0);
+  const uint64_t required_size =
+      uint64_t(readback.row_pitch) * readback.height;
+  if (!bytes_per_pixel || !readback.data || !readback.width ||
+      !readback.height ||
+      uint64_t(readback.width) * bytes_per_pixel > readback.row_pitch ||
+      required_size > readback.data_size || required_size > SIZE_MAX) {
+    reject("unsupported_layout");
+    return;
+  }
+
+  std::vector<uint8_t> bytes(readback.data,
+                             readback.data + size_t(required_size));
+  const std::string family = ConsumerFamilyId();
+  const uint64_t frame = g_consumer_family_marker.capture_frame;
+  const uint64_t draw = g_consumer_family_marker.capture_draw;
+  const auto output_root = g_consumer_family_marker.readback_root / phase;
+  const uint32_t width = readback.width;
+  const uint32_t height = readback.height;
+  const uint32_t row_pitch = readback.row_pitch;
+  const uint32_t format = readback.format;
+  artifact_writer = std::jthread(
+      [bytes = std::move(bytes), family, frame, draw, output_root, width,
+       height, row_pitch, format, bytes_per_pixel,
+       phase = std::string(phase)]() {
+        std::filesystem::path staging = output_root;
+        staging += L".partial";
+        std::error_code error;
+        if (std::filesystem::exists(output_root, error) || error ||
+            std::filesystem::exists(staging, error) || error ||
+            !std::filesystem::create_directories(staging, error) || error) {
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.census.consumer_family_readback",
+              {{"consumer_family", family},
+               {"status", "output_directory_unavailable"},
+               {"frame", std::to_string(frame)},
+               {"draw", std::to_string(draw)},
+               {"phase", phase},
+               {"xenos_draw", "preserved"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        const std::string metadata = fmt::format(
+            "{{\n  \"schema\": "
+            "\"pinyon-shift.consumer-family-readback.v1\",\n"
+            "  \"consumer_family\": \"{}\",\n  \"frame\": {},\n"
+            "  \"draw\": {},\n  \"phase\": \"{}\",\n"
+            "  \"source\": {{\"width\":{},\"height\":{},"
+            "\"row_pitch\":{},\"dxgi_format\":{},"
+            "\"bytes_per_pixel\":{},\"bytes\":{},"
+            "\"hash\":\"{:016X}\"}},\n"
+            "  \"payload\": {{\"file\":\"target.bin\"}},\n"
+            "  \"safety\": {{\"output_authority\":\"xenos\","
+            "\"xenos_draw_preserved\":true,"
+            "\"draw_suppression\":false,"
+            "\"resolve_suppression\":false,"
+            "\"suppression_allowed\":false}}\n}}\n",
+            family, frame, draw, phase, width, height, row_pitch, format,
+            bytes_per_pixel, bytes.size(),
+            HashBytes(bytes.data(), bytes.size()));
+        const auto metadata_bytes = std::span(
+            reinterpret_cast<const uint8_t *>(metadata.data()),
+            metadata.size());
+        if (!WriteSnapshotFile(staging / L"target.bin", bytes) ||
+            !WriteSnapshotFile(staging / L"readback.json", metadata_bytes)) {
+          std::filesystem::remove_all(staging, error);
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.census.consumer_family_readback",
+              {{"consumer_family", family},
+               {"status", "artifact_write_failed"},
+               {"frame", std::to_string(frame)},
+               {"draw", std::to_string(draw)},
+               {"phase", phase},
+               {"xenos_draw", "preserved"},
+               {"suppression_eligible", "false"}});
+          return;
+        }
+        std::filesystem::rename(staging, output_root, error);
+        pinyon_shift::diagnostics::RecordEvent(
+            "native_renderer.census.consumer_family_readback",
+            {{"consumer_family", family},
+             {"status", error ? "artifact_commit_failed" : "captured"},
+             {"frame", std::to_string(frame)},
+             {"draw", std::to_string(draw)},
+             {"phase", phase},
+             {"source_width", std::to_string(width)},
+             {"source_height", std::to_string(height)},
+             {"readback_bytes", std::to_string(bytes.size())},
+             {"xenos_draw", "preserved"},
+             {"draw_suppression", "false"},
+             {"resolve_suppression", "false"},
+             {"suppression_eligible", "false"}});
+      });
+}
+
+void CompleteConsumerFamilyBeforeReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  CompleteConsumerFamilyReadbackArtifact(
+      readback, "before", g_consumer_family_marker.before_artifact_writer);
+}
+
+void CompleteConsumerFamilyAfterReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  CompleteConsumerFamilyReadbackArtifact(
+      readback, "after", g_consumer_family_marker.after_artifact_writer);
+}
+
 void CompleteIsolatedReadbackArtifact(
     const rex::system::GraphicsIsolatedDrawReadback &readback,
     const char *capture_role, const std::filesystem::path &artifact_root,
@@ -2685,6 +2861,16 @@ void RequestIsolatedDraw(
   if (g_consumer_family_marker.current_match) {
     request.consumer_reference_marker_requested = true;
     ++g_consumer_family_marker.marker_requests;
+    if (g_consumer_family_marker.readback_requested &&
+        !g_consumer_family_marker.readback_queued) {
+      g_consumer_family_marker.readback_queued = true;
+      ++g_consumer_family_marker.readback_requests;
+      request.consumer_reference_readback_requested = true;
+      request.consumer_reference_before_readback_completion =
+          &CompleteConsumerFamilyBeforeReadback;
+      request.consumer_reference_after_readback_completion =
+          &CompleteConsumerFamilyAfterReadback;
+    }
   }
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
       !g_isolated_draw.prepared_candidate_valid) {
@@ -3023,6 +3209,11 @@ void CommitPassConsumer(
           g_consumer_family_marker.pixel_specialization_mask) {
     g_consumer_family_marker.current_match = true;
     ++g_consumer_family_marker.matched_draws;
+    if (g_consumer_family_marker.readback_requested &&
+        !g_consumer_family_marker.readback_queued) {
+      g_consumer_family_marker.capture_frame = observation.frame_sequence;
+      g_consumer_family_marker.capture_draw = observation.draw_sequence;
+    }
   }
   ObservePassConsumerSignature(observation, prepared,
                                candidate.family_base_fetch_mask,
@@ -3463,10 +3654,20 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       "native_renderer.census.consumer_family_marker_config",
       {{"status", !g_consumer_family_marker.requested
                       ? "disabled"
-                      : (g_consumer_family_marker.valid ? "armed"
-                                                        : "invalid_family")},
+                      : (g_consumer_family_marker.valid
+                             ? (g_consumer_family_marker.readback_requested
+                                    ? "armed_with_readback"
+                                    : "armed")
+                             : "invalid_configuration")},
        {"consumer_family", ConsumerFamilyId()},
-       {"mode", "authoritative_draw_marker_only"},
+       {"mode", g_consumer_family_marker.readback_requested
+                    ? "authoritative_draw_marker_and_paired_async_readback"
+                    : "authoritative_draw_marker_only"},
+       {"readback",
+        g_consumer_family_marker.readback_requested ? "before_after_color"
+                                                    : "disabled"},
+       {"readback_output",
+        g_consumer_family_marker.readback_requested ? "local_only" : ""},
        {"xenos_draw", "preserved"},
        {"draw_suppression", "false"},
        {"resolve_suppression", "false"},
@@ -3554,6 +3755,12 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_isolated_draw.reference_depth_artifact_writer.joinable()) {
     g_isolated_draw.reference_depth_artifact_writer.join();
+  }
+  if (g_consumer_family_marker.before_artifact_writer.joinable()) {
+    g_consumer_family_marker.before_artifact_writer.join();
+  }
+  if (g_consumer_family_marker.after_artifact_writer.joinable()) {
+    g_consumer_family_marker.after_artifact_writer.join();
   }
   if (g_pending_candidate.valid) {
     ++g_candidate_unprepared_draw_count;
@@ -3791,7 +3998,18 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
         std::to_string(g_consumer_family_marker.matched_draws)},
        {"marker_requests",
         std::to_string(g_consumer_family_marker.marker_requests)},
-       {"mode", "authoritative_draw_marker_only"},
+       {"readback_requested",
+        g_consumer_family_marker.readback_requested ? "true" : "false"},
+       {"readback_requests",
+        std::to_string(g_consumer_family_marker.readback_requests)},
+       {"readback_completions",
+        std::to_string(g_consumer_family_marker.readback_completions)},
+       {"capture_frame",
+        std::to_string(g_consumer_family_marker.capture_frame)},
+       {"capture_draw", std::to_string(g_consumer_family_marker.capture_draw)},
+       {"mode", g_consumer_family_marker.readback_requested
+                    ? "authoritative_draw_marker_and_paired_async_readback"
+                    : "authoritative_draw_marker_only"},
        {"xenos_draw", "preserved"},
        {"draw_suppression", "false"},
        {"resolve_suppression", "false"},
