@@ -51,13 +51,15 @@ fall within the reported current-buffer bounds or the lineage is invalid.
 
 Pinyon validates the exact addresses, current-buffer length, and packet offset
 on every draw, then aggregates a stable ownership-class key in a fixed
-4,096-entry table: nesting depth, exact constructor store, and exact constructor
-return address when those are matched. Balanced entry/exit hooks on all six
-constructor functions carry the direct caller return address and bounded
-`r3-r10` entry metadata into the exact stored packet generation. Each class
-retains the statically resolved callsite and caller when proved, a sample
-constructor argument vector and varying mask, minimum and maximum current-buffer
-lengths, packet
+4,096-entry table: nesting depth, exact constructor store and return address,
+plus the exact upstream owner function and return address when those are
+matched. Balanced entry/exit hooks on all six constructor functions carry the
+direct caller return address and bounded `r3-r10` entry metadata into the exact
+stored packet generation. A second balanced layer covers the four immediate
+constructor callers that produced every known-origin draw in the first
+qualification. Each class retains statically resolved constructor and owner
+callsites when proved, independent argument samples and varying masks, and
+minimum and maximum current-buffer lengths, packet
 offsets, and parent-packet offsets from the first indirect root, plus a first
 prepared-signature sample and whether that signature varied. Absolute current,
 parent, and root addresses, buffer lengths, and individual offsets remain
@@ -134,3 +136,8 @@ The constructor/caller refinement and its additional fail-closed accounting are
 documented in `INDIRECT_CONSTRUCTOR_PROVENANCE.md`. Its runtime qualification is
 performed as a separate milestone gate; the evidence above remains the baseline
 for the original store-and-depth bridge.
+
+The next exact upstream layer is documented in
+`INDIRECT_OWNER_PROVENANCE.md`. It remains unqualified until the batched
+AppData gate proves balanced owner accounting and resolves live owner
+callsites; it does not change the already-qualified constructor baseline.

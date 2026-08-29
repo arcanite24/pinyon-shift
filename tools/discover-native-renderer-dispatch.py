@@ -108,6 +108,12 @@ INDIRECT_CONSTRUCTOR_RUNTIME_HOOKS = {
     0x829E8E00: {"entry": 0x829E8E04, "exit": 0x829E8ED4},
     0x829EC400: {"entry": 0x829EC404, "exit": 0x829EC5AC},
 }
+INDIRECT_OWNER_RUNTIME_HOOKS = {
+    0x82409668: {"entry": 0x8240966C, "exit": 0x8240983C},
+    0x824167F8: {"entry": 0x824167FC, "exit": 0x82416898},
+    0x8246E8F8: {"entry": 0x8246E8FC, "exit": 0x8246E938},
+    0x829F5FF0: {"entry": 0x829F5FF4, "exit": 0x829F6358},
+}
 
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -398,6 +404,171 @@ def indirect_constructor_runtime_hooks(
             }
         )
     return result
+
+
+def indirect_owner_calls(functions: list[dict]) -> list[dict]:
+    """Inventory direct callers of the runtime-qualified constructor owners."""
+    calls = []
+    for function in functions:
+        for instruction in function["instructions"]:
+            match = CALL_RE.fullmatch(instruction["text"])
+            if not match:
+                continue
+            target = int(match.group(1), 16)
+            if target not in INDIRECT_OWNER_RUNTIME_HOOKS:
+                continue
+            calls.append(
+                {
+                    "owner_function": "sub_{:08X}".format(target),
+                    "owner_function_address": "{:08X}".format(target),
+                    "caller_function": function["name"],
+                    "caller_function_address": "{:08X}".format(
+                        function["address"]
+                    ),
+                    "callsite": "{:08X}".format(instruction["address"]),
+                    "return_address": "{:08X}".format(
+                        instruction["address"] + 4
+                    ),
+                    "classification": "direct_static_owner_callsite",
+                    "semantic_identity": "unknown",
+                    "suppression_eligible": False,
+                }
+            )
+    return sorted(
+        calls,
+        key=lambda item: (item["owner_function_address"], item["callsite"]),
+    )
+
+
+def indirect_owner_runtime_hooks(functions_by_address: dict[int, dict]) -> list[dict]:
+    """Prove balanced passive hooks for the selected constructor owners."""
+    observed_known = set(functions_by_address) & set(INDIRECT_OWNER_RUNTIME_HOOKS)
+    if observed_known and observed_known != set(INDIRECT_OWNER_RUNTIME_HOOKS):
+        raise ValueError("known indirect-owner function set drifted")
+    result = []
+    for address in sorted(observed_known):
+        hooks = INDIRECT_OWNER_RUNTIME_HOOKS[address]
+        function = functions_by_address[address]
+        instructions = function["instructions"]
+        exit_instruction = next(
+            (
+                item
+                for item in instructions
+                if item["address"] == hooks["exit"]
+            ),
+            None,
+        )
+        if (
+            not instructions
+            or instructions[0] != {"address": address, "text": "mflr r12"}
+            or hooks["entry"] != address + 4
+            or exit_instruction is None
+            or not exit_instruction["text"].startswith("addi r1,r1,")
+            or instructions[-1]["text"] not in {"blr", "blr "}
+            and not BRANCH_RE.fullmatch(instructions[-1]["text"])
+        ):
+            raise ValueError(
+                "indirect-owner balanced hook evidence drifted: "
+                "{:08X}".format(address)
+            )
+        result.append(
+            {
+                "function": function["name"],
+                "function_address": "{:08X}".format(address),
+                "entry_hook_address": "{:08X}".format(hooks["entry"]),
+                "exit_hook_address": "{:08X}".format(hooks["exit"]),
+                "caller_lr_register": "r12_after_opening_mflr",
+                "entry_metadata": [
+                    "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"
+                ],
+                "classification": "balanced_passive_constructor_owner",
+                "semantic_identity": "unknown",
+                "suppression_eligible": False,
+            }
+        )
+    return result
+
+
+def argument_leads_for_calls(
+    functions: list[dict], calls: list[dict], target_key: str
+) -> list[dict]:
+    """Record bounded local r3-r10 definitions for an exact direct call."""
+    functions_by_address = {item["address"]: item for item in functions}
+    leads = []
+    for call in calls:
+        function = functions_by_address[int(call["caller_function_address"], 16)]
+        instructions = function["instructions"]
+        call_index = next(
+            index
+            for index, instruction in enumerate(instructions)
+            if instruction["address"] == int(call["callsite"], 16)
+        )
+        definitions = []
+        for register_index in range(3, 11):
+            register = f"r{register_index}"
+            definition = None
+            crossed_call = False
+            for instruction in reversed(instructions[:call_index]):
+                if CALL_BOUNDARY_RE.fullmatch(instruction["text"]):
+                    crossed_call = True
+                    break
+                match = REGISTER_DEFINITION_RE.match(instruction["text"])
+                if (
+                    not match
+                    or match.group(2) != register
+                    or match.group(1) not in DEFINITION_OPERATIONS
+                ):
+                    continue
+                definition = instruction
+                break
+            if definition is None:
+                definitions.append(
+                    {
+                        "register": register,
+                        "status": (
+                            "unknown_across_call_boundary"
+                            if crossed_call
+                            else "entry_register"
+                        ),
+                    }
+                )
+                continue
+            text = definition["text"]
+            operation = text.split(" ", 1)[0]
+            operands = text.split(" ", 1)[1].split(",")
+            source_registers = re.findall(r"r\d+", ",".join(operands[1:]))
+            item = {
+                "register": register,
+                "status": "bounded_syntactic_definition",
+                "address": "{:08X}".format(definition["address"]),
+                "operation": operation,
+                "instruction": text,
+                "source_registers": source_registers,
+            }
+            memory = MEMORY_LOAD_RE.fullmatch(text)
+            if memory:
+                item["memory_load"] = {
+                    "base_register": memory.group(4),
+                    "offset": int(memory.group(3)),
+                    "width": memory.group(1),
+                }
+            definitions.append(item)
+        leads.append(
+            {
+                target_key: call[target_key],
+                "caller_function": call["caller_function"],
+                "caller_function_address": call["caller_function_address"],
+                "callsite": call["callsite"],
+                "return_address": call["return_address"],
+                "arguments": definitions,
+                "classification": "bounded_syntactic_object_lead_only",
+                "interprocedural_dataflow": False,
+                "object_identity_proved": False,
+                "lifetime_proved": False,
+                "suppression_eligible": False,
+            }
+        )
+    return leads
 
 
 def adapter_argument_leads(functions: list[dict], calls: list[dict]) -> list[dict]:
@@ -866,6 +1037,14 @@ def build(paths: list[pathlib.Path]) -> dict:
     constructor_hooks = indirect_constructor_runtime_hooks(
         functions_by_address, constructors
     )
+    owner_calls = indirect_owner_calls(functions)
+    owner_hooks = indirect_owner_runtime_hooks(functions_by_address)
+    constructor_argument_leads = argument_leads_for_calls(
+        functions, constructor_calls, "constructor_function_address"
+    )
+    owner_argument_leads = argument_leads_for_calls(
+        functions, owner_calls, "owner_function_address"
+    )
     constructor_evidence = {
         (int(item["function_address"], 16), int(item["opcode_value"], 16))
         for item in constructors
@@ -953,6 +1132,10 @@ def build(paths: list[pathlib.Path]) -> dict:
         "packet_constructors": constructors,
         "indirect_constructor_calls": constructor_calls,
         "indirect_constructor_runtime_hooks": constructor_hooks,
+        "indirect_constructor_argument_leads": constructor_argument_leads,
+        "indirect_owner_calls": owner_calls,
+        "indirect_owner_runtime_hooks": owner_hooks,
+        "indirect_owner_argument_leads": owner_argument_leads,
         "reviewed_wrappers": [
             {
                 "address": "{:08X}".format(address),
@@ -1010,6 +1193,12 @@ def build(paths: list[pathlib.Path]) -> dict:
             "packet_constructors": len(constructors),
             "indirect_constructor_calls": len(constructor_calls),
             "indirect_constructor_runtime_hooks": len(constructor_hooks),
+            "indirect_constructor_argument_leads": len(
+                constructor_argument_leads
+            ),
+            "indirect_owner_calls": len(owner_calls),
+            "indirect_owner_runtime_hooks": len(owner_hooks),
+            "indirect_owner_argument_leads": len(owner_argument_leads),
             "reviewed_wrappers": len(REVIEWED_WRAPPERS),
             "direct_calls": len(calls),
             "tail_forwarded_calls": len(forwarded_calls),

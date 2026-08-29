@@ -335,6 +335,10 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("CurrentTitleIndirectBuffer", source)
         self.assertIn("constructor_return_address", source)
         self.assertIn("indirect_constructor_stack_faults", source)
+        self.assertIn("kIndirectOwnerStackCapacity = 32", source)
+        self.assertIn("owner_return_address", source)
+        self.assertIn("indirect_owner_stack_faults", source)
+        self.assertIn("indirect_constructor_owner_mismatches", source)
         self.assertIn("SetIndirectBufferObserver(&ObserveIndirectBuffer)", source)
         self.assertIn("SetIndirectBufferObserver(nullptr)", source)
         self.assertIn(

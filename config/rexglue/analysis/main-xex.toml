@@ -96,6 +96,46 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x829EC5AC
 name = "PinyonShiftObserveIndirectConstructor829EC400Exit"
 
+# Trace the four immediate caller functions that accounted for every known-
+# origin draw in the constructor-provenance milestone. Entry hooks observe the
+# owner's direct caller LR and r3-r10; balanced exits run before stack restore.
+# This is one passive ownership layer only and does not assign semantic names.
+[[midasm_hook]]
+address = 0x8240966C
+name = "PinyonShiftObserveIndirectOwner82409668Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8240983C
+name = "PinyonShiftObserveIndirectOwner82409668Exit"
+
+[[midasm_hook]]
+address = 0x824167FC
+name = "PinyonShiftObserveIndirectOwner824167F8Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x82416898
+name = "PinyonShiftObserveIndirectOwner824167F8Exit"
+
+[[midasm_hook]]
+address = 0x8246E8FC
+name = "PinyonShiftObserveIndirectOwner8246E8F8Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x8246E938
+name = "PinyonShiftObserveIndirectOwner8246E8F8Exit"
+
+[[midasm_hook]]
+address = 0x829F5FF4
+name = "PinyonShiftObserveIndirectOwner829F5FF0Entry"
+registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
+address = 0x829F6358
+name = "PinyonShiftObserveIndirectOwner829F5FF0Exit"
+
 [[midasm_hook]]
 address = 0x824095B4
 name = "PinyonShiftObserveIndirectPacket824095B4"

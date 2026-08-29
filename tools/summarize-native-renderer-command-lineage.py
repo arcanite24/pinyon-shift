@@ -80,15 +80,15 @@ def _optional_hex(mapping: dict, key: str, width: int) -> str | None:
 def _hex_arguments(mapping: dict, key: str) -> list[str]:
     values = str(mapping.get(key, "")).upper().split(",")
     if len(values) != 8:
-        raise ValueError(f"invalid constructor argument vector: {key}")
+        raise ValueError(f"invalid argument vector: {key}")
     for value in values:
         if len(value) != 8:
-            raise ValueError(f"invalid constructor argument vector: {key}")
+            raise ValueError(f"invalid argument vector: {key}")
         try:
             int(value, 16)
         except ValueError as error:
             raise ValueError(
-                f"invalid constructor argument vector: {key}"
+                f"invalid argument vector: {key}"
             ) from error
     return values
 
@@ -119,6 +119,14 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             str(item.get("return_address", "")).upper(),
         ): item
         for item in static_constructor_calls
+    }
+    static_owner_calls = static.get("indirect_owner_calls", [])
+    owner_calls_by_return = {
+        (
+            str(item.get("owner_function_address", "")).upper(),
+            str(item.get("return_address", "")).upper(),
+        ): item
+        for item in static_owner_calls
     }
 
     session = select_session(events, requested)
@@ -252,6 +260,36 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             constructor_argument_varying_mask = int(
                 _hex(event, "constructor_argument_varying_mask", 2), 16
             )
+        owner_function_address = _optional_hex(
+            event, "owner_function_address", 8
+        )
+        owner_return_address = _optional_hex(
+            event, "owner_return_address", 8
+        )
+        if (owner_function_address is None) != (owner_return_address is None):
+            raise ValueError("lineage entry has a partial owner origin")
+        owner_call = None
+        owner_arguments = None
+        owner_argument_varying_mask = None
+        if owner_function_address is not None:
+            if constructor_call is None:
+                raise ValueError(
+                    "lineage entry has an owner without a proved constructor caller"
+                )
+            if (
+                str(constructor_call.get("caller_function_address", "")).upper()
+                != owner_function_address
+            ):
+                raise ValueError(
+                    "lineage owner does not contain the constructor callsite"
+                )
+            owner_call = owner_calls_by_return.get(
+                (owner_function_address, owner_return_address)
+            )
+            owner_arguments = _hex_arguments(event, "sample_owner_arguments")
+            owner_argument_varying_mask = int(
+                _hex(event, "owner_argument_varying_mask", 2), 16
+            )
         if depth:
             if parent_value >= PHYSICAL_APERTURE_SIZE or parent_value & 3:
                 raise ValueError("indirect lineage entry has no valid parent packet")
@@ -346,6 +384,24 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "constructor_argument_varying_mask": (
                     constructor_argument_varying_mask
                 ),
+                "owner_function_address": owner_function_address,
+                "owner_return_address": owner_return_address,
+                "owner_callsite": (
+                    owner_call.get("callsite") if owner_call is not None else None
+                ),
+                "owner_caller_function": (
+                    owner_call.get("caller_function")
+                    if owner_call is not None
+                    else None
+                ),
+                "owner_caller_function_address": (
+                    owner_call.get("caller_function_address")
+                    if owner_call is not None
+                    else None
+                ),
+                "owner_callsite_proved": owner_call is not None,
+                "sample_owner_arguments": owner_arguments,
+                "owner_argument_varying_mask": owner_argument_varying_mask,
                 "depth": depth,
             }
         )
@@ -359,6 +415,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             else item["min_parent_root_offset_bytes"],
             item["constructor_store_address"] or "",
             item["constructor_return_address"] or "",
+            item["owner_return_address"] or "",
         )
     )
 
@@ -398,6 +455,18 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
     packets_without_constructor_origin = _integer(
         summary, "indirect_packets_without_constructor_origin"
     )
+    owner_entries = _integer(summary, "indirect_owner_entries")
+    owner_exits = _integer(summary, "indirect_owner_exits")
+    owner_open = _integer(
+        summary, "indirect_owner_invocations_open_at_shutdown"
+    )
+    owner_stack_faults = _integer(summary, "indirect_owner_stack_faults")
+    constructors_without_owner_origin = _integer(
+        summary, "indirect_constructors_without_owner_origin"
+    )
+    constructor_owner_mismatches = _integer(
+        summary, "indirect_constructor_owner_mismatches"
+    )
     open_at_shutdown = _integer(
         summary, "indirect_buffers_open_at_shutdown"
     )
@@ -423,12 +492,25 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         and not draw_stack_faults
         and constructor_entries == constructor_exits + constructor_open
         and not constructor_stack_faults
+        and owner_entries == owner_exits + owner_open
+        and not owner_stack_faults
+        and not constructor_owner_mismatches
         and (
             not static_constructor_calls
             or (
                 constructor_entries > 0
                 and any(
                     item["constructor_return_address"] is not None
+                    for item in entries
+                )
+            )
+        )
+        and (
+            not static_owner_calls
+            or (
+                owner_entries > 0
+                and any(
+                    item["owner_return_address"] is not None
                     for item in entries
                 )
             )
@@ -479,6 +561,15 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 "constructor_argument_varying_mask": entry[
                     "constructor_argument_varying_mask"
                 ],
+                "owner_function_address": entry["owner_function_address"],
+                "owner_return_address": entry["owner_return_address"],
+                "owner_callsite": entry["owner_callsite"],
+                "owner_caller_function": entry["owner_caller_function"],
+                "owner_callsite_proved": entry["owner_callsite_proved"],
+                "sample_owner_arguments": entry["sample_owner_arguments"],
+                "owner_argument_varying_mask": entry[
+                    "owner_argument_varying_mask"
+                ],
                 "depth": entry["depth"],
                 "sample_prepared_signature": entry[
                     "sample_prepared_signature"
@@ -499,6 +590,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             else item["min_parent_root_offset_bytes"],
             item["constructor_store_address"] or "",
             item["constructor_return_address"] or "",
+            item["owner_return_address"] or "",
         )
     )
 
@@ -511,6 +603,7 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "shapes": shapes,
         "static_indirect_buffer_constructors": constructors,
         "static_indirect_constructor_calls": static_constructor_calls,
+        "static_indirect_owner_calls": static_owner_calls,
         "totals": {
             "draws": draws,
             "primary_draws": primary_draws,
@@ -544,6 +637,16 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "indirect_packets_without_constructor_origin": (
                 packets_without_constructor_origin
             ),
+            "indirect_owner_entries": owner_entries,
+            "indirect_owner_exits": owner_exits,
+            "indirect_owner_invocations_open_at_shutdown": owner_open,
+            "indirect_owner_stack_faults": owner_stack_faults,
+            "indirect_constructors_without_owner_origin": (
+                constructors_without_owner_origin
+            ),
+            "indirect_constructor_owner_mismatches": (
+                constructor_owner_mismatches
+            ),
             "indirect_buffers_open_at_shutdown": open_at_shutdown,
             "constructor_origin_draws": sum(
                 item["calls"]
@@ -560,6 +663,20 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
                 for item in entries
                 if item["constructor_return_address"] is not None
                 and not item["constructor_callsite_proved"]
+            ),
+            "owner_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["owner_return_address"] is not None
+            ),
+            "statically_resolved_owner_origin_draws": sum(
+                item["calls"] for item in entries if item["owner_callsite_proved"]
+            ),
+            "unresolved_owner_origin_draws": sum(
+                item["calls"]
+                for item in entries
+                if item["owner_return_address"] is not None
+                and not item["owner_callsite_proved"]
             ),
         },
         "qualification": "exact_title_store_to_backend_nested_command_buffer_lineage",
