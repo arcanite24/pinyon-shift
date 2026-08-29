@@ -424,6 +424,18 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("NATIVE_GPU_TIMING_COLUMNS", summarizer)
         self.assertIn('"native_renderer_gpu_timing"', summarizer)
 
+    def test_suppression_admission_is_fail_closed_and_non_mutating(self):
+        evaluator = (
+            ROOT / "tools/evaluate-native-renderer-suppression.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"guest_cpu_visibility"', evaluator)
+        self.assertIn('"later_gpu_consumers"', evaluator)
+        self.assertIn('"rollback_switch"', evaluator)
+        self.assertIn('"suppression_allowed": False', evaluator)
+        self.assertIn('"draw_suppression_implemented": False', evaluator)
+        self.assertIn('"resolve_suppression_implemented": False', evaluator)
+        self.assertNotIn("SetDrawSuppression", evaluator)
+
     def test_shader_capture_is_local_bounded_and_passive(self):
         patch = (
             ROOT
