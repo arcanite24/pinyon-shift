@@ -7,6 +7,35 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererContractTests(unittest.TestCase):
+    def test_stencil_seed_probe_is_bounded_and_preserves_xenos(self) -> None:
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        patch = (
+            ROOT
+            / "patches/rexglue/0085-d3d12-isolated-stencil-seed-probe.patch"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("stencil_seed_probe_requested", patch)
+        self.assertIn("kStencilSeedProbeValue = 0xA5", patch)
+        self.assertIn("D3D12_CLEAR_FLAG_STENCIL", patch)
+        self.assertIn("D3DCopyResource(isolated_depth->resource()", patch)
+        self.assertNotIn("guest_depth->descriptor_draw().GetHandle()", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE", source
+        )
+        self.assertIn("request.stencil_seed_probe_requested", source)
+        self.assertIn('"stencil_seed_probe_guest_target", "untouched"', source)
+        self.assertIn("[switch]$StencilSeedProbe", capture)
+        self.assertIn("StencilSeedProbe requires IsolatedDrawDir", capture)
+        self.assertIn(
+            "StencilSeedProbe supports single-draw captures only", capture
+        )
+
     def test_census_storage_is_reset_without_large_stack_temporaries(self) -> None:
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

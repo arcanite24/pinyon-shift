@@ -81,7 +81,13 @@ def write_depth_readback(root: Path, role: str, data: bytes) -> None:
     (root / "isolated.bin").write_bytes(data)
 
 
-def write_msaa_depth_readback(root: Path, role: str, data: bytes) -> None:
+def write_msaa_depth_readback(
+    root: Path,
+    role: str,
+    data: bytes,
+    *,
+    stencil_seed_probe: bool | None = None,
+) -> None:
     root.mkdir()
     metadata = {
         "schema": "pinyon-shift.isolated-depth-readback.v1",
@@ -112,6 +118,11 @@ def write_msaa_depth_readback(root: Path, role: str, data: bytes) -> None:
             "suppression_allowed": False,
         },
     }
+    if stencil_seed_probe is not None:
+        metadata["diagnostic"] = {
+            "stencil_seed_probe": stencil_seed_probe,
+            "stencil_seed_probe_value": 0xA5,
+        }
     (root / "readback.json").write_text(json.dumps(metadata), encoding="utf-8")
     (root / "isolated.bin").write_bytes(data)
 
@@ -343,6 +354,100 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
                 effect["metrics"]["first_mismatches"][0]["component"],
                 "stencil",
             )
+
+    def test_stencil_seed_probe_confirms_copy_omission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            guest = bytes(64)
+            private = bytearray(guest)
+            private[4] = 0xA5
+            for path, role, data in (
+                (native_seed, "native_seed", bytes(private)),
+                (xenos_seed, "xenos_seed", guest),
+                (native, "native", bytes(private)),
+                (xenos, "xenos", guest),
+            ):
+                write_msaa_depth_readback(
+                    path, role, data, stencil_seed_probe=True
+                )
+
+            report = MODULE.compare_depth_checkpoints(
+                native, xenos, native_seed, xenos_seed
+            )
+
+            self.assertEqual(
+                report["diagnosis"], "stencil_copy_omission_confirmed"
+            )
+            probe = report["stencil_seed_probe"]
+            self.assertEqual(probe["sentinel_survivors"], 1)
+            self.assertEqual(
+                probe["evidence"], "sentinel_survived_guest_copy"
+            )
+            self.assertEqual(probe["inspected_stencil_values"], 8)
+
+    def test_stencil_seed_probe_preserves_existing_diagnosis_when_overwritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            guest = bytes(64)
+            private = bytearray(guest)
+            private[4] = 7
+            for path, role, data in (
+                (native_seed, "native_seed", bytes(private)),
+                (xenos_seed, "xenos_seed", guest),
+                (native, "native", bytes(private)),
+                (xenos, "xenos", guest),
+            ):
+                write_msaa_depth_readback(
+                    path, role, data, stencil_seed_probe=True
+                )
+
+            report = MODULE.compare_depth_checkpoints(
+                native, xenos, native_seed, xenos_seed
+            )
+
+            self.assertEqual(
+                report["diagnosis"],
+                "seed_divergence_with_exact_draw_effect",
+            )
+            self.assertEqual(
+                report["stencil_seed_probe"]["sentinel_survivors"], 0
+            )
+            self.assertEqual(
+                report["stencil_seed_probe"]["evidence"],
+                "sentinel_overwritten",
+            )
+
+    def test_stencil_seed_probe_rejects_inconsistent_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            for path, role in (
+                (native_seed, "native_seed"),
+                (xenos_seed, "xenos_seed"),
+                (native, "native"),
+            ):
+                write_msaa_depth_readback(
+                    path, role, bytes(64), stencil_seed_probe=True
+                )
+            write_msaa_depth_readback(xenos, "xenos", bytes(64))
+
+            with self.assertRaisesRegex(
+                ValueError, "stencil seed probe metadata is inconsistent"
+            ):
+                MODULE.compare_depth_checkpoints(
+                    native, xenos, native_seed, xenos_seed
+                )
 
 
 if __name__ == "__main__":

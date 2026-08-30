@@ -16,6 +16,7 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
     [string]$IsolatedDrawDir,
+    [switch]$StencilSeedProbe,
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
     [switch]$RequireTitleLodCandidate,
@@ -72,6 +73,12 @@ if ($AutoSelectFreshVisibilityCandidate -and -not $IsolatedDrawDir) {
 }
 if ($AutoSelectFreshVisibilityCandidate -and $PassAnchorSignature) {
     throw 'AutoSelectFreshVisibilityCandidate does not support PassAnchorSignature.'
+}
+if ($StencilSeedProbe -and -not $IsolatedDrawDir) {
+    throw 'StencilSeedProbe requires IsolatedDrawDir.'
+}
+if ($StencilSeedProbe -and $PassAnchorSignature) {
+    throw 'StencilSeedProbe supports single-draw captures only.'
 }
 if ($RequireTitleLodCandidate -and -not $AutoSelectFreshVisibilityCandidate) {
     throw 'RequireTitleLodCandidate requires AutoSelectFreshVisibilityCandidate.'
@@ -155,6 +162,7 @@ $savedReplaySnapshot = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE
 $savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
+$savedStencilSeedProbe = $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE
 $savedVisibilityGate = $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE
 $savedAutoVisibilityCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE
@@ -174,6 +182,8 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $ReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $IsolatedDrawSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE =
+        if ($StencilSeedProbe) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
         if ($RequireFreshVisibilityCandidate -or $AutoSelectFreshVisibilityCandidate) {
             'true'
@@ -202,6 +212,7 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $savedReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $savedIsolatedDraw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE = $savedStencilSeedProbe
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
         $savedVisibilityGate
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE =

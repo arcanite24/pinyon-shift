@@ -4098,6 +4098,7 @@ struct IsolatedDrawState {
   bool require_fresh_visibility_candidate = false;
   bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
+  bool stencil_seed_probe_requested = false;
   bool visibility_wait_reported = false;
   bool title_lod_wait_reported = false;
   bool awaiting_pass_follower = false;
@@ -4558,6 +4559,19 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.stencil_seed_probe_requested = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
   if (!g_isolated_draw.requested &&
       g_sky_horizon_suppression.requested) {
     g_isolated_draw.target_signature = kSkyHorizonFollowerSignature;
@@ -4570,7 +4584,8 @@ void ConfigureIsolatedDraw() {
                 "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR") != 0 ||
       !value || length <= 1) {
     std::free(value);
-    if (g_isolated_draw.auto_select_fresh_visibility_candidate) {
+    if (g_isolated_draw.auto_select_fresh_visibility_candidate ||
+        g_isolated_draw.stencil_seed_probe_requested) {
       g_isolated_draw.valid = false;
     }
     return;
@@ -4581,6 +4596,10 @@ void ConfigureIsolatedDraw() {
   std::free(value);
   if (!draw_requested ||
       !IsLocalArtifactRoot(g_isolated_draw.output_root)) {
+    g_isolated_draw.valid = false;
+  }
+  if (g_isolated_draw.stencil_seed_probe_requested &&
+      !g_isolated_draw.readback_requested) {
     g_isolated_draw.valid = false;
   }
   value = nullptr;
@@ -7019,6 +7038,10 @@ void EmitIsolatedReadbackParitySummary() {
         std::to_string(draw_effect.stencil_mismatch_bytes)},
        {"draw_effect_first_mismatch",
         EffectComparisonFirstMismatch(draw_effect)},
+       {"stencil_seed_probe_enabled",
+        g_isolated_draw.stencil_seed_probe_requested ? "true" : "false"},
+       {"stencil_seed_probe_value",
+        g_isolated_draw.stencil_seed_probe_requested ? "A5" : ""},
        {"comparison",
         "asynchronous_artifact_exact_depth_stencil_effects"},
        {"output_authority", "xenos"},
@@ -13341,6 +13364,8 @@ void CompleteIsolatedDepthReadbackArtifact(
   const uint32_t format = readback.format;
   const uint32_t sample_count = readback.sample_count;
   const uint32_t plane_count = readback.plane_count;
+  const bool stencil_seed_probe_requested =
+      g_isolated_draw.stencil_seed_probe_requested;
   std::array<uint64_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
       plane_offsets = {};
   std::array<uint32_t, rex::system::GraphicsIsolatedDrawReadback::kMaxPlanes>
@@ -13358,6 +13383,7 @@ void CompleteIsolatedDepthReadbackArtifact(
       [bytes = std::move(bytes), signature, frame, draw, output_root, width,
        height, format, sample_count, plane_count, plane_offsets,
        plane_row_pitches, plane_row_sizes, plane_row_counts,
+       stencil_seed_probe_requested,
        capture_role = std::string(capture_role)]() {
         std::string planes;
         for (uint32_t plane = 0; plane < plane_count; ++plane) {
@@ -13396,13 +13422,16 @@ void CompleteIsolatedDepthReadbackArtifact(
             "\"dxgi_format\":{},\"sample_count\":{},"
             "\"encoding\":\"{}\",\"bytes\":{},\"hash\":\"{:016X}\","
             "\"planes\":[{}]}},\n"
+            "  \"diagnostic\": {{\"stencil_seed_probe\":{},"
+            "\"stencil_seed_probe_value\":165}},\n"
             "  \"safety\": {{\"output_authority\":\"xenos\","
             "\"suppression_allowed\":false}}\n}}\n",
             signature, frame, draw, capture_role, width, height, format,
             sample_count,
             sample_count > 1 ? "depth32_stencil8_sample_tuples"
                              : "d3d12_texture_planes",
-            bytes.size(), HashBytes(bytes.data(), bytes.size()), planes);
+            bytes.size(), HashBytes(bytes.data(), bytes.size()), planes,
+            stencil_seed_probe_requested ? "true" : "false");
         const auto metadata_bytes =
             std::span(reinterpret_cast<const uint8_t *>(metadata.data()),
                       metadata.size());
@@ -13950,6 +13979,8 @@ void RequestIsolatedDraw(
   request.seed_depth_readback_requested = g_isolated_draw.readback_requested;
   request.reference_seed_depth_readback_requested =
       g_isolated_draw.readback_requested;
+  request.stencil_seed_probe_requested =
+      g_isolated_draw.stencil_seed_probe_requested;
   request.completion = &CompleteIsolatedDraw;
   request.readback_completion = g_isolated_draw.readback_requested
                                     ? &CompleteIsolatedDrawReadback
@@ -14628,6 +14659,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
   ConfigurePassFollower();
+  if (g_isolated_draw.stencil_seed_probe_requested &&
+      g_pass_follower.requested) {
+    g_isolated_draw.valid = false;
+  }
   ConfigurePassPublication();
   ArmSkyHorizonSuppression();
   EmitSkyHorizonSuppressionControl();
@@ -15138,6 +15173,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"native_draw", "isolated_only"},
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
+       {"stencil_seed_probe",
+        g_isolated_draw.stencil_seed_probe_requested ? "enabled"
+                                                      : "disabled"},
+       {"stencil_seed_probe_value",
+        g_isolated_draw.stencil_seed_probe_requested ? "A5" : ""},
+       {"stencil_seed_probe_scope",
+        g_isolated_draw.stencil_seed_probe_requested
+            ? "private_target_before_guest_copy"
+            : ""},
+       {"stencil_seed_probe_guest_target", "untouched"},
        {"reference_marker", "exact_signature"},
        {"selection",
         g_isolated_draw.auto_select_fresh_visibility_candidate

@@ -46,6 +46,8 @@ class NativeRendererReadbackParityContractTests(unittest.TestCase):
             '"draw_effect_depth_mismatch_bytes"',
             '"draw_effect_stencil_mismatch_bytes"',
             '"draw_effect_first_mismatch"',
+            '"stencil_seed_probe_enabled"',
+            '"stencil_seed_probe_value"',
         ):
             self.assertIn(field, self.scanner)
         self.assertIn(

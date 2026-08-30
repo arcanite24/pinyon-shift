@@ -1,0 +1,92 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -487,6 +487,10 @@ struct GraphicsIsolatedDrawRequest {
+   // distinguish copy/initialization faults from draw-state divergence.
+   bool seed_depth_readback_requested = false;
+   bool reference_seed_depth_readback_requested = false;
++  // Before seeding the private target, clear only its stencil plane to a
++  // sentinel. The subsequent guest-to-private copy must overwrite it. This is
++  // a one-shot diagnostic and never touches the authoritative guest target.
++  bool stencil_seed_probe_requested = false;
+   bool reference_marker_requested = false;
+   // Mark the authoritative guest draw as an exact later-consumer-family
+   // target. This never duplicates, redirects, or suppresses the draw.
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -99,7 +99,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   // Seeds and binds private clones of the current depth and first color target.
+   // EndIsolatedReplayTarget restores the guest bindings without changing the
+   // guest attachments or ownership.
+-  bool BeginIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out);
++  bool BeginIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out,
++                                 bool stencil_seed_probe_requested);
+   bool ResumeIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out);
+   system::GraphicsIsolatedDrawReadbackStatus QueueIsolatedReplayReadback(
+       system::GraphicsIsolatedDrawReadbackCompletion completion,
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1770,7 +1770,8 @@ D3D12RenderTarget* D3D12RenderTargetCache::CreateIsolatedReplayTarget(
+ }
+ 
+ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+-    uint32_t& width_out, uint32_t& height_out) {
++    uint32_t& width_out, uint32_t& height_out,
++    bool stencil_seed_probe_requested) {
+   width_out = 0;
+   height_out = 0;
+   if (GetPath() != Path::kHostRenderTargets) {
+@@ -1814,6 +1815,19 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+   width_out = uint32_t(color_desc.Width);
+   height_out = color_desc.Height;
+ 
++  if (stencil_seed_probe_requested) {
++    constexpr uint8_t kStencilSeedProbeValue = 0xA5;
++    const D3D12_RESOURCE_STATES isolated_probe_state =
++        isolated_depth->SetResourceState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
++    command_processor_.PushTransitionBarrier(
++        isolated_depth->resource(), isolated_probe_state,
++        D3D12_RESOURCE_STATE_DEPTH_WRITE);
++    command_processor_.SubmitBarriers();
++    command_processor_.GetDeferredCommandList().D3DClearDepthStencilView(
++        isolated_depth->descriptor_draw().GetHandle(),
++        D3D12_CLEAR_FLAG_STENCIL, 0.0f, kStencilSeedProbeValue, 0, nullptr);
++  }
++
+   const D3D12_RESOURCE_STATES guest_depth_state =
+       guest_depth->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
+   const D3D12_RESOURCE_STATES guest_color_state =
+@@ -1841,6 +1855,8 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+ 
+   DeferredCommandList& command_list =
+       command_processor_.GetDeferredCommandList();
++  // Copy the complete compatible resource so both depth and stencil planes
++  // must replace the private diagnostic sentinel.
+   command_list.D3DCopyResource(isolated_depth->resource(),
+                                guest_depth->resource());
+   command_list.D3DCopyResource(isolated_color->resource(),
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3442,7 +3442,8 @@ bool D3D12CommandProcessor::IssueDraw(PrimitiveType primitive_type,
+       } else if ((!isolated_draw_request.reuse_target &&
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+-                      isolated_result.target_height)) ||
++                      isolated_result.target_height,
++                      isolated_draw_request.stencil_seed_probe_requested)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,
+@@ -3658,7 +3659,8 @@ bool D3D12CommandProcessor::IssueDraw(PrimitiveType primitive_type,
+       } else if ((!isolated_draw_request.reuse_target &&
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+-                      isolated_result.target_height)) ||
++                      isolated_result.target_height,
++                      isolated_draw_request.stencil_seed_probe_requested)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,

@@ -202,6 +202,22 @@ the first bounded mismatch details, and still returns failure unless the final
 native and Xenos depth/stencil artifacts are exact. Effect equivalence alone
 never enables publication or suppression.
 
+For a single-draw copy-provenance capture, add `-StencilSeedProbe` to
+`capture-native-renderer-census.ps1`. The option requires an isolated readback
+directory and rejects retained-pass mode. Immediately before the normal
+guest-to-private resource copy, the diagnostic clears only the private
+target's stencil plane to `0xA5`; it never clears or otherwise modifies the
+authoritative guest target. The checkpoint analyzer then inspects active
+stencil values in the native and Xenos seed artifacts.
+
+`sentinel_survived_guest_copy` proves that at least one private sentinel value
+survived where the guest source held a different value, producing the bounded
+diagnosis `stencil_copy_omission_confirmed`. `sentinel_overwritten` only rules
+out that specific omission and leaves the existing seed/draw-effect diagnosis
+in force. The probe remains diagnostic-only: final post-draw parity is still
+the result gate, Xenos remains authoritative, and no publication or suppression
+is enabled by either outcome.
+
 ### Qualified visible-world effect result
 
 The 2026-08-30 AppData-backed `open_world_day` capture used the
@@ -217,6 +233,28 @@ diagnosis `seed_divergence_with_exact_draw_effect`; Xenos remains authoritative
 and suppression remains disabled. The 166.5-second session presented at
 59.978 Hz with zero present-deadline misses and no error, fatal, or
 device-removal events.
+
+### Qualified stencil-copy provenance result
+
+The 2026-08-30 AppData-backed follow-up repeated signature
+`B0EC5BC78D8B8760` with the private-only `0xA5` stencil seed probe. The full
+guest-to-private resource copy overwrote the sentinel in all 10,485,760 active
+stencil sample values; neither seed artifact contained the sentinel. This rules
+out omission of the stencil plane by that copy, but does not by itself identify
+the remaining pre-draw seed divergence.
+
+The private and Xenos seeds still differed in 1,586,537 stencil values with
+exact depth. In this capture, the authoritative Xenos draw changed those same
+stencil values while the private draw did not, and both paths converged to
+exact post-draw depth/stencil output across all 83,886,080 active bytes. The
+offline checkpoint result therefore passed as `exact_post_draw_parity`; the
+probe evidence was `sentinel_overwritten`. Paired color output was also exact.
+Xenos remained authoritative and suppression remained disabled.
+
+The 155.0-second session exited normally with six committed readbacks and no
+error, fatal, or device-loss events. Median frame rate was 30.640 FPS, the 1%
+low was 19.487 FPS, presentation cadence was 59.699 Hz, and there were zero
+present-deadline misses.
 
 RenderDoc remains available for visual inspection and external confirmation.
 Capture with both the anchor and follower configured, then export their
