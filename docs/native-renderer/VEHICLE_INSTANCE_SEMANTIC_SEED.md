@@ -117,14 +117,9 @@ frame span. A fixed address index and fixed 1,024-entry result table keep this
 discovery path bounded. No guest payload is read and no draw is changed.
 
 Release/AppData session `20260830T093251Z-p42128` completed normally at the
-festival with the player car visible. It examined 3,285,123 backend draws and
-83,516,951 populated provenance probes against 32 vehicle identities. It found
-zero exact owner or transform-address matches, with no invalid pose,
-owner-dispatch, overflow, stack-fault, error, or fatal event. This rejects the
-current direct and indirect dispatch arguments as an exact vehicle draw join.
-The render path must therefore be recovered from a deeper object/descriptor
-relationship or a different title submission family. Vehicle draw identity,
-native rendering, publication, and suppression remain unadmitted.
+festival and found no exact match, but later audit proved title provenance was
+disabled for that run. Its 83,516,951 probes qualify only the indirect lineage;
+they do not support the original direct-coverage claim.
 
 The follow-up samples a single bounded relationship edge from object-like
 dispatch roots: direct and indirect r3, semantic receiver/descriptor/runtime,
@@ -135,11 +130,17 @@ cache and 2,048-entry correlation table.
 Release/AppData session `20260830T094228Z-p1080` completed normally and
 examined 2,282,451 backend draws. It reduced 7,424,713 eligible requests to
 5,992 unique object scans (766,976 words) across 31 vehicle identities and
-found zero embedded owner, position, or forward-vector addresses. The cache,
-identity index, and correlation table did not overflow, and no invalid pose,
-stack-fault, error, or fatal event occurred. This rejects the first 512 bytes
-of every current object-like provenance root as a one-hop vehicle join. The
-next search must follow typed descriptor graph edges or locate another title
+found zero embedded owner, position, or forward-vector addresses. This run was
+also indirect-only and is retained as bounded partial evidence.
+
+The corrected release/AppData session `20260830T094940Z-p26892` explicitly
+armed title provenance. It covered 205,181 direct title draws, 505,770 semantic
+probes, and 2,053,311 indirect draws across 31 vehicle identities. It found
+zero exact or one-hop owner/position/forward matches. The pose, identity index,
+scan cache, and correlation tables had no invalid observation, overflow, or
+stack fault, and the log had no error or fatal event. This fully rejects the
+current direct, semantic, and indirect arguments and the first 512 bytes of
+their object-like roots. Follow typed descriptor graph edges or locate another
 submission family; native vehicle drawing and suppression remain closed.
 
 Qualify a batched census with:
@@ -147,7 +148,8 @@ Qualify a batched census with:
 ```powershell
 .\tools\capture-native-renderer-census.ps1 `
   -StateRoot $stateRoot `
-  -Scene open_world_day
+  -Scene open_world_day `
+  -VehicleDrawCorrelation
 
 python .\tools\summarize-native-renderer-vehicle-pose.py `
   $eventLog `

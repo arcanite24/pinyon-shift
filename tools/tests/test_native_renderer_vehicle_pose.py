@@ -42,6 +42,7 @@ def fixture():
         draw_correlation=(
             "exact_backend_signature_and_provenance_argument_to_vehicle_address"
         ),
+        title_provenance_requested="true",
         object_scan_word_count="128",
         object_scan_cache_capacity="16384",
         object_correlation_capacity="2048",
@@ -52,6 +53,14 @@ def fixture():
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
+        xenos_authority="true",
+        suppression_allowed="false",
+    )
+    title_provenance_config = event(
+        MODULE.TITLE_PROVENANCE_CONFIG,
+        status="armed",
+        guest_state_changed="false",
+        control_flow_changed="false",
         xenos_authority="true",
         suppression_allowed="false",
     )
@@ -81,7 +90,12 @@ def fixture():
         owner_indirect_target_capacity="64",
         owner_indirect_target_overflow="0",
         draws_examined="4",
+        direct_draws_examined="2",
+        indirect_draws_examined="4",
         draw_argument_probes="32",
+        direct_argument_probes="8",
+        semantic_argument_probes="0",
+        indirect_argument_probes="24",
         draw_argument_matches="0",
         draw_correlations="0",
         draw_correlation_capacity="1024",
@@ -100,6 +114,8 @@ def fixture():
         object_correlations="0",
         object_correlation_capacity="2048",
         object_correlation_overflow="0",
+        title_provenance_requested="true",
+        draw_provenance_coverage_complete="true",
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
@@ -155,7 +171,7 @@ def fixture():
                 suppression_allowed="false",
             )
         )
-    return [config, summary, identity, *methods]
+    return [config, summary, identity, *methods, title_provenance_config]
 
 
 class VehiclePoseSummaryTests(unittest.TestCase):
@@ -170,6 +186,9 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             encoding="utf-8"
         )
         analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
+        capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
             encoding="utf-8"
         )
         self.assertIn("struct VehiclePoseObservation", header)
@@ -201,6 +220,7 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             '"native_renderer.discovery.vehicle_draw_object_correlation"',
             hooks,
         )
+        self.assertIn("[switch]$VehicleDrawCorrelation", capture)
         for address in (
             "82BC8468",
             "82BC84A4",
@@ -233,6 +253,9 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertEqual(1, document["owner_classes"][0]["identity_count"])
         self.assertFalse(
             document["qualification"]["native_vehicle_rendering_admitted"]
+        )
+        self.assertTrue(
+            document["coverage"]["draw_provenance_coverage_complete"]
         )
 
     def test_rejects_invalid_or_overflowed_observations(self):
@@ -437,6 +460,52 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         document = MODULE.build(events)
         self.assertIn(
             "vehicle object scan cache overflowed", document["failures"]
+        )
+
+    def test_does_not_promote_candidate_without_direct_coverage(self):
+        events = fixture()
+        events[0]["title_provenance_requested"] = "false"
+        events[1]["title_provenance_requested"] = "false"
+        events[-1]["status"] = "disabled"
+        events[1]["draw_provenance_coverage_complete"] = "false"
+        events[1]["direct_draws_examined"] = "0"
+        events[1]["direct_argument_probes"] = "0"
+        events[1]["draw_argument_probes"] = "24"
+        events[1]["draw_argument_matches"] = "1"
+        events[1]["draw_correlations"] = "1"
+        events.append(
+            event(
+                MODULE.DRAW_ARGUMENT_CORRELATION,
+                backend_signature="0123456789ABCDEF",
+                provenance_layer="indirect_owner_arguments",
+                function_address="82409668",
+                return_address="8240D1B0",
+                argument_index="3",
+                identity_field="owner",
+                matched_address="A0002000",
+                identity_generation="00000001",
+                identity_owner="A0002000",
+                identity_slot="2",
+                observations="1",
+                first_frame="102",
+                last_frame="102",
+                classification="vehicle_draw_argument_correlation_candidate",
+                vehicle_draw_identity_proved="false",
+                guest_state_changed="false",
+                native_draw="false",
+                xenos_authority="true",
+                suppression_allowed="false",
+            )
+        )
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["coverage"]["draw_provenance_coverage_complete"]
+        )
+        self.assertFalse(
+            document["qualification"][
+                "vehicle_draw_argument_candidate_proved"
+            ]
         )
 
 

@@ -725,7 +725,12 @@ std::array<VehicleDrawCorrelationEntry, kVehicleDrawCorrelationCapacity>
     g_vehicle_draw_correlations{};
 std::mutex g_vehicle_draw_correlation_mutex;
 uint64_t g_vehicle_draws_examined = 0;
+uint64_t g_vehicle_direct_draws_examined = 0;
+uint64_t g_vehicle_indirect_draws_examined = 0;
 uint64_t g_vehicle_draw_argument_probes = 0;
+uint64_t g_vehicle_direct_argument_probes = 0;
+uint64_t g_vehicle_semantic_argument_probes = 0;
+uint64_t g_vehicle_indirect_argument_probes = 0;
 uint64_t g_vehicle_draw_argument_matches = 0;
 uint64_t g_vehicle_draw_correlation_count = 0;
 uint64_t g_vehicle_draw_correlation_overflow = 0;
@@ -741,6 +746,7 @@ uint64_t g_vehicle_object_scan_cache_overflow = 0;
 uint64_t g_vehicle_object_argument_matches = 0;
 uint64_t g_vehicle_object_correlation_count = 0;
 uint64_t g_vehicle_object_correlation_overflow = 0;
+bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -1758,6 +1764,16 @@ bool ShouldScanVehicleObjectProbe(const VehicleDrawArgumentProbe &probe) {
   return false;
 }
 
+bool IsDirectVehicleDrawProvenanceLayer(VehicleDrawProvenanceLayer layer) {
+  return layer == VehicleDrawProvenanceLayer::kDirectArguments;
+}
+
+bool IsSemanticVehicleDrawProvenanceLayer(VehicleDrawProvenanceLayer layer) {
+  return layer == VehicleDrawProvenanceLayer::kSemanticReceiver ||
+         layer == VehicleDrawProvenanceLayer::kSemanticDescriptor ||
+         layer == VehicleDrawProvenanceLayer::kSemanticRuntime;
+}
+
 void RecordVehicleObjectCorrelationLocked(
     uint64_t backend_signature, uint64_t frame,
     const VehicleDrawArgumentProbe &probe, uint32_t pointer_offset,
@@ -1992,9 +2008,18 @@ void ObserveVehicleDrawArgumentCorrelations(
   std::scoped_lock lock(g_vehicle_identity_mutex,
                         g_vehicle_draw_correlation_mutex);
   ++g_vehicle_draws_examined;
+  g_vehicle_direct_draws_examined += direct_origin.valid ? 1 : 0;
+  g_vehicle_indirect_draws_examined += indirect_origin ? 1 : 0;
   g_vehicle_draw_argument_probes += probe_count;
   for (size_t probe_index = 0; probe_index < probe_count; ++probe_index) {
     const VehicleDrawArgumentProbe &probe = probes[probe_index];
+    if (IsDirectVehicleDrawProvenanceLayer(probe.layer)) {
+      ++g_vehicle_direct_argument_probes;
+    } else if (IsSemanticVehicleDrawProvenanceLayer(probe.layer)) {
+      ++g_vehicle_semantic_argument_probes;
+    } else {
+      ++g_vehicle_indirect_argument_probes;
+    }
     if (!probe.value) {
       continue;
     }
@@ -15701,7 +15726,12 @@ void ConfigureVehicleDiscovery(bool census_requested,
     std::scoped_lock lock(g_vehicle_draw_correlation_mutex);
     g_vehicle_draw_correlations = {};
     g_vehicle_draws_examined = 0;
+    g_vehicle_direct_draws_examined = 0;
+    g_vehicle_indirect_draws_examined = 0;
     g_vehicle_draw_argument_probes = 0;
+    g_vehicle_direct_argument_probes = 0;
+    g_vehicle_semantic_argument_probes = 0;
+    g_vehicle_indirect_argument_probes = 0;
     g_vehicle_draw_argument_matches = 0;
     g_vehicle_draw_correlation_count = 0;
     g_vehicle_draw_correlation_overflow = 0;
@@ -15716,6 +15746,8 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_object_correlation_count = 0;
     g_vehicle_object_correlation_overflow = 0;
   }
+  g_vehicle_title_provenance_requested =
+      REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
   g_vehicle_discovery_memory.store(census_requested ? memory : nullptr,
                                    std::memory_order_release);
   g_vehicle_discovery_installed.store(census_requested && memory,
@@ -15747,6 +15779,8 @@ void ConfigureVehicleDiscovery(bool census_requested,
         std::to_string(kVehicleIdentityAddressCapacity)},
        {"draw_correlation",
         "exact_backend_signature_and_provenance_argument_to_vehicle_address"},
+       {"title_provenance_requested",
+        g_vehicle_title_provenance_requested ? "true" : "false"},
        {"object_scan_word_count",
         std::to_string(kVehicleObjectScanWordCount)},
        {"object_scan_cache_capacity",
@@ -15815,8 +15849,18 @@ void EmitVehicleDiscoverySummary() {
        {"owner_indirect_target_overflow",
         std::to_string(g_vehicle_owner_indirect_target_overflow)},
        {"draws_examined", std::to_string(g_vehicle_draws_examined)},
+       {"direct_draws_examined",
+        std::to_string(g_vehicle_direct_draws_examined)},
+       {"indirect_draws_examined",
+        std::to_string(g_vehicle_indirect_draws_examined)},
        {"draw_argument_probes",
         std::to_string(g_vehicle_draw_argument_probes)},
+       {"direct_argument_probes",
+        std::to_string(g_vehicle_direct_argument_probes)},
+       {"semantic_argument_probes",
+        std::to_string(g_vehicle_semantic_argument_probes)},
+       {"indirect_argument_probes",
+        std::to_string(g_vehicle_indirect_argument_probes)},
        {"draw_argument_matches",
         std::to_string(g_vehicle_draw_argument_matches)},
        {"draw_correlations",
@@ -15852,6 +15896,16 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleObjectCorrelationCapacity)},
        {"object_correlation_overflow",
         std::to_string(g_vehicle_object_correlation_overflow)},
+       {"title_provenance_requested",
+        g_vehicle_title_provenance_requested ? "true" : "false"},
+       {"draw_provenance_coverage_complete",
+        g_vehicle_title_provenance_requested &&
+                g_vehicle_direct_draws_examined &&
+                g_vehicle_indirect_draws_examined &&
+                g_vehicle_direct_argument_probes &&
+                g_vehicle_indirect_argument_probes
+            ? "true"
+            : "false"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},

@@ -21,6 +21,7 @@ param(
     [switch]$AutoSelectFreshVisibilityCandidate,
     [switch]$RequireTitleLodCandidate,
     [switch]$VisibilityShadowReplay,
+    [switch]$VehicleDrawCorrelation,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
     [switch]$PublishRetainedPass,
@@ -187,7 +188,9 @@ $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READB
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY =
-        if ($VisibilityShadowReplay) { 'true' } else { $savedDiscovery }
+        if ($VisibilityShadowReplay -or $VehicleDrawCorrelation) {
+            'true'
+        } else { $savedDiscovery }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $IndexScanSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $TextureScanSignature
