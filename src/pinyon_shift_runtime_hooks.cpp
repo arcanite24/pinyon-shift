@@ -18,6 +18,7 @@
 #include <rex/system/xmemory.h>
 
 #include "pinyon_shift_diagnostics.h"
+#include "native_renderer/graphics_hooks.h"
 
 REXCVAR_DEFINE_BOOL(pinyon_shift_skip_opening_movies, false, "Pinyon Shift",
                     "Complete XMedia-backed movies immediately");
@@ -492,6 +493,23 @@ void PinyonShiftTraceVehiclePose(PPCRegister& r1, PPCRegister& r30,
   if (suppressed) {
     StoreVehiclePose(position_address, forward_address, effective);
   }
+
+  pinyon_shift::native_renderer::ObserveVehiclePose(
+      {.generation = generation,
+       .source = r30.u32,
+       .owner = r31.u32,
+       .slot = slot,
+       .position_address = position_address,
+       .forward_address = forward_address,
+       .x = effective.x,
+       .y = effective.y,
+       .z = effective.z,
+       .w = effective.w,
+       .forward_x = effective.forward_x,
+       .forward_y = effective.forward_y,
+       .forward_z = effective.forward_z,
+       .forward_w = effective.forward_w,
+       .presentation_stabilized = suppressed});
 
   if (suppressed && FrameTelemetryEnabled()) {
     uint64_t previous_discontinuity_ms =

@@ -100,6 +100,8 @@ constexpr uint64_t kSemanticVisibilityMaximumPolicyAgeFrames = 1;
 constexpr size_t kVisibilityShadowReplaySignatureCapacity = 256;
 constexpr size_t kVisibilityShadowReplaySignatureSummaryLimit = 16;
 constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
+constexpr size_t kVehicleIdentityCapacity = 64;
+constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -517,6 +519,40 @@ std::atomic<bool> g_title_provenance_installed{};
 std::atomic<rex::memory::Memory *> g_title_provenance_memory{};
 std::atomic<bool> g_command_buffer_lineage_installed{};
 std::atomic<rex::memory::Memory *> g_command_buffer_lineage_memory{};
+
+struct VehicleIdentityEntry {
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t position_changes = 0;
+  uint64_t forward_changes = 0;
+  uint64_t stabilized_observations = 0;
+  uint64_t address_mismatches = 0;
+  double maximum_position_delta_squared = 0.0;
+  uint32_t generation = 0;
+  uint32_t source = 0;
+  uint32_t owner = 0;
+  uint32_t slot = 0;
+  uint32_t position_address = 0;
+  uint32_t forward_address = 0;
+  float last_x = 0.0f;
+  float last_y = 0.0f;
+  float last_z = 0.0f;
+  float last_forward_x = 0.0f;
+  float last_forward_y = 0.0f;
+  float last_forward_z = 0.0f;
+  bool valid = false;
+};
+
+std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
+    g_vehicle_identities{};
+std::mutex g_vehicle_identity_mutex;
+std::atomic<bool> g_vehicle_discovery_installed{};
+uint64_t g_vehicle_observations = 0;
+uint64_t g_vehicle_valid_observations = 0;
+uint64_t g_vehicle_invalid_observations = 0;
+uint64_t g_vehicle_identity_count = 0;
+uint64_t g_vehicle_identity_overflow = 0;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -14943,9 +14979,204 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   ++g_draw_census.overflow_draw_count;
 }
 
+void ConfigureVehicleDiscovery(bool census_requested) {
+  g_vehicle_discovery_installed.store(false, std::memory_order_release);
+  {
+    std::scoped_lock lock(g_vehicle_identity_mutex);
+    g_vehicle_identities = {};
+    g_vehicle_observations = 0;
+    g_vehicle_valid_observations = 0;
+    g_vehicle_invalid_observations = 0;
+    g_vehicle_identity_count = 0;
+    g_vehicle_identity_overflow = 0;
+  }
+  g_vehicle_discovery_installed.store(census_requested,
+                                      std::memory_order_release);
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_pose_config",
+      {{"status", census_requested ? "armed" : "disabled"},
+       {"hook", "82BC5A3C"},
+       {"identity", "title_generation,source,owner,active_slot"},
+       {"transform", "exact_active_slot_position_and_forward"},
+       {"capacity", std::to_string(kVehicleIdentityCapacity)},
+       {"summary_limit",
+        std::to_string(kVehicleIdentitySummaryLimit)},
+       {"classification", "unclassified_vehicle_pose_stream"},
+       {"player_priority_admitted", "false"},
+       {"guest_payload_read", "existing_title_pose_hook_values"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitVehicleDiscoverySummary() {
+  if (!g_vehicle_discovery_installed.exchange(false,
+                                               std::memory_order_acq_rel)) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  const bool accounting_complete =
+      g_vehicle_valid_observations + g_vehicle_invalid_observations ==
+      g_vehicle_observations;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_pose_summary",
+      {{"status", !g_vehicle_observations
+                      ? "not_observed"
+                      : (accounting_complete ? "complete" : "incomplete")},
+       {"observations", std::to_string(g_vehicle_observations)},
+       {"valid_observations",
+        std::to_string(g_vehicle_valid_observations)},
+       {"invalid_observations",
+        std::to_string(g_vehicle_invalid_observations)},
+       {"identities", std::to_string(g_vehicle_identity_count)},
+       {"capacity", std::to_string(kVehicleIdentityCapacity)},
+       {"summary_limit",
+        std::to_string(kVehicleIdentitySummaryLimit)},
+       {"overflow", std::to_string(g_vehicle_identity_overflow)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"identity", "title_generation,source,owner,active_slot"},
+       {"transform", "exact_active_slot_position_and_forward"},
+       {"classification", "vehicle_instance_semantic_seed"},
+       {"player_priority_admitted", "false"},
+       {"guest_state_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  size_t emitted = 0;
+  for (const VehicleIdentityEntry &entry : g_vehicle_identities) {
+    if (!entry.valid || emitted >= kVehicleIdentitySummaryLimit) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_pose_identity",
+        {{"generation", fmt::format("{:08X}", entry.generation)},
+         {"source", fmt::format("{:08X}", entry.source)},
+         {"owner", fmt::format("{:08X}", entry.owner)},
+         {"slot", std::to_string(entry.slot)},
+         {"position_address",
+          fmt::format("{:08X}", entry.position_address)},
+         {"forward_address", fmt::format("{:08X}", entry.forward_address)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"position_changes", std::to_string(entry.position_changes)},
+         {"forward_changes", std::to_string(entry.forward_changes)},
+         {"stabilized_observations",
+          std::to_string(entry.stabilized_observations)},
+         {"address_mismatches", std::to_string(entry.address_mismatches)},
+         {"maximum_position_delta_squared",
+          fmt::format("{}", entry.maximum_position_delta_squared)},
+         {"classification", "vehicle_instance_semantic_seed"},
+         {"player_priority_admitted", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+    ++emitted;
+  }
+}
+
 } // namespace
 
 namespace pinyon_shift::native_renderer {
+
+void ObserveVehiclePose(const VehiclePoseObservation &observation) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const bool valid = observation.generation && observation.source &&
+                     observation.owner && observation.position_address &&
+                     observation.forward_address &&
+                     std::isfinite(observation.x) &&
+                     std::isfinite(observation.y) &&
+                     std::isfinite(observation.z) &&
+                     std::isfinite(observation.w) &&
+                     std::isfinite(observation.forward_x) &&
+                     std::isfinite(observation.forward_y) &&
+                     std::isfinite(observation.forward_z) &&
+                     std::isfinite(observation.forward_w);
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_vehicle_observations;
+  if (!valid) {
+    ++g_vehicle_invalid_observations;
+    return;
+  }
+  ++g_vehicle_valid_observations;
+  VehicleIdentityEntry *available = nullptr;
+  VehicleIdentityEntry *matched = nullptr;
+  for (VehicleIdentityEntry &entry : g_vehicle_identities) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.generation == observation.generation &&
+        entry.source == observation.source && entry.owner == observation.owner &&
+        entry.slot == observation.slot) {
+      matched = &entry;
+      break;
+    }
+  }
+  if (!matched) {
+    if (!available) {
+      ++g_vehicle_identity_overflow;
+      return;
+    }
+    matched = available;
+    matched->valid = true;
+    matched->generation = observation.generation;
+    matched->source = observation.source;
+    matched->owner = observation.owner;
+    matched->slot = observation.slot;
+    matched->position_address = observation.position_address;
+    matched->forward_address = observation.forward_address;
+    matched->first_frame = g_frame_sequence.load(std::memory_order_relaxed);
+    matched->last_x = observation.x;
+    matched->last_y = observation.y;
+    matched->last_z = observation.z;
+    matched->last_forward_x = observation.forward_x;
+    matched->last_forward_y = observation.forward_y;
+    matched->last_forward_z = observation.forward_z;
+    ++g_vehicle_identity_count;
+  } else {
+    const double delta_x = double(observation.x) - matched->last_x;
+    const double delta_y = double(observation.y) - matched->last_y;
+    const double delta_z = double(observation.z) - matched->last_z;
+    const double delta_squared =
+        delta_x * delta_x + delta_y * delta_y + delta_z * delta_z;
+    if (delta_squared != 0.0) {
+      ++matched->position_changes;
+      matched->maximum_position_delta_squared =
+          std::max(matched->maximum_position_delta_squared, delta_squared);
+    }
+    if (observation.forward_x != matched->last_forward_x ||
+        observation.forward_y != matched->last_forward_y ||
+        observation.forward_z != matched->last_forward_z) {
+      ++matched->forward_changes;
+    }
+    if (observation.position_address != matched->position_address ||
+        observation.forward_address != matched->forward_address) {
+      ++matched->address_mismatches;
+    }
+    matched->last_x = observation.x;
+    matched->last_y = observation.y;
+    matched->last_z = observation.z;
+    matched->last_forward_x = observation.forward_x;
+    matched->last_forward_y = observation.forward_y;
+    matched->last_forward_z = observation.forward_z;
+  }
+  ++matched->observations;
+  matched->last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+  if (observation.presentation_stabilized) {
+    ++matched->stabilized_observations;
+  }
+}
 
 void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                            rex::memory::Memory *memory) {
@@ -14958,6 +15189,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
+  ConfigureVehicleDiscovery(census_requested);
   ConfigureTitleDrawProvenance(census_requested, memory);
   const bool lineage_armed = census_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
@@ -15574,6 +15806,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
+  EmitVehicleDiscoverySummary();
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
   EmitDispatchDiscoverySummary();
