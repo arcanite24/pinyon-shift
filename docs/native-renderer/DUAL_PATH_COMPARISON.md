@@ -3,6 +3,8 @@
 NR-04C adds restart-gated `comparison_native` and `comparison_xenos` output
 modes. Both modes preserve the complete Xenos frame and build the exact-frame
 retained native display target in the command processor's existing submission.
+Since Phase B5, they use the same 512x288 logical scene, RGBA16F linear
+intermediate, title gamma, and title upscale path as the native prototype.
 Only the selected path becomes display authority:
 
 - `comparison_native` copies the completed private native display target into
@@ -42,16 +44,15 @@ $stateRoot = Join-Path $env:LOCALAPPDATA `
 .\tools\capture-native-renderer-output-comparison.ps1 `
   -StateRoot $stateRoot `
   -RenderDocRoot '.local\tools\renderdoc-1.45\RenderDoc_1.45_64' `
-  -IsolatedDrawSignature 1D253A52B55C9FB3 `
-  -PassAnchorSignature 747837906D0BF484 `
-  -IsolatedDrawDir '.local\qualification\nr04c-isolated-pass' `
   -CaptureDir '.local\qualification\nr04c-capture' `
   -SelectedOutput native
 ```
 
 Load the requested scene, press F12 after the retained native output is visible,
 then close the game. The wrapper changes only the renderer selector and restores
-its original value after the capture process exits.
+its original value after the capture process exits. Prototype comparison modes
+self-arm their world and shadow observation; legacy isolated-draw and pass-anchor
+arguments must not be supplied.
 
 Export the first complete same-frame pair with:
 

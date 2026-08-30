@@ -56,7 +56,8 @@ constexpr size_t kSignatureCapacity = 4096;
 
 bool NativePrototypeSelected() {
   const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
-  return mode == "native_prototype" || mode == "hybrid_prototype";
+  return mode == "native_prototype" || mode == "hybrid_prototype" ||
+         mode == "comparison_native" || mode == "comparison_xenos";
 }
 
 constexpr size_t kSummaryLimit = 16;

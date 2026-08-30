@@ -4,7 +4,6 @@ param(
     [string]$StateRoot,
     [Parameter(Mandatory)]
     [string]$RenderDocRoot,
-    [Parameter(Mandatory)]
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
@@ -118,7 +117,11 @@ try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE =
-        $IsolatedDrawSignature.ToUpperInvariant()
+        if ($IsolatedDrawSignature) {
+            $IsolatedDrawSignature.ToUpperInvariant()
+        } else {
+            $null
+        }
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE =
         if ($PassAnchorSignature) {

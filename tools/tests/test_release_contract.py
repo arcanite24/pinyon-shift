@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 96)
+        self.assertEqual(len(patches), 97)
         self.assertEqual(
             patches[-1].name,
-            "0096-d3d12-conservative-hybrid-composition.patch",
+            "0097-d3d12-native-prototype-comparison.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:

@@ -5,14 +5,6 @@ param(
     [Parameter(Mandatory)]
     [string]$RenderDocRoot,
     [Parameter(Mandatory)]
-    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
-    [string]$IsolatedDrawSignature,
-    [Parameter(Mandatory)]
-    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
-    [string]$PassAnchorSignature,
-    [Parameter(Mandatory)]
-    [string]$IsolatedDrawDir,
-    [Parameter(Mandatory)]
     [string]$CaptureDir,
     [ValidateSet('native', 'xenos')]
     [string]$SelectedOutput = 'native',
@@ -39,10 +31,7 @@ try {
     [void](& $settingsTool -Action SetRenderer -StateRoot $StateRoot `
         -NativeRenderer $comparisonRenderer -Json)
     & $captureTool -StateRoot $StateRoot -RenderDocRoot $RenderDocRoot `
-        -IsolatedDrawSignature $IsolatedDrawSignature `
-        -PassAnchorSignature $PassAnchorSignature `
-        -IsolatedDrawDir $IsolatedDrawDir -CaptureDir $CaptureDir `
-        -Scene $Scene
+        -CaptureDir $CaptureDir -Scene $Scene
 }
 finally {
     [void](& $settingsTool -Action SetRenderer -StateRoot $StateRoot `
