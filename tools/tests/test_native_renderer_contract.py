@@ -7,6 +7,85 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererContractTests(unittest.TestCase):
+    def test_isolated_depth_seed_copies_every_d3d12_plane(self) -> None:
+        patch = (
+            ROOT
+            / "patches/rexglue"
+            / "0088-d3d12-copy-isolated-depth-stencil-planes.patch"
+        ).read_text(encoding="utf-8")
+        added = "\n".join(
+            line[1:] for line in patch.splitlines() if line.startswith("+")
+        )
+        self.assertIn("depth_format_info.PlaneCount", added)
+        self.assertIn("plane * uint32_t(depth_desc.MipLevels)", added)
+        self.assertIn("D3DCopyTextureRegion", added)
+        self.assertNotIn(
+            "D3DCopyResource(isolated_depth->resource(),", added
+        )
+        self.assertNotIn("SetDrawSuppression", patch)
+
+    def test_readback_replay_restores_graphics_root_bindings(self) -> None:
+        patch = (
+            ROOT
+            / "patches/rexglue"
+            / "0087-d3d12-restore-graphics-bindings-after-readback.patch"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("restore_prepared_guest_graphics_state", patch)
+        self.assertIn("current_graphics_root_up_to_date_ = 0", patch)
+        self.assertEqual(
+            patch.count(
+                "UpdateBindings(vertex_shader, pixel_shader, root_signature,"
+            ),
+            1,
+        )
+        self.assertEqual(
+            patch.count("if (!restore_prepared_guest_graphics_state())"),
+            4,
+        )
+        self.assertIn("kBindingUpdateFailed", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+        self.assertNotIn("suppress_guest_draw_if_published = true", patch)
+
+    def test_continuous_shadow_replay_is_reconciled_and_safe(self) -> None:
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        start = source.index("void CompleteIsolatedShadowReplay(")
+        end = source.index("void CompleteIsolatedPassAnchor(", start)
+        completion = source[start:end]
+        self.assertIn("shadow_replay_recorded", completion)
+        self.assertIn("shadow_replay_target_failures", completion)
+        self.assertIn("shadow_replay_unsupported", completion)
+        self.assertNotIn("RecordEvent", completion)
+        self.assertIn(
+            '"native_renderer.isolated_draw.shadow_replay_summary"', source
+        )
+        self.assertIn('"accounting_complete"', source)
+        self.assertIn('{"readback", "one_shot_only"}', source)
+        self.assertIn('{"xenos_draw", "preserved"}', source)
+        self.assertIn('{"draw_suppression", "false"}', source)
+
+    def test_seed_checkpoints_are_paired_before_native_draw(self) -> None:
+        patch = (
+            ROOT
+            / "patches/rexglue/0086-d3d12-paired-seed-checkpoint-order.patch"
+        ).read_text(encoding="utf-8")
+
+        added = "\n".join(
+            line[1:] for line in patch.splitlines() if line.startswith("+")
+        )
+        removed = "\n".join(
+            line[1:] for line in patch.splitlines() if line.startswith("-")
+        )
+        self.assertEqual(added.count("QueueGuestSeedDepthReadback("), 2)
+        self.assertEqual(removed.count("QueueGuestSeedDepthReadback("), 2)
+        self.assertEqual(
+            added.count("QueueIsolatedReplaySeedDepthReadback("), 0
+        )
+        self.assertEqual(added.count("EndIsolatedReplayTarget("), 0)
+        self.assertNotIn("SetDrawSuppression", patch)
+
     def test_stencil_seed_probe_is_bounded_and_preserves_xenos(self) -> None:
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

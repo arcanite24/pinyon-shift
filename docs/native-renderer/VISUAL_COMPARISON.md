@@ -256,6 +256,53 @@ error, fatal, or device-loss events. Median frame rate was 30.640 FPS, the 1%
 low was 19.487 FPS, presentation cadence was 59.699 Hz, and there were zero
 present-deadline misses.
 
+The follow-up checkpoint order records the authoritative copy source and the
+private copy destination consecutively after `BeginIsolatedReplayTarget`
+finishes the full resource copy and before the native draw. This removes the
+earlier interval in which the authoritative seed was sampled only after the
+private draw and target restoration. Runtime summary `status` now follows the
+same strict final-output gate as the offline report: paired post-draw color and
+depth/stencil must both be exact. Seed and draw-effect comparisons remain
+separate diagnostics and cannot enable publication or suppression.
+
+After the one-shot comparison completes, matching eligible draws continue to
+execute on the private target without additional readbacks. Shutdown telemetry
+reconciles every shadow-replay request as recorded, unsupported, or target-
+creation failure and separately counts title/mechanical gate rejections. This
+turns the existing frame-debugger replay into bounded long-session evidence;
+the original Xenos draw still executes and remains the only output authority.
+
+The explicit plane-copy follow-up produced the first fully exact four-way
+capture for signature `B0EC5BC78D8B8760`. The private and authoritative seeds
+were byte-exact across all 83,886,080 active depth/stencil bytes. Both draws
+then changed the same 1,586,291 stencil bytes, reached identical values, and
+left post-draw depth/stencil byte-exact; paired color output was also exact.
+The private-only `0xA5` sentinel was overwritten at every active stencil
+sample, independently confirming complete copy coverage. Runtime session
+`20260830T074501Z-p43940` reported exact seed, draw-effect, color, and final
+depth/stencil status, reconciled its shadow replay, exited normally, and kept
+Xenos authoritative with suppression disabled. The matching offline report is
+`.local/qualification/native-paired-seed-shadow-20260830-pr137-debug-checkpoints.json`.
+
+This capture qualifies the explicit depth/stencil plane-copy boundary and the
+paired asynchronous comparison path. It does not by itself promote the
+signature for publication or suppression: earlier captures exposed
+stencil-only diagnostic variance, so repeated representative-scene evidence
+and the remaining consumer/CPU-visibility gates are still required.
+
+The paired checkpoint run for signature `B0EC5BC78D8B8760` then proved the
+private and authoritative depth/stencil seeds byte-exact across all 83,886,080
+active bytes. Depth and post-draw color also remained exact. The remaining
+12,739-byte post-draw mismatch was stencil-only and spatially diagnostic: the
+private replay affected a 126-by-126 sample-zero footprint while the
+authoritative draw affected only a 16-by-16 footprint. MSAA checkpoint
+extraction records compute descriptors after the guest graphics bindings have
+already been finalized, which may switch descriptor heaps and invalidate every
+graphics root table. The follow-up restoration patch therefore forces all
+cached guest root parameters to be rebound after diagnostic compute work and
+before both private and authoritative draws. It does not publish native output,
+enable suppression, or alter Xenos authority.
+
 RenderDoc remains available for visual inspection and external confirmation.
 Capture with both the anchor and follower configured, then export their
 native/Xenos spans:

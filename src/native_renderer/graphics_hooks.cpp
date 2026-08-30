@@ -4078,6 +4078,11 @@ struct IsolatedDrawState {
   uint64_t captured_draw = 0;
   uint64_t pass_anchor_frame = 0;
   uint64_t pass_anchor_draw = 0;
+  uint64_t shadow_replay_requests = 0;
+  uint64_t shadow_replay_recorded = 0;
+  uint64_t shadow_replay_target_failures = 0;
+  uint64_t shadow_replay_unsupported = 0;
+  uint64_t shadow_replay_gate_rejections = 0;
   uint32_t prepared_title_lod_index = 0;
   rex::system::GraphicsDrawObservation prepared_sample;
   std::filesystem::path output_root;
@@ -6986,12 +6991,19 @@ void EmitIsolatedReadbackParitySummary() {
   const bool complete = color.readable && seed.readable && post.readable &&
                         native_effect.readable && xenos_effect.readable &&
                         draw_effect.readable;
-  const bool exact = complete && color.exact() && seed.exact() && post.exact();
+  const bool final_output_exact =
+      complete && color.exact() && post.exact();
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.isolated_draw.parity_summary",
       {{"signature",
         fmt::format("{:016X}", g_isolated_draw.captured_signature)},
-       {"status", complete ? (exact ? "exact" : "mismatch") : "incomplete"},
+       {"status",
+        complete ? (final_output_exact ? "exact" : "mismatch")
+                 : "incomplete"},
+       {"result_gate", "post_draw_output"},
+       {"seed_status", seed.exact() ? "exact" : "diagnostic_mismatch"},
+       {"draw_effect_status",
+        draw_effect.exact() ? "exact" : "diagnostic_mismatch"},
        {"frame", std::to_string(g_isolated_draw.captured_frame)},
        {"draw", std::to_string(g_isolated_draw.captured_draw)},
        {"color_post_exact", color.exact() ? "true" : "false"},
@@ -13533,6 +13545,19 @@ void CompleteIsolatedDraw(
        {"suppression_eligible", "false"}});
 }
 
+void CompleteIsolatedShadowReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    ++g_isolated_draw.shadow_replay_recorded;
+  } else if (result.status == rex::system::
+                                  GraphicsIsolatedDrawStatus::
+                                      kTargetCreationFailed) {
+    ++g_isolated_draw.shadow_replay_target_failures;
+  } else {
+    ++g_isolated_draw.shadow_replay_unsupported;
+  }
+}
+
 void CompleteIsolatedPassAnchor(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   g_isolated_draw.pass_anchor_recorded =
@@ -13914,11 +13939,17 @@ void RequestIsolatedDraw(
   }
   request.reference_marker_requested = true;
   if (g_isolated_draw.completed) {
-    // Keep the private replay visible to frame debuggers after the one-shot
-    // result has been recorded. This path has no readback or completion
-    // callback, and the authoritative Xenos draw still follows unmodified.
+    // Continue the qualified private replay after the one-shot comparison so
+    // long-session execution can be reconciled without further readbacks.
+    // The authoritative Xenos draw still follows unmodified.
     request.requested = candidate_eligible;
     request.frame_sequence = request.requested ? g_isolated_draw.frame : 0;
+    if (request.requested) {
+      ++g_isolated_draw.shadow_replay_requests;
+      request.completion = &CompleteIsolatedShadowReplay;
+    } else {
+      ++g_isolated_draw.shadow_replay_gate_rejections;
+    }
     return;
   }
   if (g_isolated_draw.prepared_candidate_eligible &&
@@ -15171,6 +15202,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                     ? "retained_pass"
                     : "single_draw"},
        {"native_draw", "isolated_only"},
+       {"continuous_shadow_replay",
+        g_pass_follower.valid && g_pass_follower.requested
+            ? "retained_pass_contract"
+            : "enabled_after_one_shot"},
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
        {"stencil_seed_probe",
@@ -15712,6 +15747,40 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"native_draw", "false"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+  }
+  const bool isolated_single_draw_mode =
+      !g_pass_follower.requested || !g_pass_follower.valid ||
+      g_pass_follower.target_signature == g_isolated_draw.target_signature;
+  if (g_isolated_draw.requested && g_isolated_draw.valid &&
+      g_isolated_draw.completed && isolated_single_draw_mode) {
+    const uint64_t shadow_replay_outcomes =
+        g_isolated_draw.shadow_replay_recorded +
+        g_isolated_draw.shadow_replay_target_failures +
+        g_isolated_draw.shadow_replay_unsupported;
+    diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.shadow_replay_summary",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"requests",
+          std::to_string(g_isolated_draw.shadow_replay_requests)},
+         {"recorded",
+          std::to_string(g_isolated_draw.shadow_replay_recorded)},
+         {"target_creation_failures",
+          std::to_string(g_isolated_draw.shadow_replay_target_failures)},
+         {"unsupported",
+          std::to_string(g_isolated_draw.shadow_replay_unsupported)},
+         {"gate_rejections",
+          std::to_string(g_isolated_draw.shadow_replay_gate_rejections)},
+         {"accounting_complete",
+          shadow_replay_outcomes == g_isolated_draw.shadow_replay_requests
+              ? "true"
+              : "false"},
+         {"readback", "one_shot_only"},
+         {"native_draw", "private_shadow_replay"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"draw_suppression", "false"},
          {"suppression_eligible", "false"}});
   }
   diagnostics::RecordEvent(

@@ -53,6 +53,19 @@ class NativeRendererReadbackParityContractTests(unittest.TestCase):
         self.assertIn(
             "asynchronous_artifact_exact_depth_stencil_effects", self.scanner
         )
+        self.assertIn('{"result_gate", "post_draw_output"}', self.scanner)
+        self.assertIn('{"seed_status", seed.exact()', self.scanner)
+        self.assertIn(
+            '{"draw_effect_status",\n        draw_effect.exact()',
+            self.scanner,
+        )
+        self.assertIn(
+            "complete && color.exact() && post.exact()", self.scanner
+        )
+        self.assertNotIn(
+            "complete && color.exact() && seed.exact() && post.exact()",
+            self.scanner,
+        )
 
     def test_depth_stencil_tuple_comparison_classifies_each_lane(self):
         self.assertIn("depth_mismatch_bytes", self.scanner)
