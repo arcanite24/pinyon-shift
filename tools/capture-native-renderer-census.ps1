@@ -27,6 +27,7 @@ param(
     [switch]$AutoSelectFreshVisibilityCandidate,
     [switch]$RequireTitleLodCandidate,
     [switch]$VisibilityShadowReplay,
+    [switch]$ContinuousWorldWorkset,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
@@ -90,7 +91,8 @@ if (($ShadowDepthIsolated -or $ShadowDepthBatch) -and
     ($IsolatedDrawSignature -or $AutoSelectFreshVisibilityCandidate -or
         $StencilSeedProbe -or $RequireFreshVisibilityCandidate -or
         $RequireTitleLodCandidate -or $PassAnchorSignature -or
-        $PublishRetainedPass -or $VisibilityShadowReplay)) {
+        $PublishRetainedPass -or $VisibilityShadowReplay -or
+        $ContinuousWorldWorkset)) {
     throw 'Shadow-depth modes are mutually exclusive with other isolated/pass replay options.'
 }
 if ($ShadowDepthIsolated -and -not $IsolatedDrawDir) {
@@ -118,8 +120,16 @@ if ($VisibilityShadowReplay -and
     ($IsolatedDrawSignature -or $IsolatedDrawDir -or $StencilSeedProbe -or
         $RequireFreshVisibilityCandidate -or
         $AutoSelectFreshVisibilityCandidate -or $RequireTitleLodCandidate -or
-        $PassAnchorSignature -or $PublishRetainedPass)) {
+        $PassAnchorSignature -or $PublishRetainedPass -or
+        $ContinuousWorldWorkset)) {
     throw 'VisibilityShadowReplay is mutually exclusive with isolated/pass replay options.'
+}
+if ($ContinuousWorldWorkset -and
+    ($IsolatedDrawSignature -or $IsolatedDrawDir -or $StencilSeedProbe -or
+        $RequireFreshVisibilityCandidate -or
+        $AutoSelectFreshVisibilityCandidate -or $RequireTitleLodCandidate -or
+        $PassAnchorSignature -or $PublishRetainedPass)) {
+    throw 'ContinuousWorldWorkset is mutually exclusive with isolated/pass replay options.'
 }
 if ($PublishRetainedPass -and
     (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
@@ -218,6 +228,8 @@ $savedTitleLodCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE
 $savedVisibilityShadowReplay =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY
+$savedContinuousWorldWorkset =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET
 $savedShadowCasterProvenance =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
@@ -228,7 +240,8 @@ $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READB
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY =
-        if ($VisibilityShadowReplay -or $VehicleDrawCorrelation -or
+        if ($VisibilityShadowReplay -or $ContinuousWorldWorkset -or
+            $VehicleDrawCorrelation -or
             $ShadowCasterProvenance) {
             'true'
         } else { $savedDiscovery }
@@ -263,6 +276,8 @@ try {
         if ($RequireTitleLodCandidate) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
         if ($VisibilityShadowReplay) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
+        if ($ContinuousWorldWorkset) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         if ($ShadowCasterProvenance) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
@@ -305,6 +320,8 @@ finally {
         $savedTitleLodCandidate
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
         $savedVisibilityShadowReplay
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
+        $savedContinuousWorldWorkset
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         $savedShadowCasterProvenance
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
