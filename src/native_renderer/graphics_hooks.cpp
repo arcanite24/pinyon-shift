@@ -97,6 +97,9 @@ constexpr size_t kSemanticVisibilitySpatialExponentCapacity = 256;
 constexpr size_t kSemanticVisibilityWorksetCapacity = 4096;
 constexpr size_t kSemanticVisibilityPreparedCandidateCapacity = 4096;
 constexpr uint64_t kSemanticVisibilityMaximumPolicyAgeFrames = 1;
+constexpr size_t kVisibilityShadowReplaySignatureCapacity = 256;
+constexpr size_t kVisibilityShadowReplaySignatureSummaryLimit = 16;
+constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -4114,6 +4117,40 @@ struct IsolatedDrawState {
 IsolatedDrawState g_isolated_draw;
 std::atomic<uint32_t> g_isolated_readback_artifacts_committed = 0;
 
+struct VisibilityShadowReplaySignatureEntry {
+  uint64_t signature = 0;
+  uint64_t requests = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t minimum_title_lod = UINT32_MAX;
+  uint32_t maximum_title_lod = 0;
+  uint64_t title_lod_observations = 0;
+  uint64_t missing_title_lod_requests = 0;
+};
+
+struct VisibilityShadowReplayState {
+  std::array<VisibilityShadowReplaySignatureEntry,
+             kVisibilityShadowReplaySignatureCapacity>
+      signatures{};
+  uint64_t prepared_observations = 0;
+  uint64_t requests = 0;
+  uint64_t recorded = 0;
+  uint64_t target_creation_failures = 0;
+  uint64_t unsupported = 0;
+  uint64_t mechanical_rejections = 0;
+  uint64_t stale_or_unselected_rejections = 0;
+  uint64_t requests_with_title_lod = 0;
+  uint64_t requests_without_title_lod = 0;
+  uint64_t per_frame_quota_yields = 0;
+  uint64_t signature_count = 0;
+  uint64_t signature_overflow = 0;
+  uint64_t last_request_frame = UINT64_MAX;
+  bool requested = false;
+  bool valid = true;
+};
+
+VisibilityShadowReplayState g_visibility_shadow_replay;
+
 struct PassFollowerState {
   uint64_t target_signature = 0;
   uint64_t anchor_frame = 0;
@@ -4626,6 +4663,68 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+}
+
+void ConfigureVisibilityShadowReplay() {
+  g_visibility_shadow_replay = {};
+  g_visibility_shadow_replay.last_request_frame = UINT64_MAX;
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string setting(value);
+  std::free(value);
+  if (setting == "false") {
+    return;
+  }
+  g_visibility_shadow_replay.requested = true;
+  g_visibility_shadow_replay.valid = setting == "true";
+}
+
+void ValidateAndEmitVisibilityShadowReplayConfiguration() {
+  if (g_visibility_shadow_replay.requested &&
+      (g_isolated_draw.requested || g_pass_follower.requested ||
+       g_pass_publication.requested ||
+       g_sky_horizon_suppression.requested)) {
+    g_visibility_shadow_replay.valid = false;
+  }
+  const bool semantic_lineage_armed =
+      g_title_provenance_installed.load(std::memory_order_acquire);
+  if (g_visibility_shadow_replay.requested && !semantic_lineage_armed) {
+    g_visibility_shadow_replay.valid = false;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.visibility_shadow_replay.config",
+      {{"status", !g_visibility_shadow_replay.requested
+                      ? "disabled"
+                      : (g_visibility_shadow_replay.valid
+                             ? "armed_private_replay"
+                             : "blocked_invalid_configuration")},
+       {"activation", "startup_environment_only"},
+       {"default_enabled", "false"},
+       {"selection", "fresh_visibility_and_mechanical"},
+       {"title_lod", "optional_exact_metadata_no_inference"},
+       {"maximum_draws_per_frame",
+        std::to_string(kVisibilityShadowReplayMaximumDrawsPerFrame)},
+       {"signature_capacity",
+        std::to_string(kVisibilityShadowReplaySignatureCapacity)},
+       {"semantic_lineage",
+        semantic_lineage_armed ? "armed" : "unavailable"},
+       {"readback", "disabled"},
+       {"publication", "disabled"},
+       {"native_draw", g_visibility_shadow_replay.valid &&
+                               g_visibility_shadow_replay.requested
+                           ? "private_shadow_replay"
+                           : "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"draw_suppression", "false"},
+       {"suppression_eligible", "false"}});
 }
 
 void ConfigurePassPublication() {
@@ -13558,6 +13657,159 @@ void CompleteIsolatedShadowReplay(
   }
 }
 
+void RecordVisibilityShadowReplaySignature(uint64_t signature, uint64_t frame,
+                                           bool title_lod_valid,
+                                           uint32_t title_lod_index) {
+  size_t index = size_t(signature % kVisibilityShadowReplaySignatureCapacity);
+  for (size_t probe = 0; probe < kVisibilityShadowReplaySignatureCapacity;
+       ++probe) {
+    VisibilityShadowReplaySignatureEntry &entry =
+        g_visibility_shadow_replay.signatures[index];
+    if (!entry.signature) {
+      entry.signature = signature;
+      entry.requests = 1;
+      entry.first_frame = frame;
+      entry.last_frame = frame;
+      if (title_lod_valid) {
+        entry.minimum_title_lod = title_lod_index;
+        entry.maximum_title_lod = title_lod_index;
+        entry.title_lod_observations = 1;
+      } else {
+        entry.missing_title_lod_requests = 1;
+      }
+      ++g_visibility_shadow_replay.signature_count;
+      return;
+    }
+    if (entry.signature == signature) {
+      ++entry.requests;
+      entry.last_frame = frame;
+      if (title_lod_valid) {
+        entry.minimum_title_lod =
+            std::min(entry.minimum_title_lod, title_lod_index);
+        entry.maximum_title_lod =
+            std::max(entry.maximum_title_lod, title_lod_index);
+        ++entry.title_lod_observations;
+      } else {
+        ++entry.missing_title_lod_requests;
+      }
+      return;
+    }
+    index = (index + 1) % kVisibilityShadowReplaySignatureCapacity;
+  }
+  ++g_visibility_shadow_replay.signature_overflow;
+}
+
+void CompleteVisibilityShadowReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    ++g_visibility_shadow_replay.recorded;
+  } else if (result.status == rex::system::
+                                  GraphicsIsolatedDrawStatus::
+                                      kTargetCreationFailed) {
+    ++g_visibility_shadow_replay.target_creation_failures;
+  } else {
+    ++g_visibility_shadow_replay.unsupported;
+  }
+}
+
+void EmitVisibilityShadowReplaySummary() {
+  if (!g_visibility_shadow_replay.requested) {
+    return;
+  }
+  const uint64_t outcomes = g_visibility_shadow_replay.recorded +
+                            g_visibility_shadow_replay.target_creation_failures +
+                            g_visibility_shadow_replay.unsupported;
+  const uint64_t selections =
+      g_visibility_shadow_replay.requests +
+      g_visibility_shadow_replay.mechanical_rejections +
+      g_visibility_shadow_replay.stale_or_unselected_rejections +
+      g_visibility_shadow_replay.per_frame_quota_yields;
+  const uint64_t title_lod_accounting =
+      g_visibility_shadow_replay.requests_with_title_lod +
+      g_visibility_shadow_replay.requests_without_title_lod;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.visibility_shadow_replay.summary",
+      {{"status", g_visibility_shadow_replay.valid ? "complete"
+                                                   : "invalid_configuration"},
+       {"prepared_observations",
+        std::to_string(g_visibility_shadow_replay.prepared_observations)},
+       {"requests", std::to_string(g_visibility_shadow_replay.requests)},
+       {"recorded", std::to_string(g_visibility_shadow_replay.recorded)},
+       {"target_creation_failures",
+        std::to_string(
+            g_visibility_shadow_replay.target_creation_failures)},
+       {"unsupported",
+        std::to_string(g_visibility_shadow_replay.unsupported)},
+       {"mechanical_rejections",
+        std::to_string(g_visibility_shadow_replay.mechanical_rejections)},
+       {"stale_or_unselected_rejections",
+        std::to_string(
+            g_visibility_shadow_replay.stale_or_unselected_rejections)},
+       {"requests_with_title_lod",
+        std::to_string(g_visibility_shadow_replay.requests_with_title_lod)},
+       {"requests_without_title_lod",
+        std::to_string(g_visibility_shadow_replay.requests_without_title_lod)},
+       {"per_frame_quota_yields",
+        std::to_string(g_visibility_shadow_replay.per_frame_quota_yields)},
+       {"unique_signatures",
+        std::to_string(g_visibility_shadow_replay.signature_count)},
+       {"signature_capacity",
+        std::to_string(kVisibilityShadowReplaySignatureCapacity)},
+       {"signature_overflow",
+        std::to_string(g_visibility_shadow_replay.signature_overflow)},
+       {"accounting_complete",
+        outcomes == g_visibility_shadow_replay.requests ? "true" : "false"},
+       {"selection_accounting_complete",
+        selections == g_visibility_shadow_replay.prepared_observations
+            ? "true"
+            : "false"},
+       {"title_lod_accounting_complete",
+        title_lod_accounting == g_visibility_shadow_replay.requests ? "true"
+                                                                    : "false"},
+       {"maximum_draws_per_frame",
+        std::to_string(kVisibilityShadowReplayMaximumDrawsPerFrame)},
+       {"selection", "fresh_visibility_and_mechanical"},
+       {"title_lod", "optional_exact_metadata_no_inference"},
+       {"readback", "disabled"},
+       {"native_draw", "private_shadow_replay"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"draw_suppression", "false"},
+       {"suppression_eligible", "false"}});
+
+  size_t emitted = 0;
+  for (const VisibilityShadowReplaySignatureEntry &entry :
+       g_visibility_shadow_replay.signatures) {
+    if (!entry.signature ||
+        emitted >= kVisibilityShadowReplaySignatureSummaryLimit) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.visibility_shadow_replay.signature",
+        {{"signature", fmt::format("{:016X}", entry.signature)},
+         {"requests", std::to_string(entry.requests)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"title_lod_observations",
+          std::to_string(entry.title_lod_observations)},
+         {"missing_title_lod_requests",
+          std::to_string(entry.missing_title_lod_requests)},
+         {"minimum_title_lod",
+          entry.title_lod_observations
+              ? std::to_string(entry.minimum_title_lod)
+              : ""},
+         {"maximum_title_lod",
+          entry.title_lod_observations
+              ? std::to_string(entry.maximum_title_lod)
+              : ""},
+         {"native_draw", "private_shadow_replay"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+    ++emitted;
+  }
+}
+
 void CompleteIsolatedPassAnchor(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   g_isolated_draw.pass_anchor_recorded =
@@ -13774,6 +14026,40 @@ void RequestIsolatedDraw(
       request.consumer_reference_after_depth_readback_completion =
           &CompleteConsumerFamilyAfterDepthReadback;
     }
+  }
+  if (g_visibility_shadow_replay.requested &&
+      g_visibility_shadow_replay.valid &&
+      g_isolated_draw.prepared_candidate_valid) {
+    ++g_visibility_shadow_replay.prepared_observations;
+    if (!g_isolated_draw.prepared_candidate_eligible) {
+      ++g_visibility_shadow_replay.mechanical_rejections;
+      return;
+    }
+    if (!g_isolated_draw.prepared_visibility_candidate_fresh) {
+      ++g_visibility_shadow_replay.stale_or_unselected_rejections;
+      return;
+    }
+    if (g_visibility_shadow_replay.last_request_frame ==
+        g_isolated_draw.frame) {
+      ++g_visibility_shadow_replay.per_frame_quota_yields;
+      return;
+    }
+    g_visibility_shadow_replay.last_request_frame = g_isolated_draw.frame;
+    ++g_visibility_shadow_replay.requests;
+    if (g_isolated_draw.prepared_title_lod_valid) {
+      ++g_visibility_shadow_replay.requests_with_title_lod;
+    } else {
+      ++g_visibility_shadow_replay.requests_without_title_lod;
+    }
+    RecordVisibilityShadowReplaySignature(
+        g_isolated_draw.prepared_signature, g_isolated_draw.frame,
+        g_isolated_draw.prepared_title_lod_valid,
+        g_isolated_draw.prepared_title_lod_index);
+    request.requested = true;
+    request.frame_sequence = g_isolated_draw.frame;
+    request.reference_marker_requested = true;
+    request.completion = &CompleteVisibilityShadowReplay;
+    return;
   }
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
       !g_isolated_draw.prepared_candidate_valid) {
@@ -14689,12 +14975,14 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureTextureScan();
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
+  ConfigureVisibilityShadowReplay();
   ConfigurePassFollower();
   if (g_isolated_draw.stencil_seed_probe_requested &&
       g_pass_follower.requested) {
     g_isolated_draw.valid = false;
   }
   ConfigurePassPublication();
+  ValidateAndEmitVisibilityShadowReplayConfiguration();
   ArmSkyHorizonSuppression();
   EmitSkyHorizonSuppressionControl();
   ConfigureConsumerFamilyMarker();
@@ -15749,6 +16037,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"output_authority", "xenos"},
          {"suppression_eligible", "false"}});
   }
+  EmitVisibilityShadowReplaySummary();
   const bool isolated_single_draw_mode =
       !g_pass_follower.requested || !g_pass_follower.valid ||
       g_pass_follower.target_signature == g_isolated_draw.target_signature;

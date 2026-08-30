@@ -20,6 +20,7 @@ param(
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
     [switch]$RequireTitleLodCandidate,
+    [switch]$VisibilityShadowReplay,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
     [switch]$PublishRetainedPass,
@@ -82,6 +83,13 @@ if ($StencilSeedProbe -and $PassAnchorSignature) {
 }
 if ($RequireTitleLodCandidate -and -not $AutoSelectFreshVisibilityCandidate) {
     throw 'RequireTitleLodCandidate requires AutoSelectFreshVisibilityCandidate.'
+}
+if ($VisibilityShadowReplay -and
+    ($IsolatedDrawSignature -or $IsolatedDrawDir -or $StencilSeedProbe -or
+        $RequireFreshVisibilityCandidate -or
+        $AutoSelectFreshVisibilityCandidate -or $RequireTitleLodCandidate -or
+        $PassAnchorSignature -or $PublishRetainedPass)) {
+    throw 'VisibilityShadowReplay is mutually exclusive with isolated/pass replay options.'
 }
 if ($PublishRetainedPass -and
     (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
@@ -155,6 +163,7 @@ if ($ConsumerReadbackDir) {
 }
 
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
+$savedDiscovery = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
 $savedTextureScan = $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE
@@ -168,6 +177,8 @@ $savedAutoVisibilityCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE
 $savedTitleLodCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE
+$savedVisibilityShadowReplay =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
@@ -175,6 +186,8 @@ $savedConsumerReadbackDir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_
 $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY =
+        if ($VisibilityShadowReplay) { 'true' } else { $savedDiscovery }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $IndexScanSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $TextureScanSignature
@@ -192,6 +205,8 @@ try {
         if ($AutoSelectFreshVisibilityCandidate) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE =
         if ($RequireTitleLodCandidate) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
+        if ($VisibilityShadowReplay) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
         if ($PublishRetainedPass) { 'true' } else { $null }
@@ -205,6 +220,7 @@ try {
 }
 finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $savedCensus
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY = $savedDiscovery
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $savedIndexScan
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $savedTextureScan
@@ -219,6 +235,8 @@ finally {
         $savedAutoVisibilityCandidate
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE =
         $savedTitleLodCandidate
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
+        $savedVisibilityShadowReplay
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $savedPassPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily
