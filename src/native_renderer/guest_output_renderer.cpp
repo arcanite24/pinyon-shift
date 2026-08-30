@@ -114,10 +114,12 @@ bool RenderDiagnosticOutput(
           rex::system::NativeGuestOutputRetainedPassMode::kPresentNative;
       if (mode == DiagnosticMode::kComparisonNative) {
         retained_mode =
-            rex::system::NativeGuestOutputRetainedPassMode::kCompareNative;
+            rex::system::NativeGuestOutputRetainedPassMode::
+                kPrototypeCompareNative;
       } else if (mode == DiagnosticMode::kComparisonXenos) {
         retained_mode =
-            rex::system::NativeGuestOutputRetainedPassMode::kCompareXenos;
+            rex::system::NativeGuestOutputRetainedPassMode::
+                kPrototypeCompareXenos;
       } else if (mode == DiagnosticMode::kNativePrototype) {
         retained_mode =
             rex::system::NativeGuestOutputRetainedPassMode::kPrototypeNative;
@@ -181,14 +183,18 @@ bool RenderDiagnosticOutput(
          {"mode", DiagnosticModeName(mode)},
          {"composition", mode == DiagnosticMode::kHybridPrototype
                              ? "conservative_pixel_agreement_hybrid"
-                             : (mode == DiagnosticMode::kNativePrototype
+                             : (mode == DiagnosticMode::kNativePrototype ||
+                                        mode == DiagnosticMode::kComparisonNative ||
+                                        mode == DiagnosticMode::kComparisonXenos
                                     ? "continuous_world_passthrough"
-                             : (UsesRetainedPass(mode)
-                                    ? "private_display_target"
-                                    : "direct_guest_output"))},
+                                    : (UsesRetainedPass(mode)
+                                           ? "private_display_target"
+                                           : "direct_guest_output"))},
          {"presentation",
           mode == DiagnosticMode::kNativePrototype ||
-                  mode == DiagnosticMode::kHybridPrototype
+                  mode == DiagnosticMode::kHybridPrototype ||
+                  mode == DiagnosticMode::kComparisonNative ||
+                  mode == DiagnosticMode::kComparisonXenos
               ? "logical_scene_scale_then_title_gamma_then_title_upscale"
               : "legacy_diagnostic"},
          {"selected_output", mode == DiagnosticMode::kComparisonXenos

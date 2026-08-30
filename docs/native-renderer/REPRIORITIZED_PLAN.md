@@ -160,6 +160,12 @@ handoff without enabling suppression.
 - Export a paired native/Xenos screenshot and machine-readable comparison from
   the same clean build.
 
+Implementation checkpoint: the restart-gated comparison selectors now run the
+same logical-scene, linear-intermediate, title-gamma presentation pipeline as
+the prototype and self-arm its world and shadow observations. The paired export
+contract and B6 capture procedure are defined in
+[`NATIVE_PROTOTYPE_COMPARISON.md`](NATIVE_PROTOTYPE_COMPARISON.md).
+
 ### B6. Batched prototype qualification
 
 Run focused automated checks during B1-B5, then one full validation batch:
