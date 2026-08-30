@@ -1422,6 +1422,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "exact_visibility_identity_to_prepared_draw",
             prepared_candidates["title_lod_lineage"],
         )
+        self.assertEqual(
+            "isolated_draw_v1",
+            prepared_candidates["mechanical_admission_contract"],
+        )
         self.assertFalse(prepared_candidates["native_draw_enabled"])
         self.assertTrue(prepared_candidates["xenos_draw_preserved"])
         self.assertFalse(prepared_candidates["suppression_allowed"])

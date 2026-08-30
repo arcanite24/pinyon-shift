@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v3"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v4"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -22,6 +22,25 @@ SUMMARY = (
     "semantic_visibility_prepared_candidate_summary"
 )
 WORKSET = "native_renderer.discovery.semantic_visibility_workset_summary"
+
+MECHANICAL_REJECTIONS = {
+    0: "resolved_input",
+    1: "unsupported_geometry",
+    2: "empty_draw",
+    3: "vertex_binding_count",
+    4: "vertex_binding_overflow",
+    5: "vertex_attribute_overflow",
+    6: "vertex_constant_overflow",
+    7: "pixel_constant_overflow",
+    8: "texture_state_overflow",
+    9: "memexport",
+    10: "query",
+    11: "texture_count",
+    12: "texture_layout",
+    13: "prepared_pipeline",
+    14: "render_targets",
+}
+MECHANICAL_REJECTION_MASK = sum(1 << bit for bit in MECHANICAL_REJECTIONS)
 
 
 def read_events(paths):
@@ -93,6 +112,7 @@ def static_contract(document):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": False,
         "control_flow_changed": False,
         "native_upload_enabled": False,
@@ -137,6 +157,7 @@ def build(events, static, requested_session=None):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": "false",
         "control_flow_changed": "false",
         "native_upload": "false",
@@ -157,6 +178,7 @@ def build(events, static, requested_session=None):
         != "independent_visibility_selected_and_fresh"
         or summary.get("title_lod_lineage")
         != "exact_visibility_identity_to_prepared_draw"
+        or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
 
@@ -172,6 +194,8 @@ def build(events, static, requested_session=None):
         "entry_draws",
         "mechanically_eligible_entries",
         "mechanically_eligible_draws",
+        "mechanically_ineligible_entries",
+        "mechanically_ineligible_draws",
         "title_lod_entries",
         "title_lod_draws",
         "capacity",
@@ -182,6 +206,8 @@ def build(events, static, requested_session=None):
     entries = []
     seen_keys = set()
     entry_draws = 0
+    rejection_entry_counts = {name: 0 for name in MECHANICAL_REJECTIONS.values()}
+    rejection_draw_counts = {name: 0 for name in MECHANICAL_REJECTIONS.values()}
     for event in selected:
         if event.get("event") != ENTRY:
             continue
@@ -220,6 +246,13 @@ def build(events, static, requested_session=None):
             ),
             "mechanically_eligible": event.get("mechanically_eligible") == "true",
         }
+        rejection_mask = int(hexadecimal(event, "mechanical_rejection_mask", 8), 16)
+        item["mechanical_rejection_mask"] = rejection_mask
+        item["mechanical_rejections"] = [
+            name
+            for bit, name in MECHANICAL_REJECTIONS.items()
+            if rejection_mask & (1 << bit)
+        ]
         if (
             event.get("status") != "complete"
             or event.get("classification")
@@ -231,6 +264,9 @@ def build(events, static, requested_session=None):
             or item["maximum_policy_age_frames"]
             > totals["policy_age_limit_frames"]
             or event.get("mechanically_eligible") not in ("true", "false")
+            or event.get("mechanical_admission_contract") != "isolated_draw_v1"
+            or rejection_mask & ~MECHANICAL_REJECTION_MASK
+            or item["mechanically_eligible"] != (rejection_mask == 0)
             or event.get("title_lod_valid") not in ("true", "false")
             or event.get("title_lod_lineage")
             != "exact_visibility_identity_to_prepared_draw"
@@ -241,6 +277,9 @@ def build(events, static, requested_session=None):
             raise ValueError("prepared-candidate entry evidence drifted")
         seen_keys.add(key)
         entry_draws += item["draws"]
+        for reason in item["mechanical_rejections"]:
+            rejection_entry_counts[reason] += 1
+            rejection_draw_counts[reason] += item["draws"]
         entries.append(item)
 
     failures = []
@@ -271,6 +310,21 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in eligible_entries)
     ):
         failures.append("mechanically eligible candidate totals drifted")
+    ineligible_entries = [
+        entry for entry in entries if not entry["mechanically_eligible"]
+    ]
+    if (
+        totals["mechanically_ineligible_entries"] != len(ineligible_entries)
+        or totals["mechanically_ineligible_draws"]
+        != sum(entry["draws"] for entry in ineligible_entries)
+        or totals["mechanically_eligible_entries"]
+        + totals["mechanically_ineligible_entries"]
+        != totals["candidate_entries"]
+        or totals["mechanically_eligible_draws"]
+        + totals["mechanically_ineligible_draws"]
+        != totals["entry_draws"]
+    ):
+        failures.append("mechanical admission partition drifted")
     lod_entries = [entry for entry in entries if entry["title_lod_valid"]]
     if (
         totals["title_lod_entries"] != len(lod_entries)
@@ -294,6 +348,8 @@ def build(events, static, requested_session=None):
         "static_contract": contract,
         "totals": totals,
         "entries": entries,
+        "mechanical_rejection_entry_counts": rejection_entry_counts,
+        "mechanical_rejection_draw_counts": rejection_draw_counts,
         "qualification": {
             "fresh_visibility_prepared_handoff_proved": not failures,
             "isolated_native_candidate_proved": not failures

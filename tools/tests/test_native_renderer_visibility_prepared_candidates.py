@@ -25,6 +25,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
                     "selection": "independent_visibility_selected_and_fresh",
                     "prepared_lineage": "exact_semantic_pm4_prepared_draw",
                     "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+                    "mechanical_admission_contract": "isolated_draw_v1",
                     "guest_state_changed": False,
                     "control_flow_changed": False,
                     "native_upload_enabled": False,
@@ -60,6 +61,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "mechanical_admission_contract": "isolated_draw_v1",
             **self.safety(),
         }
         entry = {
@@ -88,6 +90,8 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "last_frame": "12",
             "maximum_policy_age_frames": "1",
             "mechanically_eligible": "true",
+            "mechanical_rejection_mask": "00000000",
+            "mechanical_admission_contract": "isolated_draw_v1",
             "policy_age_limit_frames": "1",
             "classification": "fresh_visibility_selected_prepared_candidate",
             **self.safety(),
@@ -107,6 +111,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "entry_draws": "7",
             "mechanically_eligible_entries": "1",
             "mechanically_eligible_draws": "7",
+            "mechanically_ineligible_entries": "0",
+            "mechanically_ineligible_draws": "0",
+            "mechanical_admission_contract": "isolated_draw_v1",
             "title_lod_entries": "1",
             "title_lod_draws": "7",
             "capacity": "4096",
@@ -152,13 +159,44 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
         self.assertEqual("complete", document["status"])
         self.assertFalse(document["qualification"]["title_lod_lineage_proved"])
 
+    def test_build_reports_each_mechanical_rejection_reason(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["mechanically_eligible"] = "false"
+        entry["mechanical_rejection_mask"] = "00002003"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["mechanically_eligible_entries"] = "0"
+        summary["mechanically_eligible_draws"] = "0"
+        summary["mechanically_ineligible_entries"] = "1"
+        summary["mechanically_ineligible_draws"] = "7"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(
+            ["resolved_input", "unsupported_geometry", "prepared_pipeline"],
+            document["entries"][0]["mechanical_rejections"],
+        )
+        self.assertEqual(
+            7,
+            document["mechanical_rejection_draw_counts"]["prepared_pipeline"],
+        )
+
+    def test_build_rejects_eligibility_mask_drift(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["mechanical_rejection_mask"] = "00000001"
+        with self.assertRaisesRegex(ValueError, "entry evidence drifted"):
+            MODULE.build(events, self.static())
+
     def test_build_accepts_fresh_candidate_without_isolated_eligibility(self):
         events = copy.deepcopy(self.events())
         entry = next(event for event in events if event["event"] == MODULE.ENTRY)
         entry["mechanically_eligible"] = "false"
+        entry["mechanical_rejection_mask"] = "00000001"
         summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
         summary["mechanically_eligible_entries"] = "0"
         summary["mechanically_eligible_draws"] = "0"
+        summary["mechanically_ineligible_entries"] = "1"
+        summary["mechanically_ineligible_draws"] = "7"
         document = MODULE.build(events, self.static())
         self.assertEqual("complete", document["status"])
         self.assertFalse(
