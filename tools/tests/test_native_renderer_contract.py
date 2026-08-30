@@ -1932,6 +1932,38 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"suppression_allowed": False', draw_state_planner)
         self.assertIn('"xenos_authority": True', draw_state_planner)
 
+    def test_shadow_depth_replay_is_exact_private_and_fail_closed(self):
+        scanner = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED", scanner)
+        self.assertIn("kShadowDepthVertexShader", scanner)
+        self.assertIn("IsExactShadowDepthIsolatedDraw", scanner)
+        self.assertIn("prepared.bound_render_target_bits == 1", scanner)
+        self.assertIn("request.depth_only_target = true", scanner)
+        self.assertIn("kShadowDepthLogicalWidth = 2048", scanner)
+        self.assertIn('"logical_width"', scanner)
+        self.assertIn('"allocation_width"', scanner)
+        self.assertIn('"native_renderer.shadow_depth_isolated.result"', scanner)
+        self.assertIn('"native_publication", "false"', scanner)
+        self.assertIn('"xenos_draw", "preserved"', scanner)
+        self.assertIn('"suppression_eligible", "false"', scanner)
+
+        patch = (
+            ROOT / "patches/rexglue/0089-d3d12-depth-only-isolated-replay.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("depth_only_target", patch)
+        self.assertIn("depth_only_target ? 1 : 2", patch)
+        self.assertIn("isolated_targets[0] = isolated_depth", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("[switch]$ShadowDepthIsolated", capture)
+        self.assertIn("ShadowDepthIsolated requires IsolatedDrawDir", capture)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED", capture)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"
