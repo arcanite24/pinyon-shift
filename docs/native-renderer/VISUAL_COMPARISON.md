@@ -187,6 +187,37 @@ effect or final-result divergence. All four copies remain asynchronous and
 diagnostic-only. The authoritative draw is preserved, and a failed final
 parity comparison remains a hard suppression blocker.
 
+Checkpoint report schema v2 also compares the native and Xenos draw effects
+directly. For each active depth/stencil byte it checks whether both paths
+changed the byte and, when they did, whether they reached the same post-draw
+value. This separates absolute seed divergence from draw behavior:
+
+- `seed_divergence_with_exact_draw_effect` means the private seed differs but
+  the two draws have identical effects;
+- `draw_effect_divergence` means equal seeds produced different effects; and
+- `seed_and_draw_effect_divergence` means neither boundary is equivalent.
+
+The report classifies effect mismatches into depth and stencil bytes, records
+the first bounded mismatch details, and still returns failure unless the final
+native and Xenos depth/stencil artifacts are exact. Effect equivalence alone
+never enables publication or suppression.
+
+### Qualified visible-world effect result
+
+The 2026-08-30 AppData-backed `open_world_day` capture used the
+title-provenanced procedural-model signature `B0EC5BC78D8B8760`. Its paired
+color output was exact. The private and authoritative depth planes were also
+exact, while 1,586,345 stencil bytes differed at both the seed and post-draw
+checkpoints.
+
+Schema-v2 offline analysis compared all 83,886,080 active depth/stencil bytes.
+Neither draw changed an active byte, so direct draw-effect parity passed with
+zero depth or stencil effect mismatches. The result remains fail-closed with
+diagnosis `seed_divergence_with_exact_draw_effect`; Xenos remains authoritative
+and suppression remains disabled. The 166.5-second session presented at
+59.978 Hz with zero present-deadline misses and no error, fatal, or
+device-removal events.
+
 RenderDoc remains available for visual inspection and external confirmation.
 Capture with both the anchor and follower configured, then export their
 native/Xenos spans:

@@ -15,7 +15,10 @@ DEPTH_SCHEMA = (
     "pinyon-shift.native-renderer-pass-depth-readback-comparison.v1"
 )
 DEPTH_CHECKPOINT_SCHEMA = (
-    "pinyon-shift.native-renderer-depth-checkpoint-analysis.v1"
+    "pinyon-shift.native-renderer-depth-checkpoint-analysis.v2"
+)
+DEPTH_EFFECT_SCHEMA = (
+    "pinyon-shift.native-renderer-draw-effect-comparison.v1"
 )
 COLOR_READBACK_SCHEMA = "pinyon-shift.isolated-draw-readback.v1"
 DEPTH_READBACK_SCHEMA = "pinyon-shift.isolated-depth-readback.v1"
@@ -206,6 +209,93 @@ def _compare_planar_depth_components(
             native_data, xenos_data, rows
         )
     return components
+
+
+def _compare_depth_effects(
+    native_seed_data: bytes,
+    native_post_data: bytes,
+    xenos_seed_data: bytes,
+    xenos_post_data: bytes,
+    layout: dict[str, Any],
+) -> dict[str, Any]:
+    encoding = str(layout["encoding"])
+    segments: list[tuple[str | None, int, int, int]] = []
+    for plane_index, plane in enumerate(layout["planes"]):
+        component = None
+        if encoding == "d3d12_texture_planes":
+            component = "depth" if plane_index == 0 else "stencil"
+        for row in range(int(plane["row_count"])):
+            segments.append(
+                (
+                    component,
+                    row,
+                    int(plane["offset"]) + row * int(plane["row_pitch"]),
+                    int(plane["row_size"]),
+                )
+            )
+
+    compared_bytes = 0
+    mismatch_bytes = 0
+    native_changed_bytes = 0
+    xenos_changed_bytes = 0
+    depth_mismatch_bytes = 0
+    stencil_mismatch_bytes = 0
+    first_mismatches: list[dict[str, int | str]] = []
+    for planar_component, row, offset, row_size in segments:
+        for byte_in_row in range(row_size):
+            index = offset + byte_in_row
+            native_seed = native_seed_data[index]
+            native_post = native_post_data[index]
+            xenos_seed = xenos_seed_data[index]
+            xenos_post = xenos_post_data[index]
+            native_changed = native_seed != native_post
+            xenos_changed = xenos_seed != xenos_post
+            native_changed_bytes += native_changed
+            xenos_changed_bytes += xenos_changed
+            compared_bytes += 1
+            effect_matches = native_changed == xenos_changed and (
+                not native_changed or native_post == xenos_post
+            )
+            if effect_matches:
+                continue
+            mismatch_bytes += 1
+            component = planar_component
+            if component is None:
+                component = "depth" if byte_in_row % 8 < 4 else "stencil"
+            if component == "depth":
+                depth_mismatch_bytes += 1
+            else:
+                stencil_mismatch_bytes += 1
+            if len(first_mismatches) < 16:
+                first_mismatches.append(
+                    {
+                        "component": component,
+                        "row": row,
+                        "byte_in_row": byte_in_row,
+                        "native_seed": native_seed,
+                        "native_post": native_post,
+                        "xenos_seed": xenos_seed,
+                        "xenos_post": xenos_post,
+                    }
+                )
+
+    return {
+        "schema": DEPTH_EFFECT_SCHEMA,
+        "result": "pass" if mismatch_bytes == 0 else "fail",
+        "metrics": {
+            "compared_bytes": compared_bytes,
+            "mismatch_bytes": mismatch_bytes,
+            "mismatch_byte_ratio": (
+                mismatch_bytes / compared_bytes if compared_bytes else 0.0
+            ),
+            "native_changed_bytes": native_changed_bytes,
+            "xenos_changed_bytes": xenos_changed_bytes,
+            "depth_mismatch_bytes": depth_mismatch_bytes,
+            "stencil_mismatch_bytes": stencil_mismatch_bytes,
+            "exact_draw_effect": mismatch_bytes == 0,
+            "first_mismatches": first_mismatches,
+        },
+    }
 
 
 def compare(
@@ -400,18 +490,32 @@ def compare_depth_checkpoints(
     final_parity = compare(
         native_root, xenos_root, "depth-stencil", "native", "xenos"
     )
+    _, native_seed_data = _load(
+        native_seed_root, "native_seed", "depth-stencil"
+    )
+    _, native_post_data = _load(native_root, "native", "depth-stencil")
+    _, xenos_seed_data = _load(
+        xenos_seed_root, "xenos_seed", "depth-stencil"
+    )
+    _, xenos_post_data = _load(xenos_root, "xenos", "depth-stencil")
+    draw_effect_parity = _compare_depth_effects(
+        native_seed_data,
+        native_post_data,
+        xenos_seed_data,
+        xenos_post_data,
+        final_parity["layout"],
+    )
     seed_exact = seed_copy["result"] == "pass"
     parity_exact = final_parity["result"] == "pass"
-    native_changed = native_effect["result"] != "pass"
-    xenos_changed = xenos_effect["result"] != "pass"
+    effect_exact = draw_effect_parity["result"] == "pass"
     if parity_exact:
         diagnosis = "exact_post_draw_parity"
-    elif not seed_exact:
-        diagnosis = "private_seed_copy_mismatch"
-    elif native_changed != xenos_changed:
+    elif seed_exact:
         diagnosis = "draw_effect_divergence"
+    elif effect_exact:
+        diagnosis = "seed_divergence_with_exact_draw_effect"
     else:
-        diagnosis = "draw_result_divergence"
+        diagnosis = "seed_and_draw_effect_divergence"
     return {
         "schema": DEPTH_CHECKPOINT_SCHEMA,
         "result": "pass" if parity_exact else "fail",
@@ -420,6 +524,7 @@ def compare_depth_checkpoints(
             "seed_copy": seed_copy,
             "native_draw_effect": native_effect,
             "xenos_draw_effect": xenos_effect,
+            "draw_effect_parity": draw_effect_parity,
             "post_draw_parity": final_parity,
         },
         "safety": {
