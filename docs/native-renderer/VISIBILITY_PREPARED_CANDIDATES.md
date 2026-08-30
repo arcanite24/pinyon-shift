@@ -32,12 +32,17 @@ superset.
 
 Fresh candidates are aggregated in a fixed 4,096-entry table keyed by exact
 semantic identity plus immutable prepared template, geometry-resource, texture-
-resource, visibility-category, and result-mask identities. The runtime records:
+resource, prepared-signature, visibility-category, and result-mask identities.
+The exact prepared signature prevents a resource family from merging a
+replayable draw with a resolved-input or otherwise mechanically ineligible
+variant. The runtime records:
 
 - all semantic prepared observations;
 - selected, rejected, and missing workset joins;
 - fresh, stale, and future selected decisions;
 - per-candidate draw/frame coverage and maximum policy age;
+- exact shader identities, specialization masks, and isolated-draw mechanical
+  eligibility;
 - table occupancy, overflow, and complete partition accounting.
 
 Generate and qualify the evidence with:
@@ -62,11 +67,12 @@ table.
 
 ## Safety boundary
 
-This checkpoint only carries host metadata. It writes no guest state, changes
-no title control flow, uploads no resource, issues no native draw, and cannot
-suppress Xenos. Xenos remains the sole rendering authority. The candidate
-table is an admission input for a later native consumer, not permission to draw
-or suppress by itself.
+The normal checkpoint only carries host metadata. When an operator separately
+arms an exact isolated-draw signature with the fresh-visibility gate, the table
+can admit one private-target native replay through all existing mechanical
+safety checks. The original Xenos draw and displayed frame remain authoritative;
+this path cannot suppress Xenos. Without that explicit startup-only request,
+the table issues no native work.
 
 ## AppData qualification
 

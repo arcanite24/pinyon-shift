@@ -1589,8 +1589,23 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("reference_marker_requested", visual_marker_patch)
         self.assertNotIn("SetDrawSuppression", visual_marker_patch)
         self.assertIn("request.reference_marker_requested = true", scanner)
+        self.assertIn("request.requested = candidate_eligible", scanner)
         self.assertIn(
-            "request.requested = g_isolated_draw.prepared_candidate_eligible", scanner
+            "g_isolated_draw.prepared_visibility_candidate_fresh", scanner
+        )
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE",
+            scanner,
+        )
+        self.assertIn("waiting_for_fresh_selected_candidate", scanner)
+        self.assertIn("visibility_wait_reported", scanner)
+        census_capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("RequireFreshVisibilityCandidate", census_capture)
+        self.assertIn(
+            "RequireFreshVisibilityCandidate requires IsolatedDrawSignature",
+            census_capture,
         )
         self.assertIn("authoritative Xenos draw still follows unmodified", scanner)
 

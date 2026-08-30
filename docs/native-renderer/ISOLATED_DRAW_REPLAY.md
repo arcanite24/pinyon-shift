@@ -21,6 +21,15 @@ live observation still satisfies the qualified candidate boundary:
 - active host rasterization; and
 - exactly one depth target and the first color target.
 
+Semantic world candidates can add a stricter, fail-closed admission gate with
+`-RequireFreshVisibilityCandidate`. In that mode, the exact prepared draw must
+also carry a selected game visibility decision from the current or immediately
+preceding frame through the semantic submission and physical PM4 lineage. A
+missing, rejected, stale, future, or table-overflow decision cannot issue the
+isolated native draw. An early matching signature without a fresh decision is
+reported once and remains armed for a later fresh occurrence; it is not a
+terminal rejection. The exact-signature and mechanical gates remain required.
+
 ReXGlue independently requires host render targets, rasterization, and no
 memexport. Indexed requests require a direct guest DMA index buffer; AutoIndex
 requests use the already prepared host vertex count. It creates private clones
@@ -43,6 +52,15 @@ $stateRoot = Join-Path $env:LOCALAPPDATA `
   -IsolatedDrawSignature 747837906D0BF484 `
   -Json
 ```
+
+For a visibility-selected semantic candidate, add:
+
+```powershell
+  -RequireFreshVisibilityCandidate
+```
+
+This option is intended for semantic world bring-up and is not used by the
+already-qualified sky/horizon replay family.
 
 The expected result is one `native_renderer.isolated_draw.result` event with
 `status=recorded`, non-zero target dimensions, `native_draw=isolated_only`,

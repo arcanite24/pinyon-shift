@@ -65,9 +65,14 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "session": "test",
             "status": "complete",
             "candidate_key": "1111111111111111",
+            "prepared_signature": "AAAAAAAAAAAAAAAA",
             "template_key": "2222222222222222",
             "geometry_resource_hash": "3333333333333333",
             "texture_resource_hash": "4444444444444444",
+            "vertex_shader": "5555555555555555",
+            "pixel_shader": "6666666666666666",
+            "vertex_specialization_mask": "000000000000007F",
+            "pixel_specialization_mask": "0000000F001D007F",
             "receiver_address": "10001000",
             "receiver_generation": "2",
             "record_index": "4",
@@ -77,6 +82,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "first_frame": "10",
             "last_frame": "12",
             "maximum_policy_age_frames": "1",
+            "mechanically_eligible": "true",
             "policy_age_limit_frames": "1",
             "classification": "fresh_visibility_selected_prepared_candidate",
             **self.safety(),
@@ -94,6 +100,8 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "missing_exclusions": "3",
             "candidate_entries": "1",
             "entry_draws": "7",
+            "mechanically_eligible_entries": "1",
+            "mechanically_eligible_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -119,6 +127,22 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             ]
         )
         self.assertEqual(2, document["totals"]["stale_exclusions"])
+        self.assertTrue(
+            document["qualification"]["isolated_native_candidate_proved"]
+        )
+
+    def test_build_accepts_fresh_candidate_without_isolated_eligibility(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["mechanically_eligible"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["mechanically_eligible_entries"] = "0"
+        summary["mechanically_eligible_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"]["isolated_native_candidate_proved"]
+        )
 
     def test_build_rejects_future_policy_decision(self):
         events = copy.deepcopy(self.events())
