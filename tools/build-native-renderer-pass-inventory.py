@@ -23,6 +23,26 @@ def target_key(draw):
     return colors, depth_key
 
 
+def pipeline_signature(draw):
+    return {
+        key: draw.get(key)
+        for key in (
+            "pipeline",
+            "pipeline_name",
+            "vertex_shader",
+            "vertex_shader_name",
+            "pixel_shader",
+            "pixel_shader_name",
+            "primitive_topology",
+            "viewport",
+            "scissor",
+            "depth_state",
+            "raster_state",
+        )
+        if key in draw
+    }
+
+
 def build_inventory(trace):
     if trace.get("schema") != TRACE_SCHEMA:
         raise ValueError("unsupported pass trace schema")
@@ -67,6 +87,7 @@ def build_inventory(trace):
                 "boundary_before": sorted(set(pending_boundaries)),
                 "color_targets": event.get("color_targets", []),
                 "depth_target": event.get("depth_target"),
+                "pipeline_signatures": {},
                 "_key": key,
             }
             phases.append(current)
@@ -76,10 +97,26 @@ def build_inventory(trace):
         if event.get("authoritative_candidate") is True:
             current["candidate_draw_count"] += 1
             authoritative_candidates += 1
+        signature = pipeline_signature(event)
+        if signature:
+            signature_key = hashlib.sha256(
+                json.dumps(
+                    signature, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            ).hexdigest().upper()
+            entry = current["pipeline_signatures"].setdefault(
+                signature_key,
+                {"signature": signature, "draw_count": 0},
+            )
+            entry["draw_count"] += 1
         pending_boundaries = []
 
     for phase in phases:
         phase.pop("_key")
+        phase["pipeline_signatures"] = [
+            {"sha256": key, **value}
+            for key, value in sorted(phase["pipeline_signatures"].items())
+        ]
         phase["qualification"] = (
             "candidate_phase"
             if phase["candidate_draw_count"]

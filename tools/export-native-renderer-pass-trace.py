@@ -46,7 +46,14 @@ def texture_map(controller):
     return {str(texture.resourceId): texture for texture in controller.GetTextures()}
 
 
-def target_description(target, textures):
+def resource_name_map(controller):
+    return {
+        str(resource.resourceId): resource.name
+        for resource in controller.GetResources()
+    }
+
+
+def target_description(target, textures, resource_names):
     if target.resource == rd.ResourceId.Null():
         return None
     resource_id = str(target.resource)
@@ -55,11 +62,66 @@ def target_description(target, textures):
         raise RuntimeError("target texture description was not found: " + resource_id)
     return {
         "resource_id": resource_id,
+        "resource_name": resource_names.get(resource_id, ""),
         "width": texture.width,
         "height": texture.height,
         "mip": getattr(target, "firstMip", 0),
         "slice": getattr(target, "firstSlice", 0),
         "format": texture.format.Name(),
+    }
+
+
+def resource_id(value):
+    if value == rd.ResourceId.Null():
+        return None
+    return str(value)
+
+
+def resource_name(value, resource_names):
+    identifier = resource_id(value)
+    if identifier is None:
+        return None
+    return resource_names.get(identifier, "")
+
+
+def viewport_description(viewport):
+    return {
+        "enabled": viewport.enabled,
+        "x": viewport.x,
+        "y": viewport.y,
+        "width": viewport.width,
+        "height": viewport.height,
+        "min_depth": viewport.minDepth,
+        "max_depth": viewport.maxDepth,
+    }
+
+
+def scissor_description(scissor):
+    return {
+        "enabled": scissor.enabled,
+        "x": scissor.x,
+        "y": scissor.y,
+        "width": scissor.width,
+        "height": scissor.height,
+    }
+
+
+def depth_state_description(state):
+    return {
+        "enabled": state.depthEnable,
+        "writes": state.depthWrites,
+        "function": str(state.depthFunction),
+        "bounds": state.depthBounds,
+        "min_bounds": state.minDepthBounds,
+        "max_bounds": state.maxDepthBounds,
+    }
+
+
+def raster_state_description(state):
+    return {
+        "front_ccw": state.frontCCW,
+        "fill_mode": str(state.fillMode),
+        "cull_mode": str(state.cullMode),
     }
 
 
@@ -97,6 +159,7 @@ def main():
                 authoritative_events.update(child.eventId for child in descendants(action))
 
         textures = texture_map(controller)
+        resource_names = resource_name_map(controller)
         events = []
         for action in actions:
             kinds = boundary_kinds(action)
@@ -110,19 +173,47 @@ def main():
                 continue
             controller.SetFrameEvent(action.eventId, True)
             pipeline = controller.GetPipelineState()
+            viewport = pipeline.GetViewport(0)
+            scissor = pipeline.GetScissor(0)
             colors = [
-                target_description(target, textures)
+                target_description(target, textures, resource_names)
                 for target in pipeline.GetOutputTargets()
                 if target.resource != rd.ResourceId.Null()
             ]
             events.append({
                 "event_id": action.eventId,
                 "kind": "draw",
+                "action_name": action.customName,
                 "index_count": action.numIndices,
                 "instance_count": action.numInstances,
+                "pipeline": resource_id(pipeline.GetGraphicsPipelineObject()),
+                "pipeline_name": resource_name(
+                    pipeline.GetGraphicsPipelineObject(), resource_names
+                ),
+                "vertex_shader": resource_id(
+                    pipeline.GetShader(rd.ShaderStage.Vertex)
+                ),
+                "vertex_shader_name": resource_name(
+                    pipeline.GetShader(rd.ShaderStage.Vertex), resource_names
+                ),
+                "pixel_shader": resource_id(
+                    pipeline.GetShader(rd.ShaderStage.Pixel)
+                ),
+                "pixel_shader_name": resource_name(
+                    pipeline.GetShader(rd.ShaderStage.Pixel), resource_names
+                ),
+                "primitive_topology": str(pipeline.GetPrimitiveTopology()),
+                "viewport": viewport_description(viewport),
+                "scissor": scissor_description(scissor),
+                "depth_state": depth_state_description(
+                    pipeline.GetDepthTestState()
+                ),
+                "raster_state": raster_state_description(
+                    pipeline.GetRasterState()
+                ),
                 "color_targets": colors,
                 "depth_target": target_description(
-                    pipeline.GetDepthTarget(), textures
+                    pipeline.GetDepthTarget(), textures, resource_names
                 ),
                 "isolated_native": action.eventId in isolated_events,
                 "authoritative_candidate": action.eventId in authoritative_events,
@@ -138,6 +229,7 @@ def main():
             "events": events,
             "safety": {
                 "resource_payload_exported": False,
+                "pipeline_metadata_only": True,
                 "xenos_authority": True,
                 "suppression_allowed": False,
             },
