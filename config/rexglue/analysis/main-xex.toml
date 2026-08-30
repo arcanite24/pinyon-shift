@@ -286,6 +286,11 @@ name = "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult"
 registers = ["r3"]
 
 [[midasm_hook]]
+address = 0x82E20364
+name = "PinyonShiftObserveProceduralModelVisibilityCategoryHelperInput"
+registers = ["r3", "v1", "v2"]
+
+[[midasm_hook]]
 address = 0x82E20368
 name = "PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult"
 registers = ["r3"]
