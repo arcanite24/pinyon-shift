@@ -52,7 +52,9 @@ class NativeRendererContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         start = source.index("void CompleteIsolatedShadowReplay(")
-        end = source.index("void CompleteIsolatedPassAnchor(", start)
+        end = source.index(
+            "void RecordVisibilityShadowReplaySignature(", start
+        )
         completion = source[start:end]
         self.assertIn("shadow_replay_recorded", completion)
         self.assertIn("shadow_replay_target_failures", completion)
@@ -65,6 +67,64 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('{"readback", "one_shot_only"}', source)
         self.assertIn('{"xenos_draw", "preserved"}', source)
         self.assertIn('{"draw_suppression", "false"}', source)
+
+    def test_visibility_workset_shadow_replay_is_bounded_and_safe(self) -> None:
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        start = source.index(
+            "if (g_visibility_shadow_replay.requested &&\n"
+            "      g_visibility_shadow_replay.valid &&"
+        )
+        end = source.index(
+            "if (!g_isolated_draw.requested || !g_isolated_draw.valid ||",
+            start,
+        )
+        request = source[start:end]
+        self.assertIn("prepared_visibility_candidate_fresh", request)
+        self.assertIn("prepared_title_lod_valid", request)
+        self.assertIn("prepared_candidate_eligible", request)
+        self.assertIn("last_request_frame", request)
+        self.assertIn("request.requested = true", request)
+        self.assertIn("request.reference_marker_requested = true", request)
+        self.assertIn("CompleteVisibilityShadowReplay", request)
+        self.assertNotIn("readback_requested", request)
+        self.assertNotIn("publish_to_guest_requested", request)
+        self.assertNotIn("suppress_guest_draw", request)
+        self.assertIn("requests_without_title_lod", request)
+
+        self.assertIn(
+            '"native_renderer.visibility_shadow_replay.summary"', source
+        )
+        self.assertIn('"selection_accounting_complete"', source)
+        self.assertIn('"maximum_draws_per_frame"', source)
+        self.assertIn('"optional_exact_metadata_no_inference"', source)
+        self.assertIn(
+            "g_title_provenance_installed.load(std::memory_order_acquire)",
+            source,
+        )
+        self.assertIn('semantic_lineage_armed ? "armed" : "unavailable"', source)
+        self.assertIn('{"readback", "disabled"}', source)
+        self.assertIn('{"xenos_draw", "preserved"}', source)
+        self.assertIn('{"draw_suppression", "false"}', source)
+
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("[switch]$VisibilityShadowReplay", capture)
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY",
+            capture,
+        )
+        self.assertIn(
+            "REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY",
+            capture,
+        )
+        self.assertIn(
+            "VisibilityShadowReplay is mutually exclusive with "
+            "isolated/pass replay options.",
+            capture,
+        )
 
     def test_seed_checkpoints_are_paired_before_native_draw(self) -> None:
         patch = (

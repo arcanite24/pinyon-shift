@@ -101,6 +101,57 @@ is valid only with `-AutoSelectFreshVisibilityCandidate`, is startup-only, and
 does not infer LOD zero. The lock event records the exact LOD index while Xenos
 remains authoritative.
 
+### Bounded workset shadow replay
+
+After one exact-signature candidate has proved the replay boundary, the
+default-off `-VisibilityShadowReplay` census mode exercises the broader
+visibility-selected workset without locking one signature. It accepts only a
+prepared draw that is mechanically eligible, carries a current or one-frame-
+old independent visibility selection, and has exact semantic PM4 provenance.
+At most the first such candidate in each frame is replayed into a private
+target; later eligible candidates in that frame are counted as quota yields.
+
+Exact title LOD remains bounded metadata rather than an admission predicate.
+Runtime evidence showed that the mechanically replayable category-11 draws do
+not execute either title LOD write hook, while exact-LOD category-9 draws fail
+the independent mechanical replay contract. Requiring both therefore produced
+an empty intersection. The workset replay records explicit LOD values when the
+title wrote one and separately accounts requests without LOD; it never infers
+LOD zero.
+
+The mode keeps a fixed 256-signature request table with first/last frame,
+request count, exact title-LOD observations, missing-LOD requests, and the
+observed LOD range when one exists. Shutdown telemetry partitions every
+prepared observation into mechanical rejection, stale/unselected rejection,
+per-frame quota yield, or native replay request. Every request is reconciled
+both by LOD evidence and as recorded, target-creation failure, or unsupported.
+Any table overflow or incomplete accounting fails the evidence report.
+
+This mode adds no readback, native publication, draw suppression, or guest
+state mutation. Each native draw is discarded with its private target and the
+original Xenos draw executes normally. It is mutually exclusive with exact
+isolated capture, retained-pass replay/publication, and suppression. The
+capture wrapper also arms dispatch discovery because admission requires
+exact semantic PM4 provenance. Runtime configuration fails closed when that
+provenance is unavailable rather than reporting a healthy zero-draw session.
+Capture a batched AppData session with:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -VisibilityShadowReplay
+
+python .\tools\summarize-native-renderer-visibility-shadow-replay.py `
+  $eventLog `
+  --output `
+    .local\qualification\native-renderer-visibility-shadow-replay.json
+```
+
+The resulting signature coverage and outcome accounting determine whether the
+qualified one-draw path generalizes across the selected procedural workset;
+they do not admit publication or suppression.
+
 ## AppData qualification
 
 Release session `20260830T015106Z-p25800` ran against the installed `0.1.0`
@@ -116,3 +167,15 @@ reports all completed from the same capture. Median performance was 29.750 FPS
 over 2,802 frames, with a 15.224 FPS one-percent low, 58.633 Hz presentation,
 and zero present-deadline misses. The fatal-signature scan was clean. Native
 upload, native draw, and suppression remained disabled throughout.
+
+Release/AppData session `20260830T081921Z-p13044` qualified the bounded
+workset replay itself. It recorded all 25 requested private native draws across
+two exact prepared signatures, with zero target-creation failures, unsupported
+draws, signature overflow, error events, or fatal events. Selection accounting
+partitioned 3,978,187 prepared observations into 3,662,084 mechanical
+rejections, 316,078 stale/unselected exclusions, and 25 requests. All requests
+lacked a title LOD because their category-11 title path executed no LOD write;
+that absence was explicitly reconciled without inferring an index. The game
+loaded the installed AppData festival save and remained visually stable.
+Native output stayed private, the original Xenos draws remained authoritative,
+and publication and suppression stayed disabled.
