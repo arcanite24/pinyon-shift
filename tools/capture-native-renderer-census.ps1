@@ -28,6 +28,7 @@ param(
     [switch]$RequireTitleLodCandidate,
     [switch]$VisibilityShadowReplay,
     [switch]$VehicleDrawCorrelation,
+    [switch]$ShadowCasterProvenance,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
     [switch]$PublishRetainedPass,
@@ -217,6 +218,8 @@ $savedTitleLodCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE
 $savedVisibilityShadowReplay =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY
+$savedShadowCasterProvenance =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
@@ -225,7 +228,8 @@ $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READB
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY =
-        if ($VisibilityShadowReplay -or $VehicleDrawCorrelation) {
+        if ($VisibilityShadowReplay -or $VehicleDrawCorrelation -or
+            $ShadowCasterProvenance) {
             'true'
         } else { $savedDiscovery }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -259,6 +263,8 @@ try {
         if ($RequireTitleLodCandidate) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
         if ($VisibilityShadowReplay) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
+        if ($ShadowCasterProvenance) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
         if ($PublishRetainedPass) { 'true' } else { $null }
@@ -299,6 +305,8 @@ finally {
         $savedTitleLodCandidate
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY =
         $savedVisibilityShadowReplay
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
+        $savedShadowCasterProvenance
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $savedPassPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily

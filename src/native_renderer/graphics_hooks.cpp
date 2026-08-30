@@ -125,6 +125,8 @@ constexpr size_t kVehicleTypedDescriptorCorrelationCapacity = 512;
 constexpr uint32_t kVehicleComposedMatrixHook = 0x8240EB5C;
 constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
+constexpr size_t kShadowCasterProvenanceSampleCapacity = 4096;
+constexpr uint64_t kShadowCasterMaximumVehicleIdentityAgeFrames = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -166,6 +168,13 @@ constexpr uint32_t kShadowDepthBatchDrawCount =
     kShadowDepthTertiaryDrawCount;
 constexpr const char *kShadowDepthCasterClass = "dynamic_vehicle";
 constexpr const char *kShadowDepthAtlasRegion = "0,0,2048,2048";
+constexpr uint64_t kMixedShadowCasterVertexShader =
+    UINT64_C(0xC8C39E5AE1B08DE6);
+constexpr uint64_t kMixedShadowCasterCensusDrawSignature =
+    UINT64_C(0x4EA314DE058F6845);
+constexpr const char *kMixedShadowCasterFamilySha256 =
+    "A61D2C09B06090140F77963167B6F739CF7D1508A7D71C578550C2EC2B235481";
+constexpr const char *kMixedShadowCasterAtlasRegion = "1024,0,1024,1024";
 std::atomic<uint64_t> g_frame_sequence{};
 
 enum class ShadowDepthBatchFamily : uint32_t {
@@ -838,6 +847,109 @@ struct VehicleTypedDescriptorCorrelationEntry {
   uint32_t identity_slot = 0;
   bool valid = false;
 };
+
+enum class ShadowCasterProvenanceState : uint32_t {
+  kUnresolved = 0,
+  kDynamicVehicleProven = 1,
+};
+
+enum class ShadowCasterProvenanceSource : uint32_t {
+  kNone = 0,
+  kVehicleOwnerMethod = 1,
+  kExactTitleArgument = 2,
+};
+
+enum class ShadowCasterUnresolvedReason : uint32_t {
+  kNone = 0,
+  kMissingTitleOrigin = 1,
+  kNoVehicleIdentity = 2,
+  kStaleVehicleIdentity = 3,
+  kAmbiguousVehicleIdentity = 4,
+};
+
+struct ShadowCasterProvenanceSample {
+  uint64_t frame = 0;
+  uint64_t draw = 0;
+  uint64_t draw_signature = 0;
+  uint64_t prepared_signature = 0;
+  uint64_t identity_age_frames = 0;
+  uint64_t semantic_submission_key = 0;
+  uint32_t viewport_xscale = 0;
+  uint32_t viewport_xoffset = 0;
+  uint32_t viewport_yscale = 0;
+  uint32_t viewport_yoffset = 0;
+  uint32_t index_count = 0;
+  uint32_t origin_wrapper = 0;
+  uint32_t origin_caller = 0;
+  uint32_t semantic_receiver = 0;
+  uint32_t semantic_generation = 0;
+  uint32_t semantic_record = 0;
+  uint32_t identity_generation = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  uint32_t evidence_count = 0;
+  ShadowCasterProvenanceState state =
+      ShadowCasterProvenanceState::kUnresolved;
+  ShadowCasterProvenanceSource source = ShadowCasterProvenanceSource::kNone;
+  ShadowCasterUnresolvedReason unresolved_reason =
+      ShadowCasterUnresolvedReason::kNoVehicleIdentity;
+  bool title_origin_present = false;
+  bool semantic_origin_present = false;
+};
+
+struct ShadowCasterViewportEntry {
+  uint64_t draws = 0;
+  uint32_t xscale = 0;
+  uint32_t xoffset = 0;
+  uint32_t yscale = 0;
+  uint32_t yoffset = 0;
+};
+
+struct ShadowCasterProvenanceStateData {
+  std::array<ShadowCasterProvenanceSample,
+             kShadowCasterProvenanceSampleCapacity>
+      samples{};
+  std::array<ShadowCasterViewportEntry, 8> census_viewports{};
+  uint64_t census_viewport_overflow = 0;
+  uint64_t shader_matches = 0;
+  uint64_t census_signature_matches = 0;
+  uint64_t census_signature_rejections = 0;
+  uint64_t contract_matches = 0;
+  uint64_t contract_rejections = 0;
+  uint64_t dynamic_vehicle_proven = 0;
+  uint64_t unresolved = 0;
+  uint64_t missing_title_origin = 0;
+  uint64_t no_vehicle_identity = 0;
+  uint64_t stale_vehicle_identity = 0;
+  uint64_t ambiguous_vehicle_identity = 0;
+  uint64_t owner_method_evidence = 0;
+  uint64_t exact_argument_evidence = 0;
+  uint64_t sample_count = 0;
+  uint64_t sample_overflow = 0;
+  bool requested = false;
+  bool valid = false;
+  bool rejection_sample_recorded = false;
+  uint64_t rejection_source_draw_signature = 0;
+  rex::system::GraphicsDrawObservation rejection_observation{};
+  rex::system::GraphicsPreparedDrawObservation rejection_prepared{};
+  bool rejection_samples_resolved_target = false;
+};
+
+ShadowCasterProvenanceStateData g_shadow_caster_provenance;
+
+struct PendingVehicleDrawIdentityEvidence {
+  std::array<uint32_t, 4> generations{};
+  std::array<uint32_t, 4> owners{};
+  std::array<uint32_t, 4> slots{};
+  uint64_t frame = 0;
+  uint64_t draw_signature = 0;
+  size_t count = 0;
+  bool overflow = false;
+  bool valid = false;
+};
+
+thread_local PendingVehicleDrawIdentityEvidence
+    g_pending_vehicle_draw_identity_evidence;
 
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
@@ -2816,6 +2928,11 @@ void ObserveVehicleDrawArgumentCorrelations(
     uint64_t backend_signature, uint64_t frame,
     const TitleDrawOrigin &direct_origin,
     const ActiveTitleIndirectBuffer *indirect_origin) {
+  g_pending_vehicle_draw_identity_evidence = {
+      .frame = frame,
+      .draw_signature = backend_signature,
+      .valid = true,
+  };
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
   }
@@ -2935,6 +3052,33 @@ void ObserveVehicleDrawArgumentCorrelations(
           address_index =
               (address_index + 1) % kVehicleIdentityAddressCapacity;
           continue;
+        }
+        bool duplicate_identity = false;
+        for (size_t evidence_index = 0;
+             evidence_index < g_pending_vehicle_draw_identity_evidence.count;
+             ++evidence_index) {
+          duplicate_identity |=
+              g_pending_vehicle_draw_identity_evidence
+                      .generations[evidence_index] == identity.generation &&
+              g_pending_vehicle_draw_identity_evidence.owners[evidence_index] ==
+                  identity.owner &&
+              g_pending_vehicle_draw_identity_evidence.slots[evidence_index] ==
+                  identity.slot;
+        }
+        if (!duplicate_identity) {
+          if (g_pending_vehicle_draw_identity_evidence.count <
+              g_pending_vehicle_draw_identity_evidence.generations.size()) {
+            const size_t evidence_index =
+                g_pending_vehicle_draw_identity_evidence.count++;
+            g_pending_vehicle_draw_identity_evidence
+                .generations[evidence_index] = identity.generation;
+            g_pending_vehicle_draw_identity_evidence.owners[evidence_index] =
+                identity.owner;
+            g_pending_vehicle_draw_identity_evidence.slots[evidence_index] =
+                identity.slot;
+          } else {
+            g_pending_vehicle_draw_identity_evidence.overflow = true;
+          }
         }
         ++g_vehicle_draw_argument_matches;
         VehicleDrawCorrelationEntry *available = nullptr;
@@ -12013,6 +12157,640 @@ ShadowDepthBatchFamily ClassifyShadowDepthBatchMemberDraw(
   return ShadowDepthBatchFamily::kNone;
 }
 
+const char *ShadowCasterProvenanceStateName(
+    ShadowCasterProvenanceState state) {
+  switch (state) {
+  case ShadowCasterProvenanceState::kUnresolved:
+    return "unresolved";
+  case ShadowCasterProvenanceState::kDynamicVehicleProven:
+    return "dynamic_vehicle_proven";
+  }
+  return "unresolved";
+}
+
+const char *ShadowCasterProvenanceSourceName(
+    ShadowCasterProvenanceSource source) {
+  switch (source) {
+  case ShadowCasterProvenanceSource::kNone:
+    return "none";
+  case ShadowCasterProvenanceSource::kVehicleOwnerMethod:
+    return "vehicle_owner_method";
+  case ShadowCasterProvenanceSource::kExactTitleArgument:
+    return "exact_title_argument";
+  }
+  return "none";
+}
+
+const char *ShadowCasterUnresolvedReasonName(
+    ShadowCasterUnresolvedReason reason) {
+  switch (reason) {
+  case ShadowCasterUnresolvedReason::kNone:
+    return "none";
+  case ShadowCasterUnresolvedReason::kMissingTitleOrigin:
+    return "missing_title_origin";
+  case ShadowCasterUnresolvedReason::kNoVehicleIdentity:
+    return "no_vehicle_identity";
+  case ShadowCasterUnresolvedReason::kStaleVehicleIdentity:
+    return "stale_vehicle_identity";
+  case ShadowCasterUnresolvedReason::kAmbiguousVehicleIdentity:
+    return "ambiguous_vehicle_identity";
+  }
+  return "no_vehicle_identity";
+}
+
+bool IsMixedShadowCasterMechanicalDraw(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  const bool query_draw = observation.viz_query_condition ||
+                          (observation.pa_sc_viz_query & 1);
+  return observation.vertex_shader_hash == kMixedShadowCasterVertexShader &&
+         prepared.vertex_shader_hash == kMixedShadowCasterVertexShader &&
+         prepared.pixel_shader_hash == 0 && !samples_resolved_target &&
+         !query_draw &&
+         !observation.vertex_memexport && observation.indexed &&
+         observation.source_select ==
+             uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
+         observation.primitive_type == 6 && observation.index_count != 0 &&
+         !observation.vertex_binding_overflow &&
+         !observation.vertex_attribute_overflow &&
+         !observation.vertex_float_constant_overflow &&
+         !observation.pixel_float_constant_overflow &&
+         !observation.texture_state_overflow &&
+         observation.surface_info == 0x10000410 &&
+         observation.depth_info == 0x000002D0 &&
+         observation.window_scissor_tl == 0 &&
+         observation.window_scissor_br == 0x04000400 &&
+         observation.viewport_xscale == 0x43800000 &&
+         observation.viewport_xoffset == 0x44400000 &&
+         observation.viewport_yscale == 0xC3800000 &&
+         observation.viewport_yoffset == 0x43800000 &&
+         observation.rb_color_mask == 0 &&
+         observation.rb_depthcontrol == 0x00700736 &&
+         observation.pa_su_sc_mode_cntl == 0x00219806 &&
+         observation.pa_su_vtx_cntl == 4 &&
+         prepared.guest_primitive_type == 6 &&
+         prepared.normalized_color_mask == 0 &&
+         prepared.bound_render_target_bits == 1 &&
+         prepared.bound_render_target_formats[0] == 0 &&
+         prepared.vertex_specialization_mask == 0 &&
+         prepared.pixel_specialization_mask == 0 &&
+         (prepared.flags & 3) == 3;
+}
+
+void ConfigureShadowCasterProvenance(bool census_requested) {
+  g_shadow_caster_provenance = {};
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_shadow_caster_provenance.requested = setting == "true";
+    g_shadow_caster_provenance.valid = setting == "true" || setting == "false";
+  } else {
+    g_shadow_caster_provenance.valid = true;
+  }
+  std::free(value);
+  if (g_shadow_caster_provenance.requested) {
+    g_shadow_caster_provenance.valid &=
+        census_requested &&
+        g_title_provenance_installed.load(std::memory_order_acquire) &&
+        g_vehicle_discovery_installed.load(std::memory_order_acquire);
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.shadow_caster_provenance.control",
+      {{"status", !g_shadow_caster_provenance.requested
+                      ? "disabled"
+                      : (g_shadow_caster_provenance.valid ? "armed"
+                                                         : "invalid")},
+       {"requested", g_shadow_caster_provenance.requested ? "true" : "false"},
+       {"valid", g_shadow_caster_provenance.valid ? "true" : "false"},
+       {"capture_family_sha256", kMixedShadowCasterFamilySha256},
+       {"vertex_shader", fmt::format("{:016X}", kMixedShadowCasterVertexShader)},
+       {"atlas_region", kMixedShadowCasterAtlasRegion},
+       {"viewport_raw", "43800000:44400000:C3800000:43800000"},
+       {"sample_capacity",
+        std::to_string(kShadowCasterProvenanceSampleCapacity)},
+       {"maximum_vehicle_identity_age_frames",
+        std::to_string(kShadowCasterMaximumVehicleIdentityAgeFrames)},
+       {"classification_scope", "per_exact_draw"},
+       {"static_inference_from_absence", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void RecordShadowCasterProvenance(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const TitleDrawOrigin &origin, uint64_t source_draw_signature,
+    uint64_t prepared_signature) {
+  if (!g_shadow_caster_provenance.requested ||
+      !g_shadow_caster_provenance.valid ||
+      observation.vertex_shader_hash != kMixedShadowCasterVertexShader) {
+    return;
+  }
+  ++g_shadow_caster_provenance.shader_matches;
+  const bool census_signature_match =
+      source_draw_signature == kMixedShadowCasterCensusDrawSignature;
+  g_shadow_caster_provenance.census_signature_matches +=
+      census_signature_match;
+  if (census_signature_match) {
+    ShadowCasterViewportEntry *available = nullptr;
+    for (auto &entry : g_shadow_caster_provenance.census_viewports) {
+      if (entry.draws && entry.xscale == observation.viewport_xscale &&
+          entry.xoffset == observation.viewport_xoffset &&
+          entry.yscale == observation.viewport_yscale &&
+          entry.yoffset == observation.viewport_yoffset) {
+        ++entry.draws;
+        available = nullptr;
+        break;
+      }
+      if (!entry.draws && !available) {
+        available = &entry;
+      }
+    }
+    if (available) {
+      *available = {
+          .draws = 1,
+          .xscale = observation.viewport_xscale,
+          .xoffset = observation.viewport_xoffset,
+          .yscale = observation.viewport_yscale,
+          .yoffset = observation.viewport_yoffset,
+      };
+    } else {
+      bool found = false;
+      for (const auto &entry : g_shadow_caster_provenance.census_viewports) {
+        found |= entry.draws && entry.xscale == observation.viewport_xscale &&
+                 entry.xoffset == observation.viewport_xoffset &&
+                 entry.yscale == observation.viewport_yscale &&
+                 entry.yoffset == observation.viewport_yoffset;
+      }
+      g_shadow_caster_provenance.census_viewport_overflow += !found;
+    }
+  }
+  if (!census_signature_match ||
+      !IsMixedShadowCasterMechanicalDraw(observation, samples_resolved_target,
+                                         prepared)) {
+    ++g_shadow_caster_provenance.contract_rejections;
+    const bool near_candidate = census_signature_match;
+    g_shadow_caster_provenance.census_signature_rejections += near_candidate;
+    if (near_candidate &&
+        !g_shadow_caster_provenance.rejection_sample_recorded) {
+      g_shadow_caster_provenance.rejection_sample_recorded = true;
+      g_shadow_caster_provenance.rejection_source_draw_signature =
+          source_draw_signature;
+      g_shadow_caster_provenance.rejection_observation = observation;
+      g_shadow_caster_provenance.rejection_prepared = prepared;
+      g_shadow_caster_provenance.rejection_samples_resolved_target =
+          samples_resolved_target;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.shadow_caster_provenance.rejection_sample",
+          {{"status", "near_candidate_rejected"},
+           {"draw_signature", fmt::format("{:016X}", source_draw_signature)},
+           {"vertex_shader",
+            fmt::format("{:016X}", observation.vertex_shader_hash)},
+           {"prepared_vertex_shader",
+            fmt::format("{:016X}", prepared.vertex_shader_hash)},
+           {"prepared_pixel_shader",
+            fmt::format("{:016X}", prepared.pixel_shader_hash)},
+           {"viewport_raw",
+            fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                        observation.viewport_xscale,
+                        observation.viewport_xoffset,
+                        observation.viewport_yscale,
+                        observation.viewport_yoffset)},
+           {"viewport_transform_control",
+            fmt::format("{:08X}", observation.viewport_transform_control)},
+           {"target_state",
+            fmt::format("{:08X}:{:08X}", observation.surface_info,
+                        observation.depth_info)},
+           {"scissor",
+            fmt::format("{:08X}:{:08X}", observation.window_scissor_tl,
+                        observation.window_scissor_br)},
+           {"pipeline_state",
+            fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                        observation.rb_color_mask,
+                        observation.rb_depthcontrol,
+                        observation.pa_su_sc_mode_cntl,
+                        observation.pa_su_vtx_cntl)},
+           {"primitive", std::to_string(observation.primitive_type)},
+           {"source_select", std::to_string(observation.source_select)},
+           {"index_count", std::to_string(observation.index_count)},
+           {"prepared_guest_primitive",
+            std::to_string(prepared.guest_primitive_type)},
+           {"prepared_normalized_color_mask",
+            fmt::format("{:08X}", prepared.normalized_color_mask)},
+           {"prepared_bound_render_target_bits",
+            fmt::format("{:08X}", prepared.bound_render_target_bits)},
+           {"prepared_bound_render_target_formats",
+            fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                        prepared.bound_render_target_formats[0],
+                        prepared.bound_render_target_formats[1],
+                        prepared.bound_render_target_formats[2],
+                        prepared.bound_render_target_formats[3],
+                        prepared.bound_render_target_formats[4])},
+           {"prepared_vertex_specialization_mask",
+            fmt::format("{:016X}", prepared.vertex_specialization_mask)},
+           {"prepared_pixel_specialization_mask",
+            fmt::format("{:016X}", prepared.pixel_specialization_mask)},
+           {"prepared_flags", fmt::format("{:08X}", prepared.flags)},
+           {"samples_resolved_target",
+            samples_resolved_target ? "true" : "false"},
+           {"query",
+            observation.viz_query_condition ||
+                    (observation.pa_sc_viz_query & 1)
+                ? "true"
+                : "false"},
+           {"memexport", observation.vertex_memexport ? "true" : "false"},
+           {"vertex_binding_overflow",
+            observation.vertex_binding_overflow ? "true" : "false"},
+           {"vertex_attribute_overflow",
+            observation.vertex_attribute_overflow ? "true" : "false"},
+           {"vertex_float_constant_overflow",
+            observation.vertex_float_constant_overflow ? "true" : "false"},
+           {"pixel_float_constant_overflow",
+            observation.pixel_float_constant_overflow ? "true" : "false"},
+           {"texture_state_overflow",
+            observation.texture_state_overflow ? "true" : "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    return;
+  }
+  ++g_shadow_caster_provenance.contract_matches;
+
+  struct IdentityEvidence {
+    uint64_t last_frame = 0;
+    uint32_t generation = 0;
+    uint32_t owner = 0;
+    uint32_t slot = 0;
+    ShadowCasterProvenanceSource source =
+        ShadowCasterProvenanceSource::kNone;
+  };
+  std::array<IdentityEvidence, 8> evidence{};
+  size_t evidence_count = 0;
+  bool evidence_overflow = false;
+  const auto append_identity = [&](const VehicleIdentityEntry &identity,
+                                   ShadowCasterProvenanceSource source) {
+    for (size_t index = 0; index < evidence_count; ++index) {
+      if (evidence[index].generation == identity.generation &&
+          evidence[index].owner == identity.owner &&
+          evidence[index].slot == identity.slot) {
+        if (source == ShadowCasterProvenanceSource::kVehicleOwnerMethod) {
+          evidence[index].source = source;
+        }
+        evidence[index].last_frame =
+            std::max(evidence[index].last_frame, identity.last_frame);
+        return;
+      }
+    }
+    if (evidence_count == evidence.size()) {
+      evidence_overflow = true;
+      return;
+    }
+    evidence[evidence_count++] = {
+        .last_frame = identity.last_frame,
+        .generation = identity.generation,
+        .owner = identity.owner,
+        .slot = identity.slot,
+        .source = source,
+    };
+  };
+
+  const uint64_t draw_signature = source_draw_signature;
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  if (origin.vehicle_owner_method_matched) {
+    for (const VehicleIdentityEntry &identity : g_vehicle_identities) {
+      if (identity.valid && identity.owner == origin.vehicle_owner) {
+        append_identity(identity,
+                        ShadowCasterProvenanceSource::kVehicleOwnerMethod);
+      }
+    }
+  }
+  if (g_pending_vehicle_draw_identity_evidence.valid &&
+      g_pending_vehicle_draw_identity_evidence.frame ==
+          observation.frame_sequence &&
+      g_pending_vehicle_draw_identity_evidence.draw_signature ==
+          draw_signature) {
+    evidence_overflow |= g_pending_vehicle_draw_identity_evidence.overflow;
+    for (size_t pending_index = 0;
+         pending_index < g_pending_vehicle_draw_identity_evidence.count;
+         ++pending_index) {
+      for (const VehicleIdentityEntry &identity : g_vehicle_identities) {
+        if (identity.valid &&
+            identity.generation ==
+                g_pending_vehicle_draw_identity_evidence
+                    .generations[pending_index] &&
+            identity.owner ==
+                g_pending_vehicle_draw_identity_evidence.owners[pending_index] &&
+            identity.slot ==
+                g_pending_vehicle_draw_identity_evidence.slots[pending_index]) {
+          append_identity(identity,
+                          ShadowCasterProvenanceSource::kExactTitleArgument);
+          break;
+        }
+      }
+    }
+  }
+
+  ShadowCasterProvenanceSample sample{
+      .frame = observation.frame_sequence,
+      .draw = observation.draw_sequence,
+      .draw_signature = draw_signature,
+      .prepared_signature = prepared_signature,
+      .semantic_submission_key = origin.semantic_draw.submission_key,
+      .viewport_xscale = observation.viewport_xscale,
+      .viewport_xoffset = observation.viewport_xoffset,
+      .viewport_yscale = observation.viewport_yscale,
+      .viewport_yoffset = observation.viewport_yoffset,
+      .index_count = observation.index_count,
+      .origin_wrapper = uint32_t(origin.wrapper),
+      .origin_caller = origin.caller,
+      .semantic_receiver = origin.semantic_draw.receiver_address,
+      .semantic_generation = origin.semantic_draw.receiver_generation,
+      .semantic_record = origin.semantic_draw.record_index,
+      .evidence_count = uint32_t(evidence_count),
+      .title_origin_present = origin.valid,
+      .semantic_origin_present = origin.semantic_draw.valid,
+  };
+  if (evidence_overflow || evidence_count > 1) {
+    sample.unresolved_reason =
+        ShadowCasterUnresolvedReason::kAmbiguousVehicleIdentity;
+  } else if (evidence_count == 1) {
+    const IdentityEvidence &identity = evidence[0];
+    sample.identity_generation = identity.generation;
+    sample.identity_owner = identity.owner;
+    sample.identity_slot = identity.slot;
+    sample.source = identity.source;
+    if (observation.frame_sequence >= identity.last_frame) {
+      sample.identity_age_frames =
+          observation.frame_sequence - identity.last_frame;
+    } else {
+      sample.identity_age_frames = UINT64_MAX;
+    }
+    if (sample.identity_age_frames <=
+        kShadowCasterMaximumVehicleIdentityAgeFrames) {
+      sample.state = ShadowCasterProvenanceState::kDynamicVehicleProven;
+      sample.unresolved_reason = ShadowCasterUnresolvedReason::kNone;
+    } else {
+      sample.unresolved_reason =
+          ShadowCasterUnresolvedReason::kStaleVehicleIdentity;
+    }
+  } else {
+    sample.unresolved_reason =
+        origin.valid ? ShadowCasterUnresolvedReason::kNoVehicleIdentity
+                     : ShadowCasterUnresolvedReason::kMissingTitleOrigin;
+  }
+
+  if (sample.state == ShadowCasterProvenanceState::kDynamicVehicleProven) {
+    ++g_shadow_caster_provenance.dynamic_vehicle_proven;
+    g_shadow_caster_provenance.owner_method_evidence +=
+        sample.source == ShadowCasterProvenanceSource::kVehicleOwnerMethod;
+    g_shadow_caster_provenance.exact_argument_evidence +=
+        sample.source == ShadowCasterProvenanceSource::kExactTitleArgument;
+  } else {
+    ++g_shadow_caster_provenance.unresolved;
+    switch (sample.unresolved_reason) {
+    case ShadowCasterUnresolvedReason::kMissingTitleOrigin:
+      ++g_shadow_caster_provenance.missing_title_origin;
+      break;
+    case ShadowCasterUnresolvedReason::kNoVehicleIdentity:
+      ++g_shadow_caster_provenance.no_vehicle_identity;
+      break;
+    case ShadowCasterUnresolvedReason::kStaleVehicleIdentity:
+      ++g_shadow_caster_provenance.stale_vehicle_identity;
+      break;
+    case ShadowCasterUnresolvedReason::kAmbiguousVehicleIdentity:
+      ++g_shadow_caster_provenance.ambiguous_vehicle_identity;
+      break;
+    case ShadowCasterUnresolvedReason::kNone:
+      break;
+    }
+  }
+  if (g_shadow_caster_provenance.sample_count <
+      g_shadow_caster_provenance.samples.size()) {
+    g_shadow_caster_provenance
+        .samples[g_shadow_caster_provenance.sample_count++] = sample;
+  } else {
+    ++g_shadow_caster_provenance.sample_overflow;
+  }
+}
+
+void EmitShadowCasterProvenanceSummary() {
+  if (!g_shadow_caster_provenance.requested) {
+    return;
+  }
+  for (size_t index = 0; index < g_shadow_caster_provenance.sample_count;
+       ++index) {
+    const ShadowCasterProvenanceSample &sample =
+        g_shadow_caster_provenance.samples[index];
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.shadow_caster_provenance.draw",
+        {{"sample", std::to_string(index + 1)},
+         {"frame", std::to_string(sample.frame)},
+         {"draw", std::to_string(sample.draw)},
+         {"draw_signature", fmt::format("{:016X}", sample.draw_signature)},
+         {"prepared_signature",
+          fmt::format("{:016X}", sample.prepared_signature)},
+         {"vertex_shader",
+          fmt::format("{:016X}", kMixedShadowCasterVertexShader)},
+         {"capture_family_sha256", kMixedShadowCasterFamilySha256},
+         {"atlas_region", kMixedShadowCasterAtlasRegion},
+         {"viewport_raw",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      sample.viewport_xscale, sample.viewport_xoffset,
+                      sample.viewport_yscale, sample.viewport_yoffset)},
+         {"index_count", std::to_string(sample.index_count)},
+         {"classification", ShadowCasterProvenanceStateName(sample.state)},
+         {"provenance_source",
+          ShadowCasterProvenanceSourceName(sample.source)},
+         {"unresolved_reason",
+          ShadowCasterUnresolvedReasonName(sample.unresolved_reason)},
+         {"evidence_count", std::to_string(sample.evidence_count)},
+         {"identity_generation",
+          sample.identity_generation
+              ? std::to_string(sample.identity_generation)
+              : ""},
+         {"identity_owner",
+          sample.identity_owner ? fmt::format("{:08X}", sample.identity_owner)
+                                : ""},
+         {"identity_slot",
+          sample.identity_owner ? std::to_string(sample.identity_slot) : ""},
+         {"identity_age_frames",
+          sample.identity_owner && sample.identity_age_frames != UINT64_MAX
+              ? std::to_string(sample.identity_age_frames)
+              : ""},
+         {"title_origin_present",
+          sample.title_origin_present ? "true" : "false"},
+         {"origin_wrapper",
+          sample.title_origin_present
+              ? DispatchWrapperName(DispatchWrapper(sample.origin_wrapper))
+              : ""},
+         {"origin_caller",
+          sample.title_origin_present
+              ? fmt::format("{:08X}", sample.origin_caller)
+              : ""},
+         {"semantic_origin_present",
+          sample.semantic_origin_present ? "true" : "false"},
+         {"semantic_submission_key",
+          sample.semantic_origin_present
+              ? fmt::format("{:016X}", sample.semantic_submission_key)
+              : ""},
+         {"semantic_receiver",
+          sample.semantic_origin_present
+              ? fmt::format("{:08X}", sample.semantic_receiver)
+              : ""},
+         {"semantic_generation",
+          sample.semantic_origin_present
+              ? std::to_string(sample.semantic_generation)
+              : ""},
+         {"semantic_record",
+          sample.semantic_origin_present
+              ? std::to_string(sample.semantic_record)
+              : ""},
+         {"static_inference_from_absence", "false"},
+         {"native_coverage", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  for (size_t index = 0;
+       index < g_shadow_caster_provenance.census_viewports.size(); ++index) {
+    const auto &entry = g_shadow_caster_provenance.census_viewports[index];
+    if (!entry.draws) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.shadow_caster_provenance.viewport",
+        {{"sample", std::to_string(index + 1)},
+         {"draws", std::to_string(entry.draws)},
+         {"viewport_raw",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}", entry.xscale,
+                      entry.xoffset, entry.yscale, entry.yoffset)},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  if (g_shadow_caster_provenance.rejection_sample_recorded) {
+    const auto &observation =
+        g_shadow_caster_provenance.rejection_observation;
+    const auto &prepared = g_shadow_caster_provenance.rejection_prepared;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.shadow_caster_provenance.rejection_sample_shutdown",
+        {{"draw_signature",
+          fmt::format("{:016X}",
+                      g_shadow_caster_provenance
+                          .rejection_source_draw_signature)},
+         {"viewport_raw",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      observation.viewport_xscale,
+                      observation.viewport_xoffset,
+                      observation.viewport_yscale,
+                      observation.viewport_yoffset)},
+         {"viewport_transform_control",
+          fmt::format("{:08X}", observation.viewport_transform_control)},
+         {"prepared_vertex_shader",
+          fmt::format("{:016X}", prepared.vertex_shader_hash)},
+         {"prepared_pixel_shader",
+          fmt::format("{:016X}", prepared.pixel_shader_hash)},
+         {"target_state",
+          fmt::format("{:08X}:{:08X}", observation.surface_info,
+                      observation.depth_info)},
+         {"scissor",
+          fmt::format("{:08X}:{:08X}", observation.window_scissor_tl,
+                      observation.window_scissor_br)},
+         {"pipeline_state",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      observation.rb_color_mask,
+                      observation.rb_depthcontrol,
+                      observation.pa_su_sc_mode_cntl,
+                      observation.pa_su_vtx_cntl)},
+         {"prepared_flags", fmt::format("{:08X}", prepared.flags)},
+         {"samples_resolved_target",
+          g_shadow_caster_provenance.rejection_samples_resolved_target
+              ? "true"
+              : "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  const bool classification_accounting_complete =
+      g_shadow_caster_provenance.contract_matches ==
+      g_shadow_caster_provenance.dynamic_vehicle_proven +
+          g_shadow_caster_provenance.unresolved;
+  const bool sample_accounting_complete =
+      g_shadow_caster_provenance.contract_matches ==
+      g_shadow_caster_provenance.sample_count +
+          g_shadow_caster_provenance.sample_overflow;
+  const char *status =
+      !g_shadow_caster_provenance.valid
+          ? "invalid_configuration"
+          : (!g_shadow_caster_provenance.contract_matches
+                 ? "no_exact_draw_observed"
+                 : (g_shadow_caster_provenance.sample_overflow
+                        ? "sample_capacity_exhausted"
+                        : "provenance_observed"));
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.shadow_caster_provenance.summary",
+      {{"status", status},
+       {"capture_family_sha256", kMixedShadowCasterFamilySha256},
+       {"vertex_shader", fmt::format("{:016X}", kMixedShadowCasterVertexShader)},
+       {"atlas_region", kMixedShadowCasterAtlasRegion},
+       {"viewport_raw", "43800000:44400000:C3800000:43800000"},
+       {"shader_matches",
+        std::to_string(g_shadow_caster_provenance.shader_matches)},
+       {"census_signature_matches",
+        std::to_string(g_shadow_caster_provenance.census_signature_matches)},
+       {"census_signature_rejections",
+        std::to_string(
+            g_shadow_caster_provenance.census_signature_rejections)},
+       {"census_viewport_overflow",
+        std::to_string(
+            g_shadow_caster_provenance.census_viewport_overflow)},
+       {"contract_matches",
+        std::to_string(g_shadow_caster_provenance.contract_matches)},
+       {"contract_rejections",
+        std::to_string(g_shadow_caster_provenance.contract_rejections)},
+       {"dynamic_vehicle_proven",
+        std::to_string(g_shadow_caster_provenance.dynamic_vehicle_proven)},
+       {"static_world_proven", "0"},
+       {"unresolved", std::to_string(g_shadow_caster_provenance.unresolved)},
+       {"missing_title_origin",
+        std::to_string(g_shadow_caster_provenance.missing_title_origin)},
+       {"no_vehicle_identity",
+        std::to_string(g_shadow_caster_provenance.no_vehicle_identity)},
+       {"stale_vehicle_identity",
+        std::to_string(g_shadow_caster_provenance.stale_vehicle_identity)},
+       {"ambiguous_vehicle_identity",
+        std::to_string(g_shadow_caster_provenance.ambiguous_vehicle_identity)},
+       {"owner_method_evidence",
+        std::to_string(g_shadow_caster_provenance.owner_method_evidence)},
+       {"exact_argument_evidence",
+        std::to_string(g_shadow_caster_provenance.exact_argument_evidence)},
+       {"samples", std::to_string(g_shadow_caster_provenance.sample_count)},
+       {"sample_overflow",
+        std::to_string(g_shadow_caster_provenance.sample_overflow)},
+       {"sample_capacity",
+        std::to_string(kShadowCasterProvenanceSampleCapacity)},
+       {"classification_accounting_complete",
+        classification_accounting_complete ? "true" : "false"},
+       {"sample_accounting_complete",
+        sample_accounting_complete ? "true" : "false"},
+       {"static_dynamic_separation_complete", "false"},
+       {"static_inference_from_absence", "false"},
+       {"native_coverage", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 bool IsExpectedShadowDepthBatchMember(ShadowDepthBatchFamily family,
                                       uint32_t index_count,
                                       uint32_t draw_offset) {
@@ -14460,6 +15238,8 @@ void ObservePreparedDraw(
   if (!g_pending_candidate.valid) {
     ++g_candidate_prepared_without_observation_count;
   } else {
+    const uint64_t source_draw_signature =
+        DrawSignature(g_pending_candidate.sample);
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
@@ -14470,6 +15250,10 @@ void ObservePreparedDraw(
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
+    RecordShadowCasterProvenance(
+        sample, g_pending_candidate.samples_resolved_target, observation,
+        g_pending_candidate.title_origin, source_draw_signature,
+        prepared_signature);
     const SemanticVisibilityPreparedAdmission visibility_admission =
         RecordSemanticBatchOpportunity(
             sample, g_pending_candidate.samples_resolved_target, observation,
@@ -18426,6 +19210,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   ConfigureVehicleDiscovery(census_requested, memory);
   ConfigureTitleDrawProvenance(census_requested, memory);
+  ConfigureShadowCasterProvenance(census_requested);
   const bool lineage_armed = census_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
@@ -19084,6 +19869,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
   }
+  EmitShadowCasterProvenanceSummary();
   EmitVehicleDiscoverySummary();
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
