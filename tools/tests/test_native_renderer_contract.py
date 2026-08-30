@@ -1568,6 +1568,13 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"native_upload", "false"', scanner)
         self.assertIn('"native_draw", "false"', scanner)
         self.assertIn('"suppression_eligible", "false"', scanner)
+        replay_patch = (
+            ROOT
+            / "patches/rexglue/0091-d3d12-isolated-host-converted-index-buffer.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("isolated_index_buffer_supported", replay_patch)
+        self.assertIn("ProcessedIndexBufferType::kGuestDMA", replay_patch)
+        self.assertIn("ProcessedIndexBufferType::kHostConverted", replay_patch)
         self.assertNotIn("SetDrawSuppression", scanner)
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE", scanner)
         self.assertIn('"native_renderer.census.pass_follower"', scanner)
@@ -1969,18 +1976,30 @@ class NativeRendererContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH", scanner)
-        self.assertIn("kShadowDepthBatchDrawCount = 64", scanner)
-        self.assertIn("IsShadowDepthBatchMemberDraw", scanner)
+        self.assertIn("kShadowDepthPrimaryDrawCount = 64", scanner)
+        self.assertIn("kShadowDepthSecondaryDrawCount = 12", scanner)
+        self.assertIn("kShadowDepthTertiaryDrawCount = 4", scanner)
+        self.assertIn("ClassifyShadowDepthBatchMemberDraw", scanner)
+        self.assertIn("IsExpectedShadowDepthBatchMember", scanner)
+        self.assertIn("kShadowDepthSecondaryVertexShader", scanner)
+        self.assertIn("kShadowDepthTertiaryVertexShader", scanner)
+        self.assertIn("observation.index_count == 1474", scanner)
+        self.assertIn("observation.index_count == 506", scanner)
+        self.assertIn("observation.index_count == 3223", scanner)
+        self.assertIn("observation.index_count == 703", scanner)
         self.assertIn("prepared_shadow_depth_batch_member", scanner)
         self.assertIn(
             "if (g_isolated_draw.shadow_depth_batch_capture_completed)", scanner
         )
-        self.assertIn('"one_shot_seed_plus_63_draw_batch"', scanner)
+        self.assertIn('"one_shot_full_80_draw_atlas_epoch"', scanner)
         self.assertIn("!exact_seed", scanner)
         self.assertIn("shadow_depth_batch_last_draw + 1", scanner)
         self.assertIn("request.reuse_target =", scanner)
         self.assertIn('"native_renderer.shadow_depth_batch.result"', scanner)
-        self.assertIn('"recorded_seed_plus_63_draw_batch"', scanner)
+        self.assertIn('"recorded_full_80_draw_atlas_epoch"', scanner)
+        self.assertIn(
+            '"native_renderer.shadow_depth_batch.member_rejection"', scanner
+        )
         self.assertIn('"native_publication", "false"', scanner)
         self.assertIn('"xenos_draw", "preserved"', scanner)
         self.assertIn('"suppression_eligible", "false"', scanner)
