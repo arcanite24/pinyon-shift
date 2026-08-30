@@ -627,11 +627,75 @@ name = "PinyonShiftTraceVehiclePose"
 registers = ["r1", "r30", "r31"]
 
 # NR-05E owner-vtable draw correlation. Runtime-qualified vtable 0x8213BA54
-# maps slots 14, 20, and 22 to these three bounded candidates. Entry hooks
-# preserve r3 as the owner identity; balanced hooks run on each candidate's
-# sole tail-return path. The host only correlates exact, already-observed
-# vehicle owners with title draw origins and backend packet matches. No guest
-# register, packet, render state, native publication, or control flow changes.
+# contains 19 nontrivial method bodies after trivial getters, null handlers,
+# and aliases are excluded. Entry hooks preserve r3 as the owner identity;
+# balanced hooks run on each candidate's sole tail-return path. The host only
+# correlates exact, already-observed vehicle owners with title draw origins and
+# backend packet matches. No guest register, packet, render state, native
+# publication, or control flow changes.
+[[midasm_hook]]
+address = 0x82BD2BD0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2BD0Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD2C20
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2BD0Exit"
+
+[[midasm_hook]]
+address = 0x82BD2B58
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2B58Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD2BC0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2B58Exit"
+
+[[midasm_hook]]
+address = 0x82BCFDD8
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFDD8Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCFE10
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFDD8Exit"
+
+[[midasm_hook]]
+address = 0x82BCFE18
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFE18Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCFE50
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFE18Exit"
+
+[[midasm_hook]]
+address = 0x82BCFE58
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFE58Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCFE70
+name = "PinyonShiftObserveVehicleOwnerMethod82BCFE58Exit"
+
+[[midasm_hook]]
+address = 0x82BC1D90
+name = "PinyonShiftObserveVehicleOwnerMethod82BC1D90Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BC1DC0
+name = "PinyonShiftObserveVehicleOwnerMethod82BC1D90Exit"
+
+[[midasm_hook]]
+address = 0x82BBDD38
+name = "PinyonShiftObserveVehicleOwnerMethod82BBDD38Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BBDE40
+name = "PinyonShiftObserveVehicleOwnerMethod82BBDD38Exit"
+
 [[midasm_hook]]
 address = 0x82BCC368
 name = "PinyonShiftObserveVehicleOwnerMethod82BCC368Entry"
@@ -640,6 +704,51 @@ registers = ["r3"]
 [[midasm_hook]]
 address = 0x82BCCD30
 name = "PinyonShiftObserveVehicleOwnerMethod82BCC368Exit"
+
+[[midasm_hook]]
+address = 0x82BCD780
+name = "PinyonShiftObserveVehicleOwnerMethod82BCD780Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCD9A8
+name = "PinyonShiftObserveVehicleOwnerMethod82BCD780Exit"
+
+[[midasm_hook]]
+address = 0x82BCD9B0
+name = "PinyonShiftObserveVehicleOwnerMethod82BCD9B0Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCDA90
+name = "PinyonShiftObserveVehicleOwnerMethod82BCD9B0Exit"
+
+[[midasm_hook]]
+address = 0x82BD0548
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0548Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD05D0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0548Exit"
+
+[[midasm_hook]]
+address = 0x82BD05D8
+name = "PinyonShiftObserveVehicleOwnerMethod82BD05D8Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD0640
+name = "PinyonShiftObserveVehicleOwnerMethod82BD05D8Exit"
+
+[[midasm_hook]]
+address = 0x82BD0648
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0648Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD06B0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0648Exit"
 
 [[midasm_hook]]
 address = 0x82BD2DE0
@@ -651,6 +760,15 @@ address = 0x82BD35B0
 name = "PinyonShiftObserveVehicleOwnerMethod82BD2DE0Exit"
 
 [[midasm_hook]]
+address = 0x82BBA9C0
+name = "PinyonShiftObserveVehicleOwnerMethod82BBA9C0Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BBAB28
+name = "PinyonShiftObserveVehicleOwnerMethod82BBA9C0Exit"
+
+[[midasm_hook]]
 address = 0x82BC8410
 name = "PinyonShiftObserveVehicleOwnerMethod82BC8410Entry"
 registers = ["r3"]
@@ -658,6 +776,33 @@ registers = ["r3"]
 [[midasm_hook]]
 address = 0x82BC86F0
 name = "PinyonShiftObserveVehicleOwnerMethod82BC8410Exit"
+
+[[midasm_hook]]
+address = 0x82BB94D8
+name = "PinyonShiftObserveVehicleOwnerMethod82BB94D8Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BB9568
+name = "PinyonShiftObserveVehicleOwnerMethod82BB94D8Exit"
+
+[[midasm_hook]]
+address = 0x82BBC1B0
+name = "PinyonShiftObserveVehicleOwnerMethod82BBC1B0Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BBC2C8
+name = "PinyonShiftObserveVehicleOwnerMethod82BBC1B0Exit"
+
+[[midasm_hook]]
+address = 0x82BD0918
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0918Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD0968
+name = "PinyonShiftObserveVehicleOwnerMethod82BD0918Exit"
 
 # Slot 22 is a high-frequency, balanced vehicle-owner update scope rather than
 # a proven renderer method. Capture its six exact virtual targets before each

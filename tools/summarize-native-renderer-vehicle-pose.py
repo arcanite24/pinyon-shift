@@ -41,9 +41,25 @@ TITLE_PROVENANCE_CONFIG = (
     "native_renderer.discovery.title_provenance_config"
 )
 OWNER_METHOD_CANDIDATES = {
+    "82BD2BD0": (0, "82BD2C20"),
+    "82BD2B58": (3, "82BD2BC0"),
+    "82BCFDD8": (7, "82BCFE10"),
+    "82BCFE18": (8, "82BCFE50"),
+    "82BCFE58": (9, "82BCFE70"),
+    "82BC1D90": (12, "82BC1DC0"),
+    "82BBDD38": (13, "82BBDE40"),
     "82BCC368": (14, "82BCCD30"),
+    "82BCD780": (15, "82BCD9A8"),
+    "82BCD9B0": (16, "82BCDA90"),
+    "82BD0548": (17, "82BD05D0"),
+    "82BD05D8": (18, "82BD0640"),
+    "82BD0648": (19, "82BD06B0"),
     "82BD2DE0": (20, "82BD35B0"),
+    "82BBA9C0": (21, "82BBAB28"),
     "82BC8410": (22, "82BC86F0"),
+    "82BB94D8": (23, "82BB9568"),
+    "82BBC1B0": (25, "82BBC2C8"),
+    "82BD0918": (27, "82BD0968"),
 }
 OWNER_INDIRECT_CALLSITES = {
     "82BC8468",
@@ -191,9 +207,20 @@ def build(events, requested_session=None):
         "classification": "unclassified_vehicle_pose_stream",
         "player_priority_admitted": "false",
         "owner_vtable_method_count": "32",
-        "owner_method_candidates": "82BCC368:14,82BD2DE0:20,82BC8410:22",
-        "owner_method_exit_hooks": "82BCCD30,82BD35B0,82BC86F0",
-        "owner_method_stack_capacity": "8",
+        "owner_method_candidates": (
+            "82BD2BD0:0,82BD2B58:3,82BCFDD8:7,82BCFE18:8,"
+            "82BCFE58:9,82BC1D90:12,82BBDD38:13,82BCC368:14,"
+            "82BCD780:15,82BCD9B0:16,82BD0548:17,82BD05D8:18,"
+            "82BD0648:19,82BD2DE0:20,82BBA9C0:21,82BC8410:22,"
+            "82BB94D8:23,82BBC1B0:25,82BD0918:27"
+        ),
+        "owner_method_exit_hooks": (
+            "82BD2C20,82BD2BC0,82BCFE10,82BCFE50,82BCFE70,"
+            "82BC1DC0,82BBDE40,82BCCD30,82BCD9A8,82BCDA90,"
+            "82BD05D0,82BD0640,82BD06B0,82BD35B0,82BBAB28,"
+            "82BC86F0,82BB9568,82BBC2C8,82BD0968"
+        ),
+        "owner_method_stack_capacity": "32",
         "owner_indirect_callsites": (
             "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"
         ),
@@ -203,6 +230,7 @@ def build(events, requested_session=None):
         "draw_correlation": (
             "exact_backend_signature_and_provenance_argument_to_vehicle_address"
         ),
+        "object_scan_enabled": "false",
         "object_scan_word_count": "128",
         "object_scan_cache_capacity": "16384",
         "object_correlation_capacity": "2048",
@@ -276,12 +304,24 @@ def build(events, requested_session=None):
         "classification": "vehicle_instance_semantic_seed",
         "player_priority_admitted": "false",
         "owner_vtable_method_count": "32",
-        "owner_method_candidates": "82BCC368:14,82BD2DE0:20,82BC8410:22",
-        "owner_method_exit_hooks": "82BCCD30,82BD35B0,82BC86F0",
+        "owner_method_candidates": (
+            "82BD2BD0:0,82BD2B58:3,82BCFDD8:7,82BCFE18:8,"
+            "82BCFE58:9,82BC1D90:12,82BBDD38:13,82BCC368:14,"
+            "82BCD780:15,82BCD9B0:16,82BD0548:17,82BD05D8:18,"
+            "82BD0648:19,82BD2DE0:20,82BBA9C0:21,82BC8410:22,"
+            "82BB94D8:23,82BBC1B0:25,82BD0918:27"
+        ),
+        "owner_method_exit_hooks": (
+            "82BD2C20,82BD2BC0,82BCFE10,82BCFE50,82BCFE70,"
+            "82BC1DC0,82BBDE40,82BCCD30,82BCD9A8,82BCDA90,"
+            "82BD05D0,82BD0640,82BD06B0,82BD35B0,82BBAB28,"
+            "82BC86F0,82BB9568,82BBC2C8,82BD0968"
+        ),
         "capacity": "64",
         "summary_limit": "64",
         "draw_correlation_capacity": "1024",
         "identity_address_capacity": "512",
+        "object_scan_enabled": "false",
         "object_scan_word_count": "128",
         "object_scan_cache_capacity": "16384",
         "object_correlation_capacity": "2048",
@@ -1255,6 +1295,7 @@ def build(events, requested_session=None):
         failures.append("vehicle identity address index coverage drifted")
     if totals["draw_correlations"] > totals["draw_correlation_capacity"]:
         failures.append("vehicle draw correlation capacity drifted")
+    object_scan_enabled = config["object_scan_enabled"] == "true"
     if totals["object_scans"] > totals["object_scan_requests"]:
         failures.append("vehicle object scan request accounting drifted")
     if totals["object_scan_words"] != (
@@ -1275,17 +1316,38 @@ def build(events, requested_session=None):
         failures.append("vehicle object correlation table overflowed")
     if totals["object_correlations"] > totals["object_correlation_capacity"]:
         failures.append("vehicle object correlation capacity drifted")
-    for register in ("r7", "r8"):
-        requests = totals[f"targeted_render_context_{register}_scan_requests"]
-        scans = totals[f"targeted_render_context_{register}_scans"]
-        if not requests or not scans:
-            failures.append(
-                f"targeted render-context {register} coverage was absent"
-            )
-        if scans > requests:
-            failures.append(
-                f"targeted render-context {register} accounting drifted"
-            )
+    if object_scan_enabled:
+        for register in ("r7", "r8"):
+            requests = totals[
+                f"targeted_render_context_{register}_scan_requests"
+            ]
+            scans = totals[f"targeted_render_context_{register}_scans"]
+            if not requests or not scans:
+                failures.append(
+                    f"targeted render-context {register} coverage was absent"
+                )
+            if scans > requests:
+                failures.append(
+                    f"targeted render-context {register} accounting drifted"
+                )
+    elif any(
+        totals[key]
+        for key in (
+            "object_scan_requests",
+            "object_scans",
+            "object_scan_words",
+            "object_scan_cache_entries",
+            "object_scan_cache_overflow",
+            "object_argument_matches",
+            "object_correlations",
+            "object_correlation_overflow",
+            "targeted_render_context_r7_scan_requests",
+            "targeted_render_context_r7_scans",
+            "targeted_render_context_r8_scan_requests",
+            "targeted_render_context_r8_scans",
+        )
+    ):
+        failures.append("retired vehicle object scan emitted evidence")
     if totals["render_context_callee_observations"] != (
         totals["render_context_callee_eligible_observations"]
         + totals["render_context_callee_ineligible_observations"]
