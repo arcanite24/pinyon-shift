@@ -22,6 +22,9 @@ DRAW_ARGUMENT_CORRELATION = (
 DRAW_OBJECT_CORRELATION = (
     "native_renderer.discovery.vehicle_draw_object_correlation"
 )
+RENDER_CONTEXT_CALLEE = (
+    "native_renderer.discovery.vehicle_render_context_callee"
+)
 TITLE_PROVENANCE_CONFIG = (
     "native_renderer.discovery.title_provenance_config"
 )
@@ -187,8 +190,13 @@ def build(events, requested_session=None):
         "targeted_render_context_static_contract": (
             "r7_vtable_slot_8_and_r8_vector_source"
         ),
+        "render_context_callee_contract": (
+            "824365B0:r6_le_2,r7_vtable_slot_8,r8_32_byte_vector"
+        ),
+        "render_context_dispatcher_hook": "82436468:r8,r9,r10,r12",
+        "render_context_callee_profile_capacity": "32",
         "guest_payload_read": (
-            "existing_title_pose_hook_values_and_bounded_owner_vtable"
+            "existing_pose_values,bounded_owner_vtable,typed_context_entry"
         ),
         "guest_state_changed": "false",
         "native_upload": "false",
@@ -229,6 +237,7 @@ def build(events, requested_session=None):
         "object_scan_word_count": "128",
         "object_scan_cache_capacity": "16384",
         "object_correlation_capacity": "2048",
+        "render_context_callee_profile_capacity": "32",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -296,6 +305,20 @@ def build(events, requested_session=None):
         "targeted_render_context_r7_scans",
         "targeted_render_context_r8_scan_requests",
         "targeted_render_context_r8_scans",
+        "render_context_callee_observations",
+        "render_context_callee_eligible_observations",
+        "render_context_callee_ineligible_observations",
+        "render_context_callee_valid_observations",
+        "render_context_callee_invalid_root",
+        "render_context_callee_invalid_vtable",
+        "render_context_callee_invalid_vector",
+        "render_context_callee_profiles",
+        "render_context_callee_profile_capacity",
+        "render_context_callee_profile_overflow",
+        "render_context_dispatcher_observations",
+        "render_context_dispatcher_eligible_observations",
+        "render_context_dispatcher_matches",
+        "render_context_dispatcher_mismatches",
     ):
         totals[key] = integer(summary, key)
     identities = []
@@ -655,6 +678,71 @@ def build(events, requested_session=None):
         )
     )
 
+    render_context_callees = []
+    seen_render_context_callees = set()
+    for event in selected:
+        if event.get("event") != RENDER_CONTEXT_CALLEE:
+            continue
+        key = (
+            hexadecimal(event, "root_vtable"),
+            hexadecimal(event, "slot_8_target"),
+            hexadecimal(event, "dispatcher_return_address"),
+        )
+        if (
+            key in seen_render_context_callees
+            or event.get("function_address") != "824365B0"
+            or event.get("mode_contract") != "r6_le_2"
+            or event.get("classification")
+            != "typed_vehicle_render_context_callee_seed"
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError("vehicle render-context callee violates boundary")
+        seen_render_context_callees.add(key)
+        render_context_callees.append(
+            {
+                "function_address": "824365B0",
+                "root_address": hexadecimal(event, "root_address"),
+                "root_vtable": key[0],
+                "slot_8_target": key[1],
+                "dispatcher_return_address": key[2],
+                "root_field_4": hexadecimal_allow_zero(
+                    event, "root_field_4"
+                ),
+                "root_field_16": hexadecimal_allow_zero(
+                    event, "root_field_16"
+                ),
+                "vector_address": hexadecimal(event, "vector_address"),
+                "vector_hash": hexadecimal64(event, "vector_hash"),
+                "observations": integer(event, "observations"),
+                "root_address_changes": integer(
+                    event, "root_address_changes"
+                ),
+                "root_field_4_changes": integer(
+                    event, "root_field_4_changes"
+                ),
+                "root_field_16_changes": integer(
+                    event, "root_field_16_changes"
+                ),
+                "vector_address_changes": integer(
+                    event, "vector_address_changes"
+                ),
+                "vector_hash_changes": integer(
+                    event, "vector_hash_changes"
+                ),
+            }
+        )
+    render_context_callees.sort(
+        key=lambda item: (
+            item["root_vtable"],
+            item["slot_8_target"],
+            item["dispatcher_return_address"],
+        )
+    )
+
     failures = []
     if totals["observations"] != (
         totals["valid_observations"] + totals["invalid_observations"]
@@ -757,6 +845,57 @@ def build(events, requested_session=None):
             failures.append(
                 f"targeted render-context {register} accounting drifted"
             )
+    if totals["render_context_callee_observations"] != (
+        totals["render_context_callee_eligible_observations"]
+        + totals["render_context_callee_ineligible_observations"]
+    ):
+        failures.append("render-context callee mode accounting drifted")
+    if totals["render_context_callee_eligible_observations"] != (
+        totals["render_context_callee_valid_observations"]
+        + totals["render_context_callee_invalid_root"]
+        + totals["render_context_callee_invalid_vtable"]
+        + totals["render_context_callee_invalid_vector"]
+    ):
+        failures.append("render-context callee payload accounting drifted")
+    if (
+        not totals["render_context_callee_observations"]
+        or not totals["render_context_callee_eligible_observations"]
+        or not totals["render_context_callee_valid_observations"]
+        or not render_context_callees
+    ):
+        failures.append("render-context callee coverage was absent")
+    if (
+        totals["render_context_callee_invalid_root"]
+        or totals["render_context_callee_invalid_vtable"]
+        or totals["render_context_callee_invalid_vector"]
+    ):
+        failures.append("render-context callee payload was invalid")
+    if totals["render_context_callee_profile_overflow"]:
+        failures.append("render-context callee profile table overflowed")
+    if len(render_context_callees) != totals["render_context_callee_profiles"]:
+        failures.append("render-context callee profile coverage drifted")
+    if sum(item["observations"] for item in render_context_callees) != totals[
+        "render_context_callee_valid_observations"
+    ]:
+        failures.append("render-context callee profile totals drifted")
+    if totals["render_context_callee_profiles"] > totals[
+        "render_context_callee_profile_capacity"
+    ]:
+        failures.append("render-context callee profile capacity drifted")
+    if totals["render_context_dispatcher_eligible_observations"] > totals[
+        "render_context_dispatcher_observations"
+    ]:
+        failures.append("render-context dispatcher path accounting drifted")
+    if totals["render_context_dispatcher_matches"] + totals[
+        "render_context_dispatcher_mismatches"
+    ] != totals["render_context_callee_observations"]:
+        failures.append("render-context dispatcher match accounting drifted")
+    if totals["render_context_dispatcher_matches"] > totals[
+        "render_context_dispatcher_eligible_observations"
+    ]:
+        failures.append("render-context dispatcher coverage drifted")
+    if totals["render_context_dispatcher_mismatches"]:
+        failures.append("render-context dispatcher lineage mismatched")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -802,6 +941,7 @@ def build(events, requested_session=None):
         "indirect_targets": indirect_targets,
         "draw_argument_correlations": draw_correlations,
         "draw_object_correlations": object_correlations,
+        "render_context_callees": render_context_callees,
         "coverage": {
             "title_provenance_requested": title_provenance_requested,
             "title_provenance_armed": title_provenance_armed,
@@ -826,6 +966,9 @@ def build(events, requested_session=None):
                 not failures
                 and draw_provenance_coverage_complete
                 and object_candidate_proved
+            ),
+            "render_context_callee_contract_proved": (
+                not failures and bool(render_context_callees)
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,

@@ -191,6 +191,11 @@ address = 0x82418F38
 name = "PinyonShiftObserveIndirectContext82417BC0Exit"
 
 [[midasm_hook]]
+address = 0x8243646C
+name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"
+registers = ["r8", "r9", "r10", "r12"]
+
+[[midasm_hook]]
 address = 0x824365B4
 name = "PinyonShiftObserveIndirectContext824365B0Entry"
 registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
