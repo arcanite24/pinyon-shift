@@ -15,6 +15,7 @@ struct VehiclePoseObservation {
   uint32_t generation = 0;
   uint32_t source = 0;
   uint32_t owner = 0;
+  uint32_t owner_vtable = 0;
   uint32_t slot = 0;
   uint32_t position_address = 0;
   uint32_t forward_address = 0;
@@ -30,6 +31,12 @@ struct VehiclePoseObservation {
 };
 
 void ObserveVehiclePose(const VehiclePoseObservation& observation);
+void BeginVehicleOwnerMethod(uint32_t method_address, uint32_t owner_address);
+void EndVehicleOwnerMethod(uint32_t method_address);
+void ObserveVehicleOwnerIndirectCall(uint32_t method_address,
+                                     uint32_t callsite_address,
+                                     uint32_t target_address,
+                                     uint32_t object_address);
 
 void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
                            rex::memory::Memory* memory);

@@ -11,6 +11,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+VTABLE_METHODS = ",".join(f"{0x823E0000 + index * 8:08X}" for index in range(32))
 
 
 def event(name, **values):
@@ -28,7 +29,17 @@ def fixture():
         summary_limit="64",
         classification="unclassified_vehicle_pose_stream",
         player_priority_admitted="false",
-        guest_payload_read="existing_title_pose_hook_values",
+        owner_vtable_method_count="32",
+        owner_method_candidates="82BCC368:14,82BD2DE0:20,82BC8410:22",
+        owner_method_exit_hooks="82BCCD30,82BD35B0,82BC86F0",
+        owner_method_stack_capacity="8",
+        owner_indirect_callsites=(
+            "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"
+        ),
+        owner_indirect_target_capacity="64",
+        guest_payload_read=(
+            "existing_title_pose_hook_values_and_bounded_owner_vtable"
+        ),
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
@@ -50,6 +61,16 @@ def fixture():
         transform="exact_active_slot_position_and_forward",
         classification="vehicle_instance_semantic_seed",
         player_priority_admitted="false",
+        owner_vtable_method_count="32",
+        owner_method_candidates="82BCC368:14,82BD2DE0:20,82BC8410:22",
+        owner_method_exit_hooks="82BCCD30,82BD35B0,82BC86F0",
+        owner_method_stack_faults="0",
+        owner_indirect_observations="0",
+        owner_indirect_valid_observations="0",
+        owner_indirect_invalid_observations="0",
+        owner_indirect_targets="0",
+        owner_indirect_target_capacity="64",
+        owner_indirect_target_overflow="0",
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
@@ -61,6 +82,10 @@ def fixture():
         generation="00000001",
         source="A0001000",
         owner="A0002000",
+        owner_vtable="82001000",
+        owner_vtable_hash="1234567890ABCDEF",
+        owner_vtable_methods=VTABLE_METHODS,
+        owner_vtable_mismatches="0",
         slot="2",
         position_address="A0003000",
         forward_address="A0003040",
@@ -78,7 +103,30 @@ def fixture():
         xenos_authority="true",
         suppression_allowed="false",
     )
-    return [config, summary, identity]
+    methods = []
+    for method, (slot, exit_address) in MODULE.OWNER_METHOD_CANDIDATES.items():
+        methods.append(
+            event(
+                MODULE.OWNER_METHOD,
+                status="complete",
+                method_address=method,
+                exit_address=exit_address,
+                vtable_slot=str(slot),
+                calls="0",
+                matched_owner_calls="0",
+                exits="0",
+                direct_draw_origins="0",
+                backend_draw_matches="0",
+                vehicle_render_method_candidate_proved="false",
+                player_vehicle_identity_proved="false",
+                vehicle_draw_identity_proved="false",
+                guest_state_changed="false",
+                native_draw="false",
+                xenos_authority="true",
+                suppression_allowed="false",
+            )
+        )
+    return [config, summary, identity, *methods]
 
 
 class VehiclePoseSummaryTests(unittest.TestCase):
@@ -92,15 +140,43 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         header = (ROOT / "src/native_renderer/graphics_hooks.h").read_text(
             encoding="utf-8"
         )
+        analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("struct VehiclePoseObservation", header)
         self.assertIn("ObserveVehiclePose", runtime)
         self.assertIn(".presentation_stabilized = suppressed", runtime)
-        self.assertIn("ConfigureVehicleDiscovery(census_requested)", hooks)
+        self.assertIn("ConfigureVehicleDiscovery(census_requested, memory)", hooks)
         self.assertIn("EmitVehicleDiscoverySummary()", hooks)
         self.assertIn('"vehicle_instance_semantic_seed"', hooks)
         self.assertIn('{"native_draw", "false"}', hooks)
         self.assertIn('{"xenos_authority", "true"}', hooks)
         self.assertIn('{"suppression_allowed", "false"}', hooks)
+        self.assertIn("BeginVehicleOwnerMethod", hooks)
+        self.assertIn("EndVehicleOwnerMethod", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_owner_method"', hooks
+        )
+        self.assertIn("ObserveVehicleOwnerIndirectCall", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_owner_indirect_target"',
+            hooks,
+        )
+        for address in (
+            "82BC8468",
+            "82BC84A4",
+            "82BC84DC",
+            "82BC8688",
+            "82BC86BC",
+            "82BC86E4",
+        ):
+            self.assertEqual(1, analysis.count(f"address = 0x{address}"))
+            self.assertEqual(
+                1,
+                analysis.count(
+                    f'name = "PinyonShiftObserveVehicleOwnerIndirect{address}"'
+                ),
+            )
 
     def test_qualifies_exact_vehicle_instance_seed(self):
         document = MODULE.build(fixture())
@@ -111,6 +187,11 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertFalse(
             document["qualification"]["player_vehicle_identity_proved"]
         )
+        self.assertTrue(
+            document["qualification"]["vehicle_owner_class_seed_proved"]
+        )
+        self.assertEqual(1, len(document["owner_classes"]))
+        self.assertEqual(1, document["owner_classes"][0]["identity_count"])
         self.assertFalse(
             document["qualification"]["native_vehicle_rendering_admitted"]
         )
@@ -141,6 +222,11 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             "vehicle transform addresses changed", document["failures"]
         )
 
+        events = fixture()
+        events[2]["owner_vtable_mismatches"] = "1"
+        document = MODULE.build(events)
+        self.assertIn("vehicle owner vtable changed", document["failures"])
+
         unsafe = fixture()
         unsafe[2]["suppression_allowed"] = "true"
         with self.assertRaisesRegex(ValueError, "safety boundary"):
@@ -153,6 +239,64 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         events.append(duplicate)
         with self.assertRaisesRegex(ValueError, "duplicate"):
             MODULE.build(events)
+
+    def test_proves_only_a_bounded_render_method_candidate(self):
+        events = fixture()
+        candidate = events[3]
+        candidate["calls"] = "5"
+        candidate["matched_owner_calls"] = "4"
+        candidate["exits"] = "5"
+        candidate["direct_draw_origins"] = "3"
+        candidate["backend_draw_matches"] = "3"
+        candidate["vehicle_render_method_candidate_proved"] = "true"
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_render_method_candidate_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"]["vehicle_draw_identity_proved"]
+        )
+        self.assertFalse(
+            document["qualification"]["native_vehicle_rendering_admitted"]
+        )
+
+    def test_qualifies_exact_downstream_component_dispatches(self):
+        events = fixture()
+        events[1]["owner_indirect_observations"] = "3"
+        events[1]["owner_indirect_valid_observations"] = "3"
+        events[1]["owner_indirect_targets"] = "1"
+        events.append(
+            event(
+                MODULE.OWNER_INDIRECT_TARGET,
+                method_address="82BC8410",
+                callsite_address="82BC8468",
+                target_address="823E1000",
+                object_address="A0004000",
+                object_vtable="82002000",
+                observations="3",
+                first_frame="102",
+                last_frame="104",
+                classification="vehicle_owner_component_dispatch_seed",
+                vehicle_render_method_identity_proved="false",
+                vehicle_draw_identity_proved="false",
+                guest_state_changed="false",
+                native_draw="false",
+                xenos_authority="true",
+                suppression_allowed="false",
+            )
+        )
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(1, len(document["indirect_targets"]))
+        self.assertEqual(
+            "823E1000", document["indirect_targets"][0]["target_address"]
+        )
+        self.assertFalse(
+            document["qualification"]["vehicle_draw_identity_proved"]
+        )
 
 
 if __name__ == "__main__":

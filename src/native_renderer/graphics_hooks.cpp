@@ -102,6 +102,10 @@ constexpr size_t kVisibilityShadowReplaySignatureSummaryLimit = 16;
 constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
 constexpr size_t kVehicleIdentityCapacity = 64;
 constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
+constexpr size_t kVehicleOwnerVtableMethodCount = 32;
+constexpr size_t kVehicleOwnerMethodCandidateCount = 3;
+constexpr size_t kVehicleOwnerMethodStackCapacity = 8;
+constexpr size_t kVehicleOwnerIndirectTargetCapacity = 64;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -197,6 +201,10 @@ struct TitleDrawOrigin {
   uint32_t caller = 0;
   std::array<uint32_t, 8> arguments{};
   SemanticDrawIdentity semantic_draw{};
+  uint32_t vehicle_owner_method = 0;
+  uint32_t vehicle_owner = 0;
+  uint32_t vehicle_owner_method_index = 0;
+  bool vehicle_owner_method_matched = false;
   bool valid = false;
 };
 
@@ -528,10 +536,13 @@ struct VehicleIdentityEntry {
   uint64_t forward_changes = 0;
   uint64_t stabilized_observations = 0;
   uint64_t address_mismatches = 0;
+  uint64_t owner_vtable_mismatches = 0;
+  uint64_t owner_vtable_hash = 0;
   double maximum_position_delta_squared = 0.0;
   uint32_t generation = 0;
   uint32_t source = 0;
   uint32_t owner = 0;
+  uint32_t owner_vtable = 0;
   uint32_t slot = 0;
   uint32_t position_address = 0;
   uint32_t forward_address = 0;
@@ -541,6 +552,48 @@ struct VehicleIdentityEntry {
   float last_forward_x = 0.0f;
   float last_forward_y = 0.0f;
   float last_forward_z = 0.0f;
+  std::array<uint32_t, kVehicleOwnerVtableMethodCount> owner_vtable_methods{};
+  bool valid = false;
+};
+
+struct VehicleOwnerMethodCandidate {
+  uint32_t method_address = 0;
+  uint32_t exit_address = 0;
+  uint32_t vtable_slot = 0;
+};
+
+constexpr std::array<VehicleOwnerMethodCandidate,
+                     kVehicleOwnerMethodCandidateCount>
+    kVehicleOwnerMethodCandidates{{
+        {0x82BCC368, 0x82BCCD30, 14},
+        {0x82BD2DE0, 0x82BD35B0, 20},
+        {0x82BC8410, 0x82BC86F0, 22},
+    }};
+
+struct VehicleOwnerMethodStats {
+  std::atomic<uint64_t> calls{};
+  std::atomic<uint64_t> matched_owner_calls{};
+  std::atomic<uint64_t> exits{};
+  std::atomic<uint64_t> direct_draw_origins{};
+  std::atomic<uint64_t> backend_draw_matches{};
+};
+
+struct ActiveVehicleOwnerMethod {
+  uint32_t method_address = 0;
+  uint32_t owner_address = 0;
+  size_t candidate_index = 0;
+  bool matched_owner = false;
+};
+
+struct VehicleOwnerIndirectTargetEntry {
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t method_address = 0;
+  uint32_t callsite_address = 0;
+  uint32_t target_address = 0;
+  uint32_t object_address = 0;
+  uint32_t object_vtable = 0;
   bool valid = false;
 };
 
@@ -548,11 +601,29 @@ std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
 std::atomic<bool> g_vehicle_discovery_installed{};
+std::atomic<rex::memory::Memory *> g_vehicle_discovery_memory{};
 uint64_t g_vehicle_observations = 0;
 uint64_t g_vehicle_valid_observations = 0;
 uint64_t g_vehicle_invalid_observations = 0;
 uint64_t g_vehicle_identity_count = 0;
 uint64_t g_vehicle_identity_overflow = 0;
+std::array<VehicleOwnerMethodStats, kVehicleOwnerMethodCandidateCount>
+    g_vehicle_owner_method_stats{};
+std::atomic<uint64_t> g_vehicle_owner_method_stack_faults{};
+thread_local std::array<ActiveVehicleOwnerMethod,
+                        kVehicleOwnerMethodStackCapacity>
+    g_vehicle_owner_method_stack{};
+thread_local size_t g_vehicle_owner_method_stack_depth = 0;
+thread_local size_t g_vehicle_owner_method_stack_overflow_depth = 0;
+std::array<VehicleOwnerIndirectTargetEntry,
+           kVehicleOwnerIndirectTargetCapacity>
+    g_vehicle_owner_indirect_targets{};
+std::mutex g_vehicle_owner_indirect_mutex;
+uint64_t g_vehicle_owner_indirect_observations = 0;
+uint64_t g_vehicle_owner_indirect_valid_observations = 0;
+uint64_t g_vehicle_owner_indirect_invalid_observations = 0;
+uint64_t g_vehicle_owner_indirect_target_count = 0;
+uint64_t g_vehicle_owner_indirect_target_overflow = 0;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -1464,6 +1535,34 @@ const char *DrawOutcomeName(uint32_t outcome) {
 
 std::string CensusSceneMarker();
 
+size_t VehicleOwnerMethodCandidateIndex(uint32_t method_address) {
+  for (size_t index = 0; index < kVehicleOwnerMethodCandidates.size();
+       ++index) {
+    if (kVehicleOwnerMethodCandidates[index].method_address == method_address) {
+      return index;
+    }
+  }
+  return kVehicleOwnerMethodCandidates.size();
+}
+
+void AttachVehicleOwnerMethod(TitleDrawOrigin &origin) {
+  if (!g_vehicle_owner_method_stack_depth) {
+    return;
+  }
+  const ActiveVehicleOwnerMethod &active =
+      g_vehicle_owner_method_stack[g_vehicle_owner_method_stack_depth - 1];
+  if (!active.matched_owner ||
+      active.candidate_index >= g_vehicle_owner_method_stats.size()) {
+    return;
+  }
+  origin.vehicle_owner_method = active.method_address;
+  origin.vehicle_owner = active.owner_address;
+  origin.vehicle_owner_method_index = uint32_t(active.candidate_index);
+  origin.vehicle_owner_method_matched = true;
+  g_vehicle_owner_method_stats[active.candidate_index]
+      .direct_draw_origins.fetch_add(1, std::memory_order_relaxed);
+}
+
 TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
                                     uint32_t r3, uint32_t r4, uint32_t r5,
                                     uint32_t r6, uint32_t r7, uint32_t r8,
@@ -1472,6 +1571,7 @@ TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
   origin.wrapper = wrapper;
   origin.caller = caller;
   origin.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
+  AttachVehicleOwnerMethod(origin);
   if (g_semantic_render_item_stack_depth) {
     SemanticDrawIdentity &semantic_draw =
         g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
@@ -3904,6 +4004,12 @@ bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
         g_title_packet_provenance[oldest_match];
     origin = entry.origin;
     entry.occupied = false;
+    if (origin.vehicle_owner_method_matched &&
+        origin.vehicle_owner_method_index <
+            g_vehicle_owner_method_stats.size()) {
+      g_vehicle_owner_method_stats[origin.vehicle_owner_method_index]
+          .backend_draw_matches.fetch_add(1, std::memory_order_relaxed);
+    }
     if (origin.semantic_draw.valid) {
       g_semantic_draw_packet_matches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -5235,6 +5341,19 @@ uint64_t HashSemanticWords(const std::array<uint32_t, N> &words) {
     hash = HashCombine(hash, word);
   }
   return hash ? hash : 1;
+}
+
+template <size_t N>
+std::string FormatSemanticWords(const std::array<uint32_t, N> &words) {
+  std::string result;
+  result.reserve(N * 9);
+  for (size_t i = 0; i < N; ++i) {
+    if (i) {
+      result.push_back(',');
+    }
+    result += fmt::format("{:08X}", words[i]);
+  }
+  return result;
 }
 
 bool RecordProceduralModelSemanticInstance(
@@ -14979,8 +15098,10 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   ++g_draw_census.overflow_draw_count;
 }
 
-void ConfigureVehicleDiscovery(bool census_requested) {
+void ConfigureVehicleDiscovery(bool census_requested,
+                               rex::memory::Memory *memory) {
   g_vehicle_discovery_installed.store(false, std::memory_order_release);
+  g_vehicle_discovery_memory.store(nullptr, std::memory_order_release);
   {
     std::scoped_lock lock(g_vehicle_identity_mutex);
     g_vehicle_identities = {};
@@ -14990,11 +15111,33 @@ void ConfigureVehicleDiscovery(bool census_requested) {
     g_vehicle_identity_count = 0;
     g_vehicle_identity_overflow = 0;
   }
-  g_vehicle_discovery_installed.store(census_requested,
+  for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
+    stats.calls.store(0, std::memory_order_relaxed);
+    stats.matched_owner_calls.store(0, std::memory_order_relaxed);
+    stats.exits.store(0, std::memory_order_relaxed);
+    stats.direct_draw_origins.store(0, std::memory_order_relaxed);
+    stats.backend_draw_matches.store(0, std::memory_order_relaxed);
+  }
+  g_vehicle_owner_method_stack_faults.store(0, std::memory_order_relaxed);
+  g_vehicle_owner_method_stack = {};
+  g_vehicle_owner_method_stack_depth = 0;
+  g_vehicle_owner_method_stack_overflow_depth = 0;
+  {
+    std::scoped_lock lock(g_vehicle_owner_indirect_mutex);
+    g_vehicle_owner_indirect_targets = {};
+    g_vehicle_owner_indirect_observations = 0;
+    g_vehicle_owner_indirect_valid_observations = 0;
+    g_vehicle_owner_indirect_invalid_observations = 0;
+    g_vehicle_owner_indirect_target_count = 0;
+    g_vehicle_owner_indirect_target_overflow = 0;
+  }
+  g_vehicle_discovery_memory.store(census_requested ? memory : nullptr,
+                                   std::memory_order_release);
+  g_vehicle_discovery_installed.store(census_requested && memory,
                                       std::memory_order_release);
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_pose_config",
-      {{"status", census_requested ? "armed" : "disabled"},
+      {{"status", census_requested && memory ? "armed" : "disabled"},
        {"hook", "82BC5A3C"},
        {"identity", "title_generation,source,owner,active_slot"},
        {"transform", "exact_active_slot_position_and_forward"},
@@ -15003,7 +15146,18 @@ void ConfigureVehicleDiscovery(bool census_requested) {
         std::to_string(kVehicleIdentitySummaryLimit)},
        {"classification", "unclassified_vehicle_pose_stream"},
        {"player_priority_admitted", "false"},
-       {"guest_payload_read", "existing_title_pose_hook_values"},
+       {"owner_vtable_method_count",
+        std::to_string(kVehicleOwnerVtableMethodCount)},
+       {"owner_method_candidates", "82BCC368:14,82BD2DE0:20,82BC8410:22"},
+       {"owner_method_exit_hooks", "82BCCD30,82BD35B0,82BC86F0"},
+       {"owner_method_stack_capacity",
+        std::to_string(kVehicleOwnerMethodStackCapacity)},
+       {"owner_indirect_callsites",
+        "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"},
+       {"owner_indirect_target_capacity",
+        std::to_string(kVehicleOwnerIndirectTargetCapacity)},
+       {"guest_payload_read",
+        "existing_title_pose_hook_values_and_bounded_owner_vtable"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -15016,7 +15170,8 @@ void EmitVehicleDiscoverySummary() {
                                                std::memory_order_acq_rel)) {
     return;
   }
-  std::scoped_lock lock(g_vehicle_identity_mutex);
+  std::scoped_lock lock(g_vehicle_identity_mutex,
+                        g_vehicle_owner_indirect_mutex);
   const bool accounting_complete =
       g_vehicle_valid_observations + g_vehicle_invalid_observations ==
       g_vehicle_observations;
@@ -15040,6 +15195,25 @@ void EmitVehicleDiscoverySummary() {
        {"transform", "exact_active_slot_position_and_forward"},
        {"classification", "vehicle_instance_semantic_seed"},
        {"player_priority_admitted", "false"},
+       {"owner_vtable_method_count",
+        std::to_string(kVehicleOwnerVtableMethodCount)},
+       {"owner_method_candidates", "82BCC368:14,82BD2DE0:20,82BC8410:22"},
+       {"owner_method_exit_hooks", "82BCCD30,82BD35B0,82BC86F0"},
+       {"owner_method_stack_faults",
+        std::to_string(g_vehicle_owner_method_stack_faults.load(
+            std::memory_order_relaxed))},
+       {"owner_indirect_observations",
+        std::to_string(g_vehicle_owner_indirect_observations)},
+       {"owner_indirect_valid_observations",
+        std::to_string(g_vehicle_owner_indirect_valid_observations)},
+       {"owner_indirect_invalid_observations",
+        std::to_string(g_vehicle_owner_indirect_invalid_observations)},
+       {"owner_indirect_targets",
+        std::to_string(g_vehicle_owner_indirect_target_count)},
+       {"owner_indirect_target_capacity",
+        std::to_string(kVehicleOwnerIndirectTargetCapacity)},
+       {"owner_indirect_target_overflow",
+        std::to_string(g_vehicle_owner_indirect_target_overflow)},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -15055,6 +15229,13 @@ void EmitVehicleDiscoverySummary() {
         {{"generation", fmt::format("{:08X}", entry.generation)},
          {"source", fmt::format("{:08X}", entry.source)},
          {"owner", fmt::format("{:08X}", entry.owner)},
+         {"owner_vtable", fmt::format("{:08X}", entry.owner_vtable)},
+         {"owner_vtable_hash",
+          fmt::format("{:016X}", entry.owner_vtable_hash)},
+         {"owner_vtable_methods",
+          FormatSemanticWords(entry.owner_vtable_methods)},
+         {"owner_vtable_mismatches",
+          std::to_string(entry.owner_vtable_mismatches)},
          {"slot", std::to_string(entry.slot)},
          {"position_address",
           fmt::format("{:08X}", entry.position_address)},
@@ -15076,18 +15257,219 @@ void EmitVehicleDiscoverySummary() {
          {"suppression_allowed", "false"}});
     ++emitted;
   }
+  for (size_t index = 0; index < kVehicleOwnerMethodCandidates.size();
+       ++index) {
+    const VehicleOwnerMethodCandidate &candidate =
+        kVehicleOwnerMethodCandidates[index];
+    const VehicleOwnerMethodStats &stats = g_vehicle_owner_method_stats[index];
+    const uint64_t calls = stats.calls.load(std::memory_order_relaxed);
+    const uint64_t matched_owner_calls =
+        stats.matched_owner_calls.load(std::memory_order_relaxed);
+    const uint64_t exits = stats.exits.load(std::memory_order_relaxed);
+    const uint64_t direct_draw_origins =
+        stats.direct_draw_origins.load(std::memory_order_relaxed);
+    const uint64_t backend_draw_matches =
+        stats.backend_draw_matches.load(std::memory_order_relaxed);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_owner_method",
+        {{"status", calls == exits ? "complete" : "incomplete"},
+         {"method_address", fmt::format("{:08X}", candidate.method_address)},
+         {"exit_address", fmt::format("{:08X}", candidate.exit_address)},
+         {"vtable_slot", std::to_string(candidate.vtable_slot)},
+         {"calls", std::to_string(calls)},
+         {"matched_owner_calls", std::to_string(matched_owner_calls)},
+         {"exits", std::to_string(exits)},
+         {"direct_draw_origins", std::to_string(direct_draw_origins)},
+         {"backend_draw_matches", std::to_string(backend_draw_matches)},
+         {"vehicle_render_method_candidate_proved",
+          backend_draw_matches ? "true" : "false"},
+         {"player_vehicle_identity_proved", "false"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleOwnerIndirectTargetEntry &entry :
+       g_vehicle_owner_indirect_targets) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_owner_indirect_target",
+        {{"method_address", fmt::format("{:08X}", entry.method_address)},
+         {"callsite_address", fmt::format("{:08X}", entry.callsite_address)},
+         {"target_address", fmt::format("{:08X}", entry.target_address)},
+         {"object_address", fmt::format("{:08X}", entry.object_address)},
+         {"object_vtable", fmt::format("{:08X}", entry.object_vtable)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"classification", "vehicle_owner_component_dispatch_seed"},
+         {"vehicle_render_method_identity_proved", "false"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  g_vehicle_discovery_memory.store(nullptr, std::memory_order_release);
 }
 
 } // namespace
 
 namespace pinyon_shift::native_renderer {
 
+void BeginVehicleOwnerMethod(uint32_t method_address,
+                             uint32_t owner_address) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const size_t candidate_index =
+      VehicleOwnerMethodCandidateIndex(method_address);
+  if (candidate_index >= kVehicleOwnerMethodCandidates.size()) {
+    g_vehicle_owner_method_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  VehicleOwnerMethodStats &stats =
+      g_vehicle_owner_method_stats[candidate_index];
+  stats.calls.fetch_add(1, std::memory_order_relaxed);
+  bool matched_owner = false;
+  {
+    std::scoped_lock lock(g_vehicle_identity_mutex);
+    const VehicleOwnerMethodCandidate &candidate =
+        kVehicleOwnerMethodCandidates[candidate_index];
+    for (const VehicleIdentityEntry &entry : g_vehicle_identities) {
+      if (entry.valid && entry.owner == owner_address &&
+          entry.owner_vtable_methods[candidate.vtable_slot] ==
+              method_address) {
+        matched_owner = true;
+        break;
+      }
+    }
+  }
+  if (matched_owner) {
+    stats.matched_owner_calls.fetch_add(1, std::memory_order_relaxed);
+  }
+  if (g_vehicle_owner_method_stack_depth ==
+      kVehicleOwnerMethodStackCapacity) {
+    ++g_vehicle_owner_method_stack_overflow_depth;
+    g_vehicle_owner_method_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_vehicle_owner_method_stack[g_vehicle_owner_method_stack_depth++] = {
+      .method_address = method_address,
+      .owner_address = owner_address,
+      .candidate_index = candidate_index,
+      .matched_owner = matched_owner,
+  };
+}
+
+void EndVehicleOwnerMethod(uint32_t method_address) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (g_vehicle_owner_method_stack_overflow_depth) {
+    --g_vehicle_owner_method_stack_overflow_depth;
+    return;
+  }
+  if (!g_vehicle_owner_method_stack_depth) {
+    g_vehicle_owner_method_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const ActiveVehicleOwnerMethod &active =
+      g_vehicle_owner_method_stack[g_vehicle_owner_method_stack_depth - 1];
+  if (active.method_address != method_address ||
+      active.candidate_index >= g_vehicle_owner_method_stats.size()) {
+    g_vehicle_owner_method_stack_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_vehicle_owner_method_stats[active.candidate_index].exits.fetch_add(
+      1, std::memory_order_relaxed);
+  --g_vehicle_owner_method_stack_depth;
+}
+
+void ObserveVehicleOwnerIndirectCall(uint32_t method_address,
+                                     uint32_t callsite_address,
+                                     uint32_t target_address,
+                                     uint32_t object_address) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
+      !g_vehicle_owner_method_stack_depth) {
+    return;
+  }
+  const ActiveVehicleOwnerMethod &active =
+      g_vehicle_owner_method_stack[g_vehicle_owner_method_stack_depth - 1];
+  if (!active.matched_owner || active.method_address != method_address) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  std::array<uint32_t, 1> object_vtable_words{};
+  if (memory && object_address) {
+    LoadSemanticGuestWords(memory, object_address, object_vtable_words);
+  }
+  const uint32_t object_vtable = object_vtable_words[0];
+  const bool valid = memory && object_address && object_vtable &&
+                     !(object_vtable & 3) && target_address >= 0x82000000 &&
+                     target_address < 0x84000000;
+  std::scoped_lock lock(g_vehicle_owner_indirect_mutex);
+  ++g_vehicle_owner_indirect_observations;
+  if (!valid) {
+    ++g_vehicle_owner_indirect_invalid_observations;
+    return;
+  }
+  ++g_vehicle_owner_indirect_valid_observations;
+  VehicleOwnerIndirectTargetEntry *available = nullptr;
+  for (VehicleOwnerIndirectTargetEntry &entry :
+       g_vehicle_owner_indirect_targets) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.method_address == method_address &&
+        entry.callsite_address == callsite_address &&
+        entry.target_address == target_address &&
+        entry.object_vtable == object_vtable) {
+      ++entry.observations;
+      entry.last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_owner_indirect_target_overflow;
+    return;
+  }
+  const uint64_t frame = g_frame_sequence.load(std::memory_order_relaxed);
+  *available = {
+      .observations = 1,
+      .first_frame = frame,
+      .last_frame = frame,
+      .method_address = method_address,
+      .callsite_address = callsite_address,
+      .target_address = target_address,
+      .object_address = object_address,
+      .object_vtable = object_vtable,
+      .valid = true,
+  };
+  ++g_vehicle_owner_indirect_target_count;
+}
+
 void ObserveVehiclePose(const VehiclePoseObservation &observation) {
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
   }
   const bool valid = observation.generation && observation.source &&
-                     observation.owner && observation.position_address &&
+                     observation.owner && observation.owner_vtable &&
+                     !(observation.owner_vtable & 3) &&
+                     observation.owner_vtable <=
+                         UINT32_MAX - kVehicleOwnerVtableMethodCount * 4 &&
+                     observation.position_address &&
                      observation.forward_address &&
                      std::isfinite(observation.x) &&
                      std::isfinite(observation.y) &&
@@ -15133,6 +15515,7 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
     matched->generation = observation.generation;
     matched->source = observation.source;
     matched->owner = observation.owner;
+    matched->owner_vtable = observation.owner_vtable;
     matched->slot = observation.slot;
     matched->position_address = observation.position_address;
     matched->forward_address = observation.forward_address;
@@ -15143,6 +15526,18 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
     matched->last_forward_x = observation.forward_x;
     matched->last_forward_y = observation.forward_y;
     matched->last_forward_z = observation.forward_z;
+    rex::memory::Memory *memory =
+        g_vehicle_discovery_memory.load(std::memory_order_acquire);
+    if (!memory) {
+      ++g_vehicle_invalid_observations;
+      --g_vehicle_valid_observations;
+      *matched = {};
+      return;
+    }
+    LoadSemanticGuestWords(memory, observation.owner_vtable,
+                           matched->owner_vtable_methods);
+    matched->owner_vtable_hash =
+        HashSemanticWords(matched->owner_vtable_methods);
     ++g_vehicle_identity_count;
   } else {
     const double delta_x = double(observation.x) - matched->last_x;
@@ -15163,6 +15558,9 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
     if (observation.position_address != matched->position_address ||
         observation.forward_address != matched->forward_address) {
       ++matched->address_mismatches;
+    }
+    if (observation.owner_vtable != matched->owner_vtable) {
+      ++matched->owner_vtable_mismatches;
     }
     matched->last_x = observation.x;
     matched->last_y = observation.y;
@@ -15189,7 +15587,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
-  ConfigureVehicleDiscovery(census_requested);
+  ConfigureVehicleDiscovery(census_requested, memory);
   ConfigureTitleDrawProvenance(census_requested, memory);
   const bool lineage_armed = census_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
@@ -16318,6 +16716,38 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
 }
 
 } // namespace pinyon_shift::native_renderer
+
+#define PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(address)                    \
+  void PinyonShiftObserveVehicleOwnerMethod##address##Entry(                \
+      PPCRegister &r3) {                                                    \
+    pinyon_shift::native_renderer::BeginVehicleOwnerMethod(0x##address,     \
+                                                            r3.u32);        \
+  }                                                                         \
+  void PinyonShiftObserveVehicleOwnerMethod##address##Exit() {              \
+    pinyon_shift::native_renderer::EndVehicleOwnerMethod(0x##address);      \
+  }
+
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCC368)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD2DE0)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BC8410)
+
+#undef PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS
+
+#define PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(callsite)                  \
+  void PinyonShiftObserveVehicleOwnerIndirect##callsite(                    \
+      PPCRegister &r3, PPCRegister &ctr) {                                  \
+    pinyon_shift::native_renderer::ObserveVehicleOwnerIndirectCall(         \
+        0x82BC8410, 0x##callsite, ctr.u32, r3.u32);                          \
+  }
+
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC8468)
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC84A4)
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC84DC)
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC8688)
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC86BC)
+PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK(82BC86E4)
+
+#undef PINYON_SHIFT_VEHICLE_OWNER_INDIRECT_HOOK
 
 // This translation unit is the single owner for title-side graphics hooks.
 // The hook runs immediately before FH1's sole VdSwap import and intentionally
