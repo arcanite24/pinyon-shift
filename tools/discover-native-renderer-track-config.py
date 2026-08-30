@@ -213,7 +213,8 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         },
         "capture_contract": {
             "baseline_arguments": [],
-            "track_arguments": ["-fasttrackrender"],
+            "track_arguments": [],
+            "runtime_control": "exact_runtime_copy_override_8259C834",
             "scene_must_match": True,
             "compare_exact_prepared_signatures": True,
             "semantic_identity": "candidate_until_runtime_delta_and_visual_evidence",

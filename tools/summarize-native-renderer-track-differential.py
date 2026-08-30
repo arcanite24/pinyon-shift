@@ -10,6 +10,9 @@ import sys
 
 
 SCHEMA = "pinyon-shift.native-renderer-track-differential.v1"
+MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES = 5.0
+MINIMUM_MATERIAL_RELATIVE_DELTA = 0.05
+MAXIMUM_CHANGED_FAMILY_DETAILS = 128
 CONFIG = "native_renderer.discovery.track_render_config"
 DRAW_WINDOW = "native_renderer.census.draw_window"
 PROVENANCE = "native_renderer.discovery.title_provenance_entry"
@@ -217,9 +220,29 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
             row["prepared_signature"],
         )
     )
-    changed = [row for row in rows if row["delta_calls_per_1000_frames"] != 0]
+    observed_changed = [
+        row for row in rows if row["delta_calls_per_1000_frames"] != 0
+    ]
+    changed = []
+    for row in observed_changed:
+        delta = abs(row["delta_calls_per_1000_frames"])
+        peak = max(
+            row["baseline_calls_per_1000_frames"],
+            row["fasttrackrender_calls_per_1000_frames"],
+        )
+        relative_delta = delta / peak if peak else 0.0
+        appeared_or_disappeared = (
+            row["baseline_calls"] == 0 or row["fasttrackrender_calls"] == 0
+        )
+        if delta >= MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES and (
+            appeared_or_disappeared
+            or relative_delta >= MINIMUM_MATERIAL_RELATIVE_DELTA
+        ):
+            changed.append(row)
     if not changed:
-        failures.append("no prepared semantic family changed between modes")
+        failures.append("no prepared semantic family materially changed between modes")
+
+    detailed_changed = changed[:MAXIMUM_CHANGED_FAMILY_DETAILS]
 
     return {
         "schema": SCHEMA,
@@ -240,7 +263,15 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
             },
         },
         "changed_family_count": len(changed),
-        "changed_families": changed,
+        "changed_family_detail_count": len(detailed_changed),
+        "changed_family_details_truncated": len(changed) > len(detailed_changed),
+        "changed_families": detailed_changed,
+        "rate_noise_family_count": len(observed_changed) - len(changed),
+        "material_delta_threshold": {
+            "minimum_absolute_calls_per_1000_frames": MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES,
+            "minimum_relative_delta": MINIMUM_MATERIAL_RELATIVE_DELTA,
+            "appearance_or_disappearance_bypasses_relative_threshold": True,
+        },
         "qualification": {
             "title_track_render_delta_proved": not failures,
             "terrain_road_semantic_identity_proved": False,

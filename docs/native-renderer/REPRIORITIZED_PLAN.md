@@ -215,10 +215,12 @@ qualification.
 Active checkpoint: the title-owned `fasttrackrender` differential, independent
 `trackfardistance`, road-detail, and track-command-buffer controls are proven
 from retail RTTI and exact AOT instructions. The paired census path in
-[`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md) will identify the
-changed prepared families without promoting frequency or shader resemblance to
-semantic evidence. Native admission remains off until that runtime delta and
-visual identity are qualified.
+[`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md) now proves the
+runtime differential against matched AppData-backed open-world sessions and
+records the bounded exact-family candidate set without promoting frequency or
+shader resemblance to semantic evidence. Native admission remains off until
+representative candidates receive visual identity, isolated replay, and race
+coverage.
 
 ### C2. Static world buildings and props
 
