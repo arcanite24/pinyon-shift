@@ -154,8 +154,10 @@ the authoritative Xenos draw. It does not yet allocate or publish a native
 atlas.
 
 The next bounded follow-up is documented in
-`SHADOW_DEPTH_BATCH_REPLAY.md`. The capture proves that all 64 draws in the
-dominant family are consecutive with no intervening authoritative draw, so the
-private path may seed once and reuse its depth-only target for exactly that
-run. Gaps, frame changes, target mismatches, and backend failures remain
-fail-closed; Xenos stays authoritative.
+`SHADOW_DEPTH_BATCH_REPLAY.md`. The capture proves that all 80 promoted draws
+form one uninterrupted producer epoch: 64 dominant-family draws followed by an
+exact four-times repetition of three secondary-family draws and one
+tertiary-family draw. The private path may seed once and reuse its depth-only
+target for exactly that epoch. Gaps, frame changes, family/count reordering,
+target mismatches, and backend failures remain fail-closed; Xenos stays
+authoritative.

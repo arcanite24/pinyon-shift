@@ -152,10 +152,26 @@ constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
+constexpr uint64_t kShadowDepthSecondaryVertexShader =
+    UINT64_C(0xCDDB454589126317);
+constexpr uint64_t kShadowDepthTertiaryVertexShader =
+    UINT64_C(0x68DF329C66481843);
 constexpr uint32_t kShadowDepthLogicalWidth = 2048;
 constexpr uint32_t kShadowDepthLogicalHeight = 2048;
-constexpr uint32_t kShadowDepthBatchDrawCount = 64;
+constexpr uint32_t kShadowDepthPrimaryDrawCount = 64;
+constexpr uint32_t kShadowDepthSecondaryDrawCount = 12;
+constexpr uint32_t kShadowDepthTertiaryDrawCount = 4;
+constexpr uint32_t kShadowDepthBatchDrawCount =
+    kShadowDepthPrimaryDrawCount + kShadowDepthSecondaryDrawCount +
+    kShadowDepthTertiaryDrawCount;
 std::atomic<uint64_t> g_frame_sequence{};
+
+enum class ShadowDepthBatchFamily : uint32_t {
+  kNone = 0,
+  kPrimary = 1,
+  kSecondary = 2,
+  kTertiary = 3,
+};
 
 enum class DispatchWrapper : uint32_t {
   kDrawIndexed = 1,
@@ -5700,6 +5716,8 @@ struct IsolatedDrawState {
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
   bool prepared_shadow_depth_batch_member = false;
+  ShadowDepthBatchFamily prepared_shadow_depth_batch_family =
+      ShadowDepthBatchFamily::kNone;
   bool prepared_visibility_candidate_fresh = false;
   bool prepared_title_lod_valid = false;
   bool require_fresh_visibility_candidate = false;
@@ -5712,6 +5730,9 @@ struct IsolatedDrawState {
   uint64_t shadow_depth_contract_rejections = 0;
   uint64_t shadow_depth_batch_member_matches = 0;
   uint64_t shadow_depth_batch_member_rejections = 0;
+  uint64_t shadow_depth_batch_primary_matches = 0;
+  uint64_t shadow_depth_batch_secondary_matches = 0;
+  uint64_t shadow_depth_batch_tertiary_matches = 0;
   uint64_t shadow_depth_batch_frame = UINT64_MAX;
   uint64_t shadow_depth_batch_last_draw = 0;
   uint64_t shadow_depth_batch_last_completed_frame = UINT64_MAX;
@@ -5727,6 +5748,8 @@ struct IsolatedDrawState {
   bool shadow_depth_batch_active = false;
   bool shadow_depth_batch_backend_ready = false;
   bool shadow_depth_batch_capture_completed = false;
+  bool shadow_depth_secondary_rejection_reported = false;
+  bool shadow_depth_tertiary_rejection_reported = false;
   bool visibility_wait_reported = false;
   bool title_lod_wait_reported = false;
   bool awaiting_pass_follower = false;
@@ -11850,7 +11873,7 @@ bool IsIsolatedDrawEligible(
       observation, samples_resolved_target, prepared);
 }
 
-bool IsShadowDepthBatchMemberDraw(
+bool IsShadowDepthBatchMechanicalDraw(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
@@ -11861,8 +11884,6 @@ bool IsShadowDepthBatchMemberDraw(
          observation.source_select ==
              uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
          observation.primitive_type == 6 && observation.index_count != 0 &&
-         observation.index_format == 0 && observation.index_endianness == 1 &&
-         observation.vertex_binding_count == 3 &&
          !observation.vertex_binding_overflow &&
          !observation.vertex_attribute_overflow &&
          !observation.vertex_float_constant_overflow &&
@@ -11878,21 +11899,86 @@ bool IsShadowDepthBatchMemberDraw(
          observation.rb_depthcontrol == 0x00700736 &&
          observation.pa_su_sc_mode_cntl == 0x00219800 &&
          observation.pa_su_vtx_cntl == 4 &&
-         observation.vertex_shader_hash == kShadowDepthVertexShader &&
          prepared.guest_primitive_type == 6 &&
-         prepared.index_buffer_type == 1 &&
          prepared.normalized_color_mask == 0 &&
          prepared.bound_render_target_bits == 1 &&
          prepared.bound_render_target_formats[0] == 0 &&
          (prepared.flags & 3) == 3;
 }
 
+ShadowDepthBatchFamily ClassifyShadowDepthBatchMemberDraw(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  if (!IsShadowDepthBatchMechanicalDraw(observation, samples_resolved_target,
+                                        prepared)) {
+    return ShadowDepthBatchFamily::kNone;
+  }
+  const bool primary_index_layout =
+      observation.index_format == 0 && observation.index_endianness == 1 &&
+      observation.vertex_binding_count == 3 &&
+      prepared.index_buffer_type == 1;
+  if (observation.vertex_shader_hash == kShadowDepthVertexShader &&
+      primary_index_layout) {
+    return ShadowDepthBatchFamily::kPrimary;
+  }
+  const bool tail_index_layout =
+      observation.index_format == 1 && observation.index_endianness == 2 &&
+      observation.vertex_binding_count == 1 &&
+      prepared.index_buffer_type == 2;
+  const bool exact_prepared_shader =
+      prepared.vertex_shader_hash == observation.vertex_shader_hash &&
+      prepared.pixel_shader_hash == 0 &&
+      prepared.vertex_specialization_mask == 0 &&
+      prepared.pixel_specialization_mask == 0;
+  if (!tail_index_layout || !exact_prepared_shader) {
+    return ShadowDepthBatchFamily::kNone;
+  }
+  if (observation.vertex_shader_hash == kShadowDepthSecondaryVertexShader &&
+      (observation.index_count == 1474 || observation.index_count == 506 ||
+       observation.index_count == 3223)) {
+    return ShadowDepthBatchFamily::kSecondary;
+  }
+  if (observation.vertex_shader_hash == kShadowDepthTertiaryVertexShader &&
+      observation.index_count == 703) {
+    return ShadowDepthBatchFamily::kTertiary;
+  }
+  return ShadowDepthBatchFamily::kNone;
+}
+
+bool IsExpectedShadowDepthBatchMember(ShadowDepthBatchFamily family,
+                                      uint32_t index_count,
+                                      uint32_t draw_offset) {
+  if (draw_offset < kShadowDepthPrimaryDrawCount) {
+    return family == ShadowDepthBatchFamily::kPrimary;
+  }
+  if (draw_offset >= kShadowDepthBatchDrawCount) {
+    return false;
+  }
+  switch ((draw_offset - kShadowDepthPrimaryDrawCount) % 4) {
+  case 0:
+    return family == ShadowDepthBatchFamily::kSecondary &&
+           index_count == 1474;
+  case 1:
+    return family == ShadowDepthBatchFamily::kSecondary &&
+           index_count == 506;
+  case 2:
+    return family == ShadowDepthBatchFamily::kSecondary &&
+           index_count == 3223;
+  case 3:
+    return family == ShadowDepthBatchFamily::kTertiary && index_count == 703;
+  default:
+    return false;
+  }
+}
+
 bool IsExactShadowDepthIsolatedDraw(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
-  return IsShadowDepthBatchMemberDraw(observation, samples_resolved_target,
-                                      prepared) &&
+  return ClassifyShadowDepthBatchMemberDraw(
+             observation, samples_resolved_target, prepared) ==
+             ShadowDepthBatchFamily::kPrimary &&
          observation.index_count == 881 &&
          prepared.vertex_shader_hash == kShadowDepthVertexShader &&
          prepared.pixel_shader_hash == 0 &&
@@ -14301,6 +14387,8 @@ void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
   g_isolated_draw.prepared_shadow_depth_batch_member = false;
+  g_isolated_draw.prepared_shadow_depth_batch_family =
+      ShadowDepthBatchFamily::kNone;
   g_consumer_family_marker.current_match = false;
   if (!g_pending_candidate.valid) {
     ++g_candidate_prepared_without_observation_count;
@@ -14333,14 +14421,117 @@ void ObservePreparedDraw(
                   sample, g_pending_candidate.samples_resolved_target,
                   observation);
     if (g_isolated_draw.shadow_depth_batch_mode) {
-      g_isolated_draw.prepared_shadow_depth_batch_member =
-          IsShadowDepthBatchMemberDraw(
+      g_isolated_draw.prepared_shadow_depth_batch_family =
+          ClassifyShadowDepthBatchMemberDraw(
               sample, g_pending_candidate.samples_resolved_target,
               observation);
+      g_isolated_draw.prepared_shadow_depth_batch_member =
+          g_isolated_draw.prepared_shadow_depth_batch_family !=
+          ShadowDepthBatchFamily::kNone;
       if (g_isolated_draw.prepared_shadow_depth_batch_member) {
         ++g_isolated_draw.shadow_depth_batch_member_matches;
-      } else if (observation.vertex_shader_hash == kShadowDepthVertexShader) {
+        switch (g_isolated_draw.prepared_shadow_depth_batch_family) {
+        case ShadowDepthBatchFamily::kPrimary:
+          ++g_isolated_draw.shadow_depth_batch_primary_matches;
+          break;
+        case ShadowDepthBatchFamily::kSecondary:
+          ++g_isolated_draw.shadow_depth_batch_secondary_matches;
+          break;
+        case ShadowDepthBatchFamily::kTertiary:
+          ++g_isolated_draw.shadow_depth_batch_tertiary_matches;
+          break;
+        case ShadowDepthBatchFamily::kNone:
+          break;
+        }
+      } else if (observation.vertex_shader_hash == kShadowDepthVertexShader ||
+                 observation.vertex_shader_hash ==
+                     kShadowDepthSecondaryVertexShader ||
+                 observation.vertex_shader_hash ==
+                     kShadowDepthTertiaryVertexShader) {
         ++g_isolated_draw.shadow_depth_batch_member_rejections;
+        bool *rejection_reported = nullptr;
+        const char *family = "primary";
+        if (observation.vertex_shader_hash ==
+            kShadowDepthSecondaryVertexShader) {
+          rejection_reported =
+              &g_isolated_draw.shadow_depth_secondary_rejection_reported;
+          family = "secondary";
+        } else if (observation.vertex_shader_hash ==
+                   kShadowDepthTertiaryVertexShader) {
+          rejection_reported =
+              &g_isolated_draw.shadow_depth_tertiary_rejection_reported;
+          family = "tertiary";
+        }
+        if (rejection_reported && !*rejection_reported) {
+          *rejection_reported = true;
+          pinyon_shift::diagnostics::RecordEvent(
+              "native_renderer.shadow_depth_batch.member_rejection",
+              {{"family", family},
+               {"vertex_shader",
+                fmt::format("{:016X}", observation.vertex_shader_hash)},
+               {"samples_resolved_target",
+                g_pending_candidate.samples_resolved_target ? "true"
+                                                            : "false"},
+               {"indexed", sample.indexed ? "true" : "false"},
+               {"source_select", std::to_string(sample.source_select)},
+               {"primitive_type", std::to_string(sample.primitive_type)},
+               {"index_count", std::to_string(sample.index_count)},
+               {"index_format", std::to_string(sample.index_format)},
+               {"index_endianness",
+                std::to_string(sample.index_endianness)},
+               {"vertex_binding_count",
+                std::to_string(sample.vertex_binding_count)},
+               {"vertex_binding_overflow",
+                sample.vertex_binding_overflow ? "true" : "false"},
+               {"vertex_attribute_overflow",
+                sample.vertex_attribute_overflow ? "true" : "false"},
+               {"vertex_float_constant_overflow",
+                sample.vertex_float_constant_overflow ? "true" : "false"},
+               {"pixel_float_constant_overflow",
+                sample.pixel_float_constant_overflow ? "true" : "false"},
+               {"texture_fetch_mask",
+                fmt::format("{:08X}", sample.texture_fetch_mask)},
+               {"texture_state_count",
+                std::to_string(sample.texture_state_count)},
+               {"surface_info", fmt::format("{:08X}", sample.surface_info)},
+               {"depth_info", fmt::format("{:08X}", sample.depth_info)},
+               {"window_scissor_tl",
+                fmt::format("{:08X}", sample.window_scissor_tl)},
+               {"window_scissor_br",
+                fmt::format("{:08X}", sample.window_scissor_br)},
+               {"rb_color_mask",
+                fmt::format("{:08X}", sample.rb_color_mask)},
+               {"rb_depthcontrol",
+                fmt::format("{:08X}", sample.rb_depthcontrol)},
+               {"pa_su_sc_mode_cntl",
+                fmt::format("{:08X}", sample.pa_su_sc_mode_cntl)},
+               {"pa_su_vtx_cntl",
+                fmt::format("{:08X}", sample.pa_su_vtx_cntl)},
+               {"prepared_vertex_shader",
+                fmt::format("{:016X}", observation.vertex_shader_hash)},
+               {"prepared_pixel_shader",
+                fmt::format("{:016X}", observation.pixel_shader_hash)},
+               {"vertex_specialization_mask",
+                fmt::format("{:016X}",
+                            observation.vertex_specialization_mask)},
+               {"pixel_specialization_mask",
+                fmt::format("{:016X}",
+                            observation.pixel_specialization_mask)},
+               {"guest_primitive_type",
+                std::to_string(observation.guest_primitive_type)},
+               {"index_buffer_type",
+                std::to_string(observation.index_buffer_type)},
+               {"normalized_color_mask",
+                fmt::format("{:08X}", observation.normalized_color_mask)},
+               {"bound_render_target_bits",
+                fmt::format("{:08X}", observation.bound_render_target_bits)},
+               {"depth_format",
+                std::to_string(observation.bound_render_target_formats[0])},
+               {"prepared_flags", fmt::format("{:08X}", observation.flags)},
+               {"native_publication", "false"},
+               {"xenos_draw", "preserved"},
+               {"suppression_eligible", "false"}});
+        }
       }
     }
     if (g_isolated_draw.shadow_depth_mode ||
@@ -15474,9 +15665,14 @@ void CompleteIsolatedShadowDepthBatch(
   g_isolated_draw.shadow_depth_batch_active = false;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.shadow_depth_batch.result",
-      {{"status", recorded ? "recorded_seed_plus_63_draw_batch"
+      {{"status", recorded ? "recorded_full_80_draw_atlas_epoch"
                              : "failed_closed"},
-       {"vertex_shader", fmt::format("{:016X}", kShadowDepthVertexShader)},
+       {"primary_vertex_shader",
+        fmt::format("{:016X}", kShadowDepthVertexShader)},
+       {"secondary_vertex_shader",
+        fmt::format("{:016X}", kShadowDepthSecondaryVertexShader)},
+       {"tertiary_vertex_shader",
+        fmt::format("{:016X}", kShadowDepthTertiaryVertexShader)},
        {"frame", std::to_string(g_isolated_draw.shadow_depth_batch_frame)},
        {"first_draw",
         std::to_string(g_isolated_draw.shadow_depth_batch_last_draw -
@@ -15484,6 +15680,12 @@ void CompleteIsolatedShadowDepthBatch(
        {"last_draw",
         std::to_string(g_isolated_draw.shadow_depth_batch_last_draw)},
        {"draw_count", std::to_string(kShadowDepthBatchDrawCount)},
+       {"primary_draw_count",
+        std::to_string(kShadowDepthPrimaryDrawCount)},
+       {"secondary_draw_count",
+        std::to_string(kShadowDepthSecondaryDrawCount)},
+       {"tertiary_draw_count",
+        std::to_string(kShadowDepthTertiaryDrawCount)},
        {"logical_width", std::to_string(kShadowDepthLogicalWidth)},
        {"logical_height", std::to_string(kShadowDepthLogicalHeight)},
        {"allocation_width", std::to_string(result.target_width)},
@@ -15926,10 +16128,19 @@ void RequestIsolatedDraw(
     const bool exact_seed = g_isolated_draw.prepared_candidate_eligible;
     const bool batch_member =
         g_isolated_draw.prepared_shadow_depth_batch_member;
+    const ShadowDepthBatchFamily batch_family =
+        g_isolated_draw.prepared_shadow_depth_batch_family;
+    bool expected_member =
+        batch_member && IsExpectedShadowDepthBatchMember(
+                            batch_family,
+                            g_isolated_draw.prepared_sample.index_count,
+                            g_isolated_draw.shadow_depth_batch_active
+                                ? g_isolated_draw.shadow_depth_batch_draws
+                                : 0);
     if (g_isolated_draw.shadow_depth_batch_active) {
       const bool contiguous =
-          batch_member && g_isolated_draw.frame ==
-                              g_isolated_draw.shadow_depth_batch_frame &&
+          expected_member && g_isolated_draw.frame ==
+                                 g_isolated_draw.shadow_depth_batch_frame &&
           g_isolated_draw.draw ==
               g_isolated_draw.shadow_depth_batch_last_draw + 1 &&
           g_isolated_draw.shadow_depth_batch_backend_ready;
@@ -15943,7 +16154,13 @@ void RequestIsolatedDraw(
     if (!g_isolated_draw.shadow_depth_batch_active && !exact_seed) {
       return;
     }
-    if (!batch_member) {
+    if (!g_isolated_draw.shadow_depth_batch_active) {
+      expected_member =
+          batch_member && IsExpectedShadowDepthBatchMember(
+                              batch_family,
+                              g_isolated_draw.prepared_sample.index_count, 0);
+    }
+    if (!expected_member) {
       return;
     }
     if (g_isolated_draw.shadow_depth_batch_last_completed_frame ==
@@ -18558,7 +18775,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
             ? fmt::format("{:016X}", g_pass_follower.target_signature)
             : ""},
        {"mode", g_isolated_draw.shadow_depth_batch_mode
-                    ? "exact_shadow_depth_64_draw_batch"
+                    ? "exact_shadow_depth_80_draw_atlas_epoch"
                     : (g_isolated_draw.shadow_depth_mode
                            ? "exact_shadow_depth_single_draw"
                            : (g_pass_follower.valid && g_pass_follower.requested
@@ -18567,7 +18784,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"native_draw", "isolated_only"},
        {"continuous_shadow_replay",
          g_isolated_draw.shadow_depth_batch_mode
-             ? "one_shot_seed_plus_63_draw_batch"
+             ? "one_shot_full_80_draw_atlas_epoch"
              : (g_isolated_draw.shadow_depth_mode
              ? "disabled"
              : (g_pass_follower.valid && g_pass_follower.requested
@@ -19211,10 +19428,24 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"vertex_shader", fmt::format("{:016X}", kShadowDepthVertexShader)},
          {"expected_draws_per_batch",
           std::to_string(kShadowDepthBatchDrawCount)},
+         {"expected_primary_draws",
+          std::to_string(kShadowDepthPrimaryDrawCount)},
+         {"expected_secondary_draws",
+          std::to_string(kShadowDepthSecondaryDrawCount)},
+         {"expected_tertiary_draws",
+          std::to_string(kShadowDepthTertiaryDrawCount)},
          {"contract_matches",
           std::to_string(g_isolated_draw.shadow_depth_contract_matches)},
          {"contract_rejections",
           std::to_string(g_isolated_draw.shadow_depth_contract_rejections)},
+         {"primary_member_matches",
+          std::to_string(g_isolated_draw.shadow_depth_batch_primary_matches)},
+         {"secondary_member_matches",
+          std::to_string(
+              g_isolated_draw.shadow_depth_batch_secondary_matches)},
+         {"tertiary_member_matches",
+          std::to_string(
+              g_isolated_draw.shadow_depth_batch_tertiary_matches)},
          {"batches_started",
           std::to_string(g_isolated_draw.shadow_depth_batches_started)},
          {"batches_completed",
