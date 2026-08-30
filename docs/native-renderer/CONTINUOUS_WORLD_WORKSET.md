@@ -15,11 +15,15 @@ capture wrapper's `-ContinuousWorldWorkset` switch. The mode requires renderer
 census and semantic dispatch discovery so every admitted draw has:
 
 - a mechanically replayable prepared-draw contract;
-- a current, selected semantic visibility decision; and
+- either a current, selected semantic visibility decision or the exact,
+  previously qualified sky/horizon follower signature; and
 - exact title-to-backend lineage.
 
-The mode accepts at most 64 draws in one guest frame. The first accepted draw
-seeds a private color/depth pair from the authoritative guest attachments.
+The exact retained family supplies a current-frame seed in supported gameplay
+scenes where the visibility-selected opaque set contains no mechanically
+replayable color target. It does not admit unknown signatures. The mode accepts
+at most 64 draws in one guest frame. The first accepted draw seeds a private
+color/depth pair from the authoritative guest attachments.
 Later accepted draws in the same frame resume that private pair without another
 seed copy. Target incompatibility, unsupported state, or a replay failure marks
 the frame failed and rejects every later candidate in that frame.
@@ -48,6 +52,13 @@ The runtime emits:
 
 The summary reconciles prepared observations, selection outcomes, replay
 outcomes, target reuse, complete frames, failed frames, and the 64-draw bound.
+The payload-free qualifier treats an accounted unsupported frame as a proven
+Xenos fallback, not as a native success. Continuous native qualification also
+requires at least three strictly increasing output markers with exact matching
+frame and retained-frame identifiers; every waiting marker must retain Xenos
+authority with suppression disabled.
+It reports the exact-family seed count separately as
+`qualified_retained_family_requests`.
 Build a payload-free qualification report with:
 
 ```powershell

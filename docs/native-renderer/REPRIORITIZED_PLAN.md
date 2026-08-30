@@ -63,9 +63,9 @@ Already landed or substantially qualified:
   vehicle rendering bridge yet; and
 - post-processing topology census plus the mechanical presentation ingress.
 
-The active slice is `arcanite24/native-post-processing-ingress`, following
-merged PRs #160 and #161. The largest remaining near-term gap is integration:
-turn qualified private work into a coherent continuous frame.
+Phase A and B1-B5 are merged. The active B6 slice qualifies the first coherent
+continuous frame and closes the retained-target lifecycle discovered during
+the AppData run. Phase C terrain and roads are the next visible-impact target.
 
 ---
 
@@ -186,6 +186,15 @@ Prototype exit gate:
 - missing families remain visibly correct through hybrid composition or clean
   Xenos fallback; and
 - the result is manually testable without developer capture tooling.
+
+Qualification checkpoint: the clean 102-patch build and AppData-backed 1x run
+showed a recognizable, stable native world slice with exact current-frame
+authority, continuous multi-draw accumulation, and clean Xenos fallback. The
+retained source now carries draw-derived logical dimensions independently from
+its padded resource. Evidence and remaining visual limitations are recorded in
+[`PROTOTYPE_BATCH_QUALIFICATION.md`](PROTOTYPE_BATCH_QUALIFICATION.md). This
+qualifies B6 as an early prototype; it does not enable suppression, change the
+default renderer, or satisfy any Phase C family.
 
 ---
 

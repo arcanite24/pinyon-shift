@@ -140,9 +140,13 @@ bool RenderDiagnosticOutput(
       if (callback == 1 || callback % 300 == 0) {
         pinyon_shift::diagnostics::RecordEvent(
             "native_renderer.output.waiting",
-            {{"reason", context.retained_pass_frame_sequence
-                            ? "retained_pass_stale"
-                            : "retained_pass_unavailable"},
+            {{"reason",
+              !context.retained_pass_frame_sequence
+                  ? "retained_pass_unavailable"
+                  : (context.retained_pass_frame_sequence !=
+                             context.frame_sequence
+                         ? "retained_pass_stale"
+                         : "retained_pass_callback_failed")},
              {"callback", std::to_string(callback)},
              {"frame", std::to_string(context.frame_sequence)},
              {"retained_frame",

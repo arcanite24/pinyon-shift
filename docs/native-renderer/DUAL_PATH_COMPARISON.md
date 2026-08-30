@@ -3,8 +3,10 @@
 NR-04C adds restart-gated `comparison_native` and `comparison_xenos` output
 modes. Both modes preserve the complete Xenos frame and build the exact-frame
 retained native display target in the command processor's existing submission.
-Since Phase B5, they use the same 512x288 logical scene, RGBA16F linear
-intermediate, title gamma, and title upscale path as the native prototype.
+Since Phase B5, they use the same draw-derived logical scene extent, RGBA16F
+linear intermediate, title gamma, and title upscale path as the native
+prototype. The observed logical extents are `512x288` at 2x and `256x144` at
+1x; padded backing dimensions are never used as visible crop dimensions.
 Only the selected path becomes display authority:
 
 - `comparison_native` copies the completed private native display target into

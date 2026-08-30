@@ -5973,6 +5973,7 @@ struct ContinuousWorldWorksetState {
   uint64_t stale_or_unselected_rejections = 0;
   uint64_t per_frame_quota_yields = 0;
   uint64_t fail_closed_yields = 0;
+  uint64_t qualified_retained_family_requests = 0;
   uint64_t reused_target_requests = 0;
   uint64_t frames_started = 0;
   uint64_t frames_completed = 0;
@@ -6725,7 +6726,8 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
                              : "blocked_invalid_configuration")},
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
-       {"selection", "fresh_visibility_and_mechanical"},
+       {"selection",
+        "fresh_visibility_or_qualified_sky_horizon_and_mechanical"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"target_lifetime", "one_guest_frame"},
@@ -16934,6 +16936,9 @@ void EmitContinuousWorldWorksetSummary() {
         std::to_string(g_continuous_world_workset.per_frame_quota_yields)},
        {"fail_closed_yields",
         std::to_string(g_continuous_world_workset.fail_closed_yields)},
+       {"qualified_retained_family_requests",
+        std::to_string(
+            g_continuous_world_workset.qualified_retained_family_requests)},
        {"reused_target_requests",
         std::to_string(g_continuous_world_workset.reused_target_requests)},
        {"frames_started",
@@ -17285,7 +17290,10 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.mechanical_rejections;
       return;
     }
-    if (!g_isolated_draw.prepared_visibility_candidate_fresh) {
+    const bool qualified_retained_family =
+        g_isolated_draw.prepared_signature == kSkyHorizonFollowerSignature;
+    if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
+        !qualified_retained_family) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
       return;
     }
@@ -17307,6 +17315,9 @@ void RequestIsolatedDraw(
     }
     ++g_continuous_world_workset.current_frame_requests;
     ++g_continuous_world_workset.requests;
+    if (qualified_retained_family) {
+      ++g_continuous_world_workset.qualified_retained_family_requests;
+    }
     request.requested = true;
     request.retain_target = true;
     request.reuse_target = reuse_target;
