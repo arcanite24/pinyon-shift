@@ -22,6 +22,9 @@ DRAW_ARGUMENT_CORRELATION = (
 DRAW_OBJECT_CORRELATION = (
     "native_renderer.discovery.vehicle_draw_object_correlation"
 )
+TITLE_PROVENANCE_CONFIG = (
+    "native_renderer.discovery.title_provenance_config"
+)
 OWNER_METHOD_CANDIDATES = {
     "82BCC368": (14, "82BCCD30"),
     "82BD2DE0": (20, "82BD35B0"),
@@ -153,6 +156,7 @@ def build(events, requested_session=None):
     selected = [event for event in events if event.get("session") == session]
     config = exact(selected, CONFIG)
     summary = exact(selected, SUMMARY)
+    title_provenance_config = exact(selected, TITLE_PROVENANCE_CONFIG)
     expected_config = {
         "status": "armed",
         "hook": "82BC5A3C",
@@ -190,6 +194,20 @@ def build(events, requested_session=None):
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("vehicle-pose configuration drifted")
+    if config.get("title_provenance_requested") not in ("true", "false"):
+        raise ValueError("vehicle title provenance configuration drifted")
+    title_provenance_requested = (
+        config["title_provenance_requested"] == "true"
+    )
+    title_provenance_armed = title_provenance_config.get("status") == "armed"
+    if (
+        title_provenance_config.get("guest_state_changed") != "false"
+        or title_provenance_config.get("control_flow_changed") != "false"
+        or title_provenance_config.get("xenos_authority") != "true"
+        or title_provenance_config.get("suppression_allowed") != "false"
+        or title_provenance_armed != title_provenance_requested
+    ):
+        raise ValueError("vehicle title provenance arm state drifted")
     expected_summary = {
         "status": "complete",
         "accounting_complete": "true",
@@ -215,6 +233,13 @@ def build(events, requested_session=None):
     }
     if any(summary.get(key) != value for key, value in expected_summary.items()):
         raise ValueError("vehicle-pose summary drifted")
+    if summary.get("title_provenance_requested") != config.get(
+        "title_provenance_requested"
+    ) or summary.get("draw_provenance_coverage_complete") not in (
+        "true",
+        "false",
+    ):
+        raise ValueError("vehicle draw provenance coverage drifted")
 
     totals = {
         key: integer(summary, key)
@@ -239,7 +264,12 @@ def build(events, requested_session=None):
         "owner_indirect_target_capacity",
         "owner_indirect_target_overflow",
         "draws_examined",
+        "direct_draws_examined",
+        "indirect_draws_examined",
         "draw_argument_probes",
+        "direct_argument_probes",
+        "semantic_argument_probes",
+        "indirect_argument_probes",
         "draw_argument_matches",
         "draw_correlations",
         "draw_correlation_capacity",
@@ -667,6 +697,17 @@ def build(events, requested_session=None):
         item["observations"] for item in draw_correlations
     ):
         failures.append("vehicle draw correlation observation accounting drifted")
+    if totals["draw_argument_probes"] != (
+        totals["direct_argument_probes"]
+        + totals["semantic_argument_probes"]
+        + totals["indirect_argument_probes"]
+    ):
+        failures.append("vehicle draw provenance probe accounting drifted")
+    if (
+        totals["direct_draws_examined"] > totals["draws_examined"]
+        or totals["indirect_draws_examined"] > totals["draws_examined"]
+    ):
+        failures.append("vehicle draw provenance coverage accounting drifted")
     if len(draw_correlations) != totals["draw_correlations"]:
         failures.append("vehicle draw correlation coverage drifted")
     if totals["draw_correlation_overflow"]:
@@ -717,6 +758,18 @@ def build(events, requested_session=None):
     )
     draw_argument_candidate_proved = bool(draw_correlations)
     object_candidate_proved = bool(object_correlations)
+    draw_provenance_coverage_complete = (
+        title_provenance_requested
+        and title_provenance_armed
+        and totals["direct_draws_examined"] > 0
+        and totals["indirect_draws_examined"] > 0
+        and totals["direct_argument_probes"] > 0
+        and totals["indirect_argument_probes"] > 0
+    )
+    if summary["draw_provenance_coverage_complete"] != (
+        "true" if draw_provenance_coverage_complete else "false"
+    ):
+        failures.append("vehicle draw provenance coverage result drifted")
 
     return {
         "schema": SCHEMA,
@@ -730,6 +783,13 @@ def build(events, requested_session=None):
         "indirect_targets": indirect_targets,
         "draw_argument_correlations": draw_correlations,
         "draw_object_correlations": object_correlations,
+        "coverage": {
+            "title_provenance_requested": title_provenance_requested,
+            "title_provenance_armed": title_provenance_armed,
+            "draw_provenance_coverage_complete": (
+                draw_provenance_coverage_complete
+            ),
+        },
         "qualification": {
             "vehicle_instance_semantic_seed_proved": not failures,
             "vehicle_owner_class_seed_proved": not failures,
@@ -739,10 +799,14 @@ def build(events, requested_session=None):
             "player_vehicle_identity_proved": False,
             "vehicle_draw_identity_proved": False,
             "vehicle_draw_argument_candidate_proved": (
-                not failures and draw_argument_candidate_proved
+                not failures
+                and draw_provenance_coverage_complete
+                and draw_argument_candidate_proved
             ),
             "vehicle_draw_object_candidate_proved": (
-                not failures and object_candidate_proved
+                not failures
+                and draw_provenance_coverage_complete
+                and object_candidate_proved
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,
