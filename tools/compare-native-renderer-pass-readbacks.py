@@ -298,6 +298,68 @@ def _compare_depth_effects(
     }
 
 
+def _analyze_stencil_seed_probe(
+    native_seed_data: bytes,
+    xenos_seed_data: bytes,
+    layout: dict[str, Any],
+    sentinel: int,
+) -> dict[str, Any]:
+    encoding = str(layout["encoding"])
+    native_sentinel_values = 0
+    xenos_sentinel_values = 0
+    sentinel_survivors = 0
+    inspected_stencil_values = 0
+
+    def inspect(index: int) -> None:
+        nonlocal native_sentinel_values
+        nonlocal xenos_sentinel_values
+        nonlocal sentinel_survivors
+        nonlocal inspected_stencil_values
+        native_value = native_seed_data[index]
+        xenos_value = xenos_seed_data[index]
+        inspected_stencil_values += 1
+        native_sentinel_values += native_value == sentinel
+        xenos_sentinel_values += xenos_value == sentinel
+        sentinel_survivors += (
+            native_value == sentinel and xenos_value != sentinel
+        )
+
+    if encoding == "depth32_stencil8_sample_tuples":
+        plane = layout["planes"][0]
+        width = int(layout["width"])
+        height = int(layout["height"])
+        sample_count = int(layout["sample_count"])
+        for y in range(height):
+            row = int(plane["offset"]) + y * int(plane["row_pitch"])
+            for value_index in range(width * sample_count):
+                inspect(row + value_index * 8 + 4)
+    elif encoding == "d3d12_texture_planes":
+        planes = layout["planes"]
+        if len(planes) < 2:
+            raise ValueError("stencil seed probe requires a stencil plane")
+        plane = planes[1]
+        for row_index in range(int(plane["row_count"])):
+            row = int(plane["offset"]) + row_index * int(plane["row_pitch"])
+            for byte_index in range(int(plane["row_size"])):
+                inspect(row + byte_index)
+    else:
+        raise ValueError("unsupported stencil seed probe encoding")
+
+    return {
+        "enabled": True,
+        "sentinel": sentinel,
+        "inspected_stencil_values": inspected_stencil_values,
+        "native_sentinel_values": native_sentinel_values,
+        "xenos_sentinel_values": xenos_sentinel_values,
+        "sentinel_survivors": sentinel_survivors,
+        "evidence": (
+            "sentinel_survived_guest_copy"
+            if sentinel_survivors
+            else "sentinel_overwritten"
+        ),
+    }
+
+
 def compare(
     native_root: Path,
     xenos_root: Path,
@@ -490,14 +552,18 @@ def compare_depth_checkpoints(
     final_parity = compare(
         native_root, xenos_root, "depth-stencil", "native", "xenos"
     )
-    _, native_seed_data = _load(
+    native_seed_metadata, native_seed_data = _load(
         native_seed_root, "native_seed", "depth-stencil"
     )
-    _, native_post_data = _load(native_root, "native", "depth-stencil")
-    _, xenos_seed_data = _load(
+    native_post_metadata, native_post_data = _load(
+        native_root, "native", "depth-stencil"
+    )
+    xenos_seed_metadata, xenos_seed_data = _load(
         xenos_seed_root, "xenos_seed", "depth-stencil"
     )
-    _, xenos_post_data = _load(xenos_root, "xenos", "depth-stencil")
+    xenos_post_metadata, xenos_post_data = _load(
+        xenos_root, "xenos", "depth-stencil"
+    )
     draw_effect_parity = _compare_depth_effects(
         native_seed_data,
         native_post_data,
@@ -508,8 +574,45 @@ def compare_depth_checkpoints(
     seed_exact = seed_copy["result"] == "pass"
     parity_exact = final_parity["result"] == "pass"
     effect_exact = draw_effect_parity["result"] == "pass"
+    diagnostic_metadata = [
+        metadata.get("diagnostic", {})
+        for metadata in (
+            native_seed_metadata,
+            native_post_metadata,
+            xenos_seed_metadata,
+            xenos_post_metadata,
+        )
+    ]
+    probe_flags = [
+        diagnostic.get("stencil_seed_probe") is True
+        for diagnostic in diagnostic_metadata
+    ]
+    if any(probe_flags) and not all(probe_flags):
+        raise ValueError("stencil seed probe metadata is inconsistent")
+    if all(probe_flags):
+        probe_values = {
+            diagnostic.get("stencil_seed_probe_value")
+            for diagnostic in diagnostic_metadata
+        }
+        probe_value = next(iter(probe_values))
+        if (
+            len(probe_values) != 1
+            or type(probe_value) is not int
+            or not 0 <= probe_value <= 255
+        ):
+            raise ValueError("stencil seed probe value metadata is inconsistent")
+        stencil_seed_probe = _analyze_stencil_seed_probe(
+            native_seed_data,
+            xenos_seed_data,
+            final_parity["layout"],
+            probe_value,
+        )
+    else:
+        stencil_seed_probe = {"enabled": False}
     if parity_exact:
         diagnosis = "exact_post_draw_parity"
+    elif stencil_seed_probe.get("sentinel_survivors", 0) > 0:
+        diagnosis = "stencil_copy_omission_confirmed"
     elif seed_exact:
         diagnosis = "draw_effect_divergence"
     elif effect_exact:
@@ -520,6 +623,7 @@ def compare_depth_checkpoints(
         "schema": DEPTH_CHECKPOINT_SCHEMA,
         "result": "pass" if parity_exact else "fail",
         "diagnosis": diagnosis,
+        "stencil_seed_probe": stencil_seed_probe,
         "comparisons": {
             "seed_copy": seed_copy,
             "native_draw_effect": native_effect,
