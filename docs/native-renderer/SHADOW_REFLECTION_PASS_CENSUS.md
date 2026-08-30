@@ -145,3 +145,10 @@ families; the other 1,502 draws in 270 families remain
 layout, cascade model, native renderer, or suppression boundary. Native
 coverage and suppression remain false, Xenos stays authoritative, and
 reflection remains unidentified.
+
+The first executable follow-up is documented in
+`SHADOW_DEPTH_ISOLATED_REPLAY.md`. It admits only the dominant
+`4E1DA281CC3D7EDB` producer through its complete stable draw and attachment
+contract, duplicates one draw into a private depth-only target, and preserves
+the authoritative Xenos draw. It does not yet allocate or publish a native
+atlas.

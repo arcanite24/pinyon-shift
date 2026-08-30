@@ -151,6 +151,9 @@ constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 64;
 constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
+constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
+constexpr uint32_t kShadowDepthLogicalWidth = 2048;
+constexpr uint32_t kShadowDepthLogicalHeight = 2048;
 std::atomic<uint64_t> g_frame_sequence{};
 
 enum class DispatchWrapper : uint32_t {
@@ -5701,6 +5704,9 @@ struct IsolatedDrawState {
   bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
   bool stencil_seed_probe_requested = false;
+  bool shadow_depth_mode = false;
+  uint64_t shadow_depth_contract_matches = 0;
+  uint64_t shadow_depth_contract_rejections = 0;
   bool visibility_wait_reported = false;
   bool title_lod_wait_reported = false;
   bool awaiting_pass_follower = false;
@@ -6163,6 +6169,25 @@ void ConfigureIsolatedDraw() {
   size_t length = 0;
   if (_dupenv_s(
           &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.shadow_depth_mode = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.shadow_depth_mode) {
+    g_isolated_draw.requested = true;
+    if (signature_requested) {
+      g_isolated_draw.valid = false;
+    }
+  }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
           "PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE") ==
           0 &&
       value && length > 1) {
@@ -6176,7 +6201,8 @@ void ConfigureIsolatedDraw() {
   if (g_isolated_draw.auto_select_fresh_visibility_candidate) {
     g_isolated_draw.requested = true;
     g_isolated_draw.require_fresh_visibility_candidate = true;
-    if (signature_requested || g_sky_horizon_suppression.requested) {
+    if (signature_requested || g_isolated_draw.shadow_depth_mode ||
+        g_sky_horizon_suppression.requested) {
       g_isolated_draw.valid = false;
     }
   }
@@ -6236,6 +6262,12 @@ void ConfigureIsolatedDraw() {
   }
   if (g_isolated_draw.stencil_seed_probe_requested &&
       !g_isolated_draw.readback_requested) {
+    g_isolated_draw.valid = false;
+  }
+  if (g_isolated_draw.shadow_depth_mode &&
+      (g_isolated_draw.stencil_seed_probe_requested ||
+       g_isolated_draw.require_fresh_visibility_candidate ||
+       g_isolated_draw.require_title_lod_candidate)) {
     g_isolated_draw.valid = false;
   }
   value = nullptr;
@@ -11776,6 +11808,46 @@ bool IsIsolatedDrawEligible(
       observation, samples_resolved_target, prepared);
 }
 
+bool IsExactShadowDepthIsolatedDraw(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  const bool query_draw = observation.viz_query_condition ||
+                          (observation.pa_sc_viz_query & 1);
+  return !samples_resolved_target && !query_draw &&
+         !observation.vertex_memexport && observation.indexed &&
+         observation.source_select ==
+             uint32_t(rex::graphics::xenos::SourceSelect::kDMA) &&
+         observation.primitive_type == 6 && observation.index_count == 881 &&
+         observation.index_format == 0 && observation.index_endianness == 1 &&
+         observation.vertex_binding_count == 3 &&
+         !observation.vertex_binding_overflow &&
+         !observation.vertex_attribute_overflow &&
+         !observation.vertex_float_constant_overflow &&
+         !observation.pixel_float_constant_overflow &&
+         observation.texture_fetch_mask == 0 &&
+         observation.texture_state_count == 0 &&
+         !observation.texture_state_overflow &&
+         observation.surface_info == 0x10000410 &&
+         observation.depth_info == 0x000002D0 &&
+         observation.window_scissor_tl == 0 &&
+         observation.window_scissor_br == 0x04000400 &&
+         observation.rb_color_mask == 0 &&
+         observation.rb_depthcontrol == 0x00700736 &&
+         observation.pa_su_sc_mode_cntl == 0x00219800 &&
+         observation.pa_su_vtx_cntl == 4 &&
+         prepared.vertex_shader_hash == kShadowDepthVertexShader &&
+         prepared.pixel_shader_hash == 0 &&
+         prepared.vertex_specialization_mask == 0 &&
+         prepared.pixel_specialization_mask == 0 &&
+         prepared.guest_primitive_type == 6 &&
+         prepared.index_buffer_type == 1 &&
+         prepared.normalized_color_mask == 0 &&
+         prepared.bound_render_target_bits == 1 &&
+         prepared.bound_render_target_formats[0] == 0 &&
+         (prepared.flags & 3) == 3;
+}
+
 const char *SemanticBatchRejectionName(SemanticBatchRejection rejection) {
   switch (rejection) {
   case SemanticBatchRejection::kNone:
@@ -14198,8 +14270,21 @@ void ObservePreparedDraw(
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_sample = sample;
-    g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
-        sample, g_pending_candidate.samples_resolved_target, observation);
+    g_isolated_draw.prepared_candidate_eligible =
+        g_isolated_draw.shadow_depth_mode
+            ? IsExactShadowDepthIsolatedDraw(
+                  sample, g_pending_candidate.samples_resolved_target,
+                  observation)
+            : IsIsolatedDrawEligible(
+                  sample, g_pending_candidate.samples_resolved_target,
+                  observation);
+    if (g_isolated_draw.shadow_depth_mode) {
+      if (g_isolated_draw.prepared_candidate_eligible) {
+        ++g_isolated_draw.shadow_depth_contract_matches;
+      } else if (observation.vertex_shader_hash == kShadowDepthVertexShader) {
+        ++g_isolated_draw.shadow_depth_contract_rejections;
+      }
+    }
     g_isolated_draw.prepared_visibility_candidate_fresh =
         visibility_admission.fresh;
     g_isolated_draw.prepared_title_lod_valid =
@@ -15251,6 +15336,29 @@ void CompleteIsolatedDraw(
        {"suppression_eligible", "false"}});
 }
 
+void CompleteIsolatedShadowDepth(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  CompleteIsolatedDraw(result);
+  const bool exact_target =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.shadow_depth_isolated.result",
+      {{"status", exact_target ? "recorded_exact_target"
+                                : "failed_closed"},
+       {"vertex_shader", fmt::format("{:016X}", kShadowDepthVertexShader)},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"logical_width", std::to_string(kShadowDepthLogicalWidth)},
+       {"logical_height", std::to_string(kShadowDepthLogicalHeight)},
+       {"allocation_width", std::to_string(result.target_width)},
+       {"allocation_height", std::to_string(result.target_height)},
+       {"private_depth_target", exact_target ? "recorded" : "unqualified"},
+       {"native_publication", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
 void CompleteIsolatedShadowReplay(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
@@ -15670,6 +15778,32 @@ void RequestIsolatedDraw(
   }
   if (!g_isolated_draw.requested || !g_isolated_draw.valid ||
       !g_isolated_draw.prepared_candidate_valid) {
+    return;
+  }
+  if (g_isolated_draw.shadow_depth_mode) {
+    if (g_isolated_draw.completed ||
+        !g_isolated_draw.prepared_candidate_eligible) {
+      return;
+    }
+    g_isolated_draw.completed = true;
+    g_isolated_draw.captured_signature = g_isolated_draw.prepared_signature;
+    g_isolated_draw.captured_frame = g_isolated_draw.frame;
+    g_isolated_draw.captured_draw = g_isolated_draw.draw;
+    request.requested = true;
+    request.depth_only_target = true;
+    request.frame_sequence = g_isolated_draw.frame;
+    request.depth_readback_requested = g_isolated_draw.readback_requested;
+    request.reference_depth_readback_requested =
+        g_isolated_draw.readback_requested;
+    request.reference_marker_requested = true;
+    request.completion = &CompleteIsolatedShadowDepth;
+    request.depth_readback_completion = g_isolated_draw.readback_requested
+                                            ? &CompleteIsolatedDepthReadback
+                                            : nullptr;
+    request.reference_depth_readback_completion =
+        g_isolated_draw.readback_requested
+            ? &CompleteIsolatedReferenceDepthReadback
+            : nullptr;
     return;
   }
   const bool pass_mode = g_pass_follower.requested &&
@@ -18198,22 +18332,31 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
                                     : "armed")
                                                : "invalid_configuration")},
        {"signature",
-        g_isolated_draw.valid && g_isolated_draw.requested
-            ? fmt::format("{:016X}", g_isolated_draw.target_signature)
+         g_isolated_draw.valid && g_isolated_draw.requested &&
+                 !g_isolated_draw.shadow_depth_mode
+             ? fmt::format("{:016X}", g_isolated_draw.target_signature)
+             : ""},
+       {"shadow_depth_vertex_shader",
+        g_isolated_draw.valid && g_isolated_draw.shadow_depth_mode
+            ? fmt::format("{:016X}", kShadowDepthVertexShader)
             : ""},
        {"anchor_signature",
         g_isolated_draw.valid && g_isolated_draw.requested &&
                 g_pass_follower.valid && g_pass_follower.requested
             ? fmt::format("{:016X}", g_pass_follower.target_signature)
             : ""},
-       {"mode", g_pass_follower.valid && g_pass_follower.requested
-                    ? "retained_pass"
-                    : "single_draw"},
+       {"mode", g_isolated_draw.shadow_depth_mode
+                    ? "exact_shadow_depth_single_draw"
+                    : (g_pass_follower.valid && g_pass_follower.requested
+                           ? "retained_pass"
+                           : "single_draw")},
        {"native_draw", "isolated_only"},
        {"continuous_shadow_replay",
-        g_pass_follower.valid && g_pass_follower.requested
-            ? "retained_pass_contract"
-            : "enabled_after_one_shot"},
+         g_isolated_draw.shadow_depth_mode
+             ? "disabled"
+             : (g_pass_follower.valid && g_pass_follower.requested
+             ? "retained_pass_contract"
+                : "enabled_after_one_shot")},
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
        {"stencil_seed_probe",
@@ -18226,13 +18369,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
             ? "private_target_before_guest_copy"
             : ""},
        {"stencil_seed_probe_guest_target", "untouched"},
-       {"reference_marker", "exact_signature"},
+       {"reference_marker", g_isolated_draw.shadow_depth_mode
+                                ? "exact_shadow_depth_contract"
+                                : "exact_signature"},
        {"selection",
-        g_isolated_draw.auto_select_fresh_visibility_candidate
-            ? (g_isolated_draw.require_title_lod_candidate
-                   ? "first_fresh_mechanically_eligible_title_lod_candidate"
-                   : "first_fresh_mechanically_eligible_candidate")
-            : "exact_signature"},
+         g_isolated_draw.shadow_depth_mode
+             ? "capture_bound_shader_state_and_depth_target"
+             : (g_isolated_draw.auto_select_fresh_visibility_candidate
+             ? (g_isolated_draw.require_title_lod_candidate
+                    ? "first_fresh_mechanically_eligible_title_lod_candidate"
+                    : "first_fresh_mechanically_eligible_candidate")
+                : "exact_signature")},
        {"visibility_gate",
         g_isolated_draw.require_fresh_visibility_candidate
             ? "fresh_selected_semantic_candidate"
@@ -18763,6 +18910,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       !g_pass_follower.requested || !g_pass_follower.valid ||
       g_pass_follower.target_signature == g_isolated_draw.target_signature;
   if (g_isolated_draw.requested && g_isolated_draw.valid &&
+      !g_isolated_draw.shadow_depth_mode &&
       g_isolated_draw.completed && isolated_single_draw_mode) {
     const uint64_t shadow_replay_outcomes =
         g_isolated_draw.shadow_replay_recorded +
@@ -18788,6 +18936,25 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
               : "false"},
          {"readback", "one_shot_only"},
          {"native_draw", "private_shadow_replay"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"draw_suppression", "false"},
+         {"suppression_eligible", "false"}});
+  }
+  if (g_isolated_draw.shadow_depth_mode) {
+    diagnostics::RecordEvent(
+        "native_renderer.shadow_depth_isolated.summary",
+        {{"status", g_isolated_draw.completed ? "observed" : "not_observed"},
+         {"vertex_shader", fmt::format("{:016X}", kShadowDepthVertexShader)},
+         {"contract_matches",
+          std::to_string(g_isolated_draw.shadow_depth_contract_matches)},
+         {"contract_rejections",
+          std::to_string(g_isolated_draw.shadow_depth_contract_rejections)},
+         {"private_replays", g_isolated_draw.completed ? "1" : "0"},
+         {"readback", g_isolated_draw.readback_requested
+                          ? "native_and_xenos_depth_only"
+                          : "disabled"},
+         {"native_publication", "false"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
          {"draw_suppression", "false"},

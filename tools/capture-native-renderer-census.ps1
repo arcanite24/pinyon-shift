@@ -16,6 +16,7 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$IsolatedDrawSignature,
     [string]$IsolatedDrawDir,
+    [switch]$ShadowDepthIsolated,
     [switch]$StencilSeedProbe,
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
@@ -76,6 +77,16 @@ if ($AutoSelectFreshVisibilityCandidate -and -not $IsolatedDrawDir) {
 if ($AutoSelectFreshVisibilityCandidate -and $PassAnchorSignature) {
     throw 'AutoSelectFreshVisibilityCandidate does not support PassAnchorSignature.'
 }
+if ($ShadowDepthIsolated -and
+    ($IsolatedDrawSignature -or $AutoSelectFreshVisibilityCandidate -or
+        $StencilSeedProbe -or $RequireFreshVisibilityCandidate -or
+        $RequireTitleLodCandidate -or $PassAnchorSignature -or
+        $PublishRetainedPass -or $VisibilityShadowReplay)) {
+    throw 'ShadowDepthIsolated is mutually exclusive with other isolated/pass replay options.'
+}
+if ($ShadowDepthIsolated -and -not $IsolatedDrawDir) {
+    throw 'ShadowDepthIsolated requires IsolatedDrawDir.'
+}
 if ($StencilSeedProbe -and -not $IsolatedDrawDir) {
     throw 'StencilSeedProbe requires IsolatedDrawDir.'
 }
@@ -116,8 +127,9 @@ if ($ReplaySnapshotDir) {
 }
 
 if ($IsolatedDrawDir) {
-    if (-not $IsolatedDrawSignature -and -not $AutoSelectFreshVisibilityCandidate) {
-        throw 'IsolatedDrawDir requires IsolatedDrawSignature or AutoSelectFreshVisibilityCandidate'
+    if (-not $IsolatedDrawSignature -and -not $AutoSelectFreshVisibilityCandidate -and
+        -not $ShadowDepthIsolated) {
+        throw 'IsolatedDrawDir requires IsolatedDrawSignature, AutoSelectFreshVisibilityCandidate, or ShadowDepthIsolated'
     }
     $repositoryRoot = Split-Path $PSScriptRoot -Parent
     $localRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.local'))
@@ -172,6 +184,7 @@ $savedReplaySnapshot = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_SIGNATURE
 $savedReplaySnapshotDir = $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR
 $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
+$savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED
 $savedStencilSeedProbe = $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE
 $savedVisibilityGate = $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE
 $savedAutoVisibilityCandidate =
@@ -198,6 +211,8 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $ReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $IsolatedDrawSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $IsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED =
+        if ($ShadowDepthIsolated) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE =
         if ($StencilSeedProbe) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
@@ -231,6 +246,8 @@ finally {
     $env:PINYON_SHIFT_NATIVE_RENDERER_SNAPSHOT_DIR = $savedReplaySnapshotDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE = $savedIsolatedDraw
     $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR = $savedIsolatedDrawDir
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED =
+        $savedShadowDepthIsolated
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE = $savedStencilSeedProbe
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
         $savedVisibilityGate

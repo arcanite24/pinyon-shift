@@ -1,0 +1,208 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index 7c6bd1f..c3ec6fc 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -100,7 +100,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   // EndIsolatedReplayTarget restores the guest bindings without changing the
+   // guest attachments or ownership.
+   bool BeginIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out,
+-                                 bool stencil_seed_probe_requested);
++                                 bool stencil_seed_probe_requested,
++                                 bool depth_only_target = false);
+   bool ResumeIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out);
+   system::GraphicsIsolatedDrawReadbackStatus QueueIsolatedReplayReadback(
+       system::GraphicsIsolatedDrawReadbackCompletion completion,
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 38843bd..bae213c 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -474,6 +474,9 @@ using GraphicsIsolatedDrawPublicationCompletion = void (*)(
+ 
+ struct GraphicsIsolatedDrawRequest {
+   bool requested = false;
++  // Duplicate a draw that has only a depth/stencil attachment. The backend
++  // must reject this mode if any guest color target is bound.
++  bool depth_only_target = false;
+   bool readback_requested = false;
+   // Capture the authoritative guest color target after the original draw.
+   // This is independent of the private replay readback and never suppresses
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 37e31cc..01de5d0 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3458,7 +3458,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
+-                      isolated_draw_request.stencil_seed_probe_requested)) ||
++                      isolated_draw_request.stencil_seed_probe_requested,
++                      isolated_draw_request.depth_only_target)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,
+@@ -3691,7 +3692,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
+-                      isolated_draw_request.stencil_seed_probe_requested)) ||
++                      isolated_draw_request.stencil_seed_probe_requested,
++                      isolated_draw_request.depth_only_target)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 32f5a16..f77cdde 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1772,7 +1772,7 @@ RenderTargetCache::RenderTarget* D3D12RenderTargetCache::CreateRenderTarget(Rend
+ 
+ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+     uint32_t& width_out, uint32_t& height_out,
+-    bool stencil_seed_probe_requested) {
++    bool stencil_seed_probe_requested, bool depth_only_target) {
+   width_out = 0;
+   height_out = 0;
+   if (GetPath() != Path::kHostRenderTargets) {
+@@ -1780,26 +1780,32 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+   }
+   RenderTarget* const* guest_targets =
+       last_update_accumulated_render_targets();
+-  if (!guest_targets[0] || !guest_targets[1]) {
++  if (!guest_targets[0] || (!depth_only_target && !guest_targets[1])) {
+     return false;
+   }
+-  for (uint32_t i = 2; i <= xenos::kMaxColorRenderTargets; ++i) {
++  for (uint32_t i = depth_only_target ? 1 : 2;
++       i <= xenos::kMaxColorRenderTargets; ++i) {
+     if (guest_targets[i]) {
+       return false;
+     }
+   }
+ 
+   const RenderTargetKey depth_key = guest_targets[0]->key();
+-  const RenderTargetKey color_key = guest_targets[1]->key();
+   if (!isolated_replay_depth_target_ ||
+       isolated_replay_depth_target_->key() != depth_key) {
+     isolated_replay_depth_target_.reset(CreateRenderTarget(depth_key));
+   }
+-  if (!isolated_replay_color_target_ ||
+-      isolated_replay_color_target_->key() != color_key) {
+-    isolated_replay_color_target_.reset(CreateRenderTarget(color_key));
++  if (depth_only_target) {
++    isolated_replay_color_target_.reset();
++  } else {
++    const RenderTargetKey color_key = guest_targets[1]->key();
++    if (!isolated_replay_color_target_ ||
++        isolated_replay_color_target_->key() != color_key) {
++      isolated_replay_color_target_.reset(CreateRenderTarget(color_key));
++    }
+   }
+-  if (!isolated_replay_depth_target_ || !isolated_replay_color_target_) {
++  if (!isolated_replay_depth_target_ ||
++      (!depth_only_target && !isolated_replay_color_target_)) {
+     isolated_replay_depth_target_.reset();
+     isolated_replay_color_target_.reset();
+     return false;
+@@ -1807,13 +1813,20 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+ 
+   auto* isolated_depth = static_cast<D3D12RenderTarget*>(
+       isolated_replay_depth_target_.get());
+-  auto* isolated_color = static_cast<D3D12RenderTarget*>(
+-      isolated_replay_color_target_.get());
+   auto* guest_depth = static_cast<D3D12RenderTarget*>(guest_targets[0]);
+-  auto* guest_color = static_cast<D3D12RenderTarget*>(guest_targets[1]);
+-  const D3D12_RESOURCE_DESC color_desc = isolated_color->resource()->GetDesc();
+-  width_out = uint32_t(color_desc.Width);
+-  height_out = color_desc.Height;
++  auto* isolated_color = depth_only_target
++                             ? nullptr
++                             : static_cast<D3D12RenderTarget*>(
++                                   isolated_replay_color_target_.get());
++  auto* guest_color = depth_only_target
++                          ? nullptr
++                          : static_cast<D3D12RenderTarget*>(guest_targets[1]);
++  const D3D12_RESOURCE_DESC target_desc =
++      (depth_only_target ? isolated_depth : isolated_color)
++          ->resource()
++          ->GetDesc();
++  width_out = uint32_t(target_desc.Width);
++  height_out = target_desc.Height;
+ 
+   if (stencil_seed_probe_requested) {
+     constexpr uint8_t kStencilSeedProbeValue = 0xA5;
+@@ -1831,23 +1844,30 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+   const D3D12_RESOURCE_STATES guest_depth_state =
+       guest_depth->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
+   const D3D12_RESOURCE_STATES guest_color_state =
+-      guest_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
++      guest_color ? guest_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE)
++                  : D3D12_RESOURCE_STATE_COMMON;
+   const D3D12_RESOURCE_STATES isolated_depth_state =
+       isolated_depth->SetResourceState(D3D12_RESOURCE_STATE_COPY_DEST);
+   const D3D12_RESOURCE_STATES isolated_color_state =
+-      isolated_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_DEST);
++      isolated_color
++          ? isolated_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_DEST)
++          : D3D12_RESOURCE_STATE_COMMON;
+   command_processor_.PushTransitionBarrier(
+       guest_depth->resource(), guest_depth_state,
+       D3D12_RESOURCE_STATE_COPY_SOURCE);
+-  command_processor_.PushTransitionBarrier(
+-      guest_color->resource(), guest_color_state,
+-      D3D12_RESOURCE_STATE_COPY_SOURCE);
++  if (guest_color) {
++    command_processor_.PushTransitionBarrier(
++        guest_color->resource(), guest_color_state,
++        D3D12_RESOURCE_STATE_COPY_SOURCE);
++  }
+   command_processor_.PushTransitionBarrier(
+       isolated_depth->resource(), isolated_depth_state,
+       D3D12_RESOURCE_STATE_COPY_DEST);
+-  command_processor_.PushTransitionBarrier(
+-      isolated_color->resource(), isolated_color_state,
+-      D3D12_RESOURCE_STATE_COPY_DEST);
++  if (isolated_color) {
++    command_processor_.PushTransitionBarrier(
++        isolated_color->resource(), isolated_color_state,
++        D3D12_RESOURCE_STATE_COPY_DEST);
++  }
+   command_processor_.SubmitBarriers();
+ 
+   DeferredCommandList& command_list =
+@@ -1880,21 +1900,29 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+     command_list.D3DCopyTextureRegion(&destination, 0, 0, 0, &source,
+                                        nullptr);
+   }
+-  command_list.D3DCopyResource(isolated_color->resource(),
+-                               guest_color->resource());
++  if (isolated_color) {
++    command_list.D3DCopyResource(isolated_color->resource(),
++                                 guest_color->resource());
++  }
+ 
+   guest_depth->SetResourceState(guest_depth_state);
+-  guest_color->SetResourceState(guest_color_state);
++  if (guest_color) {
++    guest_color->SetResourceState(guest_color_state);
++  }
+   command_processor_.PushTransitionBarrier(
+       guest_depth->resource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+       guest_depth_state);
+-  command_processor_.PushTransitionBarrier(
+-      guest_color->resource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+-      guest_color_state);
++  if (guest_color) {
++    command_processor_.PushTransitionBarrier(
++        guest_color->resource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
++        guest_color_state);
++  }
+ 
+   RenderTarget* isolated_targets[1 + xenos::kMaxColorRenderTargets] = {};
+   isolated_targets[0] = isolated_depth;
+-  isolated_targets[1] = isolated_color;
++  if (isolated_color) {
++    isolated_targets[1] = isolated_color;
++  }
+   SetCommandListRenderTargets(isolated_targets);
+   command_processor_.SubmitBarriers();
+ 
