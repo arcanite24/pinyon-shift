@@ -1,0 +1,59 @@
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOL = ROOT / "tools" / "summarize-native-renderer-track-differential.py"
+SPEC = importlib.util.spec_from_file_location("native_track_differential", TOOL)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
+
+
+def events(session, mode, calls):
+    common = {"schema": 1, "session": session}
+    return [
+        {"event": "process.start", **common, "executable_sha256": "EXE", "rexglue_patch_set_sha256": "PATCH", "rexglue_patch_count": "102"},
+        {"event": MODULE.CONFIG, **common, "status": "complete", "mode": mode, "fast_track_render": "true" if mode == "fasttrackrender" else "false", "road_detail_blur": "false", "track_command_buffers": "true", "address_consistent": "true", "xenos_authority": "true", "native_draw": "false", "suppression_allowed": "false"},
+        {"event": MODULE.INSTALLED, **common, "scene": "open_world_day"},
+        {"event": MODULE.DRAW_WINDOW, **common, "first_frame": "1", "last_frame": "600", "draws": "1200", "overflow_draws": "0"},
+        {"event": MODULE.PROVENANCE, **common, "outcome": "prepared", "semantic_identity": "procedural_model_submission", "prepared_signature": "AABBCCDDEEFF0011", "calls": str(calls), "semantic_vertex_shader": "1111111111111111", "semantic_pixel_shader": "2222222222222222", "semantic_template_key": "3333333333333333", "semantic_receiver_address": "AAAABBBB", "semantic_receiver_generation": "1", "semantic_record_index": "7", "xenos_draw": "preserved", "suppression_eligible": "false"},
+        {"event": "process.shutdown", **common},
+    ]
+
+
+class NativeRendererTrackDifferentialTests(unittest.TestCase):
+    def test_qualifies_exact_title_track_delta_without_semantic_promotion(self):
+        document = MODULE.build(
+            events("baseline-session", "baseline", 60),
+            events("track-session", "fasttrackrender", 120),
+        )
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(1, document["changed_family_count"])
+        self.assertEqual(100.0, document["changed_families"][0]["delta_calls_per_1000_frames"])
+        self.assertTrue(document["qualification"]["title_track_render_delta_proved"])
+        self.assertFalse(document["qualification"]["terrain_road_semantic_identity_proved"])
+        self.assertFalse(document["qualification"]["native_admission_allowed"])
+
+    def test_rejects_unconfirmed_title_argument(self):
+        track = events("track-session", "fasttrackrender", 120)
+        track[1]["fast_track_render"] = "false"
+        document = MODULE.build(events("baseline-session", "baseline", 60), track)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "fasttrackrender: fast-track runtime value does not match the requested mode",
+            document["failures"],
+        )
+
+    def test_rejects_build_identity_drift(self):
+        track = events("track-session", "fasttrackrender", 120)
+        track[0]["executable_sha256"] = "OTHER"
+        document = MODULE.build(events("baseline-session", "baseline", 60), track)
+        self.assertIn("paired sessions do not use one build identity", document["failures"])
+
+
+if __name__ == "__main__":
+    unittest.main()

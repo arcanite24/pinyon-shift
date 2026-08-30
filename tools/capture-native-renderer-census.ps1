@@ -30,6 +30,8 @@ param(
     [switch]$ContinuousWorldWorkset,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
+    [ValidateSet('baseline', 'fasttrackrender')]
+    [string]$TrackRenderMode = 'baseline',
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
     [switch]$PublishRetainedPass,
@@ -232,6 +234,7 @@ $savedContinuousWorldWorkset =
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET
 $savedShadowCasterProvenance =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE
+$savedTrackRenderMode = $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
@@ -280,6 +283,7 @@ try {
         if ($ContinuousWorldWorkset) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         if ($ShadowCasterProvenance) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $TrackRenderMode
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
         if ($PublishRetainedPass) { 'true' } else { $null }
@@ -287,8 +291,12 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
         if ($ConsumerReadbackDir) { [string]$ConsumerReadbackSamples } else { $null }
+    $gameArguments = if ($TrackRenderMode -eq 'fasttrackrender') {
+        @('-fasttrackrender')
+    } else { @() }
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
+        -GameArguments $gameArguments `
         -Json:$Json
 }
 finally {
@@ -324,6 +332,7 @@ finally {
         $savedContinuousWorldWorkset
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         $savedShadowCasterProvenance
+    $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $savedTrackRenderMode
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $savedPassPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily
