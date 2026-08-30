@@ -105,6 +105,27 @@ bounded static call graph. This evidence further classifies slot 22 as a
 component update/presentation dispatcher; it does not prove a vehicle render
 method. Native vehicle rendering and suppression therefore remain closed.
 
+## Exact draw-argument correlation
+
+The next join checks every exact title/backend draw against the already
+captured vehicle owner, position, and forward-vector addresses. It covers the
+direct wrapper arguments and semantic receiver, descriptor, and runtime, plus
+the indirect constructor, owner, producer, context, context root, and semantic
+receiver lineage. Each candidate would retain the exact backend signature,
+provenance function and return address, argument index, vehicle identity, and
+frame span. A fixed address index and fixed 1,024-entry result table keep this
+discovery path bounded. No guest payload is read and no draw is changed.
+
+Release/AppData session `20260830T093251Z-p42128` completed normally at the
+festival with the player car visible. It examined 3,285,123 backend draws and
+83,516,951 populated provenance probes against 32 vehicle identities. It found
+zero exact owner or transform-address matches, with no invalid pose,
+owner-dispatch, overflow, stack-fault, error, or fatal event. This rejects the
+current direct and indirect dispatch arguments as an exact vehicle draw join.
+The render path must therefore be recovered from a deeper object/descriptor
+relationship or a different title submission family. Vehicle draw identity,
+native rendering, publication, and suppression remain unadmitted.
+
 Qualify a batched census with:
 
 ```powershell
