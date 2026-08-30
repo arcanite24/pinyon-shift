@@ -178,6 +178,56 @@ therefore records `caster_complete_epochs=0`; the 80-draw native subepoch stays
 usable, but neither a whole-resource vehicle classification nor a static-cache
 policy is admitted.
 
+## Per-draw caster contribution export
+
+The mixed 1024-square epoch requires stronger evidence than its combined final
+image. The local-only contribution exporter takes an exact lineage epoch,
+replays the capture before and after every depth write, and saves paired PNGs
+below `.local`. It verifies the capture hash, selected resource name, ordered
+event inventory, qrenderdoc signature, and output confinement before replay:
+
+```powershell
+.\tools\export-native-renderer-shadow-caster-contributions.ps1 `
+  -Capture '.local\qualification\native-renderer-renderdoc-seeded\reference_frame8134.rdc' `
+  -RenderDocRoot '.local\tools\renderdoc\RenderDoc_64' `
+  -Lineage '.local\qualification\nr05f-caster-class-lineage.json' `
+  -EpochOrdinal 2 `
+  -OutputDir '.local\qualification\nr05f-shadow-caster-contributions'
+
+python .\tools\analyze-native-renderer-shadow-caster-contributions.py `
+  --export '.local\qualification\nr05f-shadow-caster-contributions\shadow-caster-contributions.json' `
+  --effect-census '.local\qualification\nr05f-caster-class-census.json' `
+  --output-dir '.local\qualification\nr05f-shadow-caster-contribution-analysis'
+```
+
+The analyzer decodes and CRC-validates each 8-bit RGBA PNG, measures exact
+changed pixels and bounding boxes, emits cropped local delta images, and joins
+every event to its capture-bound family. Pixel activity alone never assigns a
+caster class: the report keeps
+`caster_classification_allowed_without_review=false` until the generated delta
+images receive local visual review or matching title provenance. No payload is
+tracked, rendering is unchanged, Xenos stays authoritative, and suppression
+remains unavailable.
+
+The qualified epoch-2 export contains 42 exact depth writes. Nineteen writes
+changed the saved target, spanning seven families and 1,221,021 changed pixels;
+the other 23 writes were depth-tested away or otherwise made no observable
+change in this capture. The deterministic contribution report has SHA-256
+`5F9DA2B2168EE4DB41093DE7922EAAFE7D91B257F261683B59C1295D957E0AC1`.
+The largest delta, event 521, is not a caster: its
+known `Shader {c700dc5c}` / `Shader {23c57222}` depth-propagation family writes
+an 800 by 1024 rectangle and accounts for 819,200 changed pixels.
+
+The remaining deltas disprove family-level static/dynamic separation for the
+dominant 1024-square family
+`A61D2C09B06090140F77963167B6F739CF7D1508A7D71C578550C2EC2B235481`.
+Its six visible contributions include a clear vehicle silhouette at event 787
+as well as festival structures and world geometry at events 703, 710, 768, and
+791. One exact pipeline family therefore contains both static and dynamic
+casters. The correct next boundary is event- or title-instance provenance;
+promoting this whole family to either `static_world` or `dynamic_vehicle` would
+be incorrect, so the separation gate remains closed.
+
 The first executable follow-up is documented in
 `SHADOW_DEPTH_ISOLATED_REPLAY.md`. It admits only the dominant
 `4E1DA281CC3D7EDB` producer through its complete stable draw and attachment
