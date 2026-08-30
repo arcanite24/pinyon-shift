@@ -16,7 +16,8 @@ REXCVAR_DEFINE_BOOL(
 REXCVAR_DEFINE_STRING(pinyon_shift_native_renderer, "xenos", "Pinyon Shift",
                       "Guest-output renderer: xenos, diagnostic_clear, "
                       "diagnostic_triangle, diagnostic_retained_pass, "
-                      "native_prototype, comparison_native, comparison_xenos")
+                      "native_prototype, hybrid_prototype, "
+                      "comparison_native, comparison_xenos")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_STRING(
     pinyon_shift_native_shader_pack, "", "Pinyon Shift",
@@ -33,6 +34,7 @@ enum class DiagnosticMode : uint32_t {
   kTriangle,
   kRetainedPass,
   kNativePrototype,
+  kHybridPrototype,
   kComparisonNative,
   kComparisonXenos,
 };
@@ -47,6 +49,8 @@ const char *DiagnosticModeName(DiagnosticMode mode) {
     return "diagnostic_retained_pass";
   case DiagnosticMode::kNativePrototype:
     return "native_prototype";
+  case DiagnosticMode::kHybridPrototype:
+    return "hybrid_prototype";
   case DiagnosticMode::kComparisonNative:
     return "comparison_native";
   case DiagnosticMode::kComparisonXenos:
@@ -59,6 +63,7 @@ const char *DiagnosticModeName(DiagnosticMode mode) {
 bool UsesRetainedPass(DiagnosticMode mode) {
   return mode == DiagnosticMode::kRetainedPass ||
          mode == DiagnosticMode::kNativePrototype ||
+         mode == DiagnosticMode::kHybridPrototype ||
          mode == DiagnosticMode::kComparisonNative ||
          mode == DiagnosticMode::kComparisonXenos;
 }
@@ -98,6 +103,9 @@ bool RenderDiagnosticOutput(
       } else if (mode == DiagnosticMode::kNativePrototype) {
         retained_mode =
             rex::system::NativeGuestOutputRetainedPassMode::kPrototypeNative;
+      } else if (mode == DiagnosticMode::kHybridPrototype) {
+        retained_mode =
+            rex::system::NativeGuestOutputRetainedPassMode::kPrototypeHybrid;
       }
       rendered = context.draw_retained_pass(context, retained_mode);
     }
@@ -150,20 +158,29 @@ bool RenderDiagnosticOutput(
          {"display_height", std::to_string(context.display_height)},
          {"format", std::to_string(context.output_format)},
          {"mode", DiagnosticModeName(mode)},
-         {"composition", mode == DiagnosticMode::kNativePrototype
-                             ? "continuous_world_passthrough"
+         {"composition", mode == DiagnosticMode::kHybridPrototype
+                             ? "conservative_pixel_agreement_hybrid"
+                             : (mode == DiagnosticMode::kNativePrototype
+                                    ? "continuous_world_passthrough"
                              : (UsesRetainedPass(mode)
                                     ? "private_display_target"
-                                    : "direct_guest_output")},
+                                    : "direct_guest_output"))},
          {"presentation",
-          mode == DiagnosticMode::kNativePrototype
-              ? "full_source_nearest_then_title_upscale"
+          mode == DiagnosticMode::kNativePrototype ||
+                  mode == DiagnosticMode::kHybridPrototype
+              ? "logical_scene_scale_then_title_gamma_then_title_upscale"
               : "legacy_diagnostic"},
          {"selected_output", mode == DiagnosticMode::kComparisonXenos
                                  ? "xenos"
-                                 : "native"},
-         {"authority", mode == DiagnosticMode::kComparisonXenos ? "xenos"
-                                                                  : "native"},
+                                 : (mode == DiagnosticMode::kHybridPrototype
+                                        ? "hybrid"
+                                        : "native")},
+         {"authority", mode == DiagnosticMode::kComparisonXenos
+                            ? "xenos"
+                            : (mode == DiagnosticMode::kHybridPrototype
+                                   ? "hybrid"
+                                   : "native")},
+         {"xenos_fxaa", context.xenos_fxaa_applied ? "applied" : "disabled"},
          {"xenos_draw", "preserved"},
          {"suppression", "disabled"}});
   }
@@ -209,6 +226,7 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
   if (mode != "diagnostic_clear" && mode != "diagnostic_triangle" &&
       mode != "diagnostic_retained_pass" &&
       mode != "native_prototype" &&
+      mode != "hybrid_prototype" &&
       mode != "comparison_native" && mode != "comparison_xenos" &&
       !(mode == "xenos" && legacy_clear)) {
     diagnostics::RecordEvent(
@@ -223,6 +241,8 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
     selected_mode = DiagnosticMode::kRetainedPass;
   } else if (mode == "native_prototype") {
     selected_mode = DiagnosticMode::kNativePrototype;
+  } else if (mode == "hybrid_prototype") {
+    selected_mode = DiagnosticMode::kHybridPrototype;
   } else if (mode == "comparison_native") {
     selected_mode = DiagnosticMode::kComparisonNative;
   } else if (mode == "comparison_xenos") {
@@ -238,7 +258,10 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
                             {"authority",
                              selected_mode == DiagnosticMode::kComparisonXenos
                                  ? "xenos"
-                                 : "native"},
+                                 : (selected_mode ==
+                                            DiagnosticMode::kHybridPrototype
+                                        ? "hybrid"
+                                        : "native")},
                             {"fallback", "xenos"},
                             {"xenos_draw", "preserved"},
                             {"suppression", "disabled"}});
