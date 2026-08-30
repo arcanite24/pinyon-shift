@@ -1299,6 +1299,36 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertTrue(policy["structural_derivation_proved"])
         self.assertFalse(policy["camera_semantics_proved"])
         self.assertFalse(policy["native_policy_execution_enabled"])
+        shadow = lifecycle["visibility_shadow_policy"]
+        self.assertEqual("82E20094", shadow["record_entry_hook_address"])
+        self.assertEqual(
+            "82E20368", shadow["category_helper_result_hook_address"]
+        )
+        self.assertEqual("82E206F8", shadow["title_result_hook_address"])
+        self.assertEqual("82E2084C", shadow["record_exit_hook_address"])
+        self.assertEqual(
+            "any_nonzero_category_result_selects", shadow["model"]
+        )
+        self.assertEqual([0, 1, 2], shadow["category_result_domain"])
+        self.assertEqual("shadow_only", shadow["native_policy_execution"])
+        self.assertFalse(shadow["guest_state_changed"])
+        self.assertTrue(shadow["xenos_authority"])
+        self.assertFalse(shadow["suppression_allowed"])
+        spatial_shadow = lifecycle["visibility_spatial_shadow"]
+        self.assertEqual("82E2034C", spatial_shadow["input_hook_address"])
+        self.assertEqual("82E20350", spatial_shadow["result_hook_address"])
+        self.assertEqual("8243F9A0", spatial_shadow["helper_address"])
+        self.assertEqual(
+            "8243FD70", spatial_shadow["distance_helper_address"]
+        )
+        self.assertEqual(52, spatial_shadow["bounded_guest_payload_bytes"])
+        self.assertEqual(
+            "bounded_spatial_helper_inputs",
+            spatial_shadow["guest_payload_read"],
+        )
+        self.assertFalse(spatial_shadow["guest_state_changed"])
+        self.assertTrue(spatial_shadow["xenos_authority"])
+        self.assertFalse(spatial_shadow["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )

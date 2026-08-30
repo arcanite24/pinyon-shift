@@ -651,6 +651,27 @@ struct SemanticVisibilityOracleStats {
   std::array<std::atomic<uint64_t>, 3> category_results{};
 };
 
+struct SemanticVisibilityShadowStats {
+  std::atomic<uint64_t> modelled_records{};
+  std::atomic<uint64_t> predicted_selected{};
+  std::atomic<uint64_t> predicted_rejected{};
+  std::atomic<uint64_t> title_matches{};
+  std::atomic<uint64_t> false_positive{};
+  std::atomic<uint64_t> false_negative{};
+  std::atomic<uint64_t> result_1_records{};
+  std::atomic<uint64_t> result_2_records{};
+  std::atomic<uint64_t> mixed_nonzero_records{};
+};
+
+struct SemanticVisibilitySpatialShadowStats {
+  std::atomic<uint64_t> input_observations{};
+  std::atomic<uint64_t> comparisons{};
+  std::atomic<uint64_t> matches{};
+  std::atomic<uint64_t> false_positive{};
+  std::atomic<uint64_t> false_negative{};
+  std::atomic<uint64_t> invalid_inputs{};
+};
+
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
 std::atomic<uint64_t> g_semantic_visibility_record_completions{};
 std::atomic<uint64_t> g_semantic_visibility_records_open{};
@@ -708,6 +729,16 @@ std::atomic<uint64_t> g_semantic_visibility_spatial_helper_without_local_pass{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_without_record{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_without_spatial_pass{};
 std::atomic<uint64_t> g_semantic_visibility_category_helper_invalid_result{};
+std::array<std::array<SemanticVisibilityShadowStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_shadow_categories{};
+std::array<std::array<SemanticVisibilitySpatialShadowStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_spatial_shadow_categories{};
+std::atomic<uint64_t> g_semantic_visibility_spatial_shadow_input_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_spatial_shadow_result_without_input{};
 
 struct SemanticInstanceEntry {
   uint64_t key = 0;
@@ -1011,8 +1042,17 @@ struct ActiveSemanticVisibilityRecord {
   uint32_t local_distance_passes = 0;
   uint32_t spatial_helper_observations = 0;
   uint32_t spatial_helper_passes = 0;
+  uint32_t spatial_shadow_input_observations = 0;
+  uint32_t spatial_shadow_comparisons = 0;
+  uint32_t spatial_shadow_matches = 0;
+  uint32_t spatial_shadow_false_positive = 0;
+  uint32_t spatial_shadow_false_negative = 0;
+  uint32_t spatial_shadow_invalid_inputs = 0;
   uint32_t category_helper_observations = 0;
   std::array<uint32_t, 3> category_helper_results{};
+  bool spatial_shadow_pending = false;
+  bool spatial_shadow_valid = false;
+  bool spatial_shadow_prediction = false;
   bool active = false;
 };
 thread_local ActiveSemanticVisibilityRecord
@@ -2136,6 +2176,102 @@ bool SemanticVisibilitySpatialExponent(double value, uint8_t *exponent) {
   return true;
 }
 
+float LoadSemanticVisibilityGuestFloat(rex::memory::Memory *memory,
+                                       uint32_t address) {
+  const uint32_t bits = static_cast<uint32_t>(
+      *rex::memory::GuestPtr<rex::be_u32 *>(memory->virtual_membase(),
+                                            address));
+  return std::bit_cast<float>(bits);
+}
+
+float SemanticVisibilitySumSquares3(float x, float y, float z) {
+  const float xy = float(float(x * x) + float(y * y));
+  return float(xy + float(z * z));
+}
+
+void ObserveSemanticVisibilitySpatialHelperInput(uint32_t query_address,
+                                                 uint32_t endpoint_a_address,
+                                                 uint32_t endpoint_b_address) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_spatial_shadow_input_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  ++record.spatial_shadow_input_observations;
+  if (record.spatial_shadow_pending ||
+      record.spatial_shadow_input_observations >
+          record.local_distance_passes) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    ++record.spatial_shadow_invalid_inputs;
+  }
+  record.spatial_shadow_pending = true;
+  record.spatial_shadow_valid = false;
+  if (!query_address || !endpoint_a_address || !endpoint_b_address ||
+      (query_address & 3) || (endpoint_a_address & 3) ||
+      (endpoint_b_address & 3)) {
+    ++record.spatial_shadow_invalid_inputs;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    ++record.spatial_shadow_invalid_inputs;
+    return;
+  }
+  std::array<float, 10> values = {
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 0),
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 4),
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 8),
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 16),
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 20),
+      LoadSemanticVisibilityGuestFloat(memory, query_address + 24),
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_a_address + 0),
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_a_address + 4),
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_a_address + 8),
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_b_address + 0),
+  };
+  const float endpoint_b_y =
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_b_address + 4);
+  const float endpoint_b_z =
+      LoadSemanticVisibilityGuestFloat(memory, endpoint_b_address + 8);
+  if (!std::all_of(values.begin(), values.end(), [](float value) {
+        return std::isfinite(value);
+      }) ||
+      !std::isfinite(endpoint_b_y) || !std::isfinite(endpoint_b_z)) {
+    ++record.spatial_shadow_invalid_inputs;
+    return;
+  }
+  if (values[4] < 0.0f) {
+    record.spatial_shadow_prediction = true;
+    record.spatial_shadow_valid = true;
+    return;
+  }
+  const float half_x = float(float(values[9] - values[6]) * 0.5f);
+  const float half_y = float(float(endpoint_b_y - values[7]) * 0.5f);
+  const float half_z = float(float(endpoint_b_z - values[8]) * 0.5f);
+  const float midpoint_x = float(values[6] + half_x);
+  const float midpoint_y = float(values[7] + half_y);
+  const float midpoint_z = float(values[8] + half_z);
+  const float segment_distance_squared =
+      SemanticVisibilitySumSquares3(half_x, half_y, half_z);
+  const float query_x = float(midpoint_x - values[0]);
+  const float query_y = float(midpoint_y - values[1]);
+  const float query_z = float(midpoint_z - values[2]);
+  const float query_distance_squared =
+      SemanticVisibilitySumSquares3(query_x, query_y, query_z);
+  const float lhs = float(values[3] * query_distance_squared);
+  const float rhs = float(values[5] * segment_distance_squared);
+  if (!std::isfinite(lhs) || !std::isfinite(rhs)) {
+    ++record.spatial_shadow_invalid_inputs;
+    return;
+  }
+  record.spatial_shadow_prediction = lhs <= rhs;
+  record.spatial_shadow_valid = true;
+}
+
 void BeginSemanticVisibilityRecord(uint32_t receiver_address,
                                    uint32_t record_index,
                                    uint32_t category,
@@ -2307,6 +2443,24 @@ void ObserveSemanticVisibilitySpatialHelperResult(uint32_t result) {
         1, std::memory_order_relaxed);
     return;
   }
+  if (!record.spatial_shadow_pending) {
+    g_semantic_visibility_spatial_shadow_result_without_input.fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    if (record.spatial_shadow_valid) {
+      ++record.spatial_shadow_comparisons;
+      const bool title_result = (result & 0xFF) != 0;
+      if (record.spatial_shadow_prediction == title_result) {
+        ++record.spatial_shadow_matches;
+      } else if (record.spatial_shadow_prediction) {
+        ++record.spatial_shadow_false_positive;
+      } else {
+        ++record.spatial_shadow_false_negative;
+      }
+    }
+    record.spatial_shadow_pending = false;
+    record.spatial_shadow_valid = false;
+  }
   if (record.spatial_helper_observations >= record.local_distance_passes) {
     g_semantic_visibility_policy_hook_faults.fetch_add(
         1, std::memory_order_relaxed);
@@ -2467,6 +2621,11 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
           : (record.selected ? SemanticVisibilityPolicyOutcome::kSelected
                              : SemanticVisibilityPolicyOutcome::kRejected);
   const size_t policy_outcome_index = size_t(policy_outcome);
+  if (record.spatial_shadow_pending) {
+    ++record.spatial_shadow_invalid_inputs;
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   if (record.category < kSemanticVisibilityCategoryCapacity) {
     SemanticVisibilityPolicyStats &policy =
         g_semantic_visibility_policy_categories[record.category]
@@ -2515,6 +2674,55 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
       oracle.category_results[result].fetch_add(
           record.category_helper_results[result],
           std::memory_order_relaxed);
+    }
+    SemanticVisibilityShadowStats &shadow =
+        g_semantic_visibility_shadow_categories[record.category]
+                                               [policy_outcome_index];
+    if (record.category_helper_observations) {
+      shadow.modelled_records.fetch_add(1, std::memory_order_relaxed);
+      const bool result_1_seen = record.category_helper_results[1] != 0;
+      const bool result_2_seen = record.category_helper_results[2] != 0;
+      const bool predicted_selected = result_1_seen || result_2_seen;
+      const bool title_selected = record.result_seen && record.selected;
+      (predicted_selected ? shadow.predicted_selected
+                          : shadow.predicted_rejected)
+          .fetch_add(1, std::memory_order_relaxed);
+      if (predicted_selected == title_selected) {
+        shadow.title_matches.fetch_add(1, std::memory_order_relaxed);
+      } else if (predicted_selected) {
+        shadow.false_positive.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        shadow.false_negative.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_1_seen) {
+        shadow.result_1_records.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_2_seen) {
+        shadow.result_2_records.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (result_1_seen && result_2_seen) {
+        shadow.mixed_nonzero_records.fetch_add(1,
+                                               std::memory_order_relaxed);
+      }
+    }
+    SemanticVisibilitySpatialShadowStats &spatial_shadow =
+        g_semantic_visibility_spatial_shadow_categories[record.category]
+                                                       [policy_outcome_index];
+    if (record.spatial_shadow_input_observations ||
+        record.spatial_shadow_invalid_inputs) {
+      spatial_shadow.input_observations.fetch_add(
+          record.spatial_shadow_input_observations,
+          std::memory_order_relaxed);
+      spatial_shadow.comparisons.fetch_add(
+          record.spatial_shadow_comparisons, std::memory_order_relaxed);
+      spatial_shadow.matches.fetch_add(record.spatial_shadow_matches,
+                                       std::memory_order_relaxed);
+      spatial_shadow.false_positive.fetch_add(
+          record.spatial_shadow_false_positive, std::memory_order_relaxed);
+      spatial_shadow.false_negative.fetch_add(
+          record.spatial_shadow_false_negative, std::memory_order_relaxed);
+      spatial_shadow.invalid_inputs.fetch_add(
+          record.spatial_shadow_invalid_inputs, std::memory_order_relaxed);
     }
   }
   if (record.spatial_sample_valid) {
@@ -10058,6 +10266,249 @@ void EmitSemanticVisibilityCensus() {
        {"native_policy_execution", "false"},
        {"native_culling", "false"},
        {"native_lod", "false"},
+        {"xenos_authority", "true"},
+        {"suppression_allowed", "false"}});
+
+  uint64_t shadow_records = 0;
+  uint64_t shadow_modelled_records = 0;
+  uint64_t shadow_predicted_selected = 0;
+  uint64_t shadow_predicted_rejected = 0;
+  uint64_t shadow_title_matches = 0;
+  uint64_t shadow_false_positive = 0;
+  uint64_t shadow_false_negative = 0;
+  uint64_t shadow_result_1_records = 0;
+  uint64_t shadow_result_2_records = 0;
+  uint64_t shadow_mixed_nonzero_records = 0;
+  bool shadow_category_accounting_complete = true;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      const SemanticVisibilityShadowStats &shadow =
+          g_semantic_visibility_shadow_categories[category_index]
+                                                 [outcome_index];
+      const uint64_t records =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index]
+              .records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t modelled_records =
+          shadow.modelled_records.load(std::memory_order_relaxed);
+      const uint64_t predicted_selected =
+          shadow.predicted_selected.load(std::memory_order_relaxed);
+      const uint64_t predicted_rejected =
+          shadow.predicted_rejected.load(std::memory_order_relaxed);
+      const uint64_t title_matches =
+          shadow.title_matches.load(std::memory_order_relaxed);
+      const uint64_t false_positive =
+          shadow.false_positive.load(std::memory_order_relaxed);
+      const uint64_t false_negative =
+          shadow.false_negative.load(std::memory_order_relaxed);
+      const uint64_t result_1_records =
+          shadow.result_1_records.load(std::memory_order_relaxed);
+      const uint64_t result_2_records =
+          shadow.result_2_records.load(std::memory_order_relaxed);
+      const uint64_t mixed_nonzero_records =
+          shadow.mixed_nonzero_records.load(std::memory_order_relaxed);
+      const bool category_complete =
+          modelled_records <= records &&
+          predicted_selected + predicted_rejected == modelled_records &&
+          title_matches + false_positive + false_negative == modelled_records &&
+          result_1_records <= modelled_records &&
+          result_2_records <= modelled_records &&
+          mixed_nonzero_records <= result_1_records &&
+          mixed_nonzero_records <= result_2_records;
+      shadow_category_accounting_complete &= category_complete;
+      shadow_records += records;
+      shadow_modelled_records += modelled_records;
+      shadow_predicted_selected += predicted_selected;
+      shadow_predicted_rejected += predicted_rejected;
+      shadow_title_matches += title_matches;
+      shadow_false_positive += false_positive;
+      shadow_false_negative += false_negative;
+      shadow_result_1_records += result_1_records;
+      shadow_result_2_records += result_2_records;
+      shadow_mixed_nonzero_records += mixed_nonzero_records;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_shadow_category_summary",
+          {{"status", category_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome", SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"modelled_records", std::to_string(modelled_records)},
+           {"predicted_selected", std::to_string(predicted_selected)},
+           {"predicted_rejected", std::to_string(predicted_rejected)},
+           {"title_matches", std::to_string(title_matches)},
+           {"false_positive", std::to_string(false_positive)},
+           {"false_negative", std::to_string(false_negative)},
+           {"result_1_records", std::to_string(result_1_records)},
+           {"result_2_records", std::to_string(result_2_records)},
+           {"mixed_nonzero_records",
+            std::to_string(mixed_nonzero_records)},
+           {"native_policy_execution", "shadow_only"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+  const bool shadow_complete =
+      shadow_category_accounting_complete &&
+      shadow_records == oracle_records &&
+      shadow_modelled_records <= shadow_records &&
+      shadow_predicted_selected + shadow_predicted_rejected ==
+          shadow_modelled_records &&
+      shadow_title_matches + shadow_false_positive + shadow_false_negative ==
+          shadow_modelled_records &&
+      shadow_result_1_records <= shadow_modelled_records &&
+      shadow_result_2_records <= shadow_modelled_records &&
+      shadow_mixed_nonzero_records <= shadow_result_1_records &&
+      shadow_mixed_nonzero_records <= shadow_result_2_records &&
+      !shadow_false_positive && !shadow_false_negative;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_shadow_summary",
+      {{"status", shadow_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(shadow_records)},
+       {"modelled_records", std::to_string(shadow_modelled_records)},
+       {"unmodelled_records",
+        std::to_string(shadow_records - shadow_modelled_records)},
+       {"predicted_selected", std::to_string(shadow_predicted_selected)},
+       {"predicted_rejected", std::to_string(shadow_predicted_rejected)},
+       {"title_matches", std::to_string(shadow_title_matches)},
+       {"false_positive", std::to_string(shadow_false_positive)},
+       {"false_negative", std::to_string(shadow_false_negative)},
+       {"result_1_records", std::to_string(shadow_result_1_records)},
+       {"result_2_records", std::to_string(shadow_result_2_records)},
+       {"mixed_nonzero_records",
+        std::to_string(shadow_mixed_nonzero_records)},
+       {"accounting_complete", shadow_complete ? "true" : "false"},
+       {"model", "any_nonzero_category_result_selects"},
+       {"scope", "active_title_record_only"},
+       {"classification", "title_result_domain_shadow_selection"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+
+  uint64_t spatial_shadow_records = 0;
+  uint64_t spatial_shadow_inputs = 0;
+  uint64_t spatial_shadow_comparisons = 0;
+  uint64_t spatial_shadow_matches = 0;
+  uint64_t spatial_shadow_false_positive = 0;
+  uint64_t spatial_shadow_false_negative = 0;
+  uint64_t spatial_shadow_invalid_inputs = 0;
+  bool spatial_shadow_category_accounting_complete = true;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      const SemanticVisibilitySpatialShadowStats &spatial_shadow =
+          g_semantic_visibility_spatial_shadow_categories[category_index]
+                                                         [outcome_index];
+      const SemanticVisibilityOracleStats &oracle =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index];
+      const uint64_t records =
+          oracle.records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t inputs =
+          spatial_shadow.input_observations.load(std::memory_order_relaxed);
+      const uint64_t comparisons =
+          spatial_shadow.comparisons.load(std::memory_order_relaxed);
+      const uint64_t matches =
+          spatial_shadow.matches.load(std::memory_order_relaxed);
+      const uint64_t false_positive =
+          spatial_shadow.false_positive.load(std::memory_order_relaxed);
+      const uint64_t false_negative =
+          spatial_shadow.false_negative.load(std::memory_order_relaxed);
+      const uint64_t invalid_inputs =
+          spatial_shadow.invalid_inputs.load(std::memory_order_relaxed);
+      const uint64_t expected_inputs =
+          oracle.spatial_helper_observations.load(std::memory_order_relaxed);
+      const bool category_complete =
+          inputs == expected_inputs &&
+          comparisons == inputs &&
+          matches + false_positive + false_negative == comparisons &&
+          !invalid_inputs;
+      spatial_shadow_category_accounting_complete &= category_complete;
+      spatial_shadow_records += records;
+      spatial_shadow_inputs += inputs;
+      spatial_shadow_comparisons += comparisons;
+      spatial_shadow_matches += matches;
+      spatial_shadow_false_positive += false_positive;
+      spatial_shadow_false_negative += false_negative;
+      spatial_shadow_invalid_inputs += invalid_inputs;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_spatial_shadow_category_summary",
+          {{"status", category_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome", SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"input_observations", std::to_string(inputs)},
+           {"comparisons", std::to_string(comparisons)},
+           {"matches", std::to_string(matches)},
+           {"false_positive", std::to_string(false_positive)},
+           {"false_negative", std::to_string(false_negative)},
+           {"invalid_inputs", std::to_string(invalid_inputs)},
+           {"native_policy_execution", "shadow_only"},
+           {"guest_payload_read", "bounded_spatial_helper_inputs"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+  const uint64_t spatial_shadow_input_without_record =
+      g_semantic_visibility_spatial_shadow_input_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t spatial_shadow_result_without_input =
+      g_semantic_visibility_spatial_shadow_result_without_input.load(
+          std::memory_order_relaxed);
+  const bool spatial_shadow_complete =
+      spatial_shadow_category_accounting_complete &&
+      spatial_shadow_records == oracle_records &&
+      spatial_shadow_inputs == oracle_spatial_observations &&
+      spatial_shadow_comparisons == spatial_shadow_inputs &&
+      spatial_shadow_matches + spatial_shadow_false_positive +
+              spatial_shadow_false_negative ==
+          spatial_shadow_comparisons &&
+      !spatial_shadow_false_positive && !spatial_shadow_false_negative &&
+      !spatial_shadow_invalid_inputs;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_spatial_shadow_summary",
+      {{"status", spatial_shadow_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(spatial_shadow_records)},
+       {"input_observations", std::to_string(spatial_shadow_inputs)},
+       {"comparisons", std::to_string(spatial_shadow_comparisons)},
+       {"matches", std::to_string(spatial_shadow_matches)},
+       {"false_positive", std::to_string(spatial_shadow_false_positive)},
+       {"false_negative", std::to_string(spatial_shadow_false_negative)},
+       {"invalid_inputs", std::to_string(spatial_shadow_invalid_inputs)},
+       {"input_without_record",
+        std::to_string(spatial_shadow_input_without_record)},
+       {"result_without_input",
+        std::to_string(spatial_shadow_result_without_input)},
+       {"accounting_complete", spatial_shadow_complete ? "true" : "false"},
+       {"model", "bounded_title_spatial_helper_scalar_mirror"},
+       {"scope", "active_title_record_only"},
+       {"unscoped_continuations_excluded", "true"},
+       {"classification", "independent_spatial_helper_shadow"},
+       {"guest_payload_read", "bounded_spatial_helper_inputs"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
 
@@ -12557,6 +13008,57 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_shadow_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"record_entry_hook", "82E20094"},
+       {"category_helper_result_hook", "82E20368"},
+       {"title_result_hook", "82E206F8"},
+       {"record_completion_hook", "82E2084C"},
+       {"model", "any_nonzero_category_result_selects"},
+       {"category_result_domain", "0,1,2"},
+       {"outcomes", "early_rejected,rejected,selected"},
+       {"scope", "active_title_record_only"},
+       {"classification", "title_result_domain_shadow_selection"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_spatial_shadow_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"input_hook", "82E2034C"},
+       {"result_hook", "82E20350"},
+       {"helper", "8243F9A0"},
+       {"distance_helper", "8243FD70"},
+       {"query_vector_offsets", "0,4,8"},
+       {"query_scalar_offsets", "16,20,24"},
+       {"endpoint_vector_offsets", "0,4,8"},
+       {"interpolation_factor", "0.5"},
+       {"shortcut", "query_scalar_20_less_than_zero_selects"},
+       {"comparison",
+        "query_scalar_16_times_distance_squared_le_query_scalar_24_times_half_segment_squared"},
+       {"bounded_guest_payload_bytes", "52"},
+       {"scope", "active_title_record_only"},
+       {"classification", "independent_spatial_helper_shadow"},
+       {"guest_payload_read", "bounded_spatial_helper_inputs"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -13523,6 +14025,11 @@ void PinyonShiftObserveProceduralModelVisibilityCandidateThreshold(
 void PinyonShiftObserveProceduralModelVisibilityLocalDistance(
     PPCRegister &f0, PPCRegister &f31) {
   ObserveSemanticVisibilityLocalDistance(f31.f64, f0.f64);
+}
+
+void PinyonShiftObserveProceduralModelVisibilitySpatialHelperInput(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5) {
+  ObserveSemanticVisibilitySpatialHelperInput(r3.u32, r4.u32, r5.u32);
 }
 
 void PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult(

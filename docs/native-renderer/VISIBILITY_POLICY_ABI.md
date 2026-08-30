@@ -150,3 +150,65 @@ specified above. The authoritative census had zero lifecycle, identity,
 overflow, or shutdown-open faults. Median performance was 30.224 FPS over 6,413
 frames, there were no present-deadline misses, no fatal log signatures, and
 Xenos remained the sole rendering authority.
+
+## Title-result shadow selection
+
+The first executable shadow policy turns the proved helper-result domain into a
+per-record native decision without changing the title's decision. Within an
+active title record, the model predicts selection when at least one six-vector
+helper call returns 1 or 2; a modelled record with only zero results predicts
+rejection. Records that never reach the helper remain explicitly unmodelled
+rather than being guessed as invisible.
+
+At record completion the shadow result is compared with the authoritative title
+selection byte. Bounded category/outcome telemetry records model coverage,
+predicted selections and rejections, exact title matches, false positives,
+false negatives, records that observed each nonzero helper result, and records
+that observed both. Qualification requires complete reconciliation with the
+visibility census and zero false positives or false negatives.
+
+This is an observational native state-machine model, not an independent camera
+or frustum implementation. It reads only the already captured register result
+domain, changes no guest state or control flow, performs no native draw, and
+cannot suppress Xenos work. Its purpose is to prove the selection mapping before
+the next batch mirrors the spatial helper inputs independently.
+
+## Independent spatial-helper shadow
+
+The second model mirrors `0x8243F9A0` independently at its exact callsite. A
+pre-call hook at `0x82E2034C` reads only the helper's bounded arguments: six
+query floats at offsets 0, 4, 8, 16, 20, and 24 plus two three-float segment
+endpoints. The 52-byte payload contract is static, aligned, and record-scoped.
+
+The host mirror preserves the title's two-stage scalar policy. A negative query
+scalar at offset 20 accepts immediately. Otherwise it constructs the segment
+midpoint with the title's 0.5 factor, computes the squared half-segment and
+query distances, and accepts when query scalar 16 times the query distance is
+less than or equal to query scalar 24 times the squared half-segment. Every
+finite host prediction is compared with the low-byte title result at
+`0x82E20350`.
+
+Category/outcome telemetry reconciles one input and comparison with every
+in-scope oracle helper observation. Invalid inputs, missing input/result pairs,
+false positives, and false negatives fail closed. Unscoped continuation resumes
+are counted and excluded. The mirror writes no guest memory, changes no control
+flow, and still cannot cull, select LOD, draw, or suppress Xenos. Its runtime
+qualification is batched with the title-result shadow model in one Release and
+AppData session.
+
+## Consolidated shadow-model qualification
+
+Release/AppData session `20260830T000441Z-p37468` completed normally with no
+fatal signatures and kept Xenos as the sole rendering authority. The
+authoritative census reconciled 1,631,224 records with zero lifecycle, identity,
+overflow, or shutdown-open faults. The title-result model matched all 28,092
+modelled records with zero false positives or false negatives. The independent
+spatial mirror matched all 232,692 in-scope helper results with zero invalid
+inputs, missing pairs, false positives, or false negatives.
+
+The optimized telemetry derives empty-record totals from the authoritative
+census and performs no atomic updates for records that never reach either shadow
+model. Median performance recovered to 30.153 FPS over 8,234 frames, with a
+19.225 FPS one-percent low and zero present-deadline misses. This qualifies the
+independent spatial helper and the title-result selection mapping for the next
+category-classifier shadow milestone; native policy execution remains disabled.

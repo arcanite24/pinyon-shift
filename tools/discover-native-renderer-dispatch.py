@@ -208,6 +208,7 @@ PROCEDURAL_MODEL_RECEIVER = {
     "visibility_descriptor_threshold_hook": 0x82E201B0,
     "visibility_candidate_threshold_hook": 0x82E20258,
     "visibility_local_distance_hook": 0x82E202D8,
+    "visibility_spatial_helper_input_hook": 0x82E2034C,
     "visibility_spatial_helper_result_hook": 0x82E20350,
     "visibility_category_helper_result_hook": 0x82E20368,
     "render_state_function": 0x824170D8,
@@ -1426,6 +1427,9 @@ def procedural_model_receiver_lifecycle(
             "spatial_helper_result_hook_address": "{:08X}".format(
                 spec["visibility_spatial_helper_result_hook"]
             ),
+            "spatial_helper_input_hook_address": "{:08X}".format(
+                spec["visibility_spatial_helper_input_hook"]
+            ),
             "category_helper_result_hook_address": "{:08X}".format(
                 spec["visibility_category_helper_result_hook"]
             ),
@@ -1456,6 +1460,64 @@ def procedural_model_receiver_lifecycle(
             "bounds_shape_semantics_proved": False,
             "native_policy_execution_enabled": False,
             "guest_state_changed": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
+        "visibility_shadow_policy": {
+            "record_entry_hook_address": "{:08X}".format(
+                spec["visibility_record_entry"]
+            ),
+            "category_helper_result_hook_address": "{:08X}".format(
+                spec["visibility_category_helper_result_hook"]
+            ),
+            "title_result_hook_address": "{:08X}".format(
+                spec["visibility_result"]
+            ),
+            "record_exit_hook_address": "{:08X}".format(
+                spec["visibility_record_exit"]
+            ),
+            "model": "any_nonzero_category_result_selects",
+            "category_result_domain": [0, 1, 2],
+            "scope": "active_title_record_only",
+            "title_outcome_comparison_required": True,
+            "guest_payload_read": False,
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "native_policy_execution": "shadow_only",
+            "native_culling_enabled": False,
+            "native_lod_enabled": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
+        "visibility_spatial_shadow": {
+            "input_hook_address": "{:08X}".format(
+                spec["visibility_spatial_helper_input_hook"]
+            ),
+            "result_hook_address": "{:08X}".format(
+                spec["visibility_spatial_helper_result_hook"]
+            ),
+            "helper_address": "{:08X}".format(
+                spec["visibility_spatial_helper"]
+            ),
+            "distance_helper_address": "{:08X}".format(
+                spec["visibility_spatial_distance_helper"]
+            ),
+            "query_vector_offsets": [0, 4, 8],
+            "query_scalar_offsets": [16, 20, 24],
+            "endpoint_vector_offsets": [0, 4, 8],
+            "interpolation_factor": 0.5,
+            "shortcut": "query_scalar_20_less_than_zero_selects",
+            "comparison": "query_scalar_16_times_distance_squared_le_"
+            "query_scalar_24_times_half_segment_squared",
+            "bounded_guest_payload_bytes": 52,
+            "scope": "active_title_record_only",
+            "title_result_comparison_required": True,
+            "guest_payload_read": "bounded_spatial_helper_inputs",
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "native_policy_execution": "shadow_only",
+            "native_culling_enabled": False,
+            "native_lod_enabled": False,
             "xenos_authority": True,
             "suppression_allowed": False,
         },

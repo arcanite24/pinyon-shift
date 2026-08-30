@@ -142,6 +142,9 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelVisibilityLocalDistance": (
                 "0x82E202D8"
             ),
+            "PinyonShiftObserveProceduralModelVisibilitySpatialHelperInput": (
+                "0x82E2034C"
+            ),
             "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult": (
                 "0x82E20350"
             ),
@@ -188,6 +191,27 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"guest_payload_read": False', oracle_summarizer)
         self.assertIn('"xenos_authority": True', oracle_summarizer)
         self.assertIn('"suppression_allowed": False', oracle_summarizer)
+
+        shadow_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-shadow.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("title_result_domain_shadow_selection", source)
+        self.assertIn('"native_policy_execution": "shadow_only"', shadow_summarizer)
+        self.assertIn('"guest_state_changed": False', shadow_summarizer)
+        self.assertIn('"xenos_authority": True', shadow_summarizer)
+        self.assertIn('"suppression_allowed": False', shadow_summarizer)
+
+        spatial_shadow_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-spatial-shadow.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("independent_spatial_helper_shadow", source)
+        self.assertIn(
+            '"guest_payload_read": "bounded_spatial_helper_inputs"',
+            spatial_shadow_summarizer,
+        )
+        self.assertIn('"guest_state_changed": False', spatial_shadow_summarizer)
+        self.assertIn('"xenos_authority": True', spatial_shadow_summarizer)
+        self.assertIn('"suppression_allowed": False', spatial_shadow_summarizer)
 
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

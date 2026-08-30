@@ -276,6 +276,11 @@ name = "PinyonShiftObserveProceduralModelVisibilityLocalDistance"
 registers = ["f0", "f31"]
 
 [[midasm_hook]]
+address = 0x82E2034C
+name = "PinyonShiftObserveProceduralModelVisibilitySpatialHelperInput"
+registers = ["r3", "r4", "r5"]
+
+[[midasm_hook]]
 address = 0x82E20350
 name = "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult"
 registers = ["r3"]
