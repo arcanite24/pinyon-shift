@@ -264,6 +264,25 @@ registers = ["r3"]
 address = 0x82E1CBD0
 name = "PinyonShiftObserveProceduralModelDestructorExit"
 
+# Phase C1 title-owned track-render differential. sub_8259C7D8 retrieves the
+# live CForzaCommandLineParameters object in r30 and copies exact option fields
+# into runtime render state rooted at r31. Hooks observe registers after each
+# source load/transform and before the original destination store.
+[[midasm_hook]]
+address = 0x8259C834
+name = "PinyonShiftObserveFastTrackRenderConfiguration"
+registers = ["r11", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x8259C89C
+name = "PinyonShiftObserveRoadDetailBlurConfiguration"
+registers = ["r11", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x8259C8DC
+name = "PinyonShiftObserveTrackCommandBufferConfiguration"
+registers = ["r11", "r30", "r31"]
+
 # Vtable slots 14 and 40 bracket optional visibility and render-state history.
 # These hooks record only the live receiver generation and balanced invocation
 # order; the stages are not universal slot-41 prerequisites.

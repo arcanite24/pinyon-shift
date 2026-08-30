@@ -5,6 +5,7 @@ param(
     [string]$GameRoot,
     [string]$StateRoot,
     [string]$ShaderCaptureDir,
+    [string[]]$GameArguments = @(),
     [switch]$Json,
     [switch]$CrashSelfTest
 )
@@ -61,8 +62,15 @@ try {
     } else {
         $null
     }
-    $process = Start-Process -FilePath $executable `
-        -WorkingDirectory (Split-Path $executable -Parent) -PassThru
+    $start = @{
+        FilePath = $executable
+        WorkingDirectory = (Split-Path $executable -Parent)
+        PassThru = $true
+    }
+    if ($GameArguments.Count -ne 0) {
+        $start.ArgumentList = $GameArguments
+    }
+    $process = Start-Process @start
     $process.WaitForExit()
     $process.Refresh()
 }
