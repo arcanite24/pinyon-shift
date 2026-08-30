@@ -18,6 +18,7 @@ param(
     [string]$IsolatedDrawDir,
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
+    [switch]$RequireTitleLodCandidate,
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,
     [switch]$PublishRetainedPass,
@@ -71,6 +72,9 @@ if ($AutoSelectFreshVisibilityCandidate -and -not $IsolatedDrawDir) {
 }
 if ($AutoSelectFreshVisibilityCandidate -and $PassAnchorSignature) {
     throw 'AutoSelectFreshVisibilityCandidate does not support PassAnchorSignature.'
+}
+if ($RequireTitleLodCandidate -and -not $AutoSelectFreshVisibilityCandidate) {
+    throw 'RequireTitleLodCandidate requires AutoSelectFreshVisibilityCandidate.'
 }
 if ($PublishRetainedPass -and
     (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
@@ -154,6 +158,8 @@ $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedVisibilityGate = $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE
 $savedAutoVisibilityCandidate =
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE
+$savedTitleLodCandidate =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE
 $savedPassAnchor = $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE
 $savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
@@ -174,6 +180,8 @@ try {
         } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE =
         if ($AutoSelectFreshVisibilityCandidate) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE =
+        if ($RequireTitleLodCandidate) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $PassAnchorSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS =
         if ($PublishRetainedPass) { 'true' } else { $null }
@@ -198,6 +206,8 @@ finally {
         $savedVisibilityGate
     $env:PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE =
         $savedAutoVisibilityCandidate
+    $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE =
+        $savedTitleLodCandidate
     $env:PINYON_SHIFT_NATIVE_RENDERER_PASS_ANCHOR_SIGNATURE = $savedPassAnchor
     $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS = $savedPassPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY = $savedConsumerFamily

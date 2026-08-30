@@ -1601,8 +1601,18 @@ class NativeRendererContractTests(unittest.TestCase):
             "PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE",
             scanner,
         )
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE",
+            scanner,
+        )
         self.assertIn("locked_first_fresh_eligible_candidate", scanner)
+        self.assertIn(
+            "locked_first_fresh_eligible_title_lod_candidate", scanner
+        )
         self.assertIn("auto_select_fresh_visibility_candidate", scanner)
+        self.assertIn("require_title_lod_candidate", scanner)
+        self.assertIn("waiting_for_exact_title_lod_observation", scanner)
+        self.assertIn("exact_visibility_identity_lod_observation", scanner)
         self.assertIn("waiting_for_fresh_selected_candidate", scanner)
         self.assertIn("visibility_wait_reported", scanner)
         single_draw_request = scanner.split(
@@ -1621,12 +1631,17 @@ class NativeRendererContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("RequireFreshVisibilityCandidate", census_capture)
         self.assertIn("AutoSelectFreshVisibilityCandidate", census_capture)
+        self.assertIn("RequireTitleLodCandidate", census_capture)
         self.assertIn(
             "AutoSelectFreshVisibilityCandidate and IsolatedDrawSignature are mutually exclusive",
             census_capture,
         )
         self.assertIn(
             "RequireFreshVisibilityCandidate requires IsolatedDrawSignature or AutoSelectFreshVisibilityCandidate",
+            census_capture,
+        )
+        self.assertIn(
+            "RequireTitleLodCandidate requires AutoSelectFreshVisibilityCandidate",
             census_capture,
         )
         self.assertIn("authoritative Xenos draw still follows unmodified", scanner)

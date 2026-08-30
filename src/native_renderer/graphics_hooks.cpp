@@ -4078,6 +4078,7 @@ struct IsolatedDrawState {
   uint64_t captured_draw = 0;
   uint64_t pass_anchor_frame = 0;
   uint64_t pass_anchor_draw = 0;
+  uint32_t prepared_title_lod_index = 0;
   rex::system::GraphicsDrawObservation prepared_sample;
   std::filesystem::path output_root;
   std::jthread artifact_writer;
@@ -4091,9 +4092,12 @@ struct IsolatedDrawState {
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
   bool prepared_visibility_candidate_fresh = false;
+  bool prepared_title_lod_valid = false;
   bool require_fresh_visibility_candidate = false;
+  bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
   bool visibility_wait_reported = false;
+  bool title_lod_wait_reported = false;
   bool awaiting_pass_follower = false;
   bool pass_anchor_recorded = false;
   bool pass_repeat_reported = false;
@@ -4534,6 +4538,21 @@ void ConfigureIsolatedDraw() {
       g_isolated_draw.valid = false;
     }
   }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_TITLE_LOD_CANDIDATE") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.require_title_lod_candidate = setting == "true";
+    if ((setting != "true" && setting != "false") ||
+        (g_isolated_draw.require_title_lod_candidate &&
+         !g_isolated_draw.auto_select_fresh_visibility_candidate)) {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
   if (!g_isolated_draw.requested &&
       g_sky_horizon_suppression.requested) {
     g_isolated_draw.target_signature = kSkyHorizonFollowerSignature;
@@ -10273,13 +10292,19 @@ bool RecordSemanticVisibilityPreparedCandidate(
   return false;
 }
 
-bool RecordSemanticBatchOpportunity(
+struct SemanticVisibilityPreparedAdmission {
+  bool fresh = false;
+  bool title_lod_valid = false;
+  uint32_t title_lod_index = 0;
+};
+
+SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
     const TitleDrawOrigin &origin, uint64_t prepared_signature) {
   if (!origin.semantic_draw.valid) {
-    return false;
+    return {};
   }
   const SemanticDrawIdentity &identity = origin.semantic_draw;
   const SemanticPreparedDrawContract contract =
@@ -10290,7 +10315,12 @@ bool RecordSemanticBatchOpportunity(
   const bool fresh_visibility_candidate =
       RecordSemanticVisibilityPreparedCandidate(observation, identity,
                                                 contract, prepared_signature,
-                                                mechanical_rejection_mask);
+                                                 mechanical_rejection_mask);
+  const SemanticVisibilityPreparedAdmission visibility_admission = {
+      .fresh = fresh_visibility_candidate,
+      .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
+      .title_lod_index = identity.title_lod_index,
+  };
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
@@ -10318,7 +10348,7 @@ bool RecordSemanticBatchOpportunity(
     FinalizeSemanticBatchEquivalenceRuns();
     BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
-    return fresh_visibility_candidate;
+    return visibility_admission;
   }
   SemanticBatchOpportunityEntry &entry =
       g_semantic_batch_opportunities[opportunity_index];
@@ -10338,7 +10368,7 @@ bool RecordSemanticBatchOpportunity(
     FinalizeSemanticBatchEquivalenceRuns();
     BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
-    return fresh_visibility_candidate;
+    return visibility_admission;
   }
   ++g_semantic_batch_eligible_draws;
   const uint64_t parameter_hash =
@@ -10399,7 +10429,7 @@ bool RecordSemanticBatchOpportunity(
     g_semantic_batch_run.receiver_address = identity.receiver_address;
     g_semantic_batch_run.receiver_generation = identity.receiver_generation;
     g_semantic_batch_run.record_index = identity.record_index;
-    return fresh_visibility_candidate;
+    return visibility_admission;
   }
   FinalizeSemanticBatchRun();
   g_semantic_batch_run = {
@@ -10412,7 +10442,7 @@ bool RecordSemanticBatchOpportunity(
       .record_index = identity.record_index,
       .valid = true,
   };
-  return fresh_visibility_candidate;
+  return visibility_admission;
 }
 
 void EmitSemanticBatchEquivalenceSummary() {
@@ -12091,9 +12121,10 @@ void ObservePreparedDraw(
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
-    const bool fresh_visibility_candidate = RecordSemanticBatchOpportunity(
-        sample, g_pending_candidate.samples_resolved_target, observation,
-        g_pending_candidate.title_origin, prepared_signature);
+    const SemanticVisibilityPreparedAdmission visibility_admission =
+        RecordSemanticBatchOpportunity(
+            sample, g_pending_candidate.samples_resolved_target, observation,
+            g_pending_candidate.title_origin, prepared_signature);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
@@ -12101,7 +12132,11 @@ void ObservePreparedDraw(
     g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
         sample, g_pending_candidate.samples_resolved_target, observation);
     g_isolated_draw.prepared_visibility_candidate_fresh =
-        fresh_visibility_candidate;
+        visibility_admission.fresh;
+    g_isolated_draw.prepared_title_lod_valid =
+        visibility_admission.title_lod_valid;
+    g_isolated_draw.prepared_title_lod_index =
+        visibility_admission.title_lod_index;
     g_isolated_draw.prepared_candidate_valid = true;
     if (g_pass_follower.requested && g_pass_follower.valid &&
         !g_pass_follower.completed) {
@@ -13347,7 +13382,9 @@ void RequestIsolatedDraw(
   const bool candidate_eligible =
       g_isolated_draw.prepared_candidate_eligible &&
       (!g_isolated_draw.require_fresh_visibility_candidate ||
-       g_isolated_draw.prepared_visibility_candidate_fresh);
+       g_isolated_draw.prepared_visibility_candidate_fresh) &&
+      (!g_isolated_draw.require_title_lod_candidate ||
+       g_isolated_draw.prepared_title_lod_valid);
   if (pass_mode) {
     const uint64_t signature = g_isolated_draw.prepared_signature;
     if (signature == g_pass_follower.target_signature) {
@@ -13433,6 +13470,25 @@ void RequestIsolatedDraw(
   if (g_isolated_draw.auto_select_fresh_visibility_candidate &&
       !g_isolated_draw.target_signature) {
     if (!candidate_eligible) {
+      if (g_isolated_draw.prepared_candidate_eligible &&
+          g_isolated_draw.prepared_visibility_candidate_fresh &&
+          g_isolated_draw.require_title_lod_candidate &&
+          !g_isolated_draw.prepared_title_lod_valid &&
+          !g_isolated_draw.title_lod_wait_reported) {
+        pinyon_shift::diagnostics::RecordEvent(
+            "native_renderer.isolated_draw.title_lod_gate",
+            {{"status", "waiting_for_exact_title_lod_observation"},
+             {"frame", std::to_string(g_isolated_draw.frame)},
+             {"draw", std::to_string(g_isolated_draw.draw)},
+             {"mechanically_eligible", "true"},
+             {"fresh_visibility_candidate", "true"},
+             {"title_lod_valid", "false"},
+             {"native_draw", "false"},
+             {"xenos_draw", "preserved"},
+             {"output_authority", "xenos"},
+             {"suppression_eligible", "false"}});
+        g_isolated_draw.title_lod_wait_reported = true;
+      }
       return;
     }
     g_isolated_draw.target_signature = g_isolated_draw.prepared_signature;
@@ -13440,11 +13496,20 @@ void RequestIsolatedDraw(
         "native_renderer.isolated_draw.auto_selection",
         {{"signature",
           fmt::format("{:016X}", g_isolated_draw.target_signature)},
-         {"status", "locked_first_fresh_eligible_candidate"},
+         {"status",
+          g_isolated_draw.require_title_lod_candidate
+              ? "locked_first_fresh_eligible_title_lod_candidate"
+              : "locked_first_fresh_eligible_candidate"},
          {"frame", std::to_string(g_isolated_draw.frame)},
          {"draw", std::to_string(g_isolated_draw.draw)},
          {"mechanically_eligible", "true"},
          {"fresh_visibility_candidate", "true"},
+         {"title_lod_gate_required",
+          g_isolated_draw.require_title_lod_candidate ? "true" : "false"},
+         {"title_lod_valid",
+          g_isolated_draw.prepared_title_lod_valid ? "true" : "false"},
+         {"title_lod_index",
+          std::to_string(g_isolated_draw.prepared_title_lod_index)},
          {"native_draw", "isolated_only"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
@@ -14702,11 +14767,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"reference_marker", "exact_signature"},
        {"selection",
         g_isolated_draw.auto_select_fresh_visibility_candidate
-            ? "first_fresh_mechanically_eligible_candidate"
+            ? (g_isolated_draw.require_title_lod_candidate
+                   ? "first_fresh_mechanically_eligible_title_lod_candidate"
+                   : "first_fresh_mechanically_eligible_candidate")
             : "exact_signature"},
        {"visibility_gate",
         g_isolated_draw.require_fresh_visibility_candidate
             ? "fresh_selected_semantic_candidate"
+            : "disabled"},
+       {"title_lod_gate",
+        g_isolated_draw.require_title_lod_candidate
+            ? "exact_visibility_identity_lod_observation"
             : "disabled"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
@@ -15164,7 +15235,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     diagnostics::RecordEvent(
         "native_renderer.census.texture_scan",
         {{"signature",
-          fmt::format("{:016X}", g_texture_scan.target_signature)},
+         fmt::format("{:016X}", g_texture_scan.target_signature)},
          {"status", "not_observed"},
          {"guest_payload_read", "false"},
          {"native_upload", "false"},
@@ -15211,6 +15282,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
               ? fmt::format("{:016X}", g_pass_follower.target_signature)
               : ""},
          {"status", "not_observed"},
+         {"title_lod_gate_required",
+          g_isolated_draw.require_title_lod_candidate ? "true" : "false"},
          {"native_draw", "false"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
