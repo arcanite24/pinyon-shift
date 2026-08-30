@@ -143,6 +143,40 @@ current direct, semantic, and indirect arguments and the first 512 bytes of
 their object-like roots. Follow typed descriptor graph edges or locate another
 submission family; native vehicle drawing and suppression remain closed.
 
+## Statically targeted render-context arguments
+
+The next relationship layer is derived from generated title instructions
+rather than address-shape heuristics. Function `824365B0` preserves guest `r7`
+as an object, loads its first word as a vtable, loads virtual slot 8, and calls
+that target. The same function consumes guest `r8` directly as vector source
+data. Those exact arguments are therefore admitted to the existing bounded
+512-byte one-hop correlation cache in addition to each provenance family's
+original `r3` root. They may bypass the generic `0x40000000`–`0x6fffffff`
+address-shape heuristic, but still require a nonzero aligned value and a
+readable guest page range before the snapshot is copied. Separate request and
+unique-scan counters prove both arguments were exercised by a qualification
+session.
+
+A broader experimental child scan was rejected before publication: guest
+object lifetime can change between a page-access check and a payload read, and
+common floating-point bit patterns occupy the same numeric range as guest
+addresses. The retained path never dereferences a candidate child and makes no
+type claim from its numeric value. It reads only the already-bounded root
+snapshot, keeps Xenos authoritative, and leaves native vehicle drawing and
+suppression closed until an exact owner, position, or forward-vector join is
+proved.
+
+Release/AppData session `20260830T103151Z-p43600` qualified the targeted
+slice in stable festival gameplay. Both arguments were present outside the
+generic address band: `r7` produced 692,963 scan requests and 3,660 unique
+cache entries, while `r8` produced 692,963 requests and 424 unique entries.
+The session covered 2,483,488 indirect draws and 31 vehicle identities with
+complete provenance, zero overflow, no error or fatal event, and a normal
+exit. Neither root contained an exact owner, position, or forward-vector join
+within the bounded snapshot, so both are rejected for this relationship depth.
+Continue from a typed callee contract or another submission family; native
+vehicle drawing and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell

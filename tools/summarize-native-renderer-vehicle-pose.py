@@ -183,6 +183,10 @@ def build(events, requested_session=None):
         "object_scan_cache_capacity": "16384",
         "object_correlation_capacity": "2048",
         "object_correlation": "sampled_one_hop_pointer_to_vehicle_address",
+        "targeted_render_context_arguments": "824365B0:r7,r8",
+        "targeted_render_context_static_contract": (
+            "r7_vtable_slot_8_and_r8_vector_source"
+        ),
         "guest_payload_read": (
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -288,6 +292,10 @@ def build(events, requested_session=None):
         "object_correlations",
         "object_correlation_capacity",
         "object_correlation_overflow",
+        "targeted_render_context_r7_scan_requests",
+        "targeted_render_context_r7_scans",
+        "targeted_render_context_r8_scan_requests",
+        "targeted_render_context_r8_scans",
     ):
         totals[key] = integer(summary, key)
     identities = []
@@ -738,6 +746,17 @@ def build(events, requested_session=None):
         failures.append("vehicle object correlation table overflowed")
     if totals["object_correlations"] > totals["object_correlation_capacity"]:
         failures.append("vehicle object correlation capacity drifted")
+    for register in ("r7", "r8"):
+        requests = totals[f"targeted_render_context_{register}_scan_requests"]
+        scans = totals[f"targeted_render_context_{register}_scans"]
+        if not requests or not scans:
+            failures.append(
+                f"targeted render-context {register} coverage was absent"
+            )
+        if scans > requests:
+            failures.append(
+                f"targeted render-context {register} accounting drifted"
+            )
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(

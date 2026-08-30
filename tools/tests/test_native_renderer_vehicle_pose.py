@@ -47,6 +47,10 @@ def fixture():
         object_scan_cache_capacity="16384",
         object_correlation_capacity="2048",
         object_correlation="sampled_one_hop_pointer_to_vehicle_address",
+        targeted_render_context_arguments="824365B0:r7,r8",
+        targeted_render_context_static_contract=(
+            "r7_vtable_slot_8_and_r8_vector_source"
+        ),
         guest_payload_read=(
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -114,6 +118,10 @@ def fixture():
         object_correlations="0",
         object_correlation_capacity="2048",
         object_correlation_overflow="0",
+        targeted_render_context_r7_scan_requests="2",
+        targeted_render_context_r7_scans="1",
+        targeted_render_context_r8_scan_requests="2",
+        targeted_render_context_r8_scans="1",
         title_provenance_requested="true",
         draw_provenance_coverage_complete="true",
         guest_state_changed="false",
@@ -218,6 +226,17 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertIn("ScanVehicleObjectProbeLocked", hooks)
         self.assertIn(
             '"native_renderer.discovery.vehicle_draw_object_correlation"',
+            hooks,
+        )
+        self.assertNotIn("ScanVehicleDescriptorEdgeLocked", hooks)
+        self.assertNotIn("VehicleDescriptorCorrelationEntry", hooks)
+        self.assertIn(
+            "probe.function_address == kVehicleRenderContextFunction",
+            hooks,
+        )
+        self.assertIn(
+            "if (IsTargetedVehicleRenderContextProbe(probe)) {\n"
+            "    return true;",
             hooks,
         )
         self.assertIn("[switch]$VehicleDrawCorrelation", capture)
