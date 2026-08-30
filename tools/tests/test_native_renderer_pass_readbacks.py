@@ -264,10 +264,18 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
                 native, xenos, native_seed, xenos_seed
             )
 
+            self.assertEqual(
+                report["schema"],
+                "pinyon-shift.native-renderer-depth-checkpoint-analysis.v2",
+            )
             self.assertEqual(report["result"], "fail")
             self.assertEqual(report["diagnosis"], "draw_effect_divergence")
             self.assertEqual(
                 report["comparisons"]["seed_copy"]["result"], "pass"
+            )
+            self.assertEqual(
+                report["comparisons"]["draw_effect_parity"]["result"],
+                "fail",
             )
             native_components = report["comparisons"]["native_draw_effect"][
                 "metrics"
@@ -296,7 +304,45 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
                 native, xenos, native_seed, xenos_seed
             )
 
-            self.assertEqual(report["diagnosis"], "private_seed_copy_mismatch")
+            self.assertEqual(
+                report["diagnosis"],
+                "seed_divergence_with_exact_draw_effect",
+            )
+            effect = report["comparisons"]["draw_effect_parity"]
+            self.assertEqual(effect["result"], "pass")
+            self.assertTrue(effect["metrics"]["exact_draw_effect"])
+            self.assertEqual(effect["metrics"]["mismatch_bytes"], 0)
+
+    def test_depth_effect_parity_requires_matching_changed_post_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            seed = bytes(64)
+            native_after = bytearray(seed)
+            xenos_after = bytearray(seed)
+            native_after[4] = 7
+            xenos_after[4] = 9
+            write_msaa_depth_readback(native_seed, "native_seed", seed)
+            write_msaa_depth_readback(xenos_seed, "xenos_seed", seed)
+            write_msaa_depth_readback(native, "native", bytes(native_after))
+            write_msaa_depth_readback(xenos, "xenos", bytes(xenos_after))
+
+            report = MODULE.compare_depth_checkpoints(
+                native, xenos, native_seed, xenos_seed
+            )
+
+            effect = report["comparisons"]["draw_effect_parity"]
+            self.assertEqual(effect["result"], "fail")
+            self.assertEqual(effect["metrics"]["mismatch_bytes"], 1)
+            self.assertEqual(effect["metrics"]["depth_mismatch_bytes"], 0)
+            self.assertEqual(effect["metrics"]["stencil_mismatch_bytes"], 1)
+            self.assertEqual(
+                effect["metrics"]["first_mismatches"][0]["component"],
+                "stencil",
+            )
 
 
 if __name__ == "__main__":
