@@ -592,6 +592,73 @@ address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"
 registers = ["r1", "r30", "r31"]
 
+# NR-05E owner-vtable draw correlation. Runtime-qualified vtable 0x8213BA54
+# maps slots 14, 20, and 22 to these three bounded candidates. Entry hooks
+# preserve r3 as the owner identity; balanced hooks run on each candidate's
+# sole tail-return path. The host only correlates exact, already-observed
+# vehicle owners with title draw origins and backend packet matches. No guest
+# register, packet, render state, native publication, or control flow changes.
+[[midasm_hook]]
+address = 0x82BCC368
+name = "PinyonShiftObserveVehicleOwnerMethod82BCC368Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BCCD30
+name = "PinyonShiftObserveVehicleOwnerMethod82BCC368Exit"
+
+[[midasm_hook]]
+address = 0x82BD2DE0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2DE0Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BD35B0
+name = "PinyonShiftObserveVehicleOwnerMethod82BD2DE0Exit"
+
+[[midasm_hook]]
+address = 0x82BC8410
+name = "PinyonShiftObserveVehicleOwnerMethod82BC8410Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82BC86F0
+name = "PinyonShiftObserveVehicleOwnerMethod82BC8410Exit"
+
+# Slot 22 is a high-frequency, balanced vehicle-owner update scope rather than
+# a proven renderer method. Capture its six exact virtual targets before each
+# bctrl to identify the downstream component classes. These hooks are ignored
+# unless the enclosing owner was already admitted by the pose census.
+[[midasm_hook]]
+address = 0x82BC8468
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC8468"
+registers = ["r3", "ctr"]
+
+[[midasm_hook]]
+address = 0x82BC84A4
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC84A4"
+registers = ["r3", "ctr"]
+
+[[midasm_hook]]
+address = 0x82BC84DC
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC84DC"
+registers = ["r3", "ctr"]
+
+[[midasm_hook]]
+address = 0x82BC8688
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC8688"
+registers = ["r3", "ctr"]
+
+[[midasm_hook]]
+address = 0x82BC86BC
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC86BC"
+registers = ["r3", "ctr"]
+
+[[midasm_hook]]
+address = 0x82BC86E4
+name = "PinyonShiftObserveVehicleOwnerIndirect82BC86E4"
+registers = ["r3", "ctr"]
+
 # M4 markerless-exit classification. PID 25180 produced an unhandled read AV
 # in sub_826E1B10 after a readable object yielded vtable 0x0000487C. Observe
 # the object assignment immediately before the vtable+8 read; do not repair or
