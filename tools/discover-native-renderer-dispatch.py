@@ -1588,6 +1588,27 @@ def procedural_model_receiver_lifecycle(
             "xenos_authority": True,
             "suppression_allowed": False,
         },
+        "visibility_policy_workset": {
+            "record_completion_hook_address": "{:08X}".format(
+                spec["visibility_record_exit"]
+            ),
+            "semantic_instance_hook_address": "{:08X}".format(
+                spec["render_item_entry_hook"]
+            ),
+            "capacity": 4096,
+            "model": "independent_policy_to_semantic_candidate_handoff",
+            "identity": "receiver_generation_record_index",
+            "selection_rule": "any_nonzero_predicted_category_result_selects",
+            "execution": "bounded_host_visibility_workset",
+            "guest_payload_read": "qualified_policy_inputs_only",
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "title_culling_changed": False,
+            "native_lod_enabled": False,
+            "native_draw_enabled": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
         "render_state_function_address": "{:08X}".format(
             spec["render_state_function"]
         ),

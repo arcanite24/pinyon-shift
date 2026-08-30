@@ -1373,6 +1373,22 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(assembly_shadow["guest_state_changed"])
         self.assertTrue(assembly_shadow["xenos_authority"])
         self.assertFalse(assembly_shadow["suppression_allowed"])
+        workset = lifecycle["visibility_policy_workset"]
+        self.assertEqual("82E2084C", workset["record_completion_hook_address"])
+        self.assertEqual("8241741C", workset["semantic_instance_hook_address"])
+        self.assertEqual(4096, workset["capacity"])
+        self.assertEqual(
+            "independent_policy_to_semantic_candidate_handoff",
+            workset["model"],
+        )
+        self.assertEqual(
+            "receiver_generation_record_index", workset["identity"]
+        )
+        self.assertEqual("bounded_host_visibility_workset", workset["execution"])
+        self.assertFalse(workset["title_culling_changed"])
+        self.assertFalse(workset["native_draw_enabled"])
+        self.assertTrue(workset["xenos_authority"])
+        self.assertFalse(workset["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )
