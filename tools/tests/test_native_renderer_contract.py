@@ -1989,7 +1989,13 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("observation.index_count == 703", scanner)
         self.assertIn("prepared_shadow_depth_batch_member", scanner)
         self.assertIn(
-            "if (g_isolated_draw.shadow_depth_batch_capture_completed)", scanner
+            "g_isolated_draw.shadow_depth_batch_capture_completed &&", scanner
+        )
+        self.assertIn(
+            "!g_isolated_draw.shadow_depth_continuous_mode", scanner
+        )
+        self.assertIn(
+            "g_isolated_draw.shadow_depth_continuous_failed_closed", scanner
         )
         self.assertIn('"one_shot_full_80_draw_atlas_epoch"', scanner)
         self.assertIn("!exact_seed", scanner)

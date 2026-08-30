@@ -19,6 +19,9 @@ param(
     [switch]$ShadowDepthIsolated,
     [switch]$ShadowDepthBatch,
     [switch]$PublishShadowDepth,
+    [switch]$ContinuousShadowDepth,
+    [ValidateRange(2, 120)]
+    [int]$ContinuousShadowDepthEpochs = 8,
     [switch]$StencilSeedProbe,
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
@@ -97,6 +100,9 @@ if ($ShadowDepthBatch -and -not $IsolatedDrawDir) {
 }
 if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
     throw 'PublishShadowDepth requires ShadowDepthBatch.'
+}
+if ($ContinuousShadowDepth -and -not $PublishShadowDepth) {
+    throw 'ContinuousShadowDepth requires PublishShadowDepth.'
 }
 if ($StencilSeedProbe -and -not $IsolatedDrawDir) {
     throw 'StencilSeedProbe requires IsolatedDrawDir.'
@@ -199,6 +205,10 @@ $savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLA
 $savedShadowDepthBatch = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH
 $savedShadowDepthPublication =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
+$savedShadowDepthContinuous =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS
+$savedShadowDepthContinuousEpochLimit =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS_EPOCH_LIMIT
 $savedStencilSeedProbe = $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE
 $savedVisibilityGate = $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE
 $savedAutoVisibilityCandidate =
@@ -231,6 +241,12 @@ try {
         if ($ShadowDepthBatch) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         if ($PublishShadowDepth) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
+        if ($ContinuousShadowDepth) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS_EPOCH_LIMIT =
+        if ($ContinuousShadowDepth) {
+            [string]$ContinuousShadowDepthEpochs
+        } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE =
         if ($StencilSeedProbe) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
@@ -270,6 +286,10 @@ finally {
         $savedShadowDepthBatch
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         $savedShadowDepthPublication
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
+        $savedShadowDepthContinuous
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS_EPOCH_LIMIT =
+        $savedShadowDepthContinuousEpochLimit
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE = $savedStencilSeedProbe
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
         $savedVisibilityGate

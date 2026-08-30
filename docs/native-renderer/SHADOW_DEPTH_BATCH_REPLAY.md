@@ -115,6 +115,58 @@ event must retain `xenos_producer_draws=preserved`,
 Continuous atlas ownership and suppression remain closed. This mode qualifies
 only a one-shot native producer-to-Xenos-dump handoff.
 
+## Multi-epoch ownership experiment
+
+`-ContinuousShadowDepth` extends the admitted one-shot handoff across later
+exact 80-draw epochs. It requires both `-ShadowDepthBatch` and
+`-PublishShadowDepth`. The experiment is bounded to eight published epochs by
+default and accepts `-ContinuousShadowDepthEpochs` from 2 through 120. Only the
+first completed epoch requests native and Xenos readbacks; later epochs reuse
+the same private target path without producing additional artifacts.
+
+The experiment is fail-closed for the lifetime of the process. A non-contiguous
+epoch, backend replay failure, non-monotonic publication, or publication failure
+emits `native_renderer.shadow_depth_continuous.fail_closed` and permanently
+stops later native shadow requests. The current and every later Xenos producer,
+render-target dump, consumer, query, fence, and resolve remain active. Draw and
+resolve suppression are unavailable in this mode.
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot "$env:LOCALAPPDATA\PinyonShift\source\0.1.0\.local\preview" `
+  -Scene open_world_day `
+  -ShadowDepthBatch `
+  -PublishShadowDepth `
+  -ContinuousShadowDepth `
+  -ContinuousShadowDepthEpochs 8 `
+  -IsolatedDrawDir .local\qualification\nr05f-shadow-depth-continuous
+```
+
+Qualification requires `status=bounded_multi_epoch_complete`, exactly the
+configured number of strictly increasing publication epochs, exact
+request/batch accounting, zero fail-closed events, and the same first-epoch
+native/Xenos byte parity as the one-shot mode. This proves hybrid multi-epoch
+ownership before any Xenos suppression; it does not yet prove an independently
+consumed native atlas.
+
+After shutdown, verify the session and paired first-epoch artifacts with:
+
+```powershell
+python .\tools\verify-native-renderer-shadow-depth-continuous.py `
+  --log <session.jsonl> `
+  --native-dir <output>.depth.batch `
+  --xenos-dir <output>.depth.batch.xenos `
+  --expected-epochs 8
+```
+
+The AppData qualification session `20260830T155030Z-p35164` completed normally
+with eight consecutive publications on frames 5268 through 5275. The verifier
+qualified all 640 requested and recorded draws, retained every Xenos stage,
+observed no fail-closed or suppression event, and proved byte-for-byte parity
+between the 56,950,304-byte native and Xenos payloads. Both payloads produced
+SHA-256
+`7F66FEA3EBAF1995C89339095185C0693A3C15F6A0BEDE0B72AFC79E6BC991E5`.
+
 The first AppData qualification attempt (`20260830T140611Z-p3944`) proved why
 the seed and follower contracts must be separate: 8,252 exact seeds were
 recorded successfully, every one was interrupted by the next family draw, and
