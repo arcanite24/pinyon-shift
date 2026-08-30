@@ -112,6 +112,7 @@ constexpr size_t kVehicleDrawCorrelationCapacity = 1024;
 constexpr size_t kVehicleObjectScanWordCount = 128;
 constexpr size_t kVehicleObjectScanCacheCapacity = 16384;
 constexpr size_t kVehicleObjectCorrelationCapacity = 2048;
+constexpr uint32_t kVehicleRenderContextFunction = 0x824365B0;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -746,6 +747,8 @@ uint64_t g_vehicle_object_scan_cache_overflow = 0;
 uint64_t g_vehicle_object_argument_matches = 0;
 uint64_t g_vehicle_object_correlation_count = 0;
 uint64_t g_vehicle_object_correlation_overflow = 0;
+std::array<uint64_t, 2> g_vehicle_render_context_scan_requests{};
+std::array<uint64_t, 2> g_vehicle_render_context_scans{};
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -1741,10 +1744,23 @@ void IndexVehicleIdentityAddressLocked(size_t identity_index,
   ++g_vehicle_identity_address_overflow;
 }
 
+bool IsTargetedVehicleRenderContextProbe(
+    const VehicleDrawArgumentProbe &probe) {
+  return probe.layer ==
+             VehicleDrawProvenanceLayer::kIndirectContextArguments &&
+         probe.function_address == kVehicleRenderContextFunction &&
+         (probe.argument_index == 4 || probe.argument_index == 5);
+}
+
 bool ShouldScanVehicleObjectProbe(const VehicleDrawArgumentProbe &probe) {
-  if (probe.value < 0x40000000 || probe.value >= 0x70000000 ||
-      (probe.value & 3) ||
+  if (!probe.value || (probe.value & 3) ||
       probe.value > UINT32_MAX - kVehicleObjectScanWordCount * 4) {
+    return false;
+  }
+  if (IsTargetedVehicleRenderContextProbe(probe)) {
+    return true;
+  }
+  if (probe.value < 0x40000000 || probe.value >= 0x70000000) {
     return false;
   }
   switch (probe.layer) {
@@ -1766,6 +1782,17 @@ bool ShouldScanVehicleObjectProbe(const VehicleDrawArgumentProbe &probe) {
 
 bool IsDirectVehicleDrawProvenanceLayer(VehicleDrawProvenanceLayer layer) {
   return layer == VehicleDrawProvenanceLayer::kDirectArguments;
+}
+
+bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
+                                 uint32_t address, uint32_t length) {
+  if (!memory || !length || address > UINT32_MAX - (length - 1)) {
+    return false;
+  }
+  rex::memory::BaseHeap *heap = memory->LookupHeap(address);
+  return heap &&
+         heap->QueryRangeAccess(address, address + length - 1) !=
+             rex::memory::PageAccess::kNoAccess;
 }
 
 bool IsSemanticVehicleDrawProvenanceLayer(VehicleDrawProvenanceLayer layer) {
@@ -1844,6 +1871,9 @@ void ScanVehicleObjectProbeLocked(uint64_t backend_signature, uint64_t frame,
     return;
   }
   ++g_vehicle_object_scan_requests;
+  if (IsTargetedVehicleRenderContextProbe(probe)) {
+    ++g_vehicle_render_context_scan_requests[probe.argument_index - 4];
+  }
   const uint64_t frame_window = frame / kFrameSummaryInterval;
   uint64_t key = HashCombine(backend_signature, frame_window);
   key = HashCombine(key, uint64_t(probe.layer));
@@ -1887,10 +1917,14 @@ void ScanVehicleObjectProbeLocked(uint64_t backend_signature, uint64_t frame,
   };
   ++g_vehicle_object_scan_cache_count;
   ++g_vehicle_object_scans;
+  if (IsTargetedVehicleRenderContextProbe(probe)) {
+    ++g_vehicle_render_context_scans[probe.argument_index - 4];
+  }
   g_vehicle_object_scan_words += kVehicleObjectScanWordCount;
   rex::memory::Memory *memory =
       g_vehicle_discovery_memory.load(std::memory_order_acquire);
-  if (!memory) {
+  if (!IsReadableVehicleGuestRange(memory, probe.value,
+                                   kVehicleObjectScanWordCount * 4)) {
     return;
   }
   std::array<uint32_t, kVehicleObjectScanWordCount> words{};
@@ -15745,6 +15779,8 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_object_argument_matches = 0;
     g_vehicle_object_correlation_count = 0;
     g_vehicle_object_correlation_overflow = 0;
+    g_vehicle_render_context_scan_requests = {};
+    g_vehicle_render_context_scans = {};
   }
   g_vehicle_title_provenance_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
@@ -15789,6 +15825,9 @@ void ConfigureVehicleDiscovery(bool census_requested,
         std::to_string(kVehicleObjectCorrelationCapacity)},
        {"object_correlation",
         "sampled_one_hop_pointer_to_vehicle_address"},
+       {"targeted_render_context_arguments", "824365B0:r7,r8"},
+       {"targeted_render_context_static_contract",
+        "r7_vtable_slot_8_and_r8_vector_source"},
        {"guest_payload_read",
         "existing_title_pose_hook_values_and_bounded_owner_vtable"},
        {"guest_state_changed", "false"},
@@ -15896,6 +15935,14 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleObjectCorrelationCapacity)},
        {"object_correlation_overflow",
         std::to_string(g_vehicle_object_correlation_overflow)},
+       {"targeted_render_context_r7_scan_requests",
+        std::to_string(g_vehicle_render_context_scan_requests[0])},
+       {"targeted_render_context_r7_scans",
+        std::to_string(g_vehicle_render_context_scans[0])},
+       {"targeted_render_context_r8_scan_requests",
+        std::to_string(g_vehicle_render_context_scan_requests[1])},
+       {"targeted_render_context_r8_scans",
+        std::to_string(g_vehicle_render_context_scans[1])},
        {"title_provenance_requested",
         g_vehicle_title_provenance_requested ? "true" : "false"},
        {"draw_provenance_coverage_complete",
