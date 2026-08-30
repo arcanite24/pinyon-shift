@@ -79,3 +79,42 @@ labels `Shader {b1ccceb6}` (64 draws), `Shader {d18760b6}` (12), and
 a bounded producer-consumer or controlled-light probe. It is not sufficient to
 identify a shadow atlas, cascade split, caster class, or quality tier, so the
 report keeps both shadow and reflection qualification false.
+
+## Bounded resource lineage
+
+The candidate target is joined to exact pass metadata with a second
+payload-free export:
+
+```powershell
+.\tools\export-native-renderer-resource-usage.ps1 `
+  -Capture '.local\qualification\reference_frame8134.rdc' `
+  -RenderDocRoot '.local\tools\renderdoc\RenderDoc_64' `
+  -ResourceName 'RT @ 720t, <13t>, 1xMSAA, kD24S8' `
+  -Output '.local\qualification\depth-resource-usage.json'
+
+python .\tools\build-native-renderer-effect-resource-lineage.py `
+  .local\qualification\depth-resource-usage.json `
+  .local\qualification\effect-pass-trace.json `
+  --output .local\qualification\depth-resource-lineage.json
+```
+
+The exporter requires one exact resource-name match, records action metadata
+only, and exports no resource payload. The joiner requires both reports to
+name the same capture hash and rejects pixel reads without authoritative draw
+metadata.
+
+The 1xMSAA D24S8 candidate has six clear/write epochs, 207 unique depth-target
+writes, 36 pixel-shader reads, and two unique compute-read events. Every epoch
+is sampled after a write. All 36 pixel consumers write another depth target;
+none writes color. Their fixed vertex shader is `Shader {c700dc5c}`, and the
+pixel shaders are `Shader {1007aa27}` and `Shader {ea1021af}`. The immediate
+destination is `RT @ 720t, <13t>, 4xMSAA, kD24S8`.
+
+Following that destination proves the same mechanical pattern: four complete
+clear/write epochs, 40 unique depth-target writes, 59 pixel reads, and two
+unique compute-read events. Every pixel consumer again writes depth only, with
+zero color outputs. The square-view candidate is therefore a qualified
+depth-to-depth propagation chain, not a direct scene-color shadow sampler.
+This rejects it as the next shadow semantic seed while leaving the broader
+possibility of shadow data elsewhere open. Native coverage and suppression
+remain false.
