@@ -66,9 +66,16 @@ def fixture():
             "position_delta_squared<=0.25,forward_delta_squared<=0.04"
         ),
         vehicle_matrix_correlation_capacity="512",
+        typed_render_item_hook="8240EC18:r11_descriptor,r31_root",
+        typed_render_item_contract=(
+            "eligible_root_child_and_descriptor_through_offset_244"
+        ),
+        typed_render_item_profile_capacity="32",
+        typed_descriptor_word_count="62",
+        typed_descriptor_correlation_capacity="512",
         guest_payload_read=(
             "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
-            "typed_4x4_caller_matrix"
+            "typed_4x4_caller_matrix,typed_render_item_descriptor"
         ),
         guest_state_changed="false",
         native_upload="false",
@@ -165,6 +172,21 @@ def fixture():
         vehicle_matrix_correlations="4",
         vehicle_matrix_correlation_capacity="512",
         vehicle_matrix_correlation_overflow="0",
+        typed_render_item_observations="2",
+        typed_render_item_valid_observations="2",
+        typed_render_item_invalid_root="0",
+        typed_render_item_invalid_child="0",
+        typed_render_item_invalid_descriptor="0",
+        typed_render_item_accounting_complete="true",
+        typed_render_item_profiles="1",
+        typed_render_item_profile_capacity="32",
+        typed_render_item_profile_overflow="0",
+        typed_descriptor_scan_words="124",
+        typed_descriptor_word_count="62",
+        typed_descriptor_matches="1",
+        typed_descriptor_correlations="1",
+        typed_descriptor_correlation_capacity="512",
+        typed_descriptor_correlation_overflow="0",
         title_provenance_requested="true",
         draw_provenance_coverage_complete="true",
         guest_state_changed="false",
@@ -296,6 +318,54 @@ def fixture():
                     suppression_allowed="false",
                 )
             )
+    typed_render_item_profile = event(
+        MODULE.TYPED_RENDER_ITEM_PROFILE,
+        function_address="8240E7B0",
+        hook_address="8240EC18",
+        root_address="AB1A7BE4",
+        root_vtable="82143000",
+        child_address="AB1A8000",
+        child_vtable="82144000",
+        descriptor_address="AB1A8080",
+        descriptor_type="19",
+        descriptor_payload="AB1A9000",
+        descriptor_flag="1",
+        descriptor_hash="1234567890ABCDEF",
+        observations="2",
+        root_address_changes="0",
+        child_address_changes="0",
+        descriptor_address_changes="1",
+        descriptor_hash_changes="1",
+        classification="typed_render_item_descriptor_profile",
+        vehicle_draw_identity_proved="false",
+        guest_state_changed="false",
+        native_draw="false",
+        xenos_authority="true",
+        suppression_allowed="false",
+    )
+    typed_descriptor_correlation = event(
+        MODULE.TYPED_DESCRIPTOR_CORRELATION,
+        function_address="8240E7B0",
+        hook_address="8240EC18",
+        root_vtable="82143000",
+        child_vtable="82144000",
+        descriptor_type="19",
+        pointer_offset="40",
+        identity_field="owner",
+        matched_address="A0002000",
+        identity_generation="00000001",
+        identity_owner="A0002000",
+        identity_slot="2",
+        observations="1",
+        first_frame="104",
+        last_frame="104",
+        classification="typed_vehicle_descriptor_correlation_candidate",
+        vehicle_draw_identity_proved="false",
+        guest_state_changed="false",
+        native_draw="false",
+        xenos_authority="true",
+        suppression_allowed="false",
+    )
     return [
         config,
         summary,
@@ -303,6 +373,8 @@ def fixture():
         *methods,
         render_context_callee,
         *matrix_correlations,
+        typed_render_item_profile,
+        typed_descriptor_correlation,
         title_provenance_config,
     ]
 
@@ -376,8 +448,18 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertIn(
             '"native_renderer.discovery.vehicle_matrix_correlation"', hooks
         )
+        self.assertIn("ObserveVehicleTypedRenderItem", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_typed_render_item_profile"',
+            hooks,
+        )
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_typed_descriptor_correlation"',
+            hooks,
+        )
         self.assertIn("[switch]$VehicleDrawCorrelation", capture)
         self.assertEqual(1, analysis.count("address = 0x8240E7B4"))
+        self.assertEqual(1, analysis.count("address = 0x8240EC18"))
         self.assertEqual(1, analysis.count("address = 0x8243646C"))
         for address in (
             "82BC8468",
@@ -431,6 +513,40 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             ]
         )
         self.assertEqual(4, len(document["vehicle_matrix_correlations"]))
+        self.assertTrue(
+            document["qualification"]["typed_render_item_contract_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "typed_vehicle_descriptor_candidate_proved"
+            ]
+        )
+        self.assertEqual(1, len(document["typed_render_item_profiles"]))
+        self.assertEqual(1, len(document["typed_descriptor_correlations"]))
+
+    def test_rejects_typed_render_item_accounting_or_overflow(self):
+        events = fixture()
+        events[1]["typed_render_item_valid_observations"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "typed render-item accounting drifted", document["failures"]
+        )
+
+        events = fixture()
+        events[1]["typed_render_item_profile_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "typed render-item profile table overflowed",
+            document["failures"],
+        )
+
+        events = fixture()
+        events[1]["typed_descriptor_correlation_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "typed descriptor correlation table overflowed",
+            document["failures"],
+        )
 
     def test_rejects_vehicle_matrix_accounting_or_overflow(self):
         events = fixture()

@@ -28,6 +28,12 @@ RENDER_CONTEXT_CALLEE = (
 VEHICLE_MATRIX_CORRELATION = (
     "native_renderer.discovery.vehicle_matrix_correlation"
 )
+TYPED_RENDER_ITEM_PROFILE = (
+    "native_renderer.discovery.vehicle_typed_render_item_profile"
+)
+TYPED_DESCRIPTOR_CORRELATION = (
+    "native_renderer.discovery.vehicle_typed_descriptor_correlation"
+)
 TITLE_PROVENANCE_CONFIG = (
     "native_renderer.discovery.title_provenance_config"
 )
@@ -213,9 +219,16 @@ def build(events, requested_session=None):
             "position_delta_squared<=0.25,forward_delta_squared<=0.04"
         ),
         "vehicle_matrix_correlation_capacity": "512",
+        "typed_render_item_hook": "8240EC18:r11_descriptor,r31_root",
+        "typed_render_item_contract": (
+            "eligible_root_child_and_descriptor_through_offset_244"
+        ),
+        "typed_render_item_profile_capacity": "32",
+        "typed_descriptor_word_count": "62",
+        "typed_descriptor_correlation_capacity": "512",
         "guest_payload_read": (
             "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
-            "typed_4x4_caller_matrix"
+            "typed_4x4_caller_matrix,typed_render_item_descriptor"
         ),
         "guest_state_changed": "false",
         "native_upload": "false",
@@ -258,6 +271,9 @@ def build(events, requested_session=None):
         "object_correlation_capacity": "2048",
         "render_context_callee_profile_capacity": "32",
         "vehicle_matrix_correlation_capacity": "512",
+        "typed_render_item_profile_capacity": "32",
+        "typed_descriptor_word_count": "62",
+        "typed_descriptor_correlation_capacity": "512",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -350,11 +366,26 @@ def build(events, requested_session=None):
         "vehicle_matrix_correlations",
         "vehicle_matrix_correlation_capacity",
         "vehicle_matrix_correlation_overflow",
+        "typed_render_item_observations",
+        "typed_render_item_valid_observations",
+        "typed_render_item_invalid_root",
+        "typed_render_item_invalid_child",
+        "typed_render_item_invalid_descriptor",
+        "typed_render_item_profiles",
+        "typed_render_item_profile_capacity",
+        "typed_render_item_profile_overflow",
+        "typed_descriptor_scan_words",
+        "typed_descriptor_word_count",
+        "typed_descriptor_matches",
+        "typed_descriptor_correlations",
+        "typed_descriptor_correlation_capacity",
+        "typed_descriptor_correlation_overflow",
     ):
         totals[key] = integer(summary, key)
     for key in (
         "vehicle_matrix_caller_accounting_complete",
         "vehicle_matrix_route_accounting_complete",
+        "typed_render_item_accounting_complete",
     ):
         if summary.get(key) not in ("true", "false"):
             raise ValueError(f"invalid {key}")
@@ -874,6 +905,156 @@ def build(events, requested_session=None):
         )
     )
 
+    typed_render_item_profiles = []
+    seen_typed_render_item_profiles = set()
+    for event in selected:
+        if event.get("event") != TYPED_RENDER_ITEM_PROFILE:
+            continue
+        descriptor_type = integer(event, "descriptor_type")
+        descriptor_flag = integer(event, "descriptor_flag")
+        key = (
+            hexadecimal(event, "root_vtable"),
+            hexadecimal(event, "child_vtable"),
+            descriptor_type,
+        )
+        if (
+            key in seen_typed_render_item_profiles
+            or descriptor_type > 0xFFFF
+            or descriptor_flag > 0xFF
+            or event.get("function_address") != "8240E7B0"
+            or event.get("hook_address") != "8240EC18"
+            or event.get("classification")
+            != "typed_render_item_descriptor_profile"
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError("typed render-item profile violates boundary")
+        seen_typed_render_item_profiles.add(key)
+        typed_render_item_profiles.append(
+            {
+                "function_address": "8240E7B0",
+                "hook_address": "8240EC18",
+                "root_address": hexadecimal(event, "root_address"),
+                "root_vtable": key[0],
+                "child_address": hexadecimal(event, "child_address"),
+                "child_vtable": key[1],
+                "descriptor_address": hexadecimal(
+                    event, "descriptor_address"
+                ),
+                "descriptor_type": descriptor_type,
+                "descriptor_payload": hexadecimal_allow_zero(
+                    event, "descriptor_payload"
+                ),
+                "descriptor_flag": descriptor_flag,
+                "descriptor_hash": hexadecimal64(event, "descriptor_hash"),
+                "observations": integer(event, "observations"),
+                "root_address_changes": integer(
+                    event, "root_address_changes"
+                ),
+                "child_address_changes": integer(
+                    event, "child_address_changes"
+                ),
+                "descriptor_address_changes": integer(
+                    event, "descriptor_address_changes"
+                ),
+                "descriptor_hash_changes": integer(
+                    event, "descriptor_hash_changes"
+                ),
+            }
+        )
+    typed_render_item_profiles.sort(
+        key=lambda item: (
+            item["root_vtable"],
+            item["child_vtable"],
+            item["descriptor_type"],
+        )
+    )
+
+    typed_descriptor_correlations = []
+    seen_typed_descriptor_correlations = set()
+    for event in selected:
+        if event.get("event") != TYPED_DESCRIPTOR_CORRELATION:
+            continue
+        identity_field = str(event.get("identity_field", ""))
+        identity_key = (
+            hexadecimal(event, "identity_generation"),
+            hexadecimal(event, "identity_owner"),
+            integer(event, "identity_slot"),
+        )
+        identity = identities_by_key.get(identity_key)
+        matched_address = hexadecimal(event, "matched_address")
+        if identity and identity_field in ("position", "forward"):
+            expected_address = identity.get(f"{identity_field}_address")
+        elif identity and identity_field == "owner":
+            expected_address = identity_key[1]
+        else:
+            expected_address = None
+        descriptor_type = integer(event, "descriptor_type")
+        pointer_offset = integer(event, "pointer_offset")
+        key = (
+            hexadecimal(event, "root_vtable"),
+            hexadecimal(event, "child_vtable"),
+            descriptor_type,
+            pointer_offset,
+            identity_field,
+            identity_key,
+        )
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        if (
+            key in seen_typed_descriptor_correlations
+            or descriptor_type > 0xFFFF
+            or pointer_offset >= 248
+            or pointer_offset % 4
+            or identity_field not in DRAW_IDENTITY_FIELDS
+            or identity is None
+            or matched_address != expected_address
+            or first_frame > last_frame
+            or event.get("function_address") != "8240E7B0"
+            or event.get("hook_address") != "8240EC18"
+            or event.get("classification")
+            != "typed_vehicle_descriptor_correlation_candidate"
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError(
+                "typed vehicle descriptor correlation violates boundary"
+            )
+        seen_typed_descriptor_correlations.add(key)
+        typed_descriptor_correlations.append(
+            {
+                "function_address": "8240E7B0",
+                "hook_address": "8240EC18",
+                "root_vtable": key[0],
+                "child_vtable": key[1],
+                "descriptor_type": descriptor_type,
+                "pointer_offset": pointer_offset,
+                "identity_field": identity_field,
+                "matched_address": matched_address,
+                "identity_generation": identity_key[0],
+                "identity_owner": identity_key[1],
+                "identity_slot": identity_key[2],
+                "observations": integer(event, "observations"),
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+            }
+        )
+    typed_descriptor_correlations.sort(
+        key=lambda item: (
+            item["root_vtable"],
+            item["child_vtable"],
+            item["descriptor_type"],
+            item["pointer_offset"],
+            item["identity_owner"],
+        )
+    )
+
     failures = []
     if totals["observations"] != (
         totals["valid_observations"] + totals["invalid_observations"]
@@ -1076,6 +1257,61 @@ def build(events, requested_session=None):
         "vehicle_matrix_correlation_capacity"
     ]:
         failures.append("vehicle matrix correlation capacity drifted")
+    typed_render_item_accounting_complete = totals[
+        "typed_render_item_valid_observations"
+    ] + totals["typed_render_item_invalid_root"] + totals[
+        "typed_render_item_invalid_child"
+    ] + totals["typed_render_item_invalid_descriptor"] == totals[
+        "typed_render_item_observations"
+    ]
+    if (
+        not typed_render_item_accounting_complete
+        or not totals["typed_render_item_accounting_complete"]
+    ):
+        failures.append("typed render-item accounting drifted")
+    if (
+        not totals["typed_render_item_observations"]
+        or not totals["typed_render_item_valid_observations"]
+        or not typed_render_item_profiles
+    ):
+        failures.append("typed render-item coverage was absent")
+    if (
+        totals["typed_render_item_invalid_root"]
+        or totals["typed_render_item_invalid_child"]
+        or totals["typed_render_item_invalid_descriptor"]
+    ):
+        failures.append("typed render-item payload was invalid")
+    if sum(item["observations"] for item in typed_render_item_profiles) != totals[
+        "typed_render_item_valid_observations"
+    ]:
+        failures.append("typed render-item profile totals drifted")
+    if len(typed_render_item_profiles) != totals["typed_render_item_profiles"]:
+        failures.append("typed render-item profile coverage drifted")
+    if totals["typed_render_item_profile_overflow"]:
+        failures.append("typed render-item profile table overflowed")
+    if totals["typed_render_item_profiles"] > totals[
+        "typed_render_item_profile_capacity"
+    ]:
+        failures.append("typed render-item profile capacity drifted")
+    if totals["typed_descriptor_scan_words"] != (
+        totals["typed_render_item_valid_observations"]
+        * totals["typed_descriptor_word_count"]
+    ):
+        failures.append("typed descriptor scan accounting drifted")
+    if sum(
+        item["observations"] for item in typed_descriptor_correlations
+    ) != totals["typed_descriptor_matches"]:
+        failures.append("typed descriptor match totals drifted")
+    if len(typed_descriptor_correlations) != totals[
+        "typed_descriptor_correlations"
+    ]:
+        failures.append("typed descriptor correlation coverage drifted")
+    if totals["typed_descriptor_correlation_overflow"]:
+        failures.append("typed descriptor correlation table overflowed")
+    if totals["typed_descriptor_correlations"] > totals[
+        "typed_descriptor_correlation_capacity"
+    ]:
+        failures.append("typed descriptor correlation capacity drifted")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -1100,6 +1336,7 @@ def build(events, requested_session=None):
         item["vehicle_render_transform_candidate_proved"]
         for item in matrix_correlations
     )
+    typed_descriptor_candidate_proved = bool(typed_descriptor_correlations)
     draw_provenance_coverage_complete = (
         title_provenance_requested
         and title_provenance_armed
@@ -1127,6 +1364,8 @@ def build(events, requested_session=None):
         "draw_object_correlations": object_correlations,
         "render_context_callees": render_context_callees,
         "vehicle_matrix_correlations": matrix_correlations,
+        "typed_render_item_profiles": typed_render_item_profiles,
+        "typed_descriptor_correlations": typed_descriptor_correlations,
         "coverage": {
             "title_provenance_requested": title_provenance_requested,
             "title_provenance_armed": title_provenance_armed,
@@ -1157,6 +1396,12 @@ def build(events, requested_session=None):
             ),
             "vehicle_render_matrix_candidate_proved": (
                 not failures and matrix_candidate_proved
+            ),
+            "typed_render_item_contract_proved": (
+                not failures and bool(typed_render_item_profiles)
+            ),
+            "typed_vehicle_descriptor_candidate_proved": (
+                not failures and typed_descriptor_candidate_proved
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,

@@ -118,6 +118,9 @@ constexpr uint32_t kVehicleMatrixCallerFunction = 0x8240E7B0;
 constexpr size_t kVehicleMatrixCorrelationCapacity = 512;
 constexpr double kVehicleMatrixPositionDeltaSquaredThreshold = 0.25;
 constexpr double kVehicleMatrixForwardDeltaSquaredThreshold = 0.04;
+constexpr size_t kVehicleTypedRenderItemProfileCapacity = 32;
+constexpr size_t kVehicleTypedDescriptorWordCount = 62;
+constexpr size_t kVehicleTypedDescriptorCorrelationCapacity = 512;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -752,6 +755,41 @@ struct VehicleMatrixCorrelationEntry {
   bool valid = false;
 };
 
+struct VehicleTypedRenderItemProfileEntry {
+  uint64_t observations = 0;
+  uint64_t root_address_changes = 0;
+  uint64_t child_address_changes = 0;
+  uint64_t descriptor_address_changes = 0;
+  uint64_t descriptor_hash_changes = 0;
+  uint64_t descriptor_hash = 0;
+  uint32_t root_address = 0;
+  uint32_t root_vtable = 0;
+  uint32_t child_address = 0;
+  uint32_t child_vtable = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t descriptor_type = 0;
+  uint32_t descriptor_payload = 0;
+  uint32_t descriptor_flag = 0;
+  bool valid = false;
+};
+
+struct VehicleTypedDescriptorCorrelationEntry {
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  VehicleIdentityAddressKind identity_field =
+      VehicleIdentityAddressKind::kOwner;
+  uint32_t root_vtable = 0;
+  uint32_t child_vtable = 0;
+  uint32_t descriptor_type = 0;
+  uint32_t pointer_offset = 0;
+  uint32_t matched_address = 0;
+  uint32_t identity_generation = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  bool valid = false;
+};
+
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
@@ -840,6 +878,23 @@ uint64_t g_vehicle_matrix_routes_without_identity = 0;
 uint64_t g_vehicle_matrix_tight_matches = 0;
 uint64_t g_vehicle_matrix_correlation_count = 0;
 uint64_t g_vehicle_matrix_correlation_overflow = 0;
+std::array<VehicleTypedRenderItemProfileEntry,
+           kVehicleTypedRenderItemProfileCapacity>
+    g_vehicle_typed_render_item_profiles{};
+std::array<VehicleTypedDescriptorCorrelationEntry,
+           kVehicleTypedDescriptorCorrelationCapacity>
+    g_vehicle_typed_descriptor_correlations{};
+uint64_t g_vehicle_typed_render_item_observations = 0;
+uint64_t g_vehicle_typed_render_item_valid_observations = 0;
+uint64_t g_vehicle_typed_render_item_invalid_root = 0;
+uint64_t g_vehicle_typed_render_item_invalid_child = 0;
+uint64_t g_vehicle_typed_render_item_invalid_descriptor = 0;
+uint64_t g_vehicle_typed_render_item_profile_count = 0;
+uint64_t g_vehicle_typed_render_item_profile_overflow = 0;
+uint64_t g_vehicle_typed_descriptor_scan_words = 0;
+uint64_t g_vehicle_typed_descriptor_matches = 0;
+uint64_t g_vehicle_typed_descriptor_correlation_count = 0;
+uint64_t g_vehicle_typed_descriptor_correlation_overflow = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -2052,6 +2107,177 @@ void ObserveVehicleMatrixCaller(uint32_t function_address,
         matched->best_matrix_address = matrix_address;
         matched->best_matrix_hash = matrix_hash;
       }
+    }
+  }
+}
+
+void ObserveVehicleTypedRenderItem(uint32_t root_address,
+                                   uint32_t descriptor_address) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  ++g_vehicle_typed_render_item_observations;
+  if (!IsReadableVehicleGuestRange(memory, root_address, 8)) {
+    ++g_vehicle_typed_render_item_invalid_root;
+    return;
+  }
+  std::array<uint32_t, 2> root_words{};
+  LoadSemanticGuestWords(memory, root_address, root_words);
+  const uint32_t root_vtable = root_words[0];
+  const uint32_t child_address = root_words[1];
+  if (!child_address ||
+      !IsReadableVehicleGuestRange(memory, child_address, 4)) {
+    ++g_vehicle_typed_render_item_invalid_child;
+    return;
+  }
+  std::array<uint32_t, 1> child_words{};
+  LoadSemanticGuestWords(memory, child_address, child_words);
+  const uint32_t child_vtable = child_words[0];
+  if (!IsReadableVehicleGuestRange(
+          memory, descriptor_address,
+          uint32_t(kVehicleTypedDescriptorWordCount * sizeof(uint32_t)))) {
+    ++g_vehicle_typed_render_item_invalid_descriptor;
+    return;
+  }
+  std::array<uint32_t, kVehicleTypedDescriptorWordCount> descriptor_words{};
+  LoadSemanticGuestWords(memory, descriptor_address, descriptor_words);
+  const uint32_t descriptor_type = descriptor_words[8] >> 16;
+  const uint32_t descriptor_payload = descriptor_words[10];
+  const uint32_t descriptor_flag = descriptor_words[61] >> 24;
+  const uint64_t descriptor_hash = HashSemanticWords(descriptor_words);
+  ++g_vehicle_typed_render_item_valid_observations;
+  g_vehicle_typed_descriptor_scan_words += descriptor_words.size();
+  VehicleTypedRenderItemProfileEntry *available_profile = nullptr;
+  VehicleTypedRenderItemProfileEntry *matched_profile = nullptr;
+  for (VehicleTypedRenderItemProfileEntry &entry :
+       g_vehicle_typed_render_item_profiles) {
+    if (!entry.valid) {
+      if (!available_profile) {
+        available_profile = &entry;
+      }
+      continue;
+    }
+    if (entry.root_vtable == root_vtable &&
+        entry.child_vtable == child_vtable &&
+        entry.descriptor_type == descriptor_type) {
+      matched_profile = &entry;
+      break;
+    }
+  }
+  if (!matched_profile) {
+    if (available_profile) {
+      *available_profile = {
+          .observations = 1,
+          .descriptor_hash = descriptor_hash,
+          .root_address = root_address,
+          .root_vtable = root_vtable,
+          .child_address = child_address,
+          .child_vtable = child_vtable,
+          .descriptor_address = descriptor_address,
+          .descriptor_type = descriptor_type,
+          .descriptor_payload = descriptor_payload,
+          .descriptor_flag = descriptor_flag,
+          .valid = true,
+      };
+      ++g_vehicle_typed_render_item_profile_count;
+    } else {
+      ++g_vehicle_typed_render_item_profile_overflow;
+    }
+  } else {
+    ++matched_profile->observations;
+    matched_profile->root_address_changes +=
+        matched_profile->root_address != root_address;
+    matched_profile->child_address_changes +=
+        matched_profile->child_address != child_address;
+    matched_profile->descriptor_address_changes +=
+        matched_profile->descriptor_address != descriptor_address;
+    matched_profile->descriptor_hash_changes +=
+        matched_profile->descriptor_hash != descriptor_hash;
+    matched_profile->root_address = root_address;
+    matched_profile->child_address = child_address;
+    matched_profile->descriptor_address = descriptor_address;
+    matched_profile->descriptor_payload = descriptor_payload;
+    matched_profile->descriptor_flag = descriptor_flag;
+    matched_profile->descriptor_hash = descriptor_hash;
+  }
+  const uint64_t frame = g_frame_sequence.load(std::memory_order_relaxed);
+  for (size_t word_index = 0; word_index < descriptor_words.size();
+       ++word_index) {
+    const uint32_t word = descriptor_words[word_index];
+    if (!word) {
+      continue;
+    }
+    size_t address_index =
+        (word >> 4) % kVehicleIdentityAddressCapacity;
+    for (size_t address_probe = 0;
+         address_probe < kVehicleIdentityAddressCapacity; ++address_probe) {
+      const VehicleIdentityAddressEntry &address_entry =
+          g_vehicle_identity_addresses[address_index];
+      if (!address_entry.valid) {
+        break;
+      }
+      if (address_entry.address == word &&
+          address_entry.identity_index < g_vehicle_identities.size()) {
+        const VehicleIdentityEntry &identity =
+            g_vehicle_identities[address_entry.identity_index];
+        if (!identity.valid) {
+          address_index =
+              (address_index + 1) % kVehicleIdentityAddressCapacity;
+          continue;
+        }
+        ++g_vehicle_typed_descriptor_matches;
+        VehicleTypedDescriptorCorrelationEntry *available = nullptr;
+        VehicleTypedDescriptorCorrelationEntry *matched = nullptr;
+        for (VehicleTypedDescriptorCorrelationEntry &entry :
+             g_vehicle_typed_descriptor_correlations) {
+          if (!entry.valid) {
+            if (!available) {
+              available = &entry;
+            }
+            continue;
+          }
+          if (entry.root_vtable == root_vtable &&
+              entry.child_vtable == child_vtable &&
+              entry.descriptor_type == descriptor_type &&
+              entry.pointer_offset == word_index * sizeof(uint32_t) &&
+              entry.identity_field == address_entry.field &&
+              entry.identity_generation == identity.generation &&
+              entry.identity_owner == identity.owner &&
+              entry.identity_slot == identity.slot) {
+            matched = &entry;
+            break;
+          }
+        }
+        if (matched) {
+          ++matched->observations;
+          matched->last_frame = frame;
+        } else if (available) {
+          *available = {
+              .observations = 1,
+              .first_frame = frame,
+              .last_frame = frame,
+              .identity_field = address_entry.field,
+              .root_vtable = root_vtable,
+              .child_vtable = child_vtable,
+              .descriptor_type = descriptor_type,
+              .pointer_offset =
+                  uint32_t(word_index * sizeof(uint32_t)),
+              .matched_address = word,
+              .identity_generation = identity.generation,
+              .identity_owner = identity.owner,
+              .identity_slot = identity.slot,
+              .valid = true,
+          };
+          ++g_vehicle_typed_descriptor_correlation_count;
+        } else {
+          ++g_vehicle_typed_descriptor_correlation_overflow;
+        }
+      }
+      address_index =
+          (address_index + 1) % kVehicleIdentityAddressCapacity;
     }
   }
 }
@@ -16115,6 +16341,19 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_matrix_tight_matches = 0;
     g_vehicle_matrix_correlation_count = 0;
     g_vehicle_matrix_correlation_overflow = 0;
+    g_vehicle_typed_render_item_profiles = {};
+    g_vehicle_typed_descriptor_correlations = {};
+    g_vehicle_typed_render_item_observations = 0;
+    g_vehicle_typed_render_item_valid_observations = 0;
+    g_vehicle_typed_render_item_invalid_root = 0;
+    g_vehicle_typed_render_item_invalid_child = 0;
+    g_vehicle_typed_render_item_invalid_descriptor = 0;
+    g_vehicle_typed_render_item_profile_count = 0;
+    g_vehicle_typed_render_item_profile_overflow = 0;
+    g_vehicle_typed_descriptor_scan_words = 0;
+    g_vehicle_typed_descriptor_matches = 0;
+    g_vehicle_typed_descriptor_correlation_count = 0;
+    g_vehicle_typed_descriptor_correlation_overflow = 0;
   }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
@@ -16237,9 +16476,18 @@ void ConfigureVehicleDiscovery(bool census_requested,
         "position_delta_squared<=0.25,forward_delta_squared<=0.04"},
        {"vehicle_matrix_correlation_capacity",
         std::to_string(kVehicleMatrixCorrelationCapacity)},
+       {"typed_render_item_hook", "8240EC18:r11_descriptor,r31_root"},
+       {"typed_render_item_contract",
+        "eligible_root_child_and_descriptor_through_offset_244"},
+       {"typed_render_item_profile_capacity",
+        std::to_string(kVehicleTypedRenderItemProfileCapacity)},
+       {"typed_descriptor_word_count",
+        std::to_string(kVehicleTypedDescriptorWordCount)},
+       {"typed_descriptor_correlation_capacity",
+        std::to_string(kVehicleTypedDescriptorCorrelationCapacity)},
        {"guest_payload_read",
         "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
-        "typed_4x4_caller_matrix"},
+        "typed_4x4_caller_matrix,typed_render_item_descriptor"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -16267,6 +16515,12 @@ void EmitVehicleDiscoverySummary() {
       g_vehicle_matrix_candidate_observations +
           g_vehicle_matrix_routes_without_identity ==
       g_vehicle_matrix_caller_valid_observations * 4;
+  const bool vehicle_typed_render_item_accounting_complete =
+      g_vehicle_typed_render_item_valid_observations +
+          g_vehicle_typed_render_item_invalid_root +
+          g_vehicle_typed_render_item_invalid_child +
+          g_vehicle_typed_render_item_invalid_descriptor ==
+      g_vehicle_typed_render_item_observations;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_pose_summary",
       {{"status", !g_vehicle_observations
@@ -16417,6 +16671,36 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleMatrixCorrelationCapacity)},
        {"vehicle_matrix_correlation_overflow",
         std::to_string(g_vehicle_matrix_correlation_overflow)},
+       {"typed_render_item_observations",
+        std::to_string(g_vehicle_typed_render_item_observations)},
+       {"typed_render_item_valid_observations",
+        std::to_string(g_vehicle_typed_render_item_valid_observations)},
+       {"typed_render_item_invalid_root",
+        std::to_string(g_vehicle_typed_render_item_invalid_root)},
+       {"typed_render_item_invalid_child",
+        std::to_string(g_vehicle_typed_render_item_invalid_child)},
+       {"typed_render_item_invalid_descriptor",
+        std::to_string(g_vehicle_typed_render_item_invalid_descriptor)},
+       {"typed_render_item_accounting_complete",
+        vehicle_typed_render_item_accounting_complete ? "true" : "false"},
+       {"typed_render_item_profiles",
+        std::to_string(g_vehicle_typed_render_item_profile_count)},
+       {"typed_render_item_profile_capacity",
+        std::to_string(kVehicleTypedRenderItemProfileCapacity)},
+       {"typed_render_item_profile_overflow",
+        std::to_string(g_vehicle_typed_render_item_profile_overflow)},
+       {"typed_descriptor_scan_words",
+        std::to_string(g_vehicle_typed_descriptor_scan_words)},
+       {"typed_descriptor_word_count",
+        std::to_string(kVehicleTypedDescriptorWordCount)},
+       {"typed_descriptor_matches",
+        std::to_string(g_vehicle_typed_descriptor_matches)},
+       {"typed_descriptor_correlations",
+        std::to_string(g_vehicle_typed_descriptor_correlation_count)},
+       {"typed_descriptor_correlation_capacity",
+        std::to_string(kVehicleTypedDescriptorCorrelationCapacity)},
+       {"typed_descriptor_correlation_overflow",
+        std::to_string(g_vehicle_typed_descriptor_correlation_overflow)},
        {"title_provenance_requested",
         g_vehicle_title_provenance_requested ? "true" : "false"},
        {"draw_provenance_coverage_complete",
@@ -16506,6 +16790,72 @@ void EmitVehicleDiscoverySummary() {
          {"classification", "vehicle_render_matrix_correlation_candidate"},
          {"vehicle_render_transform_candidate_proved",
           entry.tight_matches ? "true" : "false"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleTypedRenderItemProfileEntry &entry :
+       g_vehicle_typed_render_item_profiles) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_typed_render_item_profile",
+        {{"function_address", "8240E7B0"},
+         {"hook_address", "8240EC18"},
+         {"root_address", fmt::format("{:08X}", entry.root_address)},
+         {"root_vtable", fmt::format("{:08X}", entry.root_vtable)},
+         {"child_address", fmt::format("{:08X}", entry.child_address)},
+         {"child_vtable", fmt::format("{:08X}", entry.child_vtable)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"descriptor_type", std::to_string(entry.descriptor_type)},
+         {"descriptor_payload",
+          fmt::format("{:08X}", entry.descriptor_payload)},
+         {"descriptor_flag", std::to_string(entry.descriptor_flag)},
+         {"descriptor_hash", fmt::format("{:016X}", entry.descriptor_hash)},
+         {"observations", std::to_string(entry.observations)},
+         {"root_address_changes",
+          std::to_string(entry.root_address_changes)},
+         {"child_address_changes",
+          std::to_string(entry.child_address_changes)},
+         {"descriptor_address_changes",
+          std::to_string(entry.descriptor_address_changes)},
+         {"descriptor_hash_changes",
+          std::to_string(entry.descriptor_hash_changes)},
+         {"classification", "typed_render_item_descriptor_profile"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleTypedDescriptorCorrelationEntry &entry :
+       g_vehicle_typed_descriptor_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_typed_descriptor_correlation",
+        {{"function_address", "8240E7B0"},
+         {"hook_address", "8240EC18"},
+         {"root_vtable", fmt::format("{:08X}", entry.root_vtable)},
+         {"child_vtable", fmt::format("{:08X}", entry.child_vtable)},
+         {"descriptor_type", std::to_string(entry.descriptor_type)},
+         {"pointer_offset", std::to_string(entry.pointer_offset)},
+         {"identity_field",
+          VehicleIdentityAddressKindName(entry.identity_field)},
+         {"matched_address", fmt::format("{:08X}", entry.matched_address)},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"classification", "typed_vehicle_descriptor_correlation_candidate"},
          {"vehicle_draw_identity_proved", "false"},
          {"guest_state_changed", "false"},
          {"native_draw", "false"},
@@ -18280,6 +18630,11 @@ PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(829F6360)
 void PinyonShiftObserveVehicleMatrixCallerEntry(PPCRegister &r6,
                                                 PPCRegister &r12) {
   ObserveVehicleMatrixCaller(kVehicleMatrixCallerFunction, r6.u32, r12.u32);
+}
+
+void PinyonShiftObserveVehicleTypedRenderItem(PPCRegister &r11,
+                                              PPCRegister &r31) {
+  ObserveVehicleTypedRenderItem(r31.u32, r11.u32);
 }
 
 void PinyonShiftObserveVehicleRenderContextDispatcherEntry(
