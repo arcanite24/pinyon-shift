@@ -5,6 +5,7 @@
 #include <rex/cvar.h>
 #include <rex/system/interfaces/graphics.h>
 
+#include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
 #include "native_renderer/shader_pack.h"
 #include "pinyon_shift_diagnostics.h"
@@ -66,6 +67,23 @@ bool UsesRetainedPass(DiagnosticMode mode) {
          mode == DiagnosticMode::kHybridPrototype ||
          mode == DiagnosticMode::kComparisonNative ||
          mode == DiagnosticMode::kComparisonXenos;
+}
+
+const char *NativeShadowStateName(
+    pinyon_shift::native_renderer::NativeShadowPrototypeState state) {
+  using State =
+      pinyon_shift::native_renderer::NativeShadowPrototypeState;
+  switch (state) {
+  case State::kPublishedCurrentFrame:
+    return "native_current_frame";
+  case State::kFallbackXenos:
+    return "fallback_xenos_unavailable";
+  case State::kFailClosed:
+    return "fallback_xenos_failed_closed";
+  case State::kDisabled:
+  default:
+    return "disabled";
+  }
 }
 
 bool RenderDiagnosticOutput(
@@ -144,6 +162,9 @@ bool RenderDiagnosticOutput(
   const uint64_t claimed =
       g_claimed_count.fetch_add(1, std::memory_order_relaxed) + 1;
   if (callback == 1 || callback % 300 == 0) {
+    const auto shadow_state =
+        pinyon_shift::native_renderer::GetNativeShadowPrototypeState(
+            context.frame_sequence);
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.output.frame",
         {{"callback", std::to_string(callback)},
@@ -181,6 +202,12 @@ bool RenderDiagnosticOutput(
                                    ? "hybrid"
                                    : "native")},
          {"xenos_fxaa", context.xenos_fxaa_applied ? "applied" : "disabled"},
+         {"shadow", NativeShadowStateName(shadow_state)},
+         {"shadow_consumer", shadow_state == pinyon_shift::native_renderer::
+                                               NativeShadowPrototypeState::
+                                                   kDisabled
+                                 ? "disabled"
+                                 : "xenos_rt_dump_retained"},
          {"xenos_draw", "preserved"},
          {"suppression", "disabled"}});
   }

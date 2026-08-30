@@ -11,6 +11,13 @@ class Memory;
 
 namespace pinyon_shift::native_renderer {
 
+enum class NativeShadowPrototypeState : uint32_t {
+  kDisabled,
+  kFallbackXenos,
+  kPublishedCurrentFrame,
+  kFailClosed,
+};
+
 struct VehiclePoseObservation {
   uint32_t generation = 0;
   uint32_t source = 0;
@@ -41,5 +48,7 @@ void ObserveVehicleOwnerIndirectCall(uint32_t method_address,
 void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
                            rex::memory::Memory* memory);
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system);
+NativeShadowPrototypeState GetNativeShadowPrototypeState(
+    uint64_t frame_sequence);
 
 }  // namespace pinyon_shift::native_renderer

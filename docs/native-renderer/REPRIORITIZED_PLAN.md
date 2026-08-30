@@ -145,6 +145,12 @@ they agree with completed Xenos output; every mismatch remains Xenos.
 - Report `shadow=fallback_xenos` when the exact consumer is unavailable rather
   than rejecting the entire prototype frame.
 
+Implementation checkpoint: prototype-selected, current-frame shadow ownership
+and its fail-closed Xenos fallback are defined in
+[`NATIVE_SHADOW_PROTOTYPE_INTEGRATION.md`](NATIVE_SHADOW_PROTOTYPE_INTEGRATION.md).
+It reuses the qualified 80-draw producer and exact Xenos render-target-dump
+handoff without enabling suppression.
+
 ### B5. Prototype controls and comparison
 
 - Keep Xenos as the default.
