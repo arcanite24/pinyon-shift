@@ -148,6 +148,9 @@ class NativeRendererContractTests(unittest.TestCase):
             "PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult": (
                 "0x82E20350"
             ),
+            "PinyonShiftObserveProceduralModelVisibilityCategoryHelperInput": (
+                "0x82E20364"
+            ),
             "PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult": (
                 "0x82E20368"
             ),
@@ -212,6 +215,22 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"guest_state_changed": False', spatial_shadow_summarizer)
         self.assertIn('"xenos_authority": True', spatial_shadow_summarizer)
         self.assertIn('"suppression_allowed": False', spatial_shadow_summarizer)
+
+        category_shadow_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-category-shadow.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("independent_category_helper_shadow", source)
+        self.assertIn(
+            "kAxisSigns = {1.0f, 1.0f, -1.0f}", source
+        )
+        self.assertIn('{"axis_signs", "1,1,-1"}', source)
+        self.assertIn(
+            '"guest_payload_read": "bounded_category_planes"',
+            category_shadow_summarizer,
+        )
+        self.assertIn('"guest_state_changed": False', category_shadow_summarizer)
+        self.assertIn('"xenos_authority": True', category_shadow_summarizer)
+        self.assertIn('"suppression_allowed": False', category_shadow_summarizer)
 
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

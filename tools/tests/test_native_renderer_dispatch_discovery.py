@@ -1329,6 +1329,23 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(spatial_shadow["guest_state_changed"])
         self.assertTrue(spatial_shadow["xenos_authority"])
         self.assertFalse(spatial_shadow["suppression_allowed"])
+        category_shadow = lifecycle["visibility_category_shadow"]
+        self.assertEqual("82E20364", category_shadow["input_hook_address"])
+        self.assertEqual("82E20368", category_shadow["result_hook_address"])
+        self.assertEqual("82441048", category_shadow["helper_address"])
+        self.assertEqual(
+            [0, 16, 32, 48, 64, 80],
+            category_shadow["plane_vector_offsets"],
+        )
+        self.assertEqual(["v1", "v2"], category_shadow["endpoint_registers"])
+        self.assertEqual([1, 1, -1], category_shadow["axis_signs"])
+        self.assertEqual(96, category_shadow["bounded_guest_payload_bytes"])
+        self.assertEqual(
+            "bounded_category_planes", category_shadow["guest_payload_read"]
+        )
+        self.assertFalse(category_shadow["guest_state_changed"])
+        self.assertTrue(category_shadow["xenos_authority"])
+        self.assertFalse(category_shadow["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )

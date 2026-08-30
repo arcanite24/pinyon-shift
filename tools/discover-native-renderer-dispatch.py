@@ -210,6 +210,7 @@ PROCEDURAL_MODEL_RECEIVER = {
     "visibility_local_distance_hook": 0x82E202D8,
     "visibility_spatial_helper_input_hook": 0x82E2034C,
     "visibility_spatial_helper_result_hook": 0x82E20350,
+    "visibility_category_helper_input_hook": 0x82E20364,
     "visibility_category_helper_result_hook": 0x82E20368,
     "render_state_function": 0x824170D8,
     "render_state_vtable_slot": 40,
@@ -1513,6 +1514,36 @@ def procedural_model_receiver_lifecycle(
             "scope": "active_title_record_only",
             "title_result_comparison_required": True,
             "guest_payload_read": "bounded_spatial_helper_inputs",
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "native_policy_execution": "shadow_only",
+            "native_culling_enabled": False,
+            "native_lod_enabled": False,
+            "xenos_authority": True,
+            "suppression_allowed": False,
+        },
+        "visibility_category_shadow": {
+            "input_hook_address": "{:08X}".format(
+                spec["visibility_category_helper_input_hook"]
+            ),
+            "result_hook_address": "{:08X}".format(
+                spec["visibility_category_helper_result_hook"]
+            ),
+            "helper_address": "{:08X}".format(
+                spec["visibility_category_helper"]
+            ),
+            "plane_vector_offsets": [0, 16, 32, 48, 64, 80],
+            "plane_vector_count": 6,
+            "endpoint_registers": ["v1", "v2"],
+            "axis_signs": [1, 1, -1],
+            "support_rule": "plane_axis_nonnegative_selects_v2_for_positive",
+            "positive_comparison": "greater_equal_zero_sets_intersection_bit",
+            "negative_comparison": "greater_zero_sets_outside_bits",
+            "result_mapping": "bits_3_to_0_bits_1_to_1_other_to_2",
+            "bounded_guest_payload_bytes": 96,
+            "scope": "active_title_record_only",
+            "title_result_comparison_required": True,
+            "guest_payload_read": "bounded_category_planes",
             "guest_state_changed": False,
             "control_flow_changed": False,
             "native_policy_execution": "shadow_only",

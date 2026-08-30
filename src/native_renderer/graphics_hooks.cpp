@@ -672,6 +672,14 @@ struct SemanticVisibilitySpatialShadowStats {
   std::atomic<uint64_t> invalid_inputs{};
 };
 
+struct SemanticVisibilityCategoryShadowStats {
+  std::atomic<uint64_t> input_observations{};
+  std::atomic<uint64_t> comparisons{};
+  std::atomic<uint64_t> matches{};
+  std::atomic<uint64_t> false_result{};
+  std::atomic<uint64_t> invalid_inputs{};
+};
+
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
 std::atomic<uint64_t> g_semantic_visibility_record_completions{};
 std::atomic<uint64_t> g_semantic_visibility_records_open{};
@@ -739,6 +747,12 @@ std::array<std::array<SemanticVisibilitySpatialShadowStats,
     g_semantic_visibility_spatial_shadow_categories{};
 std::atomic<uint64_t> g_semantic_visibility_spatial_shadow_input_without_record{};
 std::atomic<uint64_t> g_semantic_visibility_spatial_shadow_result_without_input{};
+std::array<std::array<SemanticVisibilityCategoryShadowStats,
+                      kSemanticVisibilityPolicyOutcomeCapacity>,
+           kSemanticVisibilityCategoryCapacity>
+    g_semantic_visibility_category_shadow_categories{};
+std::atomic<uint64_t> g_semantic_visibility_category_shadow_input_without_record{};
+std::atomic<uint64_t> g_semantic_visibility_category_shadow_result_without_input{};
 
 struct SemanticInstanceEntry {
   uint64_t key = 0;
@@ -1050,9 +1064,17 @@ struct ActiveSemanticVisibilityRecord {
   uint32_t spatial_shadow_invalid_inputs = 0;
   uint32_t category_helper_observations = 0;
   std::array<uint32_t, 3> category_helper_results{};
+  uint32_t category_shadow_input_observations = 0;
+  uint32_t category_shadow_comparisons = 0;
+  uint32_t category_shadow_matches = 0;
+  uint32_t category_shadow_false_result = 0;
+  uint32_t category_shadow_invalid_inputs = 0;
   bool spatial_shadow_pending = false;
   bool spatial_shadow_valid = false;
   bool spatial_shadow_prediction = false;
+  bool category_shadow_pending = false;
+  bool category_shadow_valid = false;
+  uint32_t category_shadow_prediction = 0;
   bool active = false;
 };
 thread_local ActiveSemanticVisibilityRecord
@@ -2272,6 +2294,111 @@ void ObserveSemanticVisibilitySpatialHelperInput(uint32_t query_address,
   record.spatial_shadow_valid = true;
 }
 
+float SemanticVisibilityDot4(float ax, float ay, float az, float aw,
+                             float bx, float by, float bz, float bw) {
+  const simde__m128 a = simde_mm_set_ps(ax, ay, az, aw);
+  const simde__m128 b = simde_mm_set_ps(bx, by, bz, bw);
+  return simde_mm_cvtss_f32(simde_mm_dp_ps(a, b, 0xFF));
+}
+
+uint32_t ClassifySemanticVisibilityCategory(
+    const std::array<std::array<float, 4>, 6> &planes,
+    const std::array<float, 3> &endpoint_a,
+    const std::array<float, 3> &endpoint_b) {
+  constexpr std::array<float, 3> kAxisSigns = {1.0f, 1.0f, -1.0f};
+  uint32_t classification_bits = 0;
+  for (const std::array<float, 4> &plane : planes) {
+    const std::array<float, 3> axis = {
+        plane[0] * kAxisSigns[0], plane[1] * kAxisSigns[1],
+        plane[2] * kAxisSigns[2]};
+    std::array<float, 3> positive{};
+    std::array<float, 3> negative{};
+    for (size_t axis_index = 0; axis_index < 3; ++axis_index) {
+      const bool nonnegative = axis[axis_index] >= 0.0f;
+      positive[axis_index] =
+          nonnegative ? endpoint_b[axis_index] : endpoint_a[axis_index];
+      negative[axis_index] =
+          nonnegative ? endpoint_a[axis_index] : endpoint_b[axis_index];
+    }
+    const float positive_dot = SemanticVisibilityDot4(
+        axis[0], axis[1], axis[2], plane[3], positive[0], positive[1],
+        positive[2], 1.0f);
+    const float negative_dot = SemanticVisibilityDot4(
+        axis[0], axis[1], axis[2], plane[3], negative[0], negative[1],
+        negative[2], 1.0f);
+    if (positive_dot >= 0.0f) {
+      classification_bits |= 1;
+    }
+    if (negative_dot > 0.0f) {
+      classification_bits |= 3;
+    }
+  }
+  return classification_bits == 3 ? 0 : (classification_bits == 1 ? 1 : 2);
+}
+
+void ObserveSemanticVisibilityCategoryHelperInput(
+    uint32_t plane_address, const PPCVRegister &endpoint_a,
+    const PPCVRegister &endpoint_b) {
+  ActiveSemanticVisibilityRecord &record =
+      g_active_semantic_visibility_record;
+  if (!record.active) {
+    g_semantic_visibility_category_shadow_input_without_record.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  ++record.category_shadow_input_observations;
+  if (record.category_shadow_pending ||
+      record.category_shadow_input_observations >
+          record.spatial_helper_passes) {
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    ++record.category_shadow_invalid_inputs;
+  }
+  record.category_shadow_pending = true;
+  record.category_shadow_valid = false;
+  if (!plane_address || (plane_address & 15)) {
+    ++record.category_shadow_invalid_inputs;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    ++record.category_shadow_invalid_inputs;
+    return;
+  }
+
+  const std::array<float, 3> a = {endpoint_a.f32[3], endpoint_a.f32[2],
+                                  endpoint_a.f32[1]};
+  const std::array<float, 3> b = {endpoint_b.f32[3], endpoint_b.f32[2],
+                                  endpoint_b.f32[1]};
+  if (!std::all_of(a.begin(), a.end(),
+                   [](float value) { return std::isfinite(value); }) ||
+      !std::all_of(b.begin(), b.end(),
+                   [](float value) { return std::isfinite(value); })) {
+    ++record.category_shadow_invalid_inputs;
+    return;
+  }
+
+  std::array<std::array<float, 4>, 6> planes{};
+  for (uint32_t plane_index = 0; plane_index < 6; ++plane_index) {
+    const uint32_t offset = plane_address + plane_index * 16;
+    planes[plane_index] = {
+        LoadSemanticVisibilityGuestFloat(memory, offset + 0),
+        LoadSemanticVisibilityGuestFloat(memory, offset + 4),
+        LoadSemanticVisibilityGuestFloat(memory, offset + 8),
+        LoadSemanticVisibilityGuestFloat(memory, offset + 12)};
+    const std::array<float, 4> &plane = planes[plane_index];
+    if (!std::all_of(plane.begin(), plane.end(),
+                     [](float value) { return std::isfinite(value); })) {
+      ++record.category_shadow_invalid_inputs;
+      return;
+    }
+  }
+  record.category_shadow_prediction =
+      ClassifySemanticVisibilityCategory(planes, a, b);
+  record.category_shadow_valid = true;
+}
+
 void BeginSemanticVisibilityRecord(uint32_t receiver_address,
                                    uint32_t record_index,
                                    uint32_t category,
@@ -2481,6 +2608,21 @@ void ObserveSemanticVisibilityCategoryHelperResult(uint32_t result) {
         1, std::memory_order_relaxed);
     return;
   }
+  if (!record.category_shadow_pending) {
+    g_semantic_visibility_category_shadow_result_without_input.fetch_add(
+        1, std::memory_order_relaxed);
+  } else {
+    if (record.category_shadow_valid) {
+      ++record.category_shadow_comparisons;
+      if (record.category_shadow_prediction == result) {
+        ++record.category_shadow_matches;
+      } else {
+        ++record.category_shadow_false_result;
+      }
+    }
+    record.category_shadow_pending = false;
+    record.category_shadow_valid = false;
+  }
   if (record.category_helper_observations >=
       record.spatial_helper_passes) {
     g_semantic_visibility_policy_hook_faults.fetch_add(
@@ -2626,6 +2768,11 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
     g_semantic_visibility_policy_hook_faults.fetch_add(
         1, std::memory_order_relaxed);
   }
+  if (record.category_shadow_pending) {
+    ++record.category_shadow_invalid_inputs;
+    g_semantic_visibility_policy_hook_faults.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   if (record.category < kSemanticVisibilityCategoryCapacity) {
     SemanticVisibilityPolicyStats &policy =
         g_semantic_visibility_policy_categories[record.category]
@@ -2723,6 +2870,23 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
           record.spatial_shadow_false_negative, std::memory_order_relaxed);
       spatial_shadow.invalid_inputs.fetch_add(
           record.spatial_shadow_invalid_inputs, std::memory_order_relaxed);
+    }
+    SemanticVisibilityCategoryShadowStats &category_shadow =
+        g_semantic_visibility_category_shadow_categories[record.category]
+                                                         [policy_outcome_index];
+    if (record.category_shadow_input_observations ||
+        record.category_shadow_invalid_inputs) {
+      category_shadow.input_observations.fetch_add(
+          record.category_shadow_input_observations,
+          std::memory_order_relaxed);
+      category_shadow.comparisons.fetch_add(
+          record.category_shadow_comparisons, std::memory_order_relaxed);
+      category_shadow.matches.fetch_add(record.category_shadow_matches,
+                                        std::memory_order_relaxed);
+      category_shadow.false_result.fetch_add(
+          record.category_shadow_false_result, std::memory_order_relaxed);
+      category_shadow.invalid_inputs.fetch_add(
+          record.category_shadow_invalid_inputs, std::memory_order_relaxed);
     }
   }
   if (record.spatial_sample_valid) {
@@ -10510,6 +10674,111 @@ void EmitSemanticVisibilityCensus() {
        {"native_culling", "false"},
        {"native_lod", "false"},
        {"xenos_authority", "true"},
+        {"suppression_allowed", "false"}});
+
+  uint64_t category_shadow_records = 0;
+  uint64_t category_shadow_inputs = 0;
+  uint64_t category_shadow_comparisons = 0;
+  uint64_t category_shadow_matches = 0;
+  uint64_t category_shadow_false_result = 0;
+  uint64_t category_shadow_invalid_inputs = 0;
+  bool category_shadow_category_accounting_complete = true;
+  for (size_t category_index = 0;
+       category_index < kSemanticVisibilityCategoryCapacity;
+       ++category_index) {
+    for (size_t outcome_index = 0;
+         outcome_index < kSemanticVisibilityPolicyOutcomeCapacity;
+         ++outcome_index) {
+      const SemanticVisibilityCategoryShadowStats &category_shadow =
+          g_semantic_visibility_category_shadow_categories[category_index]
+                                                           [outcome_index];
+      const SemanticVisibilityOracleStats &oracle =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index];
+      const uint64_t records =
+          oracle.records.load(std::memory_order_relaxed);
+      if (!records) {
+        continue;
+      }
+      const uint64_t inputs =
+          category_shadow.input_observations.load(std::memory_order_relaxed);
+      const uint64_t comparisons =
+          category_shadow.comparisons.load(std::memory_order_relaxed);
+      const uint64_t matches =
+          category_shadow.matches.load(std::memory_order_relaxed);
+      const uint64_t false_result =
+          category_shadow.false_result.load(std::memory_order_relaxed);
+      const uint64_t invalid_inputs =
+          category_shadow.invalid_inputs.load(std::memory_order_relaxed);
+      const uint64_t expected_inputs =
+          oracle.category_helper_observations.load(std::memory_order_relaxed);
+      const bool category_complete =
+          inputs == expected_inputs && comparisons == inputs &&
+          matches + false_result == comparisons && !invalid_inputs;
+      category_shadow_category_accounting_complete &= category_complete;
+      category_shadow_records += records;
+      category_shadow_inputs += inputs;
+      category_shadow_comparisons += comparisons;
+      category_shadow_matches += matches;
+      category_shadow_false_result += false_result;
+      category_shadow_invalid_inputs += invalid_inputs;
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.discovery.semantic_visibility_category_shadow_category_summary",
+          {{"status", category_complete ? "complete" : "incomplete"},
+           {"category", std::to_string(category_index)},
+           {"outcome", SemanticVisibilityPolicyOutcomeName(outcome_index)},
+           {"records", std::to_string(records)},
+           {"input_observations", std::to_string(inputs)},
+           {"comparisons", std::to_string(comparisons)},
+           {"matches", std::to_string(matches)},
+           {"false_result", std::to_string(false_result)},
+           {"invalid_inputs", std::to_string(invalid_inputs)},
+           {"native_policy_execution", "shadow_only"},
+           {"guest_payload_read", "bounded_category_planes"},
+           {"guest_state_changed", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+  }
+  const uint64_t category_shadow_input_without_record =
+      g_semantic_visibility_category_shadow_input_without_record.load(
+          std::memory_order_relaxed);
+  const uint64_t category_shadow_result_without_input =
+      g_semantic_visibility_category_shadow_result_without_input.load(
+          std::memory_order_relaxed);
+  const bool category_shadow_complete =
+      category_shadow_category_accounting_complete &&
+      category_shadow_records == oracle_records &&
+      category_shadow_inputs == oracle_category_observations &&
+      category_shadow_comparisons == category_shadow_inputs &&
+      category_shadow_matches + category_shadow_false_result ==
+          category_shadow_comparisons &&
+      !category_shadow_false_result && !category_shadow_invalid_inputs;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_category_shadow_summary",
+      {{"status", category_shadow_complete ? "complete" : "incomplete"},
+       {"records", std::to_string(category_shadow_records)},
+       {"input_observations", std::to_string(category_shadow_inputs)},
+       {"comparisons", std::to_string(category_shadow_comparisons)},
+       {"matches", std::to_string(category_shadow_matches)},
+       {"false_result", std::to_string(category_shadow_false_result)},
+       {"invalid_inputs", std::to_string(category_shadow_invalid_inputs)},
+       {"input_without_record",
+        std::to_string(category_shadow_input_without_record)},
+       {"result_without_input",
+        std::to_string(category_shadow_result_without_input)},
+       {"accounting_complete", category_shadow_complete ? "true" : "false"},
+       {"model", "six_plane_support_point_classifier"},
+       {"scope", "active_title_record_only"},
+       {"unscoped_continuations_excluded", "true"},
+       {"classification", "independent_category_helper_shadow"},
+       {"guest_payload_read", "bounded_category_planes"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
 
   const uint64_t category_overflow =
@@ -13059,6 +13328,34 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_category_shadow_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"visibility_function", "82E1FD00"},
+       {"input_hook", "82E20364"},
+       {"result_hook", "82E20368"},
+       {"helper", "82441048"},
+       {"plane_vector_offsets", "0,16,32,48,64,80"},
+       {"plane_vector_count", "6"},
+       {"endpoint_registers", "v1,v2"},
+       {"axis_signs", "1,1,-1"},
+       {"support_rule", "plane_axis_nonnegative_selects_v2_for_positive"},
+       {"positive_comparison", "greater_equal_zero_sets_intersection_bit"},
+       {"negative_comparison", "greater_zero_sets_outside_bits"},
+       {"result_mapping", "bits_3_to_0_bits_1_to_1_other_to_2"},
+       {"bounded_guest_payload_bytes", "96"},
+       {"scope", "active_title_record_only"},
+       {"classification", "independent_category_helper_shadow"},
+       {"guest_payload_read", "bounded_category_planes"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_policy_execution", "shadow_only"},
+       {"native_culling", "false"},
+       {"native_lod", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -14035,6 +14332,11 @@ void PinyonShiftObserveProceduralModelVisibilitySpatialHelperInput(
 void PinyonShiftObserveProceduralModelVisibilitySpatialHelperResult(
     PPCRegister &r3) {
   ObserveSemanticVisibilitySpatialHelperResult(r3.u32);
+}
+
+void PinyonShiftObserveProceduralModelVisibilityCategoryHelperInput(
+    PPCRegister &r3, PPCVRegister &v1, PPCVRegister &v2) {
+  ObserveSemanticVisibilityCategoryHelperInput(r3.u32, v1, v2);
 }
 
 void PinyonShiftObserveProceduralModelVisibilityCategoryHelperResult(
