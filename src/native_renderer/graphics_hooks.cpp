@@ -652,7 +652,6 @@ struct SemanticVisibilityOracleStats {
 };
 
 struct SemanticVisibilityShadowStats {
-  std::atomic<uint64_t> records{};
   std::atomic<uint64_t> modelled_records{};
   std::atomic<uint64_t> predicted_selected{};
   std::atomic<uint64_t> predicted_rejected{};
@@ -665,7 +664,6 @@ struct SemanticVisibilityShadowStats {
 };
 
 struct SemanticVisibilitySpatialShadowStats {
-  std::atomic<uint64_t> records{};
   std::atomic<uint64_t> input_observations{};
   std::atomic<uint64_t> comparisons{};
   std::atomic<uint64_t> matches{};
@@ -2680,7 +2678,6 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
     SemanticVisibilityShadowStats &shadow =
         g_semantic_visibility_shadow_categories[record.category]
                                                [policy_outcome_index];
-    shadow.records.fetch_add(1, std::memory_order_relaxed);
     if (record.category_helper_observations) {
       shadow.modelled_records.fetch_add(1, std::memory_order_relaxed);
       const bool result_1_seen = record.category_helper_results[1] != 0;
@@ -2711,20 +2708,22 @@ void EndSemanticVisibilityRecord(uint32_t receiver_address,
     SemanticVisibilitySpatialShadowStats &spatial_shadow =
         g_semantic_visibility_spatial_shadow_categories[record.category]
                                                        [policy_outcome_index];
-    spatial_shadow.records.fetch_add(1, std::memory_order_relaxed);
-    spatial_shadow.input_observations.fetch_add(
-        record.spatial_shadow_input_observations,
-        std::memory_order_relaxed);
-    spatial_shadow.comparisons.fetch_add(
-        record.spatial_shadow_comparisons, std::memory_order_relaxed);
-    spatial_shadow.matches.fetch_add(record.spatial_shadow_matches,
-                                     std::memory_order_relaxed);
-    spatial_shadow.false_positive.fetch_add(
-        record.spatial_shadow_false_positive, std::memory_order_relaxed);
-    spatial_shadow.false_negative.fetch_add(
-        record.spatial_shadow_false_negative, std::memory_order_relaxed);
-    spatial_shadow.invalid_inputs.fetch_add(
-        record.spatial_shadow_invalid_inputs, std::memory_order_relaxed);
+    if (record.spatial_shadow_input_observations ||
+        record.spatial_shadow_invalid_inputs) {
+      spatial_shadow.input_observations.fetch_add(
+          record.spatial_shadow_input_observations,
+          std::memory_order_relaxed);
+      spatial_shadow.comparisons.fetch_add(
+          record.spatial_shadow_comparisons, std::memory_order_relaxed);
+      spatial_shadow.matches.fetch_add(record.spatial_shadow_matches,
+                                       std::memory_order_relaxed);
+      spatial_shadow.false_positive.fetch_add(
+          record.spatial_shadow_false_positive, std::memory_order_relaxed);
+      spatial_shadow.false_negative.fetch_add(
+          record.spatial_shadow_false_negative, std::memory_order_relaxed);
+      spatial_shadow.invalid_inputs.fetch_add(
+          record.spatial_shadow_invalid_inputs, std::memory_order_relaxed);
+    }
   }
   if (record.spatial_sample_valid) {
     g_semantic_visibility_spatial_exponents[policy_outcome_index]
@@ -10291,7 +10290,9 @@ void EmitSemanticVisibilityCensus() {
           g_semantic_visibility_shadow_categories[category_index]
                                                  [outcome_index];
       const uint64_t records =
-          shadow.records.load(std::memory_order_relaxed);
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index]
+              .records.load(std::memory_order_relaxed);
       if (!records) {
         continue;
       }
@@ -10313,12 +10314,8 @@ void EmitSemanticVisibilityCensus() {
           shadow.result_2_records.load(std::memory_order_relaxed);
       const uint64_t mixed_nonzero_records =
           shadow.mixed_nonzero_records.load(std::memory_order_relaxed);
-      const uint64_t expected_records =
-          g_semantic_visibility_oracle_categories[category_index]
-                                                 [outcome_index]
-              .records.load(std::memory_order_relaxed);
       const bool category_complete =
-          records == expected_records && modelled_records <= records &&
+          modelled_records <= records &&
           predicted_selected + predicted_rejected == modelled_records &&
           title_matches + false_positive + false_negative == modelled_records &&
           result_1_records <= modelled_records &&
@@ -10417,8 +10414,11 @@ void EmitSemanticVisibilityCensus() {
       const SemanticVisibilitySpatialShadowStats &spatial_shadow =
           g_semantic_visibility_spatial_shadow_categories[category_index]
                                                          [outcome_index];
+      const SemanticVisibilityOracleStats &oracle =
+          g_semantic_visibility_oracle_categories[category_index]
+                                                 [outcome_index];
       const uint64_t records =
-          spatial_shadow.records.load(std::memory_order_relaxed);
+          oracle.records.load(std::memory_order_relaxed);
       if (!records) {
         continue;
       }
@@ -10434,15 +10434,10 @@ void EmitSemanticVisibilityCensus() {
           spatial_shadow.false_negative.load(std::memory_order_relaxed);
       const uint64_t invalid_inputs =
           spatial_shadow.invalid_inputs.load(std::memory_order_relaxed);
-      const SemanticVisibilityOracleStats &oracle =
-          g_semantic_visibility_oracle_categories[category_index]
-                                                 [outcome_index];
-      const uint64_t expected_records =
-          oracle.records.load(std::memory_order_relaxed);
       const uint64_t expected_inputs =
           oracle.spatial_helper_observations.load(std::memory_order_relaxed);
       const bool category_complete =
-          records == expected_records && inputs == expected_inputs &&
+          inputs == expected_inputs &&
           comparisons == inputs &&
           matches + false_positive + false_negative == comparisons &&
           !invalid_inputs;
