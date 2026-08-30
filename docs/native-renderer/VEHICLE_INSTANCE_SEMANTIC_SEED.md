@@ -126,6 +126,22 @@ The render path must therefore be recovered from a deeper object/descriptor
 relationship or a different title submission family. Vehicle draw identity,
 native rendering, publication, and suppression remain unadmitted.
 
+The follow-up samples a single bounded relationship edge from object-like
+dispatch roots: direct and indirect r3, semantic receiver/descriptor/runtime,
+and indirect context roots. Each unique backend-signature, root, and 300-frame
+window scans only the first 128 words (512 bytes), with a fixed 16,384-entry
+cache and 2,048-entry correlation table.
+
+Release/AppData session `20260830T094228Z-p1080` completed normally and
+examined 2,282,451 backend draws. It reduced 7,424,713 eligible requests to
+5,992 unique object scans (766,976 words) across 31 vehicle identities and
+found zero embedded owner, position, or forward-vector addresses. The cache,
+identity index, and correlation table did not overflow, and no invalid pose,
+stack-fault, error, or fatal event occurred. This rejects the first 512 bytes
+of every current object-like provenance root as a one-hop vehicle join. The
+next search must follow typed descriptor graph edges or locate another title
+submission family; native vehicle drawing and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell

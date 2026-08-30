@@ -109,6 +109,9 @@ constexpr size_t kVehicleOwnerMethodStackCapacity = 8;
 constexpr size_t kVehicleOwnerIndirectTargetCapacity = 64;
 constexpr size_t kVehicleIdentityAddressCapacity = 512;
 constexpr size_t kVehicleDrawCorrelationCapacity = 1024;
+constexpr size_t kVehicleObjectScanWordCount = 128;
+constexpr size_t kVehicleObjectScanCacheCapacity = 16384;
+constexpr size_t kVehicleObjectCorrelationCapacity = 2048;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -654,6 +657,39 @@ struct VehicleIdentityAddressEntry {
   bool valid = false;
 };
 
+struct VehicleObjectScanCacheEntry {
+  uint64_t backend_signature = 0;
+  uint64_t frame_window = 0;
+  VehicleDrawProvenanceLayer layer =
+      VehicleDrawProvenanceLayer::kDirectArguments;
+  uint32_t function_address = 0;
+  uint32_t return_address = 0;
+  uint32_t argument_index = 0;
+  uint32_t container_address = 0;
+  bool valid = false;
+};
+
+struct VehicleObjectCorrelationEntry {
+  uint64_t backend_signature = 0;
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  VehicleDrawProvenanceLayer layer =
+      VehicleDrawProvenanceLayer::kDirectArguments;
+  VehicleIdentityAddressKind identity_field =
+      VehicleIdentityAddressKind::kOwner;
+  uint32_t function_address = 0;
+  uint32_t return_address = 0;
+  uint32_t argument_index = 0;
+  uint32_t container_address = 0;
+  uint32_t pointer_offset = 0;
+  uint32_t matched_address = 0;
+  uint32_t identity_generation = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  bool valid = false;
+};
+
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
@@ -693,6 +729,18 @@ uint64_t g_vehicle_draw_argument_probes = 0;
 uint64_t g_vehicle_draw_argument_matches = 0;
 uint64_t g_vehicle_draw_correlation_count = 0;
 uint64_t g_vehicle_draw_correlation_overflow = 0;
+std::array<VehicleObjectScanCacheEntry, kVehicleObjectScanCacheCapacity>
+    g_vehicle_object_scan_cache{};
+std::array<VehicleObjectCorrelationEntry, kVehicleObjectCorrelationCapacity>
+    g_vehicle_object_correlations{};
+uint64_t g_vehicle_object_scan_requests = 0;
+uint64_t g_vehicle_object_scans = 0;
+uint64_t g_vehicle_object_scan_words = 0;
+uint64_t g_vehicle_object_scan_cache_count = 0;
+uint64_t g_vehicle_object_scan_cache_overflow = 0;
+uint64_t g_vehicle_object_argument_matches = 0;
+uint64_t g_vehicle_object_correlation_count = 0;
+uint64_t g_vehicle_object_correlation_overflow = 0;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -1603,6 +1651,10 @@ const char *DrawOutcomeName(uint32_t outcome) {
 }
 
 std::string CensusSceneMarker();
+uint64_t HashCombine(uint64_t hash, uint64_t value);
+template <size_t N>
+void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
+                            std::array<uint32_t, N> &words);
 
 const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
   switch (kind) {
@@ -1681,6 +1733,174 @@ void IndexVehicleIdentityAddressLocked(size_t identity_index,
     index = (index + 1) % kVehicleIdentityAddressCapacity;
   }
   ++g_vehicle_identity_address_overflow;
+}
+
+bool ShouldScanVehicleObjectProbe(const VehicleDrawArgumentProbe &probe) {
+  if (probe.value < 0x40000000 || probe.value >= 0x70000000 ||
+      (probe.value & 3) ||
+      probe.value > UINT32_MAX - kVehicleObjectScanWordCount * 4) {
+    return false;
+  }
+  switch (probe.layer) {
+  case VehicleDrawProvenanceLayer::kDirectArguments:
+  case VehicleDrawProvenanceLayer::kIndirectConstructorArguments:
+  case VehicleDrawProvenanceLayer::kIndirectOwnerArguments:
+  case VehicleDrawProvenanceLayer::kIndirectProducerArguments:
+  case VehicleDrawProvenanceLayer::kIndirectContextArguments:
+    return probe.argument_index == 0;
+  case VehicleDrawProvenanceLayer::kSemanticReceiver:
+  case VehicleDrawProvenanceLayer::kSemanticDescriptor:
+  case VehicleDrawProvenanceLayer::kSemanticRuntime:
+  case VehicleDrawProvenanceLayer::kIndirectContextRoot:
+  case VehicleDrawProvenanceLayer::kIndirectSemanticReceiver:
+    return true;
+  }
+  return false;
+}
+
+void RecordVehicleObjectCorrelationLocked(
+    uint64_t backend_signature, uint64_t frame,
+    const VehicleDrawArgumentProbe &probe, uint32_t pointer_offset,
+    const VehicleIdentityAddressEntry &address_entry) {
+  if (address_entry.identity_index >= g_vehicle_identities.size()) {
+    return;
+  }
+  const VehicleIdentityEntry &identity =
+      g_vehicle_identities[address_entry.identity_index];
+  if (!identity.valid) {
+    return;
+  }
+  ++g_vehicle_object_argument_matches;
+  VehicleObjectCorrelationEntry *available = nullptr;
+  for (VehicleObjectCorrelationEntry &entry :
+       g_vehicle_object_correlations) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.backend_signature == backend_signature &&
+        entry.layer == probe.layer &&
+        entry.identity_field == address_entry.field &&
+        entry.function_address == probe.function_address &&
+        entry.return_address == probe.return_address &&
+        entry.argument_index == probe.argument_index &&
+        entry.container_address == probe.value &&
+        entry.pointer_offset == pointer_offset &&
+        entry.identity_generation == identity.generation &&
+        entry.identity_owner == identity.owner &&
+        entry.identity_slot == identity.slot) {
+      ++entry.observations;
+      entry.last_frame = frame;
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_object_correlation_overflow;
+    return;
+  }
+  *available = {
+      .backend_signature = backend_signature,
+      .observations = 1,
+      .first_frame = frame,
+      .last_frame = frame,
+      .layer = probe.layer,
+      .identity_field = address_entry.field,
+      .function_address = probe.function_address,
+      .return_address = probe.return_address,
+      .argument_index = probe.argument_index,
+      .container_address = probe.value,
+      .pointer_offset = pointer_offset,
+      .matched_address = address_entry.address,
+      .identity_generation = identity.generation,
+      .identity_owner = identity.owner,
+      .identity_slot = identity.slot,
+      .valid = true,
+  };
+  ++g_vehicle_object_correlation_count;
+}
+
+void ScanVehicleObjectProbeLocked(uint64_t backend_signature, uint64_t frame,
+                                  const VehicleDrawArgumentProbe &probe) {
+  if (!ShouldScanVehicleObjectProbe(probe) ||
+      !g_vehicle_identity_address_count) {
+    return;
+  }
+  ++g_vehicle_object_scan_requests;
+  const uint64_t frame_window = frame / kFrameSummaryInterval;
+  uint64_t key = HashCombine(backend_signature, frame_window);
+  key = HashCombine(key, uint64_t(probe.layer));
+  key = HashCombine(key, probe.function_address);
+  key = HashCombine(key, probe.return_address);
+  key = HashCombine(key, probe.argument_index);
+  key = HashCombine(key, probe.value);
+  size_t cache_index = size_t(key % kVehicleObjectScanCacheCapacity);
+  VehicleObjectScanCacheEntry *available = nullptr;
+  for (size_t cache_probe = 0;
+       cache_probe < kVehicleObjectScanCacheCapacity; ++cache_probe) {
+    VehicleObjectScanCacheEntry &entry =
+        g_vehicle_object_scan_cache[cache_index];
+    if (!entry.valid) {
+      available = &entry;
+      break;
+    }
+    if (entry.backend_signature == backend_signature &&
+        entry.frame_window == frame_window && entry.layer == probe.layer &&
+        entry.function_address == probe.function_address &&
+        entry.return_address == probe.return_address &&
+        entry.argument_index == probe.argument_index &&
+        entry.container_address == probe.value) {
+      return;
+    }
+    cache_index = (cache_index + 1) % kVehicleObjectScanCacheCapacity;
+  }
+  if (!available) {
+    ++g_vehicle_object_scan_cache_overflow;
+    return;
+  }
+  *available = {
+      .backend_signature = backend_signature,
+      .frame_window = frame_window,
+      .layer = probe.layer,
+      .function_address = probe.function_address,
+      .return_address = probe.return_address,
+      .argument_index = probe.argument_index,
+      .container_address = probe.value,
+      .valid = true,
+  };
+  ++g_vehicle_object_scan_cache_count;
+  ++g_vehicle_object_scans;
+  g_vehicle_object_scan_words += kVehicleObjectScanWordCount;
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  if (!memory) {
+    return;
+  }
+  std::array<uint32_t, kVehicleObjectScanWordCount> words{};
+  LoadSemanticGuestWords(memory, probe.value, words);
+  for (size_t word_index = 0; word_index < words.size(); ++word_index) {
+    const uint32_t word = words[word_index];
+    if (!word) {
+      continue;
+    }
+    size_t address_index = (word >> 4) % kVehicleIdentityAddressCapacity;
+    for (size_t address_probe = 0;
+         address_probe < kVehicleIdentityAddressCapacity; ++address_probe) {
+      const VehicleIdentityAddressEntry &address_entry =
+          g_vehicle_identity_addresses[address_index];
+      if (!address_entry.valid) {
+        break;
+      }
+      if (address_entry.address == word) {
+        RecordVehicleObjectCorrelationLocked(
+            backend_signature, frame, probe, uint32_t(word_index * 4),
+            address_entry);
+      }
+      address_index =
+          (address_index + 1) % kVehicleIdentityAddressCapacity;
+    }
+  }
 }
 
 void ObserveVehicleDrawArgumentCorrelations(
@@ -1867,6 +2087,7 @@ void ObserveVehicleDrawArgumentCorrelations(
       address_index =
           (address_index + 1) % kVehicleIdentityAddressCapacity;
     }
+    ScanVehicleObjectProbeLocked(backend_signature, frame, probe);
   }
 }
 
@@ -15484,6 +15705,16 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_draw_argument_matches = 0;
     g_vehicle_draw_correlation_count = 0;
     g_vehicle_draw_correlation_overflow = 0;
+    g_vehicle_object_scan_cache = {};
+    g_vehicle_object_correlations = {};
+    g_vehicle_object_scan_requests = 0;
+    g_vehicle_object_scans = 0;
+    g_vehicle_object_scan_words = 0;
+    g_vehicle_object_scan_cache_count = 0;
+    g_vehicle_object_scan_cache_overflow = 0;
+    g_vehicle_object_argument_matches = 0;
+    g_vehicle_object_correlation_count = 0;
+    g_vehicle_object_correlation_overflow = 0;
   }
   g_vehicle_discovery_memory.store(census_requested ? memory : nullptr,
                                    std::memory_order_release);
@@ -15516,6 +15747,14 @@ void ConfigureVehicleDiscovery(bool census_requested,
         std::to_string(kVehicleIdentityAddressCapacity)},
        {"draw_correlation",
         "exact_backend_signature_and_provenance_argument_to_vehicle_address"},
+       {"object_scan_word_count",
+        std::to_string(kVehicleObjectScanWordCount)},
+       {"object_scan_cache_capacity",
+        std::to_string(kVehicleObjectScanCacheCapacity)},
+       {"object_correlation_capacity",
+        std::to_string(kVehicleObjectCorrelationCapacity)},
+       {"object_correlation",
+        "sampled_one_hop_pointer_to_vehicle_address"},
        {"guest_payload_read",
         "existing_title_pose_hook_values_and_bounded_owner_vtable"},
        {"guest_state_changed", "false"},
@@ -15592,6 +15831,27 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleIdentityAddressCapacity)},
        {"identity_address_overflow",
         std::to_string(g_vehicle_identity_address_overflow)},
+       {"object_scan_requests",
+        std::to_string(g_vehicle_object_scan_requests)},
+       {"object_scans", std::to_string(g_vehicle_object_scans)},
+       {"object_scan_words",
+        std::to_string(g_vehicle_object_scan_words)},
+       {"object_scan_word_count",
+        std::to_string(kVehicleObjectScanWordCount)},
+       {"object_scan_cache_entries",
+        std::to_string(g_vehicle_object_scan_cache_count)},
+       {"object_scan_cache_capacity",
+        std::to_string(kVehicleObjectScanCacheCapacity)},
+       {"object_scan_cache_overflow",
+        std::to_string(g_vehicle_object_scan_cache_overflow)},
+       {"object_argument_matches",
+        std::to_string(g_vehicle_object_argument_matches)},
+       {"object_correlations",
+        std::to_string(g_vehicle_object_correlation_count)},
+       {"object_correlation_capacity",
+        std::to_string(kVehicleObjectCorrelationCapacity)},
+       {"object_correlation_overflow",
+        std::to_string(g_vehicle_object_correlation_overflow)},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -15717,6 +15977,42 @@ void EmitVehicleDiscoverySummary() {
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
          {"classification", "vehicle_draw_argument_correlation_candidate"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleObjectCorrelationEntry &entry :
+       g_vehicle_object_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_draw_object_correlation",
+        {{"backend_signature",
+          fmt::format("{:016X}", entry.backend_signature)},
+         {"provenance_layer",
+          VehicleDrawProvenanceLayerName(entry.layer)},
+         {"function_address",
+          fmt::format("{:08X}", entry.function_address)},
+         {"return_address", fmt::format("{:08X}", entry.return_address)},
+         {"argument_index", std::to_string(entry.argument_index)},
+         {"container_address",
+          fmt::format("{:08X}", entry.container_address)},
+         {"pointer_offset", std::to_string(entry.pointer_offset)},
+         {"identity_field",
+          VehicleIdentityAddressKindName(entry.identity_field)},
+         {"matched_address", fmt::format("{:08X}", entry.matched_address)},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"relationship_depth", "1"},
+         {"classification", "vehicle_draw_object_correlation_candidate"},
          {"vehicle_draw_identity_proved", "false"},
          {"guest_state_changed", "false"},
          {"native_draw", "false"},
