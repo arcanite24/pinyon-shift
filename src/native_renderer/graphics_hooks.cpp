@@ -6618,7 +6618,8 @@ void ConfigureContinuousWorldWorkset() {
   g_continuous_world_workset = {};
   g_continuous_world_workset.current_frame = UINT64_MAX;
   const bool prototype_selected =
-      REXCVAR_GET(pinyon_shift_native_renderer) == "native_prototype";
+      REXCVAR_GET(pinyon_shift_native_renderer) == "native_prototype" ||
+      REXCVAR_GET(pinyon_shift_native_renderer) == "hybrid_prototype";
   char *value = nullptr;
   size_t length = 0;
   if (_dupenv_s(

@@ -132,6 +132,11 @@ frame.
   supported prototype scene.
 - Keep Xenos draws and resolves intact; add no new suppression.
 
+Implementation checkpoint: the complete-frame, agreement-gated compositor is
+defined in [`HYBRID_PROTOTYPE_COMPOSITION.md`](HYBRID_PROTOTYPE_COMPOSITION.md).
+It admits native pixels only after the title gamma conversion and only where
+they agree with completed Xenos output; every mismatch remains Xenos.
+
 ### B4. First native shadow integration
 
 - Connect the proven 2048-square dynamic shadow epoch only when its exact

@@ -1,0 +1,1583 @@
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index fed2782..615d325 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -207,7 +207,8 @@ class D3D12CommandProcessor : public CommandProcessor {
+   bool DrawNativeGuestOutputRetainedPass(ID3D12Resource* resource,
+                                          uint32_t width,
+                                          uint32_t height,
+-                                         system::NativeGuestOutputRetainedPassMode mode);
++                                         system::NativeGuestOutputRetainedPassMode mode,
++                                         bool use_pwl_gamma_ramp);
+ 
+  protected:
+   bool SetupContext() override;
+@@ -662,6 +663,31 @@ class D3D12CommandProcessor : public CommandProcessor {
+   D3D12_RESOURCE_STATES native_guest_output_display_target_state_ =
+       D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   uint64_t native_guest_output_display_target_submission_ = 0;
++  Microsoft::WRL::ComPtr<ID3D12Resource>
++      native_guest_output_linear_target_;
++  D3D12_RESOURCE_STATES native_guest_output_linear_target_state_ =
++      D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++  uint64_t native_guest_output_linear_target_submission_ = 0;
++  struct NativeGuestOutputHybridConstants {
++    uint32_t output_size[2];
++    float agreement_epsilon;
++    uint32_t padding;
++  };
++  enum class NativeGuestOutputHybridRootParameter : uint32_t {
++    kConstants,
++    kSources,
++    kOutput,
++    kCount,
++  };
++  Microsoft::WRL::ComPtr<ID3D12RootSignature>
++      native_guest_output_hybrid_root_signature_;
++  Microsoft::WRL::ComPtr<ID3D12PipelineState>
++      native_guest_output_hybrid_pipeline_;
++  Microsoft::WRL::ComPtr<ID3D12Resource>
++      native_guest_output_hybrid_target_;
++  D3D12_RESOURCE_STATES native_guest_output_hybrid_target_state_ =
++      D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++  uint64_t native_guest_output_hybrid_target_submission_ = 0;
+ 
+   static constexpr uint32_t kNativeGuestOutputGpuQueriesPerFrame = 5;
+   struct NativeGuestOutputGpuTimingSlot {
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index ccd3a91..b7fcd7f 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -53,6 +53,7 @@ enum class NativeGuestOutputRetainedPassMode : uint32_t {
+   kCompareNative = 1,
+   kCompareXenos = 2,
+   kPrototypeNative = 3,
++  kPrototypeHybrid = 4,
+ };
+ 
+ struct NativeGuestOutputRenderContext {
+@@ -68,6 +69,8 @@ struct NativeGuestOutputRenderContext {
+   uint64_t submission = 0;
+   uint64_t frame_sequence = 0;
+   uint64_t retained_pass_frame_sequence = 0;
++  bool use_pwl_gamma_ramp = false;
++  bool xenos_fxaa_applied = false;
+   NativeGuestOutputClearColor clear_color = nullptr;
+   NativeGuestOutputDrawDiagnosticTriangle draw_diagnostic_triangle = nullptr;
+   NativeGuestOutputDrawRetainedPass draw_retained_pass = nullptr;
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 7fc86a6..51a9022 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -59,6 +59,7 @@ namespace shaders {
+ #include "../shaders/bytecode/d3d12_5_1/fxaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/fxaa_extreme_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/native_guest_output_retained_pass_cs.h"
++#include "../shaders/bytecode/d3d12_5_1/native_guest_output_hybrid_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/native_guest_output_triangle_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_downscale_cs.h"
+ }  // namespace shaders
+@@ -1858,6 +1859,14 @@ void D3D12CommandProcessor::ShutdownContext() {
+       D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   native_guest_output_retained_pass_pipeline_.Reset();
+   native_guest_output_retained_pass_root_signature_.Reset();
++  native_guest_output_linear_target_.Reset();
++  native_guest_output_linear_target_submission_ = 0;
++  native_guest_output_hybrid_target_submission_ = 0;
++  native_guest_output_hybrid_target_.Reset();
++  native_guest_output_hybrid_target_state_ =
++      D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++  native_guest_output_hybrid_pipeline_.Reset();
++  native_guest_output_hybrid_root_signature_.Reset();
+   native_guest_output_triangle_pipeline_.Reset();
+   native_guest_output_triangle_root_signature_.Reset();
+ 
+@@ -2200,7 +2209,7 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputDiagnosticTriangle(
+ 
+ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+     ID3D12Resource* resource, uint32_t width, uint32_t height,
+-    system::NativeGuestOutputRetainedPassMode mode) {
++    system::NativeGuestOutputRetainedPassMode mode, bool use_pwl_gamma_ramp) {
+   if (!resource || !width || !height || !render_target_cache_) {
+     return false;
+   }
+@@ -2209,6 +2218,11 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+       mode == system::NativeGuestOutputRetainedPassMode::kCompareXenos;
+   const bool present_native =
+       mode != system::NativeGuestOutputRetainedPassMode::kCompareXenos;
++  const bool prototype =
++      mode == system::NativeGuestOutputRetainedPassMode::kPrototypeNative ||
++      mode == system::NativeGuestOutputRetainedPassMode::kPrototypeHybrid;
++  const bool hybrid =
++      mode == system::NativeGuestOutputRetainedPassMode::kPrototypeHybrid;
+ 
+   const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
+   ID3D12Device* device = provider.GetDevice();
+@@ -2336,6 +2350,55 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   }
+ 
++  if (prototype) {
++    constexpr uint32_t kLogicalSceneWidth = 512;
++    constexpr uint32_t kLogicalSceneHeight = 288;
++    bool recreate_linear_target = !native_guest_output_linear_target_;
++    if (!recreate_linear_target) {
++      const D3D12_RESOURCE_DESC linear_desc =
++          native_guest_output_linear_target_->GetDesc();
++      recreate_linear_target = linear_desc.Width != width ||
++                               linear_desc.Height != height ||
++                               linear_desc.Format !=
++                                   DXGI_FORMAT_R16G16B16A16_FLOAT;
++    }
++    if (recreate_linear_target) {
++      if (native_guest_output_linear_target_) {
++        if (submission_completed_ <
++            native_guest_output_linear_target_submission_) {
++          native_guest_output_linear_target_->AddRef();
++          resources_for_deletion_.emplace_back(
++              native_guest_output_linear_target_submission_,
++              native_guest_output_linear_target_.Get());
++        }
++        native_guest_output_linear_target_.Reset();
++        native_guest_output_linear_target_submission_ = 0;
++      }
++      D3D12_RESOURCE_DESC linear_desc{};
++      linear_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++      linear_desc.Width = width;
++      linear_desc.Height = height;
++      linear_desc.DepthOrArraySize = 1;
++      linear_desc.MipLevels = 1;
++      linear_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++      linear_desc.SampleDesc.Count = 1;
++      linear_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
++      linear_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++      HRESULT create_result = device->CreateCommittedResource(
++          &ui::d3d12::util::kHeapPropertiesDefault,
++          provider.GetHeapFlagCreateNotZeroed(), &linear_desc,
++          D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
++          IID_PPV_ARGS(&native_guest_output_linear_target_));
++      if (FAILED(create_result)) {
++        return false;
++      }
++      native_guest_output_linear_target_->SetName(
++          L"Native guest-output logical-scene linear target");
++      native_guest_output_linear_target_state_ =
++          D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++    }
++  }
++
+   NativeGuestOutputGpuTimingSlot* timing_slot = nullptr;
+   uint32_t timing_query_base = 0;
+   if (comparison) {
+@@ -2362,8 +2425,8 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+     }
+   }
+ 
+-  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[2];
+-  if (!RequestOneUseSingleViewDescriptors(2, descriptors)) {
++  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[5];
++  if (!RequestOneUseSingleViewDescriptors(prototype ? 5 : 2, descriptors)) {
+     static bool logged_retained_preview_descriptor_failure = false;
+     if (!logged_retained_preview_descriptor_failure) {
+       logged_retained_preview_descriptor_failure = true;
+@@ -2377,6 +2440,14 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+           observation_frame_sequence_, preview_source)) {
+     return false;
+   }
++  constexpr uint32_t kLogicalSceneWidth = 512;
++  constexpr uint32_t kLogicalSceneHeight = 288;
++  if (prototype &&
++      (preview_source.width < kLogicalSceneWidth ||
++       preview_source.height < kLogicalSceneHeight)) {
++    render_target_cache_->EndIsolatedReplayPreview(preview_source);
++    return false;
++  }
+ 
+   D3D12_SHADER_RESOURCE_VIEW_DESC source_view_desc{};
+   source_view_desc.Format = preview_source.format;
+@@ -2396,11 +2467,40 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+                                     nullptr, &output_view_desc,
+                                     descriptors[1].first);
+ 
++  ui::d3d12::util::DescriptorCpuGpuHandlePair gamma_ramp_descriptor;
++  if (prototype) {
++    if (bindless_resources_used_) {
++      gamma_ramp_descriptor = GetSystemBindlessViewHandlePair(
++          use_pwl_gamma_ramp ? SystemBindlessView::kGammaRampPWLSRV
++                             : SystemBindlessView::kGammaRampTableSRV);
++    } else {
++      gamma_ramp_descriptor = descriptors[2];
++      WriteGammaRampSRV(use_pwl_gamma_ramp, gamma_ramp_descriptor.first);
++    }
++    D3D12_UNORDERED_ACCESS_VIEW_DESC linear_uav_desc{};
++    linear_uav_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++    linear_uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++    device->CreateUnorderedAccessView(native_guest_output_linear_target_.Get(),
++                                      nullptr, &linear_uav_desc,
++                                      descriptors[3].first);
++    D3D12_SHADER_RESOURCE_VIEW_DESC linear_srv_desc{};
++    linear_srv_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++    linear_srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++    linear_srv_desc.Shader4ComponentMapping =
++        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++    linear_srv_desc.Texture2D.MipLevels = 1;
++    device->CreateShaderResourceView(native_guest_output_linear_target_.Get(),
++                                     &linear_srv_desc,
++                                     descriptors[4].first);
++  }
++
+   NativeGuestOutputRetainedPassConstants preview_constants{
+       {width, height},
+       {preview_source.width, preview_source.height},
+-      {std::min(preview_source.width, uint32_t(512)),
+-       std::min(preview_source.height, uint32_t(512))},
++      {prototype ? kLogicalSceneWidth
++                 : std::min(preview_source.width, uint32_t(512)),
++       prototype ? kLogicalSceneHeight
++                 : std::min(preview_source.height, uint32_t(512))},
+       mode == system::NativeGuestOutputRetainedPassMode::kPrototypeNative
+           ? 1u
+           : 0u,
+@@ -2408,29 +2508,86 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+   PushTransitionBarrier(native_guest_output_display_target_.Get(),
+                         native_guest_output_display_target_state_,
+                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-  deferred_command_list_.D3DSetComputeRootSignature(
+-      native_guest_output_retained_pass_root_signature_.Get());
+-  deferred_command_list_.D3DSetComputeRoot32BitConstants(
+-      uint32_t(NativeGuestOutputRetainedPassRootParameter::kConstants),
+-      sizeof(preview_constants) / sizeof(uint32_t), &preview_constants, 0);
+-  deferred_command_list_.D3DSetComputeRootDescriptorTable(
+-      uint32_t(NativeGuestOutputRetainedPassRootParameter::kSource),
+-      descriptors[0].second);
+-  deferred_command_list_.D3DSetComputeRootDescriptorTable(
+-      uint32_t(NativeGuestOutputRetainedPassRootParameter::kOutput),
+-      descriptors[1].second);
+-  SetExternalPipeline(native_guest_output_retained_pass_pipeline_.Get());
++  if (prototype) {
++    PushTransitionBarrier(native_guest_output_linear_target_.Get(),
++                          native_guest_output_linear_target_state_,
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    deferred_command_list_.D3DSetComputeRootSignature(
++        native_guest_output_retained_pass_root_signature_.Get());
++    deferred_command_list_.D3DSetComputeRoot32BitConstants(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kConstants),
++        sizeof(preview_constants) / sizeof(uint32_t), &preview_constants, 0);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kSource),
++        descriptors[0].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kOutput),
++        descriptors[3].second);
++    SetExternalPipeline(native_guest_output_retained_pass_pipeline_.Get());
++    SubmitBarriers();
++    deferred_command_list_.D3DDispatch((width + 7) / 8,
++                                       (height + 7) / 8, 1);
++    PushTransitionBarrier(native_guest_output_linear_target_.Get(),
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    native_guest_output_linear_target_state_ =
++        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    ApplyGammaConstants gamma_constants{{width, height}};
++    deferred_command_list_.D3DSetComputeRootSignature(
++        apply_gamma_root_signature_.Get());
++    deferred_command_list_.D3DSetComputeRoot32BitConstants(
++        uint32_t(ApplyGammaRootParameter::kConstants),
++        sizeof(gamma_constants) / sizeof(uint32_t), &gamma_constants, 0);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(ApplyGammaRootParameter::kDestination),
++        descriptors[1].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(ApplyGammaRootParameter::kSource), descriptors[4].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(ApplyGammaRootParameter::kRamp),
++        gamma_ramp_descriptor.second);
++    SetExternalPipeline(use_pwl_gamma_ramp ? apply_gamma_pwl_pipeline_.Get()
++                                           : apply_gamma_table_pipeline_.Get());
++  } else {
++    deferred_command_list_.D3DSetComputeRootSignature(
++        native_guest_output_retained_pass_root_signature_.Get());
++    deferred_command_list_.D3DSetComputeRoot32BitConstants(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kConstants),
++        sizeof(preview_constants) / sizeof(uint32_t), &preview_constants, 0);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kSource),
++        descriptors[0].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputRetainedPassRootParameter::kOutput),
++        descriptors[1].second);
++    SetExternalPipeline(native_guest_output_retained_pass_pipeline_.Get());
++  }
+   SubmitBarriers();
+   if (comparison) {
+     deferred_command_list_.BeginDebugMarker(
+         "PinyonShift NR-04C native display composition");
+   }
+-  deferred_command_list_.D3DDispatch((width + 7) / 8, (height + 7) / 8, 1);
++  if (prototype) {
++    deferred_command_list_.D3DDispatch((width + 15) / 16,
++                                       (height + 7) / 8, 1);
++    PushTransitionBarrier(native_guest_output_linear_target_.Get(),
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    native_guest_output_linear_target_state_ =
++        D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++    native_guest_output_linear_target_submission_ = submission_current_;
++  } else {
++    deferred_command_list_.D3DDispatch((width + 7) / 8,
++                                       (height + 7) / 8, 1);
++  }
+   render_target_cache_->EndIsolatedReplayPreview(preview_source);
+   PushTransitionBarrier(native_guest_output_display_target_.Get(),
+                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                         D3D12_RESOURCE_STATE_COPY_SOURCE);
+   SubmitBarriers();
++  native_guest_output_display_target_state_ =
++      D3D12_RESOURCE_STATE_COPY_SOURCE;
++  native_guest_output_display_target_submission_ = submission_current_;
+   if (comparison) {
+     deferred_command_list_.EndDebugMarker();
+   }
+@@ -2439,6 +2596,159 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         native_guest_output_gpu_query_heap_.Get(),
+         D3D12_QUERY_TYPE_TIMESTAMP, timing_query_base + 2);
+   }
++  ID3D12Resource* selected_native_resource =
++      native_guest_output_display_target_.Get();
++  if (hybrid) {
++    bool recreate_hybrid_target = !native_guest_output_hybrid_target_;
++    if (!recreate_hybrid_target) {
++      const D3D12_RESOURCE_DESC hybrid_desc =
++          native_guest_output_hybrid_target_->GetDesc();
++      recreate_hybrid_target = hybrid_desc.Width != width ||
++                               hybrid_desc.Height != height ||
++                               hybrid_desc.Format !=
++                                   ui::d3d12::D3D12Presenter::kGuestOutputFormat;
++    }
++    if (recreate_hybrid_target) {
++      if (native_guest_output_hybrid_target_) {
++        if (submission_completed_ <
++            native_guest_output_hybrid_target_submission_) {
++          native_guest_output_hybrid_target_->AddRef();
++          resources_for_deletion_.emplace_back(
++              native_guest_output_hybrid_target_submission_,
++              native_guest_output_hybrid_target_.Get());
++        }
++        native_guest_output_hybrid_target_.Reset();
++        native_guest_output_hybrid_target_submission_ = 0;
++      }
++      D3D12_RESOURCE_DESC hybrid_desc =
++          native_guest_output_display_target_->GetDesc();
++      HRESULT create_result = device->CreateCommittedResource(
++          &ui::d3d12::util::kHeapPropertiesDefault,
++          provider.GetHeapFlagCreateNotZeroed(), &hybrid_desc,
++          D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
++          IID_PPV_ARGS(&native_guest_output_hybrid_target_));
++      if (FAILED(create_result)) {
++        return false;
++      }
++      native_guest_output_hybrid_target_->SetName(
++          L"Native guest-output conservative hybrid target");
++      native_guest_output_hybrid_target_state_ =
++          D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++    }
++    if (!native_guest_output_hybrid_root_signature_) {
++      D3D12_ROOT_PARAMETER parameters[
++          uint32_t(NativeGuestOutputHybridRootParameter::kCount)]{};
++      auto& constants = parameters[uint32_t(
++          NativeGuestOutputHybridRootParameter::kConstants)];
++      constants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++      constants.Constants.ShaderRegister = 0;
++      constants.Constants.Num32BitValues =
++          sizeof(NativeGuestOutputHybridConstants) / sizeof(uint32_t);
++      D3D12_DESCRIPTOR_RANGE sources_range{};
++      sources_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
++      sources_range.NumDescriptors = 2;
++      sources_range.BaseShaderRegister = 0;
++      auto& sources = parameters[
++          uint32_t(NativeGuestOutputHybridRootParameter::kSources)];
++      sources.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++      sources.DescriptorTable.NumDescriptorRanges = 1;
++      sources.DescriptorTable.pDescriptorRanges = &sources_range;
++      D3D12_DESCRIPTOR_RANGE output_range{};
++      output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
++      output_range.NumDescriptors = 1;
++      output_range.BaseShaderRegister = 0;
++      auto& output = parameters[
++          uint32_t(NativeGuestOutputHybridRootParameter::kOutput)];
++      output.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++      output.DescriptorTable.NumDescriptorRanges = 1;
++      output.DescriptorTable.pDescriptorRanges = &output_range;
++      D3D12_ROOT_SIGNATURE_DESC root_desc{};
++      root_desc.NumParameters =
++          uint32_t(NativeGuestOutputHybridRootParameter::kCount);
++      root_desc.pParameters = parameters;
++      *native_guest_output_hybrid_root_signature_.ReleaseAndGetAddressOf() =
++          ui::d3d12::util::CreateRootSignature(provider, root_desc);
++      if (!native_guest_output_hybrid_root_signature_) {
++        return false;
++      }
++    }
++    if (!native_guest_output_hybrid_pipeline_) {
++      *native_guest_output_hybrid_pipeline_.ReleaseAndGetAddressOf() =
++          ui::d3d12::util::CreateComputePipeline(
++              device, shaders::native_guest_output_hybrid_cs,
++              sizeof(shaders::native_guest_output_hybrid_cs),
++              native_guest_output_hybrid_root_signature_.Get());
++      if (!native_guest_output_hybrid_pipeline_) {
++        return false;
++      }
++    }
++    ui::d3d12::util::DescriptorCpuGpuHandlePair hybrid_descriptors[3];
++    if (!RequestOneUseSingleViewDescriptors(3, hybrid_descriptors)) {
++      return false;
++    }
++    D3D12_SHADER_RESOURCE_VIEW_DESC output_srv_desc{};
++    output_srv_desc.Format =
++        ui::d3d12::D3D12Presenter::kGuestOutputFormat;
++    output_srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++    output_srv_desc.Shader4ComponentMapping =
++        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++    output_srv_desc.Texture2D.MipLevels = 1;
++    device->CreateShaderResourceView(native_guest_output_display_target_.Get(),
++                                     &output_srv_desc,
++                                     hybrid_descriptors[0].first);
++    device->CreateShaderResourceView(resource, &output_srv_desc,
++                                     hybrid_descriptors[1].first);
++    D3D12_UNORDERED_ACCESS_VIEW_DESC hybrid_uav_desc{};
++    hybrid_uav_desc.Format =
++        ui::d3d12::D3D12Presenter::kGuestOutputFormat;
++    hybrid_uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++    device->CreateUnorderedAccessView(native_guest_output_hybrid_target_.Get(),
++                                      nullptr, &hybrid_uav_desc,
++                                      hybrid_descriptors[2].first);
++    PushTransitionBarrier(native_guest_output_display_target_.Get(),
++                          D3D12_RESOURCE_STATE_COPY_SOURCE,
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    PushTransitionBarrier(resource,
++                          ui::d3d12::D3D12Presenter::kGuestOutputInternalState,
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    PushTransitionBarrier(native_guest_output_hybrid_target_.Get(),
++                          native_guest_output_hybrid_target_state_,
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    NativeGuestOutputHybridConstants hybrid_constants{
++        {width, height}, 0.5f / 255.0f, 0};
++    deferred_command_list_.D3DSetComputeRootSignature(
++        native_guest_output_hybrid_root_signature_.Get());
++    deferred_command_list_.D3DSetComputeRoot32BitConstants(
++        uint32_t(NativeGuestOutputHybridRootParameter::kConstants),
++        sizeof(hybrid_constants) / sizeof(uint32_t), &hybrid_constants, 0);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputHybridRootParameter::kSources),
++        hybrid_descriptors[0].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        uint32_t(NativeGuestOutputHybridRootParameter::kOutput),
++        hybrid_descriptors[2].second);
++    SetExternalPipeline(native_guest_output_hybrid_pipeline_.Get());
++    SubmitBarriers();
++    deferred_command_list_.BeginDebugMarker(
++        "PinyonShift native conservative hybrid composition");
++    deferred_command_list_.D3DDispatch((width + 7) / 8,
++                                       (height + 7) / 8, 1);
++    deferred_command_list_.EndDebugMarker();
++    PushTransitionBarrier(native_guest_output_display_target_.Get(),
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                          D3D12_RESOURCE_STATE_COPY_SOURCE);
++    PushTransitionBarrier(resource,
++                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                          ui::d3d12::D3D12Presenter::kGuestOutputInternalState);
++    PushTransitionBarrier(native_guest_output_hybrid_target_.Get(),
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                          D3D12_RESOURCE_STATE_COPY_SOURCE);
++    SubmitBarriers();
++    native_guest_output_hybrid_target_state_ =
++        D3D12_RESOURCE_STATE_COPY_SOURCE;
++    native_guest_output_hybrid_target_submission_ = submission_current_;
++    selected_native_resource = native_guest_output_hybrid_target_.Get();
++  }
+   if (present_native) {
+     if (comparison) {
+       deferred_command_list_.BeginDebugMarker(
+@@ -2455,7 +2765,7 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         D3D12_RESOURCE_STATE_COPY_DEST);
+     SubmitBarriers();
+     deferred_command_list_.D3DCopyResource(
+-        resource, native_guest_output_display_target_.Get());
++        resource, selected_native_resource);
+     PushTransitionBarrier(resource, D3D12_RESOURCE_STATE_COPY_DEST,
+                           ui::d3d12::D3D12Presenter::kGuestOutputInternalState);
+     SubmitBarriers();
+@@ -2481,9 +2791,6 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+         uint64_t(first_query) * sizeof(uint64_t));
+     timing_slot->submission = submission_current_;
+   }
+-  native_guest_output_display_target_state_ =
+-      D3D12_RESOURCE_STATE_COPY_SOURCE;
+-  native_guest_output_display_target_submission_ = submission_current_;
+   return true;
+ }
+ 
+@@ -2507,7 +2814,7 @@ bool InvokeNativeGuestOutputRetainedPass(
+   return command_processor &&
+          command_processor->DrawNativeGuestOutputRetainedPass(
+              resource, context.guest_output_width,
+-             context.guest_output_height, mode);
++             context.guest_output_height, mode, context.use_pwl_gamma_ramp);
+ }
+ 
+ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+@@ -2888,6 +3195,8 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
+           native_context.frame_sequence = observation_frame_sequence_;
+           native_context.retained_pass_frame_sequence =
+               render_target_cache_->GetIsolatedReplayPreviewFrameSequence();
++          native_context.use_pwl_gamma_ramp = use_pwl_gamma_ramp;
++          native_context.xenos_fxaa_applied = use_fxaa;
+           native_context.clear_color = &ClearNativeGuestOutput;
+           native_context.draw_diagnostic_triangle =
+               &InvokeNativeGuestOutputDiagnosticTriangle;
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_hybrid_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_hybrid_cs.h
+new file mode 100644
+index 0000000..a30c8d5
+--- /dev/null
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_hybrid_cs.h
+@@ -0,0 +1,312 @@
++#if 0
++//
++// Generated by Microsoft (R) HLSL Shader Compiler 10.1
++//
++//
++// Buffer Definitions:
++//
++// cbuffer NativeGuestOutputHybridConstants
++// {
++//
++//   uint2 output_size;                 // Offset:    0 Size:     8
++//   float agreement_epsilon;           // Offset:    8 Size:     4
++//   uint padding;                      // Offset:   12 Size:     4 [unused]
++//
++// }
++//
++//
++// Resource Bindings:
++//
++// Name                                 Type  Format         Dim      ID      HLSL Bind  Count
++// ------------------------------ ---------- ------- ----------- ------- -------------- ------
++// native_output                     texture  float4          2d      T0             t0      1
++// xenos_output                      texture  float4          2d      T1             t1      1
++// hybrid_output                         UAV  float4          2d      U0             u0      1
++// NativeGuestOutputHybridConstants    cbuffer      NA          NA     CB0            cb0      1
++//
++//
++//
++// Input signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Input
++//
++// Output signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Output
++cs_5_1
++dcl_globalFlags refactoringAllowed
++dcl_constantbuffer CB0[0:0][1], immediateIndexed, space=0
++dcl_resource_texture2d (float,float,float,float) T0[0:0], space=0
++dcl_resource_texture2d (float,float,float,float) T1[1:1], space=0
++dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
++dcl_input vThreadID.xy
++dcl_temps 3
++dcl_thread_group 8, 8, 1
++uge r0.xy, vThreadID.xyxx, CB0[0][0].xyxx
++or r0.x, r0.y, r0.x
++if_nz r0.x
++  ret
++endif
++mov r0.xy, vThreadID.xyxx
++mov r0.zw, l(0,0,0,0)
++ld r1.xyzw, r0.xyww, T0[0].xyzw
++ld r0.xyzw, r0.xyzw, T1[1].xyzw
++add r2.xyzw, -r0.xyzw, r1.xyzw
++ge r2.xyzw, CB0[0][0].zzzz, |r2.xyzw|
++and r2.xy, r2.zwzz, r2.xyxx
++and r2.x, r2.y, r2.x
++movc r0.xyzw, r2.xxxx, r1.xyzw, r0.xyzw
++store_uav_typed U0[0].xyzw, vThreadID.xyyy, r0.xyzw
++ret
++// Approximately 16 instruction slots used
++#endif
++
++const BYTE native_guest_output_hybrid_cs[] =
++{
++     68,  88,  66,  67,  58, 155,
++    158, 154, 207, 253, 100, 109,
++    148,  80,  12,  32, 237, 147,
++    186, 144,   1,   0,   0,   0,
++    168,   5,   0,   0,   5,   0,
++      0,   0,  52,   0,   0,   0,
++    196,   2,   0,   0, 212,   2,
++      0,   0, 228,   2,   0,   0,
++     12,   5,   0,   0,  82,  68,
++     69,  70, 136,   2,   0,   0,
++      1,   0,   0,   0,  40,   1,
++      0,   0,   4,   0,   0,   0,
++     60,   0,   0,   0,   1,   5,
++     83,  67,   0, 133,   0,   0,
++     96,   2,   0,   0,  19,  19,
++     68,  37,  60,   0,   0,   0,
++     24,   0,   0,   0,  40,   0,
++      0,   0,  40,   0,   0,   0,
++     36,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0,
++    220,   0,   0,   0,   2,   0,
++      0,   0,   5,   0,   0,   0,
++      4,   0,   0,   0, 255, 255,
++    255, 255,   0,   0,   0,   0,
++      1,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0, 234,   0,
++      0,   0,   2,   0,   0,   0,
++      5,   0,   0,   0,   4,   0,
++      0,   0, 255, 255, 255, 255,
++      1,   0,   0,   0,   1,   0,
++      0,   0,  12,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0, 247,   0,   0,   0,
++      4,   0,   0,   0,   5,   0,
++      0,   0,   4,   0,   0,   0,
++    255, 255, 255, 255,   0,   0,
++      0,   0,   1,   0,   0,   0,
++     12,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      5,   1,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      1,   0,   0,   0,   1,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0, 110,  97,
++    116, 105, 118, 101,  95, 111,
++    117, 116, 112, 117, 116,   0,
++    120, 101, 110, 111, 115,  95,
++    111, 117, 116, 112, 117, 116,
++      0, 104, 121,  98, 114, 105,
++    100,  95, 111, 117, 116, 112,
++    117, 116,   0,  78,  97, 116,
++    105, 118, 101,  71, 117, 101,
++    115, 116,  79, 117, 116, 112,
++    117, 116,  72, 121,  98, 114,
++    105, 100,  67, 111, 110, 115,
++    116,  97, 110, 116, 115,   0,
++    171, 171,   5,   1,   0,   0,
++      3,   0,   0,   0,  64,   1,
++      0,   0,  16,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0, 184,   1,   0,   0,
++      0,   0,   0,   0,   8,   0,
++      0,   0,   2,   0,   0,   0,
++    204,   1,   0,   0,   0,   0,
++      0,   0, 255, 255, 255, 255,
++      0,   0,   0,   0, 255, 255,
++    255, 255,   0,   0,   0,   0,
++    240,   1,   0,   0,   8,   0,
++      0,   0,   4,   0,   0,   0,
++      2,   0,   0,   0,   8,   2,
++      0,   0,   0,   0,   0,   0,
++    255, 255, 255, 255,   0,   0,
++      0,   0, 255, 255, 255, 255,
++      0,   0,   0,   0,  44,   2,
++      0,   0,  12,   0,   0,   0,
++      4,   0,   0,   0,   0,   0,
++      0,   0,  60,   2,   0,   0,
++      0,   0,   0,   0, 255, 255,
++    255, 255,   0,   0,   0,   0,
++    255, 255, 255, 255,   0,   0,
++      0,   0, 111, 117, 116, 112,
++    117, 116,  95, 115, 105, 122,
++    101,   0, 117, 105, 110, 116,
++     50,   0, 171, 171,   1,   0,
++     19,   0,   1,   0,   2,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++    196,   1,   0,   0,  97, 103,
++    114, 101, 101, 109, 101, 110,
++    116,  95, 101, 112, 115, 105,
++    108, 111, 110,   0, 102, 108,
++    111,  97, 116,   0,   0,   0,
++      3,   0,   1,   0,   1,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      2,   2,   0,   0, 112,  97,
++    100, 100, 105, 110, 103,   0,
++    100, 119, 111, 114, 100,   0,
++    171, 171,   0,   0,  19,   0,
++      1,   0,   1,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  52,   2,
++      0,   0,  77, 105,  99, 114,
++    111, 115, 111, 102, 116,  32,
++     40,  82,  41,  32,  72,  76,
++     83,  76,  32,  83, 104,  97,
++    100, 101, 114,  32,  67, 111,
++    109, 112, 105, 108, 101, 114,
++     32,  49,  48,  46,  49,   0,
++     73,  83,  71,  78,   8,   0,
++      0,   0,   0,   0,   0,   0,
++      8,   0,   0,   0,  79,  83,
++     71,  78,   8,   0,   0,   0,
++      0,   0,   0,   0,   8,   0,
++      0,   0,  83,  72,  69,  88,
++     32,   2,   0,   0,  81,   0,
++      5,   0, 136,   0,   0,   0,
++    106,   8,   0,   1,  89,   0,
++      0,   7,  70, 142,  48,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,
++      0,   0,  88,  24,   0,   7,
++     70, 126,  48,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  85,  85,
++      0,   0,   0,   0,   0,   0,
++     88,  24,   0,   7,  70, 126,
++     48,   0,   1,   0,   0,   0,
++      1,   0,   0,   0,   1,   0,
++      0,   0,  85,  85,   0,   0,
++      0,   0,   0,   0, 156,  24,
++      0,   7,  70, 238,  49,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     85,  85,   0,   0,   0,   0,
++      0,   0,  95,   0,   0,   2,
++     50,   0,   2,   0, 104,   0,
++      0,   2,   3,   0,   0,   0,
++    155,   0,   0,   4,   8,   0,
++      0,   0,   8,   0,   0,   0,
++      1,   0,   0,   0,  80,   0,
++      0,   8,  50,   0,  16,   0,
++      0,   0,   0,   0,  70,   0,
++      2,   0,  70, 128,  48,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     60,   0,   0,   7,  18,   0,
++     16,   0,   0,   0,   0,   0,
++     26,   0,  16,   0,   0,   0,
++      0,   0,  10,   0,  16,   0,
++      0,   0,   0,   0,  31,   0,
++      4,   3,  10,   0,  16,   0,
++      0,   0,   0,   0,  62,   0,
++      0,   1,  21,   0,   0,   1,
++     54,   0,   0,   4,  50,   0,
++     16,   0,   0,   0,   0,   0,
++     70,   0,   2,   0,  54,   0,
++      0,   8, 194,   0,  16,   0,
++      0,   0,   0,   0,   2,  64,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++     45,   0,   0,   8, 242,   0,
++     16,   0,   1,   0,   0,   0,
++     70,  15,  16,   0,   0,   0,
++      0,   0,  70, 126,  32,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,  45,   0,   0,   8,
++    242,   0,  16,   0,   0,   0,
++      0,   0,  70,  14,  16,   0,
++      0,   0,   0,   0,  70, 126,
++     32,   0,   1,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,
++      0,   8, 242,   0,  16,   0,
++      2,   0,   0,   0,  70,  14,
++     16, 128,  65,   0,   0,   0,
++      0,   0,   0,   0,  70,  14,
++     16,   0,   1,   0,   0,   0,
++     29,   0,   0,  10, 242,   0,
++     16,   0,   2,   0,   0,   0,
++    166, 138,  48,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  70,  14,
++     16, 128, 129,   0,   0,   0,
++      2,   0,   0,   0,   1,   0,
++      0,   7,  50,   0,  16,   0,
++      2,   0,   0,   0, 230,  10,
++     16,   0,   2,   0,   0,   0,
++     70,   0,  16,   0,   2,   0,
++      0,   0,   1,   0,   0,   7,
++     18,   0,  16,   0,   2,   0,
++      0,   0,  26,   0,  16,   0,
++      2,   0,   0,   0,  10,   0,
++     16,   0,   2,   0,   0,   0,
++     55,   0,   0,   9, 242,   0,
++     16,   0,   0,   0,   0,   0,
++      6,   0,  16,   0,   2,   0,
++      0,   0,  70,  14,  16,   0,
++      1,   0,   0,   0,  70,  14,
++     16,   0,   0,   0,   0,   0,
++    164,   0,   0,   7, 242, 224,
++     33,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  70,   5,
++      2,   0,  70,  14,  16,   0,
++      0,   0,   0,   0,  62,   0,
++      0,   1,  83,  84,  65,  84,
++    148,   0,   0,   0,  16,   0,
++      0,   0,   3,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0,   2,   0,   0,   0,
++      0,   0,   0,   0,   4,   0,
++      0,   0,   2,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   2,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   2,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,
++      0,   0
++};
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_retained_pass_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_retained_pass_cs.h
+index eedf422..c085d65 100644
+--- a/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_retained_pass_cs.h
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/native_guest_output_retained_pass_cs.h
+@@ -53,18 +53,21 @@ if_nz r0.x
+ endif
+ ieq r0.x, CB0[0][1].z, l(1)
+ if_nz r0.x
+-  ine r0.xy, CB0[0][0].zwzz, l(0, 0, 0, 0)
++  ine r0.xy, CB0[0][1].xyxx, l(0, 0, 0, 0)
+   and r0.x, r0.y, r0.x
+-  if_z r0.x
++  not r0.x, r0.x
++  ult r0.yz, CB0[0][0].zzwz, CB0[0][1].xxyx
++  or r0.y, r0.z, r0.y
++  or r0.x, r0.y, r0.x
++  if_nz r0.x
+     ret
+   endif
+-  imul null, r0.xy, vThreadID.xyxx, CB0[0][0].zwzz
++  imul null, r0.xy, vThreadID.xyxx, CB0[0][1].xyxx
+   udiv r0.xy, null, r0.xyxx, CB0[0][0].xyxx
+-  iadd r0.zw, CB0[0][0].zzzw, l(0, 0, -1, -1)
++  iadd r0.zw, CB0[0][1].xxxy, l(0, 0, -1, -1)
+   umin r0.xy, r0.zwzz, r0.xyxx
+   mov r0.zw, l(0,0,0,0)
+   ld r0.xyz, r0.xyzw, T0[0].xyzw
+-  mov_sat r0.xyz, r0.xyzx
+   mov r0.w, l(1.000000)
+   store_uav_typed U0[0].xyzw, vThreadID.xyyy, r0.xyzw
+   ret
+@@ -114,488 +117,165 @@ movc r0.xyz, r0.xxxx, l(1.000000,0.550000,0.060000,0), r1.xyzx
+ mov r0.w, l(1.000000)
+ store_uav_typed U0[0].xyzw, vThreadID.xyyy, r0.xyzw
+ ret
+-// Approximately 68 instruction slots used
++// Approximately 71 instruction slots used
+ #endif
+ 
+-const BYTE native_guest_output_retained_pass_cs[] =
+-{
+-     68,  88,  66,  67, 228,  24,
+-    159,  55, 254, 176, 177,  82,
+-    101,  62, 185,  86, 203,  88,
+-     37, 185,   1,   0,   0,   0,
+-     56,  11,   0,   0,   5,   0,
+-      0,   0,  52,   0,   0,   0,
+-    208,   2,   0,   0, 224,   2,
+-      0,   0, 240,   2,   0,   0,
+-    156,  10,   0,   0,  82,  68,
+-     69,  70, 148,   2,   0,   0,
+-      1,   0,   0,   0, 248,   0,
+-      0,   0,   3,   0,   0,   0,
+-     60,   0,   0,   0,   1,   5,
+-     83,  67,   0, 133,   0,   0,
+-    108,   2,   0,   0,  19,  19,
+-     68,  37,  60,   0,   0,   0,
+-     24,   0,   0,   0,  40,   0,
+-      0,   0,  40,   0,   0,   0,
+-     36,   0,   0,   0,  12,   0,
+-      0,   0,   0,   0,   0,   0,
+-    180,   0,   0,   0,   2,   0,
+-      0,   0,   5,   0,   0,   0,
+-      4,   0,   0,   0, 255, 255,
+-    255, 255,   0,   0,   0,   0,
+-      1,   0,   0,   0,  12,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0, 194,   0,
+-      0,   0,   4,   0,   0,   0,
+-      5,   0,   0,   0,   4,   0,
+-      0,   0, 255, 255, 255, 255,
+-      0,   0,   0,   0,   1,   0,
+-      0,   0,  12,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0, 209,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   0,
+-      1,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-    114, 101, 116,  97, 105, 110,
+-    101, 100,  95, 112,  97, 115,
+-    115,   0, 111, 117, 116, 112,
+-    117, 116,  95, 116, 101, 120,
+-    116, 117, 114, 101,   0,  78,
+-     97, 116, 105, 118, 101,  71,
+-    117, 101, 115, 116,  79, 117,
+-    116, 112, 117, 116,  82, 101,
+-    116,  97, 105, 110, 101, 100,
+-     80,  97, 115, 115,  67, 111,
+-    110, 115, 116,  97, 110, 116,
+-    115,   0, 209,   0,   0,   0,
+-      5,   0,   0,   0,  16,   1,
+-      0,   0,  32,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0, 216,   1,   0,   0,
+-      0,   0,   0,   0,   8,   0,
+-      0,   0,   2,   0,   0,   0,
+-    236,   1,   0,   0,   0,   0,
+-      0,   0, 255, 255, 255, 255,
+-      0,   0,   0,   0, 255, 255,
+-    255, 255,   0,   0,   0,   0,
+-     16,   2,   0,   0,   8,   0,
+-      0,   0,   8,   0,   0,   0,
+-      2,   0,   0,   0, 236,   1,
+-      0,   0,   0,   0,   0,   0,
+-    255, 255, 255, 255,   0,   0,
+-      0,   0, 255, 255, 255, 255,
+-      0,   0,   0,   0,  28,   2,
+-      0,   0,  16,   0,   0,   0,
+-      8,   0,   0,   0,   2,   0,
+-      0,   0, 236,   1,   0,   0,
+-      0,   0,   0,   0, 255, 255,
+-    255, 255,   0,   0,   0,   0,
+-    255, 255, 255, 255,   0,   0,
+-      0,   0,  38,   2,   0,   0,
+-     24,   0,   0,   0,   4,   0,
+-      0,   0,   2,   0,   0,   0,
+-     64,   2,   0,   0,   0,   0,
+-      0,   0, 255, 255, 255, 255,
+-      0,   0,   0,   0, 255, 255,
+-    255, 255,   0,   0,   0,   0,
+-    100,   2,   0,   0,  28,   0,
+-      0,   0,   4,   0,   0,   0,
+-      0,   0,   0,   0,  64,   2,
+-      0,   0,   0,   0,   0,   0,
+-    255, 255, 255, 255,   0,   0,
+-      0,   0, 255, 255, 255, 255,
+-      0,   0,   0,   0, 111, 117,
+-    116, 112, 117, 116,  95, 115,
+-    105, 122, 101,   0, 117, 105,
+-    110, 116,  50,   0, 171, 171,
+-      1,   0,  19,   0,   1,   0,
+-      2,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0, 228,   1,   0,   0,
+-    115, 111, 117, 114,  99, 101,
+-     95, 115, 105, 122, 101,   0,
+-     99, 114, 111, 112,  95, 115,
+-    105, 122, 101,   0, 112, 114,
+-    101, 115, 101, 110, 116,  97,
+-    116, 105, 111, 110,  95, 109,
+-    111, 100, 101,   0, 100, 119,
+-    111, 114, 100,   0, 171, 171,
+-      0,   0,  19,   0,   1,   0,
+-      1,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  56,   2,   0,   0,
+-    112,  97, 100, 100, 105, 110,
+-    103,   0,  77, 105,  99, 114,
+-    111, 115, 111, 102, 116,  32,
+-     40,  82,  41,  32,  72,  76,
+-     83,  76,  32,  83, 104,  97,
+-    100, 101, 114,  32,  67, 111,
+-    109, 112, 105, 108, 101, 114,
+-     32,  49,  48,  46,  49,   0,
+-     73,  83,  71,  78,   8,   0,
+-      0,   0,   0,   0,   0,   0,
+-      8,   0,   0,   0,  79,  83,
+-     71,  78,   8,   0,   0,   0,
+-      0,   0,   0,   0,   8,   0,
+-      0,   0,  83,  72,  69,  88,
+-    164,   7,   0,   0,  81,   0,
+-      5,   0, 233,   1,   0,   0,
+-    106,   8,   0,   1,  89,   0,
+-      0,   7,  70, 142,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      2,   0,   0,   0,   0,   0,
+-      0,   0,  88,  24,   0,   7,
+-     70, 126,  48,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,  85,  85,
+-      0,   0,   0,   0,   0,   0,
+-    156,  24,   0,   7,  70, 238,
+-     49,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  85,  85,   0,   0,
+-      0,   0,   0,   0,  95,   0,
+-      0,   2,  50,   0,   2,   0,
+-    104,   0,   0,   2,   3,   0,
+-      0,   0, 155,   0,   0,   4,
+-      8,   0,   0,   0,   8,   0,
+-      0,   0,   1,   0,   0,   0,
+-     80,   0,   0,   8,  50,   0,
+-     16,   0,   0,   0,   0,   0,
+-     70,   0,   2,   0,  70, 128,
+-     48,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  60,   0,   0,   7,
+-     18,   0,  16,   0,   0,   0,
+-      0,   0,  26,   0,  16,   0,
+-      0,   0,   0,   0,  10,   0,
+-     16,   0,   0,   0,   0,   0,
+-     31,   0,   4,   3,  10,   0,
+-     16,   0,   0,   0,   0,   0,
+-     62,   0,   0,   1,  21,   0,
+-      0,   1,  32,   0,   0,   9,
+-     18,   0,  16,   0,   0,   0,
+-      0,   0,  42, 128,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   0,
+-      1,  64,   0,   0,   1,   0,
+-      0,   0,  31,   0,   4,   3,
+-     10,   0,  16,   0,   0,   0,
+-      0,   0,  39,   0,   0,  12,
+-     50,   0,  16,   0,   0,   0,
+-      0,   0, 230, 138,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      2,  64,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   7,
+-     18,   0,  16,   0,   0,   0,
+-      0,   0,  26,   0,  16,   0,
+-      0,   0,   0,   0,  10,   0,
+-     16,   0,   0,   0,   0,   0,
+-     31,   0,   0,   3,  10,   0,
+-     16,   0,   0,   0,   0,   0,
+-     62,   0,   0,   1,  21,   0,
+-      0,   1,  38,   0,   0,   9,
+-      0, 208,   0,   0,  50,   0,
+-     16,   0,   0,   0,   0,   0,
+-     70,   0,   2,   0, 230, 138,
+-     48,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  78,   0,   0,  10,
+-     50,   0,  16,   0,   0,   0,
+-      0,   0,   0, 208,   0,   0,
+-     70,   0,  16,   0,   0,   0,
+-      0,   0,  70, 128,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-     30,   0,   0,  12, 194,   0,
+-     16,   0,   0,   0,   0,   0,
+-    166, 142,  48,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   2,  64,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0, 255, 255,
+-    255, 255, 255, 255, 255, 255,
+-     84,   0,   0,   7,  50,   0,
+-     16,   0,   0,   0,   0,   0,
+-    230,  10,  16,   0,   0,   0,
+-      0,   0,  70,   0,  16,   0,
+-      0,   0,   0,   0,  54,   0,
+-      0,   8, 194,   0,  16,   0,
+-      0,   0,   0,   0,   2,  64,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-     45,   0,   0,   8, 114,   0,
+-     16,   0,   0,   0,   0,   0,
+-     70,  14,  16,   0,   0,   0,
+-      0,   0,  70, 126,  32,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  54,  32,   0,   5,
+-    114,   0,  16,   0,   0,   0,
+-      0,   0,  70,   2,  16,   0,
+-      0,   0,   0,   0,  54,   0,
+-      0,   5, 130,   0,  16,   0,
+-      0,   0,   0,   0,   1,  64,
+-      0,   0,   0,   0, 128,  63,
+-    164,   0,   0,   7, 242, 224,
+-     33,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,  70,   5,
+-      2,   0,  70,  14,  16,   0,
+-      0,   0,   0,   0,  62,   0,
+-      0,   1,  21,   0,   0,   1,
+-     84,   0,   0,  11,  18,   0,
+-     16,   0,   0,   0,   0,   0,
+-     26, 128,  48,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,  10, 128,
+-     48,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  30,   0,   0,  10,
+-     98,   0,  16,   0,   0,   0,
+-      0,   0,   6,   0,  16, 128,
+-     65,   0,   0,   0,   0,   0,
+-      0,   0,   6, 129,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-     85,   0,   0,  10,  98,   0,
+-     16,   0,   0,   0,   0,   0,
+-     86,   6,  16,   0,   0,   0,
+-      0,   0,   2,  64,   0,   0,
+-      0,   0,   0,   0,   1,   0,
+-      0,   0,   1,   0,   0,   0,
+-      0,   0,   0,   0,  80,   0,
+-      0,   6,  50,   0,  16,   0,
+-      1,   0,   0,   0,  70,   0,
+-      2,   0, 150,   5,  16,   0,
+-      0,   0,   0,   0,   1,   0,
+-      0,   7, 130,   0,  16,   0,
+-      0,   0,   0,   0,  26,   0,
+-     16,   0,   1,   0,   0,   0,
+-     10,   0,  16,   0,   1,   0,
+-      0,   0,  30,   0,   0,   7,
+-     50,   0,  16,   0,   1,   0,
+-      0,   0,   6,   0,  16,   0,
+-      0,   0,   0,   0, 150,   5,
+-     16,   0,   0,   0,   0,   0,
+-     79,   0,   0,   6,  50,   0,
+-     16,   0,   1,   0,   0,   0,
+-     70,   0,   2,   0,  70,   0,
+-     16,   0,   1,   0,   0,   0,
+-      1,   0,   0,   7,  18,   0,
+-     16,   0,   1,   0,   0,   0,
+-     26,   0,  16,   0,   1,   0,
+-      0,   0,  10,   0,  16,   0,
+-      1,   0,   0,   0,   1,   0,
+-      0,   7, 130,   0,  16,   0,
+-      0,   0,   0,   0,  58,   0,
+-     16,   0,   0,   0,   0,   0,
+-     10,   0,  16,   0,   1,   0,
+-      0,   0,  59,   0,   0,   5,
+-    130,   0,  16,   0,   0,   0,
+-      0,   0,  58,   0,  16,   0,
+-      0,   0,   0,   0,  39,   0,
+-      0,  12,  50,   0,  16,   0,
+-      1,   0,   0,   0,  70, 128,
+-     48,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   1,   0,
+-      0,   0,   2,  64,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   1,   0,
+-      0,   7,  18,   0,  16,   0,
+-      1,   0,   0,   0,  26,   0,
+-     16,   0,   1,   0,   0,   0,
+-     10,   0,  16,   0,   1,   0,
+-      0,   0,  59,   0,   0,   5,
+-     18,   0,  16,   0,   1,   0,
+-      0,   0,  10,   0,  16,   0,
+-      1,   0,   0,   0,  60,   0,
+-      0,   7, 130,   0,  16,   0,
+-      0,   0,   0,   0,  58,   0,
+-     16,   0,   0,   0,   0,   0,
+-     10,   0,  16,   0,   1,   0,
+-      0,   0,  39,   0,   0,  12,
+-     50,   0,  16,   0,   1,   0,
+-      0,   0, 230, 138,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      2,  64,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   7,
+-     18,   0,  16,   0,   1,   0,
+-      0,   0,  26,   0,  16,   0,
+-      1,   0,   0,   0,  10,   0,
+-     16,   0,   1,   0,   0,   0,
+-     59,   0,   0,   5,  18,   0,
+-     16,   0,   1,   0,   0,   0,
+-     10,   0,  16,   0,   1,   0,
+-      0,   0,  60,   0,   0,   7,
+-    130,   0,  16,   0,   0,   0,
+-      0,   0,  58,   0,  16,   0,
+-      0,   0,   0,   0,  10,   0,
+-     16,   0,   1,   0,   0,   0,
+-     31,   0,   4,   3,  58,   0,
+-     16,   0,   0,   0,   0,   0,
+-     85,   0,   0,   9,  50,   0,
+-     16,   0,   1,   0,   0,   0,
+-     70,   0,   2,   0,   2,  64,
+-      0,   0,   5,   0,   0,   0,
+-      5,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-     30,   0,   0,   7, 130,   0,
+-     16,   0,   0,   0,   0,   0,
+-     26,   0,  16,   0,   1,   0,
+-      0,   0,  10,   0,  16,   0,
+-      1,   0,   0,   0,   1,   0,
+-      0,   7, 130,   0,  16,   0,
+-      0,   0,   0,   0,  58,   0,
+-     16,   0,   0,   0,   0,   0,
+-      1,  64,   0,   0,   1,   0,
+-      0,   0,  55,   0,   0,  15,
+-    114,   0,  16,   0,   1,   0,
+-      0,   0, 246,  15,  16,   0,
+-      0,   0,   0,   0,   2,  64,
+-      0,   0, 188, 116, 147,  60,
+-    188, 116, 147,  60, 188, 116,
+-    147,  60,   0,   0,   0,   0,
+-      2,  64,   0,   0,  10, 215,
+-     35,  60,  10, 215,  35,  60,
+-     10, 215,  35,  60,   0,   0,
+-      0,   0,  54,   0,   0,   5,
+-    130,   0,  16,   0,   1,   0,
+-      0,   0,   1,  64,   0,   0,
+-      0,   0, 128,  63, 164,   0,
+-      0,   7, 242, 224,  33,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  70,   5,   2,   0,
+-     70,  14,  16,   0,   1,   0,
+-      0,   0,  62,   0,   0,   1,
+-     21,   0,   0,   1,  30,   0,
+-      0,   7,  98,   0,  16,   0,
+-      0,   0,   0,   0,  86,   6,
+-     16, 128,  65,   0,   0,   0,
+-      0,   0,   0,   0,   6,   1,
+-      2,   0,  38,   0,   0,  10,
+-      0, 208,   0,   0,  50,   0,
+-     16,   0,   1,   0,   0,   0,
+-    150,   5,  16,   0,   0,   0,
+-      0,   0,  70, 128,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   0,
+-     78,   0,   0,   8,  50,   0,
+-     16,   0,   1,   0,   0,   0,
+-      0, 208,   0,   0,  70,   0,
+-     16,   0,   1,   0,   0,   0,
+-      6,   0,  16,   0,   0,   0,
+-      0,   0,  30,   0,   0,  12,
+-    194,   0,  16,   0,   1,   0,
+-      0,   0,   6, 132,  48,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   1,   0,   0,   0,
+-      2,  64,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-    255, 255, 255, 255, 255, 255,
+-    255, 255,  84,   0,   0,   7,
+-     50,   0,  16,   0,   1,   0,
+-      0,   0, 230,  10,  16,   0,
+-      1,   0,   0,   0,  70,   0,
+-     16,   0,   1,   0,   0,   0,
+-     54,   0,   0,   8, 194,   0,
+-     16,   0,   1,   0,   0,   0,
+-      2,  64,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  45,   0,   0,   8,
+-    114,   0,  16,   0,   1,   0,
+-      0,   0,  70,  14,  16,   0,
+-      1,   0,   0,   0,  70, 126,
+-     32,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,  79,   0,
+-      0,  10,  50,   0,  16,   0,
+-      2,   0,   0,   0, 150,   5,
+-     16,   0,   0,   0,   0,   0,
+-      2,  64,   0,   0,   2,   0,
+-      0,   0,   2,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,  60,   0,   0,   7,
+-    130,   0,  16,   0,   0,   0,
+-      0,   0,  26,   0,  16,   0,
+-      2,   0,   0,   0,  10,   0,
+-     16,   0,   2,   0,   0,   0,
+-     30,   0,   0,   7,  18,   0,
+-     16,   0,   0,   0,   0,   0,
+-     10,   0,  16,   0,   0,   0,
+-      0,   0,   1,  64,   0,   0,
+-    254, 255, 255, 255,  80,   0,
+-      0,   7,  50,   0,  16,   0,
+-      0,   0,   0,   0, 150,   5,
+-     16,   0,   0,   0,   0,   0,
+-      6,   0,  16,   0,   0,   0,
+-      0,   0,  60,   0,   0,   7,
+-     18,   0,  16,   0,   0,   0,
+-      0,   0,  26,   0,  16,   0,
+-      0,   0,   0,   0,  10,   0,
+-     16,   0,   0,   0,   0,   0,
+-     60,   0,   0,   7,  18,   0,
+-     16,   0,   0,   0,   0,   0,
+-     10,   0,  16,   0,   0,   0,
+-      0,   0,  58,   0,  16,   0,
+-      0,   0,   0,   0,  54,  32,
+-      0,   5, 114,   0,  16,   0,
+-      1,   0,   0,   0,  70,   2,
+-     16,   0,   1,   0,   0,   0,
+-     55,   0,   0,  12, 114,   0,
+-     16,   0,   0,   0,   0,   0,
+-      6,   0,  16,   0,   0,   0,
+-      0,   0,   2,  64,   0,   0,
+-      0,   0, 128,  63, 205, 204,
+-     12,  63, 143, 194, 117,  61,
+-      0,   0,   0,   0,  70,   2,
+-     16,   0,   1,   0,   0,   0,
+-     54,   0,   0,   5, 130,   0,
+-     16,   0,   0,   0,   0,   0,
+-      1,  64,   0,   0,   0,   0,
+-    128,  63, 164,   0,   0,   7,
+-    242, 224,  33,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-     70,   5,   2,   0,  70,  14,
+-     16,   0,   0,   0,   0,   0,
+-     62,   0,   0,   1,  83,  84,
+-     65,  84, 148,   0,   0,   0,
+-     68,   0,   0,   0,   3,   0,
+-      0,   0,   0,   0,   0,   0,
+-      1,   0,   0,   0,   0,   0,
+-      0,   0,  13,   0,   0,   0,
+-     28,   0,   0,   0,   5,   0,
+-      0,   0,   4,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      2,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   7,   0,
+-      0,   0,   2,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      0,   0,   0,   0,   0,   0,
+-      3,   0,   0,   0
++const BYTE native_guest_output_retained_pass_cs[] = {
++     68,  88,  66,  67, 148,   3, 126,  27, 115, 143, 255,  59,  27,  31, 152,  12, 216, 179,  87,
++     54,   1,   0,   0,   0, 156,  11,   0,   0,   5,   0,   0,   0,  52,   0,   0,   0, 208,   2,
++      0,   0, 224,   2,   0,   0, 240,   2,   0,   0,   0,  11,   0,   0,  82,  68,  69,  70, 148,
++      2,   0,   0,   1,   0,   0,   0, 248,   0,   0,   0,   3,   0,   0,   0,  60,   0,   0,   0,
++      1,   5,  83,  67,   0, 133,   0,   0, 108,   2,   0,   0,  19,  19,  68,  37,  60,   0,   0,
++      0,  24,   0,   0,   0,  40,   0,   0,   0,  40,   0,   0,   0,  36,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0, 180,   0,   0,   0,   2,   0,   0,   0,   5,   0,   0,   0,   4,
++      0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,   1,   0,   0,   0,  12,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0, 194,   0,   0,   0,   4,   0,   0,   0,   5,   0,   0,
++      0,   4,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,   1,   0,   0,   0,  12,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 209,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++      1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 114, 101, 116,  97, 105, 110, 101,
++    100,  95, 112,  97, 115, 115,   0, 111, 117, 116, 112, 117, 116,  95, 116, 101, 120, 116, 117,
++    114, 101,   0,  78,  97, 116, 105, 118, 101,  71, 117, 101, 115, 116,  79, 117, 116, 112, 117,
++    116,  82, 101, 116,  97, 105, 110, 101, 100,  80,  97, 115, 115,  67, 111, 110, 115, 116,  97,
++    110, 116, 115,   0, 209,   0,   0,   0,   5,   0,   0,   0,  16,   1,   0,   0,  32,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0, 216,   1,   0,   0,   0,   0,   0,   0,   8,   0,
++      0,   0,   2,   0,   0,   0, 236,   1,   0,   0,   0,   0,   0,   0, 255, 255, 255, 255,   0,
++      0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,  16,   2,   0,   0,   8,   0,   0,   0,
++      8,   0,   0,   0,   2,   0,   0,   0, 236,   1,   0,   0,   0,   0,   0,   0, 255, 255, 255,
++    255,   0,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,  28,   2,   0,   0,  16,   0,
++      0,   0,   8,   0,   0,   0,   2,   0,   0,   0, 236,   1,   0,   0,   0,   0,   0,   0, 255,
++    255, 255, 255,   0,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,  38,   2,   0,   0,
++     24,   0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,  64,   2,   0,   0,   0,   0,   0,
++      0, 255, 255, 255, 255,   0,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0, 100,   2,
++      0,   0,  28,   0,   0,   0,   4,   0,   0,   0,   0,   0,   0,   0,  64,   2,   0,   0,   0,
++      0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,
++    111, 117, 116, 112, 117, 116,  95, 115, 105, 122, 101,   0, 117, 105, 110, 116,  50,   0, 171,
++    171,   1,   0,  19,   0,   1,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 228,   1,   0,   0, 115,
++    111, 117, 114,  99, 101,  95, 115, 105, 122, 101,   0,  99, 114, 111, 112,  95, 115, 105, 122,
++    101,   0, 112, 114, 101, 115, 101, 110, 116,  97, 116, 105, 111, 110,  95, 109, 111, 100, 101,
++      0, 100, 119, 111, 114, 100,   0, 171, 171,   0,   0,  19,   0,   1,   0,   1,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,  56,   2,   0,   0, 112,  97, 100, 100, 105, 110, 103,   0,  77, 105,  99, 114,
++    111, 115, 111, 102, 116,  32,  40,  82,  41,  32,  72,  76,  83,  76,  32,  83, 104,  97, 100,
++    101, 114,  32,  67, 111, 109, 112, 105, 108, 101, 114,  32,  49,  48,  46,  49,   0,  73,  83,
++     71,  78,   8,   0,   0,   0,   0,   0,   0,   0,   8,   0,   0,   0,  79,  83,  71,  78,   8,
++      0,   0,   0,   0,   0,   0,   0,   8,   0,   0,   0,  83,  72,  69,  88,   8,   8,   0,   0,
++     81,   0,   5,   0,   2,   2,   0,   0, 106,   8,   0,   1,  89,   0,   0,   7,  70, 142,  48,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   2,   0,   0,   0,   0,   0,
++      0,   0,  88,  24,   0,   7,  70, 126,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,  85,  85,   0,   0,   0,   0,   0,   0, 156,  24,   0,   7,  70, 238,  49,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  85,  85,   0,   0,   0,   0,   0,
++      0,  95,   0,   0,   2,  50,   0,   2,   0, 104,   0,   0,   2,   3,   0,   0,   0, 155,   0,
++      0,   4,   8,   0,   0,   0,   8,   0,   0,   0,   1,   0,   0,   0,  80,   0,   0,   8,  50,
++      0,  16,   0,   0,   0,   0,   0,  70,   0,   2,   0,  70, 128,  48,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,  60,   0,   0,   7,  18,   0,  16,   0,   0,   0,   0,
++      0,  26,   0,  16,   0,   0,   0,   0,   0,  10,   0,  16,   0,   0,   0,   0,   0,  31,   0,
++      4,   3,  10,   0,  16,   0,   0,   0,   0,   0,  62,   0,   0,   1,  21,   0,   0,   1,  32,
++      0,   0,   9,  18,   0,  16,   0,   0,   0,   0,   0,  42, 128,  48,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,   0,   0,   1,  64,   0,   0,   1,   0,   0,   0,  31,   0,   4,
++      3,  10,   0,  16,   0,   0,   0,   0,   0,  39,   0,   0,  12,  50,   0,  16,   0,   0,   0,
++      0,   0,  70, 128,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   2,
++     64,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      1,   0,   0,   7,  18,   0,  16,   0,   0,   0,   0,   0,  26,   0,  16,   0,   0,   0,   0,
++      0,  10,   0,  16,   0,   0,   0,   0,   0,  59,   0,   0,   5,  18,   0,  16,   0,   0,   0,
++      0,   0,  10,   0,  16,   0,   0,   0,   0,   0,  79,   0,   0,  11,  98,   0,  16,   0,   0,
++      0,   0,   0, 166, 139,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      6, 129,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,  60,   0,   0,
++      7,  34,   0,  16,   0,   0,   0,   0,   0,  42,   0,  16,   0,   0,   0,   0,   0,  26,   0,
++     16,   0,   0,   0,   0,   0,  60,   0,   0,   7,  18,   0,  16,   0,   0,   0,   0,   0,  26,
++      0,  16,   0,   0,   0,   0,   0,  10,   0,  16,   0,   0,   0,   0,   0,  31,   0,   4,   3,
++     10,   0,  16,   0,   0,   0,   0,   0,  62,   0,   0,   1,  21,   0,   0,   1,  38,   0,   0,
++      9,   0, 208,   0,   0,  50,   0,  16,   0,   0,   0,   0,   0,  70,   0,   2,   0,  70, 128,
++     48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,  78,   0,   0,  10,  50,
++      0,  16,   0,   0,   0,   0,   0,   0, 208,   0,   0,  70,   0,  16,   0,   0,   0,   0,   0,
++     70, 128,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  30,   0,   0,
++     12, 194,   0,  16,   0,   0,   0,   0,   0,   6, 132,  48,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   1,   0,   0,   0,   2,  64,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 255,
++    255, 255, 255, 255, 255, 255, 255,  84,   0,   0,   7,  50,   0,  16,   0,   0,   0,   0,   0,
++    230,  10,  16,   0,   0,   0,   0,   0,  70,   0,  16,   0,   0,   0,   0,   0,  54,   0,   0,
++      8, 194,   0,  16,   0,   0,   0,   0,   0,   2,  64,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  45,   0,   0,   8, 114,   0,  16,   0,   0,
++      0,   0,   0,  70,  14,  16,   0,   0,   0,   0,   0,  70, 126,  32,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,  54,   0,   0,   5, 130,   0,  16,   0,   0,   0,   0,   0,   1,  64,   0,
++      0,   0,   0, 128,  63, 164,   0,   0,   7, 242, 224,  33,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,  70,   5,   2,   0,  70,  14,  16,   0,   0,   0,   0,   0,  62,   0,   0,   1,  21,
++      0,   0,   1,  84,   0,   0,  11,  18,   0,  16,   0,   0,   0,   0,   0,  26, 128,  48,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  10, 128,  48,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,  30,   0,   0,  10,  98,   0,  16,   0,   0,   0,
++      0,   0,   6,   0,  16, 128,  65,   0,   0,   0,   0,   0,   0,   0,   6, 129,  48,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  85,   0,   0,  10,  98,   0,  16,   0,
++      0,   0,   0,   0,  86,   6,  16,   0,   0,   0,   0,   0,   2,  64,   0,   0,   0,   0,   0,
++      0,   1,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,  80,   0,   0,   6,  50,   0,
++     16,   0,   1,   0,   0,   0,  70,   0,   2,   0, 150,   5,  16,   0,   0,   0,   0,   0,   1,
++      0,   0,   7, 130,   0,  16,   0,   0,   0,   0,   0,  26,   0,  16,   0,   1,   0,   0,   0,
++     10,   0,  16,   0,   1,   0,   0,   0,  30,   0,   0,   7,  50,   0,  16,   0,   1,   0,   0,
++      0,   6,   0,  16,   0,   0,   0,   0,   0, 150,   5,  16,   0,   0,   0,   0,   0,  79,   0,
++      0,   6,  50,   0,  16,   0,   1,   0,   0,   0,  70,   0,   2,   0,  70,   0,  16,   0,   1,
++      0,   0,   0,   1,   0,   0,   7,  18,   0,  16,   0,   1,   0,   0,   0,  26,   0,  16,   0,
++      1,   0,   0,   0,  10,   0,  16,   0,   1,   0,   0,   0,   1,   0,   0,   7, 130,   0,  16,
++      0,   0,   0,   0,   0,  58,   0,  16,   0,   0,   0,   0,   0,  10,   0,  16,   0,   1,   0,
++      0,   0,  59,   0,   0,   5, 130,   0,  16,   0,   0,   0,   0,   0,  58,   0,  16,   0,   0,
++      0,   0,   0,  39,   0,   0,  12,  50,   0,  16,   0,   1,   0,   0,   0,  70, 128,  48,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   2,  64,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   7,  18,   0,
++     16,   0,   1,   0,   0,   0,  26,   0,  16,   0,   1,   0,   0,   0,  10,   0,  16,   0,   1,
++      0,   0,   0,  59,   0,   0,   5,  18,   0,  16,   0,   1,   0,   0,   0,  10,   0,  16,   0,
++      1,   0,   0,   0,  60,   0,   0,   7, 130,   0,  16,   0,   0,   0,   0,   0,  58,   0,  16,
++      0,   0,   0,   0,   0,  10,   0,  16,   0,   1,   0,   0,   0,  39,   0,   0,  12,  50,   0,
++     16,   0,   1,   0,   0,   0, 230, 138,  48,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   2,  64,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   1,   0,   0,   7,  18,   0,  16,   0,   1,   0,   0,   0,  26,   0,  16,
++      0,   1,   0,   0,   0,  10,   0,  16,   0,   1,   0,   0,   0,  59,   0,   0,   5,  18,   0,
++     16,   0,   1,   0,   0,   0,  10,   0,  16,   0,   1,   0,   0,   0,  60,   0,   0,   7, 130,
++      0,  16,   0,   0,   0,   0,   0,  58,   0,  16,   0,   0,   0,   0,   0,  10,   0,  16,   0,
++      1,   0,   0,   0,  31,   0,   4,   3,  58,   0,  16,   0,   0,   0,   0,   0,  85,   0,   0,
++      9,  50,   0,  16,   0,   1,   0,   0,   0,  70,   0,   2,   0,   2,  64,   0,   0,   5,   0,
++      0,   0,   5,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  30,   0,   0,   7, 130,
++      0,  16,   0,   0,   0,   0,   0,  26,   0,  16,   0,   1,   0,   0,   0,  10,   0,  16,   0,
++      1,   0,   0,   0,   1,   0,   0,   7, 130,   0,  16,   0,   0,   0,   0,   0,  58,   0,  16,
++      0,   0,   0,   0,   0,   1,  64,   0,   0,   1,   0,   0,   0,  55,   0,   0,  15, 114,   0,
++     16,   0,   1,   0,   0,   0, 246,  15,  16,   0,   0,   0,   0,   0,   2,  64,   0,   0, 188,
++    116, 147,  60, 188, 116, 147,  60, 188, 116, 147,  60,   0,   0,   0,   0,   2,  64,   0,   0,
++     10, 215,  35,  60,  10, 215,  35,  60,  10, 215,  35,  60,   0,   0,   0,   0,  54,   0,   0,
++      5, 130,   0,  16,   0,   1,   0,   0,   0,   1,  64,   0,   0,   0,   0, 128,  63, 164,   0,
++      0,   7, 242, 224,  33,   0,   0,   0,   0,   0,   0,   0,   0,   0,  70,   5,   2,   0,  70,
++     14,  16,   0,   1,   0,   0,   0,  62,   0,   0,   1,  21,   0,   0,   1,  30,   0,   0,   7,
++     98,   0,  16,   0,   0,   0,   0,   0,  86,   6,  16, 128,  65,   0,   0,   0,   0,   0,   0,
++      0,   6,   1,   2,   0,  38,   0,   0,  10,   0, 208,   0,   0,  50,   0,  16,   0,   1,   0,
++      0,   0, 150,   5,  16,   0,   0,   0,   0,   0,  70, 128,  48,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   1,   0,   0,   0,  78,   0,   0,   8,  50,   0,  16,   0,   1,   0,   0,   0,
++      0, 208,   0,   0,  70,   0,  16,   0,   1,   0,   0,   0,   6,   0,  16,   0,   0,   0,   0,
++      0,  30,   0,   0,  12, 194,   0,  16,   0,   1,   0,   0,   0,   6, 132,  48,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   2,  64,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0, 255, 255, 255, 255, 255, 255, 255, 255,  84,   0,   0,   7,  50,   0,  16,   0,
++      1,   0,   0,   0, 230,  10,  16,   0,   1,   0,   0,   0,  70,   0,  16,   0,   1,   0,   0,
++      0,  54,   0,   0,   8, 194,   0,  16,   0,   1,   0,   0,   0,   2,  64,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  45,   0,   0,   8, 114,
++      0,  16,   0,   1,   0,   0,   0,  70,  14,  16,   0,   1,   0,   0,   0,  70, 126,  32,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,  79,   0,   0,  10,  50,   0,  16,   0,   2,   0,   0,
++      0, 150,   5,  16,   0,   0,   0,   0,   0,   2,  64,   0,   0,   2,   0,   0,   0,   2,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  60,   0,   0,   7, 130,   0,  16,   0,   0,
++      0,   0,   0,  26,   0,  16,   0,   2,   0,   0,   0,  10,   0,  16,   0,   2,   0,   0,   0,
++     30,   0,   0,   7,  18,   0,  16,   0,   0,   0,   0,   0,  10,   0,  16,   0,   0,   0,   0,
++      0,   1,  64,   0,   0, 254, 255, 255, 255,  80,   0,   0,   7,  50,   0,  16,   0,   0,   0,
++      0,   0, 150,   5,  16,   0,   0,   0,   0,   0,   6,   0,  16,   0,   0,   0,   0,   0,  60,
++      0,   0,   7,  18,   0,  16,   0,   0,   0,   0,   0,  26,   0,  16,   0,   0,   0,   0,   0,
++     10,   0,  16,   0,   0,   0,   0,   0,  60,   0,   0,   7,  18,   0,  16,   0,   0,   0,   0,
++      0,  10,   0,  16,   0,   0,   0,   0,   0,  58,   0,  16,   0,   0,   0,   0,   0,  54,  32,
++      0,   5, 114,   0,  16,   0,   1,   0,   0,   0,  70,   2,  16,   0,   1,   0,   0,   0,  55,
++      0,   0,  12, 114,   0,  16,   0,   0,   0,   0,   0,   6,   0,  16,   0,   0,   0,   0,   0,
++      2,  64,   0,   0,   0,   0, 128,  63, 205, 204,  12,  63, 143, 194, 117,  61,   0,   0,   0,
++      0,  70,   2,  16,   0,   1,   0,   0,   0,  54,   0,   0,   5, 130,   0,  16,   0,   0,   0,
++      0,   0,   1,  64,   0,   0,   0,   0, 128,  63, 164,   0,   0,   7, 242, 224,  33,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,  70,   5,   2,   0,  70,  14,  16,   0,   0,   0,   0,   0,
++     62,   0,   0,   1,  83,  84,  65,  84, 148,   0,   0,   0,  71,   0,   0,   0,   3,   0,   0,
++      0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,  13,   0,   0,   0,  32,   0,
++      0,   0,   5,   0,   0,   0,   4,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   2,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   6,   0,   0,   0,   2,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++      0,   0,   0,   0,   3,   0,   0,   0
+ };
+diff --git a/src/graphics/shaders/native_guest_output_hybrid.cs.hlsl b/src/graphics/shaders/native_guest_output_hybrid.cs.hlsl
+new file mode 100644
+index 0000000..a2fd17d
+--- /dev/null
++++ b/src/graphics/shaders/native_guest_output_hybrid.cs.hlsl
+@@ -0,0 +1,21 @@
++cbuffer NativeGuestOutputHybridConstants : register(b0) {
++  uint2 output_size;
++  float agreement_epsilon;
++  uint padding;
++};
++
++Texture2D<float4> native_output : register(t0);
++Texture2D<float4> xenos_output : register(t1);
++RWTexture2D<float4> hybrid_output : register(u0);
++
++[numthreads(8, 8, 1)]
++void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
++  uint2 position = dispatch_thread_id.xy;
++  if (any(position >= output_size)) {
++    return;
++  }
++  float4 native_color = native_output.Load(uint3(position, 0));
++  float4 xenos_color = xenos_output.Load(uint3(position, 0));
++  bool agrees = all(abs(native_color - xenos_color) <= agreement_epsilon);
++  hybrid_output[position] = agrees ? native_color : xenos_color;
++}
+diff --git a/src/graphics/shaders/native_guest_output_retained_pass.cs.hlsl b/src/graphics/shaders/native_guest_output_retained_pass.cs.hlsl
+index b49bfda..42eab1f 100644
+--- a/src/graphics/shaders/native_guest_output_retained_pass.cs.hlsl
++++ b/src/graphics/shaders/native_guest_output_retained_pass.cs.hlsl
+@@ -17,14 +17,13 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+   }
+ 
+   if (presentation_mode == 1) {
+-    if (!all(source_size)) {
++    if (!all(crop_size) || any(crop_size > source_size)) {
+       return;
+     }
+     uint2 source_position = min(
+-        output_position * source_size / output_size, source_size - 1);
++        output_position * crop_size / output_size, crop_size - 1);
+     output_texture[output_position] =
+-        float4(saturate(retained_pass.Load(uint3(source_position, 0)).rgb),
+-               1.0f);
++        float4(retained_pass.Load(uint3(source_position, 0)).rgb, 1.0f);
+     return;
+   }
+ 
