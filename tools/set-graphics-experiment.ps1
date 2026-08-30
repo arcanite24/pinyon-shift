@@ -26,7 +26,8 @@ param(
     [ValidateSet('true', 'false')]
     [string]$DisableDepthOfField = 'false',
     [ValidateSet('xenos', 'diagnostic_clear', 'diagnostic_triangle',
-        'diagnostic_retained_pass', 'comparison_native', 'comparison_xenos')]
+        'diagnostic_retained_pass', 'native_prototype', 'comparison_native',
+        'comparison_xenos')]
     [string]$NativeRenderer = 'xenos',
     [ValidateSet('true', 'false')]
     [string]$SkyHorizonSuppression = 'false',

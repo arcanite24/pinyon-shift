@@ -47,6 +47,7 @@ REXCVAR_DEFINE_BOOL(
     "Pinyon Shift",
     "Request the fail-closed sky/horizon suppression experiment")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DECLARE(std::string, pinyon_shift_native_renderer);
 
 namespace {
 
@@ -6616,6 +6617,8 @@ void ConfigureVisibilityShadowReplay() {
 void ConfigureContinuousWorldWorkset() {
   g_continuous_world_workset = {};
   g_continuous_world_workset.current_frame = UINT64_MAX;
+  const bool prototype_selected =
+      REXCVAR_GET(pinyon_shift_native_renderer) == "native_prototype";
   char *value = nullptr;
   size_t length = 0;
   if (_dupenv_s(
@@ -6623,6 +6626,8 @@ void ConfigureContinuousWorldWorkset() {
           "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET") != 0 ||
       !value || length <= 1) {
     std::free(value);
+    g_continuous_world_workset.requested = prototype_selected;
+    g_continuous_world_workset.valid = true;
     return;
   }
   const std::string setting(value);
