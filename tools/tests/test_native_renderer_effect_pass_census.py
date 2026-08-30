@@ -71,6 +71,8 @@ def classifier(**rule_updates):
             "viewport_height": 1024.0,
         },
         "semantic_role": "shadow_depth",
+        "caster_class": "dynamic_vehicle",
+        "atlas_region": {"x": 0, "y": 0, "width": 1024, "height": 1024},
         "confidence": "high",
         "evidence": "reviewed fixture depth image",
         "visual_sha256": "B" * 64,
@@ -98,6 +100,13 @@ class EffectPassCensusTests(unittest.TestCase):
                 "depth_only_write_candidate"
             ],
         )
+        depth_family = next(
+            item
+            for item in census["families"]
+            if item["signature"]["output_class"]
+            == "depth_only_write_candidate"
+        )
+        self.assertEqual([1, 2], depth_family["event_ids"])
         self.assertTrue(
             all(
                 item["semantic_role"] == "unknown_unclassified"
@@ -109,6 +118,15 @@ class EffectPassCensusTests(unittest.TestCase):
         self.assertFalse(census["qualification"]["shadow_pass_identified"])
         self.assertFalse(
             census["qualification"]["reflection_pass_identified"]
+        )
+        self.assertEqual(
+            [], census["qualification"]["shadow_caster_classes_identified"]
+        )
+        self.assertFalse(
+            census["qualification"]["static_dynamic_caster_separation_ready"]
+        )
+        self.assertFalse(
+            census["qualification"]["static_dynamic_caster_classes_observed"]
         )
 
     def test_ignores_native_draws_and_sorts_deterministically(self):
@@ -143,9 +161,24 @@ class EffectPassCensusTests(unittest.TestCase):
             if item["semantic_role"] == "shadow_depth"
         )
         self.assertEqual("high", family["semantic_confidence"])
+        self.assertEqual("dynamic_vehicle", family["caster_class"])
+        self.assertEqual(
+            {"x": 0, "y": 0, "width": 1024, "height": 1024},
+            family["atlas_region"],
+        )
         self.assertEqual("B" * 64, family["visual_sha256"])
         self.assertFalse(family["native_coverage"])
         self.assertFalse(family["suppression_eligible"])
+        self.assertEqual(
+            ["dynamic_vehicle"],
+            census["qualification"]["shadow_caster_classes_identified"],
+        )
+        self.assertFalse(
+            census["qualification"]["static_dynamic_caster_separation_ready"]
+        )
+        self.assertFalse(
+            census["qualification"]["static_dynamic_caster_classes_observed"]
+        )
 
     def test_rejects_unsafe_or_ambiguous_classifier(self):
         with self.assertRaisesRegex(ValueError, "native coverage false"):
@@ -159,6 +192,16 @@ class EffectPassCensusTests(unittest.TestCase):
             MODULE.build_census(trace([draw(1, colors=False)]), document)
         with self.assertRaisesRegex(ValueError, "matched 0 families"):
             MODULE.build_census(trace([draw(1)]), classifier())
+        with self.assertRaisesRegex(ValueError, "invalid caster class"):
+            MODULE.build_census(
+                trace([draw(1, colors=False)]),
+                classifier(caster_class="unknown"),
+            )
+        with self.assertRaisesRegex(ValueError, "invalid atlas region"):
+            MODULE.build_census(
+                trace([draw(1, colors=False)]),
+                classifier(atlas_region={"x": 0, "y": 0, "width": 0, "height": 1}),
+            )
 
     def test_rejects_unsafe_or_unenriched_trace(self):
         with self.assertRaisesRegex(ValueError, "payload-free"):
@@ -179,6 +222,15 @@ class EffectPassCensusTests(unittest.TestCase):
         self.assertEqual(3, len(rules))
         self.assertTrue(
             all(rule["semantic_role"] == "shadow_depth" for rule in rules)
+        )
+        self.assertTrue(
+            all(rule["caster_class"] == "dynamic_vehicle" for rule in rules)
+        )
+        self.assertEqual(
+            {"dynamic_vehicle": 1},
+            MODULE.build_census(
+                trace([draw(1, colors=False)]), classifier()
+            )["totals"]["families_by_caster_class"],
         )
         self.assertTrue(
             all(

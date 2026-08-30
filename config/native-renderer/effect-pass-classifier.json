@@ -2,6 +2,13 @@
   "evidence_capture_sha256": "ef4064929005d08432488fd4649e845630860044a6cdc49e463fa7b3883667da",
   "rules": [
     {
+      "atlas_region": {
+        "height": 2048,
+        "width": 2048,
+        "x": 0,
+        "y": 0
+      },
+      "caster_class": "dynamic_vehicle",
       "confidence": "high",
       "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
       "id": "shadow-depth-vehicle-rigid",
@@ -20,6 +27,13 @@
       "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
     },
     {
+      "atlas_region": {
+        "height": 2048,
+        "width": 2048,
+        "x": 0,
+        "y": 0
+      },
+      "caster_class": "dynamic_vehicle",
       "confidence": "high",
       "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
       "id": "shadow-depth-vehicle-secondary",
@@ -38,6 +52,13 @@
       "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
     },
     {
+      "atlas_region": {
+        "height": 2048,
+        "width": 2048,
+        "x": 0,
+        "y": 0
+      },
+      "caster_class": "dynamic_vehicle",
       "confidence": "high",
       "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
       "id": "shadow-depth-vehicle-detail",
@@ -56,5 +77,5 @@
       "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
     }
   ],
-  "schema": "pinyon-shift.native-renderer-effect-pass-classifier.v1"
+  "schema": "pinyon-shift.native-renderer-effect-pass-classifier.v2"
 }

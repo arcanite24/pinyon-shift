@@ -43,6 +43,18 @@ class ShadowDepthPublicationContractTests(unittest.TestCase):
         self.assertIn("CompleteIsolatedShadowDepthPublication", hooks)
         self.assertIn("request.suppress_guest_draw_if_published = false", hooks)
         self.assertIn('"consumer_handoff", "xenos_rt_dump_retained"', hooks)
+        self.assertIn(
+            'kShadowDepthCasterClass = "dynamic_vehicle"', hooks
+        )
+        self.assertIn(
+            'kShadowDepthAtlasRegion = "0,0,2048,2048"', hooks
+        )
+        self.assertGreaterEqual(
+            hooks.count('{"caster_class", kShadowDepthCasterClass}'), 3
+        )
+        self.assertGreaterEqual(
+            hooks.count('{"atlas_region", kShadowDepthAtlasRegion}'), 3
+        )
         self.assertIn("bool depth_only_target = false", patch)
         self.assertIn("!result.color_published", hooks)
         self.assertNotIn("SetDrawSuppression", hooks + patch)

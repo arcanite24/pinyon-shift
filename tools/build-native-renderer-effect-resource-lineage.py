@@ -9,6 +9,7 @@ import sys
 
 USAGE_SCHEMA = "pinyon-shift.native-renderer-renderdoc-resource-usage.v1"
 PASS_SCHEMA = "pinyon-shift.native-renderer-renderdoc-pass-trace.v1"
+EFFECT_CENSUS_SCHEMA = "pinyon-shift.native-renderer-effect-pass-census.v1"
 SCHEMA = "pinyon-shift.native-renderer-effect-resource-lineage.v1"
 READ_USAGES = {"PS_Resource", "CS_Resource"}
 
@@ -40,7 +41,7 @@ def consumer_signature(draw):
     }
 
 
-def build_lineage(usage_trace, pass_trace):
+def build_lineage(usage_trace, pass_trace, effect_census=None):
     if usage_trace.get("schema") != USAGE_SCHEMA:
         raise ValueError("unsupported resource-usage schema")
     if pass_trace.get("schema") != PASS_SCHEMA:
@@ -57,6 +58,40 @@ def build_lineage(usage_trace, pass_trace):
     pass_capture = pass_trace.get("capture", {})
     if usage_capture.get("sha256") != pass_capture.get("sha256"):
         raise ValueError("resource usage and pass trace captures differ")
+    producer_by_event = {}
+    if effect_census is not None:
+        if effect_census.get("schema") != EFFECT_CENSUS_SCHEMA:
+            raise ValueError("unsupported effect-pass census schema")
+        if effect_census.get("capture", {}).get("sha256") != usage_capture.get(
+            "sha256"
+        ):
+            raise ValueError("effect-pass census capture differs")
+        census_safety = effect_census.get("safety", {})
+        if census_safety.get("metadata_only") is not True or census_safety.get(
+            "suppression_allowed"
+        ) is not False:
+            raise ValueError("effect-pass census does not preserve the safety boundary")
+        census_families = effect_census.get("families")
+        if not isinstance(census_families, list):
+            raise ValueError("effect-pass census has no family inventory")
+        for family in census_families:
+            family_sha256 = family.get("sha256")
+            if not isinstance(family_sha256, str) or not family_sha256:
+                raise ValueError("effect-pass family has no stable identity")
+            event_ids = family.get("event_ids")
+            if not isinstance(event_ids, list):
+                raise ValueError("effect-pass family has no exact event inventory")
+            for event_id in event_ids:
+                if not isinstance(event_id, int) or event_id in producer_by_event:
+                    raise ValueError("effect-pass event inventory is invalid")
+                producer_by_event[event_id] = {
+                    "family_sha256": family_sha256,
+                    "semantic_role": family.get(
+                        "semantic_role", "unknown_unclassified"
+                    ),
+                    "caster_class": family.get("caster_class"),
+                    "atlas_region": family.get("atlas_region"),
+                }
     usages = usage_trace.get("usages")
     events = pass_trace.get("events")
     if not isinstance(usages, list) or not isinstance(events, list):
@@ -145,6 +180,37 @@ def build_lineage(usage_trace, pass_trace):
             and min(epoch["pixel_read_events"] + epoch["compute_read_events"])
             > min(epoch["depth_write_events"])
         )
+        producer_families = {
+            producer_by_event[event_id]["family_sha256"]: producer_by_event[
+                event_id
+            ]
+            for event_id in epoch["depth_write_events"]
+            if event_id in producer_by_event
+        }
+        classified_shadow_events = [
+            event_id
+            for event_id in epoch["depth_write_events"]
+            if event_id in producer_by_event
+            and producer_by_event[event_id]["semantic_role"] == "shadow_depth"
+        ]
+        epoch["producer_families"] = sorted(
+            producer_families.values(),
+            key=lambda family: str(family["family_sha256"]),
+        )
+        epoch["classified_shadow_write_count"] = len(classified_shadow_events)
+        epoch["unclassified_write_count"] = (
+            epoch["depth_write_count"] - len(classified_shadow_events)
+        )
+        epoch["caster_classes"] = sorted(
+            {
+                producer_by_event[event_id]["caster_class"]
+                for event_id in classified_shadow_events
+                if producer_by_event[event_id]["caster_class"] is not None
+            }
+        )
+        epoch["caster_class_complete"] = bool(epoch["depth_write_count"]) and (
+            epoch["unclassified_write_count"] == 0
+        )
     ordered_families = sorted(
         consumer_families.values(),
         key=lambda family: (-len(family["read_events"]), family["sha256"]),
@@ -152,6 +218,27 @@ def build_lineage(usage_trace, pass_trace):
     for family in ordered_families:
         family["read_count"] = len(family["read_events"])
     sampled_epochs = sum(epoch["sampled_after_write"] for epoch in epochs)
+    classified_shadow_writes = sum(
+        epoch["classified_shadow_write_count"] for epoch in epochs
+    )
+    classified_reflection_writes = sum(
+        1
+        for epoch in epochs
+        for event_id in epoch["depth_write_events"]
+        if event_id in producer_by_event
+        and producer_by_event[event_id]["semantic_role"]
+        == "reflection_capture"
+    )
+    caster_classes = sorted(
+        {
+            caster_class
+            for epoch in epochs
+            for caster_class in epoch["caster_classes"]
+        }
+    )
+    caster_complete_epochs = sum(
+        epoch["caster_class_complete"] for epoch in epochs
+    )
     return {
         "schema": SCHEMA,
         "capture": usage_capture,
@@ -164,6 +251,8 @@ def build_lineage(usage_trace, pass_trace):
             },
             "clear_epochs": len(epochs),
             "sampled_epochs": sampled_epochs,
+            "classified_shadow_writes": classified_shadow_writes,
+            "classified_reflection_writes": classified_reflection_writes,
             "consumer_families": len(ordered_families),
             "pixel_consumer_events": len(pixel_consumer_events),
             "pixel_consumers_depth_only": len(pixel_consumers_depth_only),
@@ -184,8 +273,18 @@ def build_lineage(usage_trace, pass_trace):
             and not pixel_consumers_with_color
             and not pixel_consumers_without_output,
             "direct_color_sampling_observed": bool(pixel_consumers_with_color),
-            "shadow_semantic_proved": False,
-            "reflection_semantic_proved": False,
+            "producer_caster_inventory_joined": effect_census is not None,
+            "caster_classes_identified": caster_classes,
+            "caster_complete_epochs": caster_complete_epochs,
+            "static_dynamic_caster_separation_ready": (
+                bool(epochs)
+                and caster_complete_epochs == len(epochs)
+                and "dynamic_vehicle" in caster_classes
+                and "static_world" in caster_classes
+                and "mixed_world" not in caster_classes
+            ),
+            "shadow_semantic_proved": classified_shadow_writes > 0,
+            "reflection_semantic_proved": classified_reflection_writes > 0,
             "semantic_promotion_requires_external_evidence": True,
         },
         "safety": {
@@ -202,14 +301,28 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("usage_trace", type=pathlib.Path)
     parser.add_argument("pass_trace", type=pathlib.Path)
+    parser.add_argument("--effect-census", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
         usage_bytes = args.usage_trace.read_bytes()
         pass_bytes = args.pass_trace.read_bytes()
-        lineage = build_lineage(json.loads(usage_bytes), json.loads(pass_bytes))
+        effect_bytes = (
+            args.effect_census.read_bytes()
+            if args.effect_census is not None
+            else None
+        )
+        lineage = build_lineage(
+            json.loads(usage_bytes),
+            json.loads(pass_bytes),
+            json.loads(effect_bytes) if effect_bytes is not None else None,
+        )
         lineage["usage_trace_sha256"] = hashlib.sha256(usage_bytes).hexdigest().upper()
         lineage["pass_trace_sha256"] = hashlib.sha256(pass_bytes).hexdigest().upper()
+        if effect_bytes is not None:
+            lineage["effect_census_sha256"] = hashlib.sha256(
+                effect_bytes
+            ).hexdigest().upper()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(lineage, indent=2, sort_keys=True) + "\n",
