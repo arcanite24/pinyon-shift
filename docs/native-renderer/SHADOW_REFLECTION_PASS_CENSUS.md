@@ -228,6 +228,65 @@ casters. The correct next boundary is event- or title-instance provenance;
 promoting this whole family to either `static_world` or `dynamic_vehicle` would
 be incorrect, so the separation gate remains closed.
 
+## Per-draw title provenance boundary
+
+The default-off `-ShadowCasterProvenance` census mode correlates only that
+mixed 1024-square capture family with the exact title packet consumed for the
+same backend draw. A draw becomes `dynamic_vehicle_proven` only when the live
+draw contains either an exact admitted vehicle identity address or an exact
+vehicle-owner method scope and the matching identity pose is no more than one
+frame old. Multiple identities, future/stale identities, missing title origin,
+and absence of identity evidence all produce `unresolved`; absence is never
+used to infer `static_world`.
+
+The pending identity evidence is per-thread and replaced for every observed
+draw, preventing one matching draw from promoting later draws that share the
+same pipeline signature. The 4,096-record sample table has explicit overflow
+and classification accounting. This mode records metadata only: it issues no
+native draw, changes no guest state, leaves Xenos authoritative, and cannot
+enable suppression.
+
+ReXGlue patch `0093` exposes only the raw X/Y viewport scale and offset plus
+the viewport-transform control in the already bounded draw observation. The
+runtime gate requires the capture's exact upper-right 1024-square host tile,
+which the live guest encodes as raw viewport `256,768,-256,256` (IEEE-754 bits
+`43800000:44400000:C3800000:43800000`), together with its depth target,
+scissor, shader, and raster state. A live census observed all four guest atlas
+quadrants and uniquely correlated this upper-right variant with RenderDoc's
+`1024,0,1024,1024` family. Stale guest pixel-shader and texture registers are
+deliberately not semantic evidence; the prepared pipeline must still prove
+that no pixel shader is active.
+
+Run an AppData-backed qualification with:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -ShadowCasterProvenance `
+  -Json
+
+python .\tools\summarize-native-renderer-shadow-caster-provenance.py `
+  <diagnostics.jsonl> `
+  --output .local\qualification\nr05f-shadow-caster-provenance.json
+```
+
+The summarizer rejects incomplete accounting, unsafe render flags, stale
+dynamic promotion, whole-family promotion, or any inferred static class. A
+bounded overflow remains reportable when aggregate and sample accounting are
+complete, but `sample_coverage_complete` stays false. A qualified report may
+promote only the individually proven dynamic records; static caching and the
+overall separation gate remain closed.
+
+The 2026-08-30 AppData qualification observed 2,399 exact upper-right draws
+with complete, overflow-free accounting. All 2,399 remained `unresolved`
+because no matching title origin was present at submission; consequently
+per-draw vehicle promotion, whole-family promotion, static inference, native
+coverage, and suppression all remained disabled. Xenos stayed authoritative.
+This validates the exact mechanical boundary and its fail-closed behavior; a
+later title-hook expansion is required before this family can contribute
+dynamic provenance.
+
 The first executable follow-up is documented in
 `SHADOW_DEPTH_ISOLATED_REPLAY.md`. It admits only the dominant
 `4E1DA281CC3D7EDB` producer through its complete stable draw and attachment
