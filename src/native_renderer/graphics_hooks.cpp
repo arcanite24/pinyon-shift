@@ -4074,6 +4074,7 @@ struct IsolatedDrawState {
   bool prepared_candidate_eligible = false;
   bool prepared_visibility_candidate_fresh = false;
   bool require_fresh_visibility_candidate = false;
+  bool auto_select_fresh_visibility_candidate = false;
   bool visibility_wait_reported = false;
   bool awaiting_pass_follower = false;
   bool pass_anchor_recorded = false;
@@ -4347,6 +4348,10 @@ void ConfigurePassFollower() {
     g_pass_follower.target_signature = kSkyHorizonAnchorSignature;
     g_pass_follower.requested = true;
   }
+  if (g_isolated_draw.auto_select_fresh_visibility_candidate &&
+      g_pass_follower.requested) {
+    g_pass_follower.valid = false;
+  }
 }
 
 void ConfigureConsumerFamilyMarker() {
@@ -4489,25 +4494,50 @@ void ConfigureIsolatedDraw() {
       "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE",
       g_isolated_draw.target_signature, g_isolated_draw.requested,
       g_isolated_draw.valid);
+  const bool signature_requested = g_isolated_draw.requested;
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE") ==
+          0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.auto_select_fresh_visibility_candidate = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.auto_select_fresh_visibility_candidate) {
+    g_isolated_draw.requested = true;
+    g_isolated_draw.require_fresh_visibility_candidate = true;
+    if (signature_requested || g_sky_horizon_suppression.requested) {
+      g_isolated_draw.valid = false;
+    }
+  }
   if (!g_isolated_draw.requested &&
       g_sky_horizon_suppression.requested) {
     g_isolated_draw.target_signature = kSkyHorizonFollowerSignature;
     g_isolated_draw.requested = true;
   }
-  const bool signature_requested = g_isolated_draw.requested;
-  char *value = nullptr;
-  size_t length = 0;
+  const bool draw_requested = g_isolated_draw.requested;
+  value = nullptr;
+  length = 0;
   if (_dupenv_s(&value, &length,
                 "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR") != 0 ||
       !value || length <= 1) {
     std::free(value);
+    if (g_isolated_draw.auto_select_fresh_visibility_candidate) {
+      g_isolated_draw.valid = false;
+    }
     return;
   }
   g_isolated_draw.readback_requested = true;
   g_isolated_draw.output_root =
       std::filesystem::absolute(std::filesystem::path(value)).lexically_normal();
   std::free(value);
-  if (!signature_requested ||
+  if (!draw_requested ||
       !IsLocalArtifactRoot(g_isolated_draw.output_root)) {
     g_isolated_draw.valid = false;
   }
@@ -4519,7 +4549,12 @@ void ConfigureIsolatedDraw() {
           0 &&
       value && length > 1) {
     const std::string setting(value);
-    g_isolated_draw.require_fresh_visibility_candidate = setting == "true";
+    const bool require_fresh = setting == "true";
+    if (!g_isolated_draw.auto_select_fresh_visibility_candidate) {
+      g_isolated_draw.require_fresh_visibility_candidate = require_fresh;
+    } else if (!require_fresh) {
+      g_isolated_draw.valid = false;
+    }
     if (setting != "true" && setting != "false") {
       g_isolated_draw.valid = false;
     }
@@ -13180,6 +13215,8 @@ void RequestIsolatedDraw(
   }
   const bool pass_mode = g_pass_follower.requested &&
                          g_pass_follower.valid &&
+                         !g_isolated_draw
+                              .auto_select_fresh_visibility_candidate &&
                          g_pass_follower.target_signature !=
                              g_isolated_draw.target_signature;
   const bool candidate_eligible =
@@ -13268,6 +13305,26 @@ void RequestIsolatedDraw(
     }
     return;
   }
+  if (g_isolated_draw.auto_select_fresh_visibility_candidate &&
+      !g_isolated_draw.target_signature) {
+    if (!candidate_eligible) {
+      return;
+    }
+    g_isolated_draw.target_signature = g_isolated_draw.prepared_signature;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.isolated_draw.auto_selection",
+        {{"signature",
+          fmt::format("{:016X}", g_isolated_draw.target_signature)},
+         {"status", "locked_first_fresh_eligible_candidate"},
+         {"frame", std::to_string(g_isolated_draw.frame)},
+         {"draw", std::to_string(g_isolated_draw.draw)},
+         {"mechanically_eligible", "true"},
+         {"fresh_visibility_candidate", "true"},
+         {"native_draw", "isolated_only"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_eligible", "false"}});
+  }
   if (g_isolated_draw.prepared_signature !=
       g_isolated_draw.target_signature) {
     return;
@@ -13331,10 +13388,26 @@ void RequestIsolatedDraw(
   request.requested = true;
   request.frame_sequence = g_isolated_draw.frame;
   request.readback_requested = g_isolated_draw.readback_requested;
+  request.reference_readback_requested =
+      g_isolated_draw.readback_requested;
+  request.depth_readback_requested = g_isolated_draw.readback_requested;
+  request.reference_depth_readback_requested =
+      g_isolated_draw.readback_requested;
   request.completion = &CompleteIsolatedDraw;
   request.readback_completion = g_isolated_draw.readback_requested
                                     ? &CompleteIsolatedDrawReadback
                                     : nullptr;
+  request.reference_readback_completion =
+      g_isolated_draw.readback_requested
+          ? &CompleteIsolatedReferenceReadback
+          : nullptr;
+  request.depth_readback_completion =
+      g_isolated_draw.readback_requested ? &CompleteIsolatedDepthReadback
+                                         : nullptr;
+  request.reference_depth_readback_completion =
+      g_isolated_draw.readback_requested
+          ? &CompleteIsolatedReferenceDepthReadback
+          : nullptr;
 }
 
 void EmitDrawCensusWindow(uint64_t last_frame_value) {
@@ -14498,6 +14571,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
        {"reference_marker", "exact_signature"},
+       {"selection",
+        g_isolated_draw.auto_select_fresh_visibility_candidate
+            ? "first_fresh_mechanically_eligible_candidate"
+            : "exact_signature"},
        {"visibility_gate",
         g_isolated_draw.require_fresh_visibility_candidate
             ? "fresh_selected_semantic_candidate"

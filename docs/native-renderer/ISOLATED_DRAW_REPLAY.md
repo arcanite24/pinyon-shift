@@ -10,9 +10,10 @@ frame.
 
 ## Ownership and safety gates
 
-The path is disabled unless the native-renderer census and an exact 16-digit
-candidate signature are both supplied. Pinyon requests a draw only when the
-live observation still satisfies the qualified candidate boundary:
+The path is disabled unless the native-renderer census and either an exact
+16-digit candidate signature or the startup-only fresh-candidate auto-selector
+are supplied. Pinyon requests a draw only when the live observation still
+satisfies the qualified candidate boundary:
 
 - direct DMA indexed geometry with supported index format and endianness, or
   the exact non-indexed AutoIndex follower contract;
@@ -29,6 +30,14 @@ missing, rejected, stale, future, or table-overflow decision cannot issue the
 isolated native draw. An early matching signature without a fresh decision is
 reported once and remains armed for a later fresh occurrence; it is not a
 terminal rejection. The exact-signature and mechanical gates remain required.
+
+For discovery captures, `-AutoSelectFreshVisibilityCandidate` waits for the
+first prepared draw that passes both the mechanical boundary and the fresh
+visibility gate, locks its exact prepared signature, and captures
+only that signature from then on. It is mutually exclusive with an explicit
+signature, retained-pass capture, and sky/horizon suppression. A rejected,
+missing, stale, future, or mechanically unsupported observation cannot lock
+the selector or issue native work.
 
 ReXGlue independently requires host render targets, rasterization, and no
 memexport. Indexed requests require a direct guest DMA index buffer; AutoIndex
@@ -59,6 +68,18 @@ For a visibility-selected semantic candidate, add:
   -RequireFreshVisibilityCandidate
 ```
 
+To avoid a separate discovery run, capture the first admissible semantic world
+draw and its paired native/Xenos color and depth evidence with:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -AutoSelectFreshVisibilityCandidate `
+  -IsolatedDrawDir .local\qualification\native-visible-world-auto `
+  -Json
+```
+
 This option is intended for semantic world bring-up and is not used by the
 already-qualified sky/horizon replay family.
 
@@ -76,6 +97,7 @@ visually unchanged, census frames continued through frame 5700, and the
 process exited normally with code zero. The structured log contained no fatal,
 device-loss, D3D12 error, exception, access-violation, or crash events.
 
-This milestone proves authentic GPU draw recording and target isolation. A
-later NR-02E pull request must add asynchronous readback and image comparison
-before visual equivalence is claimed.
+This milestone proves authentic GPU draw recording and target isolation.
+Single-draw and retained-pass captures asynchronously write paired native and
+authoritative Xenos color/depth artifacts for later image comparison; a
+successful replay is not by itself a claim of visual equivalence.
