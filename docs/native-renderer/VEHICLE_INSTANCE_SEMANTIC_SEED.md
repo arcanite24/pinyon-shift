@@ -349,6 +349,61 @@ presentation cadence. Continue downstream of `82435E78` at the first consumer
 that converts this reference-space payload into the render-instance transform;
 do not widen object scans. Native drawing and suppression remain closed.
 
+## Exhaustive nontrivial owner-method correlation
+
+Static inspection closes the apparent downstream `82435E78` CPU edge. That
+function is a generic constant-buffer writer: it copies `r6` 16-byte vectors
+from `r5` into the buffer selected by `r3` and `r4`, then ORs the `r7` dirty
+mask into the buffer header. At the `8240EB5C` call, this places four vectors
+in constant register block 208. The following `8243D2A0` call forwards the
+render request through a graphics-manager virtual method; neither boundary
+converts the reference-space payload into a CPU vehicle transform. Repeating
+the rejected absolute-pose comparison after the byte-for-byte copy would add
+no information.
+
+The next bounded batch therefore completes runtime coverage of the exact
+vehicle-owner vtable instead. Of its 32 slots, 19 have nontrivial generated
+method bodies; the other slots are trivial getters, null handlers, or aliases.
+Balanced entry and sole-tail-return hooks now cover slots 0, 3, 7–9, 12–23,
+25, and 27. Each entry is admitted only when `r3` exactly matches an active
+vehicle owner whose captured vtable slot names that method. Existing title and
+backend packet lineage then attributes any enclosed draw without scanning new
+guest memory or inferring identity from address shape.
+
+The candidate table and per-thread scope stack are fixed at 19 and 32 entries.
+Qualification requires one summary for every candidate, balanced call/exit
+counts, bounded draw accounting, and zero stack fault. The hooks change no
+guest state, issue no upload or draw, leave Xenos authoritative, and cannot
+enable suppression.
+
+Release/AppData session `20260830T120509Z-p33140` completed normally in stable
+festival gameplay. All 19 candidate summaries were present; 16 methods ran and
+slots 7–9 were not called. The run recorded 61,941 calls and exactly 61,941
+exits, 59,907 exact-owner admissions, zero stack faults, zero direct draw
+origins, and zero backend draw matches. This exhausts and rejects every
+nontrivial method on the exact owner vtable as the vehicle renderer bridge.
+
+The same run exposed obsolete work in the already-rejected one-hop object
+scan: its 16,384-entry cache saturated and discarded 384,136 later requests
+without producing a correlation. That diagnostic had already rejected the
+generic and statically targeted roots in earlier qualified sessions, so it is
+now explicitly disabled. The verifier requires every object-scan, cache,
+targeted-scan, and correlation counter to remain zero; any retired-path event
+fails qualification. This removes the saturated-cache probe loop without
+changing guest state, native publication, Xenos authority, or suppression.
+The session sustained 30.677 median derived FPS, 29.638 Hz simulation, and
+59.710 Hz presentation, with no error, fatal, assertion, or crash event.
+
+Release/AppData confirmation session `20260830T121257Z-p33888` then exercised
+all 19 methods with the retired scan disabled. Its 42,086 calls balanced
+exactly with 42,086 exits, 40,256 calls matched exact active owners, and every
+object-scan, cache, targeted-scan, correlation, direct-draw, backend-draw, and
+stack-fault counter remained zero. Native vehicle publication and suppression
+remained closed while Xenos rendered the scene. The run exited normally at
+31.378 median derived FPS, 29.533 Hz simulation, and 59.625 Hz presentation,
+with zero presentation deadline misses and no error, fatal, assertion, or
+crash event.
+
 Qualify a batched census with:
 
 ```powershell

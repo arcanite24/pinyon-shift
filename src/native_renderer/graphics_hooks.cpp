@@ -104,14 +104,15 @@ constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
 constexpr size_t kVehicleIdentityCapacity = 64;
 constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
 constexpr size_t kVehicleOwnerVtableMethodCount = 32;
-constexpr size_t kVehicleOwnerMethodCandidateCount = 3;
-constexpr size_t kVehicleOwnerMethodStackCapacity = 8;
+constexpr size_t kVehicleOwnerMethodCandidateCount = 19;
+constexpr size_t kVehicleOwnerMethodStackCapacity = 32;
 constexpr size_t kVehicleOwnerIndirectTargetCapacity = 64;
 constexpr size_t kVehicleIdentityAddressCapacity = 512;
 constexpr size_t kVehicleDrawCorrelationCapacity = 1024;
 constexpr size_t kVehicleObjectScanWordCount = 128;
 constexpr size_t kVehicleObjectScanCacheCapacity = 16384;
 constexpr size_t kVehicleObjectCorrelationCapacity = 2048;
+constexpr bool kVehicleObjectScanEnabled = false;
 constexpr uint32_t kVehicleRenderContextFunction = 0x824365B0;
 constexpr size_t kVehicleRenderContextCalleeProfileCapacity = 32;
 constexpr uint32_t kVehicleMatrixCallerFunction = 0x8240E7B0;
@@ -583,9 +584,25 @@ struct VehicleOwnerMethodCandidate {
 constexpr std::array<VehicleOwnerMethodCandidate,
                      kVehicleOwnerMethodCandidateCount>
     kVehicleOwnerMethodCandidates{{
+        {0x82BD2BD0, 0x82BD2C20, 0},
+        {0x82BD2B58, 0x82BD2BC0, 3},
+        {0x82BCFDD8, 0x82BCFE10, 7},
+        {0x82BCFE18, 0x82BCFE50, 8},
+        {0x82BCFE58, 0x82BCFE70, 9},
+        {0x82BC1D90, 0x82BC1DC0, 12},
+        {0x82BBDD38, 0x82BBDE40, 13},
         {0x82BCC368, 0x82BCCD30, 14},
+        {0x82BCD780, 0x82BCD9A8, 15},
+        {0x82BCD9B0, 0x82BCDA90, 16},
+        {0x82BD0548, 0x82BD05D0, 17},
+        {0x82BD05D8, 0x82BD0640, 18},
+        {0x82BD0648, 0x82BD06B0, 19},
         {0x82BD2DE0, 0x82BD35B0, 20},
+        {0x82BBA9C0, 0x82BBAB28, 21},
         {0x82BC8410, 0x82BC86F0, 22},
+        {0x82BB94D8, 0x82BB9568, 23},
+        {0x82BBC1B0, 0x82BBC2C8, 25},
+        {0x82BD0918, 0x82BD0968, 27},
     }};
 
 struct VehicleOwnerMethodStats {
@@ -1926,6 +1943,9 @@ bool IsTargetedVehicleRenderContextProbe(
 }
 
 bool ShouldScanVehicleObjectProbe(const VehicleDrawArgumentProbe &probe) {
+  if (!kVehicleObjectScanEnabled) {
+    return false;
+  }
   if (!probe.value || (probe.value & 3) ||
       probe.value > UINT32_MAX - kVehicleObjectScanWordCount * 4) {
     return false;
@@ -16670,8 +16690,16 @@ void ConfigureVehicleDiscovery(bool census_requested,
        {"player_priority_admitted", "false"},
        {"owner_vtable_method_count",
         std::to_string(kVehicleOwnerVtableMethodCount)},
-       {"owner_method_candidates", "82BCC368:14,82BD2DE0:20,82BC8410:22"},
-       {"owner_method_exit_hooks", "82BCCD30,82BD35B0,82BC86F0"},
+       {"owner_method_candidates",
+        "82BD2BD0:0,82BD2B58:3,82BCFDD8:7,82BCFE18:8,82BCFE58:9,"
+        "82BC1D90:12,82BBDD38:13,82BCC368:14,82BCD780:15,82BCD9B0:16,"
+        "82BD0548:17,82BD05D8:18,82BD0648:19,82BD2DE0:20,82BBA9C0:21,"
+        "82BC8410:22,82BB94D8:23,82BBC1B0:25,82BD0918:27"},
+       {"owner_method_exit_hooks",
+        "82BD2C20,82BD2BC0,82BCFE10,82BCFE50,82BCFE70,82BC1DC0,"
+        "82BBDE40,82BCCD30,82BCD9A8,82BCDA90,82BD05D0,82BD0640,"
+        "82BD06B0,82BD35B0,82BBAB28,82BC86F0,82BB9568,82BBC2C8,"
+        "82BD0968"},
        {"owner_method_stack_capacity",
         std::to_string(kVehicleOwnerMethodStackCapacity)},
        {"owner_indirect_callsites",
@@ -16686,6 +16714,7 @@ void ConfigureVehicleDiscovery(bool census_requested,
         "exact_backend_signature_and_provenance_argument_to_vehicle_address"},
        {"title_provenance_requested",
         g_vehicle_title_provenance_requested ? "true" : "false"},
+       {"object_scan_enabled", kVehicleObjectScanEnabled ? "true" : "false"},
        {"object_scan_word_count",
         std::to_string(kVehicleObjectScanWordCount)},
        {"object_scan_cache_capacity",
@@ -16796,8 +16825,16 @@ void EmitVehicleDiscoverySummary() {
        {"player_priority_admitted", "false"},
        {"owner_vtable_method_count",
         std::to_string(kVehicleOwnerVtableMethodCount)},
-       {"owner_method_candidates", "82BCC368:14,82BD2DE0:20,82BC8410:22"},
-       {"owner_method_exit_hooks", "82BCCD30,82BD35B0,82BC86F0"},
+       {"owner_method_candidates",
+        "82BD2BD0:0,82BD2B58:3,82BCFDD8:7,82BCFE18:8,82BCFE58:9,"
+        "82BC1D90:12,82BBDD38:13,82BCC368:14,82BCD780:15,82BCD9B0:16,"
+        "82BD0548:17,82BD05D8:18,82BD0648:19,82BD2DE0:20,82BBA9C0:21,"
+        "82BC8410:22,82BB94D8:23,82BBC1B0:25,82BD0918:27"},
+       {"owner_method_exit_hooks",
+        "82BD2C20,82BD2BC0,82BCFE10,82BCFE50,82BCFE70,82BC1DC0,"
+        "82BBDE40,82BCCD30,82BCD9A8,82BCDA90,82BD05D0,82BD0640,"
+        "82BD06B0,82BD35B0,82BBAB28,82BC86F0,82BB9568,82BBC2C8,"
+        "82BD0968"},
        {"owner_method_stack_faults",
         std::to_string(g_vehicle_owner_method_stack_faults.load(
             std::memory_order_relaxed))},
@@ -16840,6 +16877,7 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleIdentityAddressCapacity)},
        {"identity_address_overflow",
         std::to_string(g_vehicle_identity_address_overflow)},
+       {"object_scan_enabled", kVehicleObjectScanEnabled ? "true" : "false"},
        {"object_scan_requests",
         std::to_string(g_vehicle_object_scan_requests)},
        {"object_scans", std::to_string(g_vehicle_object_scans)},
@@ -18779,9 +18817,25 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     pinyon_shift::native_renderer::EndVehicleOwnerMethod(0x##address);      \
   }
 
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD2BD0)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD2B58)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCFDD8)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCFE18)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCFE58)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BC1D90)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BBDD38)
 PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCC368)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCD780)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BCD9B0)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD0548)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD05D8)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD0648)
 PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD2DE0)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BBA9C0)
 PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BC8410)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BB94D8)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BBC1B0)
+PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS(82BD0918)
 
 #undef PINYON_SHIFT_VEHICLE_OWNER_METHOD_HOOKS
 
