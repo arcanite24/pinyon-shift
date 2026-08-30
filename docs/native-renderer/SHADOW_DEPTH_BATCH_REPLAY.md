@@ -1,10 +1,10 @@
 # Bounded native shadow-atlas epoch replay
 
 This NR-05F checkpoint extends the exact private shadow-depth draw into one
-bounded, capture-proven 80-draw producer epoch. It does not publish a native
-atlas or alter the
-game-visible render graph. Every original Xenos draw still executes and remains
-authoritative.
+bounded, capture-proven 80-draw producer epoch and an independently gated
+depth-only publication experiment. Every original Xenos producer draw, the
+following render-target dump, and all later consumers still execute. No draw or
+resolve suppression is enabled.
 
 ## Capture-proven boundary
 
@@ -50,6 +50,35 @@ readbacks. Artifacts use `.depth.batch` and `.depth.batch.xenos` suffixes. The
 runtime reports draw, batch, interruption, backend-failure, and per-frame quota
 accounting at shutdown.
 
+## Compute handoff and publication boundary
+
+The payload-free compute-handoff report for `reference_frame8134.rdc` proves
+that event 1426 is the first consumer after the exact event-1417 producer
+epoch. Pipeline `RT Dump kD24S8 1xMSAA`, compute shader `{83b6d426}`, reads the
+same D24S8 resource through two image descriptors and writes the 40 MiB
+`EDRAM Buffer` through a read/write typed-buffer descriptor. Its dispatch is
+`52x128x1`. This is a render-target dump into emulated EDRAM, not a pixel
+consumer or a final scene-color sample.
+
+`-PublishShadowDepth` requests publication only on draw 80, after its
+authoritative Xenos draw has executed. ReXGlue revalidates the exact depth
+target key and complete D3D12 resource description, transitions only the depth
+resources, copies the accumulated private D24S8 target into the authoritative
+target, and restores both states before the retained Xenos dump runs. The
+depth-only path rejects every color attachment. A failed or incomplete copy
+leaves the authoritative Xenos content in place. Suppression is structurally
+disabled for this request.
+
+The metadata-only handoff can be reproduced without launching the game:
+
+```powershell
+.\tools\export-native-renderer-compute-handoff.ps1 `
+  -Capture .local\qualification\native-renderer-renderdoc-seeded\reference_frame8134.rdc `
+  -RenderDocRoot .local\tools\renderdoc-1.45\RenderDoc_1.45_64 `
+  -ResourceName 'RT @ 720t, <13t>, 1xMSAA, kD24S8' `
+  -Output .local\qualification\nr05f-compute-handoff.json
+```
+
 ## Qualification
 
 ```powershell
@@ -57,18 +86,34 @@ accounting at shutdown.
   -StateRoot "$env:LOCALAPPDATA\PinyonShift\source\0.1.0\.local\preview" `
   -Scene open_world_day `
   -ShadowDepthBatch `
+  -PublishShadowDepth `
   -IsolatedDrawDir .local\qualification\nr05f-shadow-depth-batch
 ```
 
-Required evidence is a
+The AppData qualification session `20260830T153020Z-p2564` completed normally
+with exit code 0. At frame 5456, draw 1038, the runtime published exactly one
+2080x5056 D24S8 private target, with `color=not_bound`, into the retained Xenos
+render-target dump. The completed batch contained all 80 draws (64 primary,
+12 secondary, and 4 tertiary), with zero interruptions, backend failures,
+unsupported requests, target-creation failures, or publication failures.
+Native and Xenos readbacks were both 56,950,304 bytes and had identical SHA-256
+`B1950219B977C3BAB75715ABEA5A9E7E70881082D6884429CA0DF82334FE5D64`.
+The session reported no error-like diagnostic events.
+
+For private replay alone, required evidence is a
 `native_renderer.shadow_depth_batch.result` event with
 `status=recorded_full_80_draw_atlas_epoch`, byte-identical native and Xenos batch
-artifacts, and complete request and batch accounting. Every event must retain
-`native_publication=false`, `xenos_draw=preserved`,
-`output_authority=xenos`, and `suppression_eligible=false`.
+artifacts, and complete request and batch accounting. Publication qualification
+additionally requires exactly one
+`native_renderer.shadow_depth_batch.publication` event with
+`status=published_depth_stencil`, `color=not_bound`,
+`consumer_handoff=xenos_rt_dump_retained`, and no publication failure. Every
+event must retain `xenos_producer_draws=preserved`,
+`xenos_draw_suppression=false`, `resolve_suppression=false`, and
+`suppression_eligible=false`.
 
-Complete atlas ownership, consumer binding, publication, and suppression remain
-closed.
+Continuous atlas ownership and suppression remain closed. This mode qualifies
+only a one-shot native producer-to-Xenos-dump handoff.
 
 The first AppData qualification attempt (`20260830T140611Z-p3944`) proved why
 the seed and follower contracts must be separate: 8,252 exact seeds were

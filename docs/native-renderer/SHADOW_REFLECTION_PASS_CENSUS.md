@@ -56,6 +56,14 @@ Promotion must retain per-item replay fallback, an independent feature gate,
 and guest-visible side effects. Native drawing, atlas allocation, reflection
 publication, and Xenos suppression remain out of scope for this census.
 
+The later compute-handoff export identifies the two compute consumers that were
+previously boundary-only events. Both use pipeline `RT Dump kD24S8 1xMSAA` and
+shader `{83b6d426}`, bind the selected D24S8 texture twice as read-only images,
+and write the 40 MiB `EDRAM Buffer`. Event 1426 (`52x128x1`) immediately follows
+the inspected 80-draw vehicle-shadow epoch. This proves the next ownership
+boundary is an EDRAM dump rather than a pixel depth-copy family; it does not by
+itself authorize publication or suppression.
+
 ## Initial open-world census
 
 The qualified `open_world_day` capture `reference_frame8134.rdc` (SHA-256
