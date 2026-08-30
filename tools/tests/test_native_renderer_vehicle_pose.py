@@ -73,9 +73,18 @@ def fixture():
         typed_render_item_profile_capacity="32",
         typed_descriptor_word_count="62",
         typed_descriptor_correlation_capacity="512",
+        composed_matrix_hook="8240EB5C:r22_object_matrix,r5_output_matrix",
+        composed_matrix_contract=(
+            "8240E7B0_live_r7_input_and_64_byte_payload_to_82435E78"
+        ),
+        composed_matrix_sources=(
+            "object_input_matrix,composed_upload_matrix"
+        ),
+        composed_matrix_correlation_capacity="1024",
         guest_payload_read=(
             "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
-            "typed_4x4_caller_matrix,typed_render_item_descriptor"
+            "typed_4x4_caller_matrix,typed_render_item_descriptor,"
+            "object_and_composed_4x4_matrices"
         ),
         guest_state_changed="false",
         native_upload="false",
@@ -187,6 +196,21 @@ def fixture():
         typed_descriptor_correlations="1",
         typed_descriptor_correlation_capacity="512",
         typed_descriptor_correlation_overflow="0",
+        composed_matrix_observations="1",
+        composed_matrix_valid_pairs="1",
+        composed_matrix_invalid_object_range="0",
+        composed_matrix_invalid_output_range="0",
+        composed_matrix_object_non_finite="0",
+        composed_matrix_output_non_finite="0",
+        composed_matrix_accounting_complete="true",
+        composed_matrix_identity_comparisons="8",
+        composed_matrix_candidate_observations="8",
+        composed_matrix_routes_without_identity="0",
+        composed_matrix_route_accounting_complete="true",
+        composed_matrix_tight_matches="1",
+        composed_matrix_correlations="8",
+        composed_matrix_correlation_capacity="1024",
+        composed_matrix_correlation_overflow="0",
         title_provenance_requested="true",
         draw_provenance_coverage_complete="true",
         guest_state_changed="false",
@@ -318,6 +342,68 @@ def fixture():
                     suppression_allowed="false",
                 )
             )
+    composed_matrix_correlations = []
+    for source in sorted(MODULE.VEHICLE_COMPOSED_MATRIX_SOURCES):
+        for layout in sorted(MODULE.VEHICLE_MATRIX_LAYOUTS):
+            for forward_sign in sorted(MODULE.VEHICLE_MATRIX_FORWARD_SIGNS):
+                tight_match = (
+                    source == "composed_upload_matrix"
+                    and layout == "row_major_translation_row3_forward_row2"
+                    and forward_sign == "positive"
+                )
+                composed_matrix_correlations.append(
+                    event(
+                        MODULE.VEHICLE_COMPOSED_MATRIX_CORRELATION,
+                        function_address="8240E7B0",
+                        hook_address="8240EB5C",
+                        callee_address="82435E78",
+                        matrix_source=source,
+                        matrix_layout=layout,
+                        forward_sign=forward_sign,
+                        identity_generation="00000001",
+                        identity_owner="A0002000",
+                        identity_slot="2",
+                        observations="1",
+                        tight_matches="1" if tight_match else "0",
+                        first_frame="104",
+                        last_frame="104",
+                        matrix_address_changes="0",
+                        matrix_hash_changes="0",
+                        last_matrix_address=(
+                            "703FE000"
+                            if source == "object_input_matrix"
+                            else "703FF000"
+                        ),
+                        last_matrix_hash="1234567890ABCDEF",
+                        best_matrix_address=(
+                            "703FE000"
+                            if source == "object_input_matrix"
+                            else "703FF000"
+                        ),
+                        best_matrix_hash="1234567890ABCDEF",
+                        best_position_delta_squared=(
+                            "0.01" if tight_match else "100.0"
+                        ),
+                        best_forward_delta_squared=(
+                            "0.001" if tight_match else "1.0"
+                        ),
+                        best_normalized_score=(
+                            "0.065" if tight_match else "425.0"
+                        ),
+                        classification=(
+                            "vehicle_composed_matrix_correlation_candidate"
+                        ),
+                        vehicle_render_transform_candidate_proved=(
+                            "true" if tight_match else "false"
+                        ),
+                        vehicle_draw_identity_proved="false",
+                        guest_state_changed="false",
+                        native_upload="false",
+                        native_draw="false",
+                        xenos_authority="true",
+                        suppression_allowed="false",
+                    )
+                )
     typed_render_item_profile = event(
         MODULE.TYPED_RENDER_ITEM_PROFILE,
         function_address="8240E7B0",
@@ -373,6 +459,7 @@ def fixture():
         *methods,
         render_context_callee,
         *matrix_correlations,
+        *composed_matrix_correlations,
         typed_render_item_profile,
         typed_descriptor_correlation,
         title_provenance_config,
@@ -457,9 +544,15 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             '"native_renderer.discovery.vehicle_typed_descriptor_correlation"',
             hooks,
         )
+        self.assertIn("ObserveVehicleComposedMatrix", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_composed_matrix_correlation"',
+            hooks,
+        )
         self.assertIn("[switch]$VehicleDrawCorrelation", capture)
         self.assertEqual(1, analysis.count("address = 0x8240E7B4"))
         self.assertEqual(1, analysis.count("address = 0x8240EC18"))
+        self.assertEqual(1, analysis.count("address = 0x8240EB5C"))
         self.assertEqual(1, analysis.count("address = 0x8243646C"))
         for address in (
             "82BC8468",
@@ -523,6 +616,33 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         )
         self.assertEqual(1, len(document["typed_render_item_profiles"]))
         self.assertEqual(1, len(document["typed_descriptor_correlations"]))
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_composed_matrix_contract_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_composed_matrix_candidate_proved"
+            ]
+        )
+        self.assertEqual(8, len(document["composed_matrix_correlations"]))
+
+    def test_rejects_composed_matrix_accounting_or_overflow(self):
+        events = fixture()
+        events[1]["composed_matrix_valid_pairs"] = "0"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle composed matrix accounting drifted", document["failures"]
+        )
+
+        events = fixture()
+        events[1]["composed_matrix_correlation_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle composed matrix correlation table overflowed",
+            document["failures"],
+        )
 
     def test_rejects_typed_render_item_accounting_or_overflow(self):
         events = fixture()
