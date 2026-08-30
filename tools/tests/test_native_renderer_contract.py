@@ -1964,6 +1964,43 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("ShadowDepthIsolated requires IsolatedDrawDir", capture)
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED", capture)
 
+    def test_shadow_depth_batch_is_bounded_contiguous_and_private(self):
+        scanner = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH", scanner)
+        self.assertIn("kShadowDepthBatchDrawCount = 64", scanner)
+        self.assertIn("IsShadowDepthBatchMemberDraw", scanner)
+        self.assertIn("prepared_shadow_depth_batch_member", scanner)
+        self.assertIn(
+            "if (g_isolated_draw.shadow_depth_batch_capture_completed)", scanner
+        )
+        self.assertIn('"one_shot_seed_plus_63_draw_batch"', scanner)
+        self.assertIn("!exact_seed", scanner)
+        self.assertIn("shadow_depth_batch_last_draw + 1", scanner)
+        self.assertIn("request.reuse_target =", scanner)
+        self.assertIn('"native_renderer.shadow_depth_batch.result"', scanner)
+        self.assertIn('"recorded_seed_plus_63_draw_batch"', scanner)
+        self.assertIn('"native_publication", "false"', scanner)
+        self.assertIn('"xenos_draw", "preserved"', scanner)
+        self.assertIn('"suppression_eligible", "false"', scanner)
+
+        patch = (
+            ROOT
+            / "patches/rexglue/0090-d3d12-reuse-depth-only-isolated-target.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ResumeIsolatedReplayTarget", patch)
+        self.assertIn("bool depth_only_target", patch)
+        self.assertIn("depth_only_target ? 1 : 2", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("[switch]$ShadowDepthBatch", capture)
+        self.assertIn("ShadowDepthBatch requires IsolatedDrawDir", capture)
+        self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH", capture)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"

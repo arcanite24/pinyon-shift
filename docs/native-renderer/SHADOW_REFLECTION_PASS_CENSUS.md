@@ -152,3 +152,10 @@ The first executable follow-up is documented in
 contract, duplicates one draw into a private depth-only target, and preserves
 the authoritative Xenos draw. It does not yet allocate or publish a native
 atlas.
+
+The next bounded follow-up is documented in
+`SHADOW_DEPTH_BATCH_REPLAY.md`. The capture proves that all 64 draws in the
+dominant family are consecutive with no intervening authoritative draw, so the
+private path may seed once and reuse its depth-only target for exactly that
+run. Gaps, frame changes, target mismatches, and backend failures remain
+fail-closed; Xenos stays authoritative.
