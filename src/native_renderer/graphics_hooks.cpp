@@ -53,6 +53,12 @@ namespace {
 
 constexpr uint64_t kFrameSummaryInterval = 300;
 constexpr size_t kSignatureCapacity = 4096;
+
+bool NativePrototypeSelected() {
+  const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
+  return mode == "native_prototype" || mode == "hybrid_prototype";
+}
+
 constexpr size_t kSummaryLimit = 16;
 constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
@@ -3622,12 +3628,10 @@ void ResetTitleDrawProvenance() {
   g_semantic_render_state_overflow_depth = 0;
 }
 
-void ConfigureTitleDrawProvenance(bool census_requested,
+void ConfigureTitleDrawProvenance(bool requested,
                                   rex::memory::Memory *memory) {
   ResetTitleDrawProvenance();
-  const bool dispatch_requested =
-      REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
-  const bool armed = dispatch_requested && census_requested && memory;
+  const bool armed = requested && memory;
   g_title_provenance_memory.store(armed ? memory : nullptr,
                                   std::memory_order_release);
   g_title_provenance_installed.store(armed, std::memory_order_release);
@@ -5863,6 +5867,7 @@ struct IsolatedDrawState {
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  bool prepared_shadow_depth_seed_eligible = false;
   bool prepared_shadow_depth_batch_member = false;
   ShadowDepthBatchFamily prepared_shadow_depth_batch_family =
       ShadowDepthBatchFamily::kNone;
@@ -5873,6 +5878,7 @@ struct IsolatedDrawState {
   bool auto_select_fresh_visibility_candidate = false;
   bool stencil_seed_probe_requested = false;
   bool shadow_depth_mode = false;
+  bool shadow_depth_prototype_mode = false;
   bool shadow_depth_batch_mode = false;
   bool shadow_depth_publication_mode = false;
   bool shadow_depth_continuous_mode = false;
@@ -5918,6 +5924,9 @@ struct IsolatedDrawState {
 
 IsolatedDrawState g_isolated_draw;
 std::atomic<uint32_t> g_isolated_readback_artifacts_committed = 0;
+std::atomic<bool> g_native_shadow_prototype_enabled = false;
+std::atomic<bool> g_native_shadow_fail_closed = false;
+std::atomic<uint64_t> g_native_shadow_publication_frame = UINT64_MAX;
 
 struct VisibilityShadowReplaySignatureEntry {
   uint64_t signature = 0;
@@ -6384,6 +6393,7 @@ void ConfigureReplaySnapshot() {
 
 void ConfigureIsolatedDraw() {
   g_isolated_draw = {};
+  g_isolated_draw.shadow_depth_prototype_mode = NativePrototypeSelected();
   g_isolated_readback_artifacts_committed.store(0,
                                                  std::memory_order_relaxed);
   ConfigureSignatureScan(
@@ -6417,6 +6427,9 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  if (g_isolated_draw.shadow_depth_prototype_mode) {
+    g_isolated_draw.shadow_depth_batch_mode = true;
+  }
   if (g_isolated_draw.shadow_depth_mode) {
     g_isolated_draw.requested = true;
     if (signature_requested || g_isolated_draw.shadow_depth_batch_mode) {
@@ -6441,6 +6454,9 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  if (g_isolated_draw.shadow_depth_prototype_mode) {
+    g_isolated_draw.shadow_depth_publication_mode = true;
+  }
   if (g_isolated_draw.shadow_depth_publication_mode &&
       !g_isolated_draw.shadow_depth_batch_mode) {
     g_isolated_draw.valid = false;
@@ -6457,6 +6473,9 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  if (g_isolated_draw.shadow_depth_prototype_mode) {
+    g_isolated_draw.shadow_depth_continuous_mode = true;
+  }
   if (g_isolated_draw.shadow_depth_continuous_mode &&
       !g_isolated_draw.shadow_depth_publication_mode) {
     g_isolated_draw.valid = false;
@@ -6479,8 +6498,9 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
-  if (g_isolated_draw.shadow_depth_continuous_mode !=
-      (g_isolated_draw.shadow_depth_continuous_epoch_limit != 0)) {
+  if (!g_isolated_draw.shadow_depth_prototype_mode &&
+      g_isolated_draw.shadow_depth_continuous_mode !=
+          (g_isolated_draw.shadow_depth_continuous_epoch_limit != 0)) {
     g_isolated_draw.valid = false;
   }
   value = nullptr;
@@ -6548,7 +6568,8 @@ void ConfigureIsolatedDraw() {
     std::free(value);
     if (g_isolated_draw.auto_select_fresh_visibility_candidate ||
         g_isolated_draw.stencil_seed_probe_requested ||
-        g_isolated_draw.shadow_depth_batch_mode) {
+        (g_isolated_draw.shadow_depth_batch_mode &&
+         !g_isolated_draw.shadow_depth_prototype_mode)) {
       g_isolated_draw.valid = false;
     }
     return;
@@ -6617,9 +6638,7 @@ void ConfigureVisibilityShadowReplay() {
 void ConfigureContinuousWorldWorkset() {
   g_continuous_world_workset = {};
   g_continuous_world_workset.current_frame = UINT64_MAX;
-  const bool prototype_selected =
-      REXCVAR_GET(pinyon_shift_native_renderer) == "native_prototype" ||
-      REXCVAR_GET(pinyon_shift_native_renderer) == "hybrid_prototype";
+  const bool prototype_selected = NativePrototypeSelected();
   char *value = nullptr;
   size_t length = 0;
   if (_dupenv_s(
@@ -6684,7 +6703,9 @@ void ValidateAndEmitVisibilityShadowReplayConfiguration() {
 
 void ValidateAndEmitContinuousWorldWorksetConfiguration() {
   if (g_continuous_world_workset.requested &&
-      (g_isolated_draw.requested || g_visibility_shadow_replay.requested ||
+      ((g_isolated_draw.requested &&
+        !g_isolated_draw.shadow_depth_prototype_mode) ||
+       g_visibility_shadow_replay.requested ||
        g_pass_follower.requested || g_pass_publication.requested ||
        g_sky_horizon_suppression.requested)) {
     g_continuous_world_workset.valid = false;
@@ -15323,6 +15344,7 @@ void CommitPassConsumer(
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
+  g_isolated_draw.prepared_shadow_depth_seed_eligible = false;
   g_isolated_draw.prepared_shadow_depth_batch_member = false;
   g_isolated_draw.prepared_shadow_depth_batch_family =
       ShadowDepthBatchFamily::kNone;
@@ -15354,12 +15376,17 @@ void ObservePreparedDraw(
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_sample = sample;
-    g_isolated_draw.prepared_candidate_eligible =
+    g_isolated_draw.prepared_shadow_depth_seed_eligible =
+        IsExactShadowDepthIsolatedDraw(
+            sample, g_pending_candidate.samples_resolved_target,
+            observation);
+    const bool dedicated_shadow_mode =
         (g_isolated_draw.shadow_depth_mode ||
-         g_isolated_draw.shadow_depth_batch_mode)
-            ? IsExactShadowDepthIsolatedDraw(
-                  sample, g_pending_candidate.samples_resolved_target,
-                  observation)
+         g_isolated_draw.shadow_depth_batch_mode) &&
+        !g_isolated_draw.shadow_depth_prototype_mode;
+    g_isolated_draw.prepared_candidate_eligible =
+        dedicated_shadow_mode
+            ? g_isolated_draw.prepared_shadow_depth_seed_eligible
             : IsIsolatedDrawEligible(
                   sample, g_pending_candidate.samples_resolved_target,
                   observation);
@@ -15479,7 +15506,7 @@ void ObservePreparedDraw(
     }
     if (g_isolated_draw.shadow_depth_mode ||
         g_isolated_draw.shadow_depth_batch_mode) {
-      if (g_isolated_draw.prepared_candidate_eligible) {
+      if (g_isolated_draw.prepared_shadow_depth_seed_eligible) {
         ++g_isolated_draw.shadow_depth_contract_matches;
       } else if (observation.vertex_shader_hash == kShadowDepthVertexShader) {
         ++g_isolated_draw.shadow_depth_contract_rejections;
@@ -16584,6 +16611,9 @@ void FailClosedContinuousShadowDepth(const char *reason) {
   }
   g_isolated_draw.shadow_depth_continuous_failed_closed = true;
   g_isolated_draw.shadow_depth_continuous_failure_reason = reason;
+  if (g_isolated_draw.shadow_depth_prototype_mode) {
+    g_native_shadow_fail_closed.store(true, std::memory_order_release);
+  }
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.shadow_depth_continuous.fail_closed",
       {{"reason", reason},
@@ -16662,9 +16692,12 @@ void CompleteIsolatedShadowDepthBatch(
        {"native_publication", g_isolated_draw.shadow_depth_publication_mode
                                   ? "pending_after_authoritative_draw"
                                   : "disabled"},
-       {"ownership_mode", g_isolated_draw.shadow_depth_continuous_mode
-                              ? "multi_epoch_fail_closed"
-                              : "one_shot_qualification"},
+       {"ownership_mode",
+        g_isolated_draw.shadow_depth_prototype_mode
+            ? "prototype_current_frame_fail_closed"
+            : (g_isolated_draw.shadow_depth_continuous_mode
+                   ? "multi_epoch_fail_closed"
+                   : "one_shot_qualification")},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});
@@ -16686,6 +16719,11 @@ void CompleteIsolatedShadowDepthPublication(
   const bool qualified_publication = published && ordered_epoch;
   if (qualified_publication) {
     ++g_isolated_draw.shadow_depth_publications;
+    if (g_isolated_draw.shadow_depth_prototype_mode) {
+      g_native_shadow_publication_frame.store(
+          g_isolated_draw.shadow_depth_batch_frame,
+          std::memory_order_release);
+    }
     if (g_isolated_draw.shadow_depth_continuous_mode) {
       g_isolated_draw.shadow_depth_continuous_last_publication_frame =
           g_isolated_draw.shadow_depth_batch_frame;
@@ -16730,9 +16768,12 @@ void CompleteIsolatedShadowDepthPublication(
        {"consumer_handoff", "xenos_rt_dump_retained"},
        {"caster_class", kShadowDepthCasterClass},
        {"atlas_region", kShadowDepthAtlasRegion},
-       {"ownership_mode", g_isolated_draw.shadow_depth_continuous_mode
-                              ? "multi_epoch_fail_closed"
-                              : "one_shot_qualification"},
+       {"ownership_mode",
+        g_isolated_draw.shadow_depth_prototype_mode
+            ? "prototype_current_frame_fail_closed"
+            : (g_isolated_draw.shadow_depth_continuous_mode
+                   ? "multi_epoch_fail_closed"
+                   : "one_shot_qualification")},
        {"publication_epoch",
         std::to_string(
             g_isolated_draw.shadow_depth_continuous_publication_epochs)},
@@ -17234,7 +17275,9 @@ void RequestIsolatedDraw(
   }
   if (g_continuous_world_workset.requested &&
       g_continuous_world_workset.valid &&
-      g_isolated_draw.prepared_candidate_valid) {
+      g_isolated_draw.prepared_candidate_valid &&
+      !g_isolated_draw.prepared_shadow_depth_batch_member &&
+      !g_isolated_draw.shadow_depth_batch_active) {
     BeginContinuousWorldWorksetFrame(g_isolated_draw.frame);
     ++g_continuous_world_workset.prepared_observations;
     if (!g_isolated_draw.prepared_candidate_eligible) {
@@ -17318,11 +17361,13 @@ void RequestIsolatedDraw(
          !g_isolated_draw.shadow_depth_continuous_mode) ||
         g_isolated_draw.shadow_depth_continuous_failed_closed ||
         (g_isolated_draw.shadow_depth_continuous_mode &&
+         !g_isolated_draw.shadow_depth_prototype_mode &&
          g_isolated_draw.shadow_depth_continuous_publication_epochs >=
              g_isolated_draw.shadow_depth_continuous_epoch_limit)) {
       return;
     }
-    const bool exact_seed = g_isolated_draw.prepared_candidate_eligible;
+    const bool exact_seed =
+        g_isolated_draw.prepared_shadow_depth_seed_eligible;
     const bool batch_member =
         g_isolated_draw.prepared_shadow_depth_batch_member;
     const ShadowDepthBatchFamily batch_family =
@@ -17416,7 +17461,7 @@ void RequestIsolatedDraw(
   }
   if (g_isolated_draw.shadow_depth_mode) {
     if (g_isolated_draw.completed ||
-        !g_isolated_draw.prepared_candidate_eligible) {
+        !g_isolated_draw.prepared_shadow_depth_seed_eligible) {
       return;
     }
     g_isolated_draw.completed = true;
@@ -19167,6 +19212,22 @@ void EmitVehicleDiscoverySummary() {
 
 namespace pinyon_shift::native_renderer {
 
+NativeShadowPrototypeState GetNativeShadowPrototypeState(
+    uint64_t frame_sequence) {
+  if (!g_native_shadow_prototype_enabled.load(std::memory_order_acquire)) {
+    return NativeShadowPrototypeState::kDisabled;
+  }
+  if (g_native_shadow_fail_closed.load(std::memory_order_acquire)) {
+    return NativeShadowPrototypeState::kFailClosed;
+  }
+  if (frame_sequence &&
+      g_native_shadow_publication_frame.load(std::memory_order_acquire) ==
+          frame_sequence) {
+    return NativeShadowPrototypeState::kPublishedCurrentFrame;
+  }
+  return NativeShadowPrototypeState::kFallbackXenos;
+}
+
 void BeginVehicleOwnerMethod(uint32_t method_address,
                              uint32_t owner_address) {
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
@@ -19445,13 +19506,24 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
+  const bool prototype_selected = NativePrototypeSelected();
+  const bool observation_requested = census_requested || prototype_selected;
+  const bool title_provenance_requested =
+      prototype_selected ||
+      (census_requested &&
+       REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery));
   ConfigureVehicleDiscovery(census_requested, memory);
-  ConfigureTitleDrawProvenance(census_requested, memory);
+  ConfigureTitleDrawProvenance(title_provenance_requested, memory);
   ConfigureShadowCasterProvenance(census_requested);
-  const bool lineage_armed = census_requested && memory;
+  const bool lineage_armed = observation_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
-  if (!census_requested && !g_sky_horizon_suppression.requested) {
+  g_native_shadow_prototype_enabled.store(prototype_selected,
+                                           std::memory_order_release);
+  g_native_shadow_fail_closed.store(false, std::memory_order_release);
+  g_native_shadow_publication_frame.store(UINT64_MAX,
+                                           std::memory_order_release);
+  if (!observation_requested && !g_sky_horizon_suppression.requested) {
     EmitSkyHorizonSuppressionControl();
     return;
   }
@@ -20650,6 +20722,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
         (g_isolated_draw.shadow_depth_batch_active ? 1 : 0);
     const bool continuous_limit_reached =
         g_isolated_draw.shadow_depth_continuous_mode &&
+        !g_isolated_draw.shadow_depth_prototype_mode &&
         g_isolated_draw.shadow_depth_continuous_publication_epochs ==
             g_isolated_draw.shadow_depth_continuous_epoch_limit;
     diagnostics::RecordEvent(
@@ -20732,9 +20805,12 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           std::to_string(g_isolated_draw.shadow_depth_publications)},
          {"publication_failures",
           std::to_string(g_isolated_draw.shadow_depth_publication_failures)},
-         {"ownership_mode", g_isolated_draw.shadow_depth_continuous_mode
-                                ? "multi_epoch_fail_closed"
-                                : "one_shot_qualification"},
+         {"ownership_mode",
+          g_isolated_draw.shadow_depth_prototype_mode
+              ? "prototype_current_frame_fail_closed"
+              : (g_isolated_draw.shadow_depth_continuous_mode
+                     ? "multi_epoch_fail_closed"
+                     : "one_shot_qualification")},
          {"continuous_failed_closed",
           g_isolated_draw.shadow_depth_continuous_failed_closed ? "true"
                                                                 : "false"},
@@ -20830,7 +20906,8 @@ void PinyonShiftObserveGraphicsFrame() {
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   const bool dispatch_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
-  if (!census_requested && !dispatch_requested) {
+  const bool prototype_selected = NativePrototypeSelected();
+  if (!census_requested && !dispatch_requested && !prototype_selected) {
     return;
   }
 
