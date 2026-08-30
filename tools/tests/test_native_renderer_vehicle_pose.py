@@ -51,8 +51,13 @@ def fixture():
         targeted_render_context_static_contract=(
             "r7_vtable_slot_8_and_r8_vector_source"
         ),
+        render_context_callee_contract=(
+            "824365B0:r6_le_2,r7_vtable_slot_8,r8_32_byte_vector"
+        ),
+        render_context_dispatcher_hook="82436468:r8,r9,r10,r12",
+        render_context_callee_profile_capacity="32",
         guest_payload_read=(
-            "existing_title_pose_hook_values_and_bounded_owner_vtable"
+            "existing_pose_values,bounded_owner_vtable,typed_context_entry"
         ),
         guest_state_changed="false",
         native_upload="false",
@@ -117,11 +122,25 @@ def fixture():
         object_argument_matches="0",
         object_correlations="0",
         object_correlation_capacity="2048",
+        render_context_callee_profile_capacity="32",
         object_correlation_overflow="0",
         targeted_render_context_r7_scan_requests="2",
         targeted_render_context_r7_scans="1",
         targeted_render_context_r8_scan_requests="2",
         targeted_render_context_r8_scans="1",
+        render_context_callee_observations="3",
+        render_context_callee_eligible_observations="2",
+        render_context_callee_ineligible_observations="1",
+        render_context_callee_valid_observations="2",
+        render_context_callee_invalid_root="0",
+        render_context_callee_invalid_vtable="0",
+        render_context_callee_invalid_vector="0",
+        render_context_callee_profiles="1",
+        render_context_callee_profile_overflow="0",
+        render_context_dispatcher_observations="4",
+        render_context_dispatcher_eligible_observations="3",
+        render_context_dispatcher_matches="3",
+        render_context_dispatcher_mismatches="0",
         title_provenance_requested="true",
         draw_provenance_coverage_complete="true",
         guest_state_changed="false",
@@ -179,7 +198,39 @@ def fixture():
                 suppression_allowed="false",
             )
         )
-    return [config, summary, identity, *methods, title_provenance_config]
+    render_context_callee = event(
+        MODULE.RENDER_CONTEXT_CALLEE,
+        function_address="824365B0",
+        mode_contract="r6_le_2",
+        root_address="AB1A7BE4",
+        root_vtable="82143000",
+        slot_8_target="82439000",
+        root_field_4="40400000",
+        root_field_16="703FF2A0",
+        vector_address="703FF2A0",
+        dispatcher_return_address="82DEFA2C",
+        vector_hash="1234567890ABCDEF",
+        observations="2",
+        root_address_changes="1",
+        root_field_4_changes="0",
+        root_field_16_changes="1",
+        vector_address_changes="1",
+        vector_hash_changes="1",
+        classification="typed_vehicle_render_context_callee_seed",
+        vehicle_draw_identity_proved="false",
+        guest_state_changed="false",
+        native_draw="false",
+        xenos_authority="true",
+        suppression_allowed="false",
+    )
+    return [
+        config,
+        summary,
+        identity,
+        *methods,
+        render_context_callee,
+        title_provenance_config,
+    ]
 
 
 class VehiclePoseSummaryTests(unittest.TestCase):
@@ -239,7 +290,16 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             "    return true;",
             hooks,
         )
+        self.assertIn("ObserveVehicleRenderContextCallee", hooks)
+        self.assertIn(
+            "PinyonShiftObserveVehicleRenderContextDispatcherEntry", hooks
+        )
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_render_context_callee"',
+            hooks,
+        )
         self.assertIn("[switch]$VehicleDrawCorrelation", capture)
+        self.assertEqual(1, analysis.count("address = 0x8243646C"))
         for address in (
             "82BC8468",
             "82BC84A4",
@@ -275,6 +335,16 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         )
         self.assertTrue(
             document["coverage"]["draw_provenance_coverage_complete"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "render_context_callee_contract_proved"
+            ]
+        )
+        self.assertEqual(1, len(document["render_context_callees"]))
+        self.assertEqual(
+            "82439000",
+            document["render_context_callees"][0]["slot_8_target"],
         )
 
     def test_rejects_invalid_or_overflowed_observations(self):

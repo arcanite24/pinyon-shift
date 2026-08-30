@@ -113,6 +113,7 @@ constexpr size_t kVehicleObjectScanWordCount = 128;
 constexpr size_t kVehicleObjectScanCacheCapacity = 16384;
 constexpr size_t kVehicleObjectCorrelationCapacity = 2048;
 constexpr uint32_t kVehicleRenderContextFunction = 0x824365B0;
+constexpr size_t kVehicleRenderContextCalleeProfileCapacity = 32;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -691,6 +692,31 @@ struct VehicleObjectCorrelationEntry {
   bool valid = false;
 };
 
+struct VehicleRenderContextCalleeProfileEntry {
+  uint64_t observations = 0;
+  uint64_t root_address_changes = 0;
+  uint64_t root_field_4_changes = 0;
+  uint64_t root_field_16_changes = 0;
+  uint64_t vector_address_changes = 0;
+  uint64_t vector_hash_changes = 0;
+  uint64_t vector_hash = 0;
+  uint32_t root_address = 0;
+  uint32_t root_vtable = 0;
+  uint32_t slot_8_target = 0;
+  uint32_t root_field_4 = 0;
+  uint32_t root_field_16 = 0;
+  uint32_t vector_address = 0;
+  uint32_t dispatcher_return_address = 0;
+  bool valid = false;
+};
+
+struct PendingVehicleRenderContextDispatcher {
+  uint32_t return_address = 0;
+  uint32_t root_address = 0;
+  uint32_t vector_address = 0;
+  bool valid = false;
+};
+
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
@@ -749,6 +775,24 @@ uint64_t g_vehicle_object_correlation_count = 0;
 uint64_t g_vehicle_object_correlation_overflow = 0;
 std::array<uint64_t, 2> g_vehicle_render_context_scan_requests{};
 std::array<uint64_t, 2> g_vehicle_render_context_scans{};
+std::array<VehicleRenderContextCalleeProfileEntry,
+           kVehicleRenderContextCalleeProfileCapacity>
+    g_vehicle_render_context_callee_profiles{};
+uint64_t g_vehicle_render_context_callee_observations = 0;
+uint64_t g_vehicle_render_context_callee_eligible_observations = 0;
+uint64_t g_vehicle_render_context_callee_ineligible_observations = 0;
+uint64_t g_vehicle_render_context_callee_valid_observations = 0;
+uint64_t g_vehicle_render_context_callee_invalid_root = 0;
+uint64_t g_vehicle_render_context_callee_invalid_vtable = 0;
+uint64_t g_vehicle_render_context_callee_invalid_vector = 0;
+uint64_t g_vehicle_render_context_callee_profile_count = 0;
+uint64_t g_vehicle_render_context_callee_profile_overflow = 0;
+uint64_t g_vehicle_render_context_dispatcher_observations = 0;
+uint64_t g_vehicle_render_context_dispatcher_eligible_observations = 0;
+uint64_t g_vehicle_render_context_dispatcher_matches = 0;
+uint64_t g_vehicle_render_context_dispatcher_mismatches = 0;
+thread_local PendingVehicleRenderContextDispatcher
+    g_pending_vehicle_render_context_dispatcher{};
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -1664,6 +1708,8 @@ uint64_t HashCombine(uint64_t hash, uint64_t value);
 template <size_t N>
 void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
                             std::array<uint32_t, N> &words);
+template <size_t N>
+uint64_t HashSemanticWords(const std::array<uint32_t, N> &words);
 
 const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
   switch (kind) {
@@ -1793,6 +1839,114 @@ bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
   return heap &&
          heap->QueryRangeAccess(address, address + length - 1) !=
              rex::memory::PageAccess::kNoAccess;
+}
+
+void ObserveVehicleRenderContextDispatcher(uint32_t return_address,
+                                           uint32_t root_address,
+                                           uint32_t vector_address,
+                                           bool context_path) {
+  g_pending_vehicle_render_context_dispatcher = {};
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_draw_correlation_mutex);
+  ++g_vehicle_render_context_dispatcher_observations;
+  if (!context_path) {
+    return;
+  }
+  ++g_vehicle_render_context_dispatcher_eligible_observations;
+  g_pending_vehicle_render_context_dispatcher = {
+      .return_address = return_address,
+      .root_address = root_address,
+      .vector_address = vector_address,
+      .valid = true,
+  };
+}
+
+void ObserveVehicleRenderContextCallee(uint32_t function_address,
+                                       uint32_t mode, uint32_t root_address,
+                                       uint32_t vector_address) {
+  if (function_address != kVehicleRenderContextFunction ||
+      !g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const PendingVehicleRenderContextDispatcher dispatcher =
+      g_pending_vehicle_render_context_dispatcher;
+  g_pending_vehicle_render_context_dispatcher = {};
+  std::scoped_lock lock(g_vehicle_draw_correlation_mutex);
+  ++g_vehicle_render_context_callee_observations;
+  const bool dispatcher_matches =
+      dispatcher.valid && dispatcher.root_address == root_address &&
+      dispatcher.vector_address == vector_address;
+  if (dispatcher_matches) {
+    ++g_vehicle_render_context_dispatcher_matches;
+  } else {
+    ++g_vehicle_render_context_dispatcher_mismatches;
+  }
+  if (mode > 2) {
+    ++g_vehicle_render_context_callee_ineligible_observations;
+    return;
+  }
+  ++g_vehicle_render_context_callee_eligible_observations;
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  if (!IsReadableVehicleGuestRange(memory, root_address, 20)) {
+    ++g_vehicle_render_context_callee_invalid_root;
+    return;
+  }
+  std::array<uint32_t, 5> root_words{};
+  LoadSemanticGuestWords(memory, root_address, root_words);
+  const uint32_t root_vtable = root_words[0];
+  if (!IsReadableVehicleGuestRange(memory, root_vtable, 36)) {
+    ++g_vehicle_render_context_callee_invalid_vtable;
+    return;
+  }
+  if (!IsReadableVehicleGuestRange(memory, vector_address, 32)) {
+    ++g_vehicle_render_context_callee_invalid_vector;
+    return;
+  }
+  std::array<uint32_t, 9> vtable_words{};
+  std::array<uint32_t, 8> vector_words{};
+  LoadSemanticGuestWords(memory, root_vtable, vtable_words);
+  LoadSemanticGuestWords(memory, vector_address, vector_words);
+  const uint32_t slot_8_target = vtable_words[8];
+  const uint64_t vector_hash = HashSemanticWords(vector_words);
+  ++g_vehicle_render_context_callee_valid_observations;
+  for (VehicleRenderContextCalleeProfileEntry &entry :
+       g_vehicle_render_context_callee_profiles) {
+    if (!entry.valid) {
+      entry.valid = true;
+      entry.observations = 1;
+      entry.root_address = root_address;
+      entry.root_vtable = root_vtable;
+      entry.slot_8_target = slot_8_target;
+      entry.root_field_4 = root_words[1];
+      entry.root_field_16 = root_words[4];
+      entry.vector_address = vector_address;
+      entry.vector_hash = vector_hash;
+      entry.dispatcher_return_address = dispatcher.return_address;
+      ++g_vehicle_render_context_callee_profile_count;
+      return;
+    }
+    if (entry.root_vtable != root_vtable ||
+        entry.slot_8_target != slot_8_target ||
+        entry.dispatcher_return_address != dispatcher.return_address) {
+      continue;
+    }
+    ++entry.observations;
+    entry.root_address_changes += entry.root_address != root_address;
+    entry.root_field_4_changes += entry.root_field_4 != root_words[1];
+    entry.root_field_16_changes += entry.root_field_16 != root_words[4];
+    entry.vector_address_changes += entry.vector_address != vector_address;
+    entry.vector_hash_changes += entry.vector_hash != vector_hash;
+    entry.root_address = root_address;
+    entry.root_field_4 = root_words[1];
+    entry.root_field_16 = root_words[4];
+    entry.vector_address = vector_address;
+    entry.vector_hash = vector_hash;
+    return;
+  }
+  ++g_vehicle_render_context_callee_profile_overflow;
 }
 
 bool IsSemanticVehicleDrawProvenanceLayer(VehicleDrawProvenanceLayer layer) {
@@ -15781,6 +15935,21 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_object_correlation_overflow = 0;
     g_vehicle_render_context_scan_requests = {};
     g_vehicle_render_context_scans = {};
+    g_vehicle_render_context_callee_profiles = {};
+    g_vehicle_render_context_callee_observations = 0;
+    g_vehicle_render_context_callee_eligible_observations = 0;
+    g_vehicle_render_context_callee_ineligible_observations = 0;
+    g_vehicle_render_context_callee_valid_observations = 0;
+    g_vehicle_render_context_callee_invalid_root = 0;
+    g_vehicle_render_context_callee_invalid_vtable = 0;
+    g_vehicle_render_context_callee_invalid_vector = 0;
+    g_vehicle_render_context_callee_profile_count = 0;
+    g_vehicle_render_context_callee_profile_overflow = 0;
+    g_vehicle_render_context_dispatcher_observations = 0;
+    g_vehicle_render_context_dispatcher_eligible_observations = 0;
+    g_vehicle_render_context_dispatcher_matches = 0;
+    g_vehicle_render_context_dispatcher_mismatches = 0;
+    g_pending_vehicle_render_context_dispatcher = {};
   }
   g_vehicle_title_provenance_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery);
@@ -15828,8 +15997,13 @@ void ConfigureVehicleDiscovery(bool census_requested,
        {"targeted_render_context_arguments", "824365B0:r7,r8"},
        {"targeted_render_context_static_contract",
         "r7_vtable_slot_8_and_r8_vector_source"},
+       {"render_context_callee_contract",
+        "824365B0:r6_le_2,r7_vtable_slot_8,r8_32_byte_vector"},
+       {"render_context_dispatcher_hook", "82436468:r8,r9,r10,r12"},
+       {"render_context_callee_profile_capacity",
+        std::to_string(kVehicleRenderContextCalleeProfileCapacity)},
        {"guest_payload_read",
-        "existing_title_pose_hook_values_and_bounded_owner_vtable"},
+        "existing_pose_values,bounded_owner_vtable,typed_context_entry"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -15943,6 +16117,35 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(g_vehicle_render_context_scan_requests[1])},
        {"targeted_render_context_r8_scans",
         std::to_string(g_vehicle_render_context_scans[1])},
+       {"render_context_callee_observations",
+        std::to_string(g_vehicle_render_context_callee_observations)},
+       {"render_context_callee_eligible_observations",
+        std::to_string(g_vehicle_render_context_callee_eligible_observations)},
+       {"render_context_callee_ineligible_observations",
+        std::to_string(g_vehicle_render_context_callee_ineligible_observations)},
+       {"render_context_callee_valid_observations",
+        std::to_string(g_vehicle_render_context_callee_valid_observations)},
+       {"render_context_callee_invalid_root",
+        std::to_string(g_vehicle_render_context_callee_invalid_root)},
+       {"render_context_callee_invalid_vtable",
+        std::to_string(g_vehicle_render_context_callee_invalid_vtable)},
+       {"render_context_callee_invalid_vector",
+        std::to_string(g_vehicle_render_context_callee_invalid_vector)},
+       {"render_context_callee_profiles",
+        std::to_string(g_vehicle_render_context_callee_profile_count)},
+       {"render_context_callee_profile_capacity",
+        std::to_string(kVehicleRenderContextCalleeProfileCapacity)},
+       {"render_context_callee_profile_overflow",
+        std::to_string(g_vehicle_render_context_callee_profile_overflow)},
+       {"render_context_dispatcher_observations",
+        std::to_string(g_vehicle_render_context_dispatcher_observations)},
+       {"render_context_dispatcher_eligible_observations",
+        std::to_string(
+            g_vehicle_render_context_dispatcher_eligible_observations)},
+       {"render_context_dispatcher_matches",
+        std::to_string(g_vehicle_render_context_dispatcher_matches)},
+       {"render_context_dispatcher_mismatches",
+        std::to_string(g_vehicle_render_context_dispatcher_mismatches)},
        {"title_provenance_requested",
         g_vehicle_title_provenance_requested ? "true" : "false"},
        {"draw_provenance_coverage_complete",
@@ -15958,6 +16161,42 @@ void EmitVehicleDiscoverySummary() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  for (const VehicleRenderContextCalleeProfileEntry &entry :
+       g_vehicle_render_context_callee_profiles) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_render_context_callee",
+        {{"function_address", "824365B0"},
+         {"mode_contract", "r6_le_2"},
+         {"root_address", fmt::format("{:08X}", entry.root_address)},
+         {"root_vtable", fmt::format("{:08X}", entry.root_vtable)},
+         {"slot_8_target", fmt::format("{:08X}", entry.slot_8_target)},
+         {"root_field_4", fmt::format("{:08X}", entry.root_field_4)},
+         {"root_field_16", fmt::format("{:08X}", entry.root_field_16)},
+         {"vector_address", fmt::format("{:08X}", entry.vector_address)},
+         {"dispatcher_return_address",
+          fmt::format("{:08X}", entry.dispatcher_return_address)},
+         {"vector_hash", fmt::format("{:016X}", entry.vector_hash)},
+         {"observations", std::to_string(entry.observations)},
+         {"root_address_changes",
+          std::to_string(entry.root_address_changes)},
+         {"root_field_4_changes",
+          std::to_string(entry.root_field_4_changes)},
+         {"root_field_16_changes",
+          std::to_string(entry.root_field_16_changes)},
+         {"vector_address_changes",
+          std::to_string(entry.vector_address_changes)},
+         {"vector_hash_changes",
+          std::to_string(entry.vector_hash_changes)},
+         {"classification", "typed_vehicle_render_context_callee_seed"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   size_t emitted = 0;
   for (const VehicleIdentityEntry &entry : g_vehicle_identities) {
     if (!entry.valid || emitted >= kVehicleIdentitySummaryLimit) {
@@ -17723,10 +17962,18 @@ PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(829F6360)
 
 #undef PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS
 
+void PinyonShiftObserveVehicleRenderContextDispatcherEntry(
+    PPCRegister &r8, PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {
+  ObserveVehicleRenderContextDispatcher(r12.u32, r8.u32, r9.u32,
+                                        r10.u32 != 0);
+}
+
 void ObserveIndirectContextEntry(
     uint32_t function_address, PPCRegister &r3, PPCRegister &r4,
     PPCRegister &r5, PPCRegister &r6, PPCRegister &r7, PPCRegister &r8,
     PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {
+  ObserveVehicleRenderContextCallee(function_address, r6.u32, r7.u32,
+                                    r8.u32);
   PushIndirectContextOrigin(function_address, r12.u32, r3.u32, r4.u32,
                             r5.u32, r6.u32, r7.u32, r8.u32, r9.u32,
                             r10.u32);

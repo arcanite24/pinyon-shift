@@ -177,6 +177,45 @@ within the bounded snapshot, so both are rejected for this relationship depth.
 Continue from a typed callee contract or another submission family; native
 vehicle drawing and suppression remain closed.
 
+## Typed render-context callee profiles
+
+Static caller tracing shows `82436468` forwards its guest `r8` and `r9` as
+`824365B0:r7,r8`. Inside `824365B0`, modes `r6 = 0`, `1`, or `2` execute the
+virtual call through `r7` slot 8 before consuming `r7 + 4`, `r7 + 16`, and the
+32-byte vector source at `r8`. A read-only entry probe now captures that exact
+typed contract while both arguments are live. It groups observations by the
+resolved `r7` vtable and slot-8 target, records field and address churn, and
+fingerprints the vector payload without retaining guest bytes.
+
+An upstream hook at `82436468` also records the original caller return address
+for context-path dispatches (`r10 != 0`) and matches its `r8/r9` pair to the
+callee's `r7/r8` pair. The caller address participates in the profile key, so
+one dynamic type shared by several submission families remains partitioned by
+its exact origin. Missing or mismatched dispatcher lineage fails the report.
+
+This is the deliberately narrow typed edge that follows the rejected broad
+child scan. It reads only the statically proven root, nine vtable words needed
+to resolve slot 8, and eight vector words after guest page-range checks. Invalid
+root, vtable, and vector ranges have separate counters; missing coverage,
+accounting drift, invalid reads, or profile overflow fail qualification. The
+probe remains diagnostic-only: it uploads and draws nothing, leaves Xenos
+authoritative, and cannot enable suppression.
+
+Release/AppData session `20260830T104844Z-p14556` qualified 366,786 eligible
+callee observations with 366,786 exact dispatcher matches, no invalid root,
+vtable, or vector range, no mismatch, and no overflow. Two caller families
+were present: `8240ECAC` contributed 80,224 observations and `8243AC64`
+contributed 286,562. Both resolve vtable `820019CC` slot 8 to the single title
+function `8243BC80`.
+
+Static inspection classifies `8243BC80` as a boolean visibility/predicate
+wrapper rather than a transform provider. It first calls the same object's
+vtable slot 5; if that predicate is false and `r7 + 4` is non-null, it calls
+the child object's slot 14 and returns that boolean. This precisely explains
+the live `r7` contract but does not establish vehicle identity or a native draw
+source. Continue from the now-partitioned caller families or the typed child
+predicate edge; native vehicle drawing and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell
