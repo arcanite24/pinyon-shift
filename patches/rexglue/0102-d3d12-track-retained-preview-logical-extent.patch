@@ -1,0 +1,263 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index c8c6301..df7cb5b 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -100,9 +100,13 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   // EndIsolatedReplayTarget restores the guest bindings without changing the
+   // guest attachments or ownership.
+   bool BeginIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out,
++                                 uint32_t logical_width,
++                                 uint32_t logical_height,
+                                  bool stencil_seed_probe_requested,
+                                  bool depth_only_target = false);
+   bool ResumeIsolatedReplayTarget(uint32_t& width_out, uint32_t& height_out,
++                                  uint32_t logical_width,
++                                  uint32_t logical_height,
+                                   bool depth_only_target = false);
+   system::GraphicsIsolatedDrawReadbackStatus QueueIsolatedReplayReadback(
+       system::GraphicsIsolatedDrawReadbackCompletion completion,
+@@ -146,6 +150,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+     uint32_t width = 0;
+     uint32_t height = 0;
++    uint32_t logical_width = 0;
++    uint32_t logical_height = 0;
+     uint64_t frame_sequence = 0;
+     bool resolved = false;
+   };
+@@ -737,6 +743,12 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+       D3D12_RESOURCE_STATE_RESOLVE_DEST;
+   uint64_t isolated_replay_preview_frame_sequence_ = 0;
+   uint64_t isolated_replay_deferred_preview_frame_sequence_ = 0;
++  uint32_t isolated_replay_active_preview_width_ = 0;
++  uint32_t isolated_replay_active_preview_height_ = 0;
++  uint32_t isolated_replay_preview_width_ = 0;
++  uint32_t isolated_replay_preview_height_ = 0;
++  uint32_t isolated_replay_deferred_preview_width_ = 0;
++  uint32_t isolated_replay_deferred_preview_height_ = 0;
+   struct IsolatedReplayReadback {
+     Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+     Microsoft::WRL::ComPtr<ID3D12Resource> resolved_target;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 6c3fd64..0f10307 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1775,12 +1775,17 @@ RenderTargetCache::RenderTarget* D3D12RenderTargetCache::CreateRenderTarget(Rend
+ 
+ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+     uint32_t& width_out, uint32_t& height_out,
++    uint32_t logical_width, uint32_t logical_height,
+     bool stencil_seed_probe_requested, bool depth_only_target) {
+   width_out = 0;
+   height_out = 0;
+   isolated_replay_active_depth_target_ = nullptr;
+   if (!depth_only_target) {
+     isolated_replay_deferred_preview_frame_sequence_ = 0;
++    isolated_replay_deferred_preview_width_ = 0;
++    isolated_replay_deferred_preview_height_ = 0;
++    isolated_replay_active_preview_width_ = 0;
++    isolated_replay_active_preview_height_ = 0;
+   }
+   if (GetPath() != Path::kHostRenderTargets) {
+     return false;
+@@ -1838,6 +1843,16 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+           ->GetDesc();
+   width_out = uint32_t(target_desc.Width);
+   height_out = target_desc.Height;
++  if (!depth_only_target) {
++    isolated_replay_active_preview_width_ =
++        std::min(logical_width, width_out);
++    isolated_replay_active_preview_height_ =
++        std::min(logical_height, height_out);
++    if (!isolated_replay_active_preview_width_ ||
++        !isolated_replay_active_preview_height_) {
++      return false;
++    }
++  }
+ 
+   if (stencil_seed_probe_requested) {
+     constexpr uint8_t kStencilSeedProbeValue = 0xA5;
+@@ -1942,7 +1957,8 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+ }
+ 
+ bool D3D12RenderTargetCache::ResumeIsolatedReplayTarget(
+-    uint32_t& width_out, uint32_t& height_out, bool depth_only_target) {
++    uint32_t& width_out, uint32_t& height_out, uint32_t logical_width,
++    uint32_t logical_height, bool depth_only_target) {
+   width_out = 0;
+   height_out = 0;
+   isolated_replay_active_depth_target_ = nullptr;
+@@ -1985,6 +2001,18 @@ bool D3D12RenderTargetCache::ResumeIsolatedReplayTarget(
+           ->GetDesc();
+   width_out = uint32_t(target_desc.Width);
+   height_out = target_desc.Height;
++  if (!depth_only_target) {
++    isolated_replay_active_preview_width_ = std::max(
++        isolated_replay_active_preview_width_,
++        std::min(logical_width, width_out));
++    isolated_replay_active_preview_height_ = std::max(
++        isolated_replay_active_preview_height_,
++        std::min(logical_height, height_out));
++    if (!isolated_replay_active_preview_width_ ||
++        !isolated_replay_active_preview_height_) {
++      return false;
++    }
++  }
+   RenderTarget* isolated_targets[1 + xenos::kMaxColorRenderTargets] = {};
+   isolated_targets[0] = isolated_depth;
+   if (isolated_color) {
+@@ -2471,9 +2499,17 @@ void D3D12RenderTargetCache::EndIsolatedReplayTarget(
+   }
+   if (defer_preview_publication_until_swap) {
+     isolated_replay_deferred_preview_frame_sequence_ = frame_sequence;
++    isolated_replay_deferred_preview_width_ =
++        isolated_replay_active_preview_width_;
++    isolated_replay_deferred_preview_height_ =
++        isolated_replay_active_preview_height_;
+   } else {
+     isolated_replay_deferred_preview_frame_sequence_ = 0;
++    isolated_replay_deferred_preview_width_ = 0;
++    isolated_replay_deferred_preview_height_ = 0;
+     isolated_replay_preview_frame_sequence_ = frame_sequence;
++    isolated_replay_preview_width_ = isolated_replay_active_preview_width_;
++    isolated_replay_preview_height_ = isolated_replay_active_preview_height_;
+   }
+ }
+ 
+@@ -2481,14 +2517,20 @@ void D3D12RenderTargetCache::CommitDeferredIsolatedReplayPreview(
+     uint64_t frame_sequence) {
+   if (isolated_replay_deferred_preview_frame_sequence_ == frame_sequence) {
+     isolated_replay_preview_frame_sequence_ = frame_sequence;
++    isolated_replay_preview_width_ = isolated_replay_deferred_preview_width_;
++    isolated_replay_preview_height_ = isolated_replay_deferred_preview_height_;
+   }
+   isolated_replay_deferred_preview_frame_sequence_ = 0;
++  isolated_replay_deferred_preview_width_ = 0;
++  isolated_replay_deferred_preview_height_ = 0;
+ }
+ 
+ void D3D12RenderTargetCache::CancelDeferredIsolatedReplayPreview(
+     uint64_t frame_sequence) {
+   if (isolated_replay_deferred_preview_frame_sequence_ == frame_sequence) {
+     isolated_replay_deferred_preview_frame_sequence_ = 0;
++    isolated_replay_deferred_preview_width_ = 0;
++    isolated_replay_deferred_preview_height_ = 0;
+   }
+ }
+ 
+@@ -2687,6 +2729,19 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayPreview(
+   source_out.format = resource_desc.Format;
+   source_out.width = uint32_t(resource_desc.Width);
+   source_out.height = resource_desc.Height;
++  source_out.logical_width = isolated_replay_preview_width_;
++  source_out.logical_height = isolated_replay_preview_height_;
++  if (!source_out.logical_width || !source_out.logical_height ||
++      source_out.logical_width > source_out.width ||
++      source_out.logical_height > source_out.height) {
++    REXGPU_WARN(
++        "Native retained-pass preview has invalid logical extent {}x{} "
++        "for backing resource {}x{}",
++        source_out.logical_width, source_out.logical_height, source_out.width,
++        source_out.height);
++    source_out = {};
++    return false;
++  }
+   source_out.frame_sequence = isolated_replay_preview_frame_sequence_;
+   if (resource_desc.SampleDesc.Count > 1) {
+     D3D12_RESOURCE_DESC resolved_desc = resource_desc;
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 9e92104..98b3525 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -2467,24 +2467,6 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+     }
+     return false;
+   }
+-  constexpr uint32_t kLogicalSceneWidth = 512;
+-  constexpr uint32_t kLogicalSceneHeight = 288;
+-  if (prototype &&
+-      (preview_source.width < kLogicalSceneWidth ||
+-       preview_source.height < kLogicalSceneHeight)) {
+-    static bool logged_retained_preview_size_failure = false;
+-    if (!logged_retained_preview_size_failure) {
+-      logged_retained_preview_size_failure = true;
+-      REXGPU_WARN(
+-          "Native prototype retained-pass preview is smaller than the "
+-          "logical scene: {}x{} (requires at least {}x{})",
+-          preview_source.width, preview_source.height, kLogicalSceneWidth,
+-          kLogicalSceneHeight);
+-    }
+-    render_target_cache_->EndIsolatedReplayPreview(preview_source);
+-    return false;
+-  }
+-
+   D3D12_SHADER_RESOURCE_VIEW_DESC source_view_desc{};
+   source_view_desc.Format = preview_source.format;
+   source_view_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+@@ -2533,9 +2515,9 @@ bool D3D12CommandProcessor::DrawNativeGuestOutputRetainedPass(
+   NativeGuestOutputRetainedPassConstants preview_constants{
+       {width, height},
+       {preview_source.width, preview_source.height},
+-      {prototype ? kLogicalSceneWidth
++      {prototype ? preview_source.logical_width
+                  : std::min(preview_source.width, uint32_t(512)),
+-       prototype ? kLogicalSceneHeight
++       prototype ? preview_source.logical_height
+                  : std::min(preview_source.height, uint32_t(512))},
+       prototype ? 1u : 0u,
+       0u};
+@@ -3545,6 +3527,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+   scissor.extent[0] *= draw_resolution_scale_x;
+   scissor.extent[1] *= draw_resolution_scale_y;
+ 
++  const auto saturated_extent_end = [](uint32_t offset,
++                                       uint32_t extent) {
++    return uint32_t(std::min(uint64_t(offset) + extent,
++                             uint64_t(UINT32_MAX)));
++  };
++  const uint32_t isolated_replay_logical_width = std::min(
++      saturated_extent_end(viewport_info.xy_offset[0],
++                           viewport_info.xy_extent[0]),
++      saturated_extent_end(scissor.offset[0], scissor.extent[0]));
++  const uint32_t isolated_replay_logical_height = std::min(
++      saturated_extent_end(viewport_info.xy_offset[1],
++                           viewport_info.xy_extent[1]),
++      saturated_extent_end(scissor.offset[1], scissor.extent[1]));
++
+   // Update viewport, scissor, blend factor and stencil reference.
+   UpdateFixedFunctionState(viewport_info, scissor, primitive_polygonal, normalized_depth_control);
+ 
+@@ -3817,12 +3813,16 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
++                      isolated_replay_logical_width,
++                      isolated_replay_logical_height,
+                       isolated_draw_request.stencil_seed_probe_requested,
+                       isolated_draw_request.depth_only_target)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
++                      isolated_replay_logical_width,
++                      isolated_replay_logical_height,
+                       isolated_draw_request.depth_only_target))) {
+         if (isolated_draw_request.reference_seed_depth_readback_requested &&
+             isolated_draw_request.reference_seed_depth_readback_completion) {
+@@ -4069,12 +4069,16 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+                   render_target_cache_->BeginIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
++                      isolated_replay_logical_width,
++                      isolated_replay_logical_height,
+                       isolated_draw_request.stencil_seed_probe_requested,
+                       isolated_draw_request.depth_only_target)) ||
+                  (isolated_draw_request.reuse_target &&
+                   render_target_cache_->ResumeIsolatedReplayTarget(
+                       isolated_result.target_width,
+                       isolated_result.target_height,
++                      isolated_replay_logical_width,
++                      isolated_replay_logical_height,
+                       isolated_draw_request.depth_only_target))) {
+         if (isolated_draw_request.reference_seed_depth_readback_requested &&
+             isolated_draw_request.reference_seed_depth_readback_completion) {

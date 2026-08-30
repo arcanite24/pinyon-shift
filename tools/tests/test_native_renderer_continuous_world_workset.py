@@ -23,7 +23,7 @@ def fixture():
         status="armed_deferred_private_composition",
         activation="startup_environment_only",
         default_enabled="false",
-        selection="fresh_visibility_and_mechanical",
+        selection="fresh_visibility_or_qualified_sky_horizon_and_mechanical",
         maximum_draws_per_frame="64",
         target_lifetime="one_guest_frame",
         freshness_commit="matching_swap_after_complete_accumulation",
@@ -47,6 +47,7 @@ def fixture():
         stale_or_unselected_rejections="3",
         per_frame_quota_yields="2",
         fail_closed_yields="0",
+        qualified_retained_family_requests="2",
         reused_target_requests="6",
         frames_started="2",
         frames_completed="2",
@@ -62,7 +63,26 @@ def fixture():
         draw_suppression="false",
         suppression_eligible="false",
     )
-    return [config, summary]
+    output_frames = [
+        event(
+            MODULE.OUTPUT_FRAME,
+            callback=str(callback),
+            frame=str(callback),
+            retained_frame=str(callback),
+            selected_output="native",
+            authority="native",
+            xenos_draw="preserved",
+            suppression="disabled",
+        )
+        for callback in (300, 600, 900)
+    ]
+    waiting = event(
+        MODULE.OUTPUT_WAITING,
+        reason="retained_pass_unavailable",
+        fallback="xenos",
+        suppression="disabled",
+    )
+    return [config, *output_frames, waiting, summary]
 
 
 class ContinuousWorldWorksetTests(unittest.TestCase):
@@ -76,6 +96,7 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("kContinuousWorldWorksetMaximumDrawsPerFrame = 64", source)
         self.assertIn("request.reuse_target = reuse_target", source)
         self.assertIn("request.defer_preview_publication_until_swap = true", source)
+        self.assertIn("qualified_retained_family_requests", source)
         self.assertIn('"native_renderer.continuous_world_workset.summary"', source)
         self.assertIn('{"xenos_draw", "preserved"}', source)
         self.assertIn('{"draw_suppression", "false"}', source)
@@ -108,16 +129,16 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
 
     def test_rejects_single_draw_frames(self):
         events = fixture()
-        events[1]["reused_target_requests"] = "0"
+        events[-1]["reused_target_requests"] = "0"
         document = MODULE.build(events)
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "no frame accumulated multiple native draws", document["failures"]
         )
 
-    def test_rejects_failed_frame(self):
+    def test_qualifies_an_accounted_fail_closed_frame(self):
         events = fixture()
-        events[1].update(
+        events[-1].update(
             status="fallback_observed",
             recorded="7",
             unsupported="1",
@@ -125,12 +146,38 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             frames_failed="1",
         )
         document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertTrue(
+            document["qualification"]["clean_xenos_fallback_proved"]
+        )
+
+    def test_rejects_unreconciled_failed_frame(self):
+        events = fixture()
+        events[-1].update(
+            status="fallback_observed",
+            frames_completed="1",
+            frames_failed="1",
+        )
+        document = MODULE.build(events)
         self.assertEqual("incomplete", document["status"])
-        self.assertIn("one or more workset frames failed closed", document["failures"])
+        self.assertIn(
+            "failed frames do not reconcile with replay fallbacks",
+            document["failures"],
+        )
+
+    def test_rejects_stale_native_output_claim(self):
+        events = fixture()
+        events[2]["retained_frame"] = "599"
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "native output marker violates freshness or safety",
+            document["failures"],
+        )
 
     def test_rejects_safety_drift(self):
         events = copy.deepcopy(fixture())
-        events[1]["draw_suppression"] = "true"
+        events[-1]["draw_suppression"] = "true"
         with self.assertRaisesRegex(ValueError, "safety boundary"):
             MODULE.build(events)
 

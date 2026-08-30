@@ -4,7 +4,7 @@ Phase B3 adds a complete-frame `hybrid_prototype` mode without guessing a
 semantic vehicle, transparency, effects, or UI mask. It remains restart-gated,
 default-off, and independent from suppression.
 
-The backend first scales the measured `512x288` logical scene out of the padded
+The backend first scales the draw-derived logical scene extent out of the padded
 retained allocation into a private RGBA16F target, then converts it with the
 same active table or PWL gamma-ramp pipeline used for the Xenos swap source. It
 compares that private guest-format result with the already completed Xenos
@@ -44,5 +44,7 @@ Claimed hybrid frames report:
 - exact matching `frame` and `retained_frame`; and
 - preserved Xenos draws with suppression disabled.
 
-The AppData gameplay and visual comparison run is intentionally deferred to the
-batched Phase B qualification checkpoint.
+The logical extent is `512x288` in the observed 2x path and `256x144` in the
+observed 1x path; physical backing dimensions remain separate. The AppData
+gameplay and visual qualification is recorded in
+[`PROTOTYPE_BATCH_QUALIFICATION.md`](PROTOTYPE_BATCH_QUALIFICATION.md).

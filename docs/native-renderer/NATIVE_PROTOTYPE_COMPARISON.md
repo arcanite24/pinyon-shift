@@ -9,9 +9,9 @@ draw, resolve, query, fence, memexport, or other side effect.
 
 - `xenos` leaves the complete Xenos frame authoritative and does no native
   output work.
-- `native_prototype` presents the continuous native world workset through the
-  logical 512x288 scene, RGBA16F linear intermediate, title gamma conversion,
-  and title upscale path.
+- `native_prototype` presents the continuous native world workset through its
+  draw-derived logical scene extent, RGBA16F linear intermediate, title gamma
+  conversion, and title upscale path.
 - `hybrid_prototype` admits a native pixel only when it agrees with completed
   Xenos output and otherwise retains the Xenos pixel.
 - `comparison_native` builds the same native-prototype output privately, then
@@ -84,3 +84,9 @@ so it is not the paired-image export source.
 - Captures and game-derived images remain below `.local` and are not committed.
 - Full build, AppData gameplay, performance, relaunch, fallback, and screenshot
   qualification are deliberately batched into B6.
+
+The B6 implementation keeps physical backing dimensions separate from the
+logical crop: `512x288` was observed at 2x and `256x144` at 1x, while the
+corresponding padded resources were `640x8192` and `320x4096`. See
+[`PROTOTYPE_BATCH_QUALIFICATION.md`](PROTOTYPE_BATCH_QUALIFICATION.md) for the
+clean-build and AppData evidence.
