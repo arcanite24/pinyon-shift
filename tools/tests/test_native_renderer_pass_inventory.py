@@ -74,6 +74,31 @@ class NativeRendererPassInventoryTests(unittest.TestCase):
         self.assertEqual(inventory["phases"][1]["boundary_before"], ["clear"])
         self.assertEqual(inventory["phases"][2]["boundary_before"], [])
 
+    def test_preserves_exact_enriched_pipeline_signatures(self):
+        event = draw(
+            1,
+            pipeline="ResourceId::10",
+            pipeline_name="Pipeline 10",
+            vertex_shader="ResourceId::11",
+            vertex_shader_name="Shader {11111111}",
+            pixel_shader=None,
+            pixel_shader_name=None,
+            primitive_topology="TriangleList",
+            viewport={"width": 1024.0, "height": 1024.0},
+            scissor={"width": 1024, "height": 1024},
+            depth_state={"enabled": True, "writes": True},
+            raster_state={"cull_mode": "Back"},
+        )
+        inventory = MODULE.build_inventory(trace([event, dict(event, event_id=2)]))
+        signatures = inventory["phases"][0]["pipeline_signatures"]
+        self.assertEqual(1, len(signatures))
+        self.assertEqual(2, signatures[0]["draw_count"])
+        self.assertEqual("ResourceId::10", signatures[0]["signature"]["pipeline"])
+        self.assertEqual(
+            "Shader {11111111}",
+            signatures[0]["signature"]["vertex_shader_name"],
+        )
+
     def test_rejects_payload_export_and_unordered_events(self):
         with self.assertRaisesRegex(ValueError, "payload-free"):
             MODULE.build_inventory(trace([], payload_exported=True))
