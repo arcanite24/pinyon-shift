@@ -93,6 +93,14 @@ displayed frame remain authoritative; this path cannot suppress Xenos. Without
 an explicit exact-signature or auto-selection request, the table issues no
 native work.
 
+For NR-05D qualification, `-RequireTitleLodCandidate` adds a stricter
+auto-selection gate. The candidate must carry an exact valid title LOD
+observation through the same receiver-generation and record identity; missing
+LOD lineage waits for a later candidate and cannot lock a signature. This gate
+is valid only with `-AutoSelectFreshVisibilityCandidate`, is startup-only, and
+does not infer LOD zero. The lock event records the exact LOD index while Xenos
+remains authoritative.
+
 ## AppData qualification
 
 Release session `20260830T015106Z-p25800` ran against the installed `0.1.0`

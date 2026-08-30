@@ -80,6 +80,17 @@ draw and its paired native/Xenos color and depth evidence with:
   -Json
 ```
 
+To require a candidate that also carries the title's exact observed LOD index,
+add:
+
+```powershell
+  -RequireTitleLodCandidate
+```
+
+This option is fail-closed and is accepted only with
+`-AutoSelectFreshVisibilityCandidate`. A fresh mechanically eligible draw with
+no exact LOD observation is retained on Xenos and leaves the selector armed.
+
 This option is intended for semantic world bring-up and is not used by the
 already-qualified sky/horizon replay family.
 
