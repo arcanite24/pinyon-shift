@@ -188,6 +188,7 @@ std::atomic<uint64_t> g_frame_sequence{};
 
 struct TrackRenderConfigurationState {
   std::atomic<uint32_t> fast_track_render{};
+  std::atomic<uint32_t> source_fast_track_render{};
   std::atomic<uint32_t> road_detail_blur{};
   std::atomic<uint32_t> command_line_address{};
   std::atomic<uint32_t> runtime_state_address{};
@@ -213,6 +214,7 @@ std::string TrackRenderModeMarker() {
 }
 
 void ObserveFastTrackRenderConfiguration(uint32_t value,
+                                         uint32_t source_value,
                                          uint32_t command_line_address,
                                          uint32_t runtime_state_address) {
   if (TrackRenderModeMarker() == "unmarked") {
@@ -220,6 +222,8 @@ void ObserveFastTrackRenderConfiguration(uint32_t value,
   }
   g_track_render_configuration.fast_track_render.store(
       value & 0xFF, std::memory_order_relaxed);
+  g_track_render_configuration.source_fast_track_render.store(
+      source_value & 0xFF, std::memory_order_relaxed);
   g_track_render_configuration.command_line_address.store(
       command_line_address, std::memory_order_relaxed);
   g_track_render_configuration.runtime_state_address.store(
@@ -268,6 +272,11 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
                       : "mismatch_fail_closed"},
        {"mode", mode},
        {"fast_track_render", fast_track_render ? "true" : "false"},
+       {"source_fast_track_render",
+        g_track_render_configuration.source_fast_track_render.load(
+            std::memory_order_relaxed)
+            ? "true"
+            : "false"},
        {"road_detail_blur",
         g_track_render_configuration.road_detail_blur.load(
             std::memory_order_relaxed)
@@ -278,6 +287,7 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
        {"command_line_address",
         fmt::format("{:08X}", command_line_address)},
        {"runtime_state_address", fmt::format("{:08X}", runtime_state_address)},
+       {"control", "exact_runtime_copy_override_8259C834"},
        {"classification", "title_track_render_differential_control"},
        {"xenos_authority", "true"},
        {"native_draw", "false"},
@@ -19610,6 +19620,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   if (!graphics_system || !memory) {
     return;
   }
+  g_track_render_configuration.fast_track_render.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.source_fast_track_render.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.road_detail_blur.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.command_line_address.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.runtime_state_address.store(
+      0, std::memory_order_relaxed);
   ConfigureDispatchDiscovery();
   g_sky_horizon_suppression = {};
   g_sky_horizon_suppression.requested =
@@ -21220,7 +21240,13 @@ void PinyonShiftObserveProceduralModelConstructorEntry(PPCRegister &r3) {
 
 void PinyonShiftObserveFastTrackRenderConfiguration(
     PPCRegister &r11, PPCRegister &r30, PPCRegister &r31) {
-  ObserveFastTrackRenderConfiguration(r11.u32, r30.u32, r31.u32);
+  const uint32_t source_value = r11.u32 & 0xFF;
+  const std::string mode = TrackRenderModeMarker();
+  if (mode == "baseline" || mode == "fasttrackrender") {
+    r11.u32 = mode == "fasttrackrender" ? 1 : 0;
+  }
+  ObserveFastTrackRenderConfiguration(r11.u32, source_value, r30.u32,
+                                      r31.u32);
 }
 
 void PinyonShiftObserveRoadDetailBlurConfiguration(

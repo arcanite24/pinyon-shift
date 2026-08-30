@@ -240,12 +240,13 @@ $savedPassPublication = $env:PINYON_SHIFT_NATIVE_RENDERER_PUBLISH_RETAINED_PASS
 $savedConsumerFamily = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_FAMILY
 $savedConsumerReadbackDir = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR
 $savedConsumerReadbackSamples = $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES
+$trackDifferentialRequested = $PSBoundParameters.ContainsKey('TrackRenderMode')
 try {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = 'true'
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY =
         if ($VisibilityShadowReplay -or $ContinuousWorldWorkset -or
             $VehicleDrawCorrelation -or
-            $ShadowCasterProvenance) {
+            $ShadowCasterProvenance -or $trackDifferentialRequested) {
             'true'
         } else { $savedDiscovery }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
@@ -291,12 +292,8 @@ try {
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_DIR = $ConsumerReadbackDir
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONSUMER_READBACK_SAMPLES =
         if ($ConsumerReadbackDir) { [string]$ConsumerReadbackSamples } else { $null }
-    $gameArguments = if ($TrackRenderMode -eq 'fasttrackrender') {
-        @('-fasttrackrender')
-    } else { @() }
     & (Join-Path $PSScriptRoot 'launch-preview.ps1') `
         -StateRoot $resolvedStateRoot -ShaderCaptureDir $ShaderCaptureDir `
-        -GameArguments $gameArguments `
         -Json:$Json
 }
 finally {

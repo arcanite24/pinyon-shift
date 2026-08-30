@@ -63,7 +63,14 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             "title_track_render_differential_control_proved",
             document["classification"],
         )
-        self.assertEqual(["-fasttrackrender"], document["capture_contract"]["track_arguments"])
+        self.assertEqual(
+            [],
+            document["capture_contract"]["track_arguments"],
+        )
+        self.assertEqual(
+            "exact_runtime_copy_override_8259C834",
+            document["capture_contract"]["runtime_control"],
+        )
         self.assertEqual(
             6297,
             next(
@@ -80,20 +87,24 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fasttrackrender name_instruction"):
             MODULE.build(functions, image_fixture())
 
-    def test_capture_wrapper_passes_only_the_explicit_title_argument(self):
+    def test_capture_wrapper_uses_only_the_explicit_runtime_control(self):
         capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
             encoding="utf-8"
         )
         launch = (ROOT / "tools/launch-preview.ps1").read_text(encoding="utf-8")
         self.assertIn("[ValidateSet('baseline', 'fasttrackrender')]", capture)
-        self.assertIn("@('-fasttrackrender')", capture)
-        self.assertIn("-GameArguments $gameArguments", capture)
+        self.assertNotIn("--cl=", capture)
+        self.assertIn(
+            "$PSBoundParameters.ContainsKey('TrackRenderMode')", capture
+        )
+        self.assertIn("$trackDifferentialRequested", capture)
         self.assertIn(
             "$env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $TrackRenderMode",
             capture,
         )
         self.assertIn("[string[]]$GameArguments = @()", launch)
-        self.assertIn("$start.ArgumentList = $GameArguments", launch)
+        self.assertIn("$normalizedGameArguments = @($GameArguments)", launch)
+        self.assertIn("$start.ArgumentList = $normalizedGameArguments", launch)
 
     def test_runtime_hook_reports_title_acceptance_without_native_admission(self):
         analysis = (ROOT / "config/rexglue/analysis/main-xex.toml").read_text(
@@ -111,6 +122,8 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             self.assertIn(f'name = "{name}"', analysis)
             self.assertIn(f"void {name}", hooks)
         self.assertIn('"native_renderer.discovery.track_render_config"', hooks)
+        self.assertIn('"exact_runtime_copy_override_8259C834"', hooks)
+        self.assertIn('r11.u32 = mode == "fasttrackrender" ? 1 : 0;', hooks)
         self.assertIn('{"xenos_authority", "true"}', hooks)
         self.assertIn('{"native_draw", "false"}', hooks)
         self.assertIn('{"suppression_allowed", "false"}', hooks)

@@ -67,8 +67,9 @@ try {
         WorkingDirectory = (Split-Path $executable -Parent)
         PassThru = $true
     }
-    if ($GameArguments.Count -ne 0) {
-        $start.ArgumentList = $GameArguments
+    $normalizedGameArguments = @($GameArguments)
+    if ($normalizedGameArguments.Count -ne 0) {
+        $start.ArgumentList = $normalizedGameArguments
     }
     $process = Start-Process @start
     $process.WaitForExit()

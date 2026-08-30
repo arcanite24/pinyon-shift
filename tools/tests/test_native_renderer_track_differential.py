@@ -54,6 +54,15 @@ class NativeRendererTrackDifferentialTests(unittest.TestCase):
         document = MODULE.build(events("baseline-session", "baseline", 60), track)
         self.assertIn("paired sessions do not use one build identity", document["failures"])
 
+    def test_ignores_small_normalized_rate_jitter(self):
+        document = MODULE.build(
+            events("baseline-session", "baseline", 60),
+            events("track-session", "fasttrackrender", 61),
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertEqual(0, document["changed_family_count"])
+        self.assertEqual(1, document["rate_noise_family_count"])
+
 
 if __name__ == "__main__":
     unittest.main()

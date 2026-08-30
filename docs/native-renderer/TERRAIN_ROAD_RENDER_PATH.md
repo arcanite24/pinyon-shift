@@ -23,9 +23,14 @@ identity drifts. The relevant title fields are:
 | `notrackcommandbuffers` | 2732 | 6230/6232 | inverted command-buffer control |
 
 The runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
-command-line parameter object. This proves a bounded title configuration path.
-It does not yet prove which prepared signatures are terrain, road surface,
-track props, or an exceptional dependent family.
+command-line parameter object. The retail startup path does not consume
+ReXGlue's `ExLoadedCommandLine` bridge for this object. The census therefore
+uses an opt-in hook at the exact `fasttrackrender` copy instruction
+(`0x8259C834`) to write `false` for the baseline and `true` for the paired
+fast-track session. It changes only that title runtime byte and records its
+original value. This proves a bounded title configuration path; it does not
+yet prove which prepared signatures are terrain, road surface, track props, or
+an exceptional dependent family.
 
 Generate the payload-free static report with:
 
@@ -39,8 +44,10 @@ python tools/discover-native-renderer-track-config.py `
 ## Paired runtime census
 
 The census wrapper accepts `-TrackRenderMode baseline` or
-`-TrackRenderMode fasttrackrender`. The latter passes only the title argument
-`-fasttrackrender`; it does not enable the broader `perfmode` group. Run the
+`-TrackRenderMode fasttrackrender`. The exact runtime-copy hook forces only the
+isolated `fasttrackrender` byte; it does not enable the broader `perfmode`
+group. Explicitly supplying either mode also arms the exact prepared-draw
+provenance required by the paired report. Run the
 same AppData save and marked scene for both modes, then compare exact prepared
 signatures and semantic submission lineage from the two logs.
 
@@ -78,3 +85,24 @@ frames and retains shader, template, receiver-generation, and record identity
 for each changed family. A complete report proves a title-owned track delta;
 it deliberately leaves terrain/road semantic identity, native admission, and
 suppression false.
+
+## Qualified open-world differential
+
+The AppData-backed `open_world_day` pair completed on the same local build:
+
+- baseline session `20260830T233745Z-p15720`: 4,388 frames and 6,325,239
+  draws;
+- `fasttrackrender` session `20260830T234026Z-p31828`: 4,817 frames and
+  7,471,561 draws;
+- both runtime controls completed with the original title value `false`, the
+  requested runtime value applied exactly, normal shutdown, and Xenos
+  authority preserved; and
+- the normalized report found 331 material exact-family deltas after removing
+  504 low-rate jitter rows.
+
+The paired evidence proves the title-owned track-render differential and gives
+the next C1 slice a bounded candidate set. It does not identify all 331 rows as
+terrain or roads: menu/loading variance and dependent families are still
+present in the session-wide aggregates. Native admission therefore remains
+disabled until representative candidates receive visual identification,
+isolated replay, and open-world/race stability evidence.
