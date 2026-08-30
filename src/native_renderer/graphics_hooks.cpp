@@ -283,6 +283,7 @@ struct SemanticBatchOpportunityEntry {
 
 struct SemanticVisibilityPreparedCandidateEntry {
   uint64_t key = 0;
+  uint64_t prepared_signature = 0;
   uint64_t template_key = 0;
   uint64_t geometry_resource_hash = 0;
   uint64_t texture_resource_hash = 0;
@@ -290,11 +291,16 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
   uint64_t maximum_policy_age_frames = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t vertex_specialization_mask = 0;
+  uint64_t pixel_specialization_mask = 0;
   uint32_t receiver_address = 0;
   uint32_t receiver_generation = 0;
   uint32_t record_index = 0;
   uint32_t visibility_category = 0;
   uint32_t visibility_result_mask = 0;
+  bool mechanically_eligible = false;
 };
 
 struct SemanticBatchRun {
@@ -4066,6 +4072,9 @@ struct IsolatedDrawState {
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  bool prepared_visibility_candidate_fresh = false;
+  bool require_fresh_visibility_candidate = false;
+  bool visibility_wait_reported = false;
   bool awaiting_pass_follower = false;
   bool pass_anchor_recorded = false;
   bool pass_repeat_reported = false;
@@ -4502,6 +4511,20 @@ void ConfigureIsolatedDraw() {
       !IsLocalArtifactRoot(g_isolated_draw.output_root)) {
     g_isolated_draw.valid = false;
   }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE") ==
+          0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.require_fresh_visibility_candidate = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
 }
 
 void ConfigurePassPublication() {
@@ -10017,32 +10040,33 @@ void RecordSemanticBatchEquivalenceOpportunity(
   };
 }
 
-void RecordSemanticVisibilityPreparedCandidate(
+bool RecordSemanticVisibilityPreparedCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     const SemanticDrawIdentity &identity,
-    const SemanticPreparedDrawContract &contract) {
+    const SemanticPreparedDrawContract &contract,
+    uint64_t prepared_signature, bool mechanically_eligible) {
   ++g_semantic_visibility_prepared_observations;
   if (identity.visibility_workset_join ==
       SemanticVisibilityWorksetJoin::kMissing) {
     ++g_semantic_visibility_prepared_missing_exclusions;
-    return;
+    return false;
   }
   if (identity.visibility_workset_join ==
       SemanticVisibilityWorksetJoin::kRejected) {
     ++g_semantic_visibility_prepared_rejected_exclusions;
-    return;
+    return false;
   }
 
   ++g_semantic_visibility_prepared_selected_joins;
   if (observation.frame_sequence < identity.visibility_policy_frame) {
     ++g_semantic_visibility_prepared_future_exclusions;
-    return;
+    return false;
   }
   const uint64_t policy_age_frames =
       observation.frame_sequence - identity.visibility_policy_frame;
   if (policy_age_frames > kSemanticVisibilityMaximumPolicyAgeFrames) {
     ++g_semantic_visibility_prepared_stale_exclusions;
-    return;
+    return false;
   }
   ++g_semantic_visibility_prepared_fresh_candidates;
 
@@ -10052,6 +10076,7 @@ void RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.receiver_generation),
         uint64_t(identity.record_index), contract.template_key,
         contract.geometry_resource_hash, contract.texture_resource_hash,
+        prepared_signature,
         uint64_t(identity.visibility_category),
         uint64_t(identity.visibility_result_mask)}) {
     key = HashCombine(key, value);
@@ -10066,6 +10091,7 @@ void RecordSemanticVisibilityPreparedCandidate(
     if (!entry.key) {
       entry = {
           .key = key,
+          .prepared_signature = prepared_signature,
           .template_key = contract.template_key,
           .geometry_resource_hash = contract.geometry_resource_hash,
           .texture_resource_hash = contract.texture_resource_hash,
@@ -10073,19 +10099,33 @@ void RecordSemanticVisibilityPreparedCandidate(
           .first_frame = observation.frame_sequence,
           .last_frame = observation.frame_sequence,
           .maximum_policy_age_frames = policy_age_frames,
+          .vertex_shader_hash = contract.vertex_shader_hash,
+          .pixel_shader_hash = contract.pixel_shader_hash,
+          .vertex_specialization_mask =
+              contract.vertex_specialization_mask,
+          .pixel_specialization_mask = contract.pixel_specialization_mask,
           .receiver_address = identity.receiver_address,
           .receiver_generation = identity.receiver_generation,
           .record_index = identity.record_index,
           .visibility_category = identity.visibility_category,
           .visibility_result_mask = identity.visibility_result_mask,
+          .mechanically_eligible = mechanically_eligible,
       };
       ++g_semantic_visibility_prepared_candidate_count;
-      return;
+      return true;
     }
     if (entry.key == key &&
+        entry.prepared_signature == prepared_signature &&
         entry.template_key == contract.template_key &&
         entry.geometry_resource_hash == contract.geometry_resource_hash &&
         entry.texture_resource_hash == contract.texture_resource_hash &&
+        entry.vertex_shader_hash == contract.vertex_shader_hash &&
+        entry.pixel_shader_hash == contract.pixel_shader_hash &&
+        entry.vertex_specialization_mask ==
+            contract.vertex_specialization_mask &&
+        entry.pixel_specialization_mask ==
+            contract.pixel_specialization_mask &&
+        entry.mechanically_eligible == mechanically_eligible &&
         entry.receiver_address == identity.receiver_address &&
         entry.receiver_generation == identity.receiver_generation &&
         entry.record_index == identity.record_index &&
@@ -10095,27 +10135,32 @@ void RecordSemanticVisibilityPreparedCandidate(
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
           std::max(entry.maximum_policy_age_frames, policy_age_frames);
-      return;
+      return true;
     }
     index =
         (index + 1) % kSemanticVisibilityPreparedCandidateCapacity;
   }
   ++g_semantic_visibility_prepared_candidate_overflow;
+  return false;
 }
 
-void RecordSemanticBatchOpportunity(
+bool RecordSemanticBatchOpportunity(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
-    const TitleDrawOrigin &origin) {
+    const TitleDrawOrigin &origin, uint64_t prepared_signature) {
   if (!origin.semantic_draw.valid) {
-    return;
+    return false;
   }
   const SemanticDrawIdentity &identity = origin.semantic_draw;
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
-  RecordSemanticVisibilityPreparedCandidate(observation, identity,
-                                            contract);
+  const bool mechanically_eligible = IsIsolatedDrawEligible(
+      observation, samples_resolved_target, prepared);
+  const bool fresh_visibility_candidate =
+      RecordSemanticVisibilityPreparedCandidate(observation, identity,
+                                                contract, prepared_signature,
+                                                mechanically_eligible);
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
@@ -10143,7 +10188,7 @@ void RecordSemanticBatchOpportunity(
     FinalizeSemanticBatchEquivalenceRuns();
     BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
-    return;
+    return fresh_visibility_candidate;
   }
   SemanticBatchOpportunityEntry &entry =
       g_semantic_batch_opportunities[opportunity_index];
@@ -10163,7 +10208,7 @@ void RecordSemanticBatchOpportunity(
     FinalizeSemanticBatchEquivalenceRuns();
     BreakSemanticStateCacheContinuity();
     g_semantic_batch_previous_eligible = false;
-    return;
+    return fresh_visibility_candidate;
   }
   ++g_semantic_batch_eligible_draws;
   const uint64_t parameter_hash =
@@ -10224,7 +10269,7 @@ void RecordSemanticBatchOpportunity(
     g_semantic_batch_run.receiver_address = identity.receiver_address;
     g_semantic_batch_run.receiver_generation = identity.receiver_generation;
     g_semantic_batch_run.record_index = identity.record_index;
-    return;
+    return fresh_visibility_candidate;
   }
   FinalizeSemanticBatchRun();
   g_semantic_batch_run = {
@@ -10237,6 +10282,7 @@ void RecordSemanticBatchOpportunity(
       .record_index = identity.record_index,
       .valid = true,
   };
+  return fresh_visibility_candidate;
 }
 
 void EmitSemanticBatchEquivalenceSummary() {
@@ -11562,6 +11608,8 @@ void EmitSemanticVisibilityCensus() {
 void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t entry_draws = 0;
   uint64_t entry_count = 0;
+  uint64_t mechanically_eligible_draws = 0;
+  uint64_t mechanically_eligible_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -11569,15 +11617,28 @@ void EmitSemanticVisibilityPreparedCandidates() {
     }
     ++entry_count;
     entry_draws += entry.draws;
+    if (entry.mechanically_eligible) {
+      mechanically_eligible_draws += entry.draws;
+      ++mechanically_eligible_entries;
+    }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
         {{"status", "complete"},
          {"candidate_key", fmt::format("{:016X}", entry.key)},
+         {"prepared_signature",
+          fmt::format("{:016X}", entry.prepared_signature)},
          {"template_key", fmt::format("{:016X}", entry.template_key)},
          {"geometry_resource_hash",
           fmt::format("{:016X}", entry.geometry_resource_hash)},
          {"texture_resource_hash",
           fmt::format("{:016X}", entry.texture_resource_hash)},
+         {"vertex_shader",
+          fmt::format("{:016X}", entry.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"vertex_specialization_mask",
+          fmt::format("{:016X}", entry.vertex_specialization_mask)},
+         {"pixel_specialization_mask",
+          fmt::format("{:016X}", entry.pixel_specialization_mask)},
          {"receiver_address",
           fmt::format("{:08X}", entry.receiver_address)},
          {"receiver_generation",
@@ -11592,6 +11653,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
          {"last_frame", std::to_string(entry.last_frame)},
          {"maximum_policy_age_frames",
           std::to_string(entry.maximum_policy_age_frames)},
+         {"mechanically_eligible",
+          entry.mechanically_eligible ? "true" : "false"},
          {"policy_age_limit_frames",
           std::to_string(kSemanticVisibilityMaximumPolicyAgeFrames)},
          {"classification", "fresh_visibility_selected_prepared_candidate"},
@@ -11637,6 +11700,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"candidate_entries",
         std::to_string(g_semantic_visibility_prepared_candidate_count)},
        {"entry_draws", std::to_string(entry_draws)},
+       {"mechanically_eligible_entries",
+        std::to_string(mechanically_eligible_entries)},
+       {"mechanically_eligible_draws",
+        std::to_string(mechanically_eligible_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -11864,15 +11931,17 @@ void ObservePreparedDraw(
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
-    RecordSemanticBatchOpportunity(
+    const bool fresh_visibility_candidate = RecordSemanticBatchOpportunity(
         sample, g_pending_candidate.samples_resolved_target, observation,
-        g_pending_candidate.title_origin);
+        g_pending_candidate.title_origin, prepared_signature);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_sample = sample;
     g_isolated_draw.prepared_candidate_eligible = IsIsolatedDrawEligible(
         sample, g_pending_candidate.samples_resolved_target, observation);
+    g_isolated_draw.prepared_visibility_candidate_fresh =
+        fresh_visibility_candidate;
     g_isolated_draw.prepared_candidate_valid = true;
     if (g_pass_follower.requested && g_pass_follower.valid &&
         !g_pass_follower.completed) {
@@ -13113,12 +13182,16 @@ void RequestIsolatedDraw(
                          g_pass_follower.valid &&
                          g_pass_follower.target_signature !=
                              g_isolated_draw.target_signature;
+  const bool candidate_eligible =
+      g_isolated_draw.prepared_candidate_eligible &&
+      (!g_isolated_draw.require_fresh_visibility_candidate ||
+       g_isolated_draw.prepared_visibility_candidate_fresh);
   if (pass_mode) {
     const uint64_t signature = g_isolated_draw.prepared_signature;
     if (signature == g_pass_follower.target_signature) {
       g_isolated_draw.awaiting_pass_follower = false;
       g_isolated_draw.pass_anchor_recorded = false;
-      if (!g_isolated_draw.prepared_candidate_eligible) {
+      if (!candidate_eligible) {
         return;
       }
       g_isolated_draw.pass_anchor_frame = g_isolated_draw.frame;
@@ -13143,7 +13216,7 @@ void RequestIsolatedDraw(
         g_isolated_draw.draw == g_isolated_draw.pass_anchor_draw + 1;
     g_isolated_draw.awaiting_pass_follower = false;
     if (!adjacent || !g_isolated_draw.pass_anchor_recorded ||
-        !g_isolated_draw.prepared_candidate_eligible) {
+        !candidate_eligible) {
       return;
     }
     if (g_pass_consumer_trace.pending) {
@@ -13204,12 +13277,33 @@ void RequestIsolatedDraw(
     // Keep the private replay visible to frame debuggers after the one-shot
     // result has been recorded. This path has no readback or completion
     // callback, and the authoritative Xenos draw still follows unmodified.
-    request.requested = g_isolated_draw.prepared_candidate_eligible;
+    request.requested = candidate_eligible;
     request.frame_sequence = request.requested ? g_isolated_draw.frame : 0;
     return;
   }
+  if (g_isolated_draw.prepared_candidate_eligible &&
+      g_isolated_draw.require_fresh_visibility_candidate &&
+      !g_isolated_draw.prepared_visibility_candidate_fresh) {
+    if (!g_isolated_draw.visibility_wait_reported) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "native_renderer.isolated_draw.visibility_gate",
+          {{"signature",
+            fmt::format("{:016X}", g_isolated_draw.prepared_signature)},
+           {"status", "waiting_for_fresh_selected_candidate"},
+           {"frame", std::to_string(g_isolated_draw.frame)},
+           {"draw", std::to_string(g_isolated_draw.draw)},
+           {"mechanically_eligible", "true"},
+           {"fresh_visibility_candidate", "false"},
+           {"native_draw", "false"},
+           {"xenos_draw", "preserved"},
+           {"output_authority", "xenos"},
+           {"suppression_eligible", "false"}});
+      g_isolated_draw.visibility_wait_reported = true;
+    }
+    return;
+  }
   g_isolated_draw.completed = true;
-  if (!g_isolated_draw.prepared_candidate_eligible) {
+  if (!candidate_eligible) {
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.isolated_draw.result",
         {{"signature",
@@ -13218,6 +13312,14 @@ void RequestIsolatedDraw(
          {"frame", std::to_string(g_isolated_draw.frame)},
          {"draw", std::to_string(g_isolated_draw.draw)},
          {"native_draw", "false"},
+         {"mechanically_eligible",
+          g_isolated_draw.prepared_candidate_eligible ? "true" : "false"},
+         {"fresh_visibility_candidate",
+          g_isolated_draw.prepared_visibility_candidate_fresh ? "true"
+                                                              : "false"},
+         {"visibility_gate_required",
+          g_isolated_draw.require_fresh_visibility_candidate ? "true"
+                                                             : "false"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
          {"suppression_eligible", "false"}});
@@ -14396,6 +14498,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"readback", g_isolated_draw.readback_requested ? "asynchronous"
                                                         : "disabled"},
        {"reference_marker", "exact_signature"},
+       {"visibility_gate",
+        g_isolated_draw.require_fresh_visibility_candidate
+            ? "fresh_selected_semantic_candidate"
+            : "disabled"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});

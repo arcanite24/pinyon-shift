@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v1"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v2"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -166,6 +166,8 @@ def build(events, static, requested_session=None):
         "missing_exclusions",
         "candidate_entries",
         "entry_draws",
+        "mechanically_eligible_entries",
+        "mechanically_eligible_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -181,12 +183,21 @@ def build(events, static, requested_session=None):
         key = hexadecimal(event, "candidate_key", 16)
         item = {
             "candidate_key": key,
+            "prepared_signature": hexadecimal(event, "prepared_signature", 16),
             "template_key": hexadecimal(event, "template_key", 16),
             "geometry_resource_hash": hexadecimal(
                 event, "geometry_resource_hash", 16
             ),
             "texture_resource_hash": hexadecimal(
                 event, "texture_resource_hash", 16
+            ),
+            "vertex_shader": hexadecimal(event, "vertex_shader", 16),
+            "pixel_shader": hexadecimal(event, "pixel_shader", 16),
+            "vertex_specialization_mask": hexadecimal(
+                event, "vertex_specialization_mask", 16
+            ),
+            "pixel_specialization_mask": hexadecimal(
+                event, "pixel_specialization_mask", 16
             ),
             "receiver_address": hexadecimal(event, "receiver_address", 8),
             "receiver_generation": integer(event, "receiver_generation"),
@@ -199,6 +210,7 @@ def build(events, static, requested_session=None):
             "maximum_policy_age_frames": integer(
                 event, "maximum_policy_age_frames"
             ),
+            "mechanically_eligible": event.get("mechanically_eligible") == "true",
         }
         if (
             event.get("status") != "complete"
@@ -210,6 +222,7 @@ def build(events, static, requested_session=None):
             or item["visibility_result_mask"] > 7
             or item["maximum_policy_age_frames"]
             > totals["policy_age_limit_frames"]
+            or event.get("mechanically_eligible") not in ("true", "false")
             or integer(event, "policy_age_limit_frames")
             != totals["policy_age_limit_frames"]
         ):
@@ -239,6 +252,13 @@ def build(events, static, requested_session=None):
         failures.append("fresh candidate accounting drifted")
     if totals["candidate_entries"] != len(entries) or entry_draws != totals["entry_draws"]:
         failures.append("prepared-candidate entry totals drifted")
+    eligible_entries = [entry for entry in entries if entry["mechanically_eligible"]]
+    if (
+        totals["mechanically_eligible_entries"] != len(eligible_entries)
+        or totals["mechanically_eligible_draws"]
+        != sum(entry["draws"] for entry in eligible_entries)
+    ):
+        failures.append("mechanically eligible candidate totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -257,6 +277,8 @@ def build(events, static, requested_session=None):
         "entries": entries,
         "qualification": {
             "fresh_visibility_prepared_handoff_proved": not failures,
+            "isolated_native_candidate_proved": not failures
+            and bool(eligible_entries),
             "native_draw_enabled": False,
             "suppression_allowed": False,
         },
