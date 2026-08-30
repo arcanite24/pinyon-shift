@@ -1597,14 +1597,36 @@ class NativeRendererContractTests(unittest.TestCase):
             "PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE",
             scanner,
         )
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_AUTO_SELECT_FRESH_VISIBILITY_CANDIDATE",
+            scanner,
+        )
+        self.assertIn("locked_first_fresh_eligible_candidate", scanner)
+        self.assertIn("auto_select_fresh_visibility_candidate", scanner)
         self.assertIn("waiting_for_fresh_selected_candidate", scanner)
         self.assertIn("visibility_wait_reported", scanner)
+        single_draw_request = scanner.split(
+            "g_isolated_draw.captured_signature = g_isolated_draw.prepared_signature;",
+            1,
+        )[1].split("void EmitDrawCensusWindow", 1)[0]
+        self.assertIn(
+            "request.reference_readback_requested", single_draw_request
+        )
+        self.assertIn("request.depth_readback_requested", single_draw_request)
+        self.assertIn(
+            "request.reference_depth_readback_requested", single_draw_request
+        )
         census_capture = (
             ROOT / "tools/capture-native-renderer-census.ps1"
         ).read_text(encoding="utf-8")
         self.assertIn("RequireFreshVisibilityCandidate", census_capture)
+        self.assertIn("AutoSelectFreshVisibilityCandidate", census_capture)
         self.assertIn(
-            "RequireFreshVisibilityCandidate requires IsolatedDrawSignature",
+            "AutoSelectFreshVisibilityCandidate and IsolatedDrawSignature are mutually exclusive",
+            census_capture,
+        )
+        self.assertIn(
+            "RequireFreshVisibilityCandidate requires IsolatedDrawSignature or AutoSelectFreshVisibilityCandidate",
             census_capture,
         )
         self.assertIn("authoritative Xenos draw still follows unmodified", scanner)

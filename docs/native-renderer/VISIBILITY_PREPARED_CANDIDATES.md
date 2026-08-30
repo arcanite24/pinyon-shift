@@ -70,9 +70,13 @@ table.
 The normal checkpoint only carries host metadata. When an operator separately
 arms an exact isolated-draw signature with the fresh-visibility gate, the table
 can admit one private-target native replay through all existing mechanical
-safety checks. The original Xenos draw and displayed frame remain authoritative;
-this path cannot suppress Xenos. Without that explicit startup-only request,
-the table issues no native work.
+safety checks. A startup-only auto-selector may instead lock the first exact
+signature that is both fresh and mechanically eligible, eliminating a separate
+candidate-discovery run without weakening admission. It is incompatible with
+retained-pass publication and suppression. The original Xenos draw and
+displayed frame remain authoritative; this path cannot suppress Xenos. Without
+an explicit exact-signature or auto-selection request, the table issues no
+native work.
 
 ## AppData qualification
 
