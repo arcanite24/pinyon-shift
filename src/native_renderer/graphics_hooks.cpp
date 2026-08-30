@@ -101,6 +101,7 @@ constexpr uint64_t kSemanticVisibilityMaximumPolicyAgeFrames = 1;
 constexpr size_t kVisibilityShadowReplaySignatureCapacity = 256;
 constexpr size_t kVisibilityShadowReplaySignatureSummaryLimit = 16;
 constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
+constexpr uint64_t kContinuousWorldWorksetMaximumDrawsPerFrame = 64;
 constexpr size_t kVehicleIdentityCapacity = 64;
 constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
 constexpr size_t kVehicleOwnerVtableMethodCount = 32;
@@ -5951,6 +5952,30 @@ struct VisibilityShadowReplayState {
 
 VisibilityShadowReplayState g_visibility_shadow_replay;
 
+struct ContinuousWorldWorksetState {
+  uint64_t prepared_observations = 0;
+  uint64_t requests = 0;
+  uint64_t recorded = 0;
+  uint64_t target_creation_failures = 0;
+  uint64_t unsupported = 0;
+  uint64_t mechanical_rejections = 0;
+  uint64_t stale_or_unselected_rejections = 0;
+  uint64_t per_frame_quota_yields = 0;
+  uint64_t fail_closed_yields = 0;
+  uint64_t reused_target_requests = 0;
+  uint64_t frames_started = 0;
+  uint64_t frames_completed = 0;
+  uint64_t frames_failed = 0;
+  uint64_t current_frame = UINT64_MAX;
+  uint64_t current_frame_requests = 0;
+  uint64_t current_frame_recorded = 0;
+  bool current_frame_failed = false;
+  bool requested = false;
+  bool valid = true;
+};
+
+ContinuousWorldWorksetState g_continuous_world_workset;
+
 struct PassFollowerState {
   uint64_t target_signature = 0;
   uint64_t anchor_frame = 0;
@@ -6588,11 +6613,33 @@ void ConfigureVisibilityShadowReplay() {
   g_visibility_shadow_replay.valid = setting == "true";
 }
 
+void ConfigureContinuousWorldWorkset() {
+  g_continuous_world_workset = {};
+  g_continuous_world_workset.current_frame = UINT64_MAX;
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET") != 0 ||
+      !value || length <= 1) {
+    std::free(value);
+    return;
+  }
+  const std::string setting(value);
+  std::free(value);
+  if (setting == "false") {
+    return;
+  }
+  g_continuous_world_workset.requested = true;
+  g_continuous_world_workset.valid = setting == "true";
+}
+
 void ValidateAndEmitVisibilityShadowReplayConfiguration() {
   if (g_visibility_shadow_replay.requested &&
       (g_isolated_draw.requested || g_pass_follower.requested ||
        g_pass_publication.requested ||
-       g_sky_horizon_suppression.requested)) {
+       g_sky_horizon_suppression.requested ||
+       g_continuous_world_workset.requested)) {
     g_visibility_shadow_replay.valid = false;
   }
   const bool semantic_lineage_armed =
@@ -6625,6 +6672,45 @@ void ValidateAndEmitVisibilityShadowReplayConfiguration() {
                            : "false"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
+       {"draw_suppression", "false"},
+       {"suppression_eligible", "false"}});
+}
+
+void ValidateAndEmitContinuousWorldWorksetConfiguration() {
+  if (g_continuous_world_workset.requested &&
+      (g_isolated_draw.requested || g_visibility_shadow_replay.requested ||
+       g_pass_follower.requested || g_pass_publication.requested ||
+       g_sky_horizon_suppression.requested)) {
+    g_continuous_world_workset.valid = false;
+  }
+  const bool semantic_lineage_armed =
+      g_title_provenance_installed.load(std::memory_order_acquire);
+  if (g_continuous_world_workset.requested && !semantic_lineage_armed) {
+    g_continuous_world_workset.valid = false;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.continuous_world_workset.config",
+      {{"status", !g_continuous_world_workset.requested
+                      ? "disabled"
+                      : (g_continuous_world_workset.valid
+                             ? "armed_deferred_private_composition"
+                             : "blocked_invalid_configuration")},
+       {"activation", "startup_environment_only"},
+       {"default_enabled", "false"},
+       {"selection", "fresh_visibility_and_mechanical"},
+       {"maximum_draws_per_frame",
+        std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
+       {"target_lifetime", "one_guest_frame"},
+       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+       {"semantic_lineage",
+        semantic_lineage_armed ? "armed" : "unavailable"},
+       {"readback", "disabled"},
+       {"native_draw", g_continuous_world_workset.valid &&
+                               g_continuous_world_workset.requested
+                           ? "continuous_world_workset"
+                           : "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "renderer_selector"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
 }
@@ -16720,6 +16806,111 @@ void CompleteVisibilityShadowReplay(
   }
 }
 
+void FinalizeContinuousWorldWorksetFrame() {
+  if (g_continuous_world_workset.current_frame == UINT64_MAX ||
+      !g_continuous_world_workset.current_frame_requests) {
+    return;
+  }
+  if (!g_continuous_world_workset.current_frame_failed &&
+      g_continuous_world_workset.current_frame_recorded ==
+          g_continuous_world_workset.current_frame_requests) {
+    ++g_continuous_world_workset.frames_completed;
+  } else {
+    ++g_continuous_world_workset.frames_failed;
+  }
+}
+
+void BeginContinuousWorldWorksetFrame(uint64_t frame) {
+  if (g_continuous_world_workset.current_frame == frame) {
+    return;
+  }
+  FinalizeContinuousWorldWorksetFrame();
+  g_continuous_world_workset.current_frame = frame;
+  g_continuous_world_workset.current_frame_requests = 0;
+  g_continuous_world_workset.current_frame_recorded = 0;
+  g_continuous_world_workset.current_frame_failed = false;
+}
+
+void CompleteContinuousWorldWorksetReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    ++g_continuous_world_workset.recorded;
+    ++g_continuous_world_workset.current_frame_recorded;
+    return;
+  }
+  g_continuous_world_workset.current_frame_failed = true;
+  if (result.status == rex::system::
+                           GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
+    ++g_continuous_world_workset.target_creation_failures;
+  } else {
+    ++g_continuous_world_workset.unsupported;
+  }
+}
+
+void EmitContinuousWorldWorksetSummary() {
+  if (!g_continuous_world_workset.requested) {
+    return;
+  }
+  FinalizeContinuousWorldWorksetFrame();
+  const uint64_t outcomes = g_continuous_world_workset.recorded +
+                            g_continuous_world_workset.target_creation_failures +
+                            g_continuous_world_workset.unsupported;
+  const uint64_t selections =
+      g_continuous_world_workset.requests +
+      g_continuous_world_workset.mechanical_rejections +
+      g_continuous_world_workset.stale_or_unselected_rejections +
+      g_continuous_world_workset.per_frame_quota_yields +
+      g_continuous_world_workset.fail_closed_yields;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.continuous_world_workset.summary",
+      {{"status", !g_continuous_world_workset.valid
+                      ? "invalid_configuration"
+                      : (g_continuous_world_workset.frames_failed
+                             ? "fallback_observed"
+                             : (g_continuous_world_workset.frames_completed
+                                    ? "complete"
+                                    : "not_observed"))},
+       {"prepared_observations",
+        std::to_string(g_continuous_world_workset.prepared_observations)},
+       {"requests", std::to_string(g_continuous_world_workset.requests)},
+       {"recorded", std::to_string(g_continuous_world_workset.recorded)},
+       {"target_creation_failures",
+        std::to_string(g_continuous_world_workset.target_creation_failures)},
+       {"unsupported", std::to_string(g_continuous_world_workset.unsupported)},
+       {"mechanical_rejections",
+        std::to_string(g_continuous_world_workset.mechanical_rejections)},
+       {"stale_or_unselected_rejections",
+        std::to_string(
+            g_continuous_world_workset.stale_or_unselected_rejections)},
+       {"per_frame_quota_yields",
+        std::to_string(g_continuous_world_workset.per_frame_quota_yields)},
+       {"fail_closed_yields",
+        std::to_string(g_continuous_world_workset.fail_closed_yields)},
+       {"reused_target_requests",
+        std::to_string(g_continuous_world_workset.reused_target_requests)},
+       {"frames_started",
+        std::to_string(g_continuous_world_workset.frames_started)},
+       {"frames_completed",
+        std::to_string(g_continuous_world_workset.frames_completed)},
+       {"frames_failed",
+        std::to_string(g_continuous_world_workset.frames_failed)},
+       {"accounting_complete",
+        outcomes == g_continuous_world_workset.requests ? "true" : "false"},
+       {"selection_accounting_complete",
+        selections == g_continuous_world_workset.prepared_observations
+            ? "true"
+            : "false"},
+       {"maximum_draws_per_frame",
+        std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
+       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+       {"readback", "disabled"},
+       {"native_draw", "continuous_world_workset"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "renderer_selector"},
+       {"draw_suppression", "false"},
+       {"suppression_eligible", "false"}});
+}
+
 void EmitVisibilityShadowReplaySummary() {
   if (!g_visibility_shadow_replay.requested) {
     return;
@@ -17034,6 +17225,46 @@ void RequestIsolatedDraw(
       request.consumer_reference_after_depth_readback_completion =
           &CompleteConsumerFamilyAfterDepthReadback;
     }
+  }
+  if (g_continuous_world_workset.requested &&
+      g_continuous_world_workset.valid &&
+      g_isolated_draw.prepared_candidate_valid) {
+    BeginContinuousWorldWorksetFrame(g_isolated_draw.frame);
+    ++g_continuous_world_workset.prepared_observations;
+    if (!g_isolated_draw.prepared_candidate_eligible) {
+      ++g_continuous_world_workset.mechanical_rejections;
+      return;
+    }
+    if (!g_isolated_draw.prepared_visibility_candidate_fresh) {
+      ++g_continuous_world_workset.stale_or_unselected_rejections;
+      return;
+    }
+    if (g_continuous_world_workset.current_frame_failed) {
+      ++g_continuous_world_workset.fail_closed_yields;
+      return;
+    }
+    if (g_continuous_world_workset.current_frame_requests >=
+        kContinuousWorldWorksetMaximumDrawsPerFrame) {
+      ++g_continuous_world_workset.per_frame_quota_yields;
+      return;
+    }
+    const bool reuse_target =
+        g_continuous_world_workset.current_frame_requests != 0;
+    if (!g_continuous_world_workset.current_frame_requests) {
+      ++g_continuous_world_workset.frames_started;
+    } else {
+      ++g_continuous_world_workset.reused_target_requests;
+    }
+    ++g_continuous_world_workset.current_frame_requests;
+    ++g_continuous_world_workset.requests;
+    request.requested = true;
+    request.retain_target = true;
+    request.reuse_target = reuse_target;
+    request.defer_preview_publication_until_swap = true;
+    request.frame_sequence = g_isolated_draw.frame;
+    request.reference_marker_requested = true;
+    request.completion = &CompleteContinuousWorldWorksetReplay;
+    return;
   }
   if (g_visibility_shadow_replay.requested &&
       g_visibility_shadow_replay.valid &&
@@ -19228,6 +19459,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   ConfigureReplaySnapshot();
   ConfigureIsolatedDraw();
   ConfigureVisibilityShadowReplay();
+  ConfigureContinuousWorldWorkset();
   ConfigurePassFollower();
   if (g_isolated_draw.stencil_seed_probe_requested &&
       g_pass_follower.requested) {
@@ -19235,6 +19467,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   }
   ConfigurePassPublication();
   ValidateAndEmitVisibilityShadowReplayConfiguration();
+  ValidateAndEmitContinuousWorldWorksetConfiguration();
   ArmSkyHorizonSuppression();
   EmitSkyHorizonSuppressionControl();
   ConfigureConsumerFamilyMarker();
@@ -20335,6 +20568,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"suppression_eligible", "false"}});
   }
   EmitVisibilityShadowReplaySummary();
+  EmitContinuousWorldWorksetSummary();
   const bool isolated_single_draw_mode =
       !g_pass_follower.requested || !g_pass_follower.valid ||
       g_pass_follower.target_signature == g_isolated_draw.target_signature;

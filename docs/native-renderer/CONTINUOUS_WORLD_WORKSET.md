@@ -1,0 +1,73 @@
+# Continuous native world workset
+
+Phase B1 promotes the qualified visibility-selected private replay from one
+draw per frame to a bounded multi-draw target that can participate in the
+existing continuous native composition path.
+
+This checkpoint is default-off and does not suppress any Xenos work. It proves
+the accumulation and freshness contract before expanding material-family
+coverage or claiming a coherent native scene.
+
+## Selection
+
+Set `PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET=true` through the
+capture wrapper's `-ContinuousWorldWorkset` switch. The mode requires renderer
+census and semantic dispatch discovery so every admitted draw has:
+
+- a mechanically replayable prepared-draw contract;
+- a current, selected semantic visibility decision; and
+- exact title-to-backend lineage.
+
+The mode accepts at most 64 draws in one guest frame. The first accepted draw
+seeds a private color/depth pair from the authoritative guest attachments.
+Later accepted draws in the same frame resume that private pair without another
+seed copy. Target incompatibility, unsupported state, or a replay failure marks
+the frame failed and rejects every later candidate in that frame.
+
+## Swap-committed freshness
+
+ReXGlue patch `0094-d3d12-deferred-replay-preview-publication.patch` separates
+recording a private replay from declaring it display-fresh:
+
+1. each accepted draw records into the retained private target;
+2. successful draws leave a pending frame sequence rather than publishing it;
+3. any failed selected draw cancels that pending sequence; and
+4. the matching swap commits the sequence immediately before the existing
+   guest-output callback checks retained-frame freshness.
+
+The callback can therefore select only a complete accumulated target from the
+current frame. A partial or stale workset cannot satisfy the existing exact
+frame comparison and the complete Xenos output remains authoritative.
+
+## Diagnostics
+
+The runtime emits:
+
+- `native_renderer.continuous_world_workset.config`; and
+- `native_renderer.continuous_world_workset.summary`.
+
+The summary reconciles prepared observations, selection outcomes, replay
+outcomes, target reuse, complete frames, failed frames, and the 64-draw bound.
+Build a payload-free qualification report with:
+
+```powershell
+python .\tools\summarize-native-renderer-continuous-world-workset.py `
+  .local\preview\logs\events.jsonl `
+  --output .local\qualification\continuous-world-workset.json
+```
+
+Qualification requires at least one complete frame with multiple accumulated
+draws, zero replay or frame failures, exact accounting, preserved Xenos draws,
+and disabled suppression.
+
+## Safety boundary
+
+- Xenos draws, resolves, queries, fences, memexport, and guest-visible side
+  effects remain enabled.
+- Output selection remains controlled by the existing renderer selector.
+- The mode performs no readback and no guest-target publication.
+- Missing semantic lineage, incompatible replay experiments, stale visibility,
+  capacity exhaustion, or replay failure yields without weakening freshness.
+- This checkpoint does not yet prove recognizable world coverage; that requires
+  a clean build, an AppData run, and visual inspection after the broader Phase B
+  implementation batch is ready.

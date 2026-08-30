@@ -103,6 +103,11 @@ for missing content while proving continuous native gameplay rendering.
 - Publish only a complete current-frame target.
 - Yield to Xenos when freshness or coverage gates fail.
 
+Implementation checkpoint: bounded multi-draw target reuse and swap-committed
+freshness are defined in
+[`CONTINUOUS_WORLD_WORKSET.md`](CONTINUOUS_WORLD_WORKSET.md). Runtime visual
+qualification remains part of the Phase B batch.
+
 ### B2. Minimal presentation path
 
 - Use the proven presentation ingress and output dimensions.
