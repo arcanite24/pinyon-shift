@@ -200,6 +200,16 @@ address = 0x8240E7B4
 name = "PinyonShiftObserveVehicleMatrixCallerEntry"
 registers = ["r6", "r12"]
 
+# After the 8240E7B0 render-item predicate succeeds, title instructions have
+# resolved r31's typed child/descriptor chain and immediately read through
+# descriptor offset 244. Observe that exact-lifetime root and descriptor for a
+# bounded vehicle-address correlation; no child is retained or dereferenced
+# after the title's live use window.
+[[midasm_hook]]
+address = 0x8240EC18
+name = "PinyonShiftObserveVehicleTypedRenderItem"
+registers = ["r11", "r31"]
+
 [[midasm_hook]]
 address = 0x8243646C
 name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"

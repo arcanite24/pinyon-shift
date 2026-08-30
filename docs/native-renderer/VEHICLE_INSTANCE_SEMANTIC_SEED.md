@@ -267,6 +267,50 @@ state. The next typed step must follow the composition that combines this
 reference matrix with an object transform rather than widening heuristic
 scans. Native vehicle rendering and suppression remain closed.
 
+## Exact-lifetime typed render-item descriptor
+
+Static title flow inside `8240E7B0` provides a narrower object relationship
+than the earlier broad root scans. After the render-item predicate succeeds,
+the title loads `root + 4` as a typed child, reads the child's pointer at offset
+48, conditionally advances that pointer by 128 bytes, and immediately consumes
+the resulting descriptor through offset 244. A read-only hook at `8240EC18`
+now observes the root and descriptor at that exact live-use boundary, before
+the title's first descriptor read.
+
+The diagnostic validates the root, child, and full 248-byte descriptor range
+independently. It profiles stable dynamic types by root vtable, child vtable,
+and descriptor type; records object-address and descriptor-content churn; and
+checks the 62 descriptor words only for exact owner, position, or forward
+addresses already admitted by the vehicle identity census. Correlations retain
+the exact descriptor byte offset, identity field and identity, dynamic type,
+and frame span in a fixed 512-entry table. Profiles are fixed at 32 entries.
+Accounting drift, invalid ranges, missing coverage, or either table overflowing
+fails qualification.
+
+This follows a title-proven typed edge while the objects are live; it does not
+retain or recursively dereference a guessed child. It changes no guest state,
+uploads and draws nothing, leaves Xenos authoritative, and cannot permit
+suppression. Runtime qualification is intentionally batched at this milestone.
+Even an exact identity-address match remains only a typed descriptor candidate;
+the later matrix composition and complete vehicle draw still need independent
+proof.
+
+Release/AppData session `20260830T112705Z-p16352` qualified the typed edge in
+stable festival gameplay. All 151,620 observations had readable root, child,
+and descriptor ranges and collapsed to one dynamic profile: root vtable
+`820019CC`, child vtable `82001D74`, descriptor type 21, and flag 1. The probe
+examined 9,400,440 proven-live descriptor words across 34 admitted vehicle
+identities and found no exact owner, position, or forward address. Both bounded
+tables had zero overflow; the log contained no error or fatal event and the
+process exited normally.
+
+The session sustained 30.806 median derived FPS, a 29.584 Hz simulation cadence,
+and a 59.038 Hz presentation cadence during the diagnostic run. The descriptor
+contract is proved, but the zero-match result rejects these 248 bytes as the
+vehicle identity bridge. Continue at the explicit `8240E7B0` matrix composition
+that writes the 64-byte payload passed to `82435E78`; do not widen heuristic
+object scans. Native vehicle drawing and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell
