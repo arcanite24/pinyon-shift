@@ -1375,6 +1375,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(assembly_shadow["suppression_allowed"])
         workset = lifecycle["visibility_policy_workset"]
         self.assertEqual("82E2084C", workset["record_completion_hook_address"])
+        self.assertEqual(
+            ["82E205E4", "82E206DC"],
+            workset["title_lod_write_hook_addresses"],
+        )
         self.assertEqual("8241741C", workset["semantic_instance_hook_address"])
         self.assertEqual(4096, workset["capacity"])
         self.assertEqual(
@@ -1383,6 +1387,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(
             "receiver_generation_record_index", workset["identity"]
+        )
+        self.assertEqual(
+            "latest_exact_title_record_observation",
+            workset["title_lod_lineage"],
         )
         self.assertEqual("bounded_host_visibility_workset", workset["execution"])
         self.assertFalse(workset["title_culling_changed"])
@@ -1409,6 +1417,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             "exact_semantic_pm4_prepared_draw",
             prepared_candidates["prepared_lineage"],
+        )
+        self.assertEqual(
+            "exact_visibility_identity_to_prepared_draw",
+            prepared_candidates["title_lod_lineage"],
         )
         self.assertFalse(prepared_candidates["native_draw_enabled"])
         self.assertTrue(prepared_candidates["xenos_draw_preserved"])

@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-workset.v1"
+SCHEMA = "pinyon-shift.native-renderer-visibility-workset.v2"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = "native_renderer.discovery.semantic_visibility_workset_config"
 ENTRY = "native_renderer.discovery.semantic_visibility_workset_entry"
@@ -80,10 +80,12 @@ def static_contract(document):
         raise ValueError("static visibility-workset contract is missing") from error
     expected = {
         "record_completion_hook_address": "82E2084C",
+        "title_lod_write_hook_addresses": ["82E205E4", "82E206DC"],
         "semantic_instance_hook_address": "8241741C",
         "capacity": 4096,
         "model": "independent_policy_to_semantic_candidate_handoff",
         "identity": "receiver_generation_record_index",
+        "title_lod_lineage": "latest_exact_title_record_observation",
         "selection_rule": "any_nonzero_predicted_category_result_selects",
         "execution": "bounded_host_visibility_workset",
         "guest_payload_read": "qualified_policy_inputs_only",
@@ -132,10 +134,12 @@ def build(events, static, requested_session=None):
         "status": "armed",
         "class": "proceduralGeometry::CProceduralModels",
         "record_completion_hook": "82E2084C",
+        "title_lod_write_hooks": "82E205E4,82E206DC",
         "semantic_instance_hook": "8241741C",
         "capacity": "4096",
         "model": "independent_policy_to_semantic_candidate_handoff",
         "identity": "receiver_generation_record_index",
+        "title_lod_lineage": "latest_exact_title_record_observation",
         "selection_rule": "any_nonzero_predicted_category_result_selects",
         "execution": "bounded_host_visibility_workset",
         "guest_payload_read": "qualified_policy_inputs_only",
@@ -156,6 +160,8 @@ def build(events, static, requested_session=None):
         or summary.get("model")
         != "independent_policy_to_semantic_candidate_handoff"
         or summary.get("identity") != "receiver_generation_record_index"
+        or summary.get("title_lod_lineage")
+        != "latest_exact_title_record_observation"
     ):
         raise ValueError("visibility-workset summary is incomplete")
 
@@ -168,6 +174,8 @@ def build(events, static, requested_session=None):
         "invalid_records",
         "entries",
         "entry_observations",
+        "title_lod_records",
+        "entry_title_lod_observations",
         "capacity",
         "overflow",
         "semantic_instance_lookups",
@@ -186,6 +194,7 @@ def build(events, static, requested_session=None):
         "title_matches": 0,
         "title_mismatches": 0,
         "semantic_instance_joins": 0,
+        "title_lod_observations": 0,
     }
     for event in selected:
         if event.get("event") != ENTRY:
@@ -206,8 +215,10 @@ def build(events, static, requested_session=None):
                 "title_matches",
                 "title_mismatches",
                 "semantic_instance_joins",
+                "title_lod_observations",
             )
         }
+        latest_title_lod_valid = event.get("latest_title_lod_valid") == "true"
         if (
             event.get("status") != "complete"
             or key in seen_keys
@@ -220,11 +231,29 @@ def build(events, static, requested_session=None):
             or integer(event, "first_frame") > integer(event, "last_frame")
             or integer(event, "latest_category_result_mask") > 7
             or event.get("latest_selected") not in ("true", "false")
+            or event.get("latest_title_lod_valid") not in ("true", "false")
+            or event.get("title_lod_lineage")
+            != "latest_exact_title_record_observation"
+            or item["title_lod_observations"] > item["observations"]
+            or (
+                latest_title_lod_valid
+                and integer(event, "latest_title_lod_index") >= 32
+            )
         ):
             raise ValueError("visibility-workset entry evidence drifted")
         seen_keys.add(key)
         seen_identities.add(identity)
-        entries.append({"key": key, "identity": identity, **item})
+        entries.append(
+            {
+                "key": key,
+                "identity": identity,
+                "latest_title_lod_index": integer(
+                    event, "latest_title_lod_index"
+                ),
+                "latest_title_lod_valid": latest_title_lod_valid,
+                **item,
+            }
+        )
         for field in sums:
             sums[field] += item[field]
 
@@ -256,12 +285,16 @@ def build(events, static, requested_session=None):
         summary_field = "entry_observations" if field == "observations" else field
         if field == "semantic_instance_joins":
             expected = totals["selected_joins"] + totals["rejected_joins"]
+        elif field == "title_lod_observations":
+            expected = totals["entry_title_lod_observations"]
         else:
             expected = totals[summary_field]
         if sums[field] != expected:
             failures.append(f"entry {field} totals drifted")
     if totals["entry_observations"] + totals["overflow"] != totals["modelled_records"]:
         failures.append("workset observation accounting drifted")
+    if totals["title_lod_records"] != totals["entry_title_lod_observations"]:
+        failures.append("title LOD lineage accounting drifted")
     if semantic_live != totals["semantic_instance_lookups"]:
         failures.append("semantic-instance summary did not reconcile")
     if (

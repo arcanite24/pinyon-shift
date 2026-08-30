@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v2"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -92,6 +92,7 @@ def static_contract(document):
         "identity": "receiver_generation_record_index",
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+        "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
         "guest_state_changed": False,
         "control_flow_changed": False,
         "native_upload_enabled": False,
@@ -135,6 +136,7 @@ def build(events, static, requested_session=None):
         "identity": "receiver_generation_record_index",
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+        "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
         "guest_state_changed": "false",
         "control_flow_changed": "false",
         "native_upload": "false",
@@ -153,6 +155,8 @@ def build(events, static, requested_session=None):
         != "exact_semantic_pm4_prepared_draw"
         or summary.get("selection")
         != "independent_visibility_selected_and_fresh"
+        or summary.get("title_lod_lineage")
+        != "exact_visibility_identity_to_prepared_draw"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
 
@@ -168,6 +172,8 @@ def build(events, static, requested_session=None):
         "entry_draws",
         "mechanically_eligible_entries",
         "mechanically_eligible_draws",
+        "title_lod_entries",
+        "title_lod_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -204,6 +210,8 @@ def build(events, static, requested_session=None):
             "record_index": integer(event, "record_index"),
             "visibility_category": integer(event, "visibility_category"),
             "visibility_result_mask": integer(event, "visibility_result_mask"),
+            "title_lod_index": integer(event, "title_lod_index"),
+            "title_lod_valid": event.get("title_lod_valid") == "true",
             "draws": integer(event, "draws"),
             "first_frame": integer(event, "first_frame"),
             "last_frame": integer(event, "last_frame"),
@@ -223,6 +231,10 @@ def build(events, static, requested_session=None):
             or item["maximum_policy_age_frames"]
             > totals["policy_age_limit_frames"]
             or event.get("mechanically_eligible") not in ("true", "false")
+            or event.get("title_lod_valid") not in ("true", "false")
+            or event.get("title_lod_lineage")
+            != "exact_visibility_identity_to_prepared_draw"
+            or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
             or integer(event, "policy_age_limit_frames")
             != totals["policy_age_limit_frames"]
         ):
@@ -259,6 +271,13 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in eligible_entries)
     ):
         failures.append("mechanically eligible candidate totals drifted")
+    lod_entries = [entry for entry in entries if entry["title_lod_valid"]]
+    if (
+        totals["title_lod_entries"] != len(lod_entries)
+        or totals["title_lod_draws"]
+        != sum(entry["draws"] for entry in lod_entries)
+    ):
+        failures.append("title LOD candidate totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -279,6 +298,7 @@ def build(events, static, requested_session=None):
             "fresh_visibility_prepared_handoff_proved": not failures,
             "isolated_native_candidate_proved": not failures
             and bool(eligible_entries),
+            "title_lod_lineage_proved": not failures and bool(lod_entries),
             "native_draw_enabled": False,
             "suppression_allowed": False,
         },
