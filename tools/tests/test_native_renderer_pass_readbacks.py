@@ -170,6 +170,9 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
             self.assertEqual(report["result"], "pass")
             self.assertEqual(report["scope"]["content"], "depth-stencil")
             self.assertEqual(report["metrics"]["compared_bytes"], 10)
+            components = report["metrics"]["components"]
+            self.assertTrue(components["depth"]["exact_active_bytes"])
+            self.assertTrue(components["stencil"]["exact_active_bytes"])
 
     def test_depth_padding_is_excluded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -196,6 +199,9 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
             report = MODULE.compare(native, xenos, "depth-stencil")
             self.assertEqual(report["result"], "fail")
             self.assertEqual(report["metrics"]["different_bytes"], 1)
+            components = report["metrics"]["components"]
+            self.assertTrue(components["depth"]["exact_active_bytes"])
+            self.assertEqual(components["stencil"]["different_bytes"], 1)
 
     def test_exact_msaa_depth_sample_tuples_pass(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -208,6 +214,36 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
             self.assertEqual(report["result"], "pass")
             self.assertEqual(report["metrics"]["compared_bytes"], 64)
             self.assertEqual(report["layout"]["sample_count"], 2)
+            components = report["metrics"]["components"]
+            self.assertTrue(components["exact_depth"])
+            self.assertTrue(components["exact_stencil"])
+            self.assertEqual(components["changed_samples"], 0)
+
+    def test_msaa_depth_and_stencil_deltas_are_classified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / "pass.depth"
+            xenos = Path(str(native) + ".xenos")
+            native_data = bytes(64)
+            xenos_data = bytearray(native_data)
+            xenos_data[0] = 1
+            xenos_data[28] = 2
+            write_msaa_depth_readback(native, "native", native_data)
+            write_msaa_depth_readback(xenos, "xenos", bytes(xenos_data))
+            report = MODULE.compare(native, xenos, "depth-stencil")
+            components = report["metrics"]["components"]
+            self.assertFalse(components["exact_depth"])
+            self.assertFalse(components["exact_stencil"])
+            self.assertEqual(components["depth_tuple_changes"], 1)
+            self.assertEqual(components["stencil_tuple_changes"], 1)
+            self.assertEqual(components["depth_different_bytes"], 1)
+            self.assertEqual(components["stencil_different_bytes"], 1)
+            self.assertEqual(components["changed_samples"], 2)
+            self.assertEqual(components["changed_sample_histogram"], [1, 1])
+            self.assertEqual(
+                components["changed_bounds"],
+                {"left": 0, "top": 0, "right": 1, "bottom": 0},
+            )
+            self.assertEqual(len(components["first_changed_samples"]), 2)
 
 
 if __name__ == "__main__":

@@ -156,6 +156,15 @@ draw, dimensions, sample count, encoding, layout, format, role, or safety
 metadata, and requires exact active bytes. Xenos remains the displayed and
 authoritative output throughout.
 
+The report also classifies depth and stencil parity independently. Planar
+captures report each active plane separately. Multisample tuple captures report
+changed pixels and samples, independent depth and stencil tuple/byte counts, a
+per-sample change histogram, a changed-pixel bounding box, and at most the first
+16 changed sample coordinates and bit patterns. Suppression still requires
+exact active bytes; the component breakdown only distinguishes geometry/depth
+divergence from a narrow stencil-state mismatch without requiring another GPU
+capture.
+
 RenderDoc remains available for visual inspection and external confirmation.
 Capture with both the anchor and follower configured, then export their
 native/Xenos spans:

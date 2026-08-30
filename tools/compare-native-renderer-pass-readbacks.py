@@ -58,7 +58,7 @@ def _compare_rows(
     native_data: bytes,
     xenos_data: bytes,
     rows: list[tuple[int, int, int]],
-) -> dict[str, int | float | bool]:
+) -> dict[str, Any]:
     compared_bytes = 0
     different_bytes = 0
     absolute_error = 0
@@ -89,6 +89,122 @@ def _compare_rows(
     }
 
 
+def _compare_depth_tuple_components(
+    native_data: bytes,
+    xenos_data: bytes,
+    width: int,
+    height: int,
+    sample_count: int,
+    plane: dict[str, Any],
+) -> dict[str, Any]:
+    changed_pixels = 0
+    changed_samples = 0
+    depth_tuple_changes = 0
+    stencil_tuple_changes = 0
+    depth_different_bytes = 0
+    stencil_different_bytes = 0
+    changed_sample_histogram = [0] * sample_count
+    left, top, right, bottom = width, height, -1, -1
+    first_changed_samples: list[dict[str, int | str]] = []
+    for y in range(height):
+        row = int(plane["offset"]) + y * int(plane["row_pitch"])
+        for x in range(width):
+            pixel_changed = False
+            for sample in range(sample_count):
+                offset = row + (x * sample_count + sample) * 8
+                native_depth = native_data[offset : offset + 4]
+                xenos_depth = xenos_data[offset : offset + 4]
+                native_stencil = native_data[offset + 4 : offset + 8]
+                xenos_stencil = xenos_data[offset + 4 : offset + 8]
+                depth_changed = native_depth != xenos_depth
+                stencil_changed = native_stencil != xenos_stencil
+                if not depth_changed and not stencil_changed:
+                    continue
+                changed_samples += 1
+                changed_sample_histogram[sample] += 1
+                pixel_changed = True
+                depth_tuple_changes += depth_changed
+                stencil_tuple_changes += stencil_changed
+                depth_different_bytes += sum(
+                    left_byte != right_byte
+                    for left_byte, right_byte in zip(
+                        native_depth, xenos_depth, strict=True
+                    )
+                )
+                stencil_different_bytes += sum(
+                    left_byte != right_byte
+                    for left_byte, right_byte in zip(
+                        native_stencil, xenos_stencil, strict=True
+                    )
+                )
+                if len(first_changed_samples) < 16:
+                    first_changed_samples.append(
+                        {
+                            "x": x,
+                            "y": y,
+                            "sample": sample,
+                            "native_depth_word": format(
+                                int.from_bytes(native_depth, "little"), "08X"
+                            ),
+                            "xenos_depth_word": format(
+                                int.from_bytes(xenos_depth, "little"), "08X"
+                            ),
+                            "native_stencil": int.from_bytes(
+                                native_stencil, "little"
+                            ),
+                            "xenos_stencil": int.from_bytes(
+                                xenos_stencil, "little"
+                            ),
+                        }
+                    )
+            if pixel_changed:
+                changed_pixels += 1
+                left = min(left, x)
+                top = min(top, y)
+                right = max(right, x)
+                bottom = max(bottom, y)
+    return {
+        "changed_pixels": changed_pixels,
+        "total_pixels": width * height,
+        "changed_samples": changed_samples,
+        "total_samples": width * height * sample_count,
+        "depth_tuple_changes": depth_tuple_changes,
+        "stencil_tuple_changes": stencil_tuple_changes,
+        "depth_different_bytes": depth_different_bytes,
+        "stencil_different_bytes": stencil_different_bytes,
+        "changed_sample_histogram": changed_sample_histogram,
+        "exact_depth": depth_tuple_changes == 0,
+        "exact_stencil": stencil_tuple_changes == 0,
+        "changed_bounds": (
+            {"left": left, "top": top, "right": right, "bottom": bottom}
+            if changed_pixels
+            else None
+        ),
+        "first_changed_samples": first_changed_samples,
+    }
+
+
+def _compare_planar_depth_components(
+    native_data: bytes,
+    xenos_data: bytes,
+    planes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    components: dict[str, Any] = {}
+    for index, plane in enumerate(planes):
+        rows = [
+            (
+                int(plane["offset"]) + row * int(plane["row_pitch"]),
+                int(plane["row_pitch"]),
+                int(plane["row_size"]),
+            )
+            for row in range(int(plane["row_count"]))
+        ]
+        components["depth" if index == 0 else "stencil"] = _compare_rows(
+            native_data, xenos_data, rows
+        )
+    return components
+
+
 def compare(
     native_root: Path, xenos_root: Path, content: str = "color"
 ) -> dict[str, Any]:
@@ -116,6 +232,7 @@ def compare(
         raise ValueError("invalid readback dimensions")
 
     rows: list[tuple[int, int, int]] = []
+    component_metrics: dict[str, Any] | None = None
     if content == "color":
         bytes_per_pixel = BYTES_PER_PIXEL.get(dxgi_format)
         if bytes_per_pixel is None:
@@ -197,8 +314,23 @@ def compare(
             "encoding": encoding,
             "planes": native_planes,
         }
+        if encoding == "depth32_stencil8_sample_tuples":
+            component_metrics = _compare_depth_tuple_components(
+                native_data,
+                xenos_data,
+                width,
+                height,
+                sample_count,
+                native_planes[0],
+            )
+        else:
+            component_metrics = _compare_planar_depth_components(
+                native_data, xenos_data, native_planes
+            )
 
     metrics = _compare_rows(native_data, xenos_data, rows)
+    if component_metrics is not None:
+        metrics["components"] = component_metrics
     exact = bool(metrics["exact_active_bytes"])
     return {
         "schema": COLOR_SCHEMA if content == "color" else DEPTH_SCHEMA,
