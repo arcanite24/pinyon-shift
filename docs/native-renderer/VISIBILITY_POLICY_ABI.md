@@ -212,3 +212,31 @@ model. Median performance recovered to 30.153 FPS over 8,234 frames, with a
 19.225 FPS one-percent low and zero present-deadline misses. This qualifies the
 independent spatial helper and the title-result selection mapping for the next
 category-classifier shadow milestone; native policy execution remains disabled.
+
+## Independent category-classifier shadow
+
+The third executable model mirrors the six-vector helper at `0x82441048`. A
+pre-call hook at `0x82E20364` receives the two endpoint vectors from `v1` and
+`v2` and bounded-reads the six 16-byte plane vectors at offsets 0 through 80.
+The generated helper's `{+1,+1,-1,0}` vector constant transforms each plane's
+three spatial axes before support selection and dot products. The transformed
+sign of each axis selects the positive and negative support points. A
+positive-support dot product greater than or equal to zero sets the intersection
+bit; a negative-support dot product greater than zero sets the outside bits. The
+combined bits map to the title's proved 0/1/2 result domain.
+
+Every finite prediction is compared at `0x82E20368`. Category/outcome telemetry
+reconciles one input and comparison with every in-scope oracle classifier call,
+and fails closed on invalid inputs, missing pairs, or any result mismatch. The
+payload contract is limited to 96 guest bytes per call. The model writes no guest
+memory, changes no control flow, cannot cull or draw, and cannot suppress Xenos.
+Release/AppData qualification was held until this complete checkpoint passed
+its static, report, and compile gates. Consolidated Release/AppData
+session `20260830T005146Z-p2496` then matched all 212,464 in-scope category
+classifier calls, all 212,464 spatial-helper calls, and all 25,650 modelled
+title results, with zero invalid inputs, missing pairs, or mismatches. The
+process exited normally with no fatal signatures. Median performance was 30.570
+FPS over 4,963 frames, with a 15.451 FPS one-percent low and zero
+present-deadline misses. This qualifies the independent category classifier for
+native visibility-policy assembly while native policy execution remains
+disabled and Xenos remains authoritative.
