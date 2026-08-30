@@ -177,11 +177,13 @@ struct SemanticDrawIdentity {
   uint32_t secondary_resource_key = 0;
   uint32_t visibility_category = 0;
   uint32_t visibility_result_mask = 0;
+  uint32_t title_lod_index = 0;
   uint32_t direct_title_origins = 0;
   uint32_t indirect_packet_origins = 0;
   SemanticVisibilityWorksetJoin visibility_workset_join =
       SemanticVisibilityWorksetJoin::kMissing;
   bool secondary_resource_present = false;
+  bool title_lod_valid = false;
   bool valid = false;
 };
 
@@ -300,7 +302,9 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t record_index = 0;
   uint32_t visibility_category = 0;
   uint32_t visibility_result_mask = 0;
+  uint32_t title_lod_index = 0;
   bool mechanically_eligible = false;
+  bool title_lod_valid = false;
 };
 
 struct SemanticBatchRun {
@@ -753,12 +757,15 @@ struct SemanticVisibilityWorksetEntry {
   uint64_t title_matches = 0;
   uint64_t title_mismatches = 0;
   uint64_t semantic_instance_joins = 0;
+  uint64_t title_lod_observations = 0;
   uint32_t receiver_address = 0;
   uint32_t receiver_generation = 0;
   uint32_t record_index = 0;
   uint32_t category = 0;
   uint32_t latest_category_result_mask = 0;
+  uint32_t latest_title_lod_index = 0;
   bool latest_selected = false;
+  bool latest_title_lod_valid = false;
 };
 
 std::atomic<uint64_t> g_semantic_visibility_record_entries{};
@@ -847,6 +854,7 @@ uint64_t g_semantic_visibility_workset_predicted_selected = 0;
 uint64_t g_semantic_visibility_workset_predicted_rejected = 0;
 uint64_t g_semantic_visibility_workset_title_matches = 0;
 uint64_t g_semantic_visibility_workset_title_mismatches = 0;
+uint64_t g_semantic_visibility_workset_title_lod_records = 0;
 uint64_t g_semantic_visibility_workset_invalid_records = 0;
 uint64_t g_semantic_visibility_workset_entries = 0;
 uint64_t g_semantic_visibility_workset_overflow = 0;
@@ -1227,6 +1235,9 @@ void PublishSemanticVisibilityWorkset(
   ++(predicted_selected == title_selected
          ? g_semantic_visibility_workset_title_matches
          : g_semantic_visibility_workset_title_mismatches);
+  if (record.lod_seen) {
+    ++g_semantic_visibility_workset_title_lod_records;
+  }
   size_t index = size_t(key % kSemanticVisibilityWorksetCapacity);
   for (size_t probe = 0; probe < kSemanticVisibilityWorksetCapacity;
        ++probe) {
@@ -1254,6 +1265,9 @@ void PublishSemanticVisibilityWorkset(
       entry.category = record.category;
       entry.latest_category_result_mask = result_mask;
       entry.latest_selected = predicted_selected;
+      entry.title_lod_observations += uint64_t(record.lod_seen);
+      entry.latest_title_lod_index = record.lod_index;
+      entry.latest_title_lod_valid = record.lod_seen;
       return;
     }
     index = (index + 1) % kSemanticVisibilityWorksetCapacity;
@@ -1285,6 +1299,8 @@ SemanticVisibilityWorksetJoin JoinSemanticVisibilityWorkset(
       semantic_draw->visibility_category = entry.category;
       semantic_draw->visibility_result_mask =
           entry.latest_category_result_mask;
+      semantic_draw->title_lod_index = entry.latest_title_lod_index;
+      semantic_draw->title_lod_valid = entry.latest_title_lod_valid;
       if (entry.latest_selected) {
         ++g_semantic_visibility_workset_selected_joins;
         semantic_draw->visibility_workset_join =
@@ -1719,6 +1735,7 @@ void ResetTitleDrawProvenance() {
     g_semantic_visibility_workset_predicted_rejected = 0;
     g_semantic_visibility_workset_title_matches = 0;
     g_semantic_visibility_workset_title_mismatches = 0;
+    g_semantic_visibility_workset_title_lod_records = 0;
     g_semantic_visibility_workset_invalid_records = 0;
     g_semantic_visibility_workset_entries = 0;
     g_semantic_visibility_workset_overflow = 0;
@@ -5246,6 +5263,7 @@ void EmitSemanticVisibilityWorkset() {
   uint64_t entry_title_matches = 0;
   uint64_t entry_title_mismatches = 0;
   uint64_t entry_semantic_joins = 0;
+  uint64_t entry_title_lod_observations = 0;
   for (const SemanticVisibilityWorksetEntry &entry :
        g_semantic_visibility_workset) {
     if (!entry.key) {
@@ -5257,6 +5275,7 @@ void EmitSemanticVisibilityWorkset() {
     entry_title_matches += entry.title_matches;
     entry_title_mismatches += entry.title_mismatches;
     entry_semantic_joins += entry.semantic_instance_joins;
+    entry_title_lod_observations += entry.title_lod_observations;
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_workset_entry",
         {{"status", "complete"},
@@ -5281,6 +5300,13 @@ void EmitSemanticVisibilityWorkset() {
          {"latest_category_result_mask",
           std::to_string(entry.latest_category_result_mask)},
          {"latest_selected", entry.latest_selected ? "true" : "false"},
+         {"title_lod_observations",
+          std::to_string(entry.title_lod_observations)},
+         {"latest_title_lod_index",
+          std::to_string(entry.latest_title_lod_index)},
+         {"latest_title_lod_valid",
+          entry.latest_title_lod_valid ? "true" : "false"},
+         {"title_lod_lineage", "latest_exact_title_record_observation"},
          {"execution", "bounded_host_visibility_workset"},
          {"guest_state_changed", "false"},
          {"title_culling_changed", "false"},
@@ -5302,6 +5328,8 @@ void EmitSemanticVisibilityWorkset() {
       g_semantic_visibility_workset_title_matches == entry_title_matches &&
       g_semantic_visibility_workset_title_mismatches ==
           entry_title_mismatches &&
+      g_semantic_visibility_workset_title_lod_records ==
+          entry_title_lod_observations &&
       g_semantic_visibility_workset_semantic_instance_lookups ==
           g_semantic_visibility_workset_selected_joins +
               g_semantic_visibility_workset_rejected_joins +
@@ -5322,6 +5350,10 @@ void EmitSemanticVisibilityWorkset() {
         std::to_string(g_semantic_visibility_workset_title_matches)},
        {"title_mismatches",
         std::to_string(g_semantic_visibility_workset_title_mismatches)},
+       {"title_lod_records",
+        std::to_string(g_semantic_visibility_workset_title_lod_records)},
+       {"entry_title_lod_observations",
+        std::to_string(entry_title_lod_observations)},
        {"invalid_records",
         std::to_string(g_semantic_visibility_workset_invalid_records)},
        {"entries", std::to_string(g_semantic_visibility_workset_entries)},
@@ -5340,6 +5372,7 @@ void EmitSemanticVisibilityWorkset() {
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"model", "independent_policy_to_semantic_candidate_handoff"},
        {"identity", "receiver_generation_record_index"},
+       {"title_lod_lineage", "latest_exact_title_record_observation"},
        {"execution", "bounded_host_visibility_workset"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -10113,7 +10146,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
         contract.geometry_resource_hash, contract.texture_resource_hash,
         prepared_signature,
         uint64_t(identity.visibility_category),
-        uint64_t(identity.visibility_result_mask)}) {
+        uint64_t(identity.visibility_result_mask),
+        uint64_t(identity.title_lod_valid),
+        uint64_t(identity.title_lod_index)}) {
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
@@ -10144,7 +10179,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .record_index = identity.record_index,
           .visibility_category = identity.visibility_category,
           .visibility_result_mask = identity.visibility_result_mask,
+          .title_lod_index = identity.title_lod_index,
           .mechanically_eligible = mechanically_eligible,
+          .title_lod_valid = identity.title_lod_valid,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -10165,7 +10202,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.receiver_generation == identity.receiver_generation &&
         entry.record_index == identity.record_index &&
         entry.visibility_category == identity.visibility_category &&
-        entry.visibility_result_mask == identity.visibility_result_mask) {
+        entry.visibility_result_mask == identity.visibility_result_mask &&
+        entry.title_lod_index == identity.title_lod_index &&
+        entry.title_lod_valid == identity.title_lod_valid) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -11645,6 +11684,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t entry_count = 0;
   uint64_t mechanically_eligible_draws = 0;
   uint64_t mechanically_eligible_entries = 0;
+  uint64_t title_lod_draws = 0;
+  uint64_t title_lod_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -11655,6 +11696,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.mechanically_eligible) {
       mechanically_eligible_draws += entry.draws;
       ++mechanically_eligible_entries;
+    }
+    if (entry.title_lod_valid) {
+      title_lod_draws += entry.draws;
+      ++title_lod_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -11683,6 +11728,9 @@ void EmitSemanticVisibilityPreparedCandidates() {
           std::to_string(entry.visibility_category)},
          {"visibility_result_mask",
           std::to_string(entry.visibility_result_mask)},
+         {"title_lod_index", std::to_string(entry.title_lod_index)},
+         {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
+         {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -11712,7 +11760,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
       g_semantic_visibility_prepared_fresh_candidates ==
           entry_draws +
               g_semantic_visibility_prepared_candidate_overflow &&
-      g_semantic_visibility_prepared_candidate_count == entry_count;
+      g_semantic_visibility_prepared_candidate_count == entry_count &&
+      title_lod_draws <= entry_draws && title_lod_entries <= entry_count;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -11739,6 +11788,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(mechanically_eligible_entries)},
        {"mechanically_eligible_draws",
         std::to_string(mechanically_eligible_draws)},
+       {"title_lod_entries", std::to_string(title_lod_entries)},
+       {"title_lod_draws", std::to_string(title_lod_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -11749,6 +11800,7 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"identity", "receiver_generation_record_index"},
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"selection", "independent_visibility_selected_and_fresh"},
+       {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -14334,10 +14386,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
        {"record_completion_hook", "82E2084C"},
+       {"title_lod_write_hooks", "82E205E4,82E206DC"},
        {"semantic_instance_hook", "8241741C"},
        {"capacity", std::to_string(kSemanticVisibilityWorksetCapacity)},
        {"model", "independent_policy_to_semantic_candidate_handoff"},
        {"identity", "receiver_generation_record_index"},
+       {"title_lod_lineage", "latest_exact_title_record_observation"},
        {"selection_rule", "any_nonzero_predicted_category_result_selects"},
        {"execution", "bounded_host_visibility_workset"},
        {"guest_payload_read", "qualified_policy_inputs_only"},
@@ -14362,6 +14416,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"identity", "receiver_generation_record_index"},
        {"selection", "independent_visibility_selected_and_fresh"},
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
+       {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},

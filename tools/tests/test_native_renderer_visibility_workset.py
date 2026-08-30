@@ -18,10 +18,12 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "procedural_model_receiver_lifecycle": {
                 "visibility_policy_workset": {
                     "record_completion_hook_address": "82E2084C",
+                    "title_lod_write_hook_addresses": ["82E205E4", "82E206DC"],
                     "semantic_instance_hook_address": "8241741C",
                     "capacity": 4096,
                     "model": "independent_policy_to_semantic_candidate_handoff",
                     "identity": "receiver_generation_record_index",
+                    "title_lod_lineage": "latest_exact_title_record_observation",
                     "selection_rule": (
                         "any_nonzero_predicted_category_result_selects"
                     ),
@@ -60,10 +62,12 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "status": "armed",
             "class": "proceduralGeometry::CProceduralModels",
             "record_completion_hook": "82E2084C",
+            "title_lod_write_hooks": "82E205E4,82E206DC",
             "semantic_instance_hook": "8241741C",
             "capacity": "4096",
             "model": "independent_policy_to_semantic_candidate_handoff",
             "identity": "receiver_generation_record_index",
+            "title_lod_lineage": "latest_exact_title_record_observation",
             "selection_rule": "any_nonzero_predicted_category_result_selects",
             "guest_payload_read": "qualified_policy_inputs_only",
             **self.safety(),
@@ -85,6 +89,10 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "title_matches": "3",
             "title_mismatches": "0",
             "semantic_instance_joins": "7",
+            "title_lod_observations": "3",
+            "latest_title_lod_index": "2",
+            "latest_title_lod_valid": "true",
+            "title_lod_lineage": "latest_exact_title_record_observation",
             "latest_category_result_mask": "6",
             "latest_selected": "true",
             **self.safety(entry=True),
@@ -98,6 +106,9 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "predicted_rejected": "2",
             "title_matches": "2",
             "semantic_instance_joins": "0",
+            "title_lod_observations": "0",
+            "latest_title_lod_index": "0",
+            "latest_title_lod_valid": "false",
             "latest_category_result_mask": "1",
             "latest_selected": "false",
         }
@@ -113,6 +124,8 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "invalid_records": "0",
             "entries": "2",
             "entry_observations": "5",
+            "title_lod_records": "3",
+            "entry_title_lod_observations": "3",
             "capacity": "4096",
             "overflow": "0",
             "semantic_instance_lookups": "7",
@@ -122,6 +135,7 @@ class VisibilityWorksetReportTests(unittest.TestCase):
             "accounting_complete": "true",
             "model": "independent_policy_to_semantic_candidate_handoff",
             "identity": "receiver_generation_record_index",
+            "title_lod_lineage": "latest_exact_title_record_observation",
             **self.safety(),
         }
         assembly = {
@@ -150,6 +164,15 @@ class VisibilityWorksetReportTests(unittest.TestCase):
         )
         self.assertFalse(document["safety"]["title_culling_changed"])
         self.assertTrue(document["safety"]["xenos_authority"])
+        self.assertEqual(3, document["totals"]["title_lod_records"])
+
+    def test_build_rejects_title_lod_accounting_drift(self):
+        events = copy.deepcopy(self.events())
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["title_lod_records"] = "2"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn("title LOD lineage accounting drifted", document["failures"])
 
     def test_build_filters_missing_superset_observation(self):
         events = copy.deepcopy(self.events())

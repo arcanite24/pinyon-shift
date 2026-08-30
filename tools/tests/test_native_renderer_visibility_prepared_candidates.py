@@ -24,6 +24,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
                     "identity": "receiver_generation_record_index",
                     "selection": "independent_visibility_selected_and_fresh",
                     "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+                    "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
                     "guest_state_changed": False,
                     "control_flow_changed": False,
                     "native_upload_enabled": False,
@@ -58,6 +59,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "identity": "receiver_generation_record_index",
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+            "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
             **self.safety(),
         }
         entry = {
@@ -78,6 +80,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "record_index": "4",
             "visibility_category": "9",
             "visibility_result_mask": "6",
+            "title_lod_index": "2",
+            "title_lod_valid": "true",
+            "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
             "draws": "7",
             "first_frame": "10",
             "last_frame": "12",
@@ -102,6 +107,8 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "entry_draws": "7",
             "mechanically_eligible_entries": "1",
             "mechanically_eligible_draws": "7",
+            "title_lod_entries": "1",
+            "title_lod_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -109,6 +116,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "identity": "receiver_generation_record_index",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "selection": "independent_visibility_selected_and_fresh",
+            "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
             **self.safety(),
         }
         workset = {
@@ -130,6 +138,19 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
         self.assertTrue(
             document["qualification"]["isolated_native_candidate_proved"]
         )
+        self.assertTrue(document["qualification"]["title_lod_lineage_proved"])
+
+    def test_build_accepts_candidate_without_title_lod(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["title_lod_index"] = "0"
+        entry["title_lod_valid"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["title_lod_entries"] = "0"
+        summary["title_lod_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(document["qualification"]["title_lod_lineage_proved"])
 
     def test_build_accepts_fresh_candidate_without_isolated_eligibility(self):
         events = copy.deepcopy(self.events())

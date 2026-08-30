@@ -1592,12 +1592,17 @@ def procedural_model_receiver_lifecycle(
             "record_completion_hook_address": "{:08X}".format(
                 spec["visibility_record_exit"]
             ),
+            "title_lod_write_hook_addresses": [
+                "{:08X}".format(address)
+                for address in spec["visibility_lod_hooks"]
+            ],
             "semantic_instance_hook_address": "{:08X}".format(
                 spec["render_item_entry_hook"]
             ),
             "capacity": 4096,
             "model": "independent_policy_to_semantic_candidate_handoff",
             "identity": "receiver_generation_record_index",
+            "title_lod_lineage": "latest_exact_title_record_observation",
             "selection_rule": "any_nonzero_predicted_category_result_selects",
             "execution": "bounded_host_visibility_workset",
             "guest_payload_read": "qualified_policy_inputs_only",
@@ -1622,6 +1627,7 @@ def procedural_model_receiver_lifecycle(
             "identity": "receiver_generation_record_index",
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+            "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
             "guest_state_changed": False,
             "control_flow_changed": False,
             "native_upload_enabled": False,
