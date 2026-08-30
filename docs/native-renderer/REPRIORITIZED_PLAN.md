@@ -3,10 +3,10 @@
 Status: active execution backlog, 2026-08-30
 
 This is the concise implementation order for completing the native renderer.
-It does not reduce the final scope. The exhaustive
-[`PINYON_SHIFT_NATIVE_RENDERER_INVESTIGATION_AND_EXECUTION_PLAN.md`](../PINYON_SHIFT_NATIVE_RENDERER_INVESTIGATION_AND_EXECUTION_PLAN.md)
-remains the source for architecture, evidence, rejected approaches, detailed
-acceptance criteria, legal boundaries, and qualification methodology.
+It does not reduce the final scope. The exhaustive local research document
+`docs/PINYON_SHIFT_NATIVE_RENDERER_INVESTIGATION_AND_EXECUTION_PLAN.md` remains
+the source for architecture, evidence, rejected approaches, detailed acceptance
+criteria, legal boundaries, and qualification methodology.
 
 The order here is optimized to produce a visible, playable hybrid prototype
 early. After that checkpoint, work continues through full semantic coverage,
