@@ -5726,6 +5726,7 @@ struct IsolatedDrawState {
   bool stencil_seed_probe_requested = false;
   bool shadow_depth_mode = false;
   bool shadow_depth_batch_mode = false;
+  bool shadow_depth_publication_mode = false;
   uint64_t shadow_depth_contract_matches = 0;
   uint64_t shadow_depth_contract_rejections = 0;
   uint64_t shadow_depth_batch_member_matches = 0;
@@ -5744,6 +5745,9 @@ struct IsolatedDrawState {
   uint64_t shadow_depth_batch_target_failures = 0;
   uint64_t shadow_depth_batch_unsupported = 0;
   uint64_t shadow_depth_batch_frame_quota_yields = 0;
+  uint64_t shadow_depth_publication_attempts = 0;
+  uint64_t shadow_depth_publications = 0;
+  uint64_t shadow_depth_publication_failures = 0;
   uint32_t shadow_depth_batch_draws = 0;
   bool shadow_depth_batch_active = false;
   bool shadow_depth_batch_backend_ready = false;
@@ -6245,6 +6249,22 @@ void ConfigureIsolatedDraw() {
     if (signature_requested) {
       g_isolated_draw.valid = false;
     }
+  }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(&value, &length,
+                "PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.shadow_depth_publication_mode = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.shadow_depth_publication_mode &&
+      !g_isolated_draw.shadow_depth_batch_mode) {
+    g_isolated_draw.valid = false;
   }
   value = nullptr;
   length = 0;
@@ -15691,9 +15711,57 @@ void CompleteIsolatedShadowDepthBatch(
        {"allocation_width", std::to_string(result.target_width)},
        {"allocation_height", std::to_string(result.target_height)},
        {"private_depth_target", recorded ? "accumulated" : "unqualified"},
-       {"native_publication", "false"},
+       {"native_publication", g_isolated_draw.shadow_depth_publication_mode
+                                  ? "pending_after_authoritative_draw"
+                                  : "disabled"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
+       {"suppression_eligible", "false"}});
+}
+
+void CompleteIsolatedShadowDepthPublication(
+    const rex::system::GraphicsIsolatedDrawPublicationResult &result) {
+  ++g_isolated_draw.shadow_depth_publication_attempts;
+  const bool published =
+      result.status ==
+          rex::system::GraphicsIsolatedDrawPublicationStatus::kPublished &&
+      !result.color_published && result.depth_stencil_published &&
+      !result.guest_draw_suppressed;
+  if (published) {
+    ++g_isolated_draw.shadow_depth_publications;
+  } else {
+    ++g_isolated_draw.shadow_depth_publication_failures;
+  }
+  const char *status = "unavailable";
+  switch (result.status) {
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kPublished:
+    status = published ? "published_depth_stencil" : "incomplete";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kUnsupportedPath:
+    status = "unsupported_path";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kTargetMismatch:
+    status = "target_mismatch";
+    break;
+  case rex::system::GraphicsIsolatedDrawPublicationStatus::kUnavailable:
+    break;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.shadow_depth_batch.publication",
+      {{"status", status},
+       {"frame", std::to_string(g_isolated_draw.shadow_depth_batch_frame)},
+       {"draw", std::to_string(g_isolated_draw.shadow_depth_batch_last_draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"sample_count", std::to_string(result.sample_count)},
+       {"color", result.color_published ? "unexpected" : "not_bound"},
+       {"depth_stencil",
+        result.depth_stencil_published ? "published" : "preserved_xenos"},
+       {"consumer_handoff", "xenos_rt_dump_retained"},
+       {"xenos_producer_draws", "preserved"},
+       {"xenos_draw_suppression", "false"},
+       {"resolve_suppression", "false"},
+       {"fallback", published ? "not_needed" : "authoritative_xenos_content"},
        {"suppression_eligible", "false"}});
 }
 
@@ -16204,6 +16272,13 @@ void RequestIsolatedDraw(
     request.reference_depth_readback_completion =
         capture_batch ? &CompleteIsolatedReferenceShadowBatchDepthReadback
                       : nullptr;
+    request.publish_to_guest_requested =
+        completing_batch && g_isolated_draw.shadow_depth_publication_mode;
+    request.suppress_guest_draw_if_published = false;
+    request.publication_completion =
+        request.publish_to_guest_requested
+            ? &CompleteIsolatedShadowDepthPublication
+            : nullptr;
     return;
   }
   if (g_isolated_draw.shadow_depth_mode) {
@@ -19479,7 +19554,19 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           g_isolated_draw.shadow_depth_batch_capture_completed
               ? "native_and_xenos_completed_batch"
               : "not_captured"},
-         {"native_publication", "false"},
+         {"native_publication",
+          g_isolated_draw.shadow_depth_publication_mode
+              ? (g_isolated_draw.shadow_depth_publications
+                     ? "published_private_depth_before_xenos_rt_dump"
+                     : "requested_but_not_published")
+              : "disabled"},
+         {"publication_attempts",
+          std::to_string(g_isolated_draw.shadow_depth_publication_attempts)},
+         {"publications",
+          std::to_string(g_isolated_draw.shadow_depth_publications)},
+         {"publication_failures",
+          std::to_string(g_isolated_draw.shadow_depth_publication_failures)},
+         {"consumer_handoff", "xenos_rt_dump_retained"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
          {"draw_suppression", "false"},

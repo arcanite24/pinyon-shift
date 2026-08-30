@@ -18,6 +18,7 @@ param(
     [string]$IsolatedDrawDir,
     [switch]$ShadowDepthIsolated,
     [switch]$ShadowDepthBatch,
+    [switch]$PublishShadowDepth,
     [switch]$StencilSeedProbe,
     [switch]$RequireFreshVisibilityCandidate,
     [switch]$AutoSelectFreshVisibilityCandidate,
@@ -93,6 +94,9 @@ if ($ShadowDepthIsolated -and -not $IsolatedDrawDir) {
 }
 if ($ShadowDepthBatch -and -not $IsolatedDrawDir) {
     throw 'ShadowDepthBatch requires IsolatedDrawDir.'
+}
+if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
+    throw 'PublishShadowDepth requires ShadowDepthBatch.'
 }
 if ($StencilSeedProbe -and -not $IsolatedDrawDir) {
     throw 'StencilSeedProbe requires IsolatedDrawDir.'
@@ -193,6 +197,8 @@ $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED
 $savedShadowDepthBatch = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH
+$savedShadowDepthPublication =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
 $savedStencilSeedProbe = $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE
 $savedVisibilityGate = $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE
 $savedAutoVisibilityCandidate =
@@ -223,6 +229,8 @@ try {
         if ($ShadowDepthIsolated) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         if ($ShadowDepthBatch) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
+        if ($PublishShadowDepth) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE =
         if ($StencilSeedProbe) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
@@ -260,6 +268,8 @@ finally {
         $savedShadowDepthIsolated
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         $savedShadowDepthBatch
+    $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
+        $savedShadowDepthPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_STENCIL_SEED_PROBE = $savedStencilSeedProbe
     $env:PINYON_SHIFT_NATIVE_RENDERER_REQUIRE_FRESH_VISIBILITY_CANDIDATE =
         $savedVisibilityGate
