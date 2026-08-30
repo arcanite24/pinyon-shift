@@ -240,3 +240,33 @@ FPS over 4,963 frames, with a 15.451 FPS one-percent low and zero
 present-deadline misses. This qualifies the independent category classifier for
 native visibility-policy assembly while native policy execution remains
 disabled and Xenos remains authoritative.
+
+## Independent policy-assembly shadow
+
+The fourth model assembles the two independent mirrors into one record-level
+decision. A native spatial prediction admits a candidate to the native category
+classifier; category results 1 or 2 select the record, while records with only
+result 0 are rejected. The title helper returns are no longer inputs to this
+decision. Only the title's final record result is retained as the oracle used to
+score the assembled native prediction.
+
+Each candidate reads at most the already-qualified 52-byte spatial payload and
+96-byte category payload. Category/outcome telemetry independently reconciles
+spatial inputs and passes, category inputs and predicted result distribution,
+model coverage, and final false-positive and false-negative counts against the
+three prior qualified datasets. Any missing pair, invalid input, accounting
+drift, or title-result mismatch fails qualification closed.
+
+This remains a shadow checkpoint. It changes no guest state or control flow,
+does not enable native culling or LOD, performs no native draw, and cannot
+suppress Xenos.
+
+The batched Release/AppData session `20260830T011157Z-p1896` reconciled
+1,572,434 title records. Both independent mirrors matched all 223,473 in-scope
+spatial and category calls, and the assembled model matched all 26,979 modelled
+record outcomes with zero false positives, false negatives, invalid inputs, or
+accounting faults. The process exited normally with no fatal signatures. Median
+performance was 30.318 FPS over 8,063 frames, with a 19.396 FPS one-percent low
+and zero present-deadline misses. This qualifies the independent assembly for
+conservative native policy-execution design while execution and suppression
+remain disabled and Xenos stays authoritative.

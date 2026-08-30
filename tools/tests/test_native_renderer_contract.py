@@ -232,6 +232,19 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"xenos_authority": True', category_shadow_summarizer)
         self.assertIn('"suppression_allowed": False', category_shadow_summarizer)
 
+        assembly_shadow_summarizer = (
+            ROOT
+            / "tools/summarize-native-renderer-visibility-assembly-shadow.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("independent_visibility_policy_assembly_shadow", source)
+        self.assertIn(
+            '"guest_payload_read": "bounded_spatial_and_category_inputs"',
+            assembly_shadow_summarizer,
+        )
+        self.assertIn('"guest_state_changed": False', assembly_shadow_summarizer)
+        self.assertIn('"xenos_authority": True', assembly_shadow_summarizer)
+        self.assertIn('"suppression_allowed": False', assembly_shadow_summarizer)
+
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
