@@ -112,3 +112,20 @@ This milestone proves authentic GPU draw recording and target isolation.
 Single-draw and retained-pass captures asynchronously write paired native and
 authoritative Xenos color/depth artifacts for later image comparison; a
 successful replay is not by itself a claim of visual equivalence.
+
+When the isolated draw requests the complete diagnostic set, the runtime now
+waits for the six independently written artifacts (native and Xenos color,
+post-draw depth/stencil, and pre-draw depth/stencil seed checkpoints). After
+the last artifact commits, a background writer performs chunked exact-byte
+comparisons and emits one
+`native_renderer.isolated_draw.parity_summary` event. The event separates:
+
+- final color parity;
+- private-versus-authoritative depth/stencil seed parity;
+- the number of depth/stencil bytes changed by the native and Xenos draws; and
+- final depth/stencil parity.
+
+`status=exact` requires exact color, seed, and final depth/stencil equality.
+The summary is diagnostic evidence only: it does not wait on the GPU, promote
+the signature, alter guest state, suppress a draw, or change Xenos output
+authority. A missing or failed artifact cannot produce an exact summary.
