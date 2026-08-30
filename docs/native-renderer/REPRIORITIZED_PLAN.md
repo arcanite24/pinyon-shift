@@ -1,0 +1,457 @@
+# Pinyon Shift native renderer reprioritized backlog
+
+Status: active execution backlog, 2026-08-30
+
+This is the concise implementation order for completing the native renderer.
+It does not reduce the final scope. The exhaustive local research document
+`docs/PINYON_SHIFT_NATIVE_RENDERER_INVESTIGATION_AND_EXECUTION_PLAN.md` remains
+the source for architecture, evidence, rejected approaches, detailed acceptance
+criteria, legal boundaries, and qualification methodology.
+
+The order here is optimized to produce a visible, playable hybrid prototype
+early. After that checkpoint, work continues through full semantic coverage,
+production suppression, low-requirement profiles, and eventual Xenos plugin
+retirement.
+
+## Final destination
+
+The backlog is fully complete only when:
+
+- all required gameplay, frontend, UI, garage, loading, rewind, photo-mode,
+  livery, FMV, and presentation behavior has a native implementation or a
+  proven native no-op replacement;
+- terrain, roads, world, vehicles, vegetation, lighting, shadows, reflections,
+  transparency, post-processing, and UI have qualified native paths;
+- guest-visible render targets, queries, memexport, resolves, fences, events,
+  and streaming lifetimes remain correct;
+- independent quality profiles materially reduce GPU time and memory while
+  preserving simulation and UI correctness;
+- a no-Xenos build passes the complete qualification matrix; and
+- Xenos retirement has a documented rollback release.
+
+Nothing in the original NR-00 through NR-07 scope is dropped. Items below the
+prototype line are later work, not optional work.
+
+## Safety invariants
+
+These apply throughout the backlog:
+
+- Xenos remains the default and authoritative fallback until its retirement
+  gate is satisfied.
+- Native output, pass suppression, and default selection are separate gates.
+- Unknown, stale, unsupported, or failed work yields to Xenos.
+- Every suppression family has an independent rollback switch.
+- Guest side effects are preserved even when equivalent visual work is native.
+- Save files and game assets are never modified to qualify rendering.
+- Public reports remain payload-free; local captures stay below `.local`.
+
+## Current checkpoint
+
+Already landed or substantially qualified:
+
+- renderer census, pass identity, graphics hooks, and capture infrastructure;
+- native guest-output ownership, diagnostic output, and recovery behavior;
+- authentic isolated draw replay and one-pass replay foundations;
+- resource identity, invalidation, target bridging, caches, and deferred GPU
+  lifetime foundations;
+- exact-frame publication, private full-size composition, and dual-path output;
+- the first independently reversible exact-family suppression experiment;
+- bounded visibility worksets with title visibility and LOD lineage;
+- exact native replay of an 80-draw dynamic shadow epoch with byte-identical
+  D24S8 output and bounded multi-frame publication;
+- extensive vehicle provenance investigation, without a qualified semantic
+  vehicle rendering bridge yet; and
+- post-processing topology census plus the mechanical presentation ingress.
+
+The active slice is `arcanite24/native-post-processing-ingress`, following
+merged PRs #160 and #161. The largest remaining near-term gap is integration:
+turn qualified private work into a coherent continuous frame.
+
+---
+
+## Phase A — Close the active ingress slice
+
+### A1. Final compositor ingress
+
+- Finish the deterministic presentation-binding exporter and report.
+- Record the exact source/destination resources, dimensions, formats, and event
+  boundary.
+- Classify the source as capture-local, imported, or externally produced.
+- Fail closed when the expected binding is absent or ambiguous.
+- Stop tracing after the minimum safe implementation boundary is known.
+
+Exit gate:
+
+- focused tests and payload-free documentation pass;
+- no guessed effect semantics, native publication, or new suppression;
+- the focused PR is merged into `dev`.
+
+---
+
+## Phase B — Early visible hybrid prototype
+
+This phase is the first user-visible checkpoint. It deliberately reuses Xenos
+for missing content while proving continuous native gameplay rendering.
+
+### B1. Continuous opaque-world workset
+
+- Promote the qualified bounded visibility workset into the existing private
+  continuous composition target.
+- Render multiple fresh prepared draws from a representative opaque world
+  family every frame.
+- Preserve title visibility, LOD admission, ordering, and capacity bounds.
+- Publish only a complete current-frame target.
+- Yield to Xenos when freshness or coverage gates fail.
+
+### B2. Minimal presentation path
+
+- Use the proven presentation ingress and output dimensions.
+- Implement a deterministic passthrough/upscale sufficient to display the
+  native target at output resolution.
+- Do not block on exact bloom, grading, motion blur, or depth-of-field.
+- Preserve full-resolution UI through hybrid composition when its boundary is
+  safe; otherwise fall back to the complete Xenos frame.
+
+### B3. Prototype hybrid composition
+
+- Combine the continuous native opaque contribution with Xenos-provided
+  vehicles, transparency, effects, and UI.
+- Remove diagnostic checkerboard and retained-crop presentation from the
+  supported prototype scene.
+- Keep Xenos draws and resolves intact; add no new suppression.
+
+### B4. First native shadow integration
+
+- Connect the proven 2048-square dynamic shadow epoch only when its exact
+  consumer resource and sampling contract are established.
+- Publish the depth result with current-frame ownership.
+- Report `shadow=fallback_xenos` when the exact consumer is unavailable rather
+  than rejecting the entire prototype frame.
+
+### B5. Prototype controls and comparison
+
+- Keep Xenos as the default.
+- Provide explicit Xenos, native-prototype, and comparison selections using the
+  existing renderer configuration model.
+- Report native world, shadow, presentation, fallback, and suppression states.
+- Export a paired native/Xenos screenshot and machine-readable comparison from
+  the same clean build.
+
+### B6. Batched prototype qualification
+
+Run focused automated checks during B1-B5, then one full validation batch:
+
+- clean patch application and preview build;
+- repository test suites;
+- AppData-backed startup, open-world driving, race, pause/UI, and shutdown;
+- fallback, relaunch, and renderer-reset behavior;
+- absence of device removal, validation errors, fatal signatures, save-data
+  changes, or unintended suppression; and
+- observed median FPS, one-percent-low FPS, presentation cadence, and native
+  GPU timing without making performance claims.
+
+Prototype exit gate:
+
+- a supported gameplay scene shows recognizable, stable, continuous native
+  world rendering in the final displayed frame;
+- missing families remain visibly correct through hybrid composition or clean
+  Xenos fallback; and
+- the result is manually testable without developer capture tooling.
+
+---
+
+## Phase C — Complete native gameplay-scene coverage
+
+After the prototype, expand semantic coverage in visible-impact order. Each
+family follows the same ladder: exact census, semantic extraction, isolated
+native output, continuous hybrid output, replay fallback, optimization, then
+qualification.
+
+### C1. Terrain and road network
+
+- Extract world sections, meshes, materials, transforms, visibility, and LOD.
+- Batch compatible opaque terrain and road instances.
+- Cover representative daytime, nighttime, race, and high-speed streaming
+  scenes.
+
+### C2. Static world buildings and props
+
+- Expand opaque-world material and geometry coverage.
+- Preserve exceptional shader states through exact replay fallback.
+- Track streaming registration, invalidation, and destruction.
+
+### C3. Semantic batching, culling, and LOD
+
+- Promote the existing visibility and prepared-draw evidence into production
+  semantic worksets.
+- Implement conservative native frustum/distance culling and title-derived LOD.
+- Preserve query and guest-visible behavior independently from visual culling.
+- Prove material reductions in draw count and submission time.
+
+### C4. Player and traffic vehicles
+
+- Resume vehicle work from the documented rejected paths rather than repeating
+  broad provenance searches.
+- Establish a reliable object-to-render transform, mesh, material, wheel, and
+  livery contract.
+- Implement player vehicle first, then traffic and exceptional materials.
+- Retain per-item replay fallback until semantic coverage is complete.
+
+### C5. Sky, atmosphere, and global lighting
+
+- Replace the qualified sky/global-light families.
+- Preserve exposure and downstream target dependencies until the native post
+  chain owns them.
+
+### C6. Vegetation, crowds, and repeated world instances
+
+- Build instanced native paths with measured density and LOD behavior.
+- Preserve ordering and alpha-test semantics.
+
+### C7. Transparent scene and gameplay effects
+
+- Add ordered transparent rendering, particles, weather, and remaining effects.
+- Keep exceptional or order-sensitive work on replay until independently
+  qualified.
+
+Scene-coverage exit gate:
+
+- open world and active races have coherent native terrain, roads, static
+  world, vehicles, sky, vegetation, transparency, and gameplay effects;
+- unsupported items fall back individually without losing the frame;
+- representative heavy scenes materially reduce the roughly 2,000-draw
+  baseline; and
+- streaming and long-session qualification remain green.
+
+---
+
+## Phase D — Complete lighting, reflections, and presentation
+
+### D1. Full shadow system
+
+- Finish static/dynamic caster ownership and atlas-region classification.
+- Implement required cascades or equivalent qualified regions.
+- Cover terrain, world, vehicle, vegetation, and exceptional casters.
+- Add profile-ready shadow resolution and distance controls.
+
+### D2. Reflection system
+
+- Classify and implement cubemap, planar, probe, vehicle, and other observed
+  reflection paths.
+- Preserve update cadence and render-to-texture consumers.
+- Add independently selectable simplified and full modes.
+
+### D3. Native post-processing chain
+
+Implement in dependency order:
+
+1. scene input and output-resolution upscale;
+2. tone mapping and exposure;
+3. color grading;
+4. bloom;
+5. motion blur where required and validated;
+6. depth-of-field where required;
+7. remaining measured screen-space effects; and
+8. full-resolution UI/HUD composition.
+
+Each effect receives a native implementation, Xenos/replay fallback, visual A/B
+report, timing report, independent gate, and documented reduced-quality mode.
+
+### D4. Frontend and special-mode coverage
+
+- Frontend and HUD.
+- Garage and autoshow.
+- Loading screens and FMVs.
+- Rewind and photo mode.
+- Liveries, thumbnails, mirrors, and other guest-visible render-to-texture work.
+- Save/reload and map-transition freshness.
+
+Presentation exit gate:
+
+- the required gameplay and non-gameplay scene matrix is visually complete in
+  native-selected mode;
+- UI remains output-resolution and legible;
+- every render-target consumer is native, bridged, or deliberately retained;
+- native/Xenos visual differences are documented and accepted.
+
+---
+
+## Phase E — Production hybrid renderer and measured suppression
+
+This phase turns complete native coverage into real performance savings.
+Suppression remains independently reversible and proceeds only from exact
+dependency evidence.
+
+### E1. Close the renderer census
+
+- Reach the original NR-00 classification and dependency gates across every
+  required scene.
+- Keep unknown and low-confidence work explicit.
+- Identify every guest CPU read, query, memexport, resolve, and later texture
+  consumer.
+
+### E2. Harden resources and streaming
+
+- Complete physical resource generations, guest-write invalidation, buffer and
+  texture formats, render-target bridging, PSO/descriptor caches, workers,
+  deferred destruction, and memory budgets for all covered families.
+- Pass long high-speed routes, address reuse, map transitions, cache pressure,
+  and device-shutdown stress.
+
+### E3. Expand pass-level suppression
+
+Admit one exact family at a time:
+
+1. presentation-only work with no downstream dependency;
+2. complete opaque scene;
+3. transparent scene;
+4. redundant Xenos post-processing;
+5. native-owned depth, shadow, and reflection producers; and
+6. remaining replayed families after full coverage.
+
+For every family:
+
+- preserve PM4 parsing, queries, events, fences, memexport, resolves, and
+  guest-memory effects;
+- prove paired visual coverage before suppression;
+- measure an actual Xenos GPU-time reduction;
+- qualify failure, warm-up, cooldown, stale-frame, and rollback routes; and
+- keep an independent switch until final retirement.
+
+### E4. Production state-based yield and recovery
+
+- Cover boot, loading, frontend, garage, rewind, photo mode, FMVs, unknown
+  states, renderer failure, and stale scene generations.
+- Guarantee a complete Xenos fallback before any native write.
+- Expose renderer state and recovery actions in launcher diagnostics and support
+  bundles.
+
+Hybrid-production exit gate:
+
+- continuous native output is stable across the full scene matrix;
+- suppressed families show measured CPU/GPU benefit;
+- save, reload, pause, exit, relaunch, and long sessions remain correct;
+- no guest side-effect dependency is lost; and
+- all suppression behavior has a tested rollback.
+
+---
+
+## Phase F — Low-requirement renderer profiles
+
+Complete original NR-06 after the production hybrid path is stable.
+
+### F1. Independent scene resolution
+
+- Profile-controlled 3D resolution with output-resolution UI.
+- Correct sampling, half-pixel behavior, and stable upscale.
+
+### F2. Geometry and world controls
+
+- LOD bias, visual world distance, traffic draw distance, vegetation density,
+  far impostors, and shadow-caster distance without changing simulation.
+
+### F3. Material and effect tiers
+
+- Full and reduced materials.
+- Shadow, reflection, SSAO, bloom, motion-blur, atmosphere, and AA tiers.
+- Explicit format and memory tradeoffs.
+
+### F4. CPU builds and hardware qualification
+
+- Preserve the SSE4.1 baseline and optionally provide an AVX2 build.
+- Qualify development, midrange, low-end discrete, integrated, and available
+  handheld-class hardware.
+- Record median, p95/p99, memory, and recovery behavior per profile.
+
+Profile exit gate:
+
+- Minimum materially reduces GPU time and native memory versus Balanced;
+- UI, input, physics, audio, saves, and game logic are unchanged;
+- conservative automatic defaults and manual recovery are reliable.
+
+---
+
+## Phase G — Xenos plugin retirement
+
+This remains last because it has the highest compatibility risk and little
+benefit after successful main-scene suppression.
+
+### G1. Remaining dependency closure
+
+- Inventory every remaining Xenos-only pass and side effect.
+- Replace it natively or prove it unnecessary.
+- Close queries, fences, events, memexport, guest-visible render targets, and
+  presentation semantics.
+
+### G2. No-Xenos build
+
+- Add a build configuration with no runtime Xenos GPU-plugin dependency.
+- Retain diagnostic and recovery paths suitable for the new architecture.
+
+### G3. Release-candidate qualification
+
+- Run every required scene, save/reload, garage, race, rewind, frontend,
+  special mode, and long-route test.
+- Verify performance and memory are no worse than the qualified hybrid build.
+- Maintain an extended release-candidate period.
+- Publish a documented rollback release before removing the ordinary fallback.
+
+Final exit gate:
+
+- no runtime Xenos GPU-plugin load or dependency;
+- no unimplemented guest graphics side effect;
+- complete qualification and long-session matrices pass;
+- the no-Xenos renderer is recoverable, supportable, and release-ready.
+
+---
+
+## Original-epic coverage map
+
+| Original epic | Reprioritized phases |
+|---|---|
+| NR-00 — Census and pass identity | Existing foundation; A, C, D, E1, G1 |
+| NR-01 — Guest-output bridge | Existing foundation; B2-B5, E4, G2 |
+| NR-02 — Authentic replay | Existing foundation; B1, C, D |
+| NR-03 — Resources and streaming | Existing foundation; B, C, E2 |
+| NR-04 — Continuous hybrid rendering | B, E3-E4 |
+| NR-05 — Semantic Forza fast paths | B1-B4, C, D |
+| NR-06 — Low-requirement profiles | F |
+| NR-07 — Xenos retirement | G |
+
+## Validation cadence
+
+To avoid spending most implementation time on repeated full builds:
+
+- run focused unit, schema, formatter, and static checks per implementation
+  slice;
+- batch related PR work before a clean preview build when safety permits;
+- run one AppData-backed gameplay session at each phase exit or when a runtime
+  contract changes materially;
+- run the full multi-scene matrix only at prototype, production-hybrid,
+  profile, and retirement gates; and
+- never weaken a fail-closed gate merely to obtain visible output.
+
+## Decision rules
+
+- After B1, inspect one representative frame. If it is still only a diagnostic
+  fragment, spend one bounded slice on the missing opaque-world family before
+  broadening the census again.
+- If native world composition remains temporarily blocked, a native
+  presentation/upscale over the complete Xenos scene may become the first
+  visible demonstration, but it does not replace B1 or remove any later work.
+- Reopen a deep investigation only when it blocks the next concrete rendering
+  acceptance gate. Start from the original document’s evidence and rejected
+  paths.
+- Prefer visible vertical slices over completing every subsystem horizontally,
+  while still closing every original epic before final completion.
+- Never market prototype or hybrid results as a native-only renderer.
+
+## Working rules
+
+- Use focused `arcanite24/*` branches and PRs against `dev`.
+- Use conventional commits and keep each PR independently reviewable.
+- Preserve user-local work and local qualification artifacts.
+- Launch AppData-backed tests only through the repository’s documented preview
+  script and exact installed preview state root.
+- Keep the exhaustive plan for technical detail; update this file for ordering,
+  phase status, and completion decisions.
