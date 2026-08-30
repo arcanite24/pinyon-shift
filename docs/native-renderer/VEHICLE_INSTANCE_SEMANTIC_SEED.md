@@ -216,6 +216,57 @@ the live `r7` contract but does not establish vehicle identity or a native draw
 source. Continue from the now-partitioned caller families or the typed child
 predicate edge; native vehicle drawing and suppression remain closed.
 
+## Typed vehicle-matrix caller correlation
+
+The `8240ECAC` family resolves to title function `8240E7B0`. Its prologue
+preserves guest `r6` and immediately loads four 16-byte rows from that address,
+establishing a live 4x4 matrix contract before the already-qualified
+render-context dispatch. A read-only entry hook at `8240E7B4` now captures the
+matrix address and exact caller return address while the original arguments are
+still live.
+
+Each finite 64-byte matrix is compared with the latest position and forward
+vector from every already-admitted vehicle identity. The diagnostic evaluates
+both conventional 4x4 interpretations—translation in row 3 with forward in
+row 2, and translation in column 3 with forward in column 2—and both forward
+axis signs. For each of those four routes it retains only the closest current
+identity, using independently reported position and forward deltas. A tight
+candidate requires position delta squared no greater than `0.25` and forward
+delta squared no greater than `0.04`; the report still retains the best miss so
+an incorrect layout or axis hypothesis can be rejected from evidence rather
+than hidden by the threshold.
+
+The correlation table is fixed at 512 entries and partitions candidates by
+caller return address, matrix convention, forward sign, and exact vehicle
+identity. Separate counters cover invalid ranges, non-finite payloads, identity
+comparisons, routes with no identity, tight matches, table overflow, and both
+matrix-address and content churn. Qualification requires complete caller and
+four-route accounting, valid payloads, nonzero typed coverage, exact result
+totals, and no overflow. Even a tight match remains a render-transform
+candidate: it does not yet prove a complete vehicle draw, upload data, publish
+native output, or permit suppression. Xenos remains authoritative.
+
+Release/AppData session `20260830T110601Z-p40476` completed the typed caller
+qualification in stable festival gameplay. It observed 1,220 matrices, all
+finite and readable, and performed 134,356 comparisons across 33 admitted
+vehicle identities. All 4,880 layout/sign routes were accounted for in 14
+bounded correlation records with no invalid payload, table overflow, error,
+fatal, or crash event. The process exited normally. Median simulation cadence
+was 29.264 FPS and presentation cadence was 59.968 Hz during the diagnostic
+run.
+
+No route produced a tight match. The closest column-translation candidate was
+still `755569.20` squared position units away. The row-forward convention came
+within `0.01067` squared direction units, but its corresponding position was
+`1104221.95` squared units away. All observations came from caller return
+`8240437C`; static tracing resolves that site to `sub_82403C38`, where the
+matrix passed as `r6` is `r30 + 1008` from the render/system object returned by
+`82460500`, not from an admitted vehicle owner. This rejects the direct vehicle
+world-transform hypothesis and classifies the matrix as camera/reference-space
+state. The next typed step must follow the composition that combines this
+reference matrix with an object transform rather than widening heuristic
+scans. Native vehicle rendering and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell

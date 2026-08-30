@@ -190,6 +190,16 @@ registers = ["r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r12"]
 address = 0x82418F38
 name = "PinyonShiftObserveIndirectContext82417BC0Exit"
 
+# NR-05E typed vehicle-matrix caller correlation. Generated instructions in
+# 8240E7B0 consume r6 as a live 4x4 matrix before dispatching the qualified
+# 8240ECAC render-context family. This entry hook compares that read-only
+# payload with already-admitted vehicle poses; it never changes guest state,
+# submits a native draw, or permits Xenos suppression.
+[[midasm_hook]]
+address = 0x8240E7B4
+name = "PinyonShiftObserveVehicleMatrixCallerEntry"
+registers = ["r6", "r12"]
+
 [[midasm_hook]]
 address = 0x8243646C
 name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"

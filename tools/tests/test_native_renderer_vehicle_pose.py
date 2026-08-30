@@ -56,8 +56,19 @@ def fixture():
         ),
         render_context_dispatcher_hook="82436468:r8,r9,r10,r12",
         render_context_callee_profile_capacity="32",
+        vehicle_matrix_caller_contract="8240E7B0:r6_4x4_matrix,r12",
+        vehicle_matrix_layouts=(
+            "row_major_translation_row3_forward_row2,"
+            "column_major_translation_column3_forward_column2"
+        ),
+        vehicle_matrix_forward_signs="positive,negative",
+        vehicle_matrix_match_thresholds=(
+            "position_delta_squared<=0.25,forward_delta_squared<=0.04"
+        ),
+        vehicle_matrix_correlation_capacity="512",
         guest_payload_read=(
-            "existing_pose_values,bounded_owner_vtable,typed_context_entry"
+            "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
+            "typed_4x4_caller_matrix"
         ),
         guest_state_changed="false",
         native_upload="false",
@@ -141,6 +152,19 @@ def fixture():
         render_context_dispatcher_eligible_observations="3",
         render_context_dispatcher_matches="3",
         render_context_dispatcher_mismatches="0",
+        vehicle_matrix_caller_observations="1",
+        vehicle_matrix_caller_valid_observations="1",
+        vehicle_matrix_caller_invalid_range="0",
+        vehicle_matrix_caller_non_finite="0",
+        vehicle_matrix_caller_accounting_complete="true",
+        vehicle_matrix_identity_comparisons="4",
+        vehicle_matrix_candidate_observations="4",
+        vehicle_matrix_routes_without_identity="0",
+        vehicle_matrix_route_accounting_complete="true",
+        vehicle_matrix_tight_matches="1",
+        vehicle_matrix_correlations="4",
+        vehicle_matrix_correlation_capacity="512",
+        vehicle_matrix_correlation_overflow="0",
         title_provenance_requested="true",
         draw_provenance_coverage_complete="true",
         guest_state_changed="false",
@@ -223,12 +247,62 @@ def fixture():
         xenos_authority="true",
         suppression_allowed="false",
     )
+    matrix_correlations = []
+    for layout in sorted(MODULE.VEHICLE_MATRIX_LAYOUTS):
+        for forward_sign in sorted(MODULE.VEHICLE_MATRIX_FORWARD_SIGNS):
+            tight_match = (
+                layout == "row_major_translation_row3_forward_row2"
+                and forward_sign == "positive"
+            )
+            matrix_correlations.append(
+                event(
+                    MODULE.VEHICLE_MATRIX_CORRELATION,
+                    function_address="8240E7B0",
+                    caller_return_address="8240F004",
+                    matrix_layout=layout,
+                    forward_sign=forward_sign,
+                    identity_generation="00000001",
+                    identity_owner="A0002000",
+                    identity_slot="2",
+                    observations="1",
+                    tight_matches="1" if tight_match else "0",
+                    first_frame="104",
+                    last_frame="104",
+                    matrix_address_changes="0",
+                    matrix_hash_changes="0",
+                    last_matrix_address="703FF000",
+                    last_matrix_hash="1234567890ABCDEF",
+                    best_matrix_address="703FF000",
+                    best_matrix_hash="1234567890ABCDEF",
+                    best_position_delta_squared=(
+                        "0.01" if tight_match else "100.0"
+                    ),
+                    best_forward_delta_squared=(
+                        "0.001" if tight_match else "1.0"
+                    ),
+                    best_normalized_score=(
+                        "0.065" if tight_match else "425.0"
+                    ),
+                    classification=(
+                        "vehicle_render_matrix_correlation_candidate"
+                    ),
+                    vehicle_render_transform_candidate_proved=(
+                        "true" if tight_match else "false"
+                    ),
+                    vehicle_draw_identity_proved="false",
+                    guest_state_changed="false",
+                    native_draw="false",
+                    xenos_authority="true",
+                    suppression_allowed="false",
+                )
+            )
     return [
         config,
         summary,
         identity,
         *methods,
         render_context_callee,
+        *matrix_correlations,
         title_provenance_config,
     ]
 
@@ -298,7 +372,12 @@ class VehiclePoseSummaryTests(unittest.TestCase):
             '"native_renderer.discovery.vehicle_render_context_callee"',
             hooks,
         )
+        self.assertIn("ObserveVehicleMatrixCaller", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_matrix_correlation"', hooks
+        )
         self.assertIn("[switch]$VehicleDrawCorrelation", capture)
+        self.assertEqual(1, analysis.count("address = 0x8240E7B4"))
         self.assertEqual(1, analysis.count("address = 0x8243646C"))
         for address in (
             "82BC8468",
@@ -345,6 +424,28 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertEqual(
             "82439000",
             document["render_context_callees"][0]["slot_8_target"],
+        )
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_render_matrix_candidate_proved"
+            ]
+        )
+        self.assertEqual(4, len(document["vehicle_matrix_correlations"]))
+
+    def test_rejects_vehicle_matrix_accounting_or_overflow(self):
+        events = fixture()
+        events[1]["vehicle_matrix_caller_valid_observations"] = "0"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle matrix caller accounting drifted", document["failures"]
+        )
+
+        events = fixture()
+        events[1]["vehicle_matrix_correlation_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle matrix correlation table overflowed",
+            document["failures"],
         )
 
     def test_rejects_invalid_or_overflowed_observations(self):

@@ -114,6 +114,10 @@ constexpr size_t kVehicleObjectScanCacheCapacity = 16384;
 constexpr size_t kVehicleObjectCorrelationCapacity = 2048;
 constexpr uint32_t kVehicleRenderContextFunction = 0x824365B0;
 constexpr size_t kVehicleRenderContextCalleeProfileCapacity = 32;
+constexpr uint32_t kVehicleMatrixCallerFunction = 0x8240E7B0;
+constexpr size_t kVehicleMatrixCorrelationCapacity = 512;
+constexpr double kVehicleMatrixPositionDeltaSquaredThreshold = 0.25;
+constexpr double kVehicleMatrixForwardDeltaSquaredThreshold = 0.04;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -717,6 +721,37 @@ struct PendingVehicleRenderContextDispatcher {
   bool valid = false;
 };
 
+enum class VehicleMatrixLayout : uint32_t {
+  kRowMajorTranslationRow3ForwardRow2 = 1,
+  kColumnMajorTranslationColumn3ForwardColumn2 = 2,
+};
+
+struct VehicleMatrixCorrelationEntry {
+  uint64_t observations = 0;
+  uint64_t tight_matches = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t matrix_address_changes = 0;
+  uint64_t matrix_hash_changes = 0;
+  uint64_t last_matrix_hash = 0;
+  uint64_t best_matrix_hash = 0;
+  double best_position_delta_squared =
+      std::numeric_limits<double>::infinity();
+  double best_forward_delta_squared =
+      std::numeric_limits<double>::infinity();
+  double best_normalized_score = std::numeric_limits<double>::infinity();
+  uint32_t caller_return_address = 0;
+  uint32_t last_matrix_address = 0;
+  uint32_t best_matrix_address = 0;
+  uint32_t identity_generation = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  VehicleMatrixLayout layout =
+      VehicleMatrixLayout::kRowMajorTranslationRow3ForwardRow2;
+  int32_t forward_sign = 1;
+  bool valid = false;
+};
+
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
@@ -793,6 +828,18 @@ uint64_t g_vehicle_render_context_dispatcher_matches = 0;
 uint64_t g_vehicle_render_context_dispatcher_mismatches = 0;
 thread_local PendingVehicleRenderContextDispatcher
     g_pending_vehicle_render_context_dispatcher{};
+std::array<VehicleMatrixCorrelationEntry, kVehicleMatrixCorrelationCapacity>
+    g_vehicle_matrix_correlations{};
+uint64_t g_vehicle_matrix_caller_observations = 0;
+uint64_t g_vehicle_matrix_caller_valid_observations = 0;
+uint64_t g_vehicle_matrix_caller_invalid_range = 0;
+uint64_t g_vehicle_matrix_caller_non_finite = 0;
+uint64_t g_vehicle_matrix_identity_comparisons = 0;
+uint64_t g_vehicle_matrix_candidate_observations = 0;
+uint64_t g_vehicle_matrix_routes_without_identity = 0;
+uint64_t g_vehicle_matrix_tight_matches = 0;
+uint64_t g_vehicle_matrix_correlation_count = 0;
+uint64_t g_vehicle_matrix_correlation_overflow = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -1839,6 +1886,174 @@ bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
   return heap &&
          heap->QueryRangeAccess(address, address + length - 1) !=
              rex::memory::PageAccess::kNoAccess;
+}
+
+const char *VehicleMatrixLayoutName(VehicleMatrixLayout layout) {
+  switch (layout) {
+  case VehicleMatrixLayout::kRowMajorTranslationRow3ForwardRow2:
+    return "row_major_translation_row3_forward_row2";
+  case VehicleMatrixLayout::kColumnMajorTranslationColumn3ForwardColumn2:
+    return "column_major_translation_column3_forward_column2";
+  }
+  return "unknown";
+}
+
+void ObserveVehicleMatrixCaller(uint32_t function_address,
+                                uint32_t matrix_address,
+                                uint32_t caller_return_address) {
+  if (function_address != kVehicleMatrixCallerFunction ||
+      !g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  ++g_vehicle_matrix_caller_observations;
+  if (!IsReadableVehicleGuestRange(memory, matrix_address, 64)) {
+    ++g_vehicle_matrix_caller_invalid_range;
+    return;
+  }
+  std::array<uint32_t, 16> matrix_words{};
+  LoadSemanticGuestWords(memory, matrix_address, matrix_words);
+  std::array<float, 16> matrix{};
+  for (size_t index = 0; index < matrix.size(); ++index) {
+    matrix[index] = std::bit_cast<float>(matrix_words[index]);
+    if (!std::isfinite(matrix[index])) {
+      ++g_vehicle_matrix_caller_non_finite;
+      return;
+    }
+  }
+  ++g_vehicle_matrix_caller_valid_observations;
+  const uint64_t matrix_hash = HashSemanticWords(matrix_words);
+  const uint64_t frame = g_frame_sequence.load(std::memory_order_relaxed);
+  constexpr std::array<VehicleMatrixLayout, 2> layouts{{
+      VehicleMatrixLayout::kRowMajorTranslationRow3ForwardRow2,
+      VehicleMatrixLayout::kColumnMajorTranslationColumn3ForwardColumn2,
+  }};
+  constexpr std::array<int32_t, 2> forward_signs{{1, -1}};
+  for (VehicleMatrixLayout layout : layouts) {
+    const std::array<float, 3> position =
+        layout == VehicleMatrixLayout::kRowMajorTranslationRow3ForwardRow2
+            ? std::array<float, 3>{{matrix[12], matrix[13], matrix[14]}}
+            : std::array<float, 3>{{matrix[3], matrix[7], matrix[11]}};
+    const std::array<float, 3> forward =
+        layout == VehicleMatrixLayout::kRowMajorTranslationRow3ForwardRow2
+            ? std::array<float, 3>{{matrix[8], matrix[9], matrix[10]}}
+            : std::array<float, 3>{{matrix[2], matrix[6], matrix[10]}};
+    for (int32_t forward_sign : forward_signs) {
+      const VehicleIdentityEntry *best_identity = nullptr;
+      double best_position_delta_squared =
+          std::numeric_limits<double>::infinity();
+      double best_forward_delta_squared =
+          std::numeric_limits<double>::infinity();
+      double best_normalized_score = std::numeric_limits<double>::infinity();
+      for (const VehicleIdentityEntry &identity : g_vehicle_identities) {
+        if (!identity.valid) {
+          continue;
+        }
+        ++g_vehicle_matrix_identity_comparisons;
+        const double position_dx = double(position[0]) - identity.last_x;
+        const double position_dy = double(position[1]) - identity.last_y;
+        const double position_dz = double(position[2]) - identity.last_z;
+        const double forward_dx =
+            double(forward_sign) * forward[0] - identity.last_forward_x;
+        const double forward_dy =
+            double(forward_sign) * forward[1] - identity.last_forward_y;
+        const double forward_dz =
+            double(forward_sign) * forward[2] - identity.last_forward_z;
+        const double position_delta_squared =
+            position_dx * position_dx + position_dy * position_dy +
+            position_dz * position_dz;
+        const double forward_delta_squared =
+            forward_dx * forward_dx + forward_dy * forward_dy +
+            forward_dz * forward_dz;
+        const double normalized_score =
+            position_delta_squared /
+                kVehicleMatrixPositionDeltaSquaredThreshold +
+            forward_delta_squared /
+                kVehicleMatrixForwardDeltaSquaredThreshold;
+        if (normalized_score < best_normalized_score) {
+          best_identity = &identity;
+          best_position_delta_squared = position_delta_squared;
+          best_forward_delta_squared = forward_delta_squared;
+          best_normalized_score = normalized_score;
+        }
+      }
+      if (!best_identity) {
+        ++g_vehicle_matrix_routes_without_identity;
+        continue;
+      }
+      ++g_vehicle_matrix_candidate_observations;
+      const bool tight_match =
+          best_position_delta_squared <=
+              kVehicleMatrixPositionDeltaSquaredThreshold &&
+          best_forward_delta_squared <=
+              kVehicleMatrixForwardDeltaSquaredThreshold;
+      g_vehicle_matrix_tight_matches += tight_match ? 1 : 0;
+      VehicleMatrixCorrelationEntry *available = nullptr;
+      VehicleMatrixCorrelationEntry *matched = nullptr;
+      for (VehicleMatrixCorrelationEntry &entry :
+           g_vehicle_matrix_correlations) {
+        if (!entry.valid) {
+          if (!available) {
+            available = &entry;
+          }
+          continue;
+        }
+        if (entry.caller_return_address == caller_return_address &&
+            entry.identity_generation == best_identity->generation &&
+            entry.identity_owner == best_identity->owner &&
+            entry.identity_slot == best_identity->slot &&
+            entry.layout == layout && entry.forward_sign == forward_sign) {
+          matched = &entry;
+          break;
+        }
+      }
+      if (!matched) {
+        if (!available) {
+          ++g_vehicle_matrix_correlation_overflow;
+          continue;
+        }
+        *available = {
+            .observations = 1,
+            .tight_matches = tight_match ? 1u : 0u,
+            .first_frame = frame,
+            .last_frame = frame,
+            .last_matrix_hash = matrix_hash,
+            .best_matrix_hash = matrix_hash,
+            .best_position_delta_squared = best_position_delta_squared,
+            .best_forward_delta_squared = best_forward_delta_squared,
+            .best_normalized_score = best_normalized_score,
+            .caller_return_address = caller_return_address,
+            .last_matrix_address = matrix_address,
+            .best_matrix_address = matrix_address,
+            .identity_generation = best_identity->generation,
+            .identity_owner = best_identity->owner,
+            .identity_slot = best_identity->slot,
+            .layout = layout,
+            .forward_sign = forward_sign,
+            .valid = true,
+        };
+        ++g_vehicle_matrix_correlation_count;
+        continue;
+      }
+      ++matched->observations;
+      matched->tight_matches += tight_match ? 1 : 0;
+      matched->last_frame = frame;
+      matched->matrix_address_changes +=
+          matched->last_matrix_address != matrix_address;
+      matched->matrix_hash_changes += matched->last_matrix_hash != matrix_hash;
+      matched->last_matrix_address = matrix_address;
+      matched->last_matrix_hash = matrix_hash;
+      if (best_normalized_score < matched->best_normalized_score) {
+        matched->best_position_delta_squared = best_position_delta_squared;
+        matched->best_forward_delta_squared = best_forward_delta_squared;
+        matched->best_normalized_score = best_normalized_score;
+        matched->best_matrix_address = matrix_address;
+        matched->best_matrix_hash = matrix_hash;
+      }
+    }
+  }
 }
 
 void ObserveVehicleRenderContextDispatcher(uint32_t return_address,
@@ -15889,6 +16104,17 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_identity_addresses = {};
     g_vehicle_identity_address_count = 0;
     g_vehicle_identity_address_overflow = 0;
+    g_vehicle_matrix_correlations = {};
+    g_vehicle_matrix_caller_observations = 0;
+    g_vehicle_matrix_caller_valid_observations = 0;
+    g_vehicle_matrix_caller_invalid_range = 0;
+    g_vehicle_matrix_caller_non_finite = 0;
+    g_vehicle_matrix_identity_comparisons = 0;
+    g_vehicle_matrix_candidate_observations = 0;
+    g_vehicle_matrix_routes_without_identity = 0;
+    g_vehicle_matrix_tight_matches = 0;
+    g_vehicle_matrix_correlation_count = 0;
+    g_vehicle_matrix_correlation_overflow = 0;
   }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
@@ -16002,8 +16228,18 @@ void ConfigureVehicleDiscovery(bool census_requested,
        {"render_context_dispatcher_hook", "82436468:r8,r9,r10,r12"},
        {"render_context_callee_profile_capacity",
         std::to_string(kVehicleRenderContextCalleeProfileCapacity)},
+       {"vehicle_matrix_caller_contract", "8240E7B0:r6_4x4_matrix,r12"},
+       {"vehicle_matrix_layouts",
+        "row_major_translation_row3_forward_row2,"
+        "column_major_translation_column3_forward_column2"},
+       {"vehicle_matrix_forward_signs", "positive,negative"},
+       {"vehicle_matrix_match_thresholds",
+        "position_delta_squared<=0.25,forward_delta_squared<=0.04"},
+       {"vehicle_matrix_correlation_capacity",
+        std::to_string(kVehicleMatrixCorrelationCapacity)},
        {"guest_payload_read",
-        "existing_pose_values,bounded_owner_vtable,typed_context_entry"},
+        "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
+        "typed_4x4_caller_matrix"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -16022,6 +16258,15 @@ void EmitVehicleDiscoverySummary() {
   const bool accounting_complete =
       g_vehicle_valid_observations + g_vehicle_invalid_observations ==
       g_vehicle_observations;
+  const bool vehicle_matrix_accounting_complete =
+      g_vehicle_matrix_caller_valid_observations +
+          g_vehicle_matrix_caller_invalid_range +
+          g_vehicle_matrix_caller_non_finite ==
+      g_vehicle_matrix_caller_observations;
+  const bool vehicle_matrix_route_accounting_complete =
+      g_vehicle_matrix_candidate_observations +
+          g_vehicle_matrix_routes_without_identity ==
+      g_vehicle_matrix_caller_valid_observations * 4;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_pose_summary",
       {{"status", !g_vehicle_observations
@@ -16146,6 +16391,32 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(g_vehicle_render_context_dispatcher_matches)},
        {"render_context_dispatcher_mismatches",
         std::to_string(g_vehicle_render_context_dispatcher_mismatches)},
+       {"vehicle_matrix_caller_observations",
+        std::to_string(g_vehicle_matrix_caller_observations)},
+       {"vehicle_matrix_caller_valid_observations",
+        std::to_string(g_vehicle_matrix_caller_valid_observations)},
+       {"vehicle_matrix_caller_invalid_range",
+        std::to_string(g_vehicle_matrix_caller_invalid_range)},
+       {"vehicle_matrix_caller_non_finite",
+        std::to_string(g_vehicle_matrix_caller_non_finite)},
+       {"vehicle_matrix_caller_accounting_complete",
+        vehicle_matrix_accounting_complete ? "true" : "false"},
+       {"vehicle_matrix_identity_comparisons",
+        std::to_string(g_vehicle_matrix_identity_comparisons)},
+       {"vehicle_matrix_candidate_observations",
+        std::to_string(g_vehicle_matrix_candidate_observations)},
+       {"vehicle_matrix_routes_without_identity",
+        std::to_string(g_vehicle_matrix_routes_without_identity)},
+       {"vehicle_matrix_route_accounting_complete",
+        vehicle_matrix_route_accounting_complete ? "true" : "false"},
+       {"vehicle_matrix_tight_matches",
+        std::to_string(g_vehicle_matrix_tight_matches)},
+       {"vehicle_matrix_correlations",
+        std::to_string(g_vehicle_matrix_correlation_count)},
+       {"vehicle_matrix_correlation_capacity",
+        std::to_string(kVehicleMatrixCorrelationCapacity)},
+       {"vehicle_matrix_correlation_overflow",
+        std::to_string(g_vehicle_matrix_correlation_overflow)},
        {"title_provenance_requested",
         g_vehicle_title_provenance_requested ? "true" : "false"},
        {"draw_provenance_coverage_complete",
@@ -16191,6 +16462,50 @@ void EmitVehicleDiscoverySummary() {
          {"vector_hash_changes",
           std::to_string(entry.vector_hash_changes)},
          {"classification", "typed_vehicle_render_context_callee_seed"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleMatrixCorrelationEntry &entry :
+       g_vehicle_matrix_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_matrix_correlation",
+        {{"function_address", "8240E7B0"},
+         {"caller_return_address",
+          fmt::format("{:08X}", entry.caller_return_address)},
+         {"matrix_layout", VehicleMatrixLayoutName(entry.layout)},
+         {"forward_sign", entry.forward_sign > 0 ? "positive" : "negative"},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"tight_matches", std::to_string(entry.tight_matches)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"matrix_address_changes",
+          std::to_string(entry.matrix_address_changes)},
+         {"matrix_hash_changes", std::to_string(entry.matrix_hash_changes)},
+         {"last_matrix_address",
+          fmt::format("{:08X}", entry.last_matrix_address)},
+         {"last_matrix_hash", fmt::format("{:016X}", entry.last_matrix_hash)},
+         {"best_matrix_address",
+          fmt::format("{:08X}", entry.best_matrix_address)},
+         {"best_matrix_hash", fmt::format("{:016X}", entry.best_matrix_hash)},
+         {"best_position_delta_squared",
+          fmt::format("{}", entry.best_position_delta_squared)},
+         {"best_forward_delta_squared",
+          fmt::format("{}", entry.best_forward_delta_squared)},
+         {"best_normalized_score",
+          fmt::format("{}", entry.best_normalized_score)},
+         {"classification", "vehicle_render_matrix_correlation_candidate"},
+         {"vehicle_render_transform_candidate_proved",
+          entry.tight_matches ? "true" : "false"},
          {"vehicle_draw_identity_proved", "false"},
          {"guest_state_changed", "false"},
          {"native_draw", "false"},
@@ -17961,6 +18276,11 @@ PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(82417060)
 PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS(829F6360)
 
 #undef PINYON_SHIFT_INDIRECT_PRODUCER_HOOKS
+
+void PinyonShiftObserveVehicleMatrixCallerEntry(PPCRegister &r6,
+                                                PPCRegister &r12) {
+  ObserveVehicleMatrixCaller(kVehicleMatrixCallerFunction, r6.u32, r12.u32);
+}
 
 void PinyonShiftObserveVehicleRenderContextDispatcherEntry(
     PPCRegister &r8, PPCRegister &r9, PPCRegister &r10, PPCRegister &r12) {

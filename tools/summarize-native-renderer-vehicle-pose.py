@@ -25,6 +25,9 @@ DRAW_OBJECT_CORRELATION = (
 RENDER_CONTEXT_CALLEE = (
     "native_renderer.discovery.vehicle_render_context_callee"
 )
+VEHICLE_MATRIX_CORRELATION = (
+    "native_renderer.discovery.vehicle_matrix_correlation"
+)
 TITLE_PROVENANCE_CONFIG = (
     "native_renderer.discovery.title_provenance_config"
 )
@@ -54,6 +57,11 @@ DRAW_PROVENANCE_LAYERS = {
     "indirect_semantic_receiver",
 }
 DRAW_IDENTITY_FIELDS = {"owner", "position", "forward"}
+VEHICLE_MATRIX_LAYOUTS = {
+    "row_major_translation_row3_forward_row2",
+    "column_major_translation_column3_forward_column2",
+}
+VEHICLE_MATRIX_FORWARD_SIGNS = {"positive", "negative"}
 
 
 def read_events(paths):
@@ -195,8 +203,19 @@ def build(events, requested_session=None):
         ),
         "render_context_dispatcher_hook": "82436468:r8,r9,r10,r12",
         "render_context_callee_profile_capacity": "32",
+        "vehicle_matrix_caller_contract": "8240E7B0:r6_4x4_matrix,r12",
+        "vehicle_matrix_layouts": (
+            "row_major_translation_row3_forward_row2,"
+            "column_major_translation_column3_forward_column2"
+        ),
+        "vehicle_matrix_forward_signs": "positive,negative",
+        "vehicle_matrix_match_thresholds": (
+            "position_delta_squared<=0.25,forward_delta_squared<=0.04"
+        ),
+        "vehicle_matrix_correlation_capacity": "512",
         "guest_payload_read": (
-            "existing_pose_values,bounded_owner_vtable,typed_context_entry"
+            "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
+            "typed_4x4_caller_matrix"
         ),
         "guest_state_changed": "false",
         "native_upload": "false",
@@ -238,6 +257,7 @@ def build(events, requested_session=None):
         "object_scan_cache_capacity": "16384",
         "object_correlation_capacity": "2048",
         "render_context_callee_profile_capacity": "32",
+        "vehicle_matrix_correlation_capacity": "512",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -319,8 +339,26 @@ def build(events, requested_session=None):
         "render_context_dispatcher_eligible_observations",
         "render_context_dispatcher_matches",
         "render_context_dispatcher_mismatches",
+        "vehicle_matrix_caller_observations",
+        "vehicle_matrix_caller_valid_observations",
+        "vehicle_matrix_caller_invalid_range",
+        "vehicle_matrix_caller_non_finite",
+        "vehicle_matrix_identity_comparisons",
+        "vehicle_matrix_candidate_observations",
+        "vehicle_matrix_routes_without_identity",
+        "vehicle_matrix_tight_matches",
+        "vehicle_matrix_correlations",
+        "vehicle_matrix_correlation_capacity",
+        "vehicle_matrix_correlation_overflow",
     ):
         totals[key] = integer(summary, key)
+    for key in (
+        "vehicle_matrix_caller_accounting_complete",
+        "vehicle_matrix_route_accounting_complete",
+    ):
+        if summary.get(key) not in ("true", "false"):
+            raise ValueError(f"invalid {key}")
+        totals[key] = summary[key] == "true"
     identities = []
     seen = set()
     for event in selected:
@@ -743,6 +781,99 @@ def build(events, requested_session=None):
         )
     )
 
+    matrix_correlations = []
+    seen_matrix_correlations = set()
+    for event in selected:
+        if event.get("event") != VEHICLE_MATRIX_CORRELATION:
+            continue
+        layout = event.get("matrix_layout")
+        forward_sign = event.get("forward_sign")
+        identity_key = (
+            hexadecimal(event, "identity_generation"),
+            hexadecimal(event, "identity_owner"),
+            integer(event, "identity_slot"),
+        )
+        key = (
+            hexadecimal(event, "caller_return_address"),
+            layout,
+            forward_sign,
+            *identity_key,
+        )
+        observations = integer(event, "observations")
+        tight_matches = integer(event, "tight_matches")
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        candidate_proved = tight_matches > 0
+        if (
+            key in seen_matrix_correlations
+            or event.get("function_address") != "8240E7B0"
+            or layout not in VEHICLE_MATRIX_LAYOUTS
+            or forward_sign not in VEHICLE_MATRIX_FORWARD_SIGNS
+            or identity_key not in identities_by_key
+            or not observations
+            or tight_matches > observations
+            or first_frame > last_frame
+            or event.get("classification")
+            != "vehicle_render_matrix_correlation_candidate"
+            or event.get("vehicle_render_transform_candidate_proved")
+            != ("true" if candidate_proved else "false")
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError("vehicle matrix correlation violates boundary")
+        seen_matrix_correlations.add(key)
+        matrix_correlations.append(
+            {
+                "function_address": "8240E7B0",
+                "caller_return_address": key[0],
+                "matrix_layout": layout,
+                "forward_sign": forward_sign,
+                "identity_generation": identity_key[0],
+                "identity_owner": identity_key[1],
+                "identity_slot": identity_key[2],
+                "observations": observations,
+                "tight_matches": tight_matches,
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+                "matrix_address_changes": integer(
+                    event, "matrix_address_changes"
+                ),
+                "matrix_hash_changes": integer(event, "matrix_hash_changes"),
+                "last_matrix_address": hexadecimal(
+                    event, "last_matrix_address"
+                ),
+                "last_matrix_hash": hexadecimal64(event, "last_matrix_hash"),
+                "best_matrix_address": hexadecimal(
+                    event, "best_matrix_address"
+                ),
+                "best_matrix_hash": hexadecimal64(event, "best_matrix_hash"),
+                "best_position_delta_squared": finite_number(
+                    event, "best_position_delta_squared"
+                ),
+                "best_forward_delta_squared": finite_number(
+                    event, "best_forward_delta_squared"
+                ),
+                "best_normalized_score": finite_number(
+                    event, "best_normalized_score"
+                ),
+                "vehicle_render_transform_candidate_proved": (
+                    candidate_proved
+                ),
+            }
+        )
+    matrix_correlations.sort(
+        key=lambda item: (
+            item["caller_return_address"],
+            item["matrix_layout"],
+            item["forward_sign"],
+            item["identity_owner"],
+            item["identity_slot"],
+        )
+    )
+
     failures = []
     if totals["observations"] != (
         totals["valid_observations"] + totals["invalid_observations"]
@@ -896,6 +1027,55 @@ def build(events, requested_session=None):
         failures.append("render-context dispatcher coverage drifted")
     if totals["render_context_dispatcher_mismatches"]:
         failures.append("render-context dispatcher lineage mismatched")
+    matrix_caller_accounting_complete = totals[
+        "vehicle_matrix_caller_valid_observations"
+    ] + totals["vehicle_matrix_caller_invalid_range"] + totals[
+        "vehicle_matrix_caller_non_finite"
+    ] == totals["vehicle_matrix_caller_observations"]
+    if (
+        not matrix_caller_accounting_complete
+        or not totals["vehicle_matrix_caller_accounting_complete"]
+    ):
+        failures.append("vehicle matrix caller accounting drifted")
+    matrix_route_accounting_complete = totals[
+        "vehicle_matrix_candidate_observations"
+    ] + totals["vehicle_matrix_routes_without_identity"] == (
+        totals["vehicle_matrix_caller_valid_observations"] * 4
+    )
+    if (
+        not matrix_route_accounting_complete
+        or not totals["vehicle_matrix_route_accounting_complete"]
+    ):
+        failures.append("vehicle matrix route accounting drifted")
+    if (
+        not totals["vehicle_matrix_caller_observations"]
+        or not totals["vehicle_matrix_caller_valid_observations"]
+        or not totals["vehicle_matrix_identity_comparisons"]
+        or not totals["vehicle_matrix_candidate_observations"]
+        or not matrix_correlations
+    ):
+        failures.append("vehicle matrix caller coverage was absent")
+    if (
+        totals["vehicle_matrix_caller_invalid_range"]
+        or totals["vehicle_matrix_caller_non_finite"]
+    ):
+        failures.append("vehicle matrix caller payload was invalid")
+    if sum(item["observations"] for item in matrix_correlations) != totals[
+        "vehicle_matrix_candidate_observations"
+    ]:
+        failures.append("vehicle matrix candidate totals drifted")
+    if sum(item["tight_matches"] for item in matrix_correlations) != totals[
+        "vehicle_matrix_tight_matches"
+    ]:
+        failures.append("vehicle matrix tight-match totals drifted")
+    if len(matrix_correlations) != totals["vehicle_matrix_correlations"]:
+        failures.append("vehicle matrix correlation coverage drifted")
+    if totals["vehicle_matrix_correlation_overflow"]:
+        failures.append("vehicle matrix correlation table overflowed")
+    if totals["vehicle_matrix_correlations"] > totals[
+        "vehicle_matrix_correlation_capacity"
+    ]:
+        failures.append("vehicle matrix correlation capacity drifted")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -916,6 +1096,10 @@ def build(events, requested_session=None):
     )
     draw_argument_candidate_proved = bool(draw_correlations)
     object_candidate_proved = bool(object_correlations)
+    matrix_candidate_proved = any(
+        item["vehicle_render_transform_candidate_proved"]
+        for item in matrix_correlations
+    )
     draw_provenance_coverage_complete = (
         title_provenance_requested
         and title_provenance_armed
@@ -942,6 +1126,7 @@ def build(events, requested_session=None):
         "draw_argument_correlations": draw_correlations,
         "draw_object_correlations": object_correlations,
         "render_context_callees": render_context_callees,
+        "vehicle_matrix_correlations": matrix_correlations,
         "coverage": {
             "title_provenance_requested": title_provenance_requested,
             "title_provenance_armed": title_provenance_armed,
@@ -969,6 +1154,9 @@ def build(events, requested_session=None):
             ),
             "render_context_callee_contract_proved": (
                 not failures and bool(render_context_callees)
+            ),
+            "vehicle_render_matrix_candidate_proved": (
+                not failures and matrix_candidate_proved
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,
