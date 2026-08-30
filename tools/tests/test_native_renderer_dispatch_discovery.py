@@ -1389,6 +1389,30 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(workset["native_draw_enabled"])
         self.assertTrue(workset["xenos_authority"])
         self.assertFalse(workset["suppression_allowed"])
+        prepared_candidates = lifecycle["visibility_prepared_candidates"]
+        self.assertEqual(
+            "8241741C",
+            prepared_candidates["semantic_instance_hook_address"],
+        )
+        self.assertEqual(
+            ["82416260", "824162F4"],
+            prepared_candidates["semantic_packet_hook_addresses"],
+        )
+        self.assertEqual(4096, prepared_candidates["capacity"])
+        self.assertEqual(
+            1, prepared_candidates["maximum_policy_age_frames"]
+        )
+        self.assertEqual(
+            "independent_visibility_selected_and_fresh",
+            prepared_candidates["selection"],
+        )
+        self.assertEqual(
+            "exact_semantic_pm4_prepared_draw",
+            prepared_candidates["prepared_lineage"],
+        )
+        self.assertFalse(prepared_candidates["native_draw_enabled"])
+        self.assertTrue(prepared_candidates["xenos_draw_preserved"])
+        self.assertFalse(prepared_candidates["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )

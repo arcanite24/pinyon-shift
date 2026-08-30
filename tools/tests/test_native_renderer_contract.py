@@ -607,6 +607,19 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("ResolveSemanticReceiver", source)
         self.assertIn("semantic_receiver_unregistered_dispatches", source)
         self.assertIn("semantic_visibility_epoch", source)
+        self.assertIn(
+            "SemanticVisibilityPreparedCandidateEntry", source
+        )
+        self.assertIn(
+            "RecordSemanticVisibilityPreparedCandidate", source
+        )
+        self.assertIn(
+            "independent_visibility_selected_and_fresh", source
+        )
+        self.assertIn("exact_semantic_pm4_prepared_draw", source)
+        self.assertIn(
+            "kSemanticVisibilityMaximumPolicyAgeFrames = 1", source
+        )
         self.assertIn("semantic_render_state_epoch", source)
         self.assertIn("BeginSemanticReceiverStage", source)
         self.assertIn("semantic_stage_unknown_receivers", source)

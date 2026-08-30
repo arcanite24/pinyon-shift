@@ -95,6 +95,8 @@ constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
 constexpr size_t kSemanticVisibilityPolicyOutcomeCapacity = 3;
 constexpr size_t kSemanticVisibilitySpatialExponentCapacity = 256;
 constexpr size_t kSemanticVisibilityWorksetCapacity = 4096;
+constexpr size_t kSemanticVisibilityPreparedCandidateCapacity = 4096;
+constexpr uint64_t kSemanticVisibilityMaximumPolicyAgeFrames = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -155,8 +157,15 @@ std::array<DispatchCallerEntry, kDispatchCallerCapacity> g_dispatch_callers;
 std::atomic<uint64_t> g_dispatch_caller_overflow{};
 std::atomic<bool> g_dispatch_discovery_installed{};
 
+enum class SemanticVisibilityWorksetJoin : uint32_t {
+  kMissing = 0,
+  kSelected = 1,
+  kRejected = 2,
+};
+
 struct SemanticDrawIdentity {
   uint64_t submission_key = 0;
+  uint64_t visibility_policy_frame = 0;
   uint32_t receiver_address = 0;
   uint32_t receiver_generation = 0;
   uint32_t record_index = 0;
@@ -166,8 +175,12 @@ struct SemanticDrawIdentity {
   uint32_t helper_state = 0;
   uint32_t primary_resource_key = 0;
   uint32_t secondary_resource_key = 0;
+  uint32_t visibility_category = 0;
+  uint32_t visibility_result_mask = 0;
   uint32_t direct_title_origins = 0;
   uint32_t indirect_packet_origins = 0;
+  SemanticVisibilityWorksetJoin visibility_workset_join =
+      SemanticVisibilityWorksetJoin::kMissing;
   bool secondary_resource_present = false;
   bool valid = false;
 };
@@ -266,6 +279,22 @@ struct SemanticBatchOpportunityEntry {
   uint32_t secondary_resource_key = 0;
   SemanticBatchRejection rejection = SemanticBatchRejection::kNone;
   bool secondary_resource_present = false;
+};
+
+struct SemanticVisibilityPreparedCandidateEntry {
+  uint64_t key = 0;
+  uint64_t template_key = 0;
+  uint64_t geometry_resource_hash = 0;
+  uint64_t texture_resource_hash = 0;
+  uint64_t draws = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t maximum_policy_age_frames = 0;
+  uint32_t receiver_address = 0;
+  uint32_t receiver_generation = 0;
+  uint32_t record_index = 0;
+  uint32_t visibility_category = 0;
+  uint32_t visibility_result_mask = 0;
 };
 
 struct SemanticBatchRun {
@@ -451,6 +480,9 @@ std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
+std::array<SemanticVisibilityPreparedCandidateEntry,
+           kSemanticVisibilityPreparedCandidateCapacity>
+    g_semantic_visibility_prepared_candidates{};
 std::array<std::array<SemanticBatchEquivalenceEntry,
                       kSemanticBatchOpportunityCapacity>,
            size_t(SemanticBatchEquivalence::kCount)>
@@ -491,6 +523,15 @@ std::atomic<uint64_t> g_title_packets_without_origin{};
 uint64_t g_title_draw_provenance_count = 0;
 uint64_t g_title_draw_provenance_overflow = 0;
 uint64_t g_semantic_batch_observations = 0;
+uint64_t g_semantic_visibility_prepared_observations = 0;
+uint64_t g_semantic_visibility_prepared_selected_joins = 0;
+uint64_t g_semantic_visibility_prepared_fresh_candidates = 0;
+uint64_t g_semantic_visibility_prepared_stale_exclusions = 0;
+uint64_t g_semantic_visibility_prepared_future_exclusions = 0;
+uint64_t g_semantic_visibility_prepared_rejected_exclusions = 0;
+uint64_t g_semantic_visibility_prepared_missing_exclusions = 0;
+uint64_t g_semantic_visibility_prepared_candidate_count = 0;
+uint64_t g_semantic_visibility_prepared_candidate_overflow = 0;
 uint64_t g_semantic_batch_eligible_draws = 0;
 uint64_t g_semantic_batch_rejected_draws = 0;
 uint64_t g_semantic_batch_opportunity_count = 0;
@@ -1136,12 +1177,6 @@ struct ActiveSemanticVisibilityRecord {
 thread_local ActiveSemanticVisibilityRecord
     g_active_semantic_visibility_record{};
 
-enum class SemanticVisibilityWorksetJoin {
-  kMissing,
-  kSelected,
-  kRejected,
-};
-
 uint64_t SemanticVisibilityWorksetKey(uint32_t receiver_address,
                                       uint32_t receiver_generation,
                                       uint32_t record_index) {
@@ -1222,7 +1257,7 @@ void PublishSemanticVisibilityWorkset(
 
 SemanticVisibilityWorksetJoin JoinSemanticVisibilityWorkset(
     uint32_t receiver_address, uint32_t receiver_generation,
-    uint32_t record_index) {
+    uint32_t record_index, SemanticDrawIdentity *semantic_draw) {
   const uint64_t key = SemanticVisibilityWorksetKey(
       receiver_address, receiver_generation, record_index);
   std::scoped_lock lock(g_semantic_visibility_workset_mutex);
@@ -1240,11 +1275,19 @@ SemanticVisibilityWorksetJoin JoinSemanticVisibilityWorkset(
         entry.receiver_generation == receiver_generation &&
         entry.record_index == record_index) {
       ++entry.semantic_instance_joins;
+      semantic_draw->visibility_policy_frame = entry.last_frame;
+      semantic_draw->visibility_category = entry.category;
+      semantic_draw->visibility_result_mask =
+          entry.latest_category_result_mask;
       if (entry.latest_selected) {
         ++g_semantic_visibility_workset_selected_joins;
+        semantic_draw->visibility_workset_join =
+            SemanticVisibilityWorksetJoin::kSelected;
         return SemanticVisibilityWorksetJoin::kSelected;
       }
       ++g_semantic_visibility_workset_rejected_joins;
+      semantic_draw->visibility_workset_join =
+          SemanticVisibilityWorksetJoin::kRejected;
       return SemanticVisibilityWorksetJoin::kRejected;
     }
     index = (index + 1) % kSemanticVisibilityWorksetCapacity;
@@ -1391,6 +1434,10 @@ void ResetTitleDrawProvenance() {
        g_semantic_batch_opportunities) {
     entry = {};
   }
+  for (SemanticVisibilityPreparedCandidateEntry &entry :
+       g_semantic_visibility_prepared_candidates) {
+    entry = {};
+  }
   for (auto &level : g_semantic_batch_equivalence_opportunities) {
     for (SemanticBatchEquivalenceEntry &entry : level) {
       entry = {};
@@ -1426,6 +1473,15 @@ void ResetTitleDrawProvenance() {
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
   g_semantic_batch_observations = 0;
+  g_semantic_visibility_prepared_observations = 0;
+  g_semantic_visibility_prepared_selected_joins = 0;
+  g_semantic_visibility_prepared_fresh_candidates = 0;
+  g_semantic_visibility_prepared_stale_exclusions = 0;
+  g_semantic_visibility_prepared_future_exclusions = 0;
+  g_semantic_visibility_prepared_rejected_exclusions = 0;
+  g_semantic_visibility_prepared_missing_exclusions = 0;
+  g_semantic_visibility_prepared_candidate_count = 0;
+  g_semantic_visibility_prepared_candidate_overflow = 0;
   g_semantic_batch_eligible_draws = 0;
   g_semantic_batch_rejected_draws = 0;
   g_semantic_batch_opportunity_count = 0;
@@ -5008,7 +5064,7 @@ bool RecordProceduralModelSemanticInstance(
   const uint64_t runtime_hash = HashSemanticWords(runtime_words);
   const uint64_t transform_hash = HashSemanticWords(transform_words);
   JoinSemanticVisibilityWorkset(receiver_address, receiver_generation,
-                                record_index);
+                                record_index, semantic_draw);
   ++g_semantic_instance_live_observations;
   g_semantic_instance_payload_bytes += kSemanticObservationPayloadBytes;
   ++g_semantic_instance_replay_fallbacks;
@@ -9961,6 +10017,92 @@ void RecordSemanticBatchEquivalenceOpportunity(
   };
 }
 
+void RecordSemanticVisibilityPreparedCandidate(
+    const rex::system::GraphicsDrawObservation &observation,
+    const SemanticDrawIdentity &identity,
+    const SemanticPreparedDrawContract &contract) {
+  ++g_semantic_visibility_prepared_observations;
+  if (identity.visibility_workset_join ==
+      SemanticVisibilityWorksetJoin::kMissing) {
+    ++g_semantic_visibility_prepared_missing_exclusions;
+    return;
+  }
+  if (identity.visibility_workset_join ==
+      SemanticVisibilityWorksetJoin::kRejected) {
+    ++g_semantic_visibility_prepared_rejected_exclusions;
+    return;
+  }
+
+  ++g_semantic_visibility_prepared_selected_joins;
+  if (observation.frame_sequence < identity.visibility_policy_frame) {
+    ++g_semantic_visibility_prepared_future_exclusions;
+    return;
+  }
+  const uint64_t policy_age_frames =
+      observation.frame_sequence - identity.visibility_policy_frame;
+  if (policy_age_frames > kSemanticVisibilityMaximumPolicyAgeFrames) {
+    ++g_semantic_visibility_prepared_stale_exclusions;
+    return;
+  }
+  ++g_semantic_visibility_prepared_fresh_candidates;
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(identity.receiver_address),
+        uint64_t(identity.receiver_generation),
+        uint64_t(identity.record_index), contract.template_key,
+        contract.geometry_resource_hash, contract.texture_resource_hash,
+        uint64_t(identity.visibility_category),
+        uint64_t(identity.visibility_result_mask)}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  size_t index =
+      size_t(key % kSemanticVisibilityPreparedCandidateCapacity);
+  for (size_t probe = 0;
+       probe < kSemanticVisibilityPreparedCandidateCapacity; ++probe) {
+    SemanticVisibilityPreparedCandidateEntry &entry =
+        g_semantic_visibility_prepared_candidates[index];
+    if (!entry.key) {
+      entry = {
+          .key = key,
+          .template_key = contract.template_key,
+          .geometry_resource_hash = contract.geometry_resource_hash,
+          .texture_resource_hash = contract.texture_resource_hash,
+          .draws = 1,
+          .first_frame = observation.frame_sequence,
+          .last_frame = observation.frame_sequence,
+          .maximum_policy_age_frames = policy_age_frames,
+          .receiver_address = identity.receiver_address,
+          .receiver_generation = identity.receiver_generation,
+          .record_index = identity.record_index,
+          .visibility_category = identity.visibility_category,
+          .visibility_result_mask = identity.visibility_result_mask,
+      };
+      ++g_semantic_visibility_prepared_candidate_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.template_key == contract.template_key &&
+        entry.geometry_resource_hash == contract.geometry_resource_hash &&
+        entry.texture_resource_hash == contract.texture_resource_hash &&
+        entry.receiver_address == identity.receiver_address &&
+        entry.receiver_generation == identity.receiver_generation &&
+        entry.record_index == identity.record_index &&
+        entry.visibility_category == identity.visibility_category &&
+        entry.visibility_result_mask == identity.visibility_result_mask) {
+      ++entry.draws;
+      entry.last_frame = observation.frame_sequence;
+      entry.maximum_policy_age_frames =
+          std::max(entry.maximum_policy_age_frames, policy_age_frames);
+      return;
+    }
+    index =
+        (index + 1) % kSemanticVisibilityPreparedCandidateCapacity;
+  }
+  ++g_semantic_visibility_prepared_candidate_overflow;
+}
+
 void RecordSemanticBatchOpportunity(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
@@ -9972,6 +10114,8 @@ void RecordSemanticBatchOpportunity(
   const SemanticDrawIdentity &identity = origin.semantic_draw;
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
+  RecordSemanticVisibilityPreparedCandidate(observation, identity,
+                                            contract);
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
@@ -11415,9 +11559,106 @@ void EmitSemanticVisibilityCensus() {
        {"suppression_allowed", "false"}});
 }
 
+void EmitSemanticVisibilityPreparedCandidates() {
+  uint64_t entry_draws = 0;
+  uint64_t entry_count = 0;
+  for (const SemanticVisibilityPreparedCandidateEntry &entry :
+       g_semantic_visibility_prepared_candidates) {
+    if (!entry.key) {
+      continue;
+    }
+    ++entry_count;
+    entry_draws += entry.draws;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
+        {{"status", "complete"},
+         {"candidate_key", fmt::format("{:016X}", entry.key)},
+         {"template_key", fmt::format("{:016X}", entry.template_key)},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}", entry.geometry_resource_hash)},
+         {"texture_resource_hash",
+          fmt::format("{:016X}", entry.texture_resource_hash)},
+         {"receiver_address",
+          fmt::format("{:08X}", entry.receiver_address)},
+         {"receiver_generation",
+          std::to_string(entry.receiver_generation)},
+         {"record_index", std::to_string(entry.record_index)},
+         {"visibility_category",
+          std::to_string(entry.visibility_category)},
+         {"visibility_result_mask",
+          std::to_string(entry.visibility_result_mask)},
+         {"draws", std::to_string(entry.draws)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"maximum_policy_age_frames",
+          std::to_string(entry.maximum_policy_age_frames)},
+         {"policy_age_limit_frames",
+          std::to_string(kSemanticVisibilityMaximumPolicyAgeFrames)},
+         {"classification", "fresh_visibility_selected_prepared_candidate"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_upload", "false"},
+         {"native_draw", "false"},
+         {"xenos_draw", "preserved"},
+         {"suppression_allowed", "false"}});
+  }
+  const bool accounting_complete =
+      g_semantic_visibility_prepared_observations ==
+          g_semantic_visibility_prepared_selected_joins +
+              g_semantic_visibility_prepared_rejected_exclusions +
+              g_semantic_visibility_prepared_missing_exclusions &&
+      g_semantic_visibility_prepared_selected_joins ==
+          g_semantic_visibility_prepared_fresh_candidates +
+              g_semantic_visibility_prepared_stale_exclusions +
+              g_semantic_visibility_prepared_future_exclusions &&
+      g_semantic_visibility_prepared_fresh_candidates ==
+          entry_draws +
+              g_semantic_visibility_prepared_candidate_overflow &&
+      g_semantic_visibility_prepared_candidate_count == entry_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
+      {{"status", !g_semantic_visibility_prepared_observations
+                       ? "not_observed"
+                       : (accounting_complete ? "complete" : "incomplete")},
+       {"observations",
+        std::to_string(g_semantic_visibility_prepared_observations)},
+       {"selected_joins",
+        std::to_string(g_semantic_visibility_prepared_selected_joins)},
+       {"fresh_candidates",
+        std::to_string(g_semantic_visibility_prepared_fresh_candidates)},
+       {"stale_exclusions",
+        std::to_string(g_semantic_visibility_prepared_stale_exclusions)},
+       {"future_exclusions",
+        std::to_string(g_semantic_visibility_prepared_future_exclusions)},
+       {"rejected_exclusions",
+        std::to_string(g_semantic_visibility_prepared_rejected_exclusions)},
+       {"missing_exclusions",
+        std::to_string(g_semantic_visibility_prepared_missing_exclusions)},
+       {"candidate_entries",
+        std::to_string(g_semantic_visibility_prepared_candidate_count)},
+       {"entry_draws", std::to_string(entry_draws)},
+       {"capacity",
+        std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
+       {"overflow",
+        std::to_string(g_semantic_visibility_prepared_candidate_overflow)},
+       {"policy_age_limit_frames",
+        std::to_string(kSemanticVisibilityMaximumPolicyAgeFrames)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"identity", "receiver_generation_record_index"},
+       {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
+       {"selection", "independent_visibility_selected_and_fresh"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"suppression_allowed", "false"}});
+}
+
 void EmitSemanticBatchOpportunitySummary() {
   FinalizeSemanticBatchRun();
   FinalizeSemanticBatchFrame();
+  EmitSemanticVisibilityPreparedCandidates();
   EmitSemanticBatchEquivalenceSummary();
   EmitSemanticStateCacheSummary();
   uint64_t entry_draws = 0;
@@ -13931,6 +14172,26 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"native_lod", "false"},
        {"native_draw", "false"},
        {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.semantic_visibility_prepared_candidate_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "proceduralGeometry::CProceduralModels"},
+       {"semantic_instance_hook", "8241741C"},
+       {"semantic_packet_hooks", "82416260,824162F4"},
+       {"prepared_draw_join", "physical_pm4_header_generation"},
+       {"capacity",
+        std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
+       {"policy_age_limit_frames",
+        std::to_string(kSemanticVisibilityMaximumPolicyAgeFrames)},
+       {"identity", "receiver_generation_record_index"},
+       {"selection", "independent_visibility_selected_and_fresh"},
+       {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
