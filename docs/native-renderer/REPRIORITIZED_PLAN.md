@@ -117,6 +117,13 @@ qualification remains part of the Phase B batch.
 - Preserve full-resolution UI through hybrid composition when its boundary is
   safe; otherwise fall back to the complete Xenos frame.
 
+Implementation checkpoint: the `native_prototype` selector and deterministic
+full-source presentation contract are defined in
+[`NATIVE_PROTOTYPE_PRESENTATION.md`](NATIVE_PROTOTYPE_PRESENTATION.md). It
+removes the diagnostic crop/checkerboard without claiming hybrid UI coverage;
+unsupported or missing current-frame work still yields the complete Xenos
+frame.
+
 ### B3. Prototype hybrid composition
 
 - Combine the continuous native opaque contribution with Xenos-provided
