@@ -4106,6 +4106,7 @@ struct IsolatedDrawState {
 };
 
 IsolatedDrawState g_isolated_draw;
+std::atomic<uint32_t> g_isolated_readback_artifacts_committed = 0;
 
 struct PassFollowerState {
   uint64_t target_signature = 0;
@@ -4514,6 +4515,8 @@ void ConfigureReplaySnapshot() {
 
 void ConfigureIsolatedDraw() {
   g_isolated_draw = {};
+  g_isolated_readback_artifacts_committed.store(0,
+                                                 std::memory_order_relaxed);
   ConfigureSignatureScan(
       "PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE",
       g_isolated_draw.target_signature, g_isolated_draw.requested,
@@ -6708,6 +6711,154 @@ uint64_t HashBytes(const uint8_t *data, uint64_t length) {
     hash *= 0x100000001B3ull;
   }
   return hash;
+}
+
+struct IsolatedArtifactComparison {
+  uint64_t left_bytes = 0;
+  uint64_t right_bytes = 0;
+  uint64_t compared_bytes = 0;
+  uint64_t mismatch_bytes = 0;
+  uint64_t first_mismatch = UINT64_MAX;
+  bool readable = false;
+
+  bool exact() const {
+    return readable && left_bytes == right_bytes && !mismatch_bytes;
+  }
+};
+
+IsolatedArtifactComparison CompareIsolatedArtifactFiles(
+    const std::filesystem::path &left_path,
+    const std::filesystem::path &right_path) {
+  IsolatedArtifactComparison result;
+  std::error_code error;
+  result.left_bytes = std::filesystem::file_size(left_path, error);
+  if (error) {
+    return result;
+  }
+  result.right_bytes = std::filesystem::file_size(right_path, error);
+  if (error) {
+    return result;
+  }
+  std::ifstream left(left_path, std::ios::binary);
+  std::ifstream right(right_path, std::ios::binary);
+  if (!left || !right) {
+    return result;
+  }
+  constexpr size_t kComparisonChunkSize = 64 << 10;
+  std::array<uint8_t, kComparisonChunkSize> left_chunk = {};
+  std::array<uint8_t, kComparisonChunkSize> right_chunk = {};
+  const uint64_t common_bytes =
+      std::min(result.left_bytes, result.right_bytes);
+  while (result.compared_bytes < common_bytes) {
+    const size_t chunk_size = size_t(std::min<uint64_t>(
+        kComparisonChunkSize, common_bytes - result.compared_bytes));
+    left.read(reinterpret_cast<char *>(left_chunk.data()),
+              static_cast<std::streamsize>(chunk_size));
+    right.read(reinterpret_cast<char *>(right_chunk.data()),
+               static_cast<std::streamsize>(chunk_size));
+    if (left.gcount() != static_cast<std::streamsize>(chunk_size) ||
+        right.gcount() != static_cast<std::streamsize>(chunk_size)) {
+      return result;
+    }
+    for (size_t index = 0; index < chunk_size; ++index) {
+      if (left_chunk[index] == right_chunk[index]) {
+        continue;
+      }
+      if (result.first_mismatch == UINT64_MAX) {
+        result.first_mismatch = result.compared_bytes + index;
+      }
+      ++result.mismatch_bytes;
+    }
+    result.compared_bytes += chunk_size;
+  }
+  if (result.left_bytes != result.right_bytes) {
+    if (result.first_mismatch == UINT64_MAX) {
+      result.first_mismatch = common_bytes;
+    }
+    result.mismatch_bytes +=
+        result.left_bytes > result.right_bytes
+            ? result.left_bytes - result.right_bytes
+            : result.right_bytes - result.left_bytes;
+  }
+  result.readable = true;
+  return result;
+}
+
+std::string ComparisonFirstMismatch(
+    const IsolatedArtifactComparison &comparison) {
+  return comparison.first_mismatch == UINT64_MAX
+             ? "none"
+             : std::to_string(comparison.first_mismatch);
+}
+
+void EmitIsolatedReadbackParitySummary() {
+  const std::filesystem::path color_native =
+      g_isolated_draw.output_root / L"isolated.bin";
+  std::filesystem::path color_xenos_root = g_isolated_draw.output_root;
+  color_xenos_root += L".xenos";
+  const std::filesystem::path color_xenos =
+      color_xenos_root / L"isolated.bin";
+  std::filesystem::path depth_native_root = g_isolated_draw.output_root;
+  depth_native_root += L".depth";
+  std::filesystem::path depth_xenos_root = g_isolated_draw.output_root;
+  depth_xenos_root += L".depth.xenos";
+  std::filesystem::path seed_native_root = g_isolated_draw.output_root;
+  seed_native_root += L".depth.seed.native";
+  std::filesystem::path seed_xenos_root = g_isolated_draw.output_root;
+  seed_xenos_root += L".depth.seed.xenos";
+
+  const IsolatedArtifactComparison color = CompareIsolatedArtifactFiles(
+      color_native, color_xenos);
+  const IsolatedArtifactComparison seed = CompareIsolatedArtifactFiles(
+      seed_native_root / L"isolated.bin",
+      seed_xenos_root / L"isolated.bin");
+  const IsolatedArtifactComparison post = CompareIsolatedArtifactFiles(
+      depth_native_root / L"isolated.bin",
+      depth_xenos_root / L"isolated.bin");
+  const IsolatedArtifactComparison native_effect = CompareIsolatedArtifactFiles(
+      seed_native_root / L"isolated.bin",
+      depth_native_root / L"isolated.bin");
+  const IsolatedArtifactComparison xenos_effect = CompareIsolatedArtifactFiles(
+      seed_xenos_root / L"isolated.bin",
+      depth_xenos_root / L"isolated.bin");
+  const bool complete = color.readable && seed.readable && post.readable &&
+                        native_effect.readable && xenos_effect.readable;
+  const bool exact = complete && color.exact() && seed.exact() && post.exact();
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.isolated_draw.parity_summary",
+      {{"signature",
+        fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+       {"status", complete ? (exact ? "exact" : "mismatch") : "incomplete"},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"color_post_exact", color.exact() ? "true" : "false"},
+       {"color_post_mismatch_bytes", std::to_string(color.mismatch_bytes)},
+       {"color_post_first_mismatch", ComparisonFirstMismatch(color)},
+       {"depth_seed_exact", seed.exact() ? "true" : "false"},
+       {"depth_seed_mismatch_bytes", std::to_string(seed.mismatch_bytes)},
+       {"depth_seed_first_mismatch", ComparisonFirstMismatch(seed)},
+       {"depth_post_exact", post.exact() ? "true" : "false"},
+       {"depth_post_mismatch_bytes", std::to_string(post.mismatch_bytes)},
+       {"depth_post_first_mismatch", ComparisonFirstMismatch(post)},
+       {"native_depth_effect_bytes",
+        std::to_string(native_effect.mismatch_bytes)},
+       {"xenos_depth_effect_bytes",
+        std::to_string(xenos_effect.mismatch_bytes)},
+       {"draw_effect_exact", seed.exact() && post.exact() ? "true" : "false"},
+       {"comparison", "asynchronous_artifact_exact_bytes"},
+       {"output_authority", "xenos"},
+       {"xenos_draw", "preserved"},
+       {"draw_suppression", "false"},
+       {"suppression_eligible", "false"}});
+}
+
+void NotifyIsolatedReadbackArtifactCommitted() {
+  constexpr uint32_t kExpectedArtifacts = 6;
+  if (g_isolated_readback_artifacts_committed.fetch_add(
+          1, std::memory_order_acq_rel) +
+      1 == kExpectedArtifacts) {
+    EmitIsolatedReadbackParitySummary();
+  }
 }
 
 void TryFingerprintCandidateTextures(
@@ -12924,6 +13075,9 @@ void CompleteIsolatedReadbackArtifact(
              {"capture_role", capture_role},
              {"output_authority", "xenos"},
              {"suppression_eligible", "false"}});
+        if (!error) {
+          NotifyIsolatedReadbackArtifactCommitted();
+        }
       });
 }
 
@@ -13106,6 +13260,9 @@ void CompleteIsolatedDepthReadbackArtifact(
              {"capture_content", "depth_stencil"},
              {"output_authority", "xenos"},
              {"suppression_eligible", "false"}});
+        if (!error) {
+          NotifyIsolatedReadbackArtifactCommitted();
+        }
       });
 }
 
