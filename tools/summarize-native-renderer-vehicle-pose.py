@@ -19,6 +19,9 @@ OWNER_INDIRECT_TARGET = (
 DRAW_ARGUMENT_CORRELATION = (
     "native_renderer.discovery.vehicle_draw_argument_correlation"
 )
+DRAW_OBJECT_CORRELATION = (
+    "native_renderer.discovery.vehicle_draw_object_correlation"
+)
 OWNER_METHOD_CANDIDATES = {
     "82BCC368": (14, "82BCCD30"),
     "82BD2DE0": (20, "82BD35B0"),
@@ -172,6 +175,10 @@ def build(events, requested_session=None):
         "draw_correlation": (
             "exact_backend_signature_and_provenance_argument_to_vehicle_address"
         ),
+        "object_scan_word_count": "128",
+        "object_scan_cache_capacity": "16384",
+        "object_correlation_capacity": "2048",
+        "object_correlation": "sampled_one_hop_pointer_to_vehicle_address",
         "guest_payload_read": (
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -197,6 +204,9 @@ def build(events, requested_session=None):
         "summary_limit": "64",
         "draw_correlation_capacity": "1024",
         "identity_address_capacity": "512",
+        "object_scan_word_count": "128",
+        "object_scan_cache_capacity": "16384",
+        "object_correlation_capacity": "2048",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -237,6 +247,17 @@ def build(events, requested_session=None):
         "identity_addresses",
         "identity_address_capacity",
         "identity_address_overflow",
+        "object_scan_requests",
+        "object_scans",
+        "object_scan_words",
+        "object_scan_word_count",
+        "object_scan_cache_entries",
+        "object_scan_cache_capacity",
+        "object_scan_cache_overflow",
+        "object_argument_matches",
+        "object_correlations",
+        "object_correlation_capacity",
+        "object_correlation_overflow",
     ):
         totals[key] = integer(summary, key)
     identities = []
@@ -509,6 +530,93 @@ def build(events, requested_session=None):
         )
     )
 
+    object_correlations = []
+    seen_object_correlations = set()
+    for event in selected:
+        if event.get("event") != DRAW_OBJECT_CORRELATION:
+            continue
+        layer = str(event.get("provenance_layer", ""))
+        identity_field = str(event.get("identity_field", ""))
+        identity_key = (
+            hexadecimal(event, "identity_generation"),
+            hexadecimal(event, "identity_owner"),
+            integer(event, "identity_slot"),
+        )
+        identity = identities_by_key.get(identity_key)
+        matched_address = hexadecimal(event, "matched_address")
+        if identity and identity_field in ("position", "forward"):
+            expected_address = identity.get(f"{identity_field}_address")
+        elif identity and identity_field == "owner":
+            expected_address = identity_key[1]
+        else:
+            expected_address = None
+        key = (
+            hexadecimal64(event, "backend_signature"),
+            layer,
+            hexadecimal_allow_zero(event, "function_address"),
+            hexadecimal_allow_zero(event, "return_address"),
+            integer(event, "argument_index"),
+            hexadecimal(event, "container_address"),
+            integer(event, "pointer_offset"),
+            identity_field,
+            matched_address,
+            identity_key,
+        )
+        if (
+            key in seen_object_correlations
+            or layer not in DRAW_PROVENANCE_LAYERS
+            or identity_field not in DRAW_IDENTITY_FIELDS
+            or identity is None
+            or matched_address != expected_address
+            or key[4] > 8
+            or key[6] >= totals["object_scan_word_count"] * 4
+            or key[6] % 4
+            or integer(event, "relationship_depth") != 1
+            or event.get("classification")
+            != "vehicle_draw_object_correlation_candidate"
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError("vehicle draw object correlation violates boundary")
+        seen_object_correlations.add(key)
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        if first_frame > last_frame:
+            raise ValueError("invalid vehicle object correlation frame range")
+        object_correlations.append(
+            {
+                "backend_signature": key[0],
+                "provenance_layer": layer,
+                "function_address": key[2],
+                "return_address": key[3],
+                "argument_index": key[4],
+                "container_address": key[5],
+                "pointer_offset": key[6],
+                "identity_field": identity_field,
+                "matched_address": matched_address,
+                "identity_generation": identity_key[0],
+                "identity_owner": identity_key[1],
+                "identity_slot": identity_key[2],
+                "observations": integer(event, "observations"),
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+            }
+        )
+    object_correlations.sort(
+        key=lambda item: (
+            item["backend_signature"],
+            item["provenance_layer"],
+            item["function_address"],
+            item["argument_index"],
+            item["container_address"],
+            item["pointer_offset"],
+            item["identity_owner"],
+        )
+    )
+
     failures = []
     if totals["observations"] != (
         totals["valid_observations"] + totals["invalid_observations"]
@@ -569,6 +677,26 @@ def build(events, requested_session=None):
         failures.append("vehicle identity address index coverage drifted")
     if totals["draw_correlations"] > totals["draw_correlation_capacity"]:
         failures.append("vehicle draw correlation capacity drifted")
+    if totals["object_scans"] > totals["object_scan_requests"]:
+        failures.append("vehicle object scan request accounting drifted")
+    if totals["object_scan_words"] != (
+        totals["object_scans"] * totals["object_scan_word_count"]
+    ):
+        failures.append("vehicle object scan word accounting drifted")
+    if totals["object_scan_cache_entries"] != totals["object_scans"]:
+        failures.append("vehicle object scan cache accounting drifted")
+    if totals["object_scan_cache_overflow"]:
+        failures.append("vehicle object scan cache overflowed")
+    if totals["object_argument_matches"] != sum(
+        item["observations"] for item in object_correlations
+    ):
+        failures.append("vehicle object correlation accounting drifted")
+    if len(object_correlations) != totals["object_correlations"]:
+        failures.append("vehicle object correlation coverage drifted")
+    if totals["object_correlation_overflow"]:
+        failures.append("vehicle object correlation table overflowed")
+    if totals["object_correlations"] > totals["object_correlation_capacity"]:
+        failures.append("vehicle object correlation capacity drifted")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -588,6 +716,7 @@ def build(events, requested_session=None):
         for item in method_correlations
     )
     draw_argument_candidate_proved = bool(draw_correlations)
+    object_candidate_proved = bool(object_correlations)
 
     return {
         "schema": SCHEMA,
@@ -600,6 +729,7 @@ def build(events, requested_session=None):
         "method_correlations": method_correlations,
         "indirect_targets": indirect_targets,
         "draw_argument_correlations": draw_correlations,
+        "draw_object_correlations": object_correlations,
         "qualification": {
             "vehicle_instance_semantic_seed_proved": not failures,
             "vehicle_owner_class_seed_proved": not failures,
@@ -610,6 +740,9 @@ def build(events, requested_session=None):
             "vehicle_draw_identity_proved": False,
             "vehicle_draw_argument_candidate_proved": (
                 not failures and draw_argument_candidate_proved
+            ),
+            "vehicle_draw_object_candidate_proved": (
+                not failures and object_candidate_proved
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,

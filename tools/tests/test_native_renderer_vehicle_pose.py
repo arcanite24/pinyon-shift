@@ -42,6 +42,10 @@ def fixture():
         draw_correlation=(
             "exact_backend_signature_and_provenance_argument_to_vehicle_address"
         ),
+        object_scan_word_count="128",
+        object_scan_cache_capacity="16384",
+        object_correlation_capacity="2048",
+        object_correlation="sampled_one_hop_pointer_to_vehicle_address",
         guest_payload_read=(
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -85,6 +89,17 @@ def fixture():
         identity_addresses="3",
         identity_address_capacity="512",
         identity_address_overflow="0",
+        object_scan_requests="2",
+        object_scans="1",
+        object_scan_words="128",
+        object_scan_word_count="128",
+        object_scan_cache_entries="1",
+        object_scan_cache_capacity="16384",
+        object_scan_cache_overflow="0",
+        object_argument_matches="0",
+        object_correlations="0",
+        object_correlation_capacity="2048",
+        object_correlation_overflow="0",
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
@@ -179,6 +194,11 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleDrawArgumentCorrelations", hooks)
         self.assertIn(
             '"native_renderer.discovery.vehicle_draw_argument_correlation"',
+            hooks,
+        )
+        self.assertIn("ScanVehicleObjectProbeLocked", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_draw_object_correlation"',
             hooks,
         )
         for address in (
@@ -366,6 +386,57 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         document = MODULE.build(events)
         self.assertIn(
             "vehicle draw correlation table overflowed", document["failures"]
+        )
+
+    def test_qualifies_one_hop_object_match_as_candidate_only(self):
+        events = fixture()
+        events[1]["object_argument_matches"] = "2"
+        events[1]["object_correlations"] = "1"
+        events.append(
+            event(
+                MODULE.DRAW_OBJECT_CORRELATION,
+                backend_signature="0123456789ABCDEF",
+                provenance_layer="semantic_receiver",
+                function_address="82417BC0",
+                return_address="00000000",
+                argument_index="8",
+                container_address="A0005000",
+                pointer_offset="64",
+                identity_field="owner",
+                matched_address="A0002000",
+                identity_generation="00000001",
+                identity_owner="A0002000",
+                identity_slot="2",
+                observations="2",
+                first_frame="102",
+                last_frame="104",
+                relationship_depth="1",
+                classification="vehicle_draw_object_correlation_candidate",
+                vehicle_draw_identity_proved="false",
+                guest_state_changed="false",
+                native_draw="false",
+                xenos_authority="true",
+                suppression_allowed="false",
+            )
+        )
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(1, len(document["draw_object_correlations"]))
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_draw_object_candidate_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"]["vehicle_draw_identity_proved"]
+        )
+
+    def test_rejects_object_scan_cache_overflow(self):
+        events = fixture()
+        events[1]["object_scan_cache_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle object scan cache overflowed", document["failures"]
         )
 
 
