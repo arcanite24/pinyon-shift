@@ -1539,6 +1539,32 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("request.reference_depth_readback_requested", scanner)
         self.assertIn("CompleteIsolatedReferenceDepthReadback", scanner)
         self.assertIn('"capture_content", "depth_stencil"', scanner)
+        seed_depth_patch = (
+            ROOT
+            / "patches/rexglue/0084-d3d12-isolated-depth-seed-readback.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "QueueIsolatedReplaySeedDepthReadback", seed_depth_patch
+        )
+        self.assertIn("QueueGuestSeedDepthReadback", seed_depth_patch)
+        self.assertEqual(
+            seed_depth_patch.count(
+                "isolated_draw_request.seed_depth_readback_requested"
+            ),
+            2,
+        )
+        self.assertEqual(
+            seed_depth_patch.count(
+                "reference_seed_depth_readback_requested &&"
+            ),
+            2,
+        )
+        self.assertNotIn("SetDrawSuppression", seed_depth_patch)
+        self.assertNotIn("AwaitAllQueueOperationsCompletion", seed_depth_patch)
+        self.assertIn("CompleteIsolatedSeedDepthReadback", scanner)
+        self.assertIn("CompleteIsolatedReferenceSeedDepthReadback", scanner)
+        self.assertIn('readback, "native_seed"', scanner)
+        self.assertIn('readback, "xenos_seed"', scanner)
 
         texture_resource_patch = (
             ROOT

@@ -4085,6 +4085,8 @@ struct IsolatedDrawState {
   std::jthread reference_artifact_writer;
   std::jthread depth_artifact_writer;
   std::jthread reference_depth_artifact_writer;
+  std::jthread seed_depth_artifact_writer;
+  std::jthread reference_seed_depth_artifact_writer;
   bool requested = false;
   bool readback_requested = false;
   bool completed = false;
@@ -13115,6 +13117,24 @@ void CompleteIsolatedDepthReadback(
       readback, "native", depth_root, g_isolated_draw.depth_artifact_writer);
 }
 
+void CompleteIsolatedSeedDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path depth_root = g_isolated_draw.output_root;
+  depth_root += L".depth.seed.native";
+  CompleteIsolatedDepthReadbackArtifact(
+      readback, "native_seed", depth_root,
+      g_isolated_draw.seed_depth_artifact_writer);
+}
+
+void CompleteIsolatedReferenceSeedDepthReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path depth_root = g_isolated_draw.output_root;
+  depth_root += L".depth.seed.xenos";
+  CompleteIsolatedDepthReadbackArtifact(
+      readback, "xenos_seed", depth_root,
+      g_isolated_draw.reference_seed_depth_artifact_writer);
+}
+
 void CompleteIsolatedReferenceDepthReadback(
     const rex::system::GraphicsIsolatedDrawReadback &readback) {
   std::filesystem::path depth_root = g_isolated_draw.output_root;
@@ -13446,6 +13466,10 @@ void RequestIsolatedDraw(
       request.depth_readback_requested = g_isolated_draw.readback_requested;
       request.reference_depth_readback_requested =
           g_isolated_draw.readback_requested;
+      request.seed_depth_readback_requested =
+          g_isolated_draw.readback_requested;
+      request.reference_seed_depth_readback_requested =
+          g_isolated_draw.readback_requested;
       request.completion = &CompleteIsolatedPassFollower;
       request.readback_completion = g_isolated_draw.readback_requested
                                         ? &CompleteIsolatedDrawReadback
@@ -13461,6 +13485,14 @@ void RequestIsolatedDraw(
       request.reference_depth_readback_completion =
           g_isolated_draw.readback_requested
               ? &CompleteIsolatedReferenceDepthReadback
+              : nullptr;
+      request.seed_depth_readback_completion =
+          g_isolated_draw.readback_requested
+              ? &CompleteIsolatedSeedDepthReadback
+              : nullptr;
+      request.reference_seed_depth_readback_completion =
+          g_isolated_draw.readback_requested
+              ? &CompleteIsolatedReferenceSeedDepthReadback
               : nullptr;
     } else if (!g_isolated_draw.pass_repeat_reported) {
       request.completion = &CompleteIsolatedPassRepeat;
@@ -13583,6 +13615,9 @@ void RequestIsolatedDraw(
   request.depth_readback_requested = g_isolated_draw.readback_requested;
   request.reference_depth_readback_requested =
       g_isolated_draw.readback_requested;
+  request.seed_depth_readback_requested = g_isolated_draw.readback_requested;
+  request.reference_seed_depth_readback_requested =
+      g_isolated_draw.readback_requested;
   request.completion = &CompleteIsolatedDraw;
   request.readback_completion = g_isolated_draw.readback_requested
                                     ? &CompleteIsolatedDrawReadback
@@ -13597,6 +13632,13 @@ void RequestIsolatedDraw(
   request.reference_depth_readback_completion =
       g_isolated_draw.readback_requested
           ? &CompleteIsolatedReferenceDepthReadback
+          : nullptr;
+  request.seed_depth_readback_completion =
+      g_isolated_draw.readback_requested ? &CompleteIsolatedSeedDepthReadback
+                                         : nullptr;
+  request.reference_seed_depth_readback_completion =
+      g_isolated_draw.readback_requested
+          ? &CompleteIsolatedReferenceSeedDepthReadback
           : nullptr;
 }
 
@@ -14856,6 +14898,12 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_isolated_draw.reference_depth_artifact_writer.joinable()) {
     g_isolated_draw.reference_depth_artifact_writer.join();
+  }
+  if (g_isolated_draw.seed_depth_artifact_writer.joinable()) {
+    g_isolated_draw.seed_depth_artifact_writer.join();
+  }
+  if (g_isolated_draw.reference_seed_depth_artifact_writer.joinable()) {
+    g_isolated_draw.reference_seed_depth_artifact_writer.join();
   }
   for (std::jthread &artifact_writer :
        g_consumer_family_marker.artifact_writers) {

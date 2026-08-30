@@ -14,6 +14,9 @@ COLOR_SCHEMA = "pinyon-shift.native-renderer-pass-readback-comparison.v1"
 DEPTH_SCHEMA = (
     "pinyon-shift.native-renderer-pass-depth-readback-comparison.v1"
 )
+DEPTH_CHECKPOINT_SCHEMA = (
+    "pinyon-shift.native-renderer-depth-checkpoint-analysis.v1"
+)
 COLOR_READBACK_SCHEMA = "pinyon-shift.isolated-draw-readback.v1"
 DEPTH_READBACK_SCHEMA = "pinyon-shift.isolated-depth-readback.v1"
 BYTES_PER_PIXEL = {10: 8, 28: 4}
@@ -206,10 +209,14 @@ def _compare_planar_depth_components(
 
 
 def compare(
-    native_root: Path, xenos_root: Path, content: str = "color"
+    native_root: Path,
+    xenos_root: Path,
+    content: str = "color",
+    native_role: str = "native",
+    xenos_role: str = "xenos",
 ) -> dict[str, Any]:
-    native, native_data = _load(native_root, "native", content)
-    xenos, xenos_data = _load(xenos_root, "xenos", content)
+    native, native_data = _load(native_root, native_role, content)
+    xenos, xenos_data = _load(xenos_root, xenos_role, content)
     for field in ("signature", "frame", "draw"):
         if native.get(field) != xenos.get(field):
             raise ValueError(f"readback {field} values differ")
@@ -363,6 +370,67 @@ def compare(
     }
 
 
+def compare_depth_checkpoints(
+    native_root: Path,
+    xenos_root: Path,
+    native_seed_root: Path,
+    xenos_seed_root: Path,
+) -> dict[str, Any]:
+    seed_copy = compare(
+        native_seed_root,
+        xenos_seed_root,
+        "depth-stencil",
+        "native_seed",
+        "xenos_seed",
+    )
+    native_effect = compare(
+        native_seed_root,
+        native_root,
+        "depth-stencil",
+        "native_seed",
+        "native",
+    )
+    xenos_effect = compare(
+        xenos_seed_root,
+        xenos_root,
+        "depth-stencil",
+        "xenos_seed",
+        "xenos",
+    )
+    final_parity = compare(
+        native_root, xenos_root, "depth-stencil", "native", "xenos"
+    )
+    seed_exact = seed_copy["result"] == "pass"
+    parity_exact = final_parity["result"] == "pass"
+    native_changed = native_effect["result"] != "pass"
+    xenos_changed = xenos_effect["result"] != "pass"
+    if parity_exact:
+        diagnosis = "exact_post_draw_parity"
+    elif not seed_exact:
+        diagnosis = "private_seed_copy_mismatch"
+    elif native_changed != xenos_changed:
+        diagnosis = "draw_effect_divergence"
+    else:
+        diagnosis = "draw_result_divergence"
+    return {
+        "schema": DEPTH_CHECKPOINT_SCHEMA,
+        "result": "pass" if parity_exact else "fail",
+        "diagnosis": diagnosis,
+        "comparisons": {
+            "seed_copy": seed_copy,
+            "native_draw_effect": native_effect,
+            "xenos_draw_effect": xenos_effect,
+            "post_draw_parity": final_parity,
+        },
+        "safety": {
+            "xenos_draw_preserved": True,
+            "output_authority": "xenos",
+            "suppression_allowed": False,
+            "gpu_wait_added": False,
+        },
+    }
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("native_root", type=Path)
@@ -372,6 +440,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="defaults to the native root with '.xenos' appended",
     )
     parser.add_argument("--output", "-o", type=Path)
+    parser.add_argument("--native-seed-root", type=Path)
+    parser.add_argument("--xenos-seed-root", type=Path)
     parser.add_argument(
         "--content", choices=("color", "depth-stencil"), default="color"
     )
@@ -381,7 +451,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     xenos_root = args.xenos_root or Path(str(args.native_root) + ".xenos")
-    report = compare(args.native_root, xenos_root, args.content)
+    if bool(args.native_seed_root) != bool(args.xenos_seed_root):
+        raise ValueError("both seed roots are required for checkpoint analysis")
+    if args.native_seed_root:
+        if args.content != "depth-stencil":
+            raise ValueError("seed checkpoint analysis requires depth-stencil")
+        report = compare_depth_checkpoints(
+            args.native_root,
+            xenos_root,
+            args.native_seed_root,
+            args.xenos_seed_root,
+        )
+    else:
+        report = compare(args.native_root, xenos_root, args.content)
     rendered = json.dumps(report, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

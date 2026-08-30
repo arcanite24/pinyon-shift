@@ -165,6 +165,28 @@ exact active bytes; the component breakdown only distinguishes geometry/depth
 divergence from a narrow stencil-state mismatch without requiring another GPU
 capture.
 
+Targeted captures also emit two pre-draw depth/stencil checkpoints beside the
+post-draw pair: `.depth.seed.native` is the private target immediately after
+the guest resource copy, and `.depth.seed.xenos` is the still-authoritative
+guest target immediately before its original draw. Analyze all four artifacts
+in one report with:
+
+```powershell
+python .\tools\compare-native-renderer-pass-readbacks.py `
+  '.local\qualification\nr04d-pass-readback.depth' `
+  --content depth-stencil `
+  --native-seed-root `
+    '.local\qualification\nr04d-pass-readback.depth.seed.native' `
+  --xenos-seed-root `
+    '.local\qualification\nr04d-pass-readback.depth.seed.xenos' `
+  --output '.local\qualification\nr04d-depth-checkpoints.json'
+```
+
+The checkpoint diagnosis separates a private seed-copy mismatch from a draw
+effect or final-result divergence. All four copies remain asynchronous and
+diagnostic-only. The authoritative draw is preserved, and a failed final
+parity comparison remains a hard suppression blocker.
+
 RenderDoc remains available for visual inspection and external confirmation.
 Capture with both the anchor and follower configured, then export their
 native/Xenos spans:

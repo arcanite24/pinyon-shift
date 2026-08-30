@@ -245,6 +245,59 @@ class NativeRendererPassReadbackTests(unittest.TestCase):
             )
             self.assertEqual(len(components["first_changed_samples"]), 2)
 
+    def test_depth_checkpoints_localize_draw_effect_divergence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            seed = bytes(64)
+            native_after = bytearray(seed)
+            native_after[4] = 129
+            write_msaa_depth_readback(native_seed, "native_seed", seed)
+            write_msaa_depth_readback(xenos_seed, "xenos_seed", seed)
+            write_msaa_depth_readback(native, "native", bytes(native_after))
+            write_msaa_depth_readback(xenos, "xenos", seed)
+
+            report = MODULE.compare_depth_checkpoints(
+                native, xenos, native_seed, xenos_seed
+            )
+
+            self.assertEqual(report["result"], "fail")
+            self.assertEqual(report["diagnosis"], "draw_effect_divergence")
+            self.assertEqual(
+                report["comparisons"]["seed_copy"]["result"], "pass"
+            )
+            native_components = report["comparisons"]["native_draw_effect"][
+                "metrics"
+            ]["components"]
+            self.assertTrue(native_components["exact_depth"])
+            self.assertFalse(native_components["exact_stencil"])
+
+    def test_depth_checkpoints_identify_seed_copy_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native_seed = root / "pass.depth.seed.native"
+            xenos_seed = root / "pass.depth.seed.xenos"
+            native = root / "pass.depth"
+            xenos = root / "pass.depth.xenos"
+            seed = bytes(64)
+            bad_seed = bytearray(seed)
+            bad_seed[4] = 7
+            write_msaa_depth_readback(
+                native_seed, "native_seed", bytes(bad_seed)
+            )
+            write_msaa_depth_readback(xenos_seed, "xenos_seed", seed)
+            write_msaa_depth_readback(native, "native", bytes(bad_seed))
+            write_msaa_depth_readback(xenos, "xenos", seed)
+
+            report = MODULE.compare_depth_checkpoints(
+                native, xenos, native_seed, xenos_seed
+            )
+
+            self.assertEqual(report["diagnosis"], "private_seed_copy_mismatch")
+
 
 if __name__ == "__main__":
     unittest.main()
