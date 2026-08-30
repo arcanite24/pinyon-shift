@@ -33,6 +33,7 @@ reflection or cubemap.
 
 python .\tools\build-native-renderer-effect-pass-census.py `
   .local\qualification\effect-pass-trace.json `
+  --classifier config\native-renderer\effect-pass-classifier.json `
   --output .local\qualification\effect-pass-census.json
 ```
 
@@ -113,8 +114,34 @@ destination is `RT @ 720t, <13t>, 4xMSAA, kD24S8`.
 Following that destination proves the same mechanical pattern: four complete
 clear/write epochs, 40 unique depth-target writes, 59 pixel reads, and two
 unique compute-read events. Every pixel consumer again writes depth only, with
-zero color outputs. The square-view candidate is therefore a qualified
-depth-to-depth propagation chain, not a direct scene-color shadow sampler.
-This rejects it as the next shadow semantic seed while leaving the broader
-possibility of shadow data elsewhere open. Native coverage and suppression
-remain false.
+zero color outputs. The square-view target is therefore a qualified
+depth-to-depth propagation chain and not a direct scene-color shadow sampler.
+That mechanical result does not identify the source contents by itself.
+
+## Exact shadow-depth promotion
+
+Reviewed local depth exports supply the stronger semantic evidence required by
+the promotion contract. The image after event 803 shows an orthographic world
+caster view in the 1024-square epoch. The image after event 1417 shows an
+isolated top-down vehicle silhouette in the 2048-square epoch; its SHA-256 is
+`3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A`.
+The payload images remain local and are not tracked or distributed.
+
+`config/native-renderer/effect-pass-classifier.json` promotes only the three
+exact 2048-square producer families enclosed by that inspected epoch:
+
+| Pipeline label | Vertex shader label | Draws | Role |
+| --- | --- | ---: | --- |
+| `VS 4E1DA281CC3D7EDB` | `Shader {b1ccceb6}` | 64 | `shadow_depth` |
+| `VS CDDB454589126317` | `Shader {d18760b6}` | 12 | `shadow_depth` |
+| `VS 68DF329C66481843` | `Shader {23c9cd31}` | 4 | `shadow_depth` |
+
+The match also requires the exact D24S8 target label, 2048 by 2048 viewport,
+depth-only output class, and absent pixel shader. Each rule is bound to the
+qualified capture hash and reviewed image hash, and must match exactly one
+family. The classified report contains 80 `shadow_depth` draws in three
+families; the other 1,502 draws in 270 families remain
+`unknown_unclassified`. This proves a shadow-depth producer seed, not an atlas
+layout, cascade model, native renderer, or suppression boundary. Native
+coverage and suppression remain false, Xenos stays authoritative, and
+reflection remains unidentified.

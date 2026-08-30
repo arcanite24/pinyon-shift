@@ -9,6 +9,18 @@ import sys
 
 TRACE_SCHEMA = "pinyon-shift.native-renderer-renderdoc-pass-trace.v1"
 SCHEMA = "pinyon-shift.native-renderer-effect-pass-census.v1"
+CLASSIFIER_SCHEMA = "pinyon-shift.native-renderer-effect-pass-classifier.v1"
+SEMANTIC_ROLES = {"shadow_depth", "reflection_capture", "retained_unknown"}
+CONFIDENCE_LEVELS = {"medium", "high"}
+MATCH_FIELDS = {
+    "output_class",
+    "depth_target_name",
+    "pipeline_name",
+    "vertex_shader_name",
+    "pixel_shader_name",
+    "viewport_width",
+    "viewport_height",
+}
 
 
 def canonical_sha256(value):
@@ -46,9 +58,18 @@ def output_class(draw):
 def signature(draw):
     return {
         "output_class": output_class(draw),
+        "color_target_names": [
+            target.get("resource_name")
+            for target in draw.get("color_targets", [])
+        ],
         "color_target_shapes": [
             target_shape(target) for target in draw.get("color_targets", [])
         ],
+        "depth_target_name": (
+            None
+            if draw.get("depth_target") is None
+            else draw["depth_target"].get("resource_name")
+        ),
         "depth_target_shape": target_shape(draw.get("depth_target")),
         "pipeline": draw.get("pipeline"),
         "pipeline_name": draw.get("pipeline_name"),
@@ -64,7 +85,116 @@ def signature(draw):
     }
 
 
-def build_census(trace):
+def match_projection(value):
+    viewport = value.get("viewport") or {}
+    return {
+        "output_class": value.get("output_class"),
+        "depth_target_name": value.get("depth_target_name"),
+        "pipeline_name": value.get("pipeline_name"),
+        "vertex_shader_name": value.get("vertex_shader_name"),
+        "pixel_shader_name": value.get("pixel_shader_name"),
+        "viewport_width": viewport.get("width"),
+        "viewport_height": viewport.get("height"),
+    }
+
+
+def normalize_classifier(document, capture_sha256):
+    if document.get("schema") != CLASSIFIER_SCHEMA:
+        raise ValueError("unsupported effect-pass classifier schema")
+    if document.get("evidence_capture_sha256") != capture_sha256:
+        raise ValueError("effect-pass classifier capture evidence drifted")
+    rules = document.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("effect-pass classifier rules must be a nonempty array")
+    normalized = []
+    seen = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise ValueError(f"effect-pass classifier rule {index} must be an object")
+        identifier = str(rule.get("id", "")).strip()
+        if not identifier or identifier in seen:
+            raise ValueError("effect-pass classifier rule ids must be unique")
+        seen.add(identifier)
+        match = rule.get("match")
+        if not isinstance(match, dict) or set(match) != MATCH_FIELDS:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} match fields drifted"
+            )
+        role = rule.get("semantic_role")
+        confidence = rule.get("confidence")
+        evidence = str(rule.get("evidence", "")).strip()
+        visual_sha256 = str(rule.get("visual_sha256", "")).upper()
+        if role not in SEMANTIC_ROLES:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} has invalid role"
+            )
+        if confidence not in CONFIDENCE_LEVELS:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} has invalid confidence"
+            )
+        if not evidence:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} requires evidence"
+            )
+        if len(visual_sha256) != 64 or any(
+            character not in "0123456789ABCDEF"
+            for character in visual_sha256
+        ):
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} has invalid visual hash"
+            )
+        if rule.get("native_coverage") is not False:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} must keep native coverage false"
+            )
+        if rule.get("suppression_eligible") is not False:
+            raise ValueError(
+                f"effect-pass classifier rule {identifier} must forbid suppression"
+            )
+        normalized.append(
+            {
+                "id": identifier,
+                "match": match,
+                "semantic_role": role,
+                "semantic_confidence": confidence,
+                "semantic_evidence": evidence,
+                "visual_sha256": visual_sha256,
+            }
+        )
+    return normalized
+
+
+def apply_classifier(families, rules):
+    matched = set()
+    for rule in rules:
+        candidates = [
+            family
+            for family in families
+            if match_projection(family["signature"]) == rule["match"]
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                "effect-pass classifier rule {} matched {} families".format(
+                    rule["id"], len(candidates)
+                )
+            )
+        family = candidates[0]
+        if family["sha256"] in matched:
+            raise ValueError("multiple effect-pass rules matched one family")
+        matched.add(family["sha256"])
+        family.update(
+            {
+                "classifier_rule": rule["id"],
+                "semantic_role": rule["semantic_role"],
+                "semantic_confidence": rule["semantic_confidence"],
+                "semantic_evidence": rule["semantic_evidence"],
+                "visual_sha256": rule["visual_sha256"],
+            }
+        )
+    return matched
+
+
+def build_census(trace, classifier=None):
     if trace.get("schema") != TRACE_SCHEMA:
         raise ValueError("unsupported pass trace schema")
     safety = trace.get("safety", {})
@@ -131,9 +261,23 @@ def build_census(trace):
         key=lambda item: (-item["draw_count"], item["sha256"]),
     )
     counts = {}
+    classifier_rules = []
+    matched = set()
+    if classifier is not None:
+        classifier_rules = normalize_classifier(
+            classifier, str(trace.get("capture", {}).get("sha256", ""))
+        )
+        matched = apply_classifier(ordered, classifier_rules)
+    semantic_counts = {}
+    semantic_draws = {}
     for family in ordered:
         key = family["signature"]["output_class"]
         counts[key] = counts.get(key, 0) + family["draw_count"]
+        role = family["semantic_role"]
+        semantic_counts[role] = semantic_counts.get(role, 0) + 1
+        semantic_draws[role] = semantic_draws.get(role, 0) + family["draw_count"]
+    shadow_identified = semantic_counts.get("shadow_depth", 0) > 0
+    reflection_identified = semantic_counts.get("reflection_capture", 0) > 0
     return {
         "schema": SCHEMA,
         "capture": trace.get("capture"),
@@ -142,12 +286,21 @@ def build_census(trace):
             "families": len(ordered),
             "isolated_native_draws_ignored": ignored_native_draws,
             "draws_by_output_class": dict(sorted(counts.items())),
+            "families_by_semantic_role": dict(sorted(semantic_counts.items())),
+            "draws_by_semantic_role": dict(sorted(semantic_draws.items())),
         },
         "families": ordered,
+        "classification": {
+            "configured": classifier is not None,
+            "rules": len(classifier_rules),
+            "matched_families": len(matched),
+            "unclassified_families": len(ordered) - len(matched),
+        },
         "qualification": {
             "pipeline_metadata_census_complete": True,
-            "shadow_pass_identified": False,
-            "reflection_pass_identified": False,
+            "shadow_pass_identified": shadow_identified,
+            "reflection_pass_identified": reflection_identified,
+            "native_shadow_renderer_ready": False,
             "semantic_promotion_requires_external_evidence": True,
         },
         "safety": {
@@ -163,12 +316,16 @@ def build_census(trace):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("trace", type=pathlib.Path)
+    parser.add_argument("--classifier", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
         trace_bytes = args.trace.read_bytes()
         trace = json.loads(trace_bytes)
-        census = build_census(trace)
+        classifier = None
+        if args.classifier is not None:
+            classifier = json.loads(args.classifier.read_text(encoding="utf-8"))
+        census = build_census(trace, classifier)
         census["trace_sha256"] = hashlib.sha256(trace_bytes).hexdigest().upper()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

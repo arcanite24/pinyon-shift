@@ -1,0 +1,60 @@
+{
+  "evidence_capture_sha256": "ef4064929005d08432488fd4649e845630860044a6cdc49e463fa7b3883667da",
+  "rules": [
+    {
+      "confidence": "high",
+      "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
+      "id": "shadow-depth-vehicle-rigid",
+      "match": {
+        "depth_target_name": "RT @ 720t, <13t>, 1xMSAA, kD24S8",
+        "output_class": "depth_only_write_candidate",
+        "pipeline_name": "VS 4E1DA281CC3D7EDB",
+        "pixel_shader_name": null,
+        "vertex_shader_name": "Shader {b1ccceb6}",
+        "viewport_height": 2048.0,
+        "viewport_width": 2048.0
+      },
+      "native_coverage": false,
+      "semantic_role": "shadow_depth",
+      "suppression_eligible": false,
+      "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
+    },
+    {
+      "confidence": "high",
+      "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
+      "id": "shadow-depth-vehicle-secondary",
+      "match": {
+        "depth_target_name": "RT @ 720t, <13t>, 1xMSAA, kD24S8",
+        "output_class": "depth_only_write_candidate",
+        "pipeline_name": "VS CDDB454589126317",
+        "pixel_shader_name": null,
+        "vertex_shader_name": "Shader {d18760b6}",
+        "viewport_height": 2048.0,
+        "viewport_width": 2048.0
+      },
+      "native_coverage": false,
+      "semantic_role": "shadow_depth",
+      "suppression_eligible": false,
+      "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
+    },
+    {
+      "confidence": "high",
+      "evidence": "Reviewed local depth image after event 1417 shows an isolated top-down vehicle caster silhouette in the exact 2048-square producer epoch.",
+      "id": "shadow-depth-vehicle-detail",
+      "match": {
+        "depth_target_name": "RT @ 720t, <13t>, 1xMSAA, kD24S8",
+        "output_class": "depth_only_write_candidate",
+        "pipeline_name": "VS 68DF329C66481843",
+        "pixel_shader_name": null,
+        "vertex_shader_name": "Shader {23c9cd31}",
+        "viewport_height": 2048.0,
+        "viewport_width": 2048.0
+      },
+      "native_coverage": false,
+      "semantic_role": "shadow_depth",
+      "suppression_eligible": false,
+      "visual_sha256": "3CAE4CEFD2F93B5E6645653D81440C9FED47CA22557A16B2CA3B90FCA828DF9A"
+    }
+  ],
+  "schema": "pinyon-shift.native-renderer-effect-pass-classifier.v1"
+}
