@@ -171,8 +171,7 @@ This is an observational native state-machine model, not an independent camera
 or frustum implementation. It reads only the already captured register result
 domain, changes no guest state or control flow, performs no native draw, and
 cannot suppress Xenos work. Its purpose is to prove the selection mapping before
-the next batch mirrors the spatial helper inputs independently. Release and
-AppData qualification are intentionally deferred to that consolidated batch.
+the next batch mirrors the spatial helper inputs independently.
 
 ## Independent spatial-helper shadow
 
@@ -196,3 +195,20 @@ are counted and excluded. The mirror writes no guest memory, changes no control
 flow, and still cannot cull, select LOD, draw, or suppress Xenos. Its runtime
 qualification is batched with the title-result shadow model in one Release and
 AppData session.
+
+## Consolidated shadow-model qualification
+
+Release/AppData session `20260830T000441Z-p37468` completed normally with no
+fatal signatures and kept Xenos as the sole rendering authority. The
+authoritative census reconciled 1,631,224 records with zero lifecycle, identity,
+overflow, or shutdown-open faults. The title-result model matched all 28,092
+modelled records with zero false positives or false negatives. The independent
+spatial mirror matched all 232,692 in-scope helper results with zero invalid
+inputs, missing pairs, false positives, or false negatives.
+
+The optimized telemetry derives empty-record totals from the authoritative
+census and performs no atomic updates for records that never reach either shadow
+model. Median performance recovered to 30.153 FPS over 8,234 frames, with a
+19.225 FPS one-percent low and zero present-deadline misses. This qualifies the
+independent spatial helper and the title-result selection mapping for the next
+category-classifier shadow milestone; native policy execution remains disabled.
