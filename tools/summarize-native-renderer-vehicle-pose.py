@@ -16,6 +16,9 @@ OWNER_METHOD = "native_renderer.discovery.vehicle_owner_method"
 OWNER_INDIRECT_TARGET = (
     "native_renderer.discovery.vehicle_owner_indirect_target"
 )
+DRAW_ARGUMENT_CORRELATION = (
+    "native_renderer.discovery.vehicle_draw_argument_correlation"
+)
 OWNER_METHOD_CANDIDATES = {
     "82BCC368": (14, "82BCCD30"),
     "82BD2DE0": (20, "82BD35B0"),
@@ -29,6 +32,19 @@ OWNER_INDIRECT_CALLSITES = {
     "82BC86BC",
     "82BC86E4",
 }
+DRAW_PROVENANCE_LAYERS = {
+    "direct_arguments",
+    "semantic_receiver",
+    "semantic_descriptor",
+    "semantic_runtime",
+    "indirect_constructor_arguments",
+    "indirect_owner_arguments",
+    "indirect_producer_arguments",
+    "indirect_context_arguments",
+    "indirect_context_root",
+    "indirect_semantic_receiver",
+}
+DRAW_IDENTITY_FIELDS = {"owner", "position", "forward"}
 
 
 def read_events(paths):
@@ -86,6 +102,17 @@ def hexadecimal64(mapping, key):
     return value
 
 
+def hexadecimal_allow_zero(mapping, key):
+    value = str(mapping.get(key, "")).upper()
+    if len(value) != 8:
+        raise ValueError(f"invalid {key}")
+    try:
+        int(value, 16)
+    except ValueError as error:
+        raise ValueError(f"invalid {key}") from error
+    return value
+
+
 def hexadecimal_words(mapping, key, expected_count):
     values = str(mapping.get(key, "")).upper().split(",")
     if len(values) != expected_count:
@@ -140,6 +167,11 @@ def build(events, requested_session=None):
             "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"
         ),
         "owner_indirect_target_capacity": "64",
+        "draw_correlation_capacity": "1024",
+        "identity_address_capacity": "512",
+        "draw_correlation": (
+            "exact_backend_signature_and_provenance_argument_to_vehicle_address"
+        ),
         "guest_payload_read": (
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -163,6 +195,8 @@ def build(events, requested_session=None):
         "owner_method_exit_hooks": "82BCCD30,82BD35B0,82BC86F0",
         "capacity": "64",
         "summary_limit": "64",
+        "draw_correlation_capacity": "1024",
+        "identity_address_capacity": "512",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -194,6 +228,15 @@ def build(events, requested_session=None):
         "owner_indirect_targets",
         "owner_indirect_target_capacity",
         "owner_indirect_target_overflow",
+        "draws_examined",
+        "draw_argument_probes",
+        "draw_argument_matches",
+        "draw_correlations",
+        "draw_correlation_capacity",
+        "draw_correlation_overflow",
+        "identity_addresses",
+        "identity_address_capacity",
+        "identity_address_overflow",
     ):
         totals[key] = integer(summary, key)
     identities = []
@@ -382,6 +425,90 @@ def build(events, requested_session=None):
         )
     )
 
+    identities_by_key = {
+        (item["generation"], item["owner"], item["slot"]): item
+        for item in identities
+    }
+    draw_correlations = []
+    seen_draw_correlations = set()
+    for event in selected:
+        if event.get("event") != DRAW_ARGUMENT_CORRELATION:
+            continue
+        layer = str(event.get("provenance_layer", ""))
+        identity_field = str(event.get("identity_field", ""))
+        identity_key = (
+            hexadecimal(event, "identity_generation"),
+            hexadecimal(event, "identity_owner"),
+            integer(event, "identity_slot"),
+        )
+        identity = identities_by_key.get(identity_key)
+        matched_address = hexadecimal(event, "matched_address")
+        if identity and identity_field in ("position", "forward"):
+            expected_address = identity.get(f"{identity_field}_address")
+        elif identity and identity_field == "owner":
+            expected_address = identity_key[1]
+        else:
+            expected_address = None
+        key = (
+            hexadecimal64(event, "backend_signature"),
+            layer,
+            hexadecimal_allow_zero(event, "function_address"),
+            hexadecimal_allow_zero(event, "return_address"),
+            integer(event, "argument_index"),
+            identity_field,
+            matched_address,
+            identity_key,
+        )
+        if (
+            key in seen_draw_correlations
+            or layer not in DRAW_PROVENANCE_LAYERS
+            or identity_field not in DRAW_IDENTITY_FIELDS
+            or identity is None
+            or matched_address != expected_address
+            or key[4] > 8
+            or event.get("classification")
+            != "vehicle_draw_argument_correlation_candidate"
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError("vehicle draw correlation violates boundary")
+        seen_draw_correlations.add(key)
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        if first_frame > last_frame:
+            raise ValueError("invalid vehicle draw correlation frame range")
+        draw_correlations.append(
+            {
+                "backend_signature": key[0],
+                "provenance_layer": layer,
+                "function_address": key[2],
+                "return_address": key[3],
+                "argument_index": key[4],
+                "identity_field": identity_field,
+                "matched_address": matched_address,
+                "identity_generation": identity_key[0],
+                "identity_owner": identity_key[1],
+                "identity_slot": identity_key[2],
+                "observations": integer(event, "observations"),
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+            }
+        )
+    draw_correlations.sort(
+        key=lambda item: (
+            item["backend_signature"],
+            item["provenance_layer"],
+            item["function_address"],
+            item["return_address"],
+            item["argument_index"],
+            item["identity_owner"],
+            item["identity_slot"],
+        )
+    )
+
     failures = []
     if totals["observations"] != (
         totals["valid_observations"] + totals["invalid_observations"]
@@ -426,6 +553,22 @@ def build(events, requested_session=None):
         "owner_indirect_valid_observations"
     ]:
         failures.append("vehicle owner indirect target totals drifted")
+    if not totals["draws_examined"] or not totals["draw_argument_probes"]:
+        failures.append("no title draw arguments were examined")
+    if totals["draw_argument_matches"] != sum(
+        item["observations"] for item in draw_correlations
+    ):
+        failures.append("vehicle draw correlation observation accounting drifted")
+    if len(draw_correlations) != totals["draw_correlations"]:
+        failures.append("vehicle draw correlation coverage drifted")
+    if totals["draw_correlation_overflow"]:
+        failures.append("vehicle draw correlation table overflowed")
+    if totals["identity_address_overflow"]:
+        failures.append("vehicle identity address index overflowed")
+    if totals["identity_addresses"] != totals["identities"] * 3:
+        failures.append("vehicle identity address index coverage drifted")
+    if totals["draw_correlations"] > totals["draw_correlation_capacity"]:
+        failures.append("vehicle draw correlation capacity drifted")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -444,6 +587,7 @@ def build(events, requested_session=None):
         item["vehicle_render_method_candidate_proved"]
         for item in method_correlations
     )
+    draw_argument_candidate_proved = bool(draw_correlations)
 
     return {
         "schema": SCHEMA,
@@ -455,6 +599,7 @@ def build(events, requested_session=None):
         "owner_classes": owner_classes,
         "method_correlations": method_correlations,
         "indirect_targets": indirect_targets,
+        "draw_argument_correlations": draw_correlations,
         "qualification": {
             "vehicle_instance_semantic_seed_proved": not failures,
             "vehicle_owner_class_seed_proved": not failures,
@@ -463,6 +608,9 @@ def build(events, requested_session=None):
             ),
             "player_vehicle_identity_proved": False,
             "vehicle_draw_identity_proved": False,
+            "vehicle_draw_argument_candidate_proved": (
+                not failures and draw_argument_candidate_proved
+            ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,
         },

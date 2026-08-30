@@ -37,6 +37,11 @@ def fixture():
             "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"
         ),
         owner_indirect_target_capacity="64",
+        draw_correlation_capacity="1024",
+        identity_address_capacity="512",
+        draw_correlation=(
+            "exact_backend_signature_and_provenance_argument_to_vehicle_address"
+        ),
         guest_payload_read=(
             "existing_title_pose_hook_values_and_bounded_owner_vtable"
         ),
@@ -71,6 +76,15 @@ def fixture():
         owner_indirect_targets="0",
         owner_indirect_target_capacity="64",
         owner_indirect_target_overflow="0",
+        draws_examined="4",
+        draw_argument_probes="32",
+        draw_argument_matches="0",
+        draw_correlations="0",
+        draw_correlation_capacity="1024",
+        draw_correlation_overflow="0",
+        identity_addresses="3",
+        identity_address_capacity="512",
+        identity_address_overflow="0",
         guest_state_changed="false",
         native_upload="false",
         native_draw="false",
@@ -160,6 +174,11 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleOwnerIndirectCall", hooks)
         self.assertIn(
             '"native_renderer.discovery.vehicle_owner_indirect_target"',
+            hooks,
+        )
+        self.assertIn("ObserveVehicleDrawArgumentCorrelations", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_draw_argument_correlation"',
             hooks,
         )
         for address in (
@@ -296,6 +315,57 @@ class VehiclePoseSummaryTests(unittest.TestCase):
         )
         self.assertFalse(
             document["qualification"]["vehicle_draw_identity_proved"]
+        )
+
+    def test_qualifies_draw_argument_match_as_candidate_only(self):
+        events = fixture()
+        events[1]["draw_argument_matches"] = "3"
+        events[1]["draw_correlations"] = "1"
+        events.append(
+            event(
+                MODULE.DRAW_ARGUMENT_CORRELATION,
+                backend_signature="0123456789ABCDEF",
+                provenance_layer="indirect_owner_arguments",
+                function_address="82409668",
+                return_address="8240D1B0",
+                argument_index="3",
+                identity_field="owner",
+                matched_address="A0002000",
+                identity_generation="00000001",
+                identity_owner="A0002000",
+                identity_slot="2",
+                observations="3",
+                first_frame="102",
+                last_frame="104",
+                classification="vehicle_draw_argument_correlation_candidate",
+                vehicle_draw_identity_proved="false",
+                guest_state_changed="false",
+                native_draw="false",
+                xenos_authority="true",
+                suppression_allowed="false",
+            )
+        )
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(1, len(document["draw_argument_correlations"]))
+        self.assertTrue(
+            document["qualification"][
+                "vehicle_draw_argument_candidate_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"]["vehicle_draw_identity_proved"]
+        )
+        self.assertFalse(
+            document["qualification"]["native_vehicle_rendering_admitted"]
+        )
+
+    def test_rejects_draw_argument_correlation_overflow(self):
+        events = fixture()
+        events[1]["draw_correlation_overflow"] = "1"
+        document = MODULE.build(events)
+        self.assertIn(
+            "vehicle draw correlation table overflowed", document["failures"]
         )
 
 

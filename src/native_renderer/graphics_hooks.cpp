@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -106,6 +107,8 @@ constexpr size_t kVehicleOwnerVtableMethodCount = 32;
 constexpr size_t kVehicleOwnerMethodCandidateCount = 3;
 constexpr size_t kVehicleOwnerMethodStackCapacity = 8;
 constexpr size_t kVehicleOwnerIndirectTargetCapacity = 64;
+constexpr size_t kVehicleIdentityAddressCapacity = 512;
+constexpr size_t kVehicleDrawCorrelationCapacity = 1024;
 constexpr size_t kSemanticInstanceCapacity = 4096;
 constexpr size_t kSemanticSubmissionCapacity = 8192;
 constexpr size_t kSemanticRenderItemStackCapacity = 32;
@@ -597,6 +600,60 @@ struct VehicleOwnerIndirectTargetEntry {
   bool valid = false;
 };
 
+enum class VehicleIdentityAddressKind : uint32_t {
+  kOwner = 1,
+  kPosition = 2,
+  kForward = 3,
+};
+
+enum class VehicleDrawProvenanceLayer : uint32_t {
+  kDirectArguments,
+  kSemanticReceiver,
+  kSemanticDescriptor,
+  kSemanticRuntime,
+  kIndirectConstructorArguments,
+  kIndirectOwnerArguments,
+  kIndirectProducerArguments,
+  kIndirectContextArguments,
+  kIndirectContextRoot,
+  kIndirectSemanticReceiver,
+};
+
+struct VehicleDrawArgumentProbe {
+  VehicleDrawProvenanceLayer layer =
+      VehicleDrawProvenanceLayer::kDirectArguments;
+  uint32_t function_address = 0;
+  uint32_t return_address = 0;
+  uint32_t argument_index = 0;
+  uint32_t value = 0;
+};
+
+struct VehicleDrawCorrelationEntry {
+  uint64_t backend_signature = 0;
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  VehicleDrawProvenanceLayer layer =
+      VehicleDrawProvenanceLayer::kDirectArguments;
+  VehicleIdentityAddressKind identity_field =
+      VehicleIdentityAddressKind::kOwner;
+  uint32_t function_address = 0;
+  uint32_t return_address = 0;
+  uint32_t argument_index = 0;
+  uint32_t matched_address = 0;
+  uint32_t identity_generation = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  bool valid = false;
+};
+
+struct VehicleIdentityAddressEntry {
+  uint32_t address = 0;
+  uint32_t identity_index = 0;
+  VehicleIdentityAddressKind field = VehicleIdentityAddressKind::kOwner;
+  bool valid = false;
+};
+
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
 std::mutex g_vehicle_identity_mutex;
@@ -624,6 +681,18 @@ uint64_t g_vehicle_owner_indirect_valid_observations = 0;
 uint64_t g_vehicle_owner_indirect_invalid_observations = 0;
 uint64_t g_vehicle_owner_indirect_target_count = 0;
 uint64_t g_vehicle_owner_indirect_target_overflow = 0;
+std::array<VehicleIdentityAddressEntry, kVehicleIdentityAddressCapacity>
+    g_vehicle_identity_addresses{};
+uint64_t g_vehicle_identity_address_count = 0;
+uint64_t g_vehicle_identity_address_overflow = 0;
+std::array<VehicleDrawCorrelationEntry, kVehicleDrawCorrelationCapacity>
+    g_vehicle_draw_correlations{};
+std::mutex g_vehicle_draw_correlation_mutex;
+uint64_t g_vehicle_draws_examined = 0;
+uint64_t g_vehicle_draw_argument_probes = 0;
+uint64_t g_vehicle_draw_argument_matches = 0;
+uint64_t g_vehicle_draw_correlation_count = 0;
+uint64_t g_vehicle_draw_correlation_overflow = 0;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
 uint64_t g_title_packet_address_failures = 0;
@@ -1534,6 +1603,272 @@ const char *DrawOutcomeName(uint32_t outcome) {
 }
 
 std::string CensusSceneMarker();
+
+const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
+  switch (kind) {
+  case VehicleIdentityAddressKind::kOwner:
+    return "owner";
+  case VehicleIdentityAddressKind::kPosition:
+    return "position";
+  case VehicleIdentityAddressKind::kForward:
+    return "forward";
+  }
+  return "unknown";
+}
+
+const char *VehicleDrawProvenanceLayerName(
+    VehicleDrawProvenanceLayer layer) {
+  switch (layer) {
+  case VehicleDrawProvenanceLayer::kDirectArguments:
+    return "direct_arguments";
+  case VehicleDrawProvenanceLayer::kSemanticReceiver:
+    return "semantic_receiver";
+  case VehicleDrawProvenanceLayer::kSemanticDescriptor:
+    return "semantic_descriptor";
+  case VehicleDrawProvenanceLayer::kSemanticRuntime:
+    return "semantic_runtime";
+  case VehicleDrawProvenanceLayer::kIndirectConstructorArguments:
+    return "indirect_constructor_arguments";
+  case VehicleDrawProvenanceLayer::kIndirectOwnerArguments:
+    return "indirect_owner_arguments";
+  case VehicleDrawProvenanceLayer::kIndirectProducerArguments:
+    return "indirect_producer_arguments";
+  case VehicleDrawProvenanceLayer::kIndirectContextArguments:
+    return "indirect_context_arguments";
+  case VehicleDrawProvenanceLayer::kIndirectContextRoot:
+    return "indirect_context_root";
+  case VehicleDrawProvenanceLayer::kIndirectSemanticReceiver:
+    return "indirect_semantic_receiver";
+  }
+  return "unknown";
+}
+
+void AppendVehicleDrawArgumentProbes(
+    std::array<VehicleDrawArgumentProbe, 48> &probes, size_t &probe_count,
+    VehicleDrawProvenanceLayer layer, uint32_t function_address,
+    uint32_t return_address, const std::array<uint32_t, 8> &arguments) {
+  for (size_t index = 0; index < arguments.size(); ++index) {
+    probes[probe_count++] = {
+        .layer = layer,
+        .function_address = function_address,
+        .return_address = return_address,
+        .argument_index = uint32_t(index),
+        .value = arguments[index],
+    };
+  }
+}
+
+void IndexVehicleIdentityAddressLocked(size_t identity_index,
+                                       VehicleIdentityAddressKind field,
+                                       uint32_t address) {
+  size_t index = (address >> 4) % kVehicleIdentityAddressCapacity;
+  for (size_t probe = 0; probe < kVehicleIdentityAddressCapacity; ++probe) {
+    VehicleIdentityAddressEntry &entry = g_vehicle_identity_addresses[index];
+    if (!entry.valid) {
+      entry = {
+          .address = address,
+          .identity_index = uint32_t(identity_index),
+          .field = field,
+          .valid = true,
+      };
+      ++g_vehicle_identity_address_count;
+      return;
+    }
+    if (entry.address == address && entry.identity_index == identity_index &&
+        entry.field == field) {
+      return;
+    }
+    index = (index + 1) % kVehicleIdentityAddressCapacity;
+  }
+  ++g_vehicle_identity_address_overflow;
+}
+
+void ObserveVehicleDrawArgumentCorrelations(
+    uint64_t backend_signature, uint64_t frame,
+    const TitleDrawOrigin &direct_origin,
+    const ActiveTitleIndirectBuffer *indirect_origin) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::array<VehicleDrawArgumentProbe, 48> probes{};
+  size_t probe_count = 0;
+  if (direct_origin.valid) {
+    AppendVehicleDrawArgumentProbes(
+        probes, probe_count, VehicleDrawProvenanceLayer::kDirectArguments,
+        direct_origin.caller, 0, direct_origin.arguments);
+    if (direct_origin.semantic_draw.valid) {
+      probes[probe_count++] = {
+          .layer = VehicleDrawProvenanceLayer::kSemanticReceiver,
+          .function_address = direct_origin.caller,
+          .argument_index = 8,
+          .value = direct_origin.semantic_draw.receiver_address,
+      };
+      probes[probe_count++] = {
+          .layer = VehicleDrawProvenanceLayer::kSemanticDescriptor,
+          .function_address = direct_origin.caller,
+          .argument_index = 8,
+          .value = direct_origin.semantic_draw.descriptor_address,
+      };
+      probes[probe_count++] = {
+          .layer = VehicleDrawProvenanceLayer::kSemanticRuntime,
+          .function_address = direct_origin.caller,
+          .argument_index = 8,
+          .value = direct_origin.semantic_draw.runtime_address,
+      };
+    }
+  }
+  if (indirect_origin) {
+    const IndirectConstructorOrigin &constructor =
+        indirect_origin->constructor_origin;
+    if (constructor.valid) {
+      AppendVehicleDrawArgumentProbes(
+          probes, probe_count,
+          VehicleDrawProvenanceLayer::kIndirectConstructorArguments,
+          constructor.function_address, constructor.return_address,
+          constructor.arguments);
+    }
+    if (constructor.owner.valid) {
+      AppendVehicleDrawArgumentProbes(
+          probes, probe_count,
+          VehicleDrawProvenanceLayer::kIndirectOwnerArguments,
+          constructor.owner.function_address, constructor.owner.return_address,
+          constructor.owner.arguments);
+    }
+    if (constructor.owner.producer.valid) {
+      AppendVehicleDrawArgumentProbes(
+          probes, probe_count,
+          VehicleDrawProvenanceLayer::kIndirectProducerArguments,
+          constructor.owner.producer.function_address,
+          constructor.owner.producer.return_address,
+          constructor.owner.producer.arguments);
+    }
+    const IndirectConstructorOrigin::Owner::Producer::Context &context =
+        constructor.owner.producer.context;
+    if (context.valid) {
+      AppendVehicleDrawArgumentProbes(
+          probes, probe_count,
+          VehicleDrawProvenanceLayer::kIndirectContextArguments,
+          context.function_address, context.return_address,
+          context.arguments);
+      probes[probe_count++] = {
+          .layer = VehicleDrawProvenanceLayer::kIndirectContextRoot,
+          .function_address = context.function_address,
+          .return_address = context.return_address,
+          .argument_index = 8,
+          .value = context.root_address,
+      };
+      if (context.semantic_receiver_known) {
+        probes[probe_count++] = {
+            .layer = VehicleDrawProvenanceLayer::kIndirectSemanticReceiver,
+            .function_address = context.function_address,
+            .return_address = context.return_address,
+            .argument_index = 8,
+            .value = context.semantic_receiver_address,
+        };
+      }
+    }
+  }
+
+  std::scoped_lock lock(g_vehicle_identity_mutex,
+                        g_vehicle_draw_correlation_mutex);
+  ++g_vehicle_draws_examined;
+  g_vehicle_draw_argument_probes += probe_count;
+  for (size_t probe_index = 0; probe_index < probe_count; ++probe_index) {
+    const VehicleDrawArgumentProbe &probe = probes[probe_index];
+    if (!probe.value) {
+      continue;
+    }
+    size_t address_index =
+        (probe.value >> 4) % kVehicleIdentityAddressCapacity;
+    for (size_t address_probe = 0;
+         address_probe < kVehicleIdentityAddressCapacity; ++address_probe) {
+      const VehicleIdentityAddressEntry &address_entry =
+          g_vehicle_identity_addresses[address_index];
+      if (!address_entry.valid) {
+        break;
+      }
+      if (address_entry.address == probe.value &&
+          address_entry.identity_index < g_vehicle_identities.size()) {
+        const VehicleIdentityEntry &identity =
+            g_vehicle_identities[address_entry.identity_index];
+        const VehicleIdentityAddressKind identity_field = address_entry.field;
+        const uint32_t identity_address = address_entry.address;
+        if (!identity.valid) {
+          address_index =
+              (address_index + 1) % kVehicleIdentityAddressCapacity;
+          continue;
+        }
+        ++g_vehicle_draw_argument_matches;
+        VehicleDrawCorrelationEntry *available = nullptr;
+        for (VehicleDrawCorrelationEntry &entry :
+             g_vehicle_draw_correlations) {
+          if (!entry.valid) {
+            if (!available) {
+              available = &entry;
+            }
+            continue;
+          }
+          if (entry.backend_signature == backend_signature &&
+              entry.layer == probe.layer &&
+              entry.identity_field == identity_field &&
+              entry.function_address == probe.function_address &&
+              entry.return_address == probe.return_address &&
+              entry.argument_index == probe.argument_index &&
+              entry.identity_generation == identity.generation &&
+              entry.identity_owner == identity.owner &&
+              entry.identity_slot == identity.slot) {
+            ++entry.observations;
+            entry.last_frame = frame;
+            available = nullptr;
+            break;
+          }
+        }
+        if (!available) {
+          bool existing = false;
+          for (const VehicleDrawCorrelationEntry &entry :
+               g_vehicle_draw_correlations) {
+            if (entry.valid && entry.backend_signature == backend_signature &&
+                entry.layer == probe.layer &&
+                entry.identity_field == identity_field &&
+                entry.function_address == probe.function_address &&
+                entry.return_address == probe.return_address &&
+                entry.argument_index == probe.argument_index &&
+                entry.identity_generation == identity.generation &&
+                entry.identity_owner == identity.owner &&
+                entry.identity_slot == identity.slot) {
+              existing = true;
+              break;
+            }
+          }
+          if (existing) {
+            continue;
+          }
+          ++g_vehicle_draw_correlation_overflow;
+          continue;
+        }
+        *available = {
+            .backend_signature = backend_signature,
+            .observations = 1,
+            .first_frame = frame,
+            .last_frame = frame,
+            .layer = probe.layer,
+            .identity_field = identity_field,
+            .function_address = probe.function_address,
+            .return_address = probe.return_address,
+            .argument_index = probe.argument_index,
+            .matched_address = identity_address,
+            .identity_generation = identity.generation,
+            .identity_owner = identity.owner,
+            .identity_slot = identity.slot,
+            .valid = true,
+        };
+        ++g_vehicle_draw_correlation_count;
+      }
+      address_index =
+          (address_index + 1) % kVehicleIdentityAddressCapacity;
+    }
+  }
+}
 
 size_t VehicleOwnerMethodCandidateIndex(uint32_t method_address) {
   for (size_t index = 0; index < kVehicleOwnerMethodCandidates.size();
@@ -15029,6 +15364,14 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.sample = observation;
   ConsumeTitleDrawPacket(observation.packet_physical_address,
                          candidate.title_origin);
+  const uint64_t signature = DrawSignature(observation);
+  const ActiveTitleIndirectBuffer *vehicle_indirect_origin =
+      observation.command_buffer_depth
+          ? CurrentTitleIndirectBuffer(observation)
+          : nullptr;
+  ObserveVehicleDrawArgumentCorrelations(
+      signature, observation.frame_sequence, candidate.title_origin,
+      vehicle_indirect_origin);
   for (uint32_t fetch_index = 0; fetch_index < 32; ++fetch_index) {
     if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch_index))) {
       continue;
@@ -15074,7 +15417,6 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.samples_resolved_target = samples_resolved_target;
   g_pending_candidate = candidate;
   g_pending_candidate.valid = true;
-  const uint64_t signature = DrawSignature(observation);
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_draw_census.entries[index];
@@ -15110,6 +15452,9 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_invalid_observations = 0;
     g_vehicle_identity_count = 0;
     g_vehicle_identity_overflow = 0;
+    g_vehicle_identity_addresses = {};
+    g_vehicle_identity_address_count = 0;
+    g_vehicle_identity_address_overflow = 0;
   }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
@@ -15130,6 +15475,15 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_owner_indirect_invalid_observations = 0;
     g_vehicle_owner_indirect_target_count = 0;
     g_vehicle_owner_indirect_target_overflow = 0;
+  }
+  {
+    std::scoped_lock lock(g_vehicle_draw_correlation_mutex);
+    g_vehicle_draw_correlations = {};
+    g_vehicle_draws_examined = 0;
+    g_vehicle_draw_argument_probes = 0;
+    g_vehicle_draw_argument_matches = 0;
+    g_vehicle_draw_correlation_count = 0;
+    g_vehicle_draw_correlation_overflow = 0;
   }
   g_vehicle_discovery_memory.store(census_requested ? memory : nullptr,
                                    std::memory_order_release);
@@ -15156,6 +15510,12 @@ void ConfigureVehicleDiscovery(bool census_requested,
         "82BC8468,82BC84A4,82BC84DC,82BC8688,82BC86BC,82BC86E4"},
        {"owner_indirect_target_capacity",
         std::to_string(kVehicleOwnerIndirectTargetCapacity)},
+       {"draw_correlation_capacity",
+        std::to_string(kVehicleDrawCorrelationCapacity)},
+       {"identity_address_capacity",
+        std::to_string(kVehicleIdentityAddressCapacity)},
+       {"draw_correlation",
+        "exact_backend_signature_and_provenance_argument_to_vehicle_address"},
        {"guest_payload_read",
         "existing_title_pose_hook_values_and_bounded_owner_vtable"},
        {"guest_state_changed", "false"},
@@ -15171,7 +15531,8 @@ void EmitVehicleDiscoverySummary() {
     return;
   }
   std::scoped_lock lock(g_vehicle_identity_mutex,
-                        g_vehicle_owner_indirect_mutex);
+                        g_vehicle_owner_indirect_mutex,
+                        g_vehicle_draw_correlation_mutex);
   const bool accounting_complete =
       g_vehicle_valid_observations + g_vehicle_invalid_observations ==
       g_vehicle_observations;
@@ -15214,6 +15575,23 @@ void EmitVehicleDiscoverySummary() {
         std::to_string(kVehicleOwnerIndirectTargetCapacity)},
        {"owner_indirect_target_overflow",
         std::to_string(g_vehicle_owner_indirect_target_overflow)},
+       {"draws_examined", std::to_string(g_vehicle_draws_examined)},
+       {"draw_argument_probes",
+        std::to_string(g_vehicle_draw_argument_probes)},
+       {"draw_argument_matches",
+        std::to_string(g_vehicle_draw_argument_matches)},
+       {"draw_correlations",
+        std::to_string(g_vehicle_draw_correlation_count)},
+       {"draw_correlation_capacity",
+        std::to_string(kVehicleDrawCorrelationCapacity)},
+       {"draw_correlation_overflow",
+        std::to_string(g_vehicle_draw_correlation_overflow)},
+       {"identity_addresses",
+        std::to_string(g_vehicle_identity_address_count)},
+       {"identity_address_capacity",
+        std::to_string(kVehicleIdentityAddressCapacity)},
+       {"identity_address_overflow",
+        std::to_string(g_vehicle_identity_address_overflow)},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
@@ -15307,6 +15685,38 @@ void EmitVehicleDiscoverySummary() {
          {"last_frame", std::to_string(entry.last_frame)},
          {"classification", "vehicle_owner_component_dispatch_seed"},
          {"vehicle_render_method_identity_proved", "false"},
+         {"vehicle_draw_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleDrawCorrelationEntry &entry :
+       g_vehicle_draw_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_draw_argument_correlation",
+        {{"backend_signature",
+          fmt::format("{:016X}", entry.backend_signature)},
+         {"provenance_layer",
+          VehicleDrawProvenanceLayerName(entry.layer)},
+         {"function_address",
+          fmt::format("{:08X}", entry.function_address)},
+         {"return_address", fmt::format("{:08X}", entry.return_address)},
+         {"argument_index", std::to_string(entry.argument_index)},
+         {"identity_field",
+          VehicleIdentityAddressKindName(entry.identity_field)},
+         {"matched_address", fmt::format("{:08X}", entry.matched_address)},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"classification", "vehicle_draw_argument_correlation_candidate"},
          {"vehicle_draw_identity_proved", "false"},
          {"guest_state_changed", "false"},
          {"native_draw", "false"},
@@ -15538,6 +15948,17 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
                            matched->owner_vtable_methods);
     matched->owner_vtable_hash =
         HashSemanticWords(matched->owner_vtable_methods);
+    const size_t identity_index =
+        size_t(matched - g_vehicle_identities.data());
+    IndexVehicleIdentityAddressLocked(identity_index,
+                                      VehicleIdentityAddressKind::kOwner,
+                                      matched->owner);
+    IndexVehicleIdentityAddressLocked(identity_index,
+                                      VehicleIdentityAddressKind::kPosition,
+                                      matched->position_address);
+    IndexVehicleIdentityAddressLocked(identity_index,
+                                      VehicleIdentityAddressKind::kForward,
+                                      matched->forward_address);
     ++g_vehicle_identity_count;
   } else {
     const double delta_x = double(observation.x) - matched->last_x;
