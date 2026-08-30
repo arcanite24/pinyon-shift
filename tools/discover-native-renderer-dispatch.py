@@ -1609,6 +1609,26 @@ def procedural_model_receiver_lifecycle(
             "xenos_authority": True,
             "suppression_allowed": False,
         },
+        "visibility_prepared_candidates": {
+            "semantic_instance_hook_address": "{:08X}".format(
+                spec["render_item_entry_hook"]
+            ),
+            "semantic_packet_hook_addresses": [
+                "{:08X}".format(address)
+                for address in spec["semantic_draw_packet_hooks"]
+            ],
+            "capacity": 4096,
+            "maximum_policy_age_frames": 1,
+            "identity": "receiver_generation_record_index",
+            "selection": "independent_visibility_selected_and_fresh",
+            "prepared_lineage": "exact_semantic_pm4_prepared_draw",
+            "guest_state_changed": False,
+            "control_flow_changed": False,
+            "native_upload_enabled": False,
+            "native_draw_enabled": False,
+            "xenos_draw_preserved": True,
+            "suppression_allowed": False,
+        },
         "render_state_function_address": "{:08X}".format(
             spec["render_state_function"]
         ),
