@@ -26,13 +26,53 @@ class NativeRendererReadbackParityContractTests(unittest.TestCase):
         for field in (
             '"color_post_exact"',
             '"depth_seed_exact"',
+            '"depth_seed_depth_exact"',
+            '"depth_seed_stencil_exact"',
+            '"depth_seed_depth_mismatch_bytes"',
+            '"depth_seed_stencil_mismatch_bytes"',
             '"depth_post_exact"',
+            '"depth_post_depth_exact"',
+            '"depth_post_stencil_exact"',
+            '"depth_post_depth_mismatch_bytes"',
+            '"depth_post_stencil_mismatch_bytes"',
             '"native_depth_effect_bytes"',
+            '"native_depth_effect_depth_bytes"',
+            '"native_depth_effect_stencil_bytes"',
             '"xenos_depth_effect_bytes"',
+            '"xenos_depth_effect_depth_bytes"',
+            '"xenos_depth_effect_stencil_bytes"',
             '"draw_effect_exact"',
+            '"draw_effect_mismatch_bytes"',
+            '"draw_effect_depth_mismatch_bytes"',
+            '"draw_effect_stencil_mismatch_bytes"',
+            '"draw_effect_first_mismatch"',
         ):
             self.assertIn(field, self.scanner)
-        self.assertIn("asynchronous_artifact_exact_bytes", self.scanner)
+        self.assertIn(
+            "asynchronous_artifact_exact_depth_stencil_effects", self.scanner
+        )
+
+    def test_depth_stencil_tuple_comparison_classifies_each_lane(self):
+        self.assertIn("depth_mismatch_bytes", self.scanner)
+        self.assertIn("stencil_mismatch_bytes", self.scanner)
+        self.assertIn("tuple_byte < 4", self.scanner)
+        self.assertGreaterEqual(
+            self.scanner.count("CompareIsolatedArtifactFiles("), 6
+        )
+
+    def test_draw_effect_comparison_uses_change_masks_and_post_values(self):
+        self.assertIn("CompareIsolatedArtifactEffects", self.scanner)
+        self.assertIn("native_changed == xenos_changed", self.scanner)
+        self.assertIn(
+            "native_post_chunk[index] == xenos_post_chunk[index]",
+            self.scanner,
+        )
+        self.assertIn(
+            '"draw_effect_exact", draw_effect.exact()', self.scanner
+        )
+        self.assertNotIn(
+            '"draw_effect_exact", seed.exact() && post.exact()', self.scanner
+        )
 
     def test_summary_remains_diagnostic_only(self):
         start = self.scanner.index("void EmitIsolatedReadbackParitySummary()")

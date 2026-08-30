@@ -6718,18 +6718,47 @@ struct IsolatedArtifactComparison {
   uint64_t right_bytes = 0;
   uint64_t compared_bytes = 0;
   uint64_t mismatch_bytes = 0;
+  uint64_t depth_mismatch_bytes = 0;
+  uint64_t stencil_mismatch_bytes = 0;
   uint64_t first_mismatch = UINT64_MAX;
   bool readable = false;
+  bool depth_stencil_tuples = false;
 
   bool exact() const {
     return readable && left_bytes == right_bytes && !mismatch_bytes;
+  }
+
+  bool depth_exact() const {
+    return depth_stencil_tuples && readable && left_bytes == right_bytes &&
+           !depth_mismatch_bytes;
+  }
+
+  bool stencil_exact() const {
+    return depth_stencil_tuples && readable && left_bytes == right_bytes &&
+           !stencil_mismatch_bytes;
+  }
+};
+
+struct IsolatedArtifactEffectComparison {
+  uint64_t compared_bytes = 0;
+  uint64_t mismatch_bytes = 0;
+  uint64_t depth_mismatch_bytes = 0;
+  uint64_t stencil_mismatch_bytes = 0;
+  uint64_t first_mismatch = UINT64_MAX;
+  bool readable = false;
+  bool sizes_equal = false;
+
+  bool exact() const {
+    return readable && sizes_equal && !mismatch_bytes;
   }
 };
 
 IsolatedArtifactComparison CompareIsolatedArtifactFiles(
     const std::filesystem::path &left_path,
-    const std::filesystem::path &right_path) {
+    const std::filesystem::path &right_path,
+    bool depth_stencil_tuples = false) {
   IsolatedArtifactComparison result;
+  result.depth_stencil_tuples = depth_stencil_tuples;
   std::error_code error;
   result.left_bytes = std::filesystem::file_size(left_path, error);
   if (error) {
@@ -6768,6 +6797,14 @@ IsolatedArtifactComparison CompareIsolatedArtifactFiles(
         result.first_mismatch = result.compared_bytes + index;
       }
       ++result.mismatch_bytes;
+      if (depth_stencil_tuples) {
+        const uint64_t tuple_byte = (result.compared_bytes + index) & 7;
+        if (tuple_byte < 4) {
+          ++result.depth_mismatch_bytes;
+        } else {
+          ++result.stencil_mismatch_bytes;
+        }
+      }
     }
     result.compared_bytes += chunk_size;
   }
@@ -6784,8 +6821,108 @@ IsolatedArtifactComparison CompareIsolatedArtifactFiles(
   return result;
 }
 
+IsolatedArtifactEffectComparison CompareIsolatedArtifactEffects(
+    const std::filesystem::path &native_seed_path,
+    const std::filesystem::path &native_post_path,
+    const std::filesystem::path &xenos_seed_path,
+    const std::filesystem::path &xenos_post_path) {
+  IsolatedArtifactEffectComparison result;
+  std::array<uint64_t, 4> sizes = {};
+  const std::array<std::filesystem::path, 4> paths = {
+      native_seed_path, native_post_path, xenos_seed_path, xenos_post_path};
+  std::error_code error;
+  for (size_t index = 0; index < paths.size(); ++index) {
+    sizes[index] = std::filesystem::file_size(paths[index], error);
+    if (error) {
+      return result;
+    }
+  }
+  std::ifstream native_seed(native_seed_path, std::ios::binary);
+  std::ifstream native_post(native_post_path, std::ios::binary);
+  std::ifstream xenos_seed(xenos_seed_path, std::ios::binary);
+  std::ifstream xenos_post(xenos_post_path, std::ios::binary);
+  if (!native_seed || !native_post || !xenos_seed || !xenos_post) {
+    return result;
+  }
+
+  result.sizes_equal =
+      std::all_of(sizes.begin() + 1, sizes.end(),
+                  [&](uint64_t size) { return size == sizes.front(); });
+  const uint64_t common_bytes =
+      *std::min_element(sizes.begin(), sizes.end());
+  const uint64_t maximum_bytes =
+      *std::max_element(sizes.begin(), sizes.end());
+  constexpr size_t kComparisonChunkSize = 64 << 10;
+  std::array<uint8_t, kComparisonChunkSize> native_seed_chunk = {};
+  std::array<uint8_t, kComparisonChunkSize> native_post_chunk = {};
+  std::array<uint8_t, kComparisonChunkSize> xenos_seed_chunk = {};
+  std::array<uint8_t, kComparisonChunkSize> xenos_post_chunk = {};
+  while (result.compared_bytes < common_bytes) {
+    const size_t chunk_size = size_t(std::min<uint64_t>(
+        kComparisonChunkSize, common_bytes - result.compared_bytes));
+    native_seed.read(reinterpret_cast<char *>(native_seed_chunk.data()),
+                     static_cast<std::streamsize>(chunk_size));
+    native_post.read(reinterpret_cast<char *>(native_post_chunk.data()),
+                     static_cast<std::streamsize>(chunk_size));
+    xenos_seed.read(reinterpret_cast<char *>(xenos_seed_chunk.data()),
+                    static_cast<std::streamsize>(chunk_size));
+    xenos_post.read(reinterpret_cast<char *>(xenos_post_chunk.data()),
+                    static_cast<std::streamsize>(chunk_size));
+    if (native_seed.gcount() != static_cast<std::streamsize>(chunk_size) ||
+        native_post.gcount() != static_cast<std::streamsize>(chunk_size) ||
+        xenos_seed.gcount() != static_cast<std::streamsize>(chunk_size) ||
+        xenos_post.gcount() != static_cast<std::streamsize>(chunk_size)) {
+      return result;
+    }
+    for (size_t index = 0; index < chunk_size; ++index) {
+      const bool native_changed =
+          native_seed_chunk[index] != native_post_chunk[index];
+      const bool xenos_changed =
+          xenos_seed_chunk[index] != xenos_post_chunk[index];
+      if (native_changed == xenos_changed &&
+          (!native_changed ||
+           native_post_chunk[index] == xenos_post_chunk[index])) {
+        continue;
+      }
+      const uint64_t offset = result.compared_bytes + index;
+      if (result.first_mismatch == UINT64_MAX) {
+        result.first_mismatch = offset;
+      }
+      ++result.mismatch_bytes;
+      if ((offset & 7) < 4) {
+        ++result.depth_mismatch_bytes;
+      } else {
+        ++result.stencil_mismatch_bytes;
+      }
+    }
+    result.compared_bytes += chunk_size;
+  }
+  if (!result.sizes_equal) {
+    if (result.first_mismatch == UINT64_MAX) {
+      result.first_mismatch = common_bytes;
+    }
+    for (uint64_t offset = common_bytes; offset < maximum_bytes; ++offset) {
+      ++result.mismatch_bytes;
+      if ((offset & 7) < 4) {
+        ++result.depth_mismatch_bytes;
+      } else {
+        ++result.stencil_mismatch_bytes;
+      }
+    }
+  }
+  result.readable = true;
+  return result;
+}
+
 std::string ComparisonFirstMismatch(
     const IsolatedArtifactComparison &comparison) {
+  return comparison.first_mismatch == UINT64_MAX
+             ? "none"
+             : std::to_string(comparison.first_mismatch);
+}
+
+std::string EffectComparisonFirstMismatch(
+    const IsolatedArtifactEffectComparison &comparison) {
   return comparison.first_mismatch == UINT64_MAX
              ? "none"
              : std::to_string(comparison.first_mismatch);
@@ -6811,18 +6948,25 @@ void EmitIsolatedReadbackParitySummary() {
       color_native, color_xenos);
   const IsolatedArtifactComparison seed = CompareIsolatedArtifactFiles(
       seed_native_root / L"isolated.bin",
-      seed_xenos_root / L"isolated.bin");
+      seed_xenos_root / L"isolated.bin", true);
   const IsolatedArtifactComparison post = CompareIsolatedArtifactFiles(
       depth_native_root / L"isolated.bin",
-      depth_xenos_root / L"isolated.bin");
+      depth_xenos_root / L"isolated.bin", true);
   const IsolatedArtifactComparison native_effect = CompareIsolatedArtifactFiles(
       seed_native_root / L"isolated.bin",
-      depth_native_root / L"isolated.bin");
+      depth_native_root / L"isolated.bin", true);
   const IsolatedArtifactComparison xenos_effect = CompareIsolatedArtifactFiles(
       seed_xenos_root / L"isolated.bin",
-      depth_xenos_root / L"isolated.bin");
+      depth_xenos_root / L"isolated.bin", true);
+  const IsolatedArtifactEffectComparison draw_effect =
+      CompareIsolatedArtifactEffects(
+          seed_native_root / L"isolated.bin",
+          depth_native_root / L"isolated.bin",
+          seed_xenos_root / L"isolated.bin",
+          depth_xenos_root / L"isolated.bin");
   const bool complete = color.readable && seed.readable && post.readable &&
-                        native_effect.readable && xenos_effect.readable;
+                        native_effect.readable && xenos_effect.readable &&
+                        draw_effect.readable;
   const bool exact = complete && color.exact() && seed.exact() && post.exact();
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.isolated_draw.parity_summary",
@@ -6835,17 +6979,48 @@ void EmitIsolatedReadbackParitySummary() {
        {"color_post_mismatch_bytes", std::to_string(color.mismatch_bytes)},
        {"color_post_first_mismatch", ComparisonFirstMismatch(color)},
        {"depth_seed_exact", seed.exact() ? "true" : "false"},
+       {"depth_seed_depth_exact", seed.depth_exact() ? "true" : "false"},
+       {"depth_seed_stencil_exact",
+        seed.stencil_exact() ? "true" : "false"},
+       {"depth_seed_depth_mismatch_bytes",
+        std::to_string(seed.depth_mismatch_bytes)},
+       {"depth_seed_stencil_mismatch_bytes",
+        std::to_string(seed.stencil_mismatch_bytes)},
        {"depth_seed_mismatch_bytes", std::to_string(seed.mismatch_bytes)},
        {"depth_seed_first_mismatch", ComparisonFirstMismatch(seed)},
        {"depth_post_exact", post.exact() ? "true" : "false"},
+       {"depth_post_depth_exact", post.depth_exact() ? "true" : "false"},
+       {"depth_post_stencil_exact",
+        post.stencil_exact() ? "true" : "false"},
+       {"depth_post_depth_mismatch_bytes",
+        std::to_string(post.depth_mismatch_bytes)},
+       {"depth_post_stencil_mismatch_bytes",
+        std::to_string(post.stencil_mismatch_bytes)},
        {"depth_post_mismatch_bytes", std::to_string(post.mismatch_bytes)},
        {"depth_post_first_mismatch", ComparisonFirstMismatch(post)},
        {"native_depth_effect_bytes",
         std::to_string(native_effect.mismatch_bytes)},
+       {"native_depth_effect_depth_bytes",
+        std::to_string(native_effect.depth_mismatch_bytes)},
+       {"native_depth_effect_stencil_bytes",
+        std::to_string(native_effect.stencil_mismatch_bytes)},
        {"xenos_depth_effect_bytes",
         std::to_string(xenos_effect.mismatch_bytes)},
-       {"draw_effect_exact", seed.exact() && post.exact() ? "true" : "false"},
-       {"comparison", "asynchronous_artifact_exact_bytes"},
+       {"xenos_depth_effect_depth_bytes",
+        std::to_string(xenos_effect.depth_mismatch_bytes)},
+       {"xenos_depth_effect_stencil_bytes",
+        std::to_string(xenos_effect.stencil_mismatch_bytes)},
+       {"draw_effect_exact", draw_effect.exact() ? "true" : "false"},
+       {"draw_effect_mismatch_bytes",
+        std::to_string(draw_effect.mismatch_bytes)},
+       {"draw_effect_depth_mismatch_bytes",
+        std::to_string(draw_effect.depth_mismatch_bytes)},
+       {"draw_effect_stencil_mismatch_bytes",
+        std::to_string(draw_effect.stencil_mismatch_bytes)},
+       {"draw_effect_first_mismatch",
+        EffectComparisonFirstMismatch(draw_effect)},
+       {"comparison",
+        "asynchronous_artifact_exact_depth_stencil_effects"},
        {"output_authority", "xenos"},
        {"xenos_draw", "preserved"},
        {"draw_suppression", "false"},
