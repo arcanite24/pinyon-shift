@@ -48,7 +48,17 @@ variant. The runtime records:
   eligibility;
 - title-LOD-bearing candidate entries and draws, reconciled with the exact
   visibility-record workset lineage;
+- the complete isolated-draw mechanical rejection mask for every ineligible
+  entry, preserving simultaneous failures instead of reporting only the first;
 - table occupancy, overflow, and complete partition accounting.
+
+The `isolated_draw_v1` admission contract assigns independent bits to resolved
+inputs, unsupported geometry, empty draws, vertex-layout/count faults, constant
+or texture overflow, memexport, queries, texture count/layout, missing prepared
+pipeline stages, and unsupported render-target binding. The offline report
+decodes these masks into per-reason entry and draw totals. A zero mask is
+required for `mechanically_eligible=true`; the reporter rejects any disagreement
+or unknown bit. This telemetry diagnoses a gate but never bypasses it.
 
 Generate and qualify the evidence with:
 

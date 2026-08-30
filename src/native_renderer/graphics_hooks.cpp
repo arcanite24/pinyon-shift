@@ -303,6 +303,7 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t visibility_category = 0;
   uint32_t visibility_result_mask = 0;
   uint32_t title_lod_index = 0;
+  uint32_t mechanical_rejection_mask = 0;
   bool mechanically_eligible = false;
   bool title_lod_valid = false;
 };
@@ -9605,7 +9606,25 @@ bool IsMechanicallyEligibleCandidate(const DrawSignatureEntry &entry) {
          texture_count <= 4;
 }
 
-bool IsIsolatedDrawEligible(
+enum IsolatedDrawMechanicalRejection : uint32_t {
+  kIsolatedRejectResolvedInput = 1u << 0,
+  kIsolatedRejectUnsupportedGeometry = 1u << 1,
+  kIsolatedRejectEmptyDraw = 1u << 2,
+  kIsolatedRejectVertexBindingCount = 1u << 3,
+  kIsolatedRejectVertexBindingOverflow = 1u << 4,
+  kIsolatedRejectVertexAttributeOverflow = 1u << 5,
+  kIsolatedRejectVertexConstantOverflow = 1u << 6,
+  kIsolatedRejectPixelConstantOverflow = 1u << 7,
+  kIsolatedRejectTextureStateOverflow = 1u << 8,
+  kIsolatedRejectMemexport = 1u << 9,
+  kIsolatedRejectQuery = 1u << 10,
+  kIsolatedRejectTextureCount = 1u << 11,
+  kIsolatedRejectTextureLayout = 1u << 12,
+  kIsolatedRejectPreparedPipeline = 1u << 13,
+  kIsolatedRejectRenderTargets = 1u << 14,
+};
+
+uint32_t IsolatedDrawMechanicalRejectionMask(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
@@ -9621,18 +9640,52 @@ bool IsIsolatedDrawEligible(
        observation.source_select ==
            uint32_t(rex::graphics::xenos::SourceSelect::kAutoIndex) &&
        prepared.index_buffer_type == 0);
-  return !samples_resolved_target && supported_geometry &&
-         observation.index_count && observation.vertex_binding_count == 1 &&
-         !observation.vertex_binding_overflow &&
-         !observation.vertex_attribute_overflow &&
-         !observation.vertex_float_constant_overflow &&
-         !observation.pixel_float_constant_overflow &&
-         !observation.texture_state_overflow && !observation.vertex_memexport &&
-         !observation.viz_query_condition && !(observation.pa_sc_viz_query & 1) &&
-         texture_count >= 1 && texture_count <= 4 &&
-         (observation.texture_fetch_layout_valid_mask &
-          observation.texture_fetch_mask) == observation.texture_fetch_mask &&
-         (prepared.flags & 3) == 3 && prepared.bound_render_target_bits == 3;
+  uint32_t mask = 0;
+  mask |= samples_resolved_target ? kIsolatedRejectResolvedInput : 0;
+  mask |= !supported_geometry ? kIsolatedRejectUnsupportedGeometry : 0;
+  mask |= !observation.index_count ? kIsolatedRejectEmptyDraw : 0;
+  mask |= observation.vertex_binding_count != 1
+              ? kIsolatedRejectVertexBindingCount
+              : 0;
+  mask |= observation.vertex_binding_overflow
+              ? kIsolatedRejectVertexBindingOverflow
+              : 0;
+  mask |= observation.vertex_attribute_overflow
+              ? kIsolatedRejectVertexAttributeOverflow
+              : 0;
+  mask |= observation.vertex_float_constant_overflow
+              ? kIsolatedRejectVertexConstantOverflow
+              : 0;
+  mask |= observation.pixel_float_constant_overflow
+              ? kIsolatedRejectPixelConstantOverflow
+              : 0;
+  mask |= observation.texture_state_overflow
+              ? kIsolatedRejectTextureStateOverflow
+              : 0;
+  mask |= observation.vertex_memexport ? kIsolatedRejectMemexport : 0;
+  mask |= observation.viz_query_condition || (observation.pa_sc_viz_query & 1)
+              ? kIsolatedRejectQuery
+              : 0;
+  mask |= texture_count < 1 || texture_count > 4
+              ? kIsolatedRejectTextureCount
+              : 0;
+  mask |= (observation.texture_fetch_layout_valid_mask &
+           observation.texture_fetch_mask) != observation.texture_fetch_mask
+              ? kIsolatedRejectTextureLayout
+              : 0;
+  mask |= (prepared.flags & 3) != 3 ? kIsolatedRejectPreparedPipeline : 0;
+  mask |= prepared.bound_render_target_bits != 3
+              ? kIsolatedRejectRenderTargets
+              : 0;
+  return mask;
+}
+
+bool IsIsolatedDrawEligible(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  return !IsolatedDrawMechanicalRejectionMask(
+      observation, samples_resolved_target, prepared);
 }
 
 const char *SemanticBatchRejectionName(SemanticBatchRejection rejection) {
@@ -10112,7 +10165,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     const SemanticDrawIdentity &identity,
     const SemanticPreparedDrawContract &contract,
-    uint64_t prepared_signature, bool mechanically_eligible) {
+    uint64_t prepared_signature, uint32_t mechanical_rejection_mask) {
   ++g_semantic_visibility_prepared_observations;
   if (identity.visibility_workset_join ==
       SemanticVisibilityWorksetJoin::kMissing) {
@@ -10148,7 +10201,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.visibility_category),
         uint64_t(identity.visibility_result_mask),
         uint64_t(identity.title_lod_valid),
-        uint64_t(identity.title_lod_index)}) {
+        uint64_t(identity.title_lod_index),
+        uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
@@ -10180,7 +10234,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .visibility_category = identity.visibility_category,
           .visibility_result_mask = identity.visibility_result_mask,
           .title_lod_index = identity.title_lod_index,
-          .mechanically_eligible = mechanically_eligible,
+          .mechanical_rejection_mask = mechanical_rejection_mask,
+          .mechanically_eligible = !mechanical_rejection_mask,
           .title_lod_valid = identity.title_lod_valid,
       };
       ++g_semantic_visibility_prepared_candidate_count;
@@ -10197,7 +10252,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
             contract.vertex_specialization_mask &&
         entry.pixel_specialization_mask ==
             contract.pixel_specialization_mask &&
-        entry.mechanically_eligible == mechanically_eligible &&
+        entry.mechanical_rejection_mask == mechanical_rejection_mask &&
         entry.receiver_address == identity.receiver_address &&
         entry.receiver_generation == identity.receiver_generation &&
         entry.record_index == identity.record_index &&
@@ -10229,12 +10284,13 @@ bool RecordSemanticBatchOpportunity(
   const SemanticDrawIdentity &identity = origin.semantic_draw;
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
-  const bool mechanically_eligible = IsIsolatedDrawEligible(
+  const uint32_t mechanical_rejection_mask =
+      IsolatedDrawMechanicalRejectionMask(
       observation, samples_resolved_target, prepared);
   const bool fresh_visibility_candidate =
       RecordSemanticVisibilityPreparedCandidate(observation, identity,
                                                 contract, prepared_signature,
-                                                mechanically_eligible);
+                                                mechanical_rejection_mask);
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
@@ -11684,6 +11740,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t entry_count = 0;
   uint64_t mechanically_eligible_draws = 0;
   uint64_t mechanically_eligible_entries = 0;
+  uint64_t mechanically_ineligible_draws = 0;
+  uint64_t mechanically_ineligible_entries = 0;
   uint64_t title_lod_draws = 0;
   uint64_t title_lod_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
@@ -11696,6 +11754,9 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.mechanically_eligible) {
       mechanically_eligible_draws += entry.draws;
       ++mechanically_eligible_entries;
+    } else {
+      mechanically_ineligible_draws += entry.draws;
+      ++mechanically_ineligible_entries;
     }
     if (entry.title_lod_valid) {
       title_lod_draws += entry.draws;
@@ -11738,6 +11799,9 @@ void EmitSemanticVisibilityPreparedCandidates() {
           std::to_string(entry.maximum_policy_age_frames)},
          {"mechanically_eligible",
           entry.mechanically_eligible ? "true" : "false"},
+         {"mechanical_rejection_mask",
+          fmt::format("{:08X}", entry.mechanical_rejection_mask)},
+         {"mechanical_admission_contract", "isolated_draw_v1"},
          {"policy_age_limit_frames",
           std::to_string(kSemanticVisibilityMaximumPolicyAgeFrames)},
          {"classification", "fresh_visibility_selected_prepared_candidate"},
@@ -11761,6 +11825,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
           entry_draws +
               g_semantic_visibility_prepared_candidate_overflow &&
       g_semantic_visibility_prepared_candidate_count == entry_count &&
+      mechanically_eligible_draws + mechanically_ineligible_draws ==
+          entry_draws &&
+      mechanically_eligible_entries + mechanically_ineligible_entries ==
+          entry_count &&
       title_lod_draws <= entry_draws && title_lod_entries <= entry_count;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
@@ -11788,6 +11856,11 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(mechanically_eligible_entries)},
        {"mechanically_eligible_draws",
         std::to_string(mechanically_eligible_draws)},
+       {"mechanically_ineligible_entries",
+        std::to_string(mechanically_ineligible_entries)},
+       {"mechanically_ineligible_draws",
+        std::to_string(mechanically_ineligible_draws)},
+       {"mechanical_admission_contract", "isolated_draw_v1"},
        {"title_lod_entries", std::to_string(title_lod_entries)},
        {"title_lod_draws", std::to_string(title_lod_draws)},
        {"capacity",
@@ -14417,6 +14490,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"selection", "independent_visibility_selected_and_fresh"},
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+       {"mechanical_admission_contract", "isolated_draw_v1"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
