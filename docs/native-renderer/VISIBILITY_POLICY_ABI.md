@@ -270,3 +270,40 @@ performance was 30.318 FPS over 8,063 frames, with a 19.396 FPS one-percent low
 and zero present-deadline misses. This qualifies the independent assembly for
 conservative native policy-execution design while execution and suppression
 remain disabled and Xenos stays authoritative.
+
+## Bounded native visibility workset
+
+The first policy-execution boundary materializes every valid independent
+record decision into a fixed 4,096-entry host workset keyed by receiver
+address, receiver generation, and record index. Only the qualified spatial and
+category inputs feed the decision. The title result remains a comparison
+oracle and is never used to select the workset outcome.
+
+The semantic-instance extraction hook is an upstream superset boundary. It
+joins each observed record back to the latest workset entry using the same
+exact identity. A selected join admits the record to the native
+semantic-candidate stream. Rejected joins and missing joins are deliberately
+excluded from that stream and retain Xenos replay; they describe records that
+reach the broad helper boundary without an independently selected workset
+decision, rather than native admission failures.
+
+This is a real host-side policy handoff, but not title-side culling. It writes
+no guest state, changes no title control flow, chooses no native LOD, uploads no
+resource, issues no native draw, and cannot suppress Xenos. The workset,
+assembly shadow, and semantic-instance summaries must reconcile in one runtime
+session with zero overflow, invalid records, or title mismatches, and at least
+one exact selected join, before a native drawing consumer may rely on the
+filtered candidate stream. Rejected and missing observations remain accounted
+fail-closed exclusions and can never enter that stream.
+
+Release/AppData session `20260830T012818Z-p42316` proved that the semantic
+helper is a superset boundary rather than a post-cull draw boundary. The
+workset materialized 20,013 independently modelled decisions (8,920 selected
+and 11,093 rejected) across 11 exact identities, with zero overflow, invalid
+records, or title mismatches. Of 398,460 semantic-instance observations,
+9,983 exact selected joins entered the candidate stream; 33,610 exact rejected
+joins and 354,867 observations without a workset identity were excluded and
+left on Xenos replay. All visibility reports reconciled, the process exited
+normally with a clean fatal scan, and median performance was 30.241 FPS over
+8,762 frames with a 19.518 FPS one-percent low and zero present-deadline
+misses.

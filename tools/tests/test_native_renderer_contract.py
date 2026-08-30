@@ -245,6 +245,16 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn('"xenos_authority": True', assembly_shadow_summarizer)
         self.assertIn('"suppression_allowed": False', assembly_shadow_summarizer)
 
+        workset_summarizer = (
+            ROOT / "tools/summarize-native-renderer-visibility-workset.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bounded_host_visibility_workset", source)
+        self.assertIn("JoinSemanticVisibilityWorkset", source)
+        self.assertIn('"title_culling_changed": False', workset_summarizer)
+        self.assertIn('"native_draw": False', workset_summarizer)
+        self.assertIn('"xenos_authority": True', workset_summarizer)
+        self.assertIn('"suppression_allowed": False', workset_summarizer)
+
     def test_exact_pass_consumer_trace_is_bounded_and_fail_closed(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
