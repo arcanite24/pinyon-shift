@@ -30,6 +30,11 @@ target through the same 2048-square viewport and scissor. Their exact order is
 - exactly 80 admitted draws; and
 - at most one completed batch in the process lifetime.
 
+The capture-bound semantic classifier identifies this complete epoch as the
+`dynamic_vehicle` caster class in atlas region `0,0,2048,2048`. Runtime result,
+publication, and summary events repeat both fields so a later static/dynamic
+policy cannot silently widen this contract to the mixed 1024-square region.
+
 A nonmatching draw, frame transition, sequence gap, target mismatch, or backend
 failure abandons the private batch. The next exact draw may begin a newly seeded
 batch, but no incomplete result is read back or published. After one batch

@@ -104,13 +104,17 @@ payload-free export:
 python .\tools\build-native-renderer-effect-resource-lineage.py `
   .local\qualification\depth-resource-usage.json `
   .local\qualification\effect-pass-trace.json `
+  --effect-census .local\qualification\effect-pass-census.json `
   --output .local\qualification\depth-resource-lineage.json
 ```
 
 The exporter requires one exact resource-name match, records action metadata
-only, and exports no resource payload. The joiner requires both reports to
-name the same capture hash and rejects pixel reads without authoritative draw
-metadata.
+only, and exports no resource payload. The joiner requires all reports to name
+the same capture hash, rejects pixel reads without authoritative draw metadata,
+and maps each depth write through the census's exact event inventory. Every
+epoch reports its producer families, caster classes, classified shadow writes,
+and unclassified writes. `caster_class_complete` remains false if even one
+write lacks a capture-bound caster class.
 
 The 1xMSAA D24S8 candidate has six clear/write epochs, 207 unique depth-target
 writes, 36 pixel-shader reads, and two unique compute-read events. Every epoch
@@ -136,7 +140,8 @@ isolated top-down vehicle silhouette in the 2048-square epoch; its SHA-256 is
 The payload images remain local and are not tracked or distributed.
 
 `config/native-renderer/effect-pass-classifier.json` promotes only the three
-exact 2048-square producer families enclosed by that inspected epoch:
+exact 2048-square producer families enclosed by that inspected epoch. Each is
+also classified as `dynamic_vehicle` in atlas region `0,0,2048,2048`:
 
 | Pipeline label | Vertex shader label | Draws | Role |
 | --- | --- | ---: | --- |
@@ -148,11 +153,30 @@ The match also requires the exact D24S8 target label, 2048 by 2048 viewport,
 depth-only output class, and absent pixel shader. Each rule is bound to the
 qualified capture hash and reviewed image hash, and must match exactly one
 family. The classified report contains 80 `shadow_depth` draws in three
-families; the other 1,502 draws in 270 families remain
+`dynamic_vehicle` families; the other 1,502 draws in 270 families remain
 `unknown_unclassified`. This proves a shadow-depth producer seed, not an atlas
 layout, cascade model, native renderer, or suppression boundary. Native
 coverage and suppression remain false, Xenos stays authoritative, and
 reflection remains unidentified.
+
+The inspected 1024-square atlas region is deliberately not labeled static.
+Its event-803 image (SHA-256
+`A87E3AF9A36023E29D1F294F1E7155F7973FC78CB9B9CB75207E7B6CF866C675`)
+contains an orthographic mixed world view with both environment and vehicle
+silhouettes across ten exact families and 33 draws. Calling that region
+`static_world` would therefore erase a real dynamic-caster dependency. A later
+classifier may promote individual 1024-square families only after per-family
+contribution or title provenance distinguishes their caster class.
+
+The exact event-inventory join makes that incompleteness machine-checkable.
+Across the selected resource's six clear/write epochs, no epoch is yet
+caster-complete. The epoch from clear event 947 through event 1446 contains all
+80 classified `dynamic_vehicle` writes plus nine additional unclassified depth
+writes. The 1024-square world-view epoch from clear event 514 through event 832
+contains 42 total depth writes, all still unclassified by caster. The report
+therefore records `caster_complete_epochs=0`; the 80-draw native subepoch stays
+usable, but neither a whole-resource vehicle classification nor a static-cache
+policy is admitted.
 
 The first executable follow-up is documented in
 `SHADOW_DEPTH_ISOLATED_REPLAY.md`. It admits only the dominant

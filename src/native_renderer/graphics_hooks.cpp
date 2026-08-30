@@ -164,6 +164,8 @@ constexpr uint32_t kShadowDepthTertiaryDrawCount = 4;
 constexpr uint32_t kShadowDepthBatchDrawCount =
     kShadowDepthPrimaryDrawCount + kShadowDepthSecondaryDrawCount +
     kShadowDepthTertiaryDrawCount;
+constexpr const char *kShadowDepthCasterClass = "dynamic_vehicle";
+constexpr const char *kShadowDepthAtlasRegion = "0,0,2048,2048";
 std::atomic<uint64_t> g_frame_sequence{};
 
 enum class ShadowDepthBatchFamily : uint32_t {
@@ -15774,6 +15776,8 @@ void CompleteIsolatedShadowDepthBatch(
         std::to_string(kShadowDepthSecondaryDrawCount)},
        {"tertiary_draw_count",
         std::to_string(kShadowDepthTertiaryDrawCount)},
+       {"caster_class", kShadowDepthCasterClass},
+       {"atlas_region", kShadowDepthAtlasRegion},
        {"logical_width", std::to_string(kShadowDepthLogicalWidth)},
        {"logical_height", std::to_string(kShadowDepthLogicalHeight)},
        {"allocation_width", std::to_string(result.target_width)},
@@ -15848,6 +15852,8 @@ void CompleteIsolatedShadowDepthPublication(
        {"depth_stencil",
         result.depth_stencil_published ? "published" : "preserved_xenos"},
        {"consumer_handoff", "xenos_rt_dump_retained"},
+       {"caster_class", kShadowDepthCasterClass},
+       {"atlas_region", kShadowDepthAtlasRegion},
        {"ownership_mode", g_isolated_draw.shadow_depth_continuous_mode
                               ? "multi_epoch_fail_closed"
                               : "one_shot_qualification"},
@@ -19635,6 +19641,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"vertex_shader", fmt::format("{:016X}", kShadowDepthVertexShader)},
          {"expected_draws_per_batch",
           std::to_string(kShadowDepthBatchDrawCount)},
+         {"caster_class", kShadowDepthCasterClass},
+         {"atlas_region", kShadowDepthAtlasRegion},
          {"expected_primary_draws",
           std::to_string(kShadowDepthPrimaryDrawCount)},
          {"expected_secondary_draws",

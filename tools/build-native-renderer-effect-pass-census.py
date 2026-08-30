@@ -9,9 +9,10 @@ import sys
 
 TRACE_SCHEMA = "pinyon-shift.native-renderer-renderdoc-pass-trace.v1"
 SCHEMA = "pinyon-shift.native-renderer-effect-pass-census.v1"
-CLASSIFIER_SCHEMA = "pinyon-shift.native-renderer-effect-pass-classifier.v1"
+CLASSIFIER_SCHEMA = "pinyon-shift.native-renderer-effect-pass-classifier.v2"
 SEMANTIC_ROLES = {"shadow_depth", "reflection_capture", "retained_unknown"}
 CONFIDENCE_LEVELS = {"medium", "high"}
+CASTER_CLASSES = {"dynamic_vehicle", "static_world", "mixed_world"}
 MATCH_FIELDS = {
     "output_class",
     "depth_target_name",
@@ -121,12 +122,48 @@ def normalize_classifier(document, capture_sha256):
                 f"effect-pass classifier rule {identifier} match fields drifted"
             )
         role = rule.get("semantic_role")
+        caster_class = rule.get("caster_class")
+        atlas_region = rule.get("atlas_region")
         confidence = rule.get("confidence")
         evidence = str(rule.get("evidence", "")).strip()
         visual_sha256 = str(rule.get("visual_sha256", "")).upper()
         if role not in SEMANTIC_ROLES:
             raise ValueError(
                 f"effect-pass classifier rule {identifier} has invalid role"
+            )
+        if role == "shadow_depth":
+            if caster_class not in CASTER_CLASSES:
+                raise ValueError(
+                    f"effect-pass classifier rule {identifier} has invalid caster class"
+                )
+            if not isinstance(atlas_region, dict) or set(atlas_region) != {
+                "x",
+                "y",
+                "width",
+                "height",
+            }:
+                raise ValueError(
+                    f"effect-pass classifier rule {identifier} has invalid atlas region"
+                )
+            if any(
+                type(atlas_region[field]) is not int
+                or atlas_region[field] < 0
+                for field in ("x", "y", "width", "height")
+            ) or atlas_region["width"] == 0 or atlas_region["height"] == 0:
+                raise ValueError(
+                    f"effect-pass classifier rule {identifier} has invalid atlas region"
+                )
+            if (
+                atlas_region["width"] != match["viewport_width"]
+                or atlas_region["height"] != match["viewport_height"]
+            ):
+                raise ValueError(
+                    f"effect-pass classifier rule {identifier} atlas region and viewport differ"
+                )
+        elif caster_class is not None or atlas_region is not None:
+            raise ValueError(
+                "effect-pass classifier rule {} assigns shadow metadata "
+                "to a non-shadow role".format(identifier)
             )
         if confidence not in CONFIDENCE_LEVELS:
             raise ValueError(
@@ -145,7 +182,8 @@ def normalize_classifier(document, capture_sha256):
             )
         if rule.get("native_coverage") is not False:
             raise ValueError(
-                f"effect-pass classifier rule {identifier} must keep native coverage false"
+                "effect-pass classifier rule {} must keep native coverage "
+                "false".format(identifier)
             )
         if rule.get("suppression_eligible") is not False:
             raise ValueError(
@@ -156,6 +194,8 @@ def normalize_classifier(document, capture_sha256):
                 "id": identifier,
                 "match": match,
                 "semantic_role": role,
+                "caster_class": caster_class,
+                "atlas_region": atlas_region,
                 "semantic_confidence": confidence,
                 "semantic_evidence": evidence,
                 "visual_sha256": visual_sha256,
@@ -186,6 +226,8 @@ def apply_classifier(families, rules):
             {
                 "classifier_rule": rule["id"],
                 "semantic_role": rule["semantic_role"],
+                "caster_class": rule["caster_class"],
+                "atlas_region": rule["atlas_region"],
                 "semantic_confidence": rule["semantic_confidence"],
                 "semantic_evidence": rule["semantic_evidence"],
                 "visual_sha256": rule["visual_sha256"],
@@ -244,6 +286,7 @@ def build_census(trace, classifier=None):
                 "draw_count": 0,
                 "instance_count": 0,
                 "index_count": 0,
+                "event_ids": [],
                 "first_event": event_id,
                 "last_event": event_id,
                 "semantic_role": "unknown_unclassified",
@@ -254,6 +297,7 @@ def build_census(trace, classifier=None):
         family["draw_count"] += 1
         family["instance_count"] += int(event.get("instance_count", 0))
         family["index_count"] += int(event.get("index_count", 0))
+        family["event_ids"].append(event_id)
         family["last_event"] = event_id
 
     ordered = sorted(
@@ -270,12 +314,20 @@ def build_census(trace, classifier=None):
         matched = apply_classifier(ordered, classifier_rules)
     semantic_counts = {}
     semantic_draws = {}
+    caster_counts = {}
+    caster_draws = {}
     for family in ordered:
         key = family["signature"]["output_class"]
         counts[key] = counts.get(key, 0) + family["draw_count"]
         role = family["semantic_role"]
         semantic_counts[role] = semantic_counts.get(role, 0) + 1
         semantic_draws[role] = semantic_draws.get(role, 0) + family["draw_count"]
+        caster_class = family.get("caster_class")
+        if caster_class is not None:
+            caster_counts[caster_class] = caster_counts.get(caster_class, 0) + 1
+            caster_draws[caster_class] = (
+                caster_draws.get(caster_class, 0) + family["draw_count"]
+            )
     shadow_identified = semantic_counts.get("shadow_depth", 0) > 0
     reflection_identified = semantic_counts.get("reflection_capture", 0) > 0
     return {
@@ -288,6 +340,8 @@ def build_census(trace, classifier=None):
             "draws_by_output_class": dict(sorted(counts.items())),
             "families_by_semantic_role": dict(sorted(semantic_counts.items())),
             "draws_by_semantic_role": dict(sorted(semantic_draws.items())),
+            "families_by_caster_class": dict(sorted(caster_counts.items())),
+            "draws_by_caster_class": dict(sorted(caster_draws.items())),
         },
         "families": ordered,
         "classification": {
@@ -300,6 +354,12 @@ def build_census(trace, classifier=None):
             "pipeline_metadata_census_complete": True,
             "shadow_pass_identified": shadow_identified,
             "reflection_pass_identified": reflection_identified,
+            "shadow_caster_classes_identified": sorted(caster_counts),
+            "static_dynamic_caster_classes_observed": (
+                "dynamic_vehicle" in caster_counts
+                and "static_world" in caster_counts
+            ),
+            "static_dynamic_caster_separation_ready": False,
             "native_shadow_renderer_ready": False,
             "semantic_promotion_requires_external_evidence": True,
         },
