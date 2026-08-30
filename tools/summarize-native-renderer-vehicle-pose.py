@@ -28,6 +28,9 @@ RENDER_CONTEXT_CALLEE = (
 VEHICLE_MATRIX_CORRELATION = (
     "native_renderer.discovery.vehicle_matrix_correlation"
 )
+VEHICLE_COMPOSED_MATRIX_CORRELATION = (
+    "native_renderer.discovery.vehicle_composed_matrix_correlation"
+)
 TYPED_RENDER_ITEM_PROFILE = (
     "native_renderer.discovery.vehicle_typed_render_item_profile"
 )
@@ -68,6 +71,10 @@ VEHICLE_MATRIX_LAYOUTS = {
     "column_major_translation_column3_forward_column2",
 }
 VEHICLE_MATRIX_FORWARD_SIGNS = {"positive", "negative"}
+VEHICLE_COMPOSED_MATRIX_SOURCES = {
+    "object_input_matrix",
+    "composed_upload_matrix",
+}
 
 
 def read_events(paths):
@@ -226,9 +233,18 @@ def build(events, requested_session=None):
         "typed_render_item_profile_capacity": "32",
         "typed_descriptor_word_count": "62",
         "typed_descriptor_correlation_capacity": "512",
+        "composed_matrix_hook": "8240EB5C:r22_object_matrix,r5_output_matrix",
+        "composed_matrix_contract": (
+            "8240E7B0_live_r7_input_and_64_byte_payload_to_82435E78"
+        ),
+        "composed_matrix_sources": (
+            "object_input_matrix,composed_upload_matrix"
+        ),
+        "composed_matrix_correlation_capacity": "1024",
         "guest_payload_read": (
             "existing_pose_values,bounded_owner_vtable,typed_context_entry,"
-            "typed_4x4_caller_matrix,typed_render_item_descriptor"
+            "typed_4x4_caller_matrix,typed_render_item_descriptor,"
+            "object_and_composed_4x4_matrices"
         ),
         "guest_state_changed": "false",
         "native_upload": "false",
@@ -274,6 +290,7 @@ def build(events, requested_session=None):
         "typed_render_item_profile_capacity": "32",
         "typed_descriptor_word_count": "62",
         "typed_descriptor_correlation_capacity": "512",
+        "composed_matrix_correlation_capacity": "1024",
         "guest_state_changed": "false",
         "native_upload": "false",
         "native_draw": "false",
@@ -380,12 +397,27 @@ def build(events, requested_session=None):
         "typed_descriptor_correlations",
         "typed_descriptor_correlation_capacity",
         "typed_descriptor_correlation_overflow",
+        "composed_matrix_observations",
+        "composed_matrix_valid_pairs",
+        "composed_matrix_invalid_object_range",
+        "composed_matrix_invalid_output_range",
+        "composed_matrix_object_non_finite",
+        "composed_matrix_output_non_finite",
+        "composed_matrix_identity_comparisons",
+        "composed_matrix_candidate_observations",
+        "composed_matrix_routes_without_identity",
+        "composed_matrix_tight_matches",
+        "composed_matrix_correlations",
+        "composed_matrix_correlation_capacity",
+        "composed_matrix_correlation_overflow",
     ):
         totals[key] = integer(summary, key)
     for key in (
         "vehicle_matrix_caller_accounting_complete",
         "vehicle_matrix_route_accounting_complete",
         "typed_render_item_accounting_complete",
+        "composed_matrix_accounting_complete",
+        "composed_matrix_route_accounting_complete",
     ):
         if summary.get(key) not in ("true", "false"):
             raise ValueError(f"invalid {key}")
@@ -905,6 +937,103 @@ def build(events, requested_session=None):
         )
     )
 
+    composed_matrix_correlations = []
+    seen_composed_matrix_correlations = set()
+    for event in selected:
+        if event.get("event") != VEHICLE_COMPOSED_MATRIX_CORRELATION:
+            continue
+        source = event.get("matrix_source")
+        layout = event.get("matrix_layout")
+        forward_sign = event.get("forward_sign")
+        identity_key = (
+            hexadecimal(event, "identity_generation"),
+            hexadecimal(event, "identity_owner"),
+            integer(event, "identity_slot"),
+        )
+        key = (source, layout, forward_sign, *identity_key)
+        observations = integer(event, "observations")
+        tight_matches = integer(event, "tight_matches")
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        candidate_proved = tight_matches > 0
+        if (
+            key in seen_composed_matrix_correlations
+            or event.get("function_address") != "8240E7B0"
+            or event.get("hook_address") != "8240EB5C"
+            or event.get("callee_address") != "82435E78"
+            or source not in VEHICLE_COMPOSED_MATRIX_SOURCES
+            or layout not in VEHICLE_MATRIX_LAYOUTS
+            or forward_sign not in VEHICLE_MATRIX_FORWARD_SIGNS
+            or identity_key not in identities_by_key
+            or not observations
+            or tight_matches > observations
+            or first_frame > last_frame
+            or event.get("classification")
+            != "vehicle_composed_matrix_correlation_candidate"
+            or event.get("vehicle_render_transform_candidate_proved")
+            != ("true" if candidate_proved else "false")
+            or event.get("vehicle_draw_identity_proved") != "false"
+            or event.get("guest_state_changed") != "false"
+            or event.get("native_upload") != "false"
+            or event.get("native_draw") != "false"
+            or event.get("xenos_authority") != "true"
+            or event.get("suppression_allowed") != "false"
+        ):
+            raise ValueError(
+                "vehicle composed matrix correlation violates boundary"
+            )
+        seen_composed_matrix_correlations.add(key)
+        composed_matrix_correlations.append(
+            {
+                "function_address": "8240E7B0",
+                "hook_address": "8240EB5C",
+                "callee_address": "82435E78",
+                "matrix_source": source,
+                "matrix_layout": layout,
+                "forward_sign": forward_sign,
+                "identity_generation": identity_key[0],
+                "identity_owner": identity_key[1],
+                "identity_slot": identity_key[2],
+                "observations": observations,
+                "tight_matches": tight_matches,
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+                "matrix_address_changes": integer(
+                    event, "matrix_address_changes"
+                ),
+                "matrix_hash_changes": integer(event, "matrix_hash_changes"),
+                "last_matrix_address": hexadecimal(
+                    event, "last_matrix_address"
+                ),
+                "last_matrix_hash": hexadecimal64(event, "last_matrix_hash"),
+                "best_matrix_address": hexadecimal(
+                    event, "best_matrix_address"
+                ),
+                "best_matrix_hash": hexadecimal64(event, "best_matrix_hash"),
+                "best_position_delta_squared": finite_number(
+                    event, "best_position_delta_squared"
+                ),
+                "best_forward_delta_squared": finite_number(
+                    event, "best_forward_delta_squared"
+                ),
+                "best_normalized_score": finite_number(
+                    event, "best_normalized_score"
+                ),
+                "vehicle_render_transform_candidate_proved": (
+                    candidate_proved
+                ),
+            }
+        )
+    composed_matrix_correlations.sort(
+        key=lambda item: (
+            item["matrix_source"],
+            item["matrix_layout"],
+            item["forward_sign"],
+            item["identity_owner"],
+            item["identity_slot"],
+        )
+    )
+
     typed_render_item_profiles = []
     seen_typed_render_item_profiles = set()
     for event in selected:
@@ -1312,6 +1441,68 @@ def build(events, requested_session=None):
         "typed_descriptor_correlation_capacity"
     ]:
         failures.append("typed descriptor correlation capacity drifted")
+    composed_matrix_accounting_complete = totals[
+        "composed_matrix_valid_pairs"
+    ] + totals["composed_matrix_invalid_object_range"] + totals[
+        "composed_matrix_invalid_output_range"
+    ] + totals[
+        "composed_matrix_object_non_finite"
+    ] + totals[
+        "composed_matrix_output_non_finite"
+    ] == totals[
+        "composed_matrix_observations"
+    ]
+    if (
+        not composed_matrix_accounting_complete
+        or not totals["composed_matrix_accounting_complete"]
+    ):
+        failures.append("vehicle composed matrix accounting drifted")
+    composed_matrix_route_accounting_complete = totals[
+        "composed_matrix_candidate_observations"
+    ] + totals["composed_matrix_routes_without_identity"] == (
+        totals["composed_matrix_valid_pairs"] * 8
+    )
+    if (
+        not composed_matrix_route_accounting_complete
+        or not totals["composed_matrix_route_accounting_complete"]
+    ):
+        failures.append("vehicle composed matrix route accounting drifted")
+    composed_matrix_sources = {
+        item["matrix_source"] for item in composed_matrix_correlations
+    }
+    if (
+        not totals["composed_matrix_observations"]
+        or not totals["composed_matrix_valid_pairs"]
+        or not totals["composed_matrix_identity_comparisons"]
+        or not totals["composed_matrix_candidate_observations"]
+        or composed_matrix_sources != VEHICLE_COMPOSED_MATRIX_SOURCES
+    ):
+        failures.append("vehicle composed matrix coverage was absent")
+    if (
+        totals["composed_matrix_invalid_object_range"]
+        or totals["composed_matrix_invalid_output_range"]
+        or totals["composed_matrix_object_non_finite"]
+        or totals["composed_matrix_output_non_finite"]
+    ):
+        failures.append("vehicle composed matrix payload was invalid")
+    if sum(
+        item["observations"] for item in composed_matrix_correlations
+    ) != totals["composed_matrix_candidate_observations"]:
+        failures.append("vehicle composed matrix candidate totals drifted")
+    if sum(
+        item["tight_matches"] for item in composed_matrix_correlations
+    ) != totals["composed_matrix_tight_matches"]:
+        failures.append("vehicle composed matrix tight-match totals drifted")
+    if len(composed_matrix_correlations) != totals[
+        "composed_matrix_correlations"
+    ]:
+        failures.append("vehicle composed matrix correlation coverage drifted")
+    if totals["composed_matrix_correlation_overflow"]:
+        failures.append("vehicle composed matrix correlation table overflowed")
+    if totals["composed_matrix_correlations"] > totals[
+        "composed_matrix_correlation_capacity"
+    ]:
+        failures.append("vehicle composed matrix correlation capacity drifted")
     for method in method_correlations:
         if method["status"] != "complete" or method["calls"] != method["exits"]:
             failures.append(
@@ -1337,6 +1528,10 @@ def build(events, requested_session=None):
         for item in matrix_correlations
     )
     typed_descriptor_candidate_proved = bool(typed_descriptor_correlations)
+    composed_matrix_candidate_proved = any(
+        item["vehicle_render_transform_candidate_proved"]
+        for item in composed_matrix_correlations
+    )
     draw_provenance_coverage_complete = (
         title_provenance_requested
         and title_provenance_armed
@@ -1364,6 +1559,7 @@ def build(events, requested_session=None):
         "draw_object_correlations": object_correlations,
         "render_context_callees": render_context_callees,
         "vehicle_matrix_correlations": matrix_correlations,
+        "composed_matrix_correlations": composed_matrix_correlations,
         "typed_render_item_profiles": typed_render_item_profiles,
         "typed_descriptor_correlations": typed_descriptor_correlations,
         "coverage": {
@@ -1402,6 +1598,13 @@ def build(events, requested_session=None):
             ),
             "typed_vehicle_descriptor_candidate_proved": (
                 not failures and typed_descriptor_candidate_proved
+            ),
+            "vehicle_composed_matrix_contract_proved": (
+                not failures
+                and composed_matrix_sources == VEHICLE_COMPOSED_MATRIX_SOURCES
+            ),
+            "vehicle_composed_matrix_candidate_proved": (
+                not failures and composed_matrix_candidate_proved
             ),
             "native_vehicle_rendering_admitted": False,
             "suppression_allowed": False,

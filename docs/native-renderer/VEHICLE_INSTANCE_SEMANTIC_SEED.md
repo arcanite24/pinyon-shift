@@ -311,6 +311,44 @@ vehicle identity bridge. Continue at the explicit `8240E7B0` matrix composition
 that writes the 64-byte payload passed to `82435E78`; do not widen heuristic
 object scans. Native vehicle drawing and suppression remain closed.
 
+## Object/reference composed matrix
+
+Static instruction flow now closes the next transform boundary inside
+`8240E7B0`. The function preserves its original `r7` argument in `r22`, reads
+that argument as a complete 4×4 matrix, multiplies it with the transformed
+reference state derived from the already-qualified `r6` matrix, writes the
+64-byte result at stack offsets 240–303, and passes that exact address as `r5`
+to `82435E78`. Immediately before the call, `r22` still names the live object
+input matrix and `r5` names the fully written composed payload.
+
+A read-only hook at `8240EB5C` compares both matrices independently with every
+admitted vehicle pose. Each source evaluates the same two conventional matrix
+layouts and both forward-axis signs, producing eight strictly accounted routes
+per valid pair. The fixed 1,024-entry result table partitions observations by
+source, layout, sign, and exact vehicle identity; it retains closest misses as
+well as tight matches so the object-input and composed-output hypotheses can be
+rejected separately.
+
+The hook validates both 64-byte ranges and every floating-point component
+before comparison. Invalid ranges, non-finite values, missing source coverage,
+pair or route accounting drift, and result-table overflow fail qualification.
+It retains no stack pointer after the synchronous observation, changes no guest
+state, performs no native upload or draw, leaves Xenos authoritative, and cannot
+enable suppression.
+
+The AppData-backed `20260830T114202Z-p31280` census qualified this contract with
+899 observations and 899 valid input/output pairs. All 7,192 candidate routes
+and 185,952 exact-identity comparisons were accounted for, with zero invalid
+range, non-finite, missing-identity-route, overflow, error, fatal, or crash
+result. The eight retained source/layout/sign correlations produced zero tight
+matches. The closest object-input and composed-output results remained about
+755,541 position-delta-squared units away, so both hypotheses are rejected as
+the vehicle pose bridge. The process exited normally at frame 7,293; median
+derived performance was 30.384 FPS, with 29.735 Hz simulation and 59.978 Hz
+presentation cadence. Continue downstream of `82435E78` at the first consumer
+that converts this reference-space payload into the render-instance transform;
+do not widen object scans. Native drawing and suppression remain closed.
+
 Qualify a batched census with:
 
 ```powershell

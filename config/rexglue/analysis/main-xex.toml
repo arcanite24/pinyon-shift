@@ -210,6 +210,15 @@ address = 0x8240EC18
 name = "PinyonShiftObserveVehicleTypedRenderItem"
 registers = ["r11", "r31"]
 
+# Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
+# r22 still owns the original r7 object/reference matrix and r5 points at the
+# fully composed stack payload. Compare both exact live matrices with admitted
+# vehicle poses without changing the title call or retaining stack storage.
+[[midasm_hook]]
+address = 0x8240EB5C
+name = "PinyonShiftObserveVehicleComposedMatrix"
+registers = ["r5", "r22"]
+
 [[midasm_hook]]
 address = 0x8243646C
 name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"
