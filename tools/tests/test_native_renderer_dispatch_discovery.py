@@ -1346,6 +1346,33 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertFalse(category_shadow["guest_state_changed"])
         self.assertTrue(category_shadow["xenos_authority"])
         self.assertFalse(category_shadow["suppression_allowed"])
+        assembly_shadow = lifecycle["visibility_policy_assembly_shadow"]
+        self.assertEqual("82E20094", assembly_shadow["record_entry_hook_address"])
+        self.assertEqual("82E2034C", assembly_shadow["spatial_input_hook_address"])
+        self.assertEqual("82E20350", assembly_shadow["spatial_result_hook_address"])
+        self.assertEqual("82E20364", assembly_shadow["category_input_hook_address"])
+        self.assertEqual("82E20368", assembly_shadow["category_result_hook_address"])
+        self.assertEqual("82E206F8", assembly_shadow["title_result_hook_address"])
+        self.assertEqual("82E2084C", assembly_shadow["record_exit_hook_address"])
+        self.assertEqual(
+            "independent_spatial_then_category_selection",
+            assembly_shadow["model"],
+        )
+        self.assertEqual(
+            "any_nonzero_predicted_category_result_selects",
+            assembly_shadow["selection_rule"],
+        )
+        self.assertEqual(
+            148, assembly_shadow["bounded_guest_payload_bytes_per_candidate"]
+        )
+        self.assertEqual(
+            "bounded_spatial_and_category_inputs",
+            assembly_shadow["guest_payload_read"],
+        )
+        self.assertEqual("shadow_only", assembly_shadow["native_policy_execution"])
+        self.assertFalse(assembly_shadow["guest_state_changed"])
+        self.assertTrue(assembly_shadow["xenos_authority"])
+        self.assertFalse(assembly_shadow["suppression_allowed"])
         self.assertEqual(
             92, lifecycle["field_layout"]["descriptor_record_stride"]
         )
