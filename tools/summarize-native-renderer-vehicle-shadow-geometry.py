@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v2"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v3"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -139,6 +139,21 @@ def summarize(log_path):
         == integer(summary, "color_draws_matched"),
         "mechanical eligibility accounting drift",
     )
+    require(
+        summary.get("private_capture_rejection_accounting_complete") == "true",
+        "private capture rejection accounting drift",
+    )
+    private_capture_eligible_draws = integer(
+        summary, "private_capture_eligible_draws"
+    )
+    private_capture_rejected_draws = integer(
+        summary, "private_capture_rejected_draws"
+    )
+    require(
+        private_capture_eligible_draws + private_capture_rejected_draws
+        == integer(summary, "color_draws_matched"),
+        "private capture eligibility accounting drift",
+    )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
@@ -201,6 +216,45 @@ def summarize(log_path):
             not eligible_draws or mask_and == 0,
             "candidate eligible draw retained a stable rejection",
         )
+        private_eligible_draws = integer(
+            event, "private_capture_eligible_draws"
+        )
+        private_rejected_draws = integer(
+            event, "private_capture_rejected_draws"
+        )
+        require(
+            private_eligible_draws + private_rejected_draws
+            == integer(event, "draws"),
+            "candidate private capture accounting drift",
+        )
+        private_first_mask = hexadecimal(
+            event, "first_private_capture_rejection_mask"
+        )
+        private_last_mask = hexadecimal(
+            event, "last_private_capture_rejection_mask"
+        )
+        private_mask_or = hexadecimal(
+            event, "private_capture_rejection_mask_or"
+        )
+        private_mask_and = hexadecimal(
+            event, "private_capture_rejection_mask_and"
+        )
+        require(
+            private_first_mask & private_mask_or == private_first_mask,
+            "candidate private first mask drift",
+        )
+        require(
+            private_last_mask & private_mask_or == private_last_mask,
+            "candidate private last mask drift",
+        )
+        require(
+            private_mask_and & private_mask_or == private_mask_and,
+            "candidate private mask bounds drift",
+        )
+        require(
+            not private_eligible_draws or private_mask_and == 0,
+            "candidate private eligible draw retained a stable rejection",
+        )
         for key in (
             "prepared_signature",
             "template_key",
@@ -262,6 +316,8 @@ def summarize(log_path):
             "index_vertex_matches": integer(summary, "index_vertex_matches"),
             "mechanically_eligible_draws": mechanically_eligible_draws,
             "mechanically_rejected_draws": mechanically_rejected_draws,
+            "private_capture_eligible_draws": private_capture_eligible_draws,
+            "private_capture_rejected_draws": private_capture_rejected_draws,
             "correlations": len(correlations),
         },
         "mechanical_rejections": {

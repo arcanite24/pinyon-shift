@@ -562,6 +562,23 @@ or allow suppression. The next batched run will identify the smallest missing
 geometry, texture, pipeline, or render-target contract before any native
 vehicle implementation is admitted.
 
+Replay-gate result: a clean AppData session reproduced all 30 families across
+25,200 exact matches. Every draw retained the same `00000808` generic mask:
+three-stream vertex input and zero sampled textures. All other rejection
+reasons were zero, and every family kept the same mask across 840 animated
+frames. Backend inspection confirms that private replay restores and duplicates
+the already-prepared guest pipeline, bindings, and texture state; the one-stream
+and at-least-one-texture rules belong to payload snapshot serialization rather
+than backend replay.
+
+Private vehicle capture therefore uses a narrower admission contract. It still
+requires bounded geometry, no overflows, supported indexed input, complete
+prepared pipeline and render targets, no query, memexport, or resolved input,
+and at most four valid textures. It additionally permits bounded multi-stream
+input and a shader that samples no textures. Generic isolated-draw admission is
+unchanged. This exception remains correlation-gated, private, one-shot,
+non-publishing, Xenos-authoritative, and unable to suppress.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

@@ -64,6 +64,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "rejection_mask_or": "00002000",
                 "rejection_mask_and": "00000000",
                 "rejection_mask_switches": "1",
+                "private_capture_eligible_draws": "3",
+                "private_capture_rejected_draws": "0",
+                "first_private_capture_rejection_mask": "00000000",
+                "last_private_capture_rejection_mask": "00000000",
+                "private_capture_rejection_mask_or": "00000000",
+                "private_capture_rejection_mask_and": "00000000",
+                "private_capture_rejection_mask_switches": "0",
                 **safety,
             },
             {
@@ -111,6 +118,9 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "mechanically_eligible_draws": "1",
                 "mechanically_rejected_draws": "2",
                 "mechanical_rejection_accounting_complete": "true",
+                "private_capture_eligible_draws": "3",
+                "private_capture_rejected_draws": "0",
+                "private_capture_rejection_accounting_complete": "true",
                 "reject_resolved_input": "0",
                 "reject_unsupported_geometry": "0",
                 "reject_empty_draw": "0",
@@ -193,6 +203,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         events = self.fixture()
         events[3]["rejection_mask_or"] = "00000000"
         with self.assertRaisesRegex(ValueError, "candidate first mask drift"):
+            self.summarize(events)
+
+    def test_rejects_private_capture_accounting_drift(self):
+        events = self.fixture()
+        events[3]["private_capture_eligible_draws"] = "2"
+        with self.assertRaisesRegex(
+            ValueError, "candidate private capture accounting drift"
+        ):
             self.summarize(events)
 
     def test_rejects_private_capture_authority_drift(self):

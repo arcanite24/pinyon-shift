@@ -504,3 +504,19 @@ summary reports the count for every `isolated_draw_v1` rejection bit and proves
 that eligible plus rejected draws equals all correlated draws. This is still
 measurement-only: no guest payload is exported, no native color target is
 published, every Xenos draw executes, and suppression remains impossible.
+
+The follow-up AppData qualification observed 25,200 exact matches over 840
+animated frames. All 30 families retained the same `00000808` generic mask
+with no switches: multiple vertex streams and zero textures. Every other
+mechanical rejection counter was zero. The D3D12 private replay path restores
+the already-prepared guest state before duplicating the current indexed draw;
+it does not depend on the one-stream, textured payload snapshot serializer.
+
+`vehicle_color_private_replay_v1` consequently clears only those two generic
+rejection bits when vertex streams remain within the observation bound, no
+binding or texture overflow occurred, and at most four valid texture resources
+are present (including zero). All other `isolated_draw_v1` requirements remain
+mandatory. The generic gate is untouched, and this private exception is
+reachable only after the backend-confirmed 80-draw epoch and exact geometry
+correlation. It cannot publish or suppress, and the authoritative Xenos draw
+still executes.
