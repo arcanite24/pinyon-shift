@@ -62,5 +62,6 @@ streaming transitions remain open. This
 checkpoint changes no guest data, native admission, publication, or
 suppression; Xenos remains authoritative.
 
-The combined runtime qualifier now also requires this static report through
-`--owner .local/qualification/native-renderer-static-world-owner.json`.
+The combined runtime qualifier requires this report through `--owner` and the
+bounded metadata report through `--asset-metadata`; both remain static inputs
+to the batched runtime gate.

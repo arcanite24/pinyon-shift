@@ -273,6 +273,63 @@ def static_owner():
     }
 
 
+def static_asset_metadata():
+    return {
+        "schema": MODULE.ASSET_METADATA_SCHEMA,
+        "status": "complete",
+        "classification": "bounded_simple_model_asset_reference_metadata",
+        "resource_key": {
+            "presentation_class": "Presentation_Unified::CModelPresentation",
+            "initialize_method": "82DEA298",
+            "stored_name_offset": 16,
+            "string_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+            "resource_reference_offset": 148,
+            "resource_bind": "82C48038",
+            "resource_type_argument": "00060000",
+            "address_equation": (
+                "resource_bind_key_equals_presentation_plus_16_string_bytes"
+            ),
+        },
+        "effect_references": {
+            "resource_class": "CSimpleModelResource",
+            "prepare_helper": "823F8980",
+            "records_pointer_offset": 124,
+            "record_count_offset": 128,
+            "record_count_width_bits": 16,
+            "record_stride": 28,
+            "record_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+            "suffix": ".fx",
+            "suffix_address": "8224332C",
+            "lookup": "82C39B78",
+            "lookup_type_argument": "00060000",
+        },
+        "texture_references": {
+            "resource_class": "CSimpleModelResource",
+            "records_vector_offset": 288,
+            "vector_begin_offset": 0,
+            "vector_end_offset": 4,
+            "record_stride": 28,
+            "record_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+            "id_marker": "Id=",
+            "id_marker_address": "8201C108",
+            "path_format": "%s%stextures\\%s",
+            "path_format_address": "8224331C",
+            "lookup": "82C39730",
+        },
+        "claims": {
+            "presentation_name_to_resource_key_proved": True,
+            "bounded_effect_reference_table_proved": True,
+            "bounded_texture_reference_table_proved": True,
+            "effect_and_texture_path_construction_proved": True,
+            "concrete_building_or_prop_category_proved": False,
+        },
+        "next_boundary": {
+            "runtime_export": "hash_and_structural_category_only",
+            "plaintext_asset_names_allowed": False,
+        },
+    }
+
+
 def fixture():
     config = event(
         MODULE.CONFIG,
@@ -325,10 +382,20 @@ def fixture():
             "presentation_resource_join": (
                 "presentation_plus_148_equals_renderer_plus_72"
             ),
+            "asset_key_field": "presentation_plus_16_msvc_string",
+            "asset_key_export": "fnv1a64_hash_and_length_only",
+            "effect_reference_fields": (
+                "resource_plus_124_pointer_plus_128_u16"
+            ),
+            "texture_reference_vector": "resource_plus_288_stride_28",
+            "asset_metadata_limits": "key_bytes_512_reference_count_4096",
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
-            "guest_payload_read": "bounded_host_mapped_identity_fields",
+            "guest_payload_read": (
+                "bounded_host_mapped_identity_and_asset_metadata_fields"
+            ),
+            "plaintext_asset_names_exported": "false",
             **safety(),
         },
     )
@@ -438,6 +505,12 @@ def fixture():
         presentation_renderer_joins="8",
         presentation_renderer_mismatches="0",
         presentation_resource_mismatches="0",
+        asset_metadata_observations="12",
+        asset_metadata_exact="10",
+        asset_metadata_empty_keys="2",
+        asset_metadata_read_faults="0",
+        asset_metadata_joins="8",
+        asset_metadata_missing_joins="0",
         accounting_complete="true",
         qualification_complete="true",
         classification=(
@@ -457,6 +530,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             fixture(),
         )
         self.assertEqual("complete", document["status"])
@@ -500,6 +574,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events + [checkpoint],
             allow_checkpoint=True,
         )
@@ -522,6 +597,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -542,6 +618,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -563,6 +640,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 static_streaming(),
                 static_graph(),
                 static_owner(),
+                static_asset_metadata(),
                 fixture(),
             )
 
@@ -583,6 +661,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -605,6 +684,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -628,6 +708,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -653,6 +734,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -675,6 +757,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -697,6 +780,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_streaming(),
             static_graph(),
             static_owner(),
+            static_asset_metadata(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -704,6 +788,44 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             "presentation_resource_mismatches is nonzero",
             document["failures"],
         )
+
+    def test_rejects_asset_metadata_missing_from_renderer_join(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            asset_metadata_joins="7",
+            asset_metadata_missing_joins="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "asset_metadata_missing_joins is nonzero", document["failures"]
+        )
+
+    def test_rejects_static_asset_key_offset_drift(self):
+        metadata = static_asset_metadata()
+        metadata["resource_key"]["stored_name_offset"] = 20
+        with self.assertRaisesRegex(ValueError, "resource key proof drifted"):
+            MODULE.build(
+                static_ingress(),
+                static_lifetime(),
+                static_resource(),
+                static_streaming(),
+                static_graph(),
+                static_owner(),
+                metadata,
+                fixture(),
+            )
 
     def test_source_contract_has_balanced_static_world_hooks(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
@@ -738,6 +860,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x82C4DC58", analysis)
         self.assertIn("address = 0x823F8DB8", analysis)
         self.assertIn("address = 0x823F8FA0", analysis)
+        self.assertIn("kModelPresentationNameOffset = 16", hooks)
+        self.assertIn("ReadStaticWorldAssetMetadata", hooks)
+        self.assertIn("static_world_asset_key_hash", hooks)
 
 
 if __name__ == "__main__":

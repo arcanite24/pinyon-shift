@@ -100,6 +100,8 @@ constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kStaticWorldRendererLifecycleCapacity = 256;
 constexpr size_t kStaticWorldResourceLifecycleCapacity = 4096;
+constexpr uint32_t kStaticWorldAssetKeyMaximumBytes = 512;
+constexpr uint32_t kStaticWorldReferenceCountMaximum = 4096;
 constexpr size_t kSemanticVisibilityCategoryCapacity = 32;
 constexpr size_t kSemanticVisibilityLodCapacity = 32;
 constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
@@ -181,9 +183,17 @@ constexpr uint32_t kSimpleModelVtable = 0x82229208;
 constexpr uint32_t kSimpleSubModelVtable = 0x822291BC;
 constexpr uint32_t kSimpleMeshVtable = 0x822291A0;
 constexpr uint32_t kSimpleModelResourceModelOffset = 112;
+constexpr uint32_t kSimpleModelResourceEffectRecordsOffset = 124;
+constexpr uint32_t kSimpleModelResourceEffectCountOffset = 128;
+constexpr uint32_t kSimpleModelResourceTextureVectorOffset = 288;
 constexpr uint32_t kModelPresentationVtable = 0x822432D4;
+constexpr uint32_t kModelPresentationNameOffset = 16;
 constexpr uint32_t kModelPresentationResourceOffset = 148;
 constexpr uint32_t kModelPresentationRendererOffset = 1608;
+constexpr uint32_t kMsvcStringSizeOffset = 16;
+constexpr uint32_t kMsvcStringCapacityOffset = 20;
+constexpr uint32_t kMsvcStringInlineCapacity = 16;
+constexpr uint32_t kMsvcStringRecordBytes = 28;
 constexpr uint32_t kTrackModelVtable = 0x820016B4;
 constexpr uint32_t kTrackMeshVtable = 0x8200143C;
 constexpr uint32_t kTrackSubModelVtable = 0x82001474;
@@ -478,6 +488,7 @@ struct SemanticDrawIdentity {
 };
 
 struct StaticWorldDrawIdentity {
+  uint64_t asset_key_hash = 0;
   uint32_t model_presentation_address = 0;
   uint32_t model_presentation_resource_address = 0;
   uint32_t renderer_address = 0;
@@ -490,6 +501,10 @@ struct StaticWorldDrawIdentity {
   uint32_t simple_model_address = 0;
   uint32_t simple_submodel_address = 0;
   uint32_t simple_mesh_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  bool asset_metadata_valid = false;
   bool valid = false;
 };
 
@@ -1897,6 +1912,7 @@ struct TrackRenderModelDispatchScope {
 };
 
 struct StaticWorldRendererDispatchScope {
+  uint64_t asset_key_hash = 0;
   uint64_t packet_origins = 0;
   uint32_t renderer_address = 0;
   uint32_t renderer_generation = 0;
@@ -1911,6 +1927,10 @@ struct StaticWorldRendererDispatchScope {
   uint32_t simple_model_address = 0;
   uint32_t simple_submodel_address = 0;
   uint32_t simple_mesh_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  bool asset_metadata_valid = false;
   bool member_active = false;
   bool member_exact = false;
   bool active = false;
@@ -1919,8 +1939,13 @@ struct StaticWorldRendererDispatchScope {
 
 struct StaticWorldPresentationDispatchScope {
   uint64_t renderer_dispatch_joins = 0;
+  uint64_t asset_key_hash = 0;
   uint32_t presentation_address = 0;
   uint32_t resource_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  bool asset_metadata_valid = false;
   bool active = false;
   bool exact = false;
 };
@@ -2157,6 +2182,12 @@ std::atomic<uint64_t> g_static_world_presentation_scopes_without_renderer{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
 std::atomic<uint64_t> g_static_world_presentation_resource_mismatches{};
+std::atomic<uint64_t> g_static_world_asset_metadata_observations{};
+std::atomic<uint64_t> g_static_world_asset_metadata_exact{};
+std::atomic<uint64_t> g_static_world_asset_metadata_empty_keys{};
+std::atomic<uint64_t> g_static_world_asset_metadata_read_faults{};
+std::atomic<uint64_t> g_static_world_asset_metadata_joins{};
+std::atomic<uint64_t> g_static_world_asset_metadata_missing_joins{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -2877,6 +2908,121 @@ bool LoadMappedGuestU32(rex::memory::Memory *memory, uint32_t address,
   return true;
 }
 
+bool LoadMappedGuestU16(rex::memory::Memory *memory, uint32_t address,
+                        uint16_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint16_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_region_length < sizeof(uint16_t) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = static_cast<uint16_t>(
+      *memory->TranslateVirtual<rex::be_u16 *>(address));
+  return true;
+}
+
+enum class StaticWorldAssetMetadataResult {
+  kExact,
+  kEmptyKey,
+  kReadFault,
+};
+
+StaticWorldAssetMetadataResult ReadStaticWorldAssetMetadata(
+    rex::memory::Memory *memory, uint32_t presentation_address,
+    uint32_t resource_address, StaticWorldPresentationDispatchScope &scope) {
+  if (!memory || !resource_address ||
+      presentation_address >
+          UINT32_MAX - kModelPresentationNameOffset -
+              kMsvcStringCapacityOffset - sizeof(uint32_t)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  const uint32_t string_address =
+      presentation_address + kModelPresentationNameOffset;
+  uint32_t string_size = 0;
+  uint32_t string_capacity = 0;
+  if (!LoadMappedGuestU32(memory, string_address + kMsvcStringSizeOffset,
+                          string_size) ||
+      !LoadMappedGuestU32(memory,
+                          string_address + kMsvcStringCapacityOffset,
+                          string_capacity) ||
+      string_size > kStaticWorldAssetKeyMaximumBytes ||
+      string_capacity < string_size) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!string_size) {
+    return StaticWorldAssetMetadataResult::kEmptyKey;
+  }
+  uint32_t string_data_address = string_address;
+  if (string_capacity >= kMsvcStringInlineCapacity &&
+      !LoadMappedGuestU32(memory, string_address, string_data_address)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!IsReadableVehicleGuestRange(memory, string_data_address,
+                                   string_size)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  const uint8_t *string_data =
+      memory->TranslateVirtual<const uint8_t *>(string_data_address);
+  if (!rex::memory::QueryProtect(const_cast<uint8_t *>(string_data),
+                                 host_region_length, host_access) ||
+      host_region_length < string_size ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+
+  uint16_t effect_count = 0;
+  uint32_t effect_records = 0;
+  uint32_t texture_begin = 0;
+  uint32_t texture_end = 0;
+  if (resource_address >
+          UINT32_MAX - kSimpleModelResourceTextureVectorOffset - 4 ||
+      !LoadMappedGuestU16(
+          memory, resource_address + kSimpleModelResourceEffectCountOffset,
+          effect_count) ||
+      !LoadMappedGuestU32(
+          memory, resource_address + kSimpleModelResourceEffectRecordsOffset,
+          effect_records) ||
+      !LoadMappedGuestU32(
+          memory, resource_address + kSimpleModelResourceTextureVectorOffset,
+          texture_begin) ||
+      !LoadMappedGuestU32(
+          memory,
+          resource_address + kSimpleModelResourceTextureVectorOffset + 4,
+          texture_end) ||
+      (effect_count && !effect_records) || texture_end < texture_begin) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  const uint32_t texture_bytes = texture_end - texture_begin;
+  if (texture_bytes % kMsvcStringRecordBytes) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  const uint32_t texture_count = texture_bytes / kMsvcStringRecordBytes;
+  if (effect_count > kStaticWorldReferenceCountMaximum ||
+      texture_count > kStaticWorldReferenceCountMaximum) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t index = 0; index < string_size; ++index) {
+    hash ^= string_data[index];
+    hash *= UINT64_C(0x100000001B3);
+  }
+  scope.asset_key_hash = hash ? hash : 1;
+  scope.asset_key_length = string_size;
+  scope.effect_reference_count = effect_count;
+  scope.texture_reference_count = texture_count;
+  scope.asset_metadata_valid = true;
+  return StaticWorldAssetMetadataResult::kExact;
+}
+
 size_t StaticWorldRendererLifecycleIndex(uint32_t address) {
   return size_t((address >> 4) % kStaticWorldRendererLifecycleCapacity);
 }
@@ -3526,6 +3672,19 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
     ++g_static_world_presentation_resource_read_faults;
     return;
   }
+  ++g_static_world_asset_metadata_observations;
+  switch (ReadStaticWorldAssetMetadata(
+      memory, presentation_address, scope.resource_address, scope)) {
+  case StaticWorldAssetMetadataResult::kExact:
+    ++g_static_world_asset_metadata_exact;
+    break;
+  case StaticWorldAssetMetadataResult::kEmptyKey:
+    ++g_static_world_asset_metadata_empty_keys;
+    break;
+  case StaticWorldAssetMetadataResult::kReadFault:
+    ++g_static_world_asset_metadata_read_faults;
+    break;
+  }
   scope.exact = true;
   ++g_static_world_presentation_exact;
 }
@@ -3658,8 +3817,20 @@ void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
           presentation_scope.presentation_address;
       scope.model_presentation_resource_address =
           presentation_scope.resource_address;
+      scope.asset_key_hash = presentation_scope.asset_key_hash;
+      scope.asset_key_length = presentation_scope.asset_key_length;
+      scope.effect_reference_count =
+          presentation_scope.effect_reference_count;
+      scope.texture_reference_count =
+          presentation_scope.texture_reference_count;
+      scope.asset_metadata_valid =
+          presentation_scope.asset_metadata_valid;
       ++presentation_scope.renderer_dispatch_joins;
       ++g_static_world_presentation_renderer_joins;
+      (scope.asset_metadata_valid
+           ? g_static_world_asset_metadata_joins
+           : g_static_world_asset_metadata_missing_joins)
+          .fetch_add(1, std::memory_order_relaxed);
     } else if (!renderer_matches) {
       ++g_static_world_presentation_renderer_mismatches;
     } else {
@@ -5148,6 +5319,12 @@ void ResetTitleDrawProvenance() {
            &g_static_world_presentation_renderer_joins,
            &g_static_world_presentation_renderer_mismatches,
            &g_static_world_presentation_resource_mismatches,
+           &g_static_world_asset_metadata_observations,
+           &g_static_world_asset_metadata_exact,
+           &g_static_world_asset_metadata_empty_keys,
+           &g_static_world_asset_metadata_read_faults,
+           &g_static_world_asset_metadata_joins,
+           &g_static_world_asset_metadata_missing_joins,
        }) {
     counter->store(0, std::memory_order_relaxed);
   }
@@ -5637,6 +5814,7 @@ void RecordProceduralModelSemanticDrawPacket(
     const StaticWorldRendererDispatchScope &scope =
         g_static_world_renderer_scope;
     origin.static_world_draw = {
+        .asset_key_hash = scope.asset_key_hash,
         .model_presentation_address = scope.model_presentation_address,
         .model_presentation_resource_address =
             scope.model_presentation_resource_address,
@@ -5654,6 +5832,10 @@ void RecordProceduralModelSemanticDrawPacket(
             scope.member_exact ? scope.simple_submodel_address : 0,
         .simple_mesh_address =
             scope.member_exact ? scope.simple_mesh_address : 0,
+        .asset_key_length = scope.asset_key_length,
+        .effect_reference_count = scope.effect_reference_count,
+        .texture_reference_count = scope.texture_reference_count,
+        .asset_metadata_valid = scope.asset_metadata_valid,
         .valid = true,
     };
   }
@@ -11140,6 +11322,22 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t presentation_renderer_joins =
       g_static_world_presentation_renderer_joins.load(
           std::memory_order_relaxed);
+  const uint64_t asset_metadata_observations =
+      g_static_world_asset_metadata_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_exact =
+      g_static_world_asset_metadata_exact.load(std::memory_order_relaxed);
+  const uint64_t asset_metadata_empty_keys =
+      g_static_world_asset_metadata_empty_keys.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_read_faults =
+      g_static_world_asset_metadata_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_joins =
+      g_static_world_asset_metadata_joins.load(std::memory_order_relaxed);
+  const uint64_t asset_metadata_missing_joins =
+      g_static_world_asset_metadata_missing_joins.load(
+          std::memory_order_relaxed);
   const bool accounting_complete =
       entries == exact + invalid_root + vtable_mismatches +
                            invalid_graph_field + unregistered_renderers +
@@ -11222,6 +11420,12 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
           presentation_scopes_with_renderer +
               presentation_scopes_without_renderer &&
       presentation_scopes_with_renderer <= presentation_renderer_joins &&
+      asset_metadata_observations == presentation_exact &&
+      asset_metadata_observations ==
+          asset_metadata_exact + asset_metadata_empty_keys +
+              asset_metadata_read_faults &&
+      presentation_renderer_joins ==
+          asset_metadata_joins + asset_metadata_missing_joins &&
       !overlaps && !exit_without_entry;
   const bool qualification_complete =
       accounting_complete && exact && packets_recorded && packet_matches &&
@@ -11277,6 +11481,7 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       !g_static_world_member_packet_mismatches.load(
           std::memory_order_relaxed) &&
       presentation_exact && presentation_renderer_joins &&
+      asset_metadata_exact && asset_metadata_joins &&
       presentation_scopes_with_renderer &&
       !g_static_world_presentation_invalid_root.load(
           std::memory_order_relaxed) &&
@@ -11289,7 +11494,8 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       !g_static_world_presentation_renderer_mismatches.load(
           std::memory_order_relaxed) &&
       !g_static_world_presentation_resource_mismatches.load(
-          std::memory_order_relaxed);
+          std::memory_order_relaxed) &&
+      !asset_metadata_read_faults && !asset_metadata_missing_joins;
   const uint64_t pending_packets =
       packets_recorded >= packet_matches ? packets_recorded - packet_matches
                                           : 0;
@@ -11509,6 +11715,16 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_static_world_presentation_resource_mismatches.load(
                 std::memory_order_relaxed))},
+       {"asset_metadata_observations",
+        std::to_string(asset_metadata_observations)},
+       {"asset_metadata_exact", std::to_string(asset_metadata_exact)},
+       {"asset_metadata_empty_keys",
+        std::to_string(asset_metadata_empty_keys)},
+       {"asset_metadata_read_faults",
+        std::to_string(asset_metadata_read_faults)},
+       {"asset_metadata_joins", std::to_string(asset_metadata_joins)},
+       {"asset_metadata_missing_joins",
+        std::to_string(asset_metadata_missing_joins)},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"qualification_complete",
         qualification_complete ? "true" : "false"},
@@ -14206,6 +14422,7 @@ void RecordTitleDrawProvenance(
                  (uint64_t(backend_outcome) << 41) ^
                  (prepared ? uint64_t(1) << 63 : 0);
   key = HashCombine(key, origin.semantic_draw.submission_key);
+  key = HashCombine(key, origin.static_world_draw.asset_key_hash);
   key = HashCombine(
       key, origin.static_world_draw.model_presentation_address);
   key = HashCombine(
@@ -14261,6 +14478,16 @@ void RecordTitleDrawProvenance(
             origin.semantic_draw.record_index &&
         entry.origin.static_world_draw.renderer_address ==
             origin.static_world_draw.renderer_address &&
+        entry.origin.static_world_draw.asset_key_hash ==
+            origin.static_world_draw.asset_key_hash &&
+        entry.origin.static_world_draw.asset_key_length ==
+            origin.static_world_draw.asset_key_length &&
+        entry.origin.static_world_draw.effect_reference_count ==
+            origin.static_world_draw.effect_reference_count &&
+        entry.origin.static_world_draw.texture_reference_count ==
+            origin.static_world_draw.texture_reference_count &&
+        entry.origin.static_world_draw.asset_metadata_valid ==
+            origin.static_world_draw.asset_metadata_valid &&
         entry.origin.static_world_draw.model_presentation_address ==
             origin.static_world_draw.model_presentation_address &&
         entry.origin.static_world_draw.model_presentation_resource_address ==
@@ -14363,6 +14590,32 @@ void EmitTitleDrawProvenanceSummary() {
          {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
          {"static_world_origin",
           entry.origin.static_world_draw.valid ? "true" : "false"},
+         {"static_world_asset_metadata_valid",
+          entry.origin.static_world_draw.valid
+              ? (entry.origin.static_world_draw.asset_metadata_valid
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_asset_key_hash",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? fmt::format("{:016X}",
+                            entry.origin.static_world_draw.asset_key_hash)
+              : ""},
+         {"static_world_asset_key_length",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.asset_key_length)
+              : ""},
+         {"static_world_effect_reference_count",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.effect_reference_count)
+              : ""},
+         {"static_world_texture_reference_count",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.texture_reference_count)
+              : ""},
          {"static_world_model_presentation",
           entry.origin.static_world_draw.valid &&
                   entry.origin.static_world_draw.model_presentation_address
@@ -22912,10 +23165,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"presentation_renderer_field", "presentation_plus_1608"},
        {"presentation_resource_join",
         "presentation_plus_148_equals_renderer_plus_72"},
+       {"asset_key_field", "presentation_plus_16_msvc_string"},
+       {"asset_key_export", "fnv1a64_hash_and_length_only"},
+       {"effect_reference_fields", "resource_plus_124_pointer_plus_128_u16"},
+       {"texture_reference_vector", "resource_plus_288_stride_28"},
+       {"asset_metadata_limits", "key_bytes_512_reference_count_4096"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
-       {"guest_payload_read", "bounded_host_mapped_identity_fields"},
+       {"guest_payload_read",
+        "bounded_host_mapped_identity_and_asset_metadata_fields"},
+       {"plaintext_asset_names_exported", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
