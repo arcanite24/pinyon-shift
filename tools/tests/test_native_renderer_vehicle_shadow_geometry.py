@@ -27,7 +27,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "event": MODULE.CONFIG_EVENT,
                 "status": "armed",
                 "typed_constant_upload_hook": "82435E78:r3,r4,r5,r6,lr",
-                "typed_constant_upload_contract": "exact_register_range_and_payload_hash",
+                "typed_constant_upload_contract": "exact_shader_used_vertex_subset_hash",
                 "typed_constant_upload_capacity": "8192",
                 "typed_constant_upload_maximum_age_frames": "1",
                 **safety,
@@ -115,17 +115,20 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_scans": "3",
                 "typed_upload_exact_matches": "3",
                 "typed_upload_misses": "0",
+                "typed_upload_exact_used_vectors": "9",
                 "typed_upload_start_register_variations": "0",
                 "typed_upload_vector_count_variations": "0",
+                "typed_upload_used_vector_count_variations": "0",
                 "typed_upload_source_address_variations": "2",
                 "typed_upload_buffer_address_variations": "0",
                 "typed_upload_caller_variations": "0",
                 "typed_upload_start_register": "208",
                 "typed_upload_vector_count": "4",
+                "typed_upload_used_vector_count": "3",
                 "typed_upload_source_address": "7FFF1000",
                 "typed_upload_buffer_address": "50001000",
                 "typed_upload_caller_return_address": "8240EB60",
-                "typed_upload_classification": "stable_exact_typed_upload_candidate",
+                "typed_upload_classification": "stable_exact_used_vertex_subset_candidate",
                 **safety,
             },
             {
@@ -255,9 +258,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_scans": "3",
                 "typed_upload_exact_matches": "3",
                 "typed_upload_misses": "0",
+                "typed_upload_exact_used_vectors": "9",
                 "typed_upload_outcome_accounting_complete": "true",
                 "typed_upload_maximum_age_frames": "1",
-                "typed_upload_contract": "82435E78_exact_vertex_register_range_and_payload_hash",
+                "typed_upload_contract": "82435E78_exact_shader_used_vertex_subset_hash",
                 "material_topology_groups": "1",
                 "material_topology_group_accounting_complete": "true",
                 "material_topology_contract": "shader_specialization_render_state_texture_layout",
@@ -335,6 +339,9 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             ],
         )
         self.assertEqual(3, report["typed_constant_upload"]["exact_matches"])
+        self.assertEqual(
+            9, report["typed_constant_upload"]["exact_used_vectors"]
+        )
         self.assertEqual(
             1, report["typed_constant_upload"]["stable_candidate_families"]
         )
@@ -478,6 +485,11 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleColorConstantIdentity", source)
         self.assertIn("ObserveVehicleTypedConstantUpload", source)
         self.assertIn("ObserveVehicleColorTypedConstantUpload", source)
+        self.assertIn("MatchObservedVertexConstantSubset", source)
+        self.assertNotIn("HashObservedVertexConstantRange", source)
+        self.assertIn(
+            '"82435E78_exact_shader_used_vertex_subset_hash"', source
+        )
         self.assertIn("constant_position_accounting_complete", source)
         self.assertIn("typed_upload_outcome_accounting_complete", source)
         self.assertIn(

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v9"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v10"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -131,7 +131,7 @@ def summarize(log_path):
     )
     require(
         configs[0].get("typed_constant_upload_contract")
-        == "exact_register_range_and_payload_hash",
+        == "exact_shader_used_vertex_subset_hash",
         "typed constant upload contract drift",
     )
     require(
@@ -267,6 +267,9 @@ def summarize(log_path):
         summary, "typed_upload_exact_matches"
     )
     typed_upload_misses = integer(summary, "typed_upload_misses")
+    typed_upload_exact_used_vectors = integer(
+        summary, "typed_upload_exact_used_vectors"
+    )
     require(
         typed_upload_scans == integer(summary, "color_draws_matched"),
         "typed upload scan accounting drift",
@@ -279,6 +282,10 @@ def summarize(log_path):
         typed_upload_exact_matches + typed_upload_misses
         == typed_upload_scans,
         "typed upload outcome drift",
+    )
+    require(
+        typed_upload_exact_used_vectors >= typed_upload_exact_matches,
+        "typed upload used-vector accounting drift",
     )
     require(
         integer(summary, "typed_upload_valid")
@@ -297,7 +304,7 @@ def summarize(log_path):
     )
     require(
         summary.get("typed_upload_contract")
-        == "82435E78_exact_vertex_register_range_and_payload_hash",
+        == "82435E78_exact_shader_used_vertex_subset_hash",
         "typed upload summary contract drift",
     )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
@@ -487,14 +494,19 @@ def summarize(log_path):
         stable_typed_upload_candidate = (
             family_typed_upload_matches == integer(event, "draws")
             and family_typed_upload_misses == 0
+            and integer(event, "typed_upload_exact_used_vectors")
+            >= family_typed_upload_matches
             and integer(event, "typed_upload_start_register_variations") == 0
             and integer(event, "typed_upload_vector_count_variations") == 0
+            and integer(
+                event, "typed_upload_used_vector_count_variations"
+            ) == 0
             and integer(event, "typed_upload_caller_variations") == 0
         )
         require(
             event.get("typed_upload_classification")
             == (
-                "stable_exact_typed_upload_candidate"
+                "stable_exact_used_vertex_subset_candidate"
                 if stable_typed_upload_candidate
                 else "unresolved"
             ),
@@ -508,6 +520,11 @@ def summarize(log_path):
             require(
                 0 < integer(event, "typed_upload_vector_count") <= 64,
                 "candidate typed upload vector count drift",
+            )
+            require(
+                0 < integer(event, "typed_upload_used_vector_count")
+                <= integer(event, "typed_upload_vector_count"),
+                "candidate typed upload used vector count drift",
             )
             hexadecimal(event, "typed_upload_source_address")
             hexadecimal(event, "typed_upload_buffer_address")
@@ -716,7 +733,7 @@ def summarize(log_path):
         event
         for event in candidates
         if event.get("typed_upload_classification")
-        == "stable_exact_typed_upload_candidate"
+        == "stable_exact_used_vertex_subset_candidate"
     ]
     complete_typed_upload_bridge_candidate = (
         len(candidates) == 30
@@ -814,6 +831,7 @@ def summarize(log_path):
             "scans": typed_upload_scans,
             "exact_matches": typed_upload_exact_matches,
             "misses": typed_upload_misses,
+            "exact_used_vectors": typed_upload_exact_used_vectors,
             "stable_candidate_families": len(
                 stable_typed_upload_candidates
             ),

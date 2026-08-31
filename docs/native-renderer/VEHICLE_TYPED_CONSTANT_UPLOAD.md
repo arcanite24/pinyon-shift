@@ -1,8 +1,8 @@
 # Vehicle typed constant-upload join
 
-Status: implemented as a default-off, payload-free extension of the C4 vehicle
-correlation mode; runtime qualification is deferred to the next batched
-AppData session.
+Status: the first default-off AppData qualification rejected the whole-range
+join; an exact shader-used-vector join is implemented for the next batched
+qualification.
 
 ## Proven title boundary
 
@@ -18,7 +18,7 @@ entry retains only:
 - the exact caller return address supplied by the guest link register;
 - destination buffer and source addresses;
 - destination register range; and
-- a semantic hash of that exact range and payload.
+- one semantic hash for each vector in that range.
 
 No constant value is logged or written to the offline report. Invalid source
 or register ranges are counted and rejected before the source is read. The
@@ -27,22 +27,41 @@ overwrites explicitly.
 
 ## Draw join
 
-Each exact shadow-correlated vehicle color draw tests its observed vertex
-constants against uploads no more than one frame old. A match requires every
-register in the uploaded range to exist in the prepared draw and the semantic
-payload hash to agree exactly. The newest exact upload wins when repeated
-writes carry the same range and values.
+Each exact shadow-correlated vehicle color draw tests its shader-used vertex
+constants against uploads no more than one frame old. A match requires at
+least one used register to overlap the upload range and every overlapping
+vector hash to agree exactly. Unused vectors in the title upload are not
+invented as shader inputs. The candidate with the most exact used-vector
+matches wins, with newest sequence breaking a tie.
 
-Per-family accounting records exact matches, misses, caller and register/count
-stability, and source/destination address variation. The v9 qualifier
-recognizes a stable typed-upload candidate only when every draw in a family
-matches and its caller and register range never change. A complete bridge
-candidate requires all 30 families to satisfy that rule.
+Per-family accounting records exact draw and used-vector matches, misses,
+caller, register/range and used-count stability, and source/destination address
+variation. The v10 qualifier recognizes a stable candidate only when every
+draw in a family matches and its caller, upload range, and consumed subset
+size never change. A complete bridge candidate requires all 30 families to
+satisfy that rule.
 
 ReXGlue patch `0103-codegen-midasm-link-register-argument.patch` exposes the
 guest link register as an optional read-only mid-assembly hook argument. This
 avoids 82 duplicated callsite hooks while retaining the exact `bl` return
 address for offline title-function resolution.
+
+## First runtime result and correction
+
+The AppData-backed `20260831T181527Z-p45996` run exited normally with no error,
+fatal, validation, or device-removal signature. It committed 541 exact vehicle
+epochs and 16,230 full-resource matches across all 30 families. The writer
+hook strictly accounted 2,419,537 observations: 594,688 valid uploads,
+1,824,849 rejected register ranges, and zero invalid source ranges.
+
+The whole-range join produced zero matches across all 16,230 draw scans. That
+rejects its admission rule, not the generic writer: ReXGlue reports only
+constants actually referenced by the active shader, so requiring every vector
+in a broader title upload to appear in the prepared observation was
+structurally impossible whenever the shader consumed a subset. The v10 join
+therefore compares only the exact shader-used intersection while retaining the
+same one-frame freshness, caller provenance, payload-free output, and Xenos
+authority.
 
 This proves which typed writes feed the prepared vehicle draws. It does not by
 itself convert reference-space constants to a world transform or label a
@@ -55,4 +74,5 @@ ranges and title callers should receive the next semantic discriminator.
 - The ledger is fixed-size and retains hashes, not payloads.
 - Every authoritative Xenos upload and draw executes unchanged.
 - No native publication or draw suppression depends on this evidence.
-- Missing, stale, invalid, or incomplete ranges remain unresolved.
+- Missing, stale, invalid, non-overlapping, or hash-mismatched ranges remain
+  unresolved.
