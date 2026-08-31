@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v8"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v9"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
@@ -20,7 +20,7 @@ ASSET_METADATA_SCHEMA = (
     "pinyon-shift.native-renderer-static-world-asset-metadata.v1"
 )
 MESH_SEMANTICS_SCHEMA = (
-    "pinyon-shift.native-renderer-static-world-mesh-semantics.v1"
+    "pinyon-shift.native-renderer-static-world-mesh-semantics.v2"
 )
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
@@ -517,6 +517,7 @@ def validate_static_mesh_semantics(document):
     try:
         geometry = document["geometry"]
         material = document["material_binding"]
+        prepared_layout = document["prepared_layout_boundary"]
         claims = document["claims"]
     except (KeyError, TypeError) as error:
         raise ValueError(
@@ -571,12 +572,30 @@ def validate_static_mesh_semantics(document):
     }
     if material != expected_material:
         raise ValueError("static-world material binding proof drifted")
+    expected_prepared_layout = {
+        "draw_state_flush": "8240BB40",
+        "flush_after_index_buffer_bind": True,
+        "flush_before_draw_emitter": True,
+        "runtime_source": "xenos_decoded_draw_observation",
+        "runtime_join": "exact_physical_pm4_header_origin",
+        "vertex_binding_limit": 8,
+        "vertex_attribute_limit": 32,
+        "float_constant_limit_per_stage": 64,
+        "texture_state_limit": 16,
+        "payload_bytes_exported": False,
+    }
+    if prepared_layout != expected_prepared_layout:
+        raise ValueError("static-world prepared layout boundary drifted")
     if (
         claims.get("primitive_and_element_count_fields_proved") is not True
         or claims.get("index_buffer_bind_draw_clear_sequence_proved")
         is not True
         or claims.get("submodel_state_binding_fields_proved") is not True
         or claims.get("optional_material_resource_branch_proved") is not True
+        or claims.get("complete_vertex_layout_runtime_boundary_proved")
+        is not True
+        or claims.get("bounded_material_parameter_runtime_boundary_proved")
+        is not True
         or claims.get("complete_vertex_layout_decoding_proved") is not False
         or claims.get("complete_material_parameter_decoding_proved") is not False
         or claims.get("native_draw_admission_proved") is not False
@@ -671,6 +690,14 @@ def build(
         "submodel_state_fields": "submodel_plus_32_u32_39_u8_112_u8",
         "mesh_optional_material_reference_field": "mesh_plus_128_u32",
         "mesh_semantics_export": "bounded_numeric_identity_fields_only",
+        "prepared_layout_boundary": (
+            "xenos_decoded_draw_observation_joined_by_physical_pm4_origin"
+        ),
+        "prepared_layout_capacity": "512",
+        "prepared_layout_export": (
+            "complete_bounded_vertex_fetch_attribute_constant_and_"
+            "texture_metadata"
+        ),
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -796,6 +823,12 @@ def build(
         "mesh_semantic_read_faults",
         "mesh_semantic_packet_origins",
         "mesh_semantic_missing_packet_origins",
+        "prepared_layout_observations",
+        "prepared_layout_exact",
+        "prepared_layout_unbounded_geometry",
+        "prepared_layout_parameter_overflows",
+        "prepared_layout_entries",
+        "prepared_layout_table_overflow",
         "presentation_entries",
         "presentation_exits",
         "presentation_exact",
@@ -978,6 +1011,14 @@ def build(
         + totals["mesh_semantic_missing_packet_origins"]
     ):
         failures.append("static-world mesh semantic packet join drifted")
+    if totals["prepared_layout_observations"] != totals["prepared_matches"]:
+        failures.append("static-world prepared layout observation drifted")
+    if totals["prepared_layout_observations"] != (
+        totals["prepared_layout_exact"]
+        + totals["prepared_layout_unbounded_geometry"]
+        + totals["prepared_layout_parameter_overflows"]
+    ):
+        failures.append("static-world prepared layout classification drifted")
     presentation_classified = (
         totals["presentation_exact"]
         + totals["presentation_invalid_root"]
@@ -1022,6 +1063,10 @@ def build(
         failures.append("no bounded static-world mesh semantics were observed")
     if not totals["mesh_semantic_packet_origins"]:
         failures.append("no mesh semantics joined a prepared-draw origin")
+    if not totals["prepared_layout_exact"]:
+        failures.append("no bounded static-world prepared layout was observed")
+    if not totals["prepared_layout_entries"]:
+        failures.append("no static-world prepared layout entry was retained")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
@@ -1068,6 +1113,9 @@ def build(
         "member_packet_mismatches",
         "mesh_semantic_read_faults",
         "mesh_semantic_missing_packet_origins",
+        "prepared_layout_unbounded_geometry",
+        "prepared_layout_parameter_overflows",
+        "prepared_layout_table_overflow",
         "presentation_invalid_root",
         "presentation_resource_read_faults",
         "presentation_overlaps",
@@ -1124,6 +1172,8 @@ def build(
             "bounded_mesh_draw_semantics_proved": not failures,
             "bounded_material_binding_semantics_proved": not failures,
             "mesh_semantics_to_prepared_draw_proved": not failures,
+            "complete_vertex_layout_to_prepared_draw_proved": not failures,
+            "bounded_material_parameter_boundary_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,

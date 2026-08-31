@@ -10,7 +10,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-mesh-semantics.v1"
+SCHEMA = "pinyon-shift.native-renderer-static-world-mesh-semantics.v2"
 IMAGE_BASE = 0x82000000
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -20,6 +20,7 @@ RENDERER_DISPATCH = 0x82C4CCC8
 PRIMITIVE_COUNT_HELPER = 0x82C48558
 PRIMITIVE_SCALE_BIAS_TABLE = 0x820023F0
 INDEX_BUFFER_BIND = 0x8244D760
+DRAW_STATE_FLUSH = 0x8240BB40
 MATERIAL_STATE_BIND = 0x82410A70
 MATERIAL_RESOURCE_BIND = 0x8244E728
 DRAW_EMITTER = 0x82416380
@@ -135,6 +136,8 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             0x82C4DBE4: "bl 0x8244e728",
             0x82C4DC10: "lwz r4,96(r28)",
             0x82C4DC14: "bl 0x8244d760",
+            0x82C4DC18: "lwz r3,68(r30)",
+            0x82C4DC1C: "bl 0x8240bb40",
             0x82C4DC20: "lwz r3,36(r28)",
             0x82C4DC24: "lwz r4,100(r28)",
             0x82C4DC28: "bl 0x82c48558",
@@ -199,11 +202,25 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             "resource_bind": f"{MATERIAL_RESOURCE_BIND:08X}",
             "fallback_source": "renderer_r22",
         },
+        "prepared_layout_boundary": {
+            "draw_state_flush": f"{DRAW_STATE_FLUSH:08X}",
+            "flush_after_index_buffer_bind": True,
+            "flush_before_draw_emitter": True,
+            "runtime_source": "xenos_decoded_draw_observation",
+            "runtime_join": "exact_physical_pm4_header_origin",
+            "vertex_binding_limit": 8,
+            "vertex_attribute_limit": 32,
+            "float_constant_limit_per_stage": 64,
+            "texture_state_limit": 16,
+            "payload_bytes_exported": False,
+        },
         "claims": {
             "primitive_and_element_count_fields_proved": True,
             "index_buffer_bind_draw_clear_sequence_proved": True,
             "submodel_state_binding_fields_proved": True,
             "optional_material_resource_branch_proved": True,
+            "complete_vertex_layout_runtime_boundary_proved": True,
+            "bounded_material_parameter_runtime_boundary_proved": True,
             "complete_vertex_layout_decoding_proved": False,
             "complete_material_parameter_decoding_proved": False,
             "native_draw_admission_proved": False,

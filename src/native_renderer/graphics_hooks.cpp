@@ -86,6 +86,7 @@ constexpr uint64_t kSuppressionStateDetailLimit = 32;
 constexpr size_t kDispatchCallerCapacity = 256;
 constexpr size_t kTitlePacketProvenanceCapacity = 16384;
 constexpr size_t kTitleDrawProvenanceCapacity = 4096;
+constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -758,6 +759,18 @@ struct TitleDrawProvenanceEntry {
   bool prepared = false;
 };
 
+struct StaticWorldPreparedLayoutEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t parameter_hash = 0;
+  uint64_t parameter_variations = 0;
+  StaticWorldDrawIdentity identity{};
+  SemanticPreparedDrawContract contract{};
+  rex::system::GraphicsDrawObservation sample{};
+};
+
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
@@ -834,6 +847,9 @@ std::array<TitlePacketProvenanceEntry, kTitlePacketProvenanceCapacity>
     g_title_packet_provenance{};
 std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
     g_title_draw_provenance{};
+std::array<StaticWorldPreparedLayoutEntry,
+           kStaticWorldPreparedLayoutCapacity>
+    g_static_world_prepared_layouts{};
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
@@ -2197,6 +2213,12 @@ std::atomic<uint64_t> g_static_world_mesh_semantic_exact{};
 std::atomic<uint64_t> g_static_world_mesh_semantic_read_faults{};
 std::atomic<uint64_t> g_static_world_mesh_semantic_packet_origins{};
 std::atomic<uint64_t> g_static_world_mesh_semantic_missing_packet_origins{};
+std::atomic<uint64_t> g_static_world_prepared_layout_observations{};
+std::atomic<uint64_t> g_static_world_prepared_layout_exact{};
+std::atomic<uint64_t> g_static_world_prepared_layout_unbounded_geometry{};
+std::atomic<uint64_t> g_static_world_prepared_layout_parameter_overflows{};
+std::atomic<uint64_t> g_static_world_prepared_layout_table_overflow{};
+size_t g_static_world_prepared_layout_count = 0;
 std::atomic<uint64_t> g_static_world_presentation_entries{};
 std::atomic<uint64_t> g_static_world_presentation_exits{};
 std::atomic<uint64_t> g_static_world_presentation_exact{};
@@ -5114,6 +5136,10 @@ void ResetTitleDrawProvenance() {
   for (TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
     entry = {};
   }
+  for (StaticWorldPreparedLayoutEntry &entry :
+       g_static_world_prepared_layouts) {
+    entry = {};
+  }
   for (SemanticBatchOpportunityEntry &entry :
        g_semantic_batch_opportunities) {
     entry = {};
@@ -5156,6 +5182,7 @@ void ResetTitleDrawProvenance() {
   g_title_packets_without_origin.store(0, std::memory_order_relaxed);
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
+  g_static_world_prepared_layout_count = 0;
   g_semantic_batch_observations = 0;
   g_semantic_visibility_prepared_observations = 0;
   g_semantic_visibility_prepared_selected_joins = 0;
@@ -5407,6 +5434,11 @@ void ResetTitleDrawProvenance() {
            &g_static_world_mesh_semantic_read_faults,
            &g_static_world_mesh_semantic_packet_origins,
            &g_static_world_mesh_semantic_missing_packet_origins,
+           &g_static_world_prepared_layout_observations,
+           &g_static_world_prepared_layout_exact,
+           &g_static_world_prepared_layout_unbounded_geometry,
+           &g_static_world_prepared_layout_parameter_overflows,
+           &g_static_world_prepared_layout_table_overflow,
            &g_static_world_presentation_entries,
            &g_static_world_presentation_exits,
            &g_static_world_presentation_exact,
@@ -11435,6 +11467,21 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t mesh_semantic_missing_packet_origins =
       g_static_world_mesh_semantic_missing_packet_origins.load(
           std::memory_order_relaxed);
+  const uint64_t prepared_layout_observations =
+      g_static_world_prepared_layout_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_exact =
+      g_static_world_prepared_layout_exact.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_unbounded_geometry =
+      g_static_world_prepared_layout_unbounded_geometry.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_parameter_overflows =
+      g_static_world_prepared_layout_parameter_overflows.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_table_overflow =
+      g_static_world_prepared_layout_table_overflow.load(
+          std::memory_order_relaxed);
   const uint64_t presentation_entries =
       g_static_world_presentation_entries.load(std::memory_order_relaxed);
   const uint64_t presentation_exits =
@@ -11541,6 +11588,10 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       member_packets_recorded ==
           mesh_semantic_packet_origins +
               mesh_semantic_missing_packet_origins &&
+      prepared_layout_observations == prepared_matches &&
+      prepared_layout_observations ==
+          prepared_layout_exact + prepared_layout_unbounded_geometry +
+              prepared_layout_parameter_overflows &&
       presentation_entries ==
           presentation_exact +
               g_static_world_presentation_invalid_root.load(
@@ -11617,6 +11668,10 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       mesh_semantic_exact && mesh_semantic_packet_origins &&
       !mesh_semantic_read_faults &&
       !mesh_semantic_missing_packet_origins &&
+      prepared_layout_exact && g_static_world_prepared_layout_count &&
+      !prepared_layout_unbounded_geometry &&
+      !prepared_layout_parameter_overflows &&
+      !prepared_layout_table_overflow &&
       presentation_exact && presentation_renderer_joins &&
       asset_metadata_exact && asset_metadata_joins &&
       presentation_scopes_with_renderer &&
@@ -11826,6 +11881,17 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
         std::to_string(mesh_semantic_packet_origins)},
        {"mesh_semantic_missing_packet_origins",
         std::to_string(mesh_semantic_missing_packet_origins)},
+       {"prepared_layout_observations",
+        std::to_string(prepared_layout_observations)},
+       {"prepared_layout_exact", std::to_string(prepared_layout_exact)},
+       {"prepared_layout_unbounded_geometry",
+        std::to_string(prepared_layout_unbounded_geometry)},
+       {"prepared_layout_parameter_overflows",
+        std::to_string(prepared_layout_parameter_overflows)},
+       {"prepared_layout_entries",
+        std::to_string(g_static_world_prepared_layout_count)},
+       {"prepared_layout_table_overflow",
+        std::to_string(prepared_layout_table_overflow)},
        {"presentation_entries", std::to_string(presentation_entries)},
        {"presentation_exits", std::to_string(presentation_exits)},
        {"presentation_exact", std::to_string(presentation_exact)},
@@ -13036,6 +13102,48 @@ std::string SerializeTextureStates(
         state.lod_bias, state.offsets, state.result_storage_target,
         state.result_storage_index, state.result_write_mask,
         state.result_components);
+  }
+  return result;
+}
+
+std::string SerializeVertexBindings(
+    const rex::system::GraphicsDrawObservation &observation) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      observation.vertex_binding_count,
+      rex::system::kGraphicsVertexBindingObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    const auto &binding = observation.vertex_bindings[i];
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format("{}:{:08X}:{}:{}:{}", binding.fetch_constant,
+                          binding.address, binding.size,
+                          binding.stride_words, binding.endianness);
+  }
+  return result;
+}
+
+std::string SerializeVertexAttributes(
+    const rex::system::GraphicsDrawObservation &observation) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      observation.vertex_attribute_count,
+      rex::system::kGraphicsVertexAttributeObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    const auto &attribute = observation.vertex_attributes[i];
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format(
+        "{}:{}:{}:{}:{}:{:X}:{}:{}:{}:{}:{:X}:{:X}:{:X}",
+        attribute.binding_index, attribute.fetch_constant,
+        attribute.offset_words, attribute.stride_words,
+        attribute.data_format, attribute.fetch_word_mask,
+        attribute.exp_adjust, attribute.signed_rf_mode,
+        attribute.result_storage_target, attribute.result_storage_index,
+        attribute.result_write_mask, attribute.result_components,
+        attribute.flags);
   }
   return result;
 }
@@ -14499,6 +14607,82 @@ SemanticPreparedDrawContract BuildSemanticPreparedDrawContract(
   return contract;
 }
 
+void RecordStaticWorldPreparedLayout(
+    const rex::system::GraphicsDrawObservation &observation,
+    const StaticWorldDrawIdentity &identity,
+    const SemanticPreparedDrawContract &contract) {
+  g_static_world_prepared_layout_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  if (!contract.geometry_bounded) {
+    g_static_world_prepared_layout_unbounded_geometry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!contract.texture_layout_bounded ||
+      observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow ||
+      observation.texture_state_overflow) {
+    g_static_world_prepared_layout_parameter_overflows.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_prepared_layout_exact.fetch_add(
+      1, std::memory_order_relaxed);
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  key = HashCombine(key, identity.asset_key_hash);
+  key = HashCombine(key, identity.simple_mesh_address);
+  key = HashCombine(key, identity.model_resource_generation);
+  key = HashCombine(key, identity.model_resource_payload_generation);
+  key = HashCombine(key, contract.prepared_pipeline_hash);
+  key = HashCombine(key, contract.geometry_layout_hash);
+  key = HashCombine(key, contract.texture_layout_hash);
+  key = HashCombine(key, contract.render_state_hash);
+  key = key ? key : 1;
+  const uint64_t parameter_hash = SemanticInstanceParameterHash(observation);
+  size_t index = size_t(key % kStaticWorldPreparedLayoutCapacity);
+  for (size_t probe = 0; probe < kStaticWorldPreparedLayoutCapacity;
+       ++probe) {
+    StaticWorldPreparedLayoutEntry &entry =
+        g_static_world_prepared_layouts[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_hash = parameter_hash;
+      entry.identity = identity;
+      entry.contract = contract;
+      entry.sample = observation;
+      ++g_static_world_prepared_layout_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.identity.asset_key_hash == identity.asset_key_hash &&
+        entry.identity.simple_mesh_address == identity.simple_mesh_address &&
+        entry.identity.model_resource_generation ==
+            identity.model_resource_generation &&
+        entry.identity.model_resource_payload_generation ==
+            identity.model_resource_payload_generation &&
+        entry.contract.prepared_pipeline_hash ==
+            contract.prepared_pipeline_hash &&
+        entry.contract.geometry_layout_hash ==
+            contract.geometry_layout_hash &&
+        entry.contract.texture_layout_hash == contract.texture_layout_hash &&
+        entry.contract.render_state_hash == contract.render_state_hash) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_variations +=
+          entry.parameter_hash != parameter_hash ? 1 : 0;
+      entry.parameter_hash = parameter_hash;
+      return;
+    }
+    index = (index + 1) % kStaticWorldPreparedLayoutCapacity;
+  }
+  g_static_world_prepared_layout_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 void UpdateSemanticPreparedDrawContract(
     SemanticPreparedDrawContract &contract,
     const rex::system::GraphicsDrawObservation &observation,
@@ -14563,6 +14747,11 @@ void RecordTitleDrawProvenance(
           ? BuildSemanticPreparedDrawContract(observation,
                                               *prepared_observation)
           : SemanticPreparedDrawContract{};
+  if (origin.static_world_draw.valid && prepared &&
+      current_semantic_contract.valid) {
+    RecordStaticWorldPreparedLayout(observation, origin.static_world_draw,
+                                    current_semantic_contract);
+  }
   uint64_t key = backend_signature ^ (uint64_t(origin.caller) << 17) ^
                  (uint64_t(origin.wrapper) << 57) ^
                  (uint64_t(backend_outcome) << 41) ^
@@ -15225,6 +15414,86 @@ void EmitTitleDrawProvenanceSummary() {
           semantic_prepared_matches + semantic_unprepared_matches &&
       semantic_render_item_entries ==
           semantic_render_item_exits + semantic_render_items_open;
+  for (const StaticWorldPreparedLayoutEntry &entry :
+       g_static_world_prepared_layouts) {
+    if (!entry.calls) {
+      continue;
+    }
+    const auto &sample = entry.sample;
+    const auto &contract = entry.contract;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.static_world_prepared_layout_entry",
+        {{"layout_key", fmt::format("{:016X}", entry.key)},
+         {"asset_key_hash",
+          entry.identity.asset_metadata_valid
+              ? fmt::format("{:016X}", entry.identity.asset_key_hash)
+              : ""},
+         {"simple_mesh",
+          fmt::format("{:08X}", entry.identity.simple_mesh_address)},
+         {"model_resource_generation",
+          std::to_string(entry.identity.model_resource_generation)},
+         {"model_resource_payload_generation",
+          std::to_string(
+              entry.identity.model_resource_payload_generation)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"parameter_hash", fmt::format("{:016X}", entry.parameter_hash)},
+         {"parameter_variations",
+          std::to_string(entry.parameter_variations)},
+         {"prepared_pipeline_hash",
+          fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+         {"geometry_layout_hash",
+          fmt::format("{:016X}", contract.geometry_layout_hash)},
+         {"texture_layout_hash",
+          fmt::format("{:016X}", contract.texture_layout_hash)},
+         {"render_state_hash",
+          fmt::format("{:016X}", contract.render_state_hash)},
+         {"vertex_shader",
+          fmt::format("{:016X}", contract.vertex_shader_hash)},
+         {"pixel_shader",
+          fmt::format("{:016X}", contract.pixel_shader_hash)},
+         {"primitive_type", std::to_string(sample.primitive_type)},
+         {"index_count", std::to_string(sample.index_count)},
+         {"index_buffer_address",
+          fmt::format("{:08X}", sample.index_buffer_address)},
+         {"index_buffer_length",
+          std::to_string(sample.index_buffer_length)},
+         {"index_format", std::to_string(sample.index_format)},
+         {"index_endianness", std::to_string(sample.index_endianness)},
+         {"vertex_binding_count",
+          std::to_string(sample.vertex_binding_count)},
+         {"vertex_bindings", SerializeVertexBindings(sample)},
+         {"vertex_attribute_count",
+          std::to_string(sample.vertex_attribute_count)},
+         {"vertex_attributes", SerializeVertexAttributes(sample)},
+         {"vertex_float_constant_count",
+          std::to_string(sample.vertex_float_constant_count)},
+         {"vertex_float_constants",
+          SerializeFloatConstants(sample.vertex_float_constants,
+                                  sample.vertex_float_constant_count)},
+         {"pixel_float_constant_count",
+          std::to_string(sample.pixel_float_constant_count)},
+         {"pixel_float_constants",
+          SerializeFloatConstants(sample.pixel_float_constants,
+                                  sample.pixel_float_constant_count)},
+         {"bool_constants",
+          SerializeWordConstants(sample.bool_constant_bitmap,
+                                 sample.bool_constant_values,
+                                 std::size(sample.bool_constant_bitmap))},
+         {"loop_constants",
+          SerializeLoopConstants(sample.loop_constant_bitmap,
+                                 sample.loop_constant_values)},
+         {"texture_state_count",
+          std::to_string(sample.texture_state_count)},
+         {"texture_states", SerializeTextureStates(sample)},
+         {"guest_payload_read", "bounded_prepared_draw_metadata_only"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   uint64_t title_backend_outcomes = 0;
   for (size_t outcome = 1; outcome < g_backend_draw_outcome_counts.size();
        ++outcome) {
@@ -23390,6 +23659,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"submodel_state_fields", "submodel_plus_32_u32_39_u8_112_u8"},
        {"mesh_optional_material_reference_field", "mesh_plus_128_u32"},
        {"mesh_semantics_export", "bounded_numeric_identity_fields_only"},
+       {"prepared_layout_boundary",
+        "xenos_decoded_draw_observation_joined_by_physical_pm4_origin"},
+       {"prepared_layout_capacity",
+        std::to_string(kStaticWorldPreparedLayoutCapacity)},
+       {"prepared_layout_export",
+        "complete_bounded_vertex_fetch_attribute_constant_and_texture_metadata"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},

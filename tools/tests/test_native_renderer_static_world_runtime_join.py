@@ -375,11 +375,25 @@ def static_mesh_semantics():
             "resource_bind": "8244E728",
             "fallback_source": "renderer_r22",
         },
+        "prepared_layout_boundary": {
+            "draw_state_flush": "8240BB40",
+            "flush_after_index_buffer_bind": True,
+            "flush_before_draw_emitter": True,
+            "runtime_source": "xenos_decoded_draw_observation",
+            "runtime_join": "exact_physical_pm4_header_origin",
+            "vertex_binding_limit": 8,
+            "vertex_attribute_limit": 32,
+            "float_constant_limit_per_stage": 64,
+            "texture_state_limit": 16,
+            "payload_bytes_exported": False,
+        },
         "claims": {
             "primitive_and_element_count_fields_proved": True,
             "index_buffer_bind_draw_clear_sequence_proved": True,
             "submodel_state_binding_fields_proved": True,
             "optional_material_resource_branch_proved": True,
+            "complete_vertex_layout_runtime_boundary_proved": True,
+            "bounded_material_parameter_runtime_boundary_proved": True,
             "complete_vertex_layout_decoding_proved": False,
             "complete_material_parameter_decoding_proved": False,
             "native_draw_admission_proved": False,
@@ -452,6 +466,14 @@ def fixture():
             "submodel_state_fields": "submodel_plus_32_u32_39_u8_112_u8",
             "mesh_optional_material_reference_field": "mesh_plus_128_u32",
             "mesh_semantics_export": "bounded_numeric_identity_fields_only",
+            "prepared_layout_boundary": (
+                "xenos_decoded_draw_observation_joined_by_physical_pm4_origin"
+            ),
+            "prepared_layout_capacity": "512",
+            "prepared_layout_export": (
+                "complete_bounded_vertex_fetch_attribute_constant_and_"
+                "texture_metadata"
+            ),
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -561,6 +583,12 @@ def fixture():
         mesh_semantic_read_faults="0",
         mesh_semantic_packet_origins="100",
         mesh_semantic_missing_packet_origins="0",
+        prepared_layout_observations="98",
+        prepared_layout_exact="98",
+        prepared_layout_unbounded_geometry="0",
+        prepared_layout_parameter_overflows="0",
+        prepared_layout_entries="12",
+        prepared_layout_table_overflow="0",
         presentation_entries="12",
         presentation_exits="12",
         presentation_exact="12",
@@ -619,6 +647,16 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertTrue(
             document["qualification"][
                 "mesh_semantics_to_prepared_draw_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "complete_vertex_layout_to_prepared_draw_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "bounded_material_parameter_boundary_proved"
             ]
         )
         self.assertTrue(
@@ -947,6 +985,80 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             document["failures"],
         )
 
+    def test_rejects_unbounded_prepared_vertex_layout(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            prepared_layout_exact="97",
+            prepared_layout_unbounded_geometry="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "prepared_layout_unbounded_geometry is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_prepared_layout_table_overflow(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            prepared_layout_table_overflow="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "prepared_layout_table_overflow is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_prepared_material_parameter_overflow(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            prepared_layout_exact="97",
+            prepared_layout_parameter_overflows="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "prepared_layout_parameter_overflows is nonzero",
+            document["failures"],
+        )
+
     def test_rejects_static_asset_key_offset_drift(self):
         metadata = static_asset_metadata()
         metadata["resource_key"]["stored_name_offset"] = 20
@@ -1018,6 +1130,8 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("kSimpleMeshPrimitiveTypeOffset = 36", hooks)
         self.assertIn("mesh_semantic_packet_origins", hooks)
         self.assertIn("static_world_mesh_primitive_type", hooks)
+        self.assertIn("RecordStaticWorldPreparedLayout", hooks)
+        self.assertIn("static_world_prepared_layout_entry", hooks)
 
 
 if __name__ == "__main__":
