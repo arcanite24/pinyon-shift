@@ -60,7 +60,9 @@ Already landed or substantially qualified:
 - exact native replay of an 80-draw dynamic shadow epoch with byte-identical
   D24S8 output and bounded multi-frame publication;
 - extensive vehicle provenance plus a qualified private draw-atomic semantic
-  constant bridge, without a visible semantic vehicle rendering path yet; and
+  constant bridge; exact player-local RTTI is now proved, direct entity and
+  numeric-ID pose joins are closed negatively, and the exact owning
+  vehicle-map pool lineage is the final bounded follow-up; and
 - post-processing topology census plus the mechanical presentation ingress.
 
 Phase A and B1-B5 are merged. The active B6 slice qualifies the first coherent
@@ -747,6 +749,18 @@ to advance the retained player-vehicle harness without attributing register
 254 to a guessed title producer. The next C4 slice joins player identity and
 mesh/material roles to this snapshot, then uses per-item replay fallback for
 unresolved or exceptional work.
+
+Player/traffic semantic-ingress checkpoint: retail RTTI now locks distinct
+`player_local`, `ai`, `traffic`, and `player_remote` map-entity vtables. Shared
+slot 11 returns the exact vehicle ID at offset 12, while shared slot 3 returns
+the title-owned semantic type-name pointer at offset 16. A default-off passive
+hook on the getter admits only those exact vtables and retains bounded direct
+entity/source, entity/owner, and vehicle-ID/pose-slot correlations. The static
+proof and pending runtime gate are documented in
+[`VEHICLE_PLAYER_INGRESS.md`](VEHICLE_PLAYER_INGRESS.md). Runtime qualification
+is batched with the next meaningful C4 slice; until it proves one stable unique
+player-to-pose relationship, player attribution, mesh/material labels, native
+publication, and suppression remain closed.
 
 ### C5. Sky, atmosphere, and global lighting
 
