@@ -126,7 +126,7 @@ def summarize(log_path):
     require(configs[0].get("status") == "armed", "correlation was not armed")
     require(
         configs[0].get("typed_constant_upload_hook")
-        == "82435E78:r3,r4,r5,r6",
+        == "82435E78:r3,r4,r5,r6,lr",
         "typed constant upload hook drift",
     )
     require(
@@ -489,6 +489,7 @@ def summarize(log_path):
             and family_typed_upload_misses == 0
             and integer(event, "typed_upload_start_register_variations") == 0
             and integer(event, "typed_upload_vector_count_variations") == 0
+            and integer(event, "typed_upload_caller_variations") == 0
         )
         require(
             event.get("typed_upload_classification")
@@ -510,6 +511,7 @@ def summarize(log_path):
             )
             hexadecimal(event, "typed_upload_source_address")
             hexadecimal(event, "typed_upload_buffer_address")
+            hexadecimal(event, "typed_upload_caller_return_address")
         for key in (
             "prepared_signature",
             "template_key",
@@ -720,6 +722,13 @@ def summarize(log_path):
         len(candidates) == 30
         and len(stable_typed_upload_candidates) == len(candidates)
     )
+    typed_upload_callers = sorted(
+        {
+            event["typed_upload_caller_return_address"]
+            for event in candidates
+            if integer(event, "typed_upload_exact_matches")
+        }
+    )
     material_groups = {}
     for event in candidates:
         material_groups.setdefault(event["material_topology_key"], []).append(
@@ -808,6 +817,7 @@ def summarize(log_path):
             "stable_candidate_families": len(
                 stable_typed_upload_candidates
             ),
+            "caller_return_addresses": typed_upload_callers,
         },
         "material_topology": {
             "group_count": material_topology_groups,

@@ -661,6 +661,7 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t typed_upload_vector_count_variations = 0;
   uint64_t typed_upload_source_address_variations = 0;
   uint64_t typed_upload_buffer_address_variations = 0;
+  uint64_t typed_upload_caller_variations = 0;
   double closest_position_delta_squared =
       std::numeric_limits<double>::infinity();
   double closest_forward_delta_squared =
@@ -687,6 +688,7 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint32_t typed_upload_vector_count = 0;
   uint32_t typed_upload_source_address = 0;
   uint32_t typed_upload_buffer_address = 0;
+  uint32_t typed_upload_caller_return_address = 0;
   bool full_geometry_match = false;
   bool constant_position_identity_valid = false;
   bool constant_forward_identity_valid = false;
@@ -702,6 +704,7 @@ struct VehicleConstantUploadEntry {
   uint32_t source_address = 0;
   uint32_t start_register = 0;
   uint32_t vector_count = 0;
+  uint32_t caller_return_address = 0;
   bool occupied = false;
 };
 
@@ -9141,7 +9144,7 @@ void ConfigureIsolatedDraw() {
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
          {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
          {"color_match", "exact_full_or_index_plus_vertex_resource"},
-         {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6"},
+         {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6,lr"},
          {"typed_constant_upload_contract",
           "exact_register_range_and_payload_hash"},
          {"typed_constant_upload_capacity",
@@ -15292,7 +15295,8 @@ uint64_t VehicleConstantPayloadHash(uint32_t start_register,
 void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
                                        uint32_t register_offset,
                                        uint32_t source_address,
-                                       uint32_t vector_count) {
+                                       uint32_t vector_count,
+                                       uint32_t caller_return_address) {
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
       !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
     return;
@@ -15338,6 +15342,7 @@ void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
       .source_address = source_address,
       .start_register = uint32_t(start_register_64),
       .vector_count = vector_count,
+      .caller_return_address = caller_return_address,
       .occupied = true,
   };
   g_vehicle_constant_upload_cursor =
@@ -15423,11 +15428,15 @@ void ObserveVehicleColorTypedConstantUpload(
         entry.typed_upload_source_address != best.source_address;
     entry.typed_upload_buffer_address_variations +=
         entry.typed_upload_buffer_address != best.buffer_address;
+    entry.typed_upload_caller_variations +=
+        entry.typed_upload_caller_return_address !=
+        best.caller_return_address;
   }
   entry.typed_upload_start_register = best.start_register;
   entry.typed_upload_vector_count = best.vector_count;
   entry.typed_upload_source_address = best.source_address;
   entry.typed_upload_buffer_address = best.buffer_address;
+  entry.typed_upload_caller_return_address = best.caller_return_address;
   entry.typed_upload_identity_valid = true;
 }
 
@@ -26730,6 +26739,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
            {"typed_upload_buffer_address_variations",
             std::to_string(
                 entry.typed_upload_buffer_address_variations)},
+           {"typed_upload_caller_variations",
+            std::to_string(entry.typed_upload_caller_variations)},
            {"typed_upload_start_register",
             entry.typed_upload_identity_valid
                 ? std::to_string(entry.typed_upload_start_register)
@@ -26746,11 +26757,17 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
             entry.typed_upload_identity_valid
                 ? fmt::format("{:08X}", entry.typed_upload_buffer_address)
                 : "unknown"},
+           {"typed_upload_caller_return_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.typed_upload_caller_return_address)
+                : "unknown"},
            {"typed_upload_classification",
             entry.typed_upload_exact_matches == entry.draws &&
                     !entry.typed_upload_misses &&
                     !entry.typed_upload_start_register_variations &&
-                    !entry.typed_upload_vector_count_variations
+                    !entry.typed_upload_vector_count_variations &&
+                    !entry.typed_upload_caller_variations
                 ? "stable_exact_typed_upload_candidate"
                 : "unresolved"},
            {"guest_payload_capture", "false"},
@@ -27563,8 +27580,10 @@ void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
 }
 
 void PinyonShiftObserveVehicleTypedConstantUpload(
-    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6) {
-  ObserveVehicleTypedConstantUpload(r3.u32, r4.u32, r5.u32, r6.u32);
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    uint64_t &lr) {
+  ObserveVehicleTypedConstantUpload(r3.u32, r4.u32, r5.u32, r6.u32,
+                                    uint32_t(lr));
 }
 
 void PinyonShiftObserveVehicleRenderContextDispatcherEntry(
