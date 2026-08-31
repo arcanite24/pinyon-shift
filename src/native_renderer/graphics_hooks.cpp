@@ -8103,6 +8103,8 @@ struct IsolatedDrawState {
   bool prepared_visibility_candidate_fresh = false;
   bool prepared_title_lod_valid = false;
   bool prepared_track_texture_provider = false;
+  bool prepared_track_render_model_scope = false;
+  uint32_t prepared_track_world_resource_shared_identity_mask = 0;
   bool prepared_static_world_origin = false;
   bool prepared_static_world_exact = false;
   bool require_fresh_visibility_candidate = false;
@@ -8203,6 +8205,8 @@ struct ContinuousWorldWorksetState {
   uint64_t mechanical_rejections = 0;
   uint64_t stale_or_unselected_rejections = 0;
   uint64_t non_track_provider_rejections = 0;
+  uint64_t track_world_identity_exclusions = 0;
+  uint64_t track_world_requests = 0;
   uint64_t static_world_lineage_rejections = 0;
   uint64_t static_world_requests = 0;
   uint64_t per_frame_quota_yields = 0;
@@ -8217,6 +8221,7 @@ struct ContinuousWorldWorksetState {
   uint64_t current_frame_recorded = 0;
   bool current_frame_failed = false;
   bool requested = false;
+  bool track_world_requested = false;
   bool static_world_requested = false;
   bool valid = true;
 };
@@ -8909,6 +8914,26 @@ void ConfigureContinuousWorldWorkset() {
     }
   }
   std::free(value);
+
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    if (setting != "false") {
+      g_continuous_world_workset.track_world_requested = true;
+      if (setting != "true") {
+        g_continuous_world_workset.valid = false;
+      }
+    }
+  }
+  std::free(value);
+  if (g_continuous_world_workset.track_world_requested &&
+      !g_continuous_world_workset.requested) {
+    g_continuous_world_workset.valid = false;
+  }
   if (g_continuous_world_workset.static_world_requested &&
       !g_continuous_world_workset.requested) {
     g_continuous_world_workset.valid = false;
@@ -8981,7 +9006,11 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_static_world_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"},
+       {"track_world_selection",
+        g_continuous_world_workset.track_world_requested
+            ? "exact_track_render_model_scope_and_shared_world_resource_identity"
+            : "disabled"},
        {"static_world_selection",
         g_continuous_world_workset.static_world_requested
             ? "exact_presentation_resource_mesh_transform_lineage"
@@ -17286,9 +17315,11 @@ struct SemanticVisibilityPreparedAdmission {
   bool fresh = false;
   bool title_lod_valid = false;
   bool track_texture_provider = false;
+  bool track_render_model_scope = false;
   bool static_world_origin = false;
   bool static_world_exact = false;
   uint32_t title_lod_index = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
 };
 
 SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
@@ -17323,9 +17354,15 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
       .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
       .track_texture_provider =
           fresh_visibility_candidate && identity.track_texture_provider,
+      .track_render_model_scope =
+          fresh_visibility_candidate && identity.track_render_model_scope,
       .static_world_origin = static_world_origin,
       .static_world_exact = static_world_exact,
       .title_lod_index = identity.title_lod_index,
+      .track_world_resource_shared_identity_mask =
+          fresh_visibility_candidate
+              ? identity.track_world_resource_shared_identity_mask
+              : 0,
   };
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
@@ -19379,6 +19416,10 @@ void ObservePreparedDraw(
         visibility_admission.title_lod_valid;
     g_isolated_draw.prepared_track_texture_provider =
         visibility_admission.track_texture_provider;
+    g_isolated_draw.prepared_track_render_model_scope =
+        visibility_admission.track_render_model_scope;
+    g_isolated_draw.prepared_track_world_resource_shared_identity_mask =
+        visibility_admission.track_world_resource_shared_identity_mask;
     g_isolated_draw.prepared_static_world_origin =
         visibility_admission.static_world_origin;
     g_isolated_draw.prepared_static_world_exact =
@@ -20774,6 +20815,7 @@ void EmitContinuousWorldWorksetSummary() {
       g_continuous_world_workset.mechanical_rejections +
       g_continuous_world_workset.stale_or_unselected_rejections +
       g_continuous_world_workset.non_track_provider_rejections +
+      g_continuous_world_workset.track_world_identity_exclusions +
       g_continuous_world_workset.static_world_lineage_rejections +
       g_continuous_world_workset.per_frame_quota_yields +
       g_continuous_world_workset.fail_closed_yields;
@@ -20801,6 +20843,11 @@ void EmitContinuousWorldWorksetSummary() {
        {"non_track_provider_rejections",
         std::to_string(
             g_continuous_world_workset.non_track_provider_rejections)},
+       {"track_world_identity_exclusions",
+        std::to_string(
+            g_continuous_world_workset.track_world_identity_exclusions)},
+       {"track_world_requests",
+        std::to_string(g_continuous_world_workset.track_world_requests)},
        {"static_world_lineage_rejections",
         std::to_string(
             g_continuous_world_workset.static_world_lineage_rejections)},
@@ -20830,7 +20877,11 @@ void EmitContinuousWorldWorksetSummary() {
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_static_world_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"},
+       {"track_world_selection",
+        g_continuous_world_workset.track_world_requested
+            ? "exact_track_render_model_scope_and_shared_world_resource_identity"
+            : "disabled"},
        {"static_world_selection",
         g_continuous_world_workset.static_world_requested
             ? "exact_presentation_resource_mesh_transform_lineage"
@@ -21192,6 +21243,16 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.non_track_provider_rejections;
       return;
     }
+    const bool exact_track_world =
+        g_continuous_world_workset.track_world_requested &&
+        g_isolated_draw.prepared_track_render_model_scope &&
+        g_isolated_draw.prepared_track_world_resource_shared_identity_mask;
+    if (g_continuous_world_workset.track_world_requested &&
+        !qualified_retained_family && !exact_static_world &&
+        !exact_track_world) {
+      ++g_continuous_world_workset.track_world_identity_exclusions;
+      return;
+    }
     if (g_continuous_world_workset.current_frame_failed) {
       ++g_continuous_world_workset.fail_closed_yields;
       return;
@@ -21212,6 +21273,9 @@ void RequestIsolatedDraw(
     ++g_continuous_world_workset.requests;
     if (qualified_retained_family) {
       ++g_continuous_world_workset.qualified_retained_family_requests;
+    }
+    if (exact_track_world) {
+      ++g_continuous_world_workset.track_world_requests;
     }
     if (exact_static_world) {
       ++g_continuous_world_workset.static_world_requests;
