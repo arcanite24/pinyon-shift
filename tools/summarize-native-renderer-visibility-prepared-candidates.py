@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v9"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v10"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -264,6 +264,15 @@ def build(events, static, requested_session=None):
             "record_index": integer(event, "record_index"),
             "visibility_category": integer(event, "visibility_category"),
             "visibility_result_mask": integer(event, "visibility_result_mask"),
+            "primary_resource_key": hexadecimal(
+                event, "primary_resource_key", 8
+            ),
+            "secondary_resource_present": (
+                event.get("secondary_resource_present") == "true"
+            ),
+            "secondary_resource_key": hexadecimal(
+                event, "secondary_resource_key", 8
+            ),
             "title_lod_index": integer(event, "title_lod_index"),
             "title_lod_valid": event.get("title_lod_valid") == "true",
             "track_texture_provider": (
@@ -316,6 +325,11 @@ def build(events, static, requested_session=None):
             or rejection_mask & ~MECHANICAL_REJECTION_MASK
             or item["mechanically_eligible"] != (rejection_mask == 0)
             or event.get("title_lod_valid") not in ("true", "false")
+            or event.get("secondary_resource_present") not in ("true", "false")
+            or (
+                not item["secondary_resource_present"]
+                and item["secondary_resource_key"] != "00000000"
+            )
             or event.get("title_lod_lineage")
             != "exact_visibility_identity_to_prepared_draw"
             or event.get("track_texture_provider") not in ("true", "false")

@@ -627,9 +627,15 @@ struct SemanticBatchOpportunityEntry {
   uint64_t same_instance_continuations = 0;
   uint32_t primary_resource_key = 0;
   uint32_t secondary_resource_key = 0;
+  uint32_t world_family_mask = 0;
   SemanticBatchRejection rejection = SemanticBatchRejection::kNone;
   bool secondary_resource_present = false;
 };
+
+constexpr uint32_t kSemanticWorldFamilyTrack = 1u << 0;
+constexpr uint32_t kSemanticWorldFamilyStatic = 1u << 1;
+constexpr uint32_t kSemanticWorldFamilyMask =
+    kSemanticWorldFamilyTrack | kSemanticWorldFamilyStatic;
 
 struct SemanticVisibilityPreparedCandidateEntry {
   uint64_t key = 0;
@@ -652,7 +658,10 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t visibility_result_mask = 0;
   uint32_t title_lod_index = 0;
   uint32_t mechanical_rejection_mask = 0;
+  uint32_t primary_resource_key = 0;
+  uint32_t secondary_resource_key = 0;
   bool mechanically_eligible = false;
+  bool secondary_resource_present = false;
   bool title_lod_valid = false;
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
@@ -5822,6 +5831,8 @@ void ConfigureTitleDrawProvenance(bool requested,
         "texture_resource,title_resource_keys"},
        {"semantic_batch_planner",
         "exact_consecutive_opaque_prepared_draw_order"},
+       {"semantic_batch_world_family_partition",
+        "none_or_exact_track_or_exact_static_or_both"},
        {"semantic_batch_equivalence_ladder",
         "mesh_material,material,pipeline"},
        {"semantic_batch_pipeline_identity",
@@ -16834,7 +16845,8 @@ void FinalizeSemanticBatchRun() {
 
 size_t FindOrCreateSemanticBatchOpportunity(
     uint64_t key, const SemanticPreparedDrawContract &contract,
-    const SemanticDrawIdentity &identity, SemanticBatchRejection rejection) {
+    const SemanticDrawIdentity &identity, SemanticBatchRejection rejection,
+    uint32_t world_family_mask) {
   size_t index = size_t(key % kSemanticBatchOpportunityCapacity);
   for (size_t probe = 0; probe < kSemanticBatchOpportunityCapacity; ++probe) {
     SemanticBatchOpportunityEntry &entry =
@@ -16846,6 +16858,7 @@ size_t FindOrCreateSemanticBatchOpportunity(
       entry.texture_resource_hash = contract.texture_resource_hash;
       entry.primary_resource_key = identity.primary_resource_key;
       entry.secondary_resource_key = identity.secondary_resource_key;
+      entry.world_family_mask = world_family_mask;
       entry.secondary_resource_present = identity.secondary_resource_present;
       entry.rejection = rejection;
       ++g_semantic_batch_opportunity_count;
@@ -16858,6 +16871,7 @@ size_t FindOrCreateSemanticBatchOpportunity(
         entry.secondary_resource_key == identity.secondary_resource_key &&
         entry.secondary_resource_present ==
             identity.secondary_resource_present &&
+        entry.world_family_mask == world_family_mask &&
         entry.rejection == rejection) {
       return index;
     }
@@ -17222,6 +17236,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.visibility_result_mask),
         uint64_t(identity.title_lod_valid),
         uint64_t(identity.title_lod_index),
+        uint64_t(identity.primary_resource_key),
+        uint64_t(identity.secondary_resource_present),
+        uint64_t(identity.secondary_resource_key),
         uint64_t(identity.track_texture_provider),
         uint64_t(identity.track_render_model_scope),
         uint64_t(identity.track_render_shared_identity_mask),
@@ -17261,7 +17278,10 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .visibility_result_mask = identity.visibility_result_mask,
           .title_lod_index = identity.title_lod_index,
           .mechanical_rejection_mask = mechanical_rejection_mask,
+          .primary_resource_key = identity.primary_resource_key,
+          .secondary_resource_key = identity.secondary_resource_key,
           .mechanically_eligible = !mechanical_rejection_mask,
+          .secondary_resource_present = identity.secondary_resource_present,
           .title_lod_valid = identity.title_lod_valid,
           .track_texture_provider = identity.track_texture_provider,
           .track_render_model_scope = identity.track_render_model_scope,
@@ -17296,6 +17316,10 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.visibility_result_mask == identity.visibility_result_mask &&
         entry.title_lod_index == identity.title_lod_index &&
         entry.title_lod_valid == identity.title_lod_valid &&
+        entry.primary_resource_key == identity.primary_resource_key &&
+        entry.secondary_resource_present ==
+            identity.secondary_resource_present &&
+        entry.secondary_resource_key == identity.secondary_resource_key &&
         entry.track_texture_provider == identity.track_texture_provider &&
         entry.track_render_model_scope == identity.track_render_model_scope &&
         entry.track_render_shared_identity_mask ==
@@ -17378,6 +17402,12 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
   const bool eligible = rejection == SemanticBatchRejection::kNone;
+  const uint32_t world_family_mask =
+      (identity.track_render_model_scope &&
+               identity.track_world_resource_shared_identity_mask
+           ? kSemanticWorldFamilyTrack
+           : 0) |
+      (static_world_exact ? kSemanticWorldFamilyStatic : 0);
   ++g_semantic_batch_observations;
   if (g_semantic_batch_current_frame != observation.frame_sequence) {
     FinalizeSemanticBatchFrame();
@@ -17390,12 +17420,13 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
        {contract.template_key, contract.geometry_resource_hash,
         contract.texture_resource_hash, uint64_t(identity.primary_resource_key),
         uint64_t(identity.secondary_resource_present),
-        uint64_t(identity.secondary_resource_key), uint64_t(rejection)}) {
+        uint64_t(identity.secondary_resource_key), uint64_t(world_family_mask),
+        uint64_t(rejection)}) {
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
   const size_t opportunity_index = FindOrCreateSemanticBatchOpportunity(
-      key, contract, identity, rejection);
+      key, contract, identity, rejection, world_family_mask);
   if (opportunity_index == kSemanticBatchOpportunityCapacity) {
     FinalizeSemanticBatchRun();
     FinalizeSemanticBatchEquivalenceRuns();
@@ -18914,6 +18945,12 @@ void EmitSemanticVisibilityPreparedCandidates() {
           std::to_string(entry.visibility_category)},
          {"visibility_result_mask",
           std::to_string(entry.visibility_result_mask)},
+         {"primary_resource_key",
+          fmt::format("{:08X}", entry.primary_resource_key)},
+         {"secondary_resource_present",
+          entry.secondary_resource_present ? "true" : "false"},
+         {"secondary_resource_key",
+          fmt::format("{:08X}", entry.secondary_resource_key)},
          {"title_lod_index", std::to_string(entry.title_lod_index)},
          {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
          {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
@@ -19098,6 +19135,12 @@ void EmitSemanticBatchOpportunitySummary() {
   uint64_t entry_multi_draw_runs = 0;
   uint64_t entry_multi_draw_draws = 0;
   uint64_t rejection_total = 0;
+  uint64_t track_world_entries = 0;
+  uint64_t track_world_draws = 0;
+  uint64_t track_world_multi_draw_runs = 0;
+  uint64_t static_world_entries = 0;
+  uint64_t static_world_draws = 0;
+  uint64_t static_world_multi_draw_runs = 0;
   for (uint64_t count : g_semantic_batch_rejections) {
     rejection_total += count;
   }
@@ -19115,6 +19158,16 @@ void EmitSemanticBatchOpportunitySummary() {
     entry_runs += entry.consecutive_runs;
     entry_multi_draw_runs += entry.multi_draw_runs;
     entry_multi_draw_draws += entry.multi_draw_draws;
+    if (entry.world_family_mask & kSemanticWorldFamilyTrack) {
+      ++track_world_entries;
+      track_world_draws += entry.draws;
+      track_world_multi_draw_runs += entry.multi_draw_runs;
+    }
+    if (entry.world_family_mask & kSemanticWorldFamilyStatic) {
+      ++static_world_entries;
+      static_world_draws += entry.draws;
+      static_world_multi_draw_runs += entry.multi_draw_runs;
+    }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_batch_entry",
         {{"opportunity_key", fmt::format("{:016X}", entry.key)},
@@ -19129,6 +19182,10 @@ void EmitSemanticBatchOpportunitySummary() {
           entry.secondary_resource_present ? "true" : "false"},
          {"secondary_resource_key",
           fmt::format("{:08X}", entry.secondary_resource_key)},
+         {"world_family_mask",
+          fmt::format("{:08X}", entry.world_family_mask)},
+         {"world_family_partition",
+          "none_or_exact_track_or_exact_static_or_both"},
          {"draws", std::to_string(entry.draws)},
          {"frames", std::to_string(entry.frames)},
          {"first_frame", std::to_string(entry.first_frame)},
@@ -19163,7 +19220,11 @@ void EmitSemanticBatchOpportunitySummary() {
       g_semantic_batch_rejected_draws == rejection_total &&
       g_semantic_batch_consecutive_runs == entry_runs &&
       g_semantic_batch_multi_draw_runs == entry_multi_draw_runs &&
-      g_semantic_batch_multi_draw_draws == entry_multi_draw_draws;
+      g_semantic_batch_multi_draw_draws == entry_multi_draw_draws &&
+      track_world_entries <= g_semantic_batch_opportunity_count &&
+      track_world_draws <= g_semantic_batch_observations &&
+      static_world_entries <= g_semantic_batch_opportunity_count &&
+      static_world_draws <= g_semantic_batch_observations;
   const uint64_t projected_commands =
       g_semantic_batch_consecutive_runs + g_semantic_batch_rejected_draws;
   const uint64_t potential_command_reduction =
@@ -19222,6 +19283,16 @@ void EmitSemanticBatchOpportunitySummary() {
         std::to_string(potential_command_reduction)},
        {"potential_command_reduction_percent",
         fmt::format("{:.3f}", reduction_percent)},
+       {"track_world_entries", std::to_string(track_world_entries)},
+       {"track_world_draws", std::to_string(track_world_draws)},
+       {"track_world_multi_draw_runs",
+        std::to_string(track_world_multi_draw_runs)},
+       {"static_world_entries", std::to_string(static_world_entries)},
+       {"static_world_draws", std::to_string(static_world_draws)},
+       {"static_world_multi_draw_runs",
+        std::to_string(static_world_multi_draw_runs)},
+       {"world_family_partition",
+        "none_or_exact_track_or_exact_static_or_both"},
        {"reject_missing_title_resource",
         std::to_string(g_semantic_batch_rejections[size_t(
             SemanticBatchRejection::kMissingTitleResource)])},

@@ -1526,6 +1526,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "resource_free_layout_and_prepared_state",
             draw_association["semantic_batch_pipeline_identity"],
         )
+        self.assertEqual(
+            "none_or_exact_track_or_exact_static_or_both",
+            draw_association["semantic_batch_world_family_partition"],
+        )
         self.assertFalse(
             draw_association["semantic_batch_execution_enabled"]
         )
