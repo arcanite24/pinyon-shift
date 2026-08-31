@@ -232,3 +232,17 @@ prepared-record boundary. It does not yet prove that any joined geometry is a
 terrain or road mesh: the next join must carry track model, mesh, submodel, or
 world-section resource identity to the same records. Native admission and
 suppression therefore remain disabled and every call still replays on Xenos.
+
+## Prepared-workset provider filter
+
+The runtime now carries that exact primary-provider tuple through the semantic
+draw identity and fresh visibility-prepared candidate record. The existing
+default-off continuous prototype workset rejects fresh visibility candidates
+without it, while retaining the separately qualified sky/horizon seed. Its
+summary accounts `non_track_provider_rejections`, and the payload-free
+prepared-candidate report partitions exact provider entries and draws.
+
+This is an implementation checkpoint pending the next batched preview build
+and AppData-backed run. It narrows the prototype's existing private native
+replay; it does not identify terrain/road geometry, enable C1 family admission,
+enable suppression, or change Xenos authority.

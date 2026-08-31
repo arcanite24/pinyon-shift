@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v4"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v5"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -178,6 +178,8 @@ def build(events, static, requested_session=None):
         != "independent_visibility_selected_and_fresh"
         or summary.get("title_lod_lineage")
         != "exact_visibility_identity_to_prepared_draw"
+        or summary.get("track_texture_provider_lineage")
+        != "exact_primary_provider_vtable_and_four_methods"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -198,6 +200,8 @@ def build(events, static, requested_session=None):
         "mechanically_ineligible_draws",
         "title_lod_entries",
         "title_lod_draws",
+        "track_texture_provider_entries",
+        "track_texture_provider_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -238,6 +242,9 @@ def build(events, static, requested_session=None):
             "visibility_result_mask": integer(event, "visibility_result_mask"),
             "title_lod_index": integer(event, "title_lod_index"),
             "title_lod_valid": event.get("title_lod_valid") == "true",
+            "track_texture_provider": (
+                event.get("track_texture_provider") == "true"
+            ),
             "draws": integer(event, "draws"),
             "first_frame": integer(event, "first_frame"),
             "last_frame": integer(event, "last_frame"),
@@ -270,6 +277,9 @@ def build(events, static, requested_session=None):
             or event.get("title_lod_valid") not in ("true", "false")
             or event.get("title_lod_lineage")
             != "exact_visibility_identity_to_prepared_draw"
+            or event.get("track_texture_provider") not in ("true", "false")
+            or event.get("track_texture_provider_lineage")
+            != "exact_primary_provider_vtable_and_four_methods"
             or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
             or integer(event, "policy_age_limit_frames")
             != totals["policy_age_limit_frames"]
@@ -332,6 +342,15 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in lod_entries)
     ):
         failures.append("title LOD candidate totals drifted")
+    track_provider_entries = [
+        entry for entry in entries if entry["track_texture_provider"]
+    ]
+    if (
+        totals["track_texture_provider_entries"] != len(track_provider_entries)
+        or totals["track_texture_provider_draws"]
+        != sum(entry["draws"] for entry in track_provider_entries)
+    ):
+        failures.append("track texture provider candidate totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -355,6 +374,9 @@ def build(events, static, requested_session=None):
             "isolated_native_candidate_proved": not failures
             and bool(eligible_entries),
             "title_lod_lineage_proved": not failures and bool(lod_entries),
+            "track_texture_provider_lineage_proved": (
+                not failures and bool(track_provider_entries)
+            ),
             "native_draw_enabled": False,
             "suppression_allowed": False,
         },
