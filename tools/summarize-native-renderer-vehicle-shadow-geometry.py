@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v6"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v7"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -67,6 +67,13 @@ def hexadecimal(record, key):
         return int(record[key], 16)
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(f"missing or invalid hexadecimal field: {key}") from error
+
+
+def decimal(record, key):
+    try:
+        return float(record[key])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"missing or invalid decimal field: {key}") from error
 
 
 def load_events(path):
@@ -192,6 +199,37 @@ def summarize(log_path):
     )
     sequence_hash = summary.get("first_full_family_sequence_hash", "")
     require(len(sequence_hash) == 16, "invalid full-family sequence hash")
+    constant_identity_scans = integer(summary, "constant_identity_scans")
+    require(
+        constant_identity_scans == integer(summary, "color_draws_matched"),
+        "constant identity scan accounting drift",
+    )
+    require(
+        summary.get("constant_position_accounting_complete") == "true",
+        "constant position accounting drift",
+    )
+    require(
+        integer(summary, "constant_position_unique_matches")
+        + integer(summary, "constant_position_ambiguous_matches")
+        + integer(summary, "constant_position_misses")
+        == constant_identity_scans,
+        "constant position outcome drift",
+    )
+    require(
+        summary.get("constant_forward_accounting_complete") == "true",
+        "constant forward accounting drift",
+    )
+    require(
+        integer(summary, "constant_forward_unique_matches")
+        + integer(summary, "constant_forward_ambiguous_matches")
+        + integer(summary, "constant_forward_misses")
+        == constant_identity_scans,
+        "constant forward outcome drift",
+    )
+    require(
+        integer(summary, "constant_identity_maximum_pose_age_frames") == 1,
+        "constant identity freshness drift",
+    )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
@@ -293,6 +331,64 @@ def summarize(log_path):
             not private_eligible_draws or private_mask_and == 0,
             "candidate private eligible draw retained a stable rejection",
         )
+        constant_scans = integer(event, "constant_identity_scans")
+        require(
+            constant_scans == integer(event, "draws"),
+            "candidate constant scan accounting drift",
+        )
+        require(
+            integer(event, "constant_position_unique_matches")
+            + integer(event, "constant_position_ambiguous_matches")
+            + integer(event, "constant_position_misses")
+            == constant_scans,
+            "candidate constant position accounting drift",
+        )
+        require(
+            integer(event, "constant_forward_unique_matches")
+            + integer(event, "constant_forward_ambiguous_matches")
+            + integer(event, "constant_forward_misses")
+            == constant_scans,
+            "candidate constant forward accounting drift",
+        )
+        stable_position_candidate = (
+            integer(event, "constant_position_unique_matches")
+            == integer(event, "draws")
+            and integer(event, "constant_position_ambiguous_matches") == 0
+            and integer(event, "constant_position_misses") == 0
+            and integer(event, "constant_position_identity_variations") == 0
+            and integer(event, "constant_position_register_variations") == 0
+        )
+        require(
+            event.get("constant_identity_classification")
+            == (
+                "stable_tight_position_candidate"
+                if stable_position_candidate
+                else "unresolved"
+            ),
+            "candidate constant identity classification drift",
+        )
+        if integer(event, "constant_position_unique_matches"):
+            hexadecimal(event, "constant_position_identity_generation")
+            hexadecimal(event, "constant_position_identity_owner")
+            integer(event, "constant_position_identity_slot")
+            integer(event, "constant_position_register")
+            require(
+                decimal(event, "closest_position_delta_squared") <= 0.25,
+                "candidate position threshold drift",
+            )
+        if integer(event, "constant_forward_unique_matches"):
+            hexadecimal(event, "constant_forward_identity_generation")
+            hexadecimal(event, "constant_forward_identity_owner")
+            integer(event, "constant_forward_identity_slot")
+            integer(event, "constant_forward_register")
+            require(
+                integer(event, "constant_forward_sign") in {-1, 1},
+                "candidate forward sign drift",
+            )
+            require(
+                decimal(event, "closest_forward_delta_squared") <= 0.04,
+                "candidate forward threshold drift",
+            )
         for key in (
             "prepared_signature",
             "template_key",
@@ -462,6 +558,25 @@ def summarize(log_path):
             "result": retained_results[0] if retained_results else None,
             "summary": retained_summary,
         }
+    stable_position_candidates = [
+        event
+        for event in candidates
+        if event.get("constant_identity_classification")
+        == "stable_tight_position_candidate"
+    ]
+    stable_position_identities = {
+        (
+            event.get("constant_position_identity_generation"),
+            event.get("constant_position_identity_owner"),
+            event.get("constant_position_identity_slot"),
+        )
+        for event in stable_position_candidates
+    }
+    complete_shared_vehicle_transform_candidate = (
+        len(candidates) == 30
+        and len(stable_position_candidates) == len(candidates)
+        and len(stable_position_identities) == 1
+    )
     return {
         "schema": SCHEMA,
         "source_log": str(log_path),
@@ -498,6 +613,32 @@ def summarize(log_path):
         "epochs": epochs,
         "correlations": correlations,
         "candidate_families": candidates,
+        "constant_identity": {
+            "scans": constant_identity_scans,
+            "missing_fresh_pose": integer(
+                summary, "constant_identity_missing_fresh_pose"
+            ),
+            "vectors_scanned": integer(summary, "constant_vectors_scanned"),
+            "non_finite_vectors": integer(
+                summary, "constant_non_finite_vectors"
+            ),
+            "identity_comparisons": integer(
+                summary, "constant_identity_comparisons"
+            ),
+            "stable_position_candidate_families": len(
+                stable_position_candidates
+            ),
+            "stable_position_identities": [
+                {
+                    "generation": generation,
+                    "owner": owner,
+                    "slot": slot,
+                }
+                for generation, owner, slot in sorted(
+                    stable_position_identities
+                )
+            ],
+        },
         "private_color_capture": capture,
         "private_retained_color_pass": retained,
         "qualification": {
@@ -520,6 +661,9 @@ def summarize(log_path):
                 and integer(retained["summary"], "requests")
                 == integer(retained["summary"], "recorded")
                 and retained["summary"].get("capture_recorded") == "true"
+            ),
+            "complete_shared_vehicle_transform_candidate": (
+                complete_shared_vehicle_transform_candidate
             ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,

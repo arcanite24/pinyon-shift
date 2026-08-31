@@ -71,6 +71,30 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "private_capture_rejection_mask_or": "00000000",
                 "private_capture_rejection_mask_and": "00000000",
                 "private_capture_rejection_mask_switches": "0",
+                "constant_identity_scans": "3",
+                "constant_identity_missing_fresh_pose": "0",
+                "constant_position_unique_matches": "3",
+                "constant_position_ambiguous_matches": "0",
+                "constant_position_misses": "0",
+                "constant_position_identity_variations": "0",
+                "constant_position_register_variations": "0",
+                "constant_position_identity_generation": "00000001",
+                "constant_position_identity_owner": "40123450",
+                "constant_position_identity_slot": "2",
+                "constant_position_register": "208",
+                "closest_position_delta_squared": "0.01",
+                "constant_forward_unique_matches": "0",
+                "constant_forward_ambiguous_matches": "3",
+                "constant_forward_misses": "0",
+                "constant_forward_identity_variations": "0",
+                "constant_forward_register_variations": "0",
+                "constant_forward_identity_generation": "unknown",
+                "constant_forward_identity_owner": "unknown",
+                "constant_forward_identity_slot": "unknown",
+                "constant_forward_register": "unknown",
+                "constant_forward_sign": "unknown",
+                "closest_forward_delta_squared": "0.01",
+                "constant_identity_classification": "stable_tight_position_candidate",
                 **safety,
             },
             {
@@ -177,6 +201,20 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "first_full_family_sequence_hash": "9" * 16,
                 "full_family_sequence_variants": "0",
                 "color_run_accounting_complete": "true",
+                "constant_identity_scans": "3",
+                "constant_identity_missing_fresh_pose": "0",
+                "constant_vectors_scanned": "96",
+                "constant_non_finite_vectors": "0",
+                "constant_identity_comparisons": "8928",
+                "constant_position_unique_matches": "3",
+                "constant_position_ambiguous_matches": "0",
+                "constant_position_misses": "0",
+                "constant_position_accounting_complete": "true",
+                "constant_forward_unique_matches": "0",
+                "constant_forward_ambiguous_matches": "3",
+                "constant_forward_misses": "0",
+                "constant_forward_accounting_complete": "true",
+                "constant_identity_maximum_pose_age_frames": "1",
                 "reject_resolved_input": "0",
                 "reject_unsupported_geometry": "0",
                 "reject_empty_draw": "0",
@@ -231,6 +269,15 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             int(report["private_retained_color_pass"]["summary"]["frames_completed"]),
         )
         self.assertEqual(3, report["color_run_topology"]["maximum_run_length"])
+        self.assertEqual(
+            1,
+            report["constant_identity"]["stable_position_candidate_families"],
+        )
+        self.assertFalse(
+            report["qualification"][
+                "complete_shared_vehicle_transform_candidate"
+            ]
+        )
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -284,6 +331,18 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "color run draw accounting drift"):
             self.summarize(events)
 
+    def test_rejects_constant_identity_scan_accounting_drift(self):
+        events = self.fixture()
+        events[-1]["constant_identity_scans"] = "2"
+        with self.assertRaisesRegex(ValueError, "constant identity scan"):
+            self.summarize(events)
+
+    def test_rejects_constant_identity_classification_drift(self):
+        events = self.fixture()
+        events[3]["constant_identity_classification"] = "unresolved"
+        with self.assertRaisesRegex(ValueError, "constant identity classification"):
+            self.summarize(events)
+
     def test_rejects_private_capture_authority_drift(self):
         events = self.fixture()
         events[5]["output_authority"] = "native"
@@ -330,6 +389,8 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             '"native_renderer.discovery.vehicle_shadow_color_retained_summary"',
             source,
         )
+        self.assertIn("ObserveVehicleColorConstantIdentity", source)
+        self.assertIn("constant_position_accounting_complete", source)
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
         self.assertIn("[switch]$RetainVehicleShadowColorPass", capture)
