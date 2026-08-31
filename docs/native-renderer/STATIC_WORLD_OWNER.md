@@ -54,9 +54,11 @@ python tools/discover-native-renderer-static-world-owner.py `
 
 `CModelPresentation` plus its identical renderer resource is an exact
 title-owned static-model instance identity, not proof that the asset should be
-called a building rather than a prop. Bounded asset-name/category metadata,
-mesh/material field semantics, and representative streaming transitions remain
-open. This
+called a building rather than a prop. The bounded resource-key and
+effect/texture reference path is now proved in
+[`STATIC_WORLD_ASSET_METADATA.md`](STATIC_WORLD_ASSET_METADATA.md), but its
+payload-free runtime category census, mesh field semantics, and representative
+streaming transitions remain open. This
 checkpoint changes no guest data, native admission, publication, or
 suppression; Xenos remains authoritative.
 
