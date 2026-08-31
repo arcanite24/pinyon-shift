@@ -225,6 +225,20 @@ registers = ["r31"]
 address = 0x8240ECAC
 name = "PinyonShiftObserveTrackRenderModelDispatchExit"
 
+# Phase C2 exact SimpleModel renderer scope. Retail RTTI proves vtable slot 12
+# resolves to 0x82C4CCC8. Entry r3 is the CSimpleModelRenderer instance and r4
+# is its render context; every path converges at 0x82C4DEA0. The scope attaches
+# only to PM4_DRAW_INDX headers emitted synchronously through 0x82416380 and
+# changes no registers, guest state, packets, control flow, or Xenos authority.
+[[midasm_hook]]
+address = 0x82C4CCC8
+name = "PinyonShiftObserveStaticWorldRendererDispatchEntry"
+registers = ["r3", "r4"]
+
+[[midasm_hook]]
+address = 0x82C4DEA0
+name = "PinyonShiftObserveStaticWorldRendererDispatchExit"
+
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
 # fully composed stack payload. Compare both exact live matrices with admitted
