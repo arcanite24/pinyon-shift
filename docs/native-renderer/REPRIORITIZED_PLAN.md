@@ -238,6 +238,13 @@ collecting more broad frequency deltas. This is a lead change, not a scope
 reduction: terrain/road ownership, continuous hybrid output, and
 race/streaming qualification remain required.
 
+Static ingress checkpoint: retail RTTI, complete-object locators, and full
+AOT-backed vtables now prove the unified track presentation/model/instance
+surfaces and the track model, mesh, procedural-geometry, and PVS-zone resource
+graph. The next batched slice is the passive exact-identity runtime join from
+those title-owned lifetimes to the existing procedural-model prepared-record
+boundary; this checkpoint does not enable native admission or suppression.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
