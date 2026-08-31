@@ -212,9 +212,11 @@ qualification.
 - Cover representative daytime, nighttime, race, and high-speed streaming
   scenes.
 
-Active checkpoint: the title-owned `fasttrackrender` differential, independent
-`trackfardistance`, road-detail, and track-command-buffer controls are proven
-from retail RTTI and exact AOT instructions. The paired census path in
+Active checkpoint: the title-owned `fasttrackrender`, road-detail, and
+track-command-buffer controls are proven from retail RTTI and exact AOT
+instructions. The `trackfardistance` live option default and store are also
+proved: baseline holds the retail `55.0`, while an isolated mode deterministically
+forces `5.0`. Its downstream renderer consumer is deliberately still open. The paired census path in
 [`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md) now proves the
 runtime differential against matched AppData-backed open-world sessions and
 records the bounded exact-family candidate set without promoting frequency or
@@ -226,9 +228,10 @@ The first fast-track-only isolated candidate failed the color replay contract
 on its render-target layout. A subsequently matched baseline,
 `noroaddetailblur`, and `notrackcommandbuffers` matrix proved both additional
 title switches affect submitted work, but zero material delta joined to a
-mechanically color-replay-eligible semantic candidate. C1 therefore moves to
-the independent `trackfardistance` runtime consumer and then, if needed, the
-semantic world-section/mesh ingress instead of collecting more broad
+mechanically color-replay-eligible semantic candidate. C1 therefore runs one
+matched `trackfardistance` `55.0`/`5.0` qualification pair to establish its
+consumer-visible delta and then, if needed, moves to the semantic
+world-section/mesh ingress instead of collecting more broad
 frequency deltas. This is a lead change, not a scope reduction: terrain/road
 ownership, continuous hybrid output, and race/streaming qualification remain
 required.

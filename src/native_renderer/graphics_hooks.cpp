@@ -187,6 +187,8 @@ constexpr const char *kMixedShadowCasterAtlasRegion = "1024,0,1024,1024";
 std::atomic<uint64_t> g_frame_sequence{};
 
 struct TrackRenderConfigurationState {
+  std::atomic<float> track_far_distance{};
+  std::atomic<float> source_track_far_distance{};
   std::atomic<uint32_t> fast_track_render{};
   std::atomic<uint32_t> source_fast_track_render{};
   std::atomic<uint32_t> road_detail_blur{};
@@ -210,7 +212,8 @@ std::string TrackRenderModeMarker() {
   }
   std::string marker(value);
   std::free(value);
-  if (marker != "baseline" && marker != "fasttrackrender" &&
+  if (marker != "baseline" && marker != "trackfardistance" &&
+      marker != "fasttrackrender" &&
       marker != "noroaddetailblur" && marker != "notrackcommandbuffers") {
     return "invalid";
   }
@@ -219,6 +222,7 @@ std::string TrackRenderModeMarker() {
 
 struct TrackRenderExpectedValues {
   bool valid = false;
+  float track_far_distance = 55.0f;
   uint32_t fast_track_render = 0;
   uint32_t road_detail_blur = 1;
   uint32_t track_command_buffers = 1;
@@ -231,6 +235,9 @@ TrackRenderExpectedValues ExpectedTrackRenderValues(const std::string &mode) {
   if (mode == "fasttrackrender") {
     return {.valid = true, .fast_track_render = 1};
   }
+  if (mode == "trackfardistance") {
+    return {.valid = true, .track_far_distance = 5.0f};
+  }
   if (mode == "noroaddetailblur") {
     return {.valid = true, .road_detail_blur = 0};
   }
@@ -238,6 +245,16 @@ TrackRenderExpectedValues ExpectedTrackRenderValues(const std::string &mode) {
     return {.valid = true, .track_command_buffers = 0};
   }
   return {};
+}
+
+void ObserveTrackFarDistanceConfiguration(float value, float source_value) {
+  if (TrackRenderModeMarker() == "unmarked") {
+    return;
+  }
+  g_track_render_configuration.track_far_distance.store(
+      value, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_far_distance.store(
+      source_value, std::memory_order_relaxed);
 }
 
 void ObserveFastTrackRenderConfiguration(uint32_t value,
@@ -293,6 +310,9 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
       g_track_render_configuration.road_detail_blur.load(
           std::memory_order_relaxed) != 0;
   const bool track_command_buffers = (enabled & 0xFF) != 0;
+  const float track_far_distance =
+      g_track_render_configuration.track_far_distance.load(
+          std::memory_order_relaxed);
   const TrackRenderExpectedValues expected = ExpectedTrackRenderValues(mode);
   const uint32_t observed_command_line_address =
       g_track_render_configuration.command_line_address.load(
@@ -306,12 +326,18 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.track_render_config",
       {{"status", expected.valid && address_consistent &&
+                          track_far_distance == expected.track_far_distance &&
                           fast_track_render == expected.fast_track_render &&
                           road_detail_blur == expected.road_detail_blur &&
                           track_command_buffers == expected.track_command_buffers
                       ? "complete"
                       : "mismatch_fail_closed"},
        {"mode", mode},
+       {"track_far_distance", fmt::format("{:.3f}", track_far_distance)},
+       {"source_track_far_distance",
+        fmt::format("{:.3f}",
+                    g_track_render_configuration.source_track_far_distance.load(
+                        std::memory_order_relaxed))},
        {"fast_track_render", fast_track_render ? "true" : "false"},
        {"source_fast_track_render",
         g_track_render_configuration.source_fast_track_render.load(
@@ -335,7 +361,8 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
        {"command_line_address",
         fmt::format("{:08X}", command_line_address)},
        {"runtime_state_address", fmt::format("{:08X}", runtime_state_address)},
-       {"control", "exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC"},
+       {"control",
+        "exact_option_and_runtime_overrides_824F7DC0_8259C834_8259C89C_8259C8DC"},
        {"classification", "title_track_render_differential_control"},
        {"xenos_authority", "true"},
        {"native_draw", "false"},
@@ -19676,6 +19703,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   if (!graphics_system || !memory) {
     return;
   }
+  g_track_render_configuration.track_far_distance.store(
+      0.0f, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_far_distance.store(
+      0.0f, std::memory_order_relaxed);
   g_track_render_configuration.fast_track_render.store(
       0, std::memory_order_relaxed);
   g_track_render_configuration.source_fast_track_render.store(
@@ -21310,6 +21341,17 @@ void PinyonShiftObserveFastTrackRenderConfiguration(
   }
   ObserveFastTrackRenderConfiguration(r11.u32, source_value, r30.u32,
                                       r31.u32);
+}
+
+void PinyonShiftObserveTrackFarDistanceConfiguration(PPCRegister &f0) {
+  const float source_value = static_cast<float>(f0.f64);
+  const TrackRenderExpectedValues expected =
+      ExpectedTrackRenderValues(TrackRenderModeMarker());
+  if (expected.valid) {
+    f0.f64 = expected.track_far_distance;
+  }
+  ObserveTrackFarDistanceConfiguration(static_cast<float>(f0.f64),
+                                       source_value);
 }
 
 void PinyonShiftObserveRoadDetailBlurConfiguration(

@@ -32,6 +32,7 @@ param(
     [switch]$ShadowCasterProvenance,
     [ValidateSet(
         'baseline',
+        'trackfardistance',
         'fasttrackrender',
         'noroaddetailblur',
         'notrackcommandbuffers'

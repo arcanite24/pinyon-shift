@@ -18,16 +18,22 @@ identity drifts. The relevant title fields are:
 | Option | Command-line field | Runtime field | Role |
 | --- | ---: | ---: | --- |
 | `fasttrackrender` | 4204 | 6297 | isolated title track-family switch |
-| `trackfardistance` | 4176 | not yet proved | floating distance control |
+| `trackfardistance` | 4176 | live option store proved; downstream consumer open | floating distance control |
 | `renderroaddetailblur` | 4181 | 6035 | road-detail effect switch |
 | `notrackcommandbuffers` | 2732 | 6230/6232 | inverted command-buffer control |
 
-The runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
+The `trackfardistance` default load and live-object store occur in
+`sub_824F7898` at `0x824F7DB8` and `0x824F7DC0`. The source image value is
+exactly `55.0`; the isolated mode replaces only that store with `5.0` and
+records both values. This proves deterministic ownership of the title option,
+but not yet the downstream renderer consumer.
+
+The boolean runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
 command-line parameter object. The retail startup path does not consume
 ReXGlue's `ExLoadedCommandLine` bridge for this object. The census therefore
-uses opt-in hooks at the exact `fasttrackrender`, `renderroaddetailblur`, and
+uses opt-in hooks at the exact `trackfardistance`, `fasttrackrender`, `renderroaddetailblur`, and
 transformed `notrackcommandbuffers` destination stores (`0x8259C834`,
-`0x8259C89C`, and `0x8259C8DC`). It forces a deterministic one-switch mode and
+`0x8259C89C`, and `0x8259C8DC`, plus `0x824F7DC0`). It forces a deterministic one-switch mode and
 records every original value. This proves a bounded title configuration path;
 it does not yet prove which prepared signatures are terrain, road surface,
 track props, or an exceptional dependent family.
@@ -43,16 +49,17 @@ python tools/discover-native-renderer-track-config.py `
 
 ## Paired runtime census
 
-The census wrapper accepts four deterministic modes. Each mode forces all
-three proved booleans at their exact runtime-copy instruction so only one
-value differs from the baseline:
+The census wrapper accepts five deterministic modes. Each mode forces the
+proved floating option and all three booleans at their exact stores so only
+one value differs from the baseline:
 
-| Mode | Fast track | Road-detail blur | Track command buffers |
-| --- | --- | --- | --- |
-| `baseline` | off | on | on |
-| `fasttrackrender` | on | on | on |
-| `noroaddetailblur` | off | off | on |
-| `notrackcommandbuffers` | off | on | off |
+| Mode | Track far distance | Fast track | Road-detail blur | Track command buffers |
+| --- | ---: | --- | --- | --- |
+| `baseline` | 55.0 | off | on | on |
+| `trackfardistance` | 5.0 | off | on | on |
+| `fasttrackrender` | 55.0 | on | on | on |
+| `noroaddetailblur` | 55.0 | off | off | on |
+| `notrackcommandbuffers` | 55.0 | off | on | off |
 
 These controls do not enable the broader `perfmode` group. Explicitly
 supplying a mode also arms the exact prepared-draw provenance required by the
@@ -147,10 +154,11 @@ found zero changed families with mechanical rejection mask `00000000`.
 Consequently neither discriminator currently identifies a safe visible color
 replay. Xenos remains authoritative and native admission remains disabled.
 
-The next bounded lead is the independent floating `trackfardistance` control.
-Its command-line field is known, but its exact runtime consumer still needs to
-be proved before another paired capture. If that control also resolves only
-dependent work, C1 returns to the semantic world-section/mesh ingress rather
-than spending more captures on title-wide frequency deltas. The runtime now
-emits the exact rejection mask on rejected isolated draws, so either path can
-discard unsafe candidates without an extra decoding run.
+The independent floating `trackfardistance` control is now ready for one
+matched `55.0` versus `5.0` capture pair. Its exact live option store is
+proved; its downstream renderer consumer and observable workset delta are not.
+If that pair also resolves only dependent work, C1 returns to the semantic
+world-section/mesh ingress rather than spending more captures on title-wide
+frequency deltas. The runtime emits the exact rejection mask on rejected
+isolated draws, so either path can discard unsafe candidates without an extra
+decoding run.

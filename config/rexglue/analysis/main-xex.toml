@@ -269,6 +269,11 @@ name = "PinyonShiftObserveProceduralModelDestructorExit"
 # into runtime render state rooted at r31. Hooks observe registers after each
 # source load/transform and before the original destination store.
 [[midasm_hook]]
+address = 0x824F7DC0
+name = "PinyonShiftObserveTrackFarDistanceConfiguration"
+registers = ["f0"]
+
+[[midasm_hook]]
 address = 0x8259C834
 name = "PinyonShiftObserveFastTrackRenderConfiguration"
 registers = ["r11", "r30", "r31"]

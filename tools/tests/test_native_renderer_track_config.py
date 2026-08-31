@@ -26,6 +26,7 @@ def image_fixture():
     u32(MODULE.COMMAND_LINE_VTABLE - 4, locator)
     u32(locator + 12, type_descriptor)
     u32(MODULE.COMMAND_LINE_VTABLE + 16, MODULE.COMMAND_LINE_FUNCTION)
+    u32(0x8200F410, MODULE.TRACK_FAR_DEFAULT_BITS)
     encoded = MODULE.COMMAND_LINE_TYPE.encode() + b"\0"
     offset = type_descriptor + 8 - MODULE.IMAGE_BASE
     image[offset : offset + len(encoded)] = encoded
@@ -52,6 +53,10 @@ def function_fixture():
     return {
         MODULE.COMMAND_LINE_FUNCTION: command_line,
         MODULE.RUNTIME_COPY_FUNCTION: runtime_copy,
+        MODULE.TRACK_FAR_DEFAULT_FUNCTION: {
+            0x824F7DB8: "lfs f0,-3056(r11)",
+            0x824F7DC0: "stfs f0,4176(r31)",
+        },
     }
 
 
@@ -68,11 +73,12 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             document["capture_contract"]["track_arguments"],
         )
         self.assertEqual(
-            "exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC",
+            "exact_option_and_runtime_overrides_824F7DC0_8259C834_8259C89C_8259C8DC",
             document["capture_contract"]["runtime_control"],
         )
         self.assertEqual(
             {
+                "track_far_distance": 55.0,
                 "fast_track_render": False,
                 "road_detail_blur": False,
                 "track_command_buffers": True,
@@ -102,6 +108,7 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
         launch = (ROOT / "tools/launch-preview.ps1").read_text(encoding="utf-8")
         for mode in (
             "baseline",
+            "trackfardistance",
             "fasttrackrender",
             "noroaddetailblur",
             "notrackcommandbuffers",
@@ -128,6 +135,7 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             encoding="utf-8"
         )
         for address, name in (
+            ("0x824F7DC0", "PinyonShiftObserveTrackFarDistanceConfiguration"),
             ("0x8259C834", "PinyonShiftObserveFastTrackRenderConfiguration"),
             ("0x8259C89C", "PinyonShiftObserveRoadDetailBlurConfiguration"),
             ("0x8259C8DC", "PinyonShiftObserveTrackCommandBufferConfiguration"),
@@ -137,9 +145,10 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             self.assertIn(f"void {name}", hooks)
         self.assertIn('"native_renderer.discovery.track_render_config"', hooks)
         self.assertIn(
-            '"exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC"',
+            '"exact_option_and_runtime_overrides_824F7DC0_8259C834_8259C89C_8259C8DC"',
             hooks,
         )
+        self.assertIn("f0.f64 = expected.track_far_distance;", hooks)
         self.assertIn("ExpectedTrackRenderValues(TrackRenderModeMarker())", hooks)
         self.assertIn("r11.u32 = expected.road_detail_blur;", hooks)
         self.assertIn("r11.u32 = expected.track_command_buffers;", hooks)
