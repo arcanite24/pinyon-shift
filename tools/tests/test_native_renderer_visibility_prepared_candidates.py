@@ -94,6 +94,11 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_render_model_lineage": (
                 "exact_unified_instance_model_nested_dispatch_scope"
             ),
+            "track_world_resource_identity_mask": "00000012",
+            "track_world_resource_shared_identity_mask": "00000002",
+            "track_world_resource_lineage": (
+                "bounded_direct_vtable_identity_from_exact_model_graph"
+            ),
             "draws": "7",
             "first_frame": "10",
             "last_frame": "12",
@@ -131,6 +136,10 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_render_model_scope_draws": "7",
             "track_render_shared_identity_entries": "1",
             "track_render_shared_identity_draws": "7",
+            "track_world_resource_identity_entries": "1",
+            "track_world_resource_identity_draws": "7",
+            "track_world_resource_shared_identity_entries": "1",
+            "track_world_resource_shared_identity_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -144,6 +153,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             ),
             "track_render_model_lineage": (
                 "exact_unified_instance_model_nested_dispatch_scope"
+            ),
+            "track_world_resource_lineage": (
+                "bounded_direct_vtable_identity_from_exact_model_graph"
             ),
             **self.safety(),
         }
@@ -179,6 +191,14 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["track_render_shared_identity_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["track_world_resource_identity_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "track_world_resource_shared_identity_proved"
+            ]
         )
 
     def test_build_accepts_candidate_without_title_lod(self):

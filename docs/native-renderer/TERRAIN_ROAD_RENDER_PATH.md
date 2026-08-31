@@ -269,3 +269,36 @@ stronger shared-object/resource proof rather than conflating them.
 This instrumentation awaits the next batched AppData-backed run. Until then it
 does not prove the runtime join, terrain/road visual identity, or C1 admission.
 It changes no guest state, draw, output authority, or suppression decision.
+
+## Bounded track world-resource graph identity
+
+The balanced render-model scope now extends the passive join without adding a
+new title hook. After the exact unified instance/model vtables and type-21
+descriptor contract pass, it scans the already-live 64-byte render-model child
+prefix and 248-byte descriptor for aligned direct object pointers. A pointer is
+classified only when its first word is one of the static-ingress proof's exact
+RTTI-backed vtables:
+
+- `CTrackModel`, `CTrackMesh`, or `CTrackSubModel`;
+- `CTrackProceduralGeometryObject` or
+  `CTrackProceduralGeometryResource`; and
+- `CTrackPVSZoneObject` or `CTrackPVSZoneResource`.
+
+The scope records two distinct facts. The world-resource mask means an exact
+class appeared directly in the accepted title graph. The shared-resource mask
+is stronger: that same object address also equalled the procedural receiver,
+runtime submission object, bound resource, or exact provider object for a
+synchronous submission. Neither fact is inferred from frequency, shader
+similarity, or payload contents.
+
+The scan is bounded and cached. A 1,024-entry thread-local cache is keyed by
+child/descriptor address plus a fingerprint of the already-read words; a cache
+hit performs no repeated pointer validation. Each graph retains at most 16
+unique exact-class references and fail-visible overflow accounting. The runtime
+and prepared-candidate qualifiers separately report graph presence and exact
+cross-boundary shared identity.
+
+This instrumentation is part of the next batched AppData checkpoint. A graph
+identity alone is useful track ownership evidence, while exact shared identity
+is the preferred C1 terrain/road admission gate. Until runtime qualification,
+Xenos remains authoritative and no native admission or suppression is enabled.

@@ -41,12 +41,32 @@ def fixture(shared=3):
         descriptor_flag="1",
         join="synchronous_scope_to_procedural_model_submission",
         shared_identity="descriptor_payload_or_object_address_exact_equality",
-        guest_payload_read="bounded_308_bytes_per_scope",
+        world_resource_vtables=(
+            "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,"
+            "82144E64"
+        ),
+        world_resource_graph=(
+            "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+        ),
+        world_resource_shared_identity=(
+            "exact_address_equality_to_submission_objects_or_resources"
+        ),
+        world_resource_graph_cache_capacity="1024",
+        world_resource_reference_capacity="16",
+        guest_payload_read=(
+            "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"
+        ),
         **safety(),
     )
     relations = {key: "0" for key in MODULE.RELATIONS}
+    world_relations = {key: "0" for key in MODULE.WORLD_RELATIONS}
+    shared_world_relations = {
+        key: "0" for key in MODULE.SHARED_WORLD_RELATIONS
+    }
     if shared:
         relations["shared_descriptor_payload_bound_resource"] = str(shared)
+        world_relations["world_track_mesh"] = "6"
+        shared_world_relations["shared_world_track_mesh"] = str(shared)
     summary = event(
         MODULE.SUMMARY,
         status="complete",
@@ -61,12 +81,19 @@ def fixture(shared=3):
         unjoined_scopes="2",
         submission_joins="12",
         shared_identity_joins=str(shared),
+        world_resource_graph_scopes="6" if shared else "0",
+        world_resource_graph_cache_hits="8",
+        world_resource_graph_cache_misses="2",
+        world_resource_graph_reference_overflow="0",
+        world_resource_shared_identity_joins=str(shared),
         scope_overlaps="0",
         exit_without_entry="0",
         accounting_complete="true",
         qualification_complete="true",
         classification="exact_unified_track_render_model_nested_submission_join",
         **relations,
+        **world_relations,
+        **shared_world_relations,
         **safety(),
     )
     return [config, summary]
@@ -86,6 +113,11 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
                 "shared_object_or_resource_identity_proved"
             ]
         )
+        self.assertTrue(
+            document["qualification"][
+                "track_world_resource_to_submission_identity_proved"
+            ]
+        )
 
     def test_qualifies_scope_without_claiming_shared_identity(self):
         document = MODULE.build(fixture(shared=0))
@@ -93,6 +125,11 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         self.assertFalse(
             document["qualification"][
                 "shared_object_or_resource_identity_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"][
+                "track_world_resource_graph_identity_proved"
             ]
         )
 
@@ -106,6 +143,10 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             submission_joins="0",
             shared_identity_joins="0",
             shared_descriptor_payload_bound_resource="0",
+            world_resource_graph_scopes="0",
+            world_resource_shared_identity_joins="0",
+            world_track_mesh="0",
+            shared_world_track_mesh="0",
             qualification_complete="false",
         )
         document = MODULE.build(events)

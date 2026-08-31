@@ -268,6 +268,16 @@ procedural-model submissions and prepared records. The implementation and
 payload-free qualifier are ready; runtime proof is deferred to the next batched
 AppData session. No C1 admission or suppression is enabled by this probe.
 
+Implementation checkpoint: the exact model scope now inspects only its
+already-validated 64-byte child prefix and 248-byte type-21 descriptor for
+direct pointers to the seven RTTI-proved track model, mesh, submodel,
+procedural-geometry, and PVS-zone object/resource vtables. A 1,024-entry
+fingerprinted cache avoids repeating guest pointer validation for unchanged
+graphs. Detected identities and stronger exact address equality to procedural
+submission objects/resources are carried separately into prepared records.
+This is ready for the same deferred AppData checkpoint; it still changes no
+admission, draw, authority, or suppression decision.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

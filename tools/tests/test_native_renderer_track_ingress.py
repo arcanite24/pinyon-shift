@@ -66,6 +66,12 @@ class NativeRendererTrackIngressTests(unittest.TestCase):
             135,
             document["classes"]["track_presentation_unified"]["vtable_slot_count"],
         )
+        self.assertEqual(64, document["runtime_graph_probe"]["child_bytes"])
+        self.assertEqual(248, document["runtime_graph_probe"]["descriptor_bytes"])
+        self.assertEqual(
+            7, len(document["runtime_graph_probe"]["direct_vtable_classes"])
+        )
+        self.assertFalse(document["runtime_graph_probe"]["native_admission"])
         self.assertEqual(
             "82DF3F00",
             next(

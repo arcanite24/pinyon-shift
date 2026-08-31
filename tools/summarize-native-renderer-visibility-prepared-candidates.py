@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v6"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v7"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -182,6 +182,8 @@ def build(events, static, requested_session=None):
         != "exact_primary_provider_vtable_and_four_methods"
         or summary.get("track_render_model_lineage")
         != "exact_unified_instance_model_nested_dispatch_scope"
+        or summary.get("track_world_resource_lineage")
+        != "bounded_direct_vtable_identity_from_exact_model_graph"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -208,6 +210,10 @@ def build(events, static, requested_session=None):
         "track_render_model_scope_draws",
         "track_render_shared_identity_entries",
         "track_render_shared_identity_draws",
+        "track_world_resource_identity_entries",
+        "track_world_resource_identity_draws",
+        "track_world_resource_shared_identity_entries",
+        "track_world_resource_shared_identity_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -267,6 +273,15 @@ def build(events, static, requested_session=None):
         item["track_render_shared_identity_mask"] = int(
             hexadecimal(event, "track_render_shared_identity_mask", 8), 16
         )
+        item["track_world_resource_identity_mask"] = int(
+            hexadecimal(event, "track_world_resource_identity_mask", 8), 16
+        )
+        item["track_world_resource_shared_identity_mask"] = int(
+            hexadecimal(
+                event, "track_world_resource_shared_identity_mask", 8
+            ),
+            16,
+        )
         item["mechanical_rejections"] = [
             name
             for bit, name in MECHANICAL_REJECTIONS.items()
@@ -295,9 +310,21 @@ def build(events, static, requested_session=None):
             or event.get("track_render_model_scope") not in ("true", "false")
             or event.get("track_render_model_lineage")
             != "exact_unified_instance_model_nested_dispatch_scope"
+            or event.get("track_world_resource_lineage")
+            != "bounded_direct_vtable_identity_from_exact_model_graph"
             or (
                 item["track_render_shared_identity_mask"]
                 and not item["track_render_model_scope"]
+            )
+            or item["track_render_shared_identity_mask"] & ~0xFF
+            or (
+                item["track_world_resource_identity_mask"]
+                and not item["track_render_model_scope"]
+            )
+            or item["track_world_resource_identity_mask"] & ~0x7F
+            or (
+                item["track_world_resource_shared_identity_mask"]
+                & ~item["track_world_resource_identity_mask"]
             )
             or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
             or integer(event, "policy_age_limit_frames")
@@ -391,6 +418,30 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in shared_identity_entries)
     ):
         failures.append("track render shared-identity totals drifted")
+    world_resource_entries = [
+        entry
+        for entry in entries
+        if entry["track_world_resource_identity_mask"]
+    ]
+    if (
+        totals["track_world_resource_identity_entries"]
+        != len(world_resource_entries)
+        or totals["track_world_resource_identity_draws"]
+        != sum(entry["draws"] for entry in world_resource_entries)
+    ):
+        failures.append("track world-resource identity totals drifted")
+    shared_world_resource_entries = [
+        entry
+        for entry in entries
+        if entry["track_world_resource_shared_identity_mask"]
+    ]
+    if (
+        totals["track_world_resource_shared_identity_entries"]
+        != len(shared_world_resource_entries)
+        or totals["track_world_resource_shared_identity_draws"]
+        != sum(entry["draws"] for entry in shared_world_resource_entries)
+    ):
+        failures.append("track world-resource shared-identity totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -422,6 +473,12 @@ def build(events, static, requested_session=None):
             ),
             "track_render_shared_identity_proved": (
                 not failures and bool(shared_identity_entries)
+            ),
+            "track_world_resource_identity_proved": (
+                not failures and bool(world_resource_entries)
+            ),
+            "track_world_resource_shared_identity_proved": (
+                not failures and bool(shared_world_resource_entries)
             ),
             "native_draw_enabled": False,
             "suppression_allowed": False,
