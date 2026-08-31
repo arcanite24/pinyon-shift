@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v4"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v5"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -154,6 +154,26 @@ def summarize(log_path):
         == integer(summary, "color_draws_matched"),
         "private capture eligibility accounting drift",
     )
+    require(
+        summary.get("color_run_accounting_complete") == "true",
+        "color run accounting drift",
+    )
+    color_runs = integer(summary, "color_runs")
+    color_run_draws = integer(summary, "color_run_draws")
+    require(
+        color_run_draws == integer(summary, "color_draws_matched"),
+        "color run draw accounting drift",
+    )
+    require(
+        integer(summary, "multi_draw_color_runs") <= color_runs,
+        "multi-draw color run accounting drift",
+    )
+    require(
+        integer(summary, "full_family_color_runs") <= color_runs,
+        "full-family color run accounting drift",
+    )
+    sequence_hash = summary.get("first_full_family_sequence_hash", "")
+    require(len(sequence_hash) == 16, "invalid full-family sequence hash")
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
@@ -353,6 +373,19 @@ def summarize(log_path):
         "mechanical_rejections": {
             key.removeprefix("reject_"): integer(summary, key)
             for key in REJECTION_REASON_FIELDS
+        },
+        "color_run_topology": {
+            "runs": color_runs,
+            "draws": color_run_draws,
+            "multi_draw_runs": integer(summary, "multi_draw_color_runs"),
+            "maximum_run_length": integer(
+                summary, "maximum_color_run_length"
+            ),
+            "full_family_runs": integer(summary, "full_family_color_runs"),
+            "first_full_family_sequence_hash": sequence_hash,
+            "full_family_sequence_variants": integer(
+                summary, "full_family_sequence_variants"
+            ),
         },
         "epochs": epochs,
         "correlations": correlations,

@@ -537,3 +537,20 @@ readback, and fails closed on the first target or unsupported result. The
 authoritative Xenos draw remains present on every request. This measures
 animation-time replay stability before any native vehicle target can be
 published or any Xenos draw can be considered for suppression.
+
+The bounded stability session completed all 300 requested private replays with
+300 recorded results, zero target failures, zero unsupported results, and zero
+same-frame quota yields. It then rejected 168 later matches at the hard limit.
+Across the session, 14,070 exact geometry correlations were private-eligible;
+the process exited normally with no error or crash evidence. This establishes
+animated backend stability for the captured submesh only. Object identity and
+complete vehicle material coverage remain open, so publication and suppression
+stay disabled.
+
+The next observer treats every exact color correlation as a member of a
+consecutive prepared-draw run. A run continues only on the same frame and the
+immediately following draw sequence. Final accounting records total run draws,
+maximum run length, multi-draw runs, runs whose length equals the complete
+bounded family table, and the ordered prepared-signature hash of those full
+runs. No native request is added. A stable full-family sequence is required
+before the 30 submesh families can share one retained private vehicle target.

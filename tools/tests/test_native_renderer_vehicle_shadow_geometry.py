@@ -130,6 +130,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "private_capture_eligible_draws": "3",
                 "private_capture_rejected_draws": "0",
                 "private_capture_rejection_accounting_complete": "true",
+                "color_runs": "1",
+                "color_run_draws": "3",
+                "multi_draw_color_runs": "1",
+                "maximum_color_run_length": "3",
+                "full_family_color_runs": "1",
+                "first_full_family_sequence_hash": "9" * 16,
+                "full_family_sequence_variants": "0",
+                "color_run_accounting_complete": "true",
                 "reject_resolved_input": "0",
                 "reject_unsupported_geometry": "0",
                 "reject_empty_draw": "0",
@@ -176,6 +184,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         )
         self.assertEqual(2, report["mechanical_rejections"]["prepared_pipeline"])
         self.assertTrue(report["qualification"]["private_color_replay_stable"])
+        self.assertEqual(3, report["color_run_topology"]["maximum_run_length"])
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -221,6 +230,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "candidate private capture accounting drift"
         ):
+            self.summarize(events)
+
+    def test_rejects_color_run_accounting_drift(self):
+        events = self.fixture()
+        events[-1]["color_run_draws"] = "2"
+        with self.assertRaisesRegex(ValueError, "color run draw accounting drift"):
             self.summarize(events)
 
     def test_rejects_private_capture_authority_drift(self):
