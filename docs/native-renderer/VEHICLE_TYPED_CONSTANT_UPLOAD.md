@@ -1,8 +1,9 @@
 # Vehicle typed constant-upload join
 
-Status: whole-range and all-overlapping-vector joins are rejected. The v11
-partition proved fresh register overlap and selected an exact per-register
-last-writer join for the next batched qualification.
+Status: the title-side upload joins are rejected. The v12 per-register run
+proved that the generic CPU writer is not the final source of the prepared
+vehicle constants. Work continues at the command processor's authoritative
+shader-register write boundary.
 
 ## Proven title boundary
 
@@ -90,10 +91,45 @@ mismatches no longer erase exact provenance. The contributing upload with the
 most exact registers wins, with newest sequence as the tie-breaker. Payload
 values remain in memory only and Xenos remains authoritative.
 
-The generic writer boundary and caller provenance are proved, but neither
-runtime join has yet proved which writes feed the prepared vehicle draws. No
-transform or player label may depend on this evidence until the diagnostic
-partition selects an exact register-space and payload contract.
+## Per-register result and command-stream boundary
+
+The AppData-backed `20260831T191732Z-p39892` run exited normally after 308
+qualified vehicle epochs and 9,210 exact color correlations across all 30
+families. It strictly accounted 1,363,934 typed-writer observations and
+6,111,555 fresh candidates. Of those candidates, 960,532 overlapped a used
+register but none matched even one register's exact current value. The v12
+last-writer rule therefore also produced zero matches.
+
+This rejects `82435E78` as the semantic provenance boundary for the prepared
+draws. It does not invalidate the function's static constant-buffer contract;
+it proves that later GPU command construction or register writes replace the
+values before the correlated draw reaches the command processor.
+
+ReXGlue now exposes a read-only observer at the final shader-register write.
+For each float-constant component it reports the already-endian-correct value,
+packet address/header, and complete current/parent/root command-buffer lineage.
+The native observer retains only the current 256 vertex-register components and
+a bounded 4,096-entry packet-source table. Correlated draws compare their
+shader-used values with that authoritative current state and aggregate source
+identity by packet header, normalized packet offset, and nesting depth. Dynamic
+buffer length and physical addresses remain variation evidence rather than
+source identity. No constant payload is exported.
+
+The generic writer boundary and caller provenance remain useful negative
+evidence, but no transform or player label may depend on them. The command-
+stream census must first prove complete exact component coverage without table
+overflow and identify bounded packet-lineage sources for all 30 families.
+
+The corrected command-stream qualification
+`20260831T200117Z-p31000` completed normally with 255 exact epochs and 7,650
+correlated draws across all 30 vehicle families. Of 122,400 shader-used vertex
+vectors, 114,750 (15 per draw) matched the final command-processor register
+state exactly, with zero missing or split-component vectors and a maximum age
+of zero frames. Exactly one vector per draw remained mismatched. Structural
+source aggregation retained 1,620 packet-lineage entries without overflow;
+the same producer shapes recur across all families. This proves the final
+register-write boundary and narrows the next slice to identifying the single
+per-draw mismatch before publishing a semantic constant bridge.
 
 ## Safety boundary
 

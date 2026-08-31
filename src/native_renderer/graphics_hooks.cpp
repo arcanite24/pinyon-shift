@@ -143,6 +143,9 @@ constexpr uint32_t kVehicleConstantUploadHook = 0x82435E78;
 constexpr uint32_t kVehicleConstantUploadRegisterBias = 120;
 constexpr size_t kVehicleConstantUploadCapacity = 8192;
 constexpr uint64_t kVehicleConstantUploadMaximumAgeFrames = 1;
+constexpr uint32_t kVehicleVertexShaderConstantRegisterBase = 0x4000;
+constexpr size_t kVehicleVertexShaderConstantComponentCount = 256 * 4;
+constexpr size_t kVehicleShaderConstantSourceCapacity = 4096;
 constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
 constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
 constexpr uint64_t kVehicleColorConstantMaximumIdentityAgeFrames = 1;
@@ -668,6 +671,14 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t typed_upload_source_address_variations = 0;
   uint64_t typed_upload_buffer_address_variations = 0;
   uint64_t typed_upload_caller_variations = 0;
+  uint64_t shader_constant_write_scans = 0;
+  uint64_t shader_constant_write_observed_vectors = 0;
+  uint64_t shader_constant_write_exact_vectors = 0;
+  uint64_t shader_constant_write_missing_vectors = 0;
+  uint64_t shader_constant_write_mismatched_vectors = 0;
+  uint64_t shader_constant_write_coherent_vectors = 0;
+  uint64_t shader_constant_write_split_vectors = 0;
+  uint64_t shader_constant_write_maximum_age_frames = 0;
   double closest_position_delta_squared =
       std::numeric_limits<double>::infinity();
   double closest_forward_delta_squared =
@@ -724,6 +735,48 @@ enum class VehicleConstantUploadSubsetResult : uint32_t {
   kNoOverlap = 0,
   kHashMismatch,
   kExact,
+};
+
+struct VehicleShaderConstantComponentWrite {
+  uint64_t frame = 0;
+  uint64_t sequence = 0;
+  uint32_t packet_physical_address = UINT32_MAX;
+  uint32_t command_buffer_physical_address = UINT32_MAX;
+  uint32_t command_buffer_length_dwords = 0;
+  uint32_t command_buffer_parent_packet_physical_address = UINT32_MAX;
+  uint32_t command_buffer_root_physical_address = UINT32_MAX;
+  uint32_t command_buffer_depth = 0;
+  uint32_t packet = 0;
+  uint32_t value = 0;
+  bool occupied = false;
+};
+
+struct VehicleShaderConstantSourceEntry {
+  uint64_t key = 0;
+  uint64_t vectors = 0;
+  uint64_t draws = 0;
+  uint64_t last_draw_sequence = 0;
+  uint64_t maximum_age_frames = 0;
+  uint64_t packet_address_variations = 0;
+  uint64_t command_buffer_length_variations = 0;
+  uint64_t command_buffer_address_variations = 0;
+  uint64_t parent_packet_address_variations = 0;
+  uint64_t root_buffer_address_variations = 0;
+  uint32_t correlation_index = 0;
+  uint32_t packet = 0;
+  uint32_t packet_offset_dwords = UINT32_MAX;
+  uint32_t command_buffer_depth = 0;
+  uint32_t first_command_buffer_length_dwords = 0;
+  uint32_t last_command_buffer_length_dwords = 0;
+  uint32_t first_packet_physical_address = UINT32_MAX;
+  uint32_t last_packet_physical_address = UINT32_MAX;
+  uint32_t first_command_buffer_physical_address = UINT32_MAX;
+  uint32_t last_command_buffer_physical_address = UINT32_MAX;
+  uint32_t first_parent_packet_physical_address = UINT32_MAX;
+  uint32_t last_parent_packet_physical_address = UINT32_MAX;
+  uint32_t first_root_buffer_physical_address = UINT32_MAX;
+  uint32_t last_root_buffer_physical_address = UINT32_MAX;
+  bool occupied = false;
 };
 
 struct VehicleShadowColorRun {
@@ -1561,6 +1614,20 @@ uint64_t g_vehicle_constant_upload_invalid_source_range = 0;
 uint64_t g_vehicle_constant_upload_overwrites = 0;
 uint64_t g_vehicle_constant_upload_sequence = 0;
 size_t g_vehicle_constant_upload_cursor = 0;
+std::array<VehicleShaderConstantComponentWrite,
+           kVehicleVertexShaderConstantComponentCount>
+    g_vehicle_shader_constant_components{};
+std::array<VehicleShaderConstantSourceEntry,
+           kVehicleShaderConstantSourceCapacity>
+    g_vehicle_shader_constant_sources{};
+std::mutex g_vehicle_shader_constant_mutex;
+uint64_t g_vehicle_shader_constant_write_observations = 0;
+uint64_t g_vehicle_vertex_shader_constant_write_observations = 0;
+uint64_t g_vehicle_pixel_shader_constant_write_observations = 0;
+uint64_t g_vehicle_shader_constant_write_invalid_register = 0;
+uint64_t g_vehicle_shader_constant_write_sequence = 0;
+uint64_t g_vehicle_shader_constant_source_count = 0;
+uint64_t g_vehicle_shader_constant_source_overflow = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
@@ -9169,6 +9236,12 @@ void ConfigureIsolatedDraw() {
           std::to_string(kVehicleConstantUploadCapacity)},
          {"typed_constant_upload_maximum_age_frames",
           std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
+         {"shader_constant_write_observer",
+          "command_processor_final_shader_register_write"},
+         {"shader_constant_write_contract",
+          "exact_current_vertex_register_components_and_packet_lineage"},
+         {"shader_constant_source_capacity",
+          std::to_string(kVehicleShaderConstantSourceCapacity)},
          {"guest_payload_capture", "false"},
          {"native_draw", "false"},
          {"xenos_authority", "true"},
@@ -15376,6 +15449,234 @@ void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
   ++g_vehicle_constant_upload_valid;
 }
 
+void ObserveVehicleShaderConstantWrite(
+    const rex::system::GraphicsShaderConstantWriteObservation &observation) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
+      !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+  ++g_vehicle_shader_constant_write_observations;
+  if (observation.register_index <
+      kVehicleVertexShaderConstantRegisterBase) {
+    ++g_vehicle_shader_constant_write_invalid_register;
+    return;
+  }
+  const uint32_t component_index =
+      observation.register_index - kVehicleVertexShaderConstantRegisterBase;
+  if (component_index >= 512 * 4) {
+    ++g_vehicle_shader_constant_write_invalid_register;
+    return;
+  }
+  if (component_index >= kVehicleVertexShaderConstantComponentCount) {
+    ++g_vehicle_pixel_shader_constant_write_observations;
+    return;
+  }
+  ++g_vehicle_vertex_shader_constant_write_observations;
+  g_vehicle_shader_constant_components[component_index] = {
+      .frame = observation.frame_sequence,
+      .sequence = ++g_vehicle_shader_constant_write_sequence,
+      .packet_physical_address = observation.packet_physical_address,
+      .command_buffer_physical_address =
+          observation.command_buffer_physical_address,
+      .command_buffer_length_dwords =
+          observation.command_buffer_length_dwords,
+      .command_buffer_parent_packet_physical_address =
+          observation.command_buffer_parent_packet_physical_address,
+      .command_buffer_root_physical_address =
+          observation.command_buffer_root_physical_address,
+      .command_buffer_depth = observation.command_buffer_depth,
+      .packet = observation.packet,
+      .value = observation.value,
+      .occupied = true,
+  };
+}
+
+bool SameVehicleShaderConstantSource(
+    const VehicleShaderConstantComponentWrite &left,
+    const VehicleShaderConstantComponentWrite &right) {
+  return left.packet_physical_address == right.packet_physical_address &&
+         left.command_buffer_physical_address ==
+             right.command_buffer_physical_address &&
+         left.command_buffer_length_dwords ==
+             right.command_buffer_length_dwords &&
+         left.command_buffer_parent_packet_physical_address ==
+             right.command_buffer_parent_packet_physical_address &&
+         left.command_buffer_root_physical_address ==
+             right.command_buffer_root_physical_address &&
+         left.command_buffer_depth == right.command_buffer_depth &&
+         left.packet == right.packet;
+}
+
+void RecordVehicleShaderConstantSource(
+    size_t correlation_index,
+    const rex::system::GraphicsDrawObservation &observation,
+    const VehicleShaderConstantComponentWrite &write,
+    uint64_t age_frames) {
+  uint32_t packet_offset_dwords = UINT32_MAX;
+  if (write.packet_physical_address != UINT32_MAX &&
+      write.command_buffer_physical_address != UINT32_MAX &&
+      write.packet_physical_address >=
+          write.command_buffer_physical_address &&
+      !((write.packet_physical_address -
+         write.command_buffer_physical_address) & 3)) {
+    packet_offset_dwords =
+        (write.packet_physical_address -
+         write.command_buffer_physical_address) /
+        sizeof(uint32_t);
+  }
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(correlation_index), uint64_t(write.packet),
+        uint64_t(packet_offset_dwords),
+        uint64_t(write.command_buffer_depth)}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  for (size_t probe = 0; probe < g_vehicle_shader_constant_sources.size();
+       ++probe) {
+    VehicleShaderConstantSourceEntry &source =
+        g_vehicle_shader_constant_sources[
+            (key + probe) % g_vehicle_shader_constant_sources.size()];
+    if (!source.occupied) {
+      source = {
+          .key = key,
+          .vectors = 1,
+          .draws = 1,
+          .last_draw_sequence = observation.draw_sequence,
+          .maximum_age_frames = age_frames,
+          .correlation_index = uint32_t(correlation_index),
+          .packet = write.packet,
+          .packet_offset_dwords = packet_offset_dwords,
+          .command_buffer_depth = write.command_buffer_depth,
+          .first_command_buffer_length_dwords =
+              write.command_buffer_length_dwords,
+          .last_command_buffer_length_dwords =
+              write.command_buffer_length_dwords,
+          .first_packet_physical_address = write.packet_physical_address,
+          .last_packet_physical_address = write.packet_physical_address,
+          .first_command_buffer_physical_address =
+              write.command_buffer_physical_address,
+          .last_command_buffer_physical_address =
+              write.command_buffer_physical_address,
+          .first_parent_packet_physical_address =
+              write.command_buffer_parent_packet_physical_address,
+          .last_parent_packet_physical_address =
+              write.command_buffer_parent_packet_physical_address,
+          .first_root_buffer_physical_address =
+              write.command_buffer_root_physical_address,
+          .last_root_buffer_physical_address =
+              write.command_buffer_root_physical_address,
+          .occupied = true,
+      };
+      ++g_vehicle_shader_constant_source_count;
+      return;
+    }
+    if (source.key != key ||
+        source.correlation_index != correlation_index ||
+        source.packet != write.packet ||
+        source.packet_offset_dwords != packet_offset_dwords ||
+        source.command_buffer_depth != write.command_buffer_depth) {
+      continue;
+    }
+    ++source.vectors;
+    if (source.last_draw_sequence != observation.draw_sequence) {
+      ++source.draws;
+      source.last_draw_sequence = observation.draw_sequence;
+    }
+    source.maximum_age_frames =
+        std::max(source.maximum_age_frames, age_frames);
+    source.packet_address_variations +=
+        source.last_packet_physical_address !=
+        write.packet_physical_address;
+    source.command_buffer_length_variations +=
+        source.last_command_buffer_length_dwords !=
+        write.command_buffer_length_dwords;
+    source.command_buffer_address_variations +=
+        source.last_command_buffer_physical_address !=
+        write.command_buffer_physical_address;
+    source.parent_packet_address_variations +=
+        source.last_parent_packet_physical_address !=
+        write.command_buffer_parent_packet_physical_address;
+    source.root_buffer_address_variations +=
+        source.last_root_buffer_physical_address !=
+        write.command_buffer_root_physical_address;
+    source.last_packet_physical_address = write.packet_physical_address;
+    source.last_command_buffer_length_dwords =
+        write.command_buffer_length_dwords;
+    source.last_command_buffer_physical_address =
+        write.command_buffer_physical_address;
+    source.last_parent_packet_physical_address =
+        write.command_buffer_parent_packet_physical_address;
+    source.last_root_buffer_physical_address =
+        write.command_buffer_root_physical_address;
+    return;
+  }
+  ++g_vehicle_shader_constant_source_overflow;
+}
+
+void ObserveVehicleColorShaderConstantWrites(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry,
+    size_t correlation_index) {
+  ++entry.shader_constant_write_scans;
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  entry.shader_constant_write_observed_vectors += observed_count;
+  std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[observed_offset];
+    const uint32_t component_base = constant.index * 4;
+    if (component_base + 4 >
+        g_vehicle_shader_constant_components.size()) {
+      ++entry.shader_constant_write_missing_vectors;
+      continue;
+    }
+    const VehicleShaderConstantComponentWrite *components =
+        g_vehicle_shader_constant_components.data() + component_base;
+    bool missing = false;
+    bool mismatch = false;
+    bool coherent = true;
+    uint64_t maximum_age_frames = 0;
+    for (uint32_t component = 0; component < 4; ++component) {
+      missing |= !components[component].occupied;
+      mismatch |= components[component].occupied &&
+                  components[component].value != constant.values[component];
+      coherent &= component == 0 ||
+                  SameVehicleShaderConstantSource(components[0],
+                                                  components[component]);
+      if (components[component].occupied &&
+          observation.frame_sequence >= components[component].frame) {
+        maximum_age_frames = std::max(
+            maximum_age_frames,
+            observation.frame_sequence - components[component].frame);
+      }
+    }
+    if (missing) {
+      ++entry.shader_constant_write_missing_vectors;
+      continue;
+    }
+    if (mismatch) {
+      ++entry.shader_constant_write_mismatched_vectors;
+      continue;
+    }
+    ++entry.shader_constant_write_exact_vectors;
+    entry.shader_constant_write_maximum_age_frames =
+        std::max(entry.shader_constant_write_maximum_age_frames,
+                 maximum_age_frames);
+    if (!coherent) {
+      ++entry.shader_constant_write_split_vectors;
+      continue;
+    }
+    ++entry.shader_constant_write_coherent_vectors;
+    RecordVehicleShaderConstantSource(correlation_index, observation,
+                                      components[0], maximum_age_frames);
+  }
+}
+
 VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
     const rex::system::GraphicsDrawObservation &observation,
     const VehicleConstantUploadEntry &upload,
@@ -15802,6 +16103,8 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       entry.last_frame = observation.frame_sequence;
       ObserveVehicleColorConstantIdentity(observation, entry);
       ObserveVehicleColorTypedConstantUpload(observation, entry);
+      ObserveVehicleColorShaderConstantWrites(observation, entry,
+                                              correlation_index);
       if (matched_correlation_index) {
         *matched_correlation_index = correlation_index;
       }
@@ -15855,6 +16158,8 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   };
   ObserveVehicleColorConstantIdentity(observation, *available);
   ObserveVehicleColorTypedConstantUpload(observation, *available);
+  ObserveVehicleColorShaderConstantWrites(observation, *available,
+                                          available_index);
   if (matched_correlation_index) {
     *matched_correlation_index = available_index;
   }
@@ -24148,6 +24453,22 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_constant_upload_sequence = 0;
     g_vehicle_constant_upload_cursor = 0;
   }
+  {
+    std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+    std::fill(g_vehicle_shader_constant_components.begin(),
+              g_vehicle_shader_constant_components.end(),
+              VehicleShaderConstantComponentWrite{});
+    std::fill(g_vehicle_shader_constant_sources.begin(),
+              g_vehicle_shader_constant_sources.end(),
+              VehicleShaderConstantSourceEntry{});
+    g_vehicle_shader_constant_write_observations = 0;
+    g_vehicle_vertex_shader_constant_write_observations = 0;
+    g_vehicle_pixel_shader_constant_write_observations = 0;
+    g_vehicle_shader_constant_write_invalid_register = 0;
+    g_vehicle_shader_constant_write_sequence = 0;
+    g_vehicle_shader_constant_source_count = 0;
+    g_vehicle_shader_constant_source_overflow = 0;
+  }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
     stats.matched_owner_calls.store(0, std::memory_order_relaxed);
@@ -25307,6 +25628,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   }
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
+  graphics_system->SetShaderConstantWriteObserver(
+      &ObserveVehicleShaderConstantWrite);
   graphics_system->SetIndirectBufferObserver(&ObserveIndirectBuffer);
   graphics_system->SetCopyObserver(&ObserveCopy);
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
@@ -26034,6 +26357,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
+    graphics_system->SetShaderConstantWriteObserver(nullptr);
     graphics_system->SetIndirectBufferObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
     graphics_system->SetPreparedDrawObserver(nullptr);
@@ -26586,6 +26910,14 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     uint64_t typed_upload_exact_matches = 0;
     uint64_t typed_upload_misses = 0;
     uint64_t typed_upload_exact_used_vectors = 0;
+    uint64_t shader_constant_write_scans = 0;
+    uint64_t shader_constant_write_observed_vectors = 0;
+    uint64_t shader_constant_write_exact_vectors = 0;
+    uint64_t shader_constant_write_missing_vectors = 0;
+    uint64_t shader_constant_write_mismatched_vectors = 0;
+    uint64_t shader_constant_write_coherent_vectors = 0;
+    uint64_t shader_constant_write_split_vectors = 0;
+    uint64_t shader_constant_write_maximum_age_frames = 0;
     std::array<uint64_t, kVehicleShadowGeometryCorrelationCapacity>
         material_topology_keys{};
     size_t material_topology_group_count = 0;
@@ -26618,6 +26950,22 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       typed_upload_misses += entry.typed_upload_misses;
       typed_upload_exact_used_vectors +=
           entry.typed_upload_exact_used_vectors;
+      shader_constant_write_scans += entry.shader_constant_write_scans;
+      shader_constant_write_observed_vectors +=
+          entry.shader_constant_write_observed_vectors;
+      shader_constant_write_exact_vectors +=
+          entry.shader_constant_write_exact_vectors;
+      shader_constant_write_missing_vectors +=
+          entry.shader_constant_write_missing_vectors;
+      shader_constant_write_mismatched_vectors +=
+          entry.shader_constant_write_mismatched_vectors;
+      shader_constant_write_coherent_vectors +=
+          entry.shader_constant_write_coherent_vectors;
+      shader_constant_write_split_vectors +=
+          entry.shader_constant_write_split_vectors;
+      shader_constant_write_maximum_age_frames = std::max(
+          shader_constant_write_maximum_age_frames,
+          entry.shader_constant_write_maximum_age_frames);
       bool material_topology_seen = false;
       for (size_t material_index = 0;
            material_index < material_topology_group_count;
@@ -26631,6 +26979,15 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       if (!material_topology_seen) {
         material_topology_keys[material_topology_group_count++] =
             entry.material_topology_key;
+      }
+      uint64_t shader_constant_source_count_for_family = 0;
+      const size_t correlation_index = size_t(
+          &entry - g_vehicle_shadow_geometry_correlations.data());
+      for (const VehicleShaderConstantSourceEntry &source :
+           g_vehicle_shader_constant_sources) {
+        shader_constant_source_count_for_family +=
+            source.occupied &&
+            source.correlation_index == correlation_index;
       }
       diagnostics::RecordEvent(
           "native_renderer.discovery.vehicle_shadow_geometry_candidate",
@@ -26870,6 +27227,107 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                     !entry.typed_upload_caller_variations
                 ? "stable_exact_vertex_register_candidate"
                 : "unresolved"},
+           {"shader_constant_write_scans",
+            std::to_string(entry.shader_constant_write_scans)},
+           {"shader_constant_write_observed_vectors",
+            std::to_string(
+                entry.shader_constant_write_observed_vectors)},
+           {"shader_constant_write_exact_vectors",
+            std::to_string(entry.shader_constant_write_exact_vectors)},
+           {"shader_constant_write_missing_vectors",
+            std::to_string(
+                entry.shader_constant_write_missing_vectors)},
+           {"shader_constant_write_mismatched_vectors",
+            std::to_string(
+                entry.shader_constant_write_mismatched_vectors)},
+           {"shader_constant_write_coherent_vectors",
+            std::to_string(
+                entry.shader_constant_write_coherent_vectors)},
+           {"shader_constant_write_split_vectors",
+            std::to_string(entry.shader_constant_write_split_vectors)},
+           {"shader_constant_write_maximum_age_frames",
+            std::to_string(
+                entry.shader_constant_write_maximum_age_frames)},
+           {"shader_constant_source_count",
+            std::to_string(shader_constant_source_count_for_family)},
+           {"shader_constant_write_classification",
+            entry.shader_constant_write_exact_vectors ==
+                        entry.shader_constant_write_observed_vectors &&
+                    !entry.shader_constant_write_missing_vectors &&
+                    !entry.shader_constant_write_mismatched_vectors &&
+                    !entry.shader_constant_write_split_vectors &&
+                    shader_constant_source_count_for_family
+                ? "complete_exact_packet_lineage"
+                : "unresolved"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    for (const VehicleShaderConstantSourceEntry &source :
+         g_vehicle_shader_constant_sources) {
+      if (!source.occupied ||
+          source.correlation_index >=
+              g_vehicle_shadow_geometry_correlations.size() ||
+          !g_vehicle_shadow_geometry_correlations[source.correlation_index]
+               .occupied) {
+        continue;
+      }
+      const VehicleShadowGeometryCorrelationEntry &family =
+          g_vehicle_shadow_geometry_correlations[source.correlation_index];
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shader_constant_source",
+          {{"prepared_signature",
+            fmt::format("{:016X}", family.prepared_signature)},
+           {"packet", fmt::format("{:08X}", source.packet)},
+           {"opcode", std::to_string((source.packet >> 8) & 0x7F)},
+           {"packet_offset_dwords",
+            source.packet_offset_dwords == UINT32_MAX
+                ? "unknown"
+                : std::to_string(source.packet_offset_dwords)},
+           {"first_command_buffer_length_dwords",
+            std::to_string(source.first_command_buffer_length_dwords)},
+           {"last_command_buffer_length_dwords",
+            std::to_string(source.last_command_buffer_length_dwords)},
+           {"command_buffer_length_variations",
+            std::to_string(source.command_buffer_length_variations)},
+           {"command_buffer_depth",
+            std::to_string(source.command_buffer_depth)},
+           {"vectors", std::to_string(source.vectors)},
+           {"draws", std::to_string(source.draws)},
+           {"maximum_age_frames",
+            std::to_string(source.maximum_age_frames)},
+           {"first_packet_physical_address",
+            fmt::format("{:08X}", source.first_packet_physical_address)},
+           {"last_packet_physical_address",
+            fmt::format("{:08X}", source.last_packet_physical_address)},
+           {"packet_address_variations",
+            std::to_string(source.packet_address_variations)},
+           {"first_command_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.first_command_buffer_physical_address)},
+           {"last_command_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.last_command_buffer_physical_address)},
+           {"command_buffer_address_variations",
+            std::to_string(source.command_buffer_address_variations)},
+           {"first_parent_packet_physical_address",
+            fmt::format("{:08X}",
+                        source.first_parent_packet_physical_address)},
+           {"last_parent_packet_physical_address",
+            fmt::format("{:08X}",
+                        source.last_parent_packet_physical_address)},
+           {"parent_packet_address_variations",
+            std::to_string(source.parent_packet_address_variations)},
+           {"first_root_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.first_root_buffer_physical_address)},
+           {"last_root_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.last_root_buffer_physical_address)},
+           {"root_buffer_address_variations",
+            std::to_string(source.root_buffer_address_variations)},
+           {"classification", "exact_current_vertex_register_source"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
            {"xenos_authority", "true"},
@@ -27068,6 +27526,61 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
          {"typed_upload_contract",
           "82435E78_exact_shader_used_vertex_register_hash"},
+         {"shader_constant_write_observations",
+          std::to_string(g_vehicle_shader_constant_write_observations)},
+         {"vertex_shader_constant_write_observations",
+          std::to_string(
+              g_vehicle_vertex_shader_constant_write_observations)},
+         {"pixel_shader_constant_write_observations",
+          std::to_string(
+              g_vehicle_pixel_shader_constant_write_observations)},
+         {"shader_constant_write_invalid_register",
+          std::to_string(
+              g_vehicle_shader_constant_write_invalid_register)},
+         {"shader_constant_write_observation_accounting_complete",
+          g_vehicle_vertex_shader_constant_write_observations +
+                      g_vehicle_pixel_shader_constant_write_observations +
+                      g_vehicle_shader_constant_write_invalid_register ==
+                  g_vehicle_shader_constant_write_observations
+              ? "true"
+              : "false"},
+         {"shader_constant_write_scans",
+          std::to_string(shader_constant_write_scans)},
+         {"shader_constant_write_observed_vectors",
+          std::to_string(shader_constant_write_observed_vectors)},
+         {"shader_constant_write_exact_vectors",
+          std::to_string(shader_constant_write_exact_vectors)},
+         {"shader_constant_write_missing_vectors",
+          std::to_string(shader_constant_write_missing_vectors)},
+         {"shader_constant_write_mismatched_vectors",
+          std::to_string(shader_constant_write_mismatched_vectors)},
+         {"shader_constant_write_vector_accounting_complete",
+          shader_constant_write_exact_vectors +
+                      shader_constant_write_missing_vectors +
+                      shader_constant_write_mismatched_vectors ==
+                  shader_constant_write_observed_vectors
+              ? "true"
+              : "false"},
+         {"shader_constant_write_coherent_vectors",
+          std::to_string(shader_constant_write_coherent_vectors)},
+         {"shader_constant_write_split_vectors",
+          std::to_string(shader_constant_write_split_vectors)},
+         {"shader_constant_write_source_accounting_complete",
+          shader_constant_write_coherent_vectors +
+                      shader_constant_write_split_vectors ==
+                  shader_constant_write_exact_vectors
+              ? "true"
+              : "false"},
+         {"shader_constant_write_maximum_age_frames",
+          std::to_string(shader_constant_write_maximum_age_frames)},
+         {"shader_constant_sources",
+          std::to_string(g_vehicle_shader_constant_source_count)},
+         {"shader_constant_source_overflow",
+          std::to_string(g_vehicle_shader_constant_source_overflow)},
+         {"shader_constant_source_capacity",
+          std::to_string(kVehicleShaderConstantSourceCapacity)},
+         {"shader_constant_write_contract",
+          "exact_current_vertex_register_components_and_packet_lineage"},
          {"material_topology_groups",
           std::to_string(material_topology_group_count)},
          {"material_topology_group_accounting_complete",
