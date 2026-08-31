@@ -139,6 +139,8 @@ constexpr size_t kVehicleTypedDescriptorCorrelationCapacity = 512;
 constexpr uint32_t kVehicleComposedMatrixHook = 0x8240EB5C;
 constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
+constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
+constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
 constexpr size_t kShadowCasterProvenanceSampleCapacity = 4096;
 constexpr uint64_t kShadowCasterMaximumVehicleIdentityAgeFrames = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
@@ -591,6 +593,32 @@ struct SemanticPreparedDrawContract {
   bool geometry_bounded = false;
   bool texture_layout_bounded = false;
   bool valid = false;
+};
+
+struct VehicleShadowGeometryIdentity {
+  uint64_t geometry_resource_hash = 0;
+  uint32_t index_buffer_address = 0;
+  uint32_t index_buffer_length = 0;
+  std::array<uint32_t, rex::system::kGraphicsVertexBindingObservationLimit>
+      vertex_addresses{};
+  std::array<uint32_t, rex::system::kGraphicsVertexBindingObservationLimit>
+      vertex_sizes{};
+  uint32_t vertex_binding_count = 0;
+  bool occupied = false;
+};
+
+struct VehicleShadowGeometryCorrelationEntry {
+  uint64_t prepared_signature = 0;
+  uint64_t template_key = 0;
+  uint64_t geometry_resource_hash = 0;
+  uint64_t texture_resource_hash = 0;
+  uint64_t prepared_pipeline_hash = 0;
+  uint64_t draws = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t seed_index = 0;
+  bool full_geometry_match = false;
+  bool occupied = false;
 };
 
 enum class SemanticBatchRejection : uint32_t {
@@ -1389,6 +1417,24 @@ uint64_t g_vehicle_composed_matrix_routes_without_identity = 0;
 uint64_t g_vehicle_composed_matrix_tight_matches = 0;
 uint64_t g_vehicle_composed_matrix_correlation_count = 0;
 uint64_t g_vehicle_composed_matrix_correlation_overflow = 0;
+std::array<VehicleShadowGeometryIdentity, kShadowDepthBatchDrawCount>
+    g_vehicle_shadow_geometry_staging{};
+std::array<VehicleShadowGeometryIdentity, kVehicleShadowGeometrySeedCapacity>
+    g_vehicle_shadow_geometry_seeds{};
+std::array<VehicleShadowGeometryCorrelationEntry,
+           kVehicleShadowGeometryCorrelationCapacity>
+    g_vehicle_shadow_geometry_correlations{};
+uint64_t g_vehicle_shadow_geometry_epochs_committed = 0;
+uint64_t g_vehicle_shadow_geometry_staged_draws = 0;
+uint64_t g_vehicle_shadow_geometry_seed_count = 0;
+uint64_t g_vehicle_shadow_geometry_seed_duplicates = 0;
+uint64_t g_vehicle_shadow_geometry_seed_overflow = 0;
+uint64_t g_vehicle_shadow_geometry_color_draws_examined = 0;
+uint64_t g_vehicle_shadow_geometry_color_draws_matched = 0;
+uint64_t g_vehicle_shadow_geometry_full_matches = 0;
+uint64_t g_vehicle_shadow_geometry_partial_matches = 0;
+uint64_t g_vehicle_shadow_geometry_correlation_count = 0;
+uint64_t g_vehicle_shadow_geometry_correlation_overflow = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -8099,6 +8145,7 @@ struct IsolatedDrawState {
   uint64_t shadow_replay_gate_rejections = 0;
   uint32_t prepared_title_lod_index = 0;
   rex::system::GraphicsDrawObservation prepared_sample;
+  SemanticPreparedDrawContract prepared_semantic_contract{};
   std::filesystem::path output_root;
   std::jthread artifact_writer;
   std::jthread reference_artifact_writer;
@@ -8131,6 +8178,7 @@ struct IsolatedDrawState {
   bool shadow_depth_mode = false;
   bool shadow_depth_prototype_mode = false;
   bool shadow_depth_batch_mode = false;
+  bool vehicle_shadow_geometry_correlation_mode = false;
   bool shadow_depth_publication_mode = false;
   bool shadow_depth_continuous_mode = false;
   bool shadow_depth_continuous_failed_closed = false;
@@ -8161,6 +8209,7 @@ struct IsolatedDrawState {
   uint64_t shadow_depth_continuous_max_publication_epochs = 0;
   uint64_t shadow_depth_continuous_epoch_limit = 0;
   uint32_t shadow_depth_batch_draws = 0;
+  uint32_t vehicle_shadow_geometry_staging_count = 0;
   bool shadow_depth_batch_active = false;
   bool shadow_depth_batch_backend_ready = false;
   bool shadow_depth_batch_capture_completed = false;
@@ -8689,6 +8738,25 @@ void ConfigureIsolatedDraw() {
   if (g_isolated_draw.shadow_depth_prototype_mode) {
     g_isolated_draw.shadow_depth_batch_mode = true;
   }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION") ==
+          0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.vehicle_shadow_geometry_correlation_mode =
+        setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode &&
+      !g_isolated_draw.shadow_depth_batch_mode) {
+    g_isolated_draw.valid = false;
+  }
   if (g_isolated_draw.shadow_depth_mode) {
     g_isolated_draw.requested = true;
     if (signature_requested || g_isolated_draw.shadow_depth_batch_mode) {
@@ -8871,6 +8939,20 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_geometry_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"shadow_depth_batch_required", "true"},
+         {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
+         {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
+         {"color_match", "exact_full_or_index_plus_vertex_resource"},
+         {"guest_payload_capture", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
 }
 
 void ConfigureVisibilityShadowReplay() {
@@ -14809,6 +14891,227 @@ SemanticPreparedDrawContract BuildSemanticPreparedDrawContract(
   return contract;
 }
 
+VehicleShadowGeometryIdentity BuildVehicleShadowGeometryIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    const SemanticPreparedDrawContract &contract) {
+  VehicleShadowGeometryIdentity identity{
+      .geometry_resource_hash = contract.geometry_resource_hash,
+      .index_buffer_address = observation.index_buffer_address,
+      .index_buffer_length = observation.index_buffer_length,
+      .vertex_binding_count = std::min(
+          observation.vertex_binding_count,
+          rex::system::kGraphicsVertexBindingObservationLimit),
+      .occupied = contract.geometry_bounded,
+  };
+  for (uint32_t i = 0; i < identity.vertex_binding_count; ++i) {
+    identity.vertex_addresses[i] = observation.vertex_bindings[i].address;
+    identity.vertex_sizes[i] = observation.vertex_bindings[i].size;
+  }
+  return identity;
+}
+
+void ResetVehicleShadowGeometryStaging() {
+  g_vehicle_shadow_geometry_staging = {};
+  g_isolated_draw.vehicle_shadow_geometry_staging_count = 0;
+}
+
+void StageVehicleShadowGeometry(
+    const rex::system::GraphicsDrawObservation &observation,
+    const SemanticPreparedDrawContract &contract) {
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      g_isolated_draw.vehicle_shadow_geometry_staging_count >=
+          g_vehicle_shadow_geometry_staging.size()) {
+    return;
+  }
+  g_vehicle_shadow_geometry_staging
+      [g_isolated_draw.vehicle_shadow_geometry_staging_count++] =
+          BuildVehicleShadowGeometryIdentity(observation, contract);
+  ++g_vehicle_shadow_geometry_staged_draws;
+}
+
+bool SameVehicleShadowGeometryIdentity(
+    const VehicleShadowGeometryIdentity &left,
+    const VehicleShadowGeometryIdentity &right) {
+  if (!left.occupied || !right.occupied ||
+      left.geometry_resource_hash != right.geometry_resource_hash ||
+      left.index_buffer_address != right.index_buffer_address ||
+      left.index_buffer_length != right.index_buffer_length ||
+      left.vertex_binding_count != right.vertex_binding_count) {
+    return false;
+  }
+  for (uint32_t i = 0; i < left.vertex_binding_count; ++i) {
+    if (left.vertex_addresses[i] != right.vertex_addresses[i] ||
+        left.vertex_sizes[i] != right.vertex_sizes[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void CommitVehicleShadowGeometryEpoch() {
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      g_isolated_draw.vehicle_shadow_geometry_staging_count !=
+          kShadowDepthBatchDrawCount) {
+    ResetVehicleShadowGeometryStaging();
+    return;
+  }
+  ++g_vehicle_shadow_geometry_epochs_committed;
+  for (const VehicleShadowGeometryIdentity &candidate :
+       g_vehicle_shadow_geometry_staging) {
+    if (!candidate.occupied) {
+      continue;
+    }
+    bool duplicate = false;
+    for (size_t i = 0; i < g_vehicle_shadow_geometry_seed_count; ++i) {
+      if (SameVehicleShadowGeometryIdentity(
+              candidate, g_vehicle_shadow_geometry_seeds[i])) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) {
+      ++g_vehicle_shadow_geometry_seed_duplicates;
+      continue;
+    }
+    if (g_vehicle_shadow_geometry_seed_count >=
+        g_vehicle_shadow_geometry_seeds.size()) {
+      ++g_vehicle_shadow_geometry_seed_overflow;
+      continue;
+    }
+    g_vehicle_shadow_geometry_seeds[g_vehicle_shadow_geometry_seed_count++] =
+        candidate;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_geometry_epoch",
+      {{"frame", std::to_string(g_isolated_draw.shadow_depth_batch_frame)},
+       {"draw_count", std::to_string(kShadowDepthBatchDrawCount)},
+       {"unique_geometry_seeds",
+        std::to_string(g_vehicle_shadow_geometry_seed_count)},
+       {"seed_duplicates",
+        std::to_string(g_vehicle_shadow_geometry_seed_duplicates)},
+       {"seed_overflow",
+        std::to_string(g_vehicle_shadow_geometry_seed_overflow)},
+       {"classification", "capture_proven_dynamic_vehicle_epoch"},
+       {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
+       {"guest_payload_capture", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  ResetVehicleShadowGeometryStaging();
+}
+
+bool VehicleShadowGeometrySharesVertexResource(
+    const VehicleShadowGeometryIdentity &seed,
+    const VehicleShadowGeometryIdentity &candidate) {
+  for (uint32_t i = 0; i < seed.vertex_binding_count; ++i) {
+    for (uint32_t j = 0; j < candidate.vertex_binding_count; ++j) {
+      if (seed.vertex_addresses[i] &&
+          seed.vertex_addresses[i] == candidate.vertex_addresses[j] &&
+          seed.vertex_sizes[i] == candidate.vertex_sizes[j]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void ObserveVehicleShadowGeometryColorCorrelation(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint64_t prepared_signature,
+    const SemanticPreparedDrawContract &contract) {
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      !g_vehicle_shadow_geometry_seed_count || samples_resolved_target ||
+      !contract.geometry_bounded || !observation.indexed ||
+      !observation.rb_color_mask || !prepared.normalized_color_mask ||
+      !prepared.pixel_shader_hash || observation.viz_query_condition ||
+      (observation.pa_sc_viz_query & 1) || observation.vertex_memexport) {
+    return;
+  }
+  ++g_vehicle_shadow_geometry_color_draws_examined;
+  const VehicleShadowGeometryIdentity candidate =
+      BuildVehicleShadowGeometryIdentity(observation, contract);
+  size_t matched_seed = g_vehicle_shadow_geometry_seed_count;
+  bool full_geometry_match = false;
+  for (size_t i = 0; i < g_vehicle_shadow_geometry_seed_count; ++i) {
+    const VehicleShadowGeometryIdentity &seed =
+        g_vehicle_shadow_geometry_seeds[i];
+    if (SameVehicleShadowGeometryIdentity(seed, candidate)) {
+      matched_seed = i;
+      full_geometry_match = true;
+      break;
+    }
+    if (matched_seed == g_vehicle_shadow_geometry_seed_count &&
+        seed.index_buffer_address == candidate.index_buffer_address &&
+        seed.index_buffer_length == candidate.index_buffer_length &&
+        VehicleShadowGeometrySharesVertexResource(seed, candidate)) {
+      matched_seed = i;
+    }
+  }
+  if (matched_seed == g_vehicle_shadow_geometry_seed_count) {
+    return;
+  }
+  ++g_vehicle_shadow_geometry_color_draws_matched;
+  if (full_geometry_match) {
+    ++g_vehicle_shadow_geometry_full_matches;
+  } else {
+    ++g_vehicle_shadow_geometry_partial_matches;
+  }
+  VehicleShadowGeometryCorrelationEntry *available = nullptr;
+  for (VehicleShadowGeometryCorrelationEntry &entry :
+       g_vehicle_shadow_geometry_correlations) {
+    if (!entry.occupied) {
+      available = &entry;
+      break;
+    }
+    if (entry.prepared_signature == prepared_signature &&
+        entry.seed_index == matched_seed &&
+        entry.full_geometry_match == full_geometry_match) {
+      ++entry.draws;
+      entry.last_frame = observation.frame_sequence;
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_shadow_geometry_correlation_overflow;
+    return;
+  }
+  *available = {
+      .prepared_signature = prepared_signature,
+      .template_key = contract.template_key,
+      .geometry_resource_hash = contract.geometry_resource_hash,
+      .texture_resource_hash = contract.texture_resource_hash,
+      .prepared_pipeline_hash = contract.prepared_pipeline_hash,
+      .draws = 1,
+      .first_frame = observation.frame_sequence,
+      .last_frame = observation.frame_sequence,
+      .seed_index = uint32_t(matched_seed),
+      .full_geometry_match = full_geometry_match,
+      .occupied = true,
+  };
+  ++g_vehicle_shadow_geometry_correlation_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_geometry_correlation",
+      {{"prepared_signature", fmt::format("{:016X}", prepared_signature)},
+       {"template_key", fmt::format("{:016X}", contract.template_key)},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}", contract.geometry_resource_hash)},
+       {"texture_resource_hash",
+        fmt::format("{:016X}", contract.texture_resource_hash)},
+       {"prepared_pipeline_hash",
+        fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+       {"seed_index", std::to_string(matched_seed)},
+       {"match", full_geometry_match
+                     ? "exact_geometry_resource_set"
+                     : "exact_index_and_shared_vertex_resource"},
+       {"classification", "vehicle_color_geometry_correlation_candidate"},
+       {"guest_payload_capture", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void RecordStaticWorldPreparedLayout(
     const rex::system::GraphicsDrawObservation &observation,
     const StaticWorldDrawIdentity &identity,
@@ -19397,6 +19700,8 @@ void ObservePreparedDraw(
     CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
+    const SemanticPreparedDrawContract prepared_semantic_contract =
+        BuildSemanticPreparedDrawContract(sample, observation);
     RecordPreparedCommandBufferLineage(prepared_signature, sample);
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
@@ -19413,6 +19718,7 @@ void ObservePreparedDraw(
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_sample = sample;
+    g_isolated_draw.prepared_semantic_contract = prepared_semantic_contract;
     g_isolated_draw.prepared_shadow_depth_seed_eligible =
         IsExactShadowDepthIsolatedDraw(
             sample, g_pending_candidate.samples_resolved_target,
@@ -19545,6 +19851,9 @@ void ObservePreparedDraw(
         }
       }
     }
+    ObserveVehicleShadowGeometryColorCorrelation(
+        sample, g_pending_candidate.samples_resolved_target, observation,
+        prepared_signature, prepared_semantic_contract);
     if (g_isolated_draw.shadow_depth_mode ||
         g_isolated_draw.shadow_depth_batch_mode) {
       if (g_isolated_draw.prepared_shadow_depth_seed_eligible) {
@@ -20697,6 +21006,7 @@ void CompleteIsolatedShadowDepthBatch(
   if (!recorded) {
     g_isolated_draw.shadow_depth_batch_active = false;
     g_isolated_draw.shadow_depth_batch_backend_ready = false;
+    ResetVehicleShadowGeometryStaging();
     FailClosedContinuousShadowDepth("backend_replay_failure");
   }
   if (g_isolated_draw.shadow_depth_batch_draws !=
@@ -20708,6 +21018,9 @@ void CompleteIsolatedShadowDepthBatch(
     g_isolated_draw.shadow_depth_batch_last_completed_frame =
         g_isolated_draw.shadow_depth_batch_frame;
     g_isolated_draw.shadow_depth_batch_capture_completed = true;
+    CommitVehicleShadowGeometryEpoch();
+  } else {
+    ResetVehicleShadowGeometryStaging();
   }
   g_isolated_draw.shadow_depth_batch_active = false;
   pinyon_shift::diagnostics::RecordEvent(
@@ -21541,6 +21854,7 @@ void RequestIsolatedDraw(
         g_isolated_draw.shadow_depth_batch_active = false;
         g_isolated_draw.shadow_depth_batch_backend_ready = false;
         g_isolated_draw.shadow_depth_batch_draws = 0;
+        ResetVehicleShadowGeometryStaging();
         FailClosedContinuousShadowDepth("non_contiguous_epoch");
         if (g_isolated_draw.shadow_depth_continuous_failed_closed) {
           return;
@@ -21569,9 +21883,12 @@ void RequestIsolatedDraw(
       g_isolated_draw.shadow_depth_batch_backend_ready = false;
       g_isolated_draw.shadow_depth_batch_frame = g_isolated_draw.frame;
       g_isolated_draw.shadow_depth_batch_draws = 0;
+      ResetVehicleShadowGeometryStaging();
       ++g_isolated_draw.shadow_depth_batches_started;
     }
     ++g_isolated_draw.shadow_depth_batch_draws;
+    StageVehicleShadowGeometry(g_isolated_draw.prepared_sample,
+                               g_isolated_draw.prepared_semantic_contract);
     ++g_isolated_draw.shadow_depth_batch_requests;
     g_isolated_draw.shadow_depth_batch_last_draw = g_isolated_draw.draw;
     const bool completing_batch =
@@ -24995,6 +25312,54 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"output_authority", "xenos"},
          {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    const bool seed_accounting_complete =
+        g_vehicle_shadow_geometry_seed_count +
+                g_vehicle_shadow_geometry_seed_duplicates +
+                g_vehicle_shadow_geometry_seed_overflow ==
+            g_vehicle_shadow_geometry_epochs_committed *
+                kShadowDepthBatchDrawCount;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_geometry_summary",
+        {{"status", g_vehicle_shadow_geometry_epochs_committed
+                        ? "qualified_epoch_observed"
+                        : "no_qualified_epoch"},
+         {"epochs_committed",
+          std::to_string(g_vehicle_shadow_geometry_epochs_committed)},
+         {"staged_draws",
+          std::to_string(g_vehicle_shadow_geometry_staged_draws)},
+         {"unique_geometry_seeds",
+          std::to_string(g_vehicle_shadow_geometry_seed_count)},
+         {"seed_duplicates",
+          std::to_string(g_vehicle_shadow_geometry_seed_duplicates)},
+         {"seed_overflow",
+          std::to_string(g_vehicle_shadow_geometry_seed_overflow)},
+         {"seed_capacity",
+          std::to_string(kVehicleShadowGeometrySeedCapacity)},
+         {"color_draws_examined",
+          std::to_string(g_vehicle_shadow_geometry_color_draws_examined)},
+         {"color_draws_matched",
+          std::to_string(g_vehicle_shadow_geometry_color_draws_matched)},
+         {"full_geometry_matches",
+          std::to_string(g_vehicle_shadow_geometry_full_matches)},
+         {"index_vertex_matches",
+          std::to_string(g_vehicle_shadow_geometry_partial_matches)},
+         {"correlations",
+          std::to_string(g_vehicle_shadow_geometry_correlation_count)},
+         {"correlation_overflow",
+          std::to_string(g_vehicle_shadow_geometry_correlation_overflow)},
+         {"correlation_capacity",
+          std::to_string(kVehicleShadowGeometryCorrelationCapacity)},
+         {"seed_accounting_complete",
+          seed_accounting_complete ? "true" : "false"},
+         {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
+         {"classification", "measurement_only_candidate"},
+         {"object_identity_proven", "false"},
+         {"mesh_material_contract_proven", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
   }
   if (g_isolated_draw.shadow_depth_batch_mode) {
     const uint64_t request_outcomes =

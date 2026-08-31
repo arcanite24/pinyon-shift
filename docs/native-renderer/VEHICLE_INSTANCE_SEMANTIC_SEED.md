@@ -429,3 +429,44 @@ python .\tools\inventory-native-renderer-vehicle-vtables.py `
   --generated-root .local\generated\default `
   --output .local\qualification\native-renderer-vehicle-vtables.json
 ```
+
+## Capture-proven shadow geometry ingress
+
+The next C4 route deliberately leaves the exhausted title-object searches
+behind. The independently qualified shadow-depth batch already identifies one
+exact, consecutive 80-draw dynamic-vehicle atlas epoch: 64 primary draws,
+followed by 12 secondary and four tertiary draws in a fixed order. A new
+default-off observer stages only the bounded geometry resource identities of
+those draws. Nothing is promoted until the native backend reports the complete
+80-draw epoch recorded successfully; interruption or replay failure discards
+the entire staging set.
+
+After that boundary, the observer compares ordinary indexed color draws with
+the committed set. It records either an exact full geometry-resource match or
+an exact index-buffer identity plus at least one exact shared vertex resource.
+The resulting prepared signature, pipeline/template hashes, geometry hash, and
+texture hash form a bounded candidate table for the player-vehicle color
+bridge. This is a cross-pass resource correlation, not yet object identity:
+transform, wheel, livery, traffic, and complete material semantics remain open.
+
+The mode captures no guest payload, submits no native color draw, preserves all
+Xenos draws, and cannot suppress anything. Qualify it in a representative
+driving session with:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -ShadowDepthBatch `
+  -VehicleShadowGeometryCorrelation `
+  -IsolatedDrawDir .local\qualification\vehicle-shadow-geometry
+
+python .\tools\summarize-native-renderer-vehicle-shadow-geometry.py `
+  $eventLog `
+  --output .local\qualification\native-renderer-vehicle-shadow-geometry.json
+```
+
+The qualifier requires a backend-confirmed full epoch, exact seed and
+correlation accounting, zero table overflow, unchanged Xenos authority, and no
+native draw or suppression. A non-empty correlation set is only a working C4
+color-ingress candidate; it is not native admission.
