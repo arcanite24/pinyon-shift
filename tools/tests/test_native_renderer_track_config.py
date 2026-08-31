@@ -68,8 +68,16 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             document["capture_contract"]["track_arguments"],
         )
         self.assertEqual(
-            "exact_runtime_copy_override_8259C834",
+            "exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC",
             document["capture_contract"]["runtime_control"],
+        )
+        self.assertEqual(
+            {
+                "fast_track_render": False,
+                "road_detail_blur": False,
+                "track_command_buffers": True,
+            },
+            document["capture_contract"]["modes"]["noroaddetailblur"],
         )
         self.assertEqual(
             6297,
@@ -92,7 +100,13 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             encoding="utf-8"
         )
         launch = (ROOT / "tools/launch-preview.ps1").read_text(encoding="utf-8")
-        self.assertIn("[ValidateSet('baseline', 'fasttrackrender')]", capture)
+        for mode in (
+            "baseline",
+            "fasttrackrender",
+            "noroaddetailblur",
+            "notrackcommandbuffers",
+        ):
+            self.assertIn(f"'{mode}'", capture)
         self.assertNotIn("--cl=", capture)
         self.assertIn(
             "$PSBoundParameters.ContainsKey('TrackRenderMode')", capture
@@ -122,8 +136,15 @@ class NativeRendererTrackConfigTests(unittest.TestCase):
             self.assertIn(f'name = "{name}"', analysis)
             self.assertIn(f"void {name}", hooks)
         self.assertIn('"native_renderer.discovery.track_render_config"', hooks)
-        self.assertIn('"exact_runtime_copy_override_8259C834"', hooks)
-        self.assertIn('r11.u32 = mode == "fasttrackrender" ? 1 : 0;', hooks)
+        self.assertIn(
+            '"exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC"',
+            hooks,
+        )
+        self.assertIn("ExpectedTrackRenderValues(TrackRenderModeMarker())", hooks)
+        self.assertIn("r11.u32 = expected.road_detail_blur;", hooks)
+        self.assertIn("r11.u32 = expected.track_command_buffers;", hooks)
+        self.assertIn("prepared_candidate_rejection_mask", hooks)
+        self.assertIn('{"mechanical_rejection_mask",', hooks)
         self.assertIn('{"xenos_authority", "true"}', hooks)
         self.assertIn('{"native_draw", "false"}', hooks)
         self.assertIn('{"suppression_allowed", "false"}', hooks)

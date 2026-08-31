@@ -190,6 +190,9 @@ struct TrackRenderConfigurationState {
   std::atomic<uint32_t> fast_track_render{};
   std::atomic<uint32_t> source_fast_track_render{};
   std::atomic<uint32_t> road_detail_blur{};
+  std::atomic<uint32_t> source_road_detail_blur{};
+  std::atomic<uint32_t> track_command_buffers{};
+  std::atomic<uint32_t> source_track_command_buffers{};
   std::atomic<uint32_t> command_line_address{};
   std::atomic<uint32_t> runtime_state_address{};
 };
@@ -207,10 +210,34 @@ std::string TrackRenderModeMarker() {
   }
   std::string marker(value);
   std::free(value);
-  if (marker != "baseline" && marker != "fasttrackrender") {
+  if (marker != "baseline" && marker != "fasttrackrender" &&
+      marker != "noroaddetailblur" && marker != "notrackcommandbuffers") {
     return "invalid";
   }
   return marker;
+}
+
+struct TrackRenderExpectedValues {
+  bool valid = false;
+  uint32_t fast_track_render = 0;
+  uint32_t road_detail_blur = 1;
+  uint32_t track_command_buffers = 1;
+};
+
+TrackRenderExpectedValues ExpectedTrackRenderValues(const std::string &mode) {
+  if (mode == "baseline") {
+    return {.valid = true};
+  }
+  if (mode == "fasttrackrender") {
+    return {.valid = true, .fast_track_render = 1};
+  }
+  if (mode == "noroaddetailblur") {
+    return {.valid = true, .road_detail_blur = 0};
+  }
+  if (mode == "notrackcommandbuffers") {
+    return {.valid = true, .track_command_buffers = 0};
+  }
+  return {};
 }
 
 void ObserveFastTrackRenderConfiguration(uint32_t value,
@@ -231,6 +258,7 @@ void ObserveFastTrackRenderConfiguration(uint32_t value,
 }
 
 void ObserveRoadDetailBlurConfiguration(uint32_t value,
+                                        uint32_t source_value,
                                         uint32_t command_line_address,
                                         uint32_t runtime_state_address) {
   if (TrackRenderModeMarker() == "unmarked") {
@@ -238,6 +266,8 @@ void ObserveRoadDetailBlurConfiguration(uint32_t value,
   }
   g_track_render_configuration.road_detail_blur.store(
       value & 0xFF, std::memory_order_relaxed);
+  g_track_render_configuration.source_road_detail_blur.store(
+      source_value & 0xFF, std::memory_order_relaxed);
   g_track_render_configuration.command_line_address.store(
       command_line_address, std::memory_order_relaxed);
   g_track_render_configuration.runtime_state_address.store(
@@ -245,16 +275,25 @@ void ObserveRoadDetailBlurConfiguration(uint32_t value,
 }
 
 void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
+                                            uint32_t source_enabled,
                                             uint32_t command_line_address,
                                             uint32_t runtime_state_address) {
   const std::string mode = TrackRenderModeMarker();
   if (mode == "unmarked") {
     return;
   }
+  g_track_render_configuration.track_command_buffers.store(
+      enabled & 0xFF, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_command_buffers.store(
+      source_enabled & 0xFF, std::memory_order_relaxed);
   const bool fast_track_render =
       g_track_render_configuration.fast_track_render.load(
           std::memory_order_relaxed) != 0;
-  const bool expected_fast_track_render = mode == "fasttrackrender";
+  const bool road_detail_blur =
+      g_track_render_configuration.road_detail_blur.load(
+          std::memory_order_relaxed) != 0;
+  const bool track_command_buffers = (enabled & 0xFF) != 0;
+  const TrackRenderExpectedValues expected = ExpectedTrackRenderValues(mode);
   const uint32_t observed_command_line_address =
       g_track_render_configuration.command_line_address.load(
           std::memory_order_relaxed);
@@ -266,8 +305,10 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
       observed_runtime_state_address == runtime_state_address;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.track_render_config",
-      {{"status", mode != "invalid" && address_consistent &&
-                          fast_track_render == expected_fast_track_render
+      {{"status", expected.valid && address_consistent &&
+                          fast_track_render == expected.fast_track_render &&
+                          road_detail_blur == expected.road_detail_blur &&
+                          track_command_buffers == expected.track_command_buffers
                       ? "complete"
                       : "mismatch_fail_closed"},
        {"mode", mode},
@@ -278,16 +319,23 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
             ? "true"
             : "false"},
        {"road_detail_blur",
-        g_track_render_configuration.road_detail_blur.load(
+        road_detail_blur ? "true" : "false"},
+       {"source_road_detail_blur",
+        g_track_render_configuration.source_road_detail_blur.load(
             std::memory_order_relaxed)
             ? "true"
             : "false"},
-       {"track_command_buffers", (enabled & 0xFF) ? "true" : "false"},
+       {"track_command_buffers", track_command_buffers ? "true" : "false"},
+       {"source_track_command_buffers",
+        g_track_render_configuration.source_track_command_buffers.load(
+            std::memory_order_relaxed)
+            ? "true"
+            : "false"},
        {"address_consistent", address_consistent ? "true" : "false"},
        {"command_line_address",
         fmt::format("{:08X}", command_line_address)},
        {"runtime_state_address", fmt::format("{:08X}", runtime_state_address)},
-       {"control", "exact_runtime_copy_override_8259C834"},
+       {"control", "exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC"},
        {"classification", "title_track_render_differential_control"},
        {"xenos_authority", "true"},
        {"native_draw", "false"},
@@ -5976,6 +6024,7 @@ struct IsolatedDrawState {
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  uint32_t prepared_candidate_rejection_mask = 0;
   bool prepared_shadow_depth_seed_eligible = false;
   bool prepared_shadow_depth_batch_member = false;
   ShadowDepthBatchFamily prepared_shadow_depth_batch_family =
@@ -15495,12 +15544,16 @@ void ObservePreparedDraw(
         (g_isolated_draw.shadow_depth_mode ||
          g_isolated_draw.shadow_depth_batch_mode) &&
         !g_isolated_draw.shadow_depth_prototype_mode;
+    g_isolated_draw.prepared_candidate_rejection_mask =
+        dedicated_shadow_mode
+            ? 0
+            : IsolatedDrawMechanicalRejectionMask(
+                  sample, g_pending_candidate.samples_resolved_target,
+                  observation);
     g_isolated_draw.prepared_candidate_eligible =
         dedicated_shadow_mode
             ? g_isolated_draw.prepared_shadow_depth_seed_eligible
-            : IsIsolatedDrawEligible(
-                  sample, g_pending_candidate.samples_resolved_target,
-                  observation);
+            : !g_isolated_draw.prepared_candidate_rejection_mask;
     if (g_isolated_draw.shadow_depth_batch_mode) {
       g_isolated_draw.prepared_shadow_depth_batch_family =
           ClassifyShadowDepthBatchMemberDraw(
@@ -17811,6 +17864,9 @@ void RequestIsolatedDraw(
          {"native_draw", "false"},
          {"mechanically_eligible",
           g_isolated_draw.prepared_candidate_eligible ? "true" : "false"},
+         {"mechanical_rejection_mask",
+          fmt::format("{:08X}",
+                      g_isolated_draw.prepared_candidate_rejection_mask)},
          {"fresh_visibility_candidate",
           g_isolated_draw.prepared_visibility_candidate_fresh ? "true"
                                                               : "false"},
@@ -19626,6 +19682,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       0, std::memory_order_relaxed);
   g_track_render_configuration.road_detail_blur.store(
       0, std::memory_order_relaxed);
+  g_track_render_configuration.source_road_detail_blur.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.track_command_buffers.store(
+      0, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_command_buffers.store(
+      0, std::memory_order_relaxed);
   g_track_render_configuration.command_line_address.store(
       0, std::memory_order_relaxed);
   g_track_render_configuration.runtime_state_address.store(
@@ -21242,8 +21304,9 @@ void PinyonShiftObserveFastTrackRenderConfiguration(
     PPCRegister &r11, PPCRegister &r30, PPCRegister &r31) {
   const uint32_t source_value = r11.u32 & 0xFF;
   const std::string mode = TrackRenderModeMarker();
-  if (mode == "baseline" || mode == "fasttrackrender") {
-    r11.u32 = mode == "fasttrackrender" ? 1 : 0;
+  const TrackRenderExpectedValues expected = ExpectedTrackRenderValues(mode);
+  if (expected.valid) {
+    r11.u32 = expected.fast_track_render;
   }
   ObserveFastTrackRenderConfiguration(r11.u32, source_value, r30.u32,
                                       r31.u32);
@@ -21251,12 +21314,26 @@ void PinyonShiftObserveFastTrackRenderConfiguration(
 
 void PinyonShiftObserveRoadDetailBlurConfiguration(
     PPCRegister &r11, PPCRegister &r30, PPCRegister &r31) {
-  ObserveRoadDetailBlurConfiguration(r11.u32, r30.u32, r31.u32);
+  const uint32_t source_value = r11.u32 & 0xFF;
+  const TrackRenderExpectedValues expected =
+      ExpectedTrackRenderValues(TrackRenderModeMarker());
+  if (expected.valid) {
+    r11.u32 = expected.road_detail_blur;
+  }
+  ObserveRoadDetailBlurConfiguration(r11.u32, source_value, r30.u32,
+                                     r31.u32);
 }
 
 void PinyonShiftObserveTrackCommandBufferConfiguration(
     PPCRegister &r11, PPCRegister &r30, PPCRegister &r31) {
-  ObserveTrackCommandBufferConfiguration(r11.u32, r30.u32, r31.u32);
+  const uint32_t source_value = r11.u32 & 0xFF;
+  const TrackRenderExpectedValues expected =
+      ExpectedTrackRenderValues(TrackRenderModeMarker());
+  if (expected.valid) {
+    r11.u32 = expected.track_command_buffers;
+  }
+  ObserveTrackCommandBufferConfiguration(r11.u32, source_value, r30.u32,
+                                         r31.u32);
 }
 
 void PinyonShiftObserveProceduralModelConstructorExit() {

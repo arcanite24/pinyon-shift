@@ -1,4 +1,4 @@
-"""Compare exact prepared title families across baseline/fast-track sessions."""
+"""Compare exact prepared title families across isolated track modes."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-differential.v1"
+SCHEMA = "pinyon-shift.native-renderer-track-differential.v2"
 MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES = 5.0
 MINIMUM_MATERIAL_RELATIVE_DELTA = 0.05
 MAXIMUM_CHANGED_FAMILY_DETAILS = 128
@@ -17,6 +17,12 @@ CONFIG = "native_renderer.discovery.track_render_config"
 DRAW_WINDOW = "native_renderer.census.draw_window"
 PROVENANCE = "native_renderer.discovery.title_provenance_entry"
 INSTALLED = "native_renderer.census.installed"
+MODE_VALUES = {
+    "baseline": (False, True, True),
+    "fasttrackrender": (True, True, True),
+    "noroaddetailblur": (False, False, True),
+    "notrackcommandbuffers": (False, True, False),
+}
 
 
 def read_events(paths):
@@ -65,6 +71,8 @@ def session_events(events, requested_session=None):
 
 
 def summarize_side(events, expected_mode, requested_session=None):
+    if expected_mode not in MODE_VALUES:
+        raise ValueError(f"unsupported track mode: {expected_mode}")
     session, selected = session_events(events, requested_session)
     configs = [event for event in selected if event.get("event") == CONFIG]
     starts = [event for event in selected if event.get("event") == "process.start"]
@@ -80,8 +88,18 @@ def summarize_side(events, expected_mode, requested_session=None):
     failures = []
     if config.get("status") != "complete" or config.get("mode") != expected_mode:
         failures.append("title did not confirm the requested track mode")
-    if boolean(config, "fast_track_render") != (expected_mode == "fasttrackrender"):
-        failures.append("fast-track runtime value does not match the requested mode")
+    expected_fast, expected_road_blur, expected_command_buffers = MODE_VALUES[
+        expected_mode
+    ]
+    for field, expected, label in (
+        ("fast_track_render", expected_fast, "fast-track"),
+        ("road_detail_blur", expected_road_blur, "road-detail blur"),
+        ("track_command_buffers", expected_command_buffers, "track command-buffer"),
+    ):
+        if boolean(config, field) != expected:
+            failures.append(
+                f"{label} runtime value does not match the requested mode"
+            )
     if not boolean(config, "address_consistent"):
         failures.append("command-line/runtime render-state identity drifted")
     if (
@@ -167,12 +185,18 @@ def summarize_side(events, expected_mode, requested_session=None):
     }
 
 
-def build(baseline_events, track_events, baseline_session=None, track_session=None):
+def build(
+    baseline_events,
+    track_events,
+    baseline_session=None,
+    track_session=None,
+    track_mode="fasttrackrender",
+):
     baseline = summarize_side(baseline_events, "baseline", baseline_session)
-    track = summarize_side(track_events, "fasttrackrender", track_session)
+    track = summarize_side(track_events, track_mode, track_session)
     failures = [
         *(f"baseline: {failure}" for failure in baseline["failures"]),
-        *(f"fasttrackrender: {failure}" for failure in track["failures"]),
+        *(f"{track_mode}: {failure}" for failure in track["failures"]),
     ]
     if baseline["session"] == track["session"]:
         failures.append("baseline and fast-track sessions are identical")
@@ -195,9 +219,9 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
             {
                 "prepared_signature": signature,
                 "baseline_calls": left_calls,
-                "fasttrackrender_calls": right_calls,
+                f"{track_mode}_calls": right_calls,
                 "baseline_calls_per_1000_frames": round(left_rate, 3),
-                "fasttrackrender_calls_per_1000_frames": round(right_rate, 3),
+                f"{track_mode}_calls_per_1000_frames": round(right_rate, 3),
                 "delta_calls_per_1000_frames": round(right_rate - left_rate, 3),
                 "vertex_shaders": sorted(metadata["vertex_shaders"]),
                 "pixel_shaders": sorted(metadata["pixel_shaders"]),
@@ -228,11 +252,11 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
         delta = abs(row["delta_calls_per_1000_frames"])
         peak = max(
             row["baseline_calls_per_1000_frames"],
-            row["fasttrackrender_calls_per_1000_frames"],
+            row[f"{track_mode}_calls_per_1000_frames"],
         )
         relative_delta = delta / peak if peak else 0.0
         appeared_or_disappeared = (
-            row["baseline_calls"] == 0 or row["fasttrackrender_calls"] == 0
+            row["baseline_calls"] == 0 or row[f"{track_mode}_calls"] == 0
         )
         if delta >= MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES and (
             appeared_or_disappeared
@@ -256,7 +280,7 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
                 "frames": baseline["frames"],
                 "draws": baseline["draws"],
             },
-            "fasttrackrender": {
+            track_mode: {
                 "session": track["session"],
                 "frames": track["frames"],
                 "draws": track["draws"],
@@ -274,6 +298,7 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
         },
         "qualification": {
             "title_track_render_delta_proved": not failures,
+            "isolated_mode": track_mode,
             "terrain_road_semantic_identity_proved": False,
             "native_admission_allowed": False,
             "suppression_allowed": False,
@@ -289,17 +314,32 @@ def build(baseline_events, track_events, baseline_session=None, track_session=No
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", required=True, type=pathlib.Path, nargs="+")
-    parser.add_argument("--fasttrackrender", required=True, type=pathlib.Path, nargs="+")
+    variant = parser.add_mutually_exclusive_group(required=True)
+    variant.add_argument("--fasttrackrender", type=pathlib.Path, nargs="+")
+    variant.add_argument("--variant", type=pathlib.Path, nargs="+")
+    parser.add_argument(
+        "--variant-mode",
+        choices=tuple(mode for mode in MODE_VALUES if mode != "baseline"),
+    )
     parser.add_argument("--baseline-session")
     parser.add_argument("--fasttrackrender-session")
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
+        if args.fasttrackrender:
+            variant_paths = args.fasttrackrender
+            variant_mode = "fasttrackrender"
+        else:
+            variant_paths = args.variant
+            if not args.variant_mode:
+                raise ValueError("--variant-mode is required with --variant")
+            variant_mode = args.variant_mode
         document = build(
             read_events(args.baseline),
-            read_events(args.fasttrackrender),
+            read_events(variant_paths),
             args.baseline_session,
             args.fasttrackrender_session,
+            variant_mode,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

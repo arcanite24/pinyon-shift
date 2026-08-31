@@ -25,12 +25,12 @@ identity drifts. The relevant title fields are:
 The runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
 command-line parameter object. The retail startup path does not consume
 ReXGlue's `ExLoadedCommandLine` bridge for this object. The census therefore
-uses an opt-in hook at the exact `fasttrackrender` copy instruction
-(`0x8259C834`) to write `false` for the baseline and `true` for the paired
-fast-track session. It changes only that title runtime byte and records its
-original value. This proves a bounded title configuration path; it does not
-yet prove which prepared signatures are terrain, road surface, track props, or
-an exceptional dependent family.
+uses opt-in hooks at the exact `fasttrackrender`, `renderroaddetailblur`, and
+transformed `notrackcommandbuffers` destination stores (`0x8259C834`,
+`0x8259C89C`, and `0x8259C8DC`). It forces a deterministic one-switch mode and
+records every original value. This proves a bounded title configuration path;
+it does not yet prove which prepared signatures are terrain, road surface,
+track props, or an exceptional dependent family.
 
 Generate the payload-free static report with:
 
@@ -43,13 +43,22 @@ python tools/discover-native-renderer-track-config.py `
 
 ## Paired runtime census
 
-The census wrapper accepts `-TrackRenderMode baseline` or
-`-TrackRenderMode fasttrackrender`. The exact runtime-copy hook forces only the
-isolated `fasttrackrender` byte; it does not enable the broader `perfmode`
-group. Explicitly supplying either mode also arms the exact prepared-draw
-provenance required by the paired report. Run the
-same AppData save and marked scene for both modes, then compare exact prepared
-signatures and semantic submission lineage from the two logs.
+The census wrapper accepts four deterministic modes. Each mode forces all
+three proved booleans at their exact runtime-copy instruction so only one
+value differs from the baseline:
+
+| Mode | Fast track | Road-detail blur | Track command buffers |
+| --- | --- | --- | --- |
+| `baseline` | off | on | on |
+| `fasttrackrender` | on | on | on |
+| `noroaddetailblur` | off | off | on |
+| `notrackcommandbuffers` | off | on | off |
+
+These controls do not enable the broader `perfmode` group. Explicitly
+supplying a mode also arms the exact prepared-draw provenance required by the
+paired report. Run the same AppData save and marked scene for the baseline and
+one variant, then compare exact prepared signatures and semantic submission
+lineage from the two logs.
 
 ```powershell
 $stateRoot = Join-Path $env:LOCALAPPDATA `
@@ -76,6 +85,10 @@ python tools/summarize-native-renderer-track-differential.py `
   --fasttrackrender <fasttrackrender-jsonl> `
   --output .local/qualification/native-renderer-track-differential.json
 ```
+
+For either additional discriminator, replace `--fasttrackrender` with
+`--variant <jsonl>` and pass `--variant-mode noroaddetailblur` or
+`--variant-mode notrackcommandbuffers`.
 
 The report requires distinct sessions from the same executable and patch set,
 one shared marked scene, at least 600 frames per side, zero signature overflow,
@@ -106,3 +119,38 @@ terrain or roads: menu/loading variance and dependent families are still
 present in the session-wide aggregates. Native admission therefore remains
 disabled until representative candidates receive visual identification,
 isolated replay, and open-world/race stability evidence.
+
+## Candidate reduction checkpoint
+
+The first exact `fasttrackrender`-only probe used prepared signature
+`044DA8CCB07E4236` in the same stationary festival scene. The title lineage
+was repeatable, but isolated admission failed closed with mechanical rejection
+mask `00004000` (`render_targets`). The paired visibility census likewise found
+no materially changed `fasttrackrender` family that satisfied the current
+color replay contract. This shows that the strongest fast-track deltas are
+render-to-texture or dependent work, not yet proof of a visible terrain/road
+color family.
+
+The matched follow-up matrix completed on executable
+`EDC2C531BD61565ACFFCA897DA1FF88DF282F383468D331E404DF701E2BB8B7B`:
+
+- baseline `20260831T000126Z-p16032`: 6,265 frames and 9,313,318 draws;
+- `noroaddetailblur` `20260831T000504Z-p27532`: 6,890 frames and
+  11,685,250 draws, with 317 material deltas after 491 jitter rows; and
+- `notrackcommandbuffers` `20260831T000916Z-p8992`: 5,885 frames and
+  8,040,263 draws, with 314 material deltas after 280 jitter rows.
+
+All three controls applied their exact expected values and exited normally.
+Both isolated reports prove that the title switches affect submitted work,
+but joining every material delta to the semantic-visibility candidate census
+found zero changed families with mechanical rejection mask `00000000`.
+Consequently neither discriminator currently identifies a safe visible color
+replay. Xenos remains authoritative and native admission remains disabled.
+
+The next bounded lead is the independent floating `trackfardistance` control.
+Its command-line field is known, but its exact runtime consumer still needs to
+be proved before another paired capture. If that control also resolves only
+dependent work, C1 returns to the semantic world-section/mesh ingress rather
+than spending more captures on title-wide frequency deltas. The runtime now
+emits the exact rejection mask on rejected isolated draws, so either path can
+discard unsafe candidates without an extra decoding run.
