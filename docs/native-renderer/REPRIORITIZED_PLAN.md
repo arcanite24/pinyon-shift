@@ -274,6 +274,13 @@ requires explicit checkpoint opt-in, records session exit as unproved, and
 always prefers the unique final summary. This preserves evidence from long C1/C2
 runs without weakening the clean-shutdown admission gate.
 
+Combined qualification checkpoint: the payload-free C1/C2 batch gate now
+requires the exact track join, complete static-world join, catalog-backed
+instance classification, and swap-committed workset reports to describe one
+clean final session. It proves neither manual visual acceptance nor race and
+streaming coverage. The contract and command are documented in
+[`C1_C2_BATCH_QUALIFICATION.md`](C1_C2_BATCH_QUALIFICATION.md).
+
 Next runtime checkpoint: the old typed-render-item evidence is now correctly
 classified by RTTI as the unified track render-model instance/model pair. A
 balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)
