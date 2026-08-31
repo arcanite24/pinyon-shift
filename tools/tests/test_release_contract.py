@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 102)
+        self.assertEqual(len(patches), 103)
         self.assertEqual(
             patches[-1].name,
-            "0102-d3d12-track-retained-preview-logical-extent.patch",
+            "0103-codegen-midasm-link-register-argument.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:

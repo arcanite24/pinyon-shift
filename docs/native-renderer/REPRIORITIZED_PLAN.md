@@ -682,11 +682,13 @@ retained private pass remains the stable geometry/output harness throughout.
 Typed constant-upload implementation checkpoint: the exact generic title
 writer at `82435E78` now feeds a bounded 8,192-entry recent-upload ledger. Each
 entry retains its destination register range, title source/destination
-addresses, and semantic payload hash without exporting constant values. Every
+addresses, exact caller return address, and semantic payload hash without
+exporting constant values. Every
 exact vehicle color family joins its observed vertex registers to uploads no
 more than one frame old by exact range and hash. The v9 qualifier requires
 complete upload/outcome accounting and recognizes a 30-family bridge only
-when every family matches on every draw with a stable register range. Runtime
+when every family matches on every draw with a stable caller and register
+range. Runtime
 proof is deliberately batched with the next substantial C4 slice; the contract
 is documented in
 [`VEHICLE_TYPED_CONSTANT_UPLOAD.md`](VEHICLE_TYPED_CONSTANT_UPLOAD.md).

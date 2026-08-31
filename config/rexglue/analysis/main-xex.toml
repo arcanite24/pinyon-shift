@@ -365,7 +365,7 @@ registers = ["r5", "r22"]
 [[midasm_hook]]
 address = 0x82435E78
 name = "PinyonShiftObserveVehicleTypedConstantUpload"
-registers = ["r3", "r4", "r5", "r6"]
+registers = ["r3", "r4", "r5", "r6", "lr"]
 
 [[midasm_hook]]
 address = 0x8243646C

@@ -15,6 +15,7 @@ A read-only entry hook now records a bounded recent-upload ledger. Each valid
 entry retains only:
 
 - the frame and monotonic observation sequence;
+- the exact caller return address supplied by the guest link register;
 - destination buffer and source addresses;
 - destination register range; and
 - a semantic hash of that exact range and payload.
@@ -32,11 +33,16 @@ register in the uploaded range to exist in the prepared draw and the semantic
 payload hash to agree exactly. The newest exact upload wins when repeated
 writes carry the same range and values.
 
-Per-family accounting records exact matches, misses, register/count stability,
-and source/destination address variation. The v9 qualifier recognizes a stable
-typed-upload candidate only when every draw in a family matches and its
-register range never changes. A complete bridge candidate requires all 30
-families to satisfy that rule.
+Per-family accounting records exact matches, misses, caller and register/count
+stability, and source/destination address variation. The v9 qualifier
+recognizes a stable typed-upload candidate only when every draw in a family
+matches and its caller and register range never change. A complete bridge
+candidate requires all 30 families to satisfy that rule.
+
+ReXGlue patch `0103-codegen-midasm-link-register-argument.patch` exposes the
+guest link register as an optional read-only mid-assembly hook argument. This
+avoids 82 duplicated callsite hooks while retaining the exact `bl` return
+address for offline title-function resolution.
 
 This proves which typed writes feed the prepared vehicle draws. It does not by
 itself convert reference-space constants to a world transform or label a

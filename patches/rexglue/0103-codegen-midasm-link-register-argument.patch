@@ -1,0 +1,28 @@
+diff --git a/src/codegen/builders/context.cpp b/src/codegen/builders/context.cpp
+--- a/src/codegen/builders/context.cpp
++++ b/src/codegen/builders/context.cpp
+@@ -416,6 +416,10 @@ void BuilderContext::call_midasm_hook(uint32_t address) {
+       case 'x':
+         out += xer();
+         break;
++      case 'l':
++        if (reg == "lr")
++          out += "ctx.lr";
++        break;
+       case 'r':
+         if (reg == "reserved")
+           out += reserved();
+diff --git a/src/codegen/function_graph.cpp b/src/codegen/function_graph.cpp
+--- a/src/codegen/function_graph.cpp
++++ b/src/codegen/function_graph.cpp
+@@ -466,6 +466,10 @@ void FunctionGraph::EmitFunctions(const std::filesystem::path& outputDir) {
+             case 'x':
+               emit_print(out, "PPCXERRegister& xer");
+               break;
++            case 'l':
++              if (reg == "lr")
++                emit_print(out, "uint64_t& lr");
++              break;
+             case 'r':
+               emit_print(out, "PPCRegister& {}", reg);
+               break;

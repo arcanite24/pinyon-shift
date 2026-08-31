@@ -26,7 +26,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             {
                 "event": MODULE.CONFIG_EVENT,
                 "status": "armed",
-                "typed_constant_upload_hook": "82435E78:r3,r4,r5,r6",
+                "typed_constant_upload_hook": "82435E78:r3,r4,r5,r6,lr",
                 "typed_constant_upload_contract": "exact_register_range_and_payload_hash",
                 "typed_constant_upload_capacity": "8192",
                 "typed_constant_upload_maximum_age_frames": "1",
@@ -119,10 +119,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_vector_count_variations": "0",
                 "typed_upload_source_address_variations": "2",
                 "typed_upload_buffer_address_variations": "0",
+                "typed_upload_caller_variations": "0",
                 "typed_upload_start_register": "208",
                 "typed_upload_vector_count": "4",
                 "typed_upload_source_address": "7FFF1000",
                 "typed_upload_buffer_address": "50001000",
+                "typed_upload_caller_return_address": "8240EB60",
                 "typed_upload_classification": "stable_exact_typed_upload_candidate",
                 **safety,
             },
@@ -336,6 +338,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertEqual(
             1, report["typed_constant_upload"]["stable_candidate_families"]
         )
+        self.assertEqual(
+            ["8240EB60"],
+            report["typed_constant_upload"]["caller_return_addresses"],
+        )
         self.assertFalse(
             report["qualification"]["complete_typed_upload_bridge_candidate"]
         )
@@ -441,6 +447,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
             encoding="utf-8"
         )
+        analysis = (
+            ROOT / "config/rexglue/analysis/main-xex.toml"
+        ).read_text(encoding="utf-8")
+        lr_patch = (
+            ROOT
+            / "patches/rexglue/0103-codegen-midasm-link-register-argument.patch"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION",
             source,
@@ -467,6 +480,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleColorTypedConstantUpload", source)
         self.assertIn("constant_position_accounting_complete", source)
         self.assertIn("typed_upload_outcome_accounting_complete", source)
+        self.assertIn(
+            'registers = ["r3", "r4", "r5", "r6", "lr"]', analysis
+        )
+        self.assertIn('if (reg == "lr")', lr_patch)
+        self.assertIn('out += "ctx.lr"', lr_patch)
+        self.assertIn('emit_print(out, "uint64_t& lr")', lr_patch)
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
         self.assertIn("[switch]$RetainVehicleShadowColorPass", capture)
