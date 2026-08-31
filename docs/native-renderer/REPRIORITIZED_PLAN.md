@@ -354,6 +354,14 @@ in [`STATIC_WORLD_GRAPH.md`](STATIC_WORLD_GRAPH.md). This closes the generic
 SimpleModel member lineage, not concrete building-versus-prop semantics or
 mesh/material decoding; native admission and suppression remain off.
 
+Presentation-owner checkpoint: exact retail vtable and instruction flow now
+prove `Presentation_Unified::CModelPresentation` as the synchronous owner above
+the SimpleModel resource reference and renderer. Its balanced slot-12 scope
+constructs/binds the renderer and invokes the renderer's exact slot-12 draw
+path. The proof is documented in [`STATIC_WORLD_OWNER.md`](STATIC_WORLD_OWNER.md).
+This closes title presentation ownership, not building-versus-prop identity or
+mesh/material semantics; the passive runtime join remains batched with C1/C2.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
