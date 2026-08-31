@@ -35,9 +35,9 @@ The same path proves a bounded state/material branch:
   resolved through virtual slot 5 and bound with `8244E728`; the alternate
   branch binds the renderer's existing `r22` source through the same helper.
 
-This is enough to observe stable geometry/material binding families. Complete
-vertex-fetch layouts, material parameter blocks, building/prop labels, and
-native admission remain unproved.
+This is enough to observe stable geometry/material binding families. The
+shader-derived layout and parameter boundary is captured separately at the
+prepared draw; building/prop labels and native admission remain unproved.
 
 ## Runtime lineage
 
@@ -52,6 +52,11 @@ qualifier fail closed. No vertex or material payload bytes are exported.
 Runtime evidence remains deferred to the next combined C1/C2 AppData session.
 Until that session qualifies the lineage, this checkpoint is implementation
 complete but not runtime-qualified.
+
+The complete shader-derived vertex-fetch, attribute, and bounded material
+parameter snapshot is handled at the prepared-draw boundary documented in
+[`STATIC_WORLD_PREPARED_LAYOUT.md`](STATIC_WORLD_PREPARED_LAYOUT.md). This
+avoids inventing a duplicate title-side vertex declaration.
 
 ## Generate the report
 

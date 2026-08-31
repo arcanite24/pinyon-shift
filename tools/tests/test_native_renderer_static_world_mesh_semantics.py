@@ -62,6 +62,8 @@ def fixture():
             0x82C4DBE4: "bl 0x8244e728",
             0x82C4DC10: "lwz r4,96(r28)",
             0x82C4DC14: "bl 0x8244d760",
+            0x82C4DC18: "lwz r3,68(r30)",
+            0x82C4DC1C: "bl 0x8240bb40",
             0x82C4DC20: "lwz r3,36(r28)",
             0x82C4DC24: "lwz r4,100(r28)",
             0x82C4DC28: "bl 0x82c48558",
@@ -97,6 +99,11 @@ class StaticWorldMeshSemanticsTests(unittest.TestCase):
         )
         self.assertTrue(
             document["claims"]["optional_material_resource_branch_proved"]
+        )
+        self.assertTrue(
+            document["claims"][
+                "complete_vertex_layout_runtime_boundary_proved"
+            ]
         )
         self.assertFalse(document["claims"]["native_draw_admission_proved"])
 

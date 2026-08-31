@@ -400,8 +400,8 @@ count at 100, the exact primitive-count and scale/bias conversion, and the
 bind/draw/clear sequence. The bounded submodel state and optional mesh material
 resource branches are also locked. See
 [`STATIC_WORLD_MESH_SEMANTICS.md`](STATIC_WORLD_MESH_SEMANTICS.md). Complete
-vertex-fetch layouts and material parameter blocks remain open; no admission
-or suppression is enabled.
+shader-derived layouts and parameter metadata are handled by the prepared-layout
+checkpoint below; no admission or suppression is enabled.
 
 Runtime-lineage checkpoint: those bounded mesh and material-selection fields
 are now sampled only after the exact live member-graph gates and carried through
@@ -409,6 +409,14 @@ the physical PM4 origin into prepared-draw provenance. Separate fail-closed
 observation, read-fault, and packet-origin accounting is ready for the next
 combined C1/C2 AppData qualification. This exports numeric identity only and
 does not enable native admission or suppression.
+
+Prepared-layout checkpoint: the exact mesh-to-PM4 join now snapshots the
+complete bounded shader-derived vertex bindings and attributes plus the float,
+bool, loop, and texture parameter boundary needed by a native implementation.
+The 512-family census and its independent overflow accounting are documented in
+[`STATIC_WORLD_PREPARED_LAYOUT.md`](STATIC_WORLD_PREPARED_LAYOUT.md). Runtime
+qualification remains batched; resource payload bytes are not exported and
+Xenos remains authoritative.
 
 ### C3. Semantic batching, culling, and LOD
 
