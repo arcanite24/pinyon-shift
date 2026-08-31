@@ -39,6 +39,13 @@ details, but those names remain hypotheses until an independent title-owned
 asset/material discriminator agrees. Player identity, native publication, and
 suppression remain closed.
 
+The first independent discriminator is now implemented at the exact retail
+tire/wheel shader-settings binding. See
+[`VEHICLE_ASSET_MATERIAL_BINDING.md`](VEHICLE_ASSET_MATERIAL_BINDING.md). It
+provides a title-owned family seed and an exact backend-signature join when
+the binding addresses appear in draw provenance, but it does not by itself
+label any geometry contribution.
+
 ## Private resource capture
 
 `-VehicleResourceContribution <geometry_resource_hash>` targets one qualified

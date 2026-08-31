@@ -155,6 +155,12 @@ constexpr size_t kVehicleVertexShaderConstantComponentCount = 256 * 4;
 constexpr size_t kVehicleShaderConstantSourceCapacity = 4096;
 constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
 constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
+constexpr uint32_t kVehicleMaterialBindingHook = 0x82549670;
+constexpr uint32_t kVehicleMaterialBindingObjectOffset = 1056;
+constexpr uint32_t kVehicleMaterialAssetKeyOffset = 1712;
+constexpr uint32_t kVehicleMaterialAssetKeyMaximumBytes = 512;
+constexpr size_t kVehicleMaterialBindingCapacity = 128;
+constexpr size_t kVehicleMaterialBackendSignatureCapacity = 16;
 constexpr uint64_t kVehicleColorConstantMaximumIdentityAgeFrames = 1;
 constexpr uint64_t kVehicleShadowColorPrivateReplayLimit = 300;
 constexpr uint32_t kVehicleShadowColorRetainedFamilyCount = 30;
@@ -1593,6 +1599,22 @@ struct PendingVehicleDrawIdentityEvidence {
   bool valid = false;
 };
 
+struct VehicleMaterialBindingEntry {
+  uint32_t root_address = 0;
+  uint32_t binding_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t flags = 0;
+  uint64_t asset_key_hash = 0;
+  uint64_t observations = 0;
+  uint64_t root_draw_probe_matches = 0;
+  uint64_t binding_draw_probe_matches = 0;
+  std::array<uint64_t, kVehicleMaterialBackendSignatureCapacity>
+      backend_signatures{};
+  uint32_t backend_signature_count = 0;
+  uint64_t backend_signature_overflow = 0;
+  bool valid = false;
+};
+
 thread_local PendingVehicleDrawIdentityEvidence
     g_pending_vehicle_draw_identity_evidence;
 
@@ -1627,6 +1649,15 @@ uint64_t g_vehicle_map_entity_count = 0;
 uint64_t g_vehicle_map_entity_overflow = 0;
 uint64_t g_vehicle_map_pose_correlation_count = 0;
 uint64_t g_vehicle_map_pose_correlation_overflow = 0;
+std::array<VehicleMaterialBindingEntry, kVehicleMaterialBindingCapacity>
+    g_vehicle_material_bindings{};
+std::mutex g_vehicle_material_binding_mutex;
+uint64_t g_vehicle_material_binding_observations = 0;
+uint64_t g_vehicle_material_binding_valid_observations = 0;
+uint64_t g_vehicle_material_binding_invalid_relation = 0;
+uint64_t g_vehicle_material_binding_asset_read_faults = 0;
+uint64_t g_vehicle_material_binding_count = 0;
+uint64_t g_vehicle_material_binding_overflow = 0;
 std::array<VehicleOwnerMethodStats, kVehicleOwnerMethodCandidateCount>
     g_vehicle_owner_method_stats{};
 std::atomic<uint64_t> g_vehicle_owner_method_stack_faults{};
@@ -3450,6 +3481,113 @@ bool LoadMappedGuestU8(rex::memory::Memory *memory, uint32_t address,
   }
   value = *memory->TranslateVirtual<uint8_t *>(address);
   return true;
+}
+
+bool ReadVehicleMaterialAssetKey(rex::memory::Memory *memory,
+                                 uint32_t root_address,
+                                 uint64_t &asset_key_hash,
+                                 uint32_t &asset_key_length) {
+  if (!memory || !root_address ||
+      root_address > UINT32_MAX - kVehicleMaterialAssetKeyOffset -
+                         kMsvcStringCapacityOffset - sizeof(uint32_t)) {
+    return false;
+  }
+  const uint32_t string_address =
+      root_address + kVehicleMaterialAssetKeyOffset;
+  uint32_t string_capacity = 0;
+  if (!LoadMappedGuestU32(memory, string_address + kMsvcStringSizeOffset,
+                          asset_key_length) ||
+      !LoadMappedGuestU32(memory,
+                          string_address + kMsvcStringCapacityOffset,
+                          string_capacity) ||
+      !asset_key_length ||
+      asset_key_length > kVehicleMaterialAssetKeyMaximumBytes ||
+      string_capacity < asset_key_length) {
+    return false;
+  }
+  uint32_t data_address = string_address;
+  if (string_capacity >= kMsvcStringInlineCapacity &&
+      !LoadMappedGuestU32(memory, string_address, data_address)) {
+    return false;
+  }
+  if (!IsReadableVehicleGuestRange(memory, data_address, asset_key_length)) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  const uint8_t *data =
+      memory->TranslateVirtual<const uint8_t *>(data_address);
+  if (!rex::memory::QueryProtect(const_cast<uint8_t *>(data),
+                                 host_region_length, host_access) ||
+      host_region_length < asset_key_length ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t index = 0; index < asset_key_length; ++index) {
+    hash ^= data[index];
+    hash *= UINT64_C(0x100000001B3);
+  }
+  asset_key_hash = hash ? hash : 1;
+  return true;
+}
+
+void ObserveVehicleMaterialBinding(uint32_t root_address,
+                                   uint32_t binding_address,
+                                   uint32_t load_ui,
+                                   uint32_t slod) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_material_binding_mutex);
+  ++g_vehicle_material_binding_observations;
+  if (!root_address ||
+      root_address > UINT32_MAX - kVehicleMaterialBindingObjectOffset ||
+      binding_address !=
+          root_address + kVehicleMaterialBindingObjectOffset) {
+    ++g_vehicle_material_binding_invalid_relation;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  uint64_t asset_key_hash = 0;
+  uint32_t asset_key_length = 0;
+  if (!ReadVehicleMaterialAssetKey(memory, root_address, asset_key_hash,
+                                   asset_key_length)) {
+    ++g_vehicle_material_binding_asset_read_faults;
+    return;
+  }
+  ++g_vehicle_material_binding_valid_observations;
+  const uint32_t flags = (load_ui ? 1u : 0u) | (slod ? 2u : 0u);
+  VehicleMaterialBindingEntry *available = nullptr;
+  for (VehicleMaterialBindingEntry &entry : g_vehicle_material_bindings) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.root_address == root_address &&
+        entry.binding_address == binding_address &&
+        entry.asset_key_hash == asset_key_hash && entry.flags == flags) {
+      ++entry.observations;
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_material_binding_overflow;
+    return;
+  }
+  *available = {
+      .root_address = root_address,
+      .binding_address = binding_address,
+      .asset_key_length = asset_key_length,
+      .flags = flags,
+      .asset_key_hash = asset_key_hash,
+      .observations = 1,
+      .valid = true,
+  };
+  ++g_vehicle_material_binding_count;
 }
 
 enum class StaticWorldAssetMetadataResult {
@@ -5457,6 +5595,37 @@ void ObserveVehicleDrawArgumentCorrelations(
     }
     if (!probe.value) {
       continue;
+    }
+    {
+      std::scoped_lock material_lock(g_vehicle_material_binding_mutex);
+      for (VehicleMaterialBindingEntry &entry :
+           g_vehicle_material_bindings) {
+        if (!entry.valid ||
+            (probe.value != entry.root_address &&
+             probe.value != entry.binding_address)) {
+          continue;
+        }
+        entry.root_draw_probe_matches +=
+            probe.value == entry.root_address ? 1 : 0;
+        entry.binding_draw_probe_matches +=
+            probe.value == entry.binding_address ? 1 : 0;
+        bool known_signature = false;
+        for (size_t signature_index = 0;
+             signature_index < entry.backend_signature_count;
+             ++signature_index) {
+          known_signature |=
+              entry.backend_signatures[signature_index] == backend_signature;
+        }
+        if (!known_signature) {
+          if (entry.backend_signature_count <
+              entry.backend_signatures.size()) {
+            entry.backend_signatures[entry.backend_signature_count++] =
+                backend_signature;
+          } else {
+            ++entry.backend_signature_overflow;
+          }
+        }
+      }
     }
     size_t address_index =
         (probe.value >> 4) % kVehicleIdentityAddressCapacity;
@@ -24928,6 +25097,16 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_composed_matrix_correlation_overflow = 0;
   }
   {
+    std::scoped_lock lock(g_vehicle_material_binding_mutex);
+    g_vehicle_material_bindings = {};
+    g_vehicle_material_binding_observations = 0;
+    g_vehicle_material_binding_valid_observations = 0;
+    g_vehicle_material_binding_invalid_relation = 0;
+    g_vehicle_material_binding_asset_read_faults = 0;
+    g_vehicle_material_binding_count = 0;
+    g_vehicle_material_binding_overflow = 0;
+  }
+  {
     std::scoped_lock lock(g_vehicle_constant_upload_mutex);
     std::fill(g_vehicle_constant_uploads.begin(),
               g_vehicle_constant_uploads.end(),
@@ -25058,6 +25237,12 @@ void ConfigureVehicleDiscovery(bool census_requested,
         "8201D430:festival_traffic,8201D4B0:remote_player"},
        {"map_entity_pose_join",
         "exact_entity_to_source,entity_to_owner,vehicle_id_to_active_slot"},
+       {"material_binding_hook",
+        fmt::format("{:08X}", kVehicleMaterialBindingHook)},
+       {"material_binding_contract",
+        "entry_r3_root,entry_r4_root_plus_1056,asset_key_at_root_plus_1712"},
+       {"material_binding_capacity",
+        std::to_string(kVehicleMaterialBindingCapacity)},
        {"owner_vtable_method_count",
         std::to_string(kVehicleOwnerVtableMethodCount)},
        {"owner_method_candidates",
@@ -25143,7 +25328,8 @@ void EmitVehicleDiscoverySummary() {
   }
   std::scoped_lock lock(g_vehicle_identity_mutex,
                         g_vehicle_owner_indirect_mutex,
-                        g_vehicle_draw_correlation_mutex);
+                        g_vehicle_draw_correlation_mutex,
+                        g_vehicle_material_binding_mutex);
   const bool accounting_complete =
       g_vehicle_valid_observations + g_vehicle_invalid_observations ==
       g_vehicle_observations;
@@ -25188,6 +25374,11 @@ void EmitVehicleDiscoverySummary() {
           g_vehicle_map_entity_pool_unrecognized_observations +
           g_vehicle_map_entity_pool_invalid_observations ==
       g_vehicle_map_entity_pool_observations;
+  const bool vehicle_material_binding_accounting_complete =
+      g_vehicle_material_binding_valid_observations +
+          g_vehicle_material_binding_invalid_relation +
+          g_vehicle_material_binding_asset_read_faults ==
+      g_vehicle_material_binding_observations;
   uint64_t player_entity_count = 0;
   uint64_t player_entity_observations = 0;
   uint64_t player_pose_comparisons = 0;
@@ -25440,6 +25631,80 @@ void EmitVehicleDiscoverySummary() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_material_binding_summary",
+      {{"status", !g_vehicle_material_binding_observations
+                      ? "not_observed"
+                      : (vehicle_material_binding_accounting_complete
+                             ? "complete"
+                             : "incomplete")},
+       {"hook", fmt::format("{:08X}", kVehicleMaterialBindingHook)},
+       {"observations",
+        std::to_string(g_vehicle_material_binding_observations)},
+       {"valid_observations",
+        std::to_string(g_vehicle_material_binding_valid_observations)},
+       {"invalid_relation",
+        std::to_string(g_vehicle_material_binding_invalid_relation)},
+       {"asset_read_faults",
+        std::to_string(g_vehicle_material_binding_asset_read_faults)},
+       {"bindings", std::to_string(g_vehicle_material_binding_count)},
+       {"capacity", std::to_string(kVehicleMaterialBindingCapacity)},
+       {"overflow", std::to_string(g_vehicle_material_binding_overflow)},
+       {"accounting_complete",
+        vehicle_material_binding_accounting_complete ? "true" : "false"},
+       {"title_semantic", "tire_wheel_shader_settings"},
+       {"binding_contract", "root_plus_1056"},
+       {"asset_key_contract", "root_plus_1712_msvc_string_hash"},
+       {"draw_join", "exact_title_draw_argument_address"},
+       {"semantic_mesh_material_roles_proved", "false"},
+       {"guest_payload_exported", "false"},
+       {"guest_state_changed", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  for (const VehicleMaterialBindingEntry &entry :
+       g_vehicle_material_bindings) {
+    if (!entry.valid) {
+      continue;
+    }
+    std::string backend_signatures;
+    for (size_t index = 0; index < entry.backend_signature_count; ++index) {
+      if (!backend_signatures.empty()) {
+        backend_signatures += ',';
+      }
+      backend_signatures +=
+          fmt::format("{:016X}", entry.backend_signatures[index]);
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_material_binding",
+        {{"root_address", fmt::format("{:08X}", entry.root_address)},
+         {"binding_address",
+          fmt::format("{:08X}", entry.binding_address)},
+         {"asset_key_hash",
+          fmt::format("{:016X}", entry.asset_key_hash)},
+         {"asset_key_length", std::to_string(entry.asset_key_length)},
+         {"load_ui", entry.flags & 1 ? "true" : "false"},
+         {"slod", entry.flags & 2 ? "true" : "false"},
+         {"observations", std::to_string(entry.observations)},
+         {"root_draw_probe_matches",
+          std::to_string(entry.root_draw_probe_matches)},
+         {"binding_draw_probe_matches",
+          std::to_string(entry.binding_draw_probe_matches)},
+         {"backend_signatures", backend_signatures},
+         {"backend_signature_count",
+          std::to_string(entry.backend_signature_count)},
+         {"backend_signature_capacity",
+          std::to_string(kVehicleMaterialBackendSignatureCapacity)},
+         {"backend_signature_overflow",
+          std::to_string(entry.backend_signature_overflow)},
+         {"classification", "exact_tire_wheel_material_binding_seed"},
+         {"semantic_mesh_material_roles_proved", "false"},
+         {"guest_payload_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_map_entity_summary",
       {{"status", !g_vehicle_map_entity_observations
@@ -29274,6 +29539,11 @@ void PinyonShiftObserveStaticWorldResourceRefreshResetExit(
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
                                              PPCRegister &r22) {
   ObserveVehicleComposedMatrix(r22.u32, r5.u32);
+}
+
+void PinyonShiftObserveVehicleMaterialBinding(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6) {
+  ObserveVehicleMaterialBinding(r3.u32, r4.u32, r5.u32, r6.u32);
 }
 
 void PinyonShiftObserveVehicleTypedConstantUpload(

@@ -776,6 +776,16 @@ qualifies the first isolated resource result and joins it to an independent
 title-owned asset/material discriminator before
 assigning body, glass, wheel, light, livery, or exceptional-work labels.
 
+Asset/material discriminator checkpoint: retail construction now proves the
+exact title-owned tire/wheel shader-settings path builder and its root-plus-1056
+binding object. A passive bounded hook hashes only the model-owned asset key,
+retains Normal/SLOD and UI flags, and records exact title draw-argument joins.
+The static proof and pending runtime gate are documented in
+[`VEHICLE_ASSET_MATERIAL_BINDING.md`](VEHICLE_ASSET_MATERIAL_BINDING.md).
+This narrows one independent semantic family without guessing from shared
+shader topology; per-resource role labels remain closed until the next batched
+visual-contribution run agrees with this title-owned evidence.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
