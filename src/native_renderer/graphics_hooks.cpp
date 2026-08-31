@@ -141,6 +141,7 @@ constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
 constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
 constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
+constexpr uint64_t kVehicleShadowColorPrivateReplayLimit = 300;
 constexpr size_t kShadowCasterProvenanceSampleCapacity = 4096;
 constexpr uint64_t kShadowCasterMaximumVehicleIdentityAgeFrames = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
@@ -8206,6 +8207,7 @@ struct IsolatedDrawState {
   bool prepared_vehicle_shadow_color_replay_eligible = false;
   bool vehicle_shadow_color_capture_pending = false;
   bool vehicle_shadow_color_capture_completed = false;
+  bool vehicle_shadow_color_private_replay_failed_closed = false;
   bool shadow_depth_publication_mode = false;
   bool shadow_depth_continuous_mode = false;
   bool shadow_depth_continuous_failed_closed = false;
@@ -8235,6 +8237,13 @@ struct IsolatedDrawState {
   uint64_t vehicle_shadow_color_capture_recorded = 0;
   uint64_t vehicle_shadow_color_capture_target_failures = 0;
   uint64_t vehicle_shadow_color_capture_unsupported = 0;
+  uint64_t vehicle_shadow_color_private_replay_requests = 0;
+  uint64_t vehicle_shadow_color_private_replay_recorded = 0;
+  uint64_t vehicle_shadow_color_private_replay_target_failures = 0;
+  uint64_t vehicle_shadow_color_private_replay_unsupported = 0;
+  uint64_t vehicle_shadow_color_private_replay_frame_quota_yields = 0;
+  uint64_t vehicle_shadow_color_private_replay_limit_yields = 0;
+  uint64_t vehicle_shadow_color_private_replay_last_frame = UINT64_MAX;
   uint64_t shadow_depth_continuous_last_publication_frame = UINT64_MAX;
   uint64_t shadow_depth_continuous_publication_epochs = 0;
   uint64_t shadow_depth_continuous_max_publication_epochs = 0;
@@ -20037,11 +20046,12 @@ void ObservePreparedDraw(
         vehicle_shadow_color_rejection_mask,
         vehicle_shadow_color_private_capture_rejection_mask);
     if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
-        !g_isolated_draw.vehicle_shadow_color_capture_completed &&
         vehicle_shadow_geometry_color_match &&
         !vehicle_shadow_color_private_capture_rejection_mask) {
       g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible = true;
-      g_isolated_draw.vehicle_shadow_color_capture_pending = true;
+      if (!g_isolated_draw.vehicle_shadow_color_capture_completed) {
+        g_isolated_draw.vehicle_shadow_color_capture_pending = true;
+      }
     }
     if (g_isolated_draw.shadow_depth_mode ||
         g_isolated_draw.shadow_depth_batch_mode) {
@@ -21161,6 +21171,33 @@ void CompleteVehicleShadowColorCapture(
        {"suppression_allowed", "false"}});
 }
 
+void CompleteVehicleShadowColorPrivateReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_recorded;
+    return;
+  }
+  g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed = true;
+  if (result.status ==
+      rex::system::GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_target_failures;
+  } else {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_unsupported;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_color_private_replay_failure",
+      {{"status", "failed_closed"},
+       {"signature",
+        fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+       {"frame", std::to_string(g_isolated_draw.frame)},
+       {"draw", std::to_string(g_isolated_draw.draw)},
+       {"fallback", "authoritative_xenos_draw"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
 void CompleteIsolatedShadowDepth(
     const rex::system::GraphicsIsolatedDrawResult &result) {
   CompleteIsolatedDraw(result);
@@ -22066,6 +22103,33 @@ void RequestIsolatedDraw(
           g_isolated_draw.readback_requested
               ? &CompleteIsolatedReferenceReadback
               : nullptr;
+      return;
+    }
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_recorded &&
+        !g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible &&
+        g_isolated_draw.prepared_signature ==
+            g_isolated_draw.captured_signature) {
+      if (g_isolated_draw.vehicle_shadow_color_private_replay_requests >=
+          kVehicleShadowColorPrivateReplayLimit) {
+        ++g_isolated_draw.vehicle_shadow_color_private_replay_limit_yields;
+        return;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_private_replay_last_frame ==
+          g_isolated_draw.frame) {
+        ++g_isolated_draw
+              .vehicle_shadow_color_private_replay_frame_quota_yields;
+        return;
+      }
+      g_isolated_draw.vehicle_shadow_color_private_replay_last_frame =
+          g_isolated_draw.frame;
+      ++g_isolated_draw.vehicle_shadow_color_private_replay_requests;
+      request.requested = true;
+      request.frame_sequence = g_isolated_draw.frame;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleShadowColorPrivateReplay;
       return;
     }
     if ((g_isolated_draw.shadow_depth_batch_capture_completed &&
@@ -25746,6 +25810,11 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
         g_isolated_draw.vehicle_shadow_color_capture_recorded +
         g_isolated_draw.vehicle_shadow_color_capture_target_failures +
         g_isolated_draw.vehicle_shadow_color_capture_unsupported;
+    const uint64_t private_replay_outcomes =
+        g_isolated_draw.vehicle_shadow_color_private_replay_recorded +
+        g_isolated_draw
+            .vehicle_shadow_color_private_replay_target_failures +
+        g_isolated_draw.vehicle_shadow_color_private_replay_unsupported;
     diagnostics::RecordEvent(
         "native_renderer.discovery.vehicle_shadow_color_capture_summary",
         {{"status", g_isolated_draw.vehicle_shadow_color_capture_recorded
@@ -25770,6 +25839,40 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                   g_isolated_draw.vehicle_shadow_color_capture_requests
               ? "true"
               : "false"},
+         {"private_replay_status",
+          g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed
+              ? "failed_closed"
+              : (g_isolated_draw
+                             .vehicle_shadow_color_private_replay_requests
+                         ? "bounded_stability_observed"
+                         : "not_observed")},
+         {"private_replay_requests",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_requests)},
+         {"private_replay_recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_recorded)},
+         {"private_replay_target_creation_failures",
+          std::to_string(g_isolated_draw
+                             .vehicle_shadow_color_private_replay_target_failures)},
+         {"private_replay_unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_unsupported)},
+         {"private_replay_frame_quota_yields",
+          std::to_string(g_isolated_draw
+                             .vehicle_shadow_color_private_replay_frame_quota_yields)},
+         {"private_replay_limit_yields",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_limit_yields)},
+         {"private_replay_limit",
+          std::to_string(kVehicleShadowColorPrivateReplayLimit)},
+         {"private_replay_accounting_complete",
+          private_replay_outcomes ==
+                  g_isolated_draw.vehicle_shadow_color_private_replay_requests
+              ? "true"
+              : "false"},
+         {"private_replay_selection",
+          "exact_first_captured_signature_one_draw_per_frame"},
          {"selection", "first_mechanically_replayable_correlated_color_draw"},
          {"readback", "native_and_xenos_color"},
          {"native_draw",

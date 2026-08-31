@@ -520,3 +520,20 @@ mandatory. The generic gate is untouched, and this private exception is
 reachable only after the backend-confirmed 80-draw epoch and exact geometry
 correlation. It cannot publish or suppress, and the authoritative Xenos draw
 still executes.
+
+The first admitted session recorded family `436C58CA13690625` at frame 2,633,
+draw 4,358 into a private 2560x1024 color target. Native and authoritative
+Xenos readbacks both show the same rear body/bumper submesh and have the exact
+same full source hash, `F30FFA26CCF670DD`. The session accounted for 7,320
+private-eligible correlations, one successful capture request, zero target or
+unsupported failures, and a normal process exit. This is the first working C4
+rendering slice, but it is still a submesh-level bridge rather than player-car
+identity or full vehicle coverage.
+
+Following a successful one-shot pair, the exact captured prepared signature is
+eligible for a bounded private stability run. The backend duplicates at most
+one matching draw per frame, stops at 300 requests, performs no additional
+readback, and fails closed on the first target or unsupported result. The
+authoritative Xenos draw remains present on every request. This measures
+animation-time replay stability before any native vehicle target can be
+published or any Xenos draw can be considered for suppression.
