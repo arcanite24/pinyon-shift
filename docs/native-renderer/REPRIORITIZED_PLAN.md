@@ -650,6 +650,17 @@ publish native output, or suppress Xenos. Runtime evidence is batched with the
 next C4 AppData session; the contract is documented in
 [`VEHICLE_COLOR_CONSTANT_IDENTITY.md`](VEHICLE_COLOR_CONSTANT_IDENTITY.md).
 
+Material-topology implementation checkpoint: the same 30 exact families now
+carry a geometry-independent key over shader identity and specialization,
+prepared render state, and texture layout. Pixel-float parameter changes are
+counted through hashes without exporting their values. The v8 report groups
+every family by that key, providing the bounded mechanical topology needed to
+target body, glass, wheel, light, livery, and exceptional-material follow-ups.
+Hashes do not receive semantic labels and cannot establish completeness,
+publication, or suppression. Runtime evidence is combined with the pending
+transform census; the contract is documented in
+[`VEHICLE_MATERIAL_TOPOLOGY.md`](VEHICLE_MATERIAL_TOPOLOGY.md).
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

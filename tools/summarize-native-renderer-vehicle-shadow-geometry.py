@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v7"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v8"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -230,6 +230,20 @@ def summarize(log_path):
         integer(summary, "constant_identity_maximum_pose_age_frames") == 1,
         "constant identity freshness drift",
     )
+    require(
+        summary.get("material_topology_group_accounting_complete") == "true",
+        "material topology group accounting drift",
+    )
+    material_topology_groups = integer(summary, "material_topology_groups")
+    require(
+        0 < material_topology_groups <= len(candidates),
+        "material topology group bounds drift",
+    )
+    require(
+        summary.get("material_topology_contract")
+        == "shader_specialization_render_state_texture_layout",
+        "material topology contract drift",
+    )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
@@ -259,6 +273,17 @@ def summarize(log_path):
             },
             "unbounded correlation match",
         )
+        for key in (
+            "material_topology_key",
+            "vertex_shader",
+            "pixel_shader",
+            "render_state_hash",
+            "texture_layout_hash",
+        ):
+            require(
+                len(event.get(key, "")) == 16,
+                f"invalid correlation material hash: {key}",
+            )
     for event in candidates:
         require(
             event.get("classification")
@@ -392,6 +417,13 @@ def summarize(log_path):
         for key in (
             "prepared_signature",
             "template_key",
+            "material_topology_key",
+            "vertex_shader",
+            "pixel_shader",
+            "render_state_hash",
+            "texture_layout_hash",
+            "first_material_parameter_hash",
+            "last_material_parameter_hash",
             "draw_argument_hash",
             "geometry_resource_hash",
             "texture_resource_hash",
@@ -400,6 +432,11 @@ def summarize(log_path):
             "last_parameter_hash",
         ):
             require(len(event.get(key, "")) == 16, f"invalid candidate hash: {key}")
+        require(
+            integer(event, "material_parameter_switches")
+            <= integer(event, "draws") - 1,
+            "candidate material parameter switch drift",
+        )
     capture = None
     if capture_configs or capture_results or capture_summaries:
         require(len(capture_configs) == 1, "expected one color capture config")
@@ -577,6 +614,15 @@ def summarize(log_path):
         and len(stable_position_candidates) == len(candidates)
         and len(stable_position_identities) == 1
     )
+    material_groups = {}
+    for event in candidates:
+        material_groups.setdefault(event["material_topology_key"], []).append(
+            event["prepared_signature"]
+        )
+    require(
+        len(material_groups) == material_topology_groups,
+        "material topology candidate accounting drift",
+    )
     return {
         "schema": SCHEMA,
         "source_log": str(log_path),
@@ -638,6 +684,21 @@ def summarize(log_path):
                     stable_position_identities
                 )
             ],
+        },
+        "material_topology": {
+            "group_count": material_topology_groups,
+            "groups": [
+                {
+                    "material_topology_key": key,
+                    "family_count": len(signatures),
+                    "prepared_signatures": signatures,
+                }
+                for key, signatures in sorted(material_groups.items())
+            ],
+            "families_with_parameter_variation": sum(
+                integer(event, "material_parameter_switches") > 0
+                for event in candidates
+            ),
         },
         "private_color_capture": capture,
         "private_retained_color_pass": retained,
