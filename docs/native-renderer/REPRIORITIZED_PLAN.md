@@ -285,6 +285,13 @@ faulted on guest `40D8D0D8` (RVA `5D0616F`). Every candidate pointer now also
 passes the host mapping/protection query before dereference, with explicit
 rejection accounting. C1 qualification remains pending a clean rerun.
 
+Long-session evidence checkpoint: cumulative track render-model and world-graph
+accounting is now durably emitted every 300 observed frames under a distinct
+periodic event. A checkpoint can diagnose an interrupted run, but it explicitly
+does not prove clean shutdown or permit native admission; the unique final
+summary remains authoritative. This removes an observability dead end without
+weakening the pending C1 gate.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

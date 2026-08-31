@@ -10,6 +10,9 @@ import sys
 SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v2"
 CONFIG = "native_renderer.discovery.track_render_model_runtime_join_config"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
+CHECKPOINT = (
+    "native_renderer.discovery.track_render_model_runtime_join_checkpoint"
+)
 
 RELATIONS = (
     "shared_descriptor",
@@ -90,11 +93,35 @@ def require_safety(event):
         raise ValueError("track-model join violates its safety boundary")
 
 
-def build(events, requested_session=None):
+def select_runtime_evidence(events, allow_checkpoint):
+    summaries = [event for event in events if event.get("event") == SUMMARY]
+    if len(summaries) > 1:
+        raise ValueError(f"expected at most one {SUMMARY} event")
+    if summaries:
+        return summaries[0], True
+    if not allow_checkpoint:
+        raise ValueError(f"expected exactly one {SUMMARY} event")
+    checkpoints = [
+        event for event in events if event.get("event") == CHECKPOINT
+    ]
+    if not checkpoints:
+        raise ValueError("no track-model runtime summary or checkpoint")
+    try:
+        checkpoint = max(
+            checkpoints, key=lambda event: integer(event, "frame_sequence")
+        )
+    except ValueError as error:
+        raise ValueError("invalid track-model runtime checkpoint") from error
+    return checkpoint, False
+
+
+def build(events, requested_session=None, allow_checkpoint=False):
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
-    summary = exact_event(selected, SUMMARY)
+    summary, final_summary = select_runtime_evidence(
+        selected, allow_checkpoint
+    )
     expected_config = {
         "status": "armed",
         "entry_hook": "8240EC80",
@@ -128,12 +155,36 @@ def build(events, requested_session=None):
         raise ValueError("track-model runtime configuration drifted")
     require_safety(config)
     require_safety(summary)
+    expected_kinds = (
+        ("complete", "incomplete", "not_observed")
+        if final_summary
+        else (
+            "checkpoint_complete",
+            "checkpoint_incomplete",
+            "checkpoint_not_observed",
+        )
+    )
     if (
-        summary.get("status") not in ("complete", "incomplete", "not_observed")
+        summary.get("status") not in expected_kinds
+        or (
+            final_summary
+            and summary.get("checkpoint_kind") not in (None, "final")
+        )
+        or (
+            not final_summary
+            and summary.get("checkpoint_kind") != "periodic"
+        )
         or summary.get("classification")
         != "exact_unified_track_render_model_nested_submission_join"
     ):
         raise ValueError("track-model runtime summary drifted")
+    frame_sequence = (
+        integer(summary, "frame_sequence")
+        if "frame_sequence" in summary
+        else None
+    )
+    if not final_summary and not frame_sequence:
+        raise ValueError("periodic checkpoint has no frame sequence")
 
     keys = (
         "scope_entries",
@@ -231,7 +282,11 @@ def build(events, requested_session=None):
         for key in SHARED_WORLD_RELATIONS
     ):
         failures.append("shared world-resource relation exceeds shared joins")
-    expected_status = "complete" if not failures else "incomplete"
+    expected_status = (
+        "complete" if not failures else "incomplete"
+    ) if final_summary else (
+        "checkpoint_complete" if not failures else "checkpoint_incomplete"
+    )
     if summary.get("status") != expected_status:
         failures.append("runtime status does not match qualification outcome")
     if summary.get("qualification_complete") != (
@@ -242,7 +297,13 @@ def build(events, requested_session=None):
     return {
         "schema": SCHEMA,
         "session": session,
-        "status": "complete" if not failures else "incomplete",
+        "status": expected_status,
+        "evidence": {
+            "kind": "final_summary" if final_summary else "periodic_checkpoint",
+            "frame_sequence": frame_sequence,
+            "session_exit_proved": final_summary,
+            "admission_evidence": final_summary and not failures,
+        },
         "failures": failures,
         "totals": totals,
         "shared_identity_relations": {
@@ -285,16 +346,26 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("events", nargs="+", type=pathlib.Path)
     parser.add_argument("--session")
+    parser.add_argument(
+        "--allow-checkpoint",
+        action="store_true",
+        help=(
+            "use the latest periodic checkpoint only when the final shutdown "
+            "summary is absent"
+        ),
+    )
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
-        document = build(read_events(args.events), args.session)
+        document = build(
+            read_events(args.events), args.session, args.allow_checkpoint
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        if document["status"] != "complete":
+        if document["status"] not in ("complete", "checkpoint_complete"):
             raise ValueError("; ".join(document["failures"]))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:

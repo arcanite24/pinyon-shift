@@ -70,6 +70,8 @@ def fixture(shared=3):
     summary = event(
         MODULE.SUMMARY,
         status="complete",
+        checkpoint_kind="final",
+        frame_sequence="1200",
         scope_entries="10",
         scope_exits="10",
         exact_scopes="10",
@@ -134,6 +136,59 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             ]
         )
 
+    def test_latest_checkpoint_is_diagnostic_not_admission_evidence(self):
+        events = fixture()
+        checkpoint = copy.deepcopy(events.pop())
+        checkpoint.update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            checkpoint_kind="periodic",
+            frame_sequence="900",
+        )
+        older = copy.deepcopy(checkpoint)
+        older["frame_sequence"] = "600"
+        document = MODULE.build(
+            [events[0], checkpoint, older], allow_checkpoint=True
+        )
+        self.assertEqual("checkpoint_complete", document["status"])
+        self.assertEqual(900, document["evidence"]["frame_sequence"])
+        self.assertFalse(document["evidence"]["session_exit_proved"])
+        self.assertFalse(document["evidence"]["admission_evidence"])
+
+    def test_checkpoint_fallback_is_explicit(self):
+        events = fixture()
+        checkpoint = events.pop()
+        checkpoint.update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            checkpoint_kind="periodic",
+        )
+        with self.assertRaisesRegex(ValueError, "expected exactly one"):
+            MODULE.build(events)
+
+    def test_final_summary_wins_over_newer_checkpoint(self):
+        events = fixture()
+        checkpoint = copy.deepcopy(events[-1])
+        checkpoint.update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            checkpoint_kind="periodic",
+            frame_sequence="1500",
+        )
+        document = MODULE.build(events + [checkpoint], allow_checkpoint=True)
+        self.assertEqual("complete", document["status"])
+        self.assertEqual("final_summary", document["evidence"]["kind"])
+        self.assertEqual(1200, document["evidence"]["frame_sequence"])
+
+    def test_accepts_legacy_final_summary_without_checkpoint_metadata(self):
+        events = fixture()
+        events[-1].pop("checkpoint_kind")
+        events[-1].pop("frame_sequence")
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertIsNone(document["evidence"]["frame_sequence"])
+        self.assertTrue(document["evidence"]["session_exit_proved"])
+
     def test_rejects_unjoined_scopes(self):
         events = copy.deepcopy(fixture())
         summary = events[-1]
@@ -181,6 +236,11 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         self.assertIn("BeginTrackRenderModelDispatch", hooks)
         self.assertIn("EndTrackRenderModelDispatch", hooks)
         self.assertIn("rex::memory::QueryProtect", hooks)
+        self.assertIn("EmitTrackRenderModelRuntimeJoinCheckpoint", hooks)
+        self.assertIn(
+            '"native_renderer.discovery.track_render_model_runtime_join_checkpoint"',
+            hooks,
+        )
         self.assertIn("address = 0x8240EC80", analysis)
         self.assertIn("address = 0x8240ECAC", analysis)
 

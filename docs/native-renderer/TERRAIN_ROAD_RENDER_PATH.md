@@ -318,3 +318,18 @@ before loading a candidate vtable. Rejected host-unmapped values are counted in
 the runtime summary. Optimized binary disassembly confirms the protection query
 and fail-closed branch execute before the vtable load. The failed session is
 crash evidence only and cannot qualify C1; a clean batched rerun is required.
+
+### Durable long-session checkpoints
+
+The track render-model join now emits a distinct cumulative checkpoint every
+300 observed frames while renderer census is active. It contains the same
+bounded atomic accounting as the shutdown summary, plus the exact frame number,
+without reading new guest memory or changing guest, draw, authority, or
+suppression state. The final shutdown event remains unique and authoritative.
+
+`summarize-native-renderer-track-model-runtime-join.py --allow-checkpoint` may
+use the latest checkpoint only when the final summary is absent. Its output is
+explicitly `checkpoint_complete` or `checkpoint_incomplete`, records that
+session exit was not proved, and cannot serve as native-admission evidence. A
+later final summary always wins. This makes long-run crash diagnosis durable
+without weakening the clean-shutdown gate that remains required for C1.

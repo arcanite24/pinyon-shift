@@ -9446,7 +9446,9 @@ void EmitProceduralModelSemanticSubmissions() {
        {"suppression_allowed", "false"}});
 }
 
-void EmitTrackRenderModelRuntimeJoinSummary() {
+void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
+                                          bool final_summary,
+                                          uint64_t frame_sequence) {
   const uint64_t entries =
       g_track_render_model_scope_entries.load(std::memory_order_relaxed);
   const uint64_t exits =
@@ -9483,10 +9485,17 @@ void EmitTrackRenderModelRuntimeJoinSummary() {
       !invalid_root && !invalid_child && !invalid_descriptor &&
       !contract_mismatches;
   pinyon_shift::diagnostics::RecordEvent(
-      "native_renderer.discovery.track_render_model_runtime_join_summary",
-      {{"status", !entries ? "not_observed"
-                            : (qualification_complete ? "complete"
-                                                      : "incomplete")},
+      event_name,
+      {{"status", !entries
+                      ? (final_summary ? "not_observed"
+                                       : "checkpoint_not_observed")
+                      : (qualification_complete
+                             ? (final_summary ? "complete"
+                                              : "checkpoint_complete")
+                             : (final_summary ? "incomplete"
+                                              : "checkpoint_incomplete"))},
+       {"checkpoint_kind", final_summary ? "final" : "periodic"},
+       {"frame_sequence", std::to_string(frame_sequence)},
        {"scope_entries", std::to_string(entries)},
        {"scope_exits", std::to_string(exits)},
        {"exact_scopes", std::to_string(exact)},
@@ -9607,6 +9616,18 @@ void EmitTrackRenderModelRuntimeJoinSummary() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+}
+
+void EmitTrackRenderModelRuntimeJoinSummary() {
+  EmitTrackRenderModelRuntimeJoinEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_summary",
+      true, g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitTrackRenderModelRuntimeJoinCheckpoint(uint64_t frame_sequence) {
+  EmitTrackRenderModelRuntimeJoinEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_checkpoint",
+      false, frame_sequence);
 }
 
 uint64_t PreparedPipelineHash(
@@ -21892,6 +21913,9 @@ void PinyonShiftObserveGraphicsFrame() {
                                            {{"frame_sequence", frame},
                                             {"guest_address", "829EFEB8"},
                                             {"mode", "pass_through"}});
+    if (frame_sequence % kFrameSummaryInterval == 0) {
+      EmitTrackRenderModelRuntimeJoinCheckpoint(frame_sequence);
+    }
   }
   if (dispatch_requested) {
     pinyon_shift::diagnostics::RecordEvent(
