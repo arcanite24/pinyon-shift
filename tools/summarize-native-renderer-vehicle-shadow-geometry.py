@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v10"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v11"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -270,6 +270,18 @@ def summarize(log_path):
     typed_upload_exact_used_vectors = integer(
         summary, "typed_upload_exact_used_vectors"
     )
+    typed_upload_fresh_candidates = integer(
+        summary, "typed_upload_fresh_candidates"
+    )
+    typed_upload_no_overlap_candidates = integer(
+        summary, "typed_upload_no_overlap_candidates"
+    )
+    typed_upload_hash_mismatch_candidates = integer(
+        summary, "typed_upload_hash_mismatch_candidates"
+    )
+    typed_upload_exact_candidates = integer(
+        summary, "typed_upload_exact_candidates"
+    )
     require(
         typed_upload_scans == integer(summary, "color_draws_matched"),
         "typed upload scan accounting drift",
@@ -286,6 +298,17 @@ def summarize(log_path):
     require(
         typed_upload_exact_used_vectors >= typed_upload_exact_matches,
         "typed upload used-vector accounting drift",
+    )
+    require(
+        summary.get("typed_upload_candidate_accounting_complete") == "true",
+        "typed upload candidate accounting drift",
+    )
+    require(
+        typed_upload_no_overlap_candidates
+        + typed_upload_hash_mismatch_candidates
+        + typed_upload_exact_candidates
+        == typed_upload_fresh_candidates,
+        "typed upload candidate outcome drift",
     )
     require(
         integer(summary, "typed_upload_valid")
@@ -482,6 +505,18 @@ def summarize(log_path):
             event, "typed_upload_exact_matches"
         )
         family_typed_upload_misses = integer(event, "typed_upload_misses")
+        family_typed_upload_fresh_candidates = integer(
+            event, "typed_upload_fresh_candidates"
+        )
+        family_typed_upload_no_overlap_candidates = integer(
+            event, "typed_upload_no_overlap_candidates"
+        )
+        family_typed_upload_hash_mismatch_candidates = integer(
+            event, "typed_upload_hash_mismatch_candidates"
+        )
+        family_typed_upload_exact_candidates = integer(
+            event, "typed_upload_exact_candidates"
+        )
         require(
             family_typed_upload_scans == integer(event, "draws"),
             "candidate typed upload scan accounting drift",
@@ -490,6 +525,23 @@ def summarize(log_path):
             family_typed_upload_matches + family_typed_upload_misses
             == family_typed_upload_scans,
             "candidate typed upload outcome drift",
+        )
+        require(
+            family_typed_upload_no_overlap_candidates
+            + family_typed_upload_hash_mismatch_candidates
+            + family_typed_upload_exact_candidates
+            == family_typed_upload_fresh_candidates,
+            "candidate typed upload candidate outcome drift",
+        )
+        observed_register_min = integer(
+            event, "typed_upload_observed_register_min"
+        )
+        observed_register_max = integer(
+            event, "typed_upload_observed_register_max"
+        )
+        require(
+            0 <= observed_register_min <= observed_register_max < 256,
+            "candidate typed upload observed register range drift",
         )
         stable_typed_upload_candidate = (
             family_typed_upload_matches == integer(event, "draws")
@@ -832,6 +884,12 @@ def summarize(log_path):
             "exact_matches": typed_upload_exact_matches,
             "misses": typed_upload_misses,
             "exact_used_vectors": typed_upload_exact_used_vectors,
+            "fresh_candidates": typed_upload_fresh_candidates,
+            "no_overlap_candidates": typed_upload_no_overlap_candidates,
+            "hash_mismatch_candidates": (
+                typed_upload_hash_mismatch_candidates
+            ),
+            "exact_candidates": typed_upload_exact_candidates,
             "stable_candidate_families": len(
                 stable_typed_upload_candidates
             ),

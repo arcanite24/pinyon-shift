@@ -1,8 +1,8 @@
 # Vehicle typed constant-upload join
 
-Status: the first default-off AppData qualification rejected the whole-range
-join; an exact shader-used-vector join is implemented for the next batched
-qualification.
+Status: both the whole-range and shader-used-subset joins are rejected. The
+next bounded run will partition each fresh candidate as no register overlap,
+hash mismatch, or exact subset and report only register envelopes and counts.
 
 ## Proven title boundary
 
@@ -63,10 +63,27 @@ therefore compares only the exact shader-used intersection while retaining the
 same one-frame freshness, caller provenance, payload-free output, and Xenos
 authority.
 
-This proves which typed writes feed the prepared vehicle draws. It does not by
-itself convert reference-space constants to a world transform or label a
-vehicle as the player. The runtime result will determine which exact register
-ranges and title callers should receive the next semantic discriminator.
+## Shader-used subset runtime result
+
+The AppData-backed `20260831T184645Z-p11956` run exited normally after the
+expanded ledger reset was changed to avoid a multi-megabyte stack temporary.
+It committed 525 exact epochs and 15,750 full-resource matches across all 30
+families. The writer strictly accounted 2,245,612 observations: 469,815 valid
+uploads, 1,775,797 rejected register ranges, and zero invalid source ranges.
+
+The v10 shader-used subset rule also produced zero matches across all 15,750
+draw scans. This rejects the second join rule without weakening the proven
+writer coverage. A narrow diagnostic now records the observed shader register
+envelope and partitions every fresh upload candidate into no-overlap,
+hash-mismatch, or exact-subset outcomes. It does not export constant values.
+The v11 qualifier requires complete candidate accounting. That single
+partition will distinguish register-space/freshness drift from a payload-
+representation mismatch before another join rule is proposed.
+
+The generic writer boundary and caller provenance are proved, but neither
+runtime join has yet proved which writes feed the prepared vehicle draws. No
+transform or player label may depend on this evidence until the diagnostic
+partition selects an exact register-space and payload contract.
 
 ## Safety boundary
 

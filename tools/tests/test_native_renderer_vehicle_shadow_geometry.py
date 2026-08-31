@@ -113,6 +113,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "closest_forward_delta_squared": "0.01",
                 "constant_identity_classification": "stable_tight_position_candidate",
                 "typed_upload_scans": "3",
+                "typed_upload_fresh_candidates": "12",
+                "typed_upload_no_overlap_candidates": "6",
+                "typed_upload_hash_mismatch_candidates": "3",
+                "typed_upload_exact_candidates": "3",
                 "typed_upload_exact_matches": "3",
                 "typed_upload_misses": "0",
                 "typed_upload_exact_used_vectors": "9",
@@ -128,6 +132,8 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_source_address": "7FFF1000",
                 "typed_upload_buffer_address": "50001000",
                 "typed_upload_caller_return_address": "8240EB60",
+                "typed_upload_observed_register_min": "208",
+                "typed_upload_observed_register_max": "211",
                 "typed_upload_classification": "stable_exact_used_vertex_subset_candidate",
                 **safety,
             },
@@ -256,6 +262,11 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_overwrites": "0",
                 "typed_upload_capacity": "8192",
                 "typed_upload_scans": "3",
+                "typed_upload_fresh_candidates": "12",
+                "typed_upload_no_overlap_candidates": "6",
+                "typed_upload_hash_mismatch_candidates": "3",
+                "typed_upload_exact_candidates": "3",
+                "typed_upload_candidate_accounting_complete": "true",
                 "typed_upload_exact_matches": "3",
                 "typed_upload_misses": "0",
                 "typed_upload_exact_used_vectors": "9",
@@ -339,6 +350,16 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             ],
         )
         self.assertEqual(3, report["typed_constant_upload"]["exact_matches"])
+        self.assertEqual(
+            12, report["typed_constant_upload"]["fresh_candidates"]
+        )
+        self.assertEqual(
+            6, report["typed_constant_upload"]["no_overlap_candidates"]
+        )
+        self.assertEqual(
+            3,
+            report["typed_constant_upload"]["hash_mismatch_candidates"],
+        )
         self.assertEqual(
             9, report["typed_constant_upload"]["exact_used_vectors"]
         )
@@ -427,6 +448,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         events = self.fixture()
         events[-1]["typed_upload_exact_matches"] = "2"
         with self.assertRaisesRegex(ValueError, "typed upload outcome drift"):
+            self.summarize(events)
+
+    def test_rejects_typed_upload_candidate_accounting_drift(self):
+        events = self.fixture()
+        events[-1]["typed_upload_no_overlap_candidates"] = "5"
+        with self.assertRaisesRegex(
+            ValueError, "typed upload candidate outcome drift"
+        ):
             self.summarize(events)
 
     def test_rejects_private_capture_authority_drift(self):
