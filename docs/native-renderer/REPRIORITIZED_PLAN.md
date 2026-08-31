@@ -359,8 +359,11 @@ prove `Presentation_Unified::CModelPresentation` as the synchronous owner above
 the SimpleModel resource reference and renderer. Its balanced slot-12 scope
 constructs/binds the renderer and invokes the renderer's exact slot-12 draw
 path. The proof is documented in [`STATIC_WORLD_OWNER.md`](STATIC_WORLD_OWNER.md).
-This closes title presentation ownership, not building-versus-prop identity or
-mesh/material semantics; the passive runtime join remains batched with C1/C2.
+The passive runtime scope now carries the exact presentation owner and opaque
+resource identity through the existing renderer/PM4/prepared-draw lineage,
+with an exact offset-1608 renderer equality gate. Runtime qualification remains
+batched with C1/C2. This does not prove building-versus-prop identity or
+mesh/material semantics.
 
 ### C3. Semantic batching, culling, and LOD
 

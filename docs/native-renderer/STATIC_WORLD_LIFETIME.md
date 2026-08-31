@@ -68,6 +68,7 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   --resource .local/qualification/native-renderer-static-world-resource.json `
   --streaming .local/qualification/native-renderer-static-world-streaming.json `
   --graph .local/qualification/native-renderer-static-world-graph.json `
+  --owner .local/qualification/native-renderer-static-world-owner.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
