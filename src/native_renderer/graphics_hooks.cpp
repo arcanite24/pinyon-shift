@@ -1968,6 +1968,12 @@ struct SemanticReceiverLifecycleEntry {
   std::atomic<uint64_t> dispatches_without_preparation{};
   std::atomic<uint64_t> dispatches_without_visibility{};
   std::atomic<uint64_t> dispatches_without_render_state{};
+  std::atomic<uint32_t> track_render_bridge_generation{};
+  std::atomic<uint32_t> track_render_root_address{};
+  std::atomic<uint32_t> track_render_child_address{};
+  std::atomic<uint32_t> track_render_descriptor_address{};
+  std::atomic<uint32_t> track_render_descriptor_payload{};
+  std::atomic<uint32_t> track_world_resource_identity_mask{};
 };
 
 std::array<SemanticReceiverLifecycleEntry,
@@ -2371,6 +2377,7 @@ enum TrackRenderSharedIdentity : uint32_t {
   kTrackRenderSharedChildReceiver = 1u << 5,
   kTrackRenderSharedRootRuntimeObject = 1u << 6,
   kTrackRenderSharedChildRuntimeObject = 1u << 7,
+  kTrackRenderSharedProceduralReceiverBridge = 1u << 8,
 };
 
 enum TrackWorldResourceIdentity : uint32_t {
@@ -2401,6 +2408,7 @@ struct TrackWorldResourceGraphCacheEntry {
 
 struct TrackRenderModelDispatchScope {
   uint64_t submission_joins = 0;
+  uint64_t receiver_bridges = 0;
   uint32_t root_address = 0;
   uint32_t child_address = 0;
   uint32_t descriptor_address = 0;
@@ -2584,8 +2592,14 @@ std::atomic<uint64_t> g_track_render_model_scope_contract_mismatches{};
 std::atomic<uint64_t> g_track_render_model_scope_joined{};
 std::atomic<uint64_t> g_track_render_model_scope_unjoined{};
 std::atomic<uint64_t> g_track_render_model_submission_joins{};
+std::atomic<uint64_t> g_track_render_model_receiver_bridge_observations{};
+std::atomic<uint64_t> g_track_render_model_receiver_bridge_successes{};
+std::atomic<uint64_t> g_track_render_model_receiver_bridge_missing_scope{};
+std::atomic<uint64_t> g_track_render_model_receiver_bridge_unknown_receiver{};
+std::atomic<uint64_t>
+    g_track_render_model_receiver_bridge_submission_joins{};
 std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
-std::array<std::atomic<uint64_t>, 8>
+std::array<std::atomic<uint64_t>, 9>
     g_track_render_model_shared_identity_relations{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
@@ -3419,7 +3433,8 @@ void EndTrackRenderModelDispatch() {
     return;
   }
   if (g_track_render_model_scope.exact) {
-    if (g_track_render_model_scope.submission_joins) {
+    if (g_track_render_model_scope.submission_joins ||
+        g_track_render_model_scope.receiver_bridges) {
       ++g_track_render_model_scope_joined;
     } else {
       ++g_track_render_model_scope_unjoined;
@@ -6841,11 +6856,57 @@ void PublishSemanticReceiver(uint32_t address) {
                                               std::memory_order_relaxed);
   entry->dispatches_without_render_state.store(0,
                                                 std::memory_order_relaxed);
+  entry->track_render_bridge_generation.store(0,
+                                               std::memory_order_relaxed);
+  entry->track_render_root_address.store(0, std::memory_order_relaxed);
+  entry->track_render_child_address.store(0, std::memory_order_relaxed);
+  entry->track_render_descriptor_address.store(0,
+                                                std::memory_order_relaxed);
+  entry->track_render_descriptor_payload.store(0,
+                                                std::memory_order_relaxed);
+  entry->track_world_resource_identity_mask.store(
+      0, std::memory_order_relaxed);
   entry->generation.store(generation, std::memory_order_relaxed);
   entry->state.store(uint32_t(SemanticReceiverState::kLive),
                      std::memory_order_release);
   g_semantic_receiver_instances_published.fetch_add(
       1, std::memory_order_relaxed);
+}
+
+void ObserveTrackRenderModelProceduralReceiver(uint32_t receiver_address) {
+  ++g_track_render_model_receiver_bridge_observations;
+  TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+  if (!scope.active || !scope.exact) {
+    ++g_track_render_model_receiver_bridge_missing_scope;
+    return;
+  }
+  SemanticReceiverLifecycleEntry *entry =
+      FindSemanticReceiverLifecycle(receiver_address);
+  if (!entry || entry->state.load(std::memory_order_acquire) !=
+                    uint32_t(SemanticReceiverState::kLive)) {
+    ++g_track_render_model_receiver_bridge_unknown_receiver;
+    return;
+  }
+  const uint32_t generation =
+      entry->generation.load(std::memory_order_relaxed);
+  if (!generation) {
+    ++g_track_render_model_receiver_bridge_unknown_receiver;
+    return;
+  }
+  entry->track_render_root_address.store(scope.root_address,
+                                         std::memory_order_relaxed);
+  entry->track_render_child_address.store(scope.child_address,
+                                          std::memory_order_relaxed);
+  entry->track_render_descriptor_address.store(
+      scope.descriptor_address, std::memory_order_relaxed);
+  entry->track_render_descriptor_payload.store(
+      scope.descriptor_payload, std::memory_order_relaxed);
+  entry->track_world_resource_identity_mask.store(
+      scope.world_resource_identity_mask, std::memory_order_relaxed);
+  entry->track_render_bridge_generation.store(generation,
+                                               std::memory_order_release);
+  ++scope.receiver_bridges;
+  ++g_track_render_model_receiver_bridge_successes;
 }
 
 void BeginSemanticReceiverConstruction(uint32_t address) {
@@ -11630,64 +11691,103 @@ void RecordProceduralModelGeometrySubmission(
   key = key ? key : 1;
   const bool track_texture_provider =
       IsUnifiedTrackTextureProvider(pending.primary_provider);
-  const bool track_render_model_scope =
+  const bool live_track_render_model_scope =
       g_track_render_model_scope.active && g_track_render_model_scope.exact;
+  const bool track_render_receiver_bridge =
+      lifecycle->track_render_bridge_generation.load(
+          std::memory_order_acquire) == receiver_generation;
+  const bool track_render_model_scope =
+      live_track_render_model_scope || track_render_receiver_bridge;
   uint32_t track_render_shared_identity_mask = 0;
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_shared_identity_mask = 0;
   if (track_render_model_scope) {
     const TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+    const uint32_t track_root_address =
+        live_track_render_model_scope
+            ? scope.root_address
+            : lifecycle->track_render_root_address.load(
+                  std::memory_order_relaxed);
+    const uint32_t track_child_address =
+        live_track_render_model_scope
+            ? scope.child_address
+            : lifecycle->track_render_child_address.load(
+                  std::memory_order_relaxed);
+    const uint32_t track_descriptor_address =
+        live_track_render_model_scope
+            ? scope.descriptor_address
+            : lifecycle->track_render_descriptor_address.load(
+                  std::memory_order_relaxed);
+    const uint32_t track_descriptor_payload =
+        live_track_render_model_scope
+            ? scope.descriptor_payload
+            : lifecycle->track_render_descriptor_payload.load(
+                  std::memory_order_relaxed);
     track_render_shared_identity_mask |=
-        scope.descriptor_address == descriptor_address
+        track_descriptor_address == descriptor_address
             ? kTrackRenderSharedDescriptor
             : 0;
     track_render_shared_identity_mask |=
-        scope.descriptor_payload == pending.primary_bound_resource_object
+        track_descriptor_payload == pending.primary_bound_resource_object
             ? kTrackRenderSharedDescriptorPayloadBoundResource
             : 0;
     track_render_shared_identity_mask |=
-        scope.descriptor_payload == pending.primary_provider.provider_object
+        track_descriptor_payload == pending.primary_provider.provider_object
             ? kTrackRenderSharedDescriptorPayloadProvider
             : 0;
     track_render_shared_identity_mask |=
-        scope.descriptor_payload == runtime_submission_object
+        track_descriptor_payload == runtime_submission_object
             ? kTrackRenderSharedDescriptorPayloadRuntimeObject
             : 0;
     track_render_shared_identity_mask |=
-        scope.root_address == receiver_address ? kTrackRenderSharedRootReceiver
+        track_root_address == receiver_address ? kTrackRenderSharedRootReceiver
                                                : 0;
     track_render_shared_identity_mask |=
-        scope.child_address == receiver_address
+        track_child_address == receiver_address
             ? kTrackRenderSharedChildReceiver
             : 0;
     track_render_shared_identity_mask |=
-        scope.root_address == runtime_submission_object
+        track_root_address == runtime_submission_object
             ? kTrackRenderSharedRootRuntimeObject
             : 0;
     track_render_shared_identity_mask |=
-        scope.child_address == runtime_submission_object
+        track_child_address == runtime_submission_object
             ? kTrackRenderSharedChildRuntimeObject
             : 0;
+    if (track_render_receiver_bridge) {
+      track_render_shared_identity_mask |=
+          kTrackRenderSharedProceduralReceiverBridge;
+      ++g_track_render_model_receiver_bridge_submission_joins;
+    }
     track_world_resource_identity_mask =
-        scope.world_resource_identity_mask;
-    for (size_t index = 0; index < scope.world_resource_reference_count;
-         ++index) {
-      const TrackWorldResourceReference &reference =
-          scope.world_resource_references[index];
-      if (reference.address == receiver_address ||
-          reference.address == runtime_submission_object ||
-          reference.address == pending.primary_bound_resource_object ||
-          reference.address == pending.primary_provider.provider_object ||
-          (secondary_resource_present &&
-           (reference.address == pending.secondary_bound_resource_object ||
-            reference.address ==
-                pending.secondary_provider.provider_object))) {
-        track_world_resource_shared_identity_mask |= reference.identity;
+        live_track_render_model_scope
+            ? scope.world_resource_identity_mask
+            : lifecycle->track_world_resource_identity_mask.load(
+                  std::memory_order_relaxed);
+    if (live_track_render_model_scope) {
+      for (size_t index = 0; index < scope.world_resource_reference_count;
+           ++index) {
+        const TrackWorldResourceReference &reference =
+            scope.world_resource_references[index];
+        if (reference.address == receiver_address ||
+            reference.address == runtime_submission_object ||
+            reference.address == pending.primary_bound_resource_object ||
+            reference.address == pending.primary_provider.provider_object ||
+            (secondary_resource_present &&
+             (reference.address == pending.secondary_bound_resource_object ||
+              reference.address ==
+                  pending.secondary_provider.provider_object))) {
+          track_world_resource_shared_identity_mask |= reference.identity;
+        }
       }
     }
-    ++g_track_render_model_scope.submission_joins;
-    g_track_render_model_scope.shared_identity_mask |=
-        track_render_shared_identity_mask;
+    if (live_track_render_model_scope) {
+      ++g_track_render_model_scope.submission_joins;
+      g_track_render_model_scope.shared_identity_mask |=
+          track_render_shared_identity_mask;
+      g_track_render_model_scope.world_resource_shared_identity_mask |=
+          track_world_resource_shared_identity_mask;
+    }
     ++g_track_render_model_submission_joins;
     if (track_render_shared_identity_mask) {
       ++g_track_render_model_shared_identity_joins;
@@ -11699,8 +11799,6 @@ void RecordProceduralModelGeometrySubmission(
         }
       }
     }
-    g_track_render_model_scope.world_resource_shared_identity_mask |=
-        track_world_resource_shared_identity_mask;
     if (track_world_resource_shared_identity_mask) {
       ++g_track_world_resource_shared_identity_joins;
       for (size_t bit = 0;
@@ -12067,14 +12165,34 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
   const uint64_t exit_without_entry =
       g_track_render_model_scope_exit_without_entry.load(
           std::memory_order_relaxed);
+  const uint64_t receiver_bridge_observations =
+      g_track_render_model_receiver_bridge_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_bridge_successes =
+      g_track_render_model_receiver_bridge_successes.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_bridge_missing_scope =
+      g_track_render_model_receiver_bridge_missing_scope.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_bridge_unknown_receiver =
+      g_track_render_model_receiver_bridge_unknown_receiver.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_bridge_submission_joins =
+      g_track_render_model_receiver_bridge_submission_joins.load(
+          std::memory_order_relaxed);
   const bool accounting_complete =
       entries == exact + invalid_root + invalid_child + invalid_descriptor +
                      contract_mismatches &&
       exact == joined + unjoined && entries == exits && !overlaps &&
-      !exit_without_entry;
+      !exit_without_entry &&
+      receiver_bridge_observations ==
+          receiver_bridge_successes + receiver_bridge_missing_scope +
+              receiver_bridge_unknown_receiver;
   const bool qualification_complete =
       accounting_complete && exact && joined &&
       g_track_render_model_submission_joins.load(std::memory_order_relaxed) &&
+      receiver_bridge_successes && receiver_bridge_submission_joins &&
+      !receiver_bridge_missing_scope && !receiver_bridge_unknown_receiver &&
       !invalid_root && !invalid_child && !invalid_descriptor &&
       !contract_mismatches;
   pinyon_shift::diagnostics::RecordEvent(
@@ -12101,6 +12219,16 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"submission_joins",
         std::to_string(g_track_render_model_submission_joins.load(
             std::memory_order_relaxed))},
+       {"receiver_bridge_observations",
+        std::to_string(receiver_bridge_observations)},
+       {"receiver_bridge_successes",
+        std::to_string(receiver_bridge_successes)},
+       {"receiver_bridge_missing_scope",
+        std::to_string(receiver_bridge_missing_scope)},
+       {"receiver_bridge_unknown_receiver",
+        std::to_string(receiver_bridge_unknown_receiver)},
+       {"receiver_bridge_submission_joins",
+        std::to_string(receiver_bridge_submission_joins)},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -12127,6 +12255,9 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
             std::memory_order_relaxed))},
        {"shared_child_runtime_object",
         std::to_string(g_track_render_model_shared_identity_relations[7].load(
+            std::memory_order_relaxed))},
+       {"shared_procedural_receiver_bridge",
+        std::to_string(g_track_render_model_shared_identity_relations[8].load(
             std::memory_order_relaxed))},
        {"world_resource_graph_scopes",
         std::to_string(g_track_world_resource_graph_scopes.load(
@@ -12202,7 +12333,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"qualification_complete",
         qualification_complete ? "true" : "false"},
        {"classification",
-        "exact_unified_track_render_model_nested_submission_join"},
+        "exact_unified_track_render_model_procedural_receiver_join"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
@@ -27127,13 +27258,15 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"entry_hook", "8240EC80"},
        {"exit_hook", "8240ECAC"},
        {"nested_dispatch", "82436468"},
+       {"procedural_receiver_bridge_hook", "82437040"},
        {"instance_vtable", "820019CC"},
        {"model_vtable", "82001D74"},
        {"instance_to_model", "root_plus_4"},
        {"model_to_descriptor", "child_plus_48_then_plus_128"},
        {"descriptor_type", "21"},
        {"descriptor_flag", "1"},
-       {"join", "synchronous_scope_to_procedural_model_submission"},
+       {"join",
+        "exact_track_dispatch_receiver_bridge_to_procedural_model_submission"},
        {"shared_identity",
         "descriptor_payload_or_object_address_exact_equality"},
        {"world_resource_vtables",
@@ -29453,6 +29586,11 @@ void PinyonShiftObserveTrackRenderModelDispatchEntry(PPCRegister &r31) {
 
 void PinyonShiftObserveTrackRenderModelDispatchExit() {
   EndTrackRenderModelDispatch();
+}
+
+void PinyonShiftObserveTrackRenderModelProceduralReceiver(
+    PPCRegister &r25) {
+  ObserveTrackRenderModelProceduralReceiver(r25.u32);
 }
 
 void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,

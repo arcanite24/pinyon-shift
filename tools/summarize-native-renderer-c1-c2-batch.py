@@ -9,7 +9,7 @@ import sys
 
 SCHEMA = "pinyon-shift.native-renderer-c1-c2-batch.v1"
 INPUT_SCHEMAS = {
-    "track": "pinyon-shift.native-renderer-track-model-runtime-join.v2",
+    "track": "pinyon-shift.native-renderer-track-model-runtime-join.v3",
     "static_world": "pinyon-shift.native-renderer-static-world-runtime-join.v10",
     "classification": (
         "pinyon-shift.native-renderer-static-world-instance-classification.v1"
@@ -110,6 +110,7 @@ def build(reports):
 
     required_track = (
         "track_render_model_scope_to_submission_proved",
+        "procedural_receiver_bridge_proved",
         "track_world_resource_graph_identity_proved",
         "track_world_resource_to_submission_identity_proved",
     )

@@ -5,7 +5,8 @@ Status: implementation complete; first clean AppData batch pending
 The combined gate turns one exact runtime session into a single promotion
 decision. It joins four independently strict, payload-free reports:
 
-- unified track render-model and shared world-resource identity;
+- unified track render-model, generation-safe procedural-receiver handoff, and
+  shared world-resource identity;
 - complete SimpleModel presentation/resource/mesh lineage;
 - runtime transform classification against the title-authored spatial catalog;
   and

@@ -225,6 +225,16 @@ registers = ["r31"]
 address = 0x8240ECAC
 name = "PinyonShiftObserveTrackRenderModelDispatchExit"
 
+# The accepted track-render dispatch passes its exact CProceduralModels
+# receiver in r25 immediately before the render-state call. Persist that
+# address against the receiver's independently proved lifetime generation so
+# later semantic submissions retain exact track ownership even if their PM4
+# preparation crosses the balanced title scope.
+[[midasm_hook]]
+address = 0x82437040
+name = "PinyonShiftObserveTrackRenderModelProceduralReceiver"
+registers = ["r25"]
+
 # Phase C2 exact model-presentation owner scope. Retail RTTI proves slot 12 of
 # Presentation_Unified::CModelPresentation is 0x823F8DB8 and every path joins
 # at 0x823F8FA0. The nested SimpleModel renderer dispatch is accepted only when

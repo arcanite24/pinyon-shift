@@ -258,17 +258,29 @@ flow shows that `8240EC80` is reached only after the instance, its child, and
 the child-owned 248-byte type-21 descriptor pass the title predicates. The
 nested render dispatch returns at `8240ECAC`.
 
-A balanced passive runtime scope now brackets those two addresses. It joins
-only procedural-model semantic submissions made synchronously inside the exact
-dynamic-type scope, carries the result to prepared candidates, and separately
-tests exact equality between the title descriptor/root/child identity and the
-procedural receiver, runtime object, bound resource, and provider identities.
-The payload-free qualifier distinguishes exact nested ownership from the
-stronger shared-object/resource proof rather than conflating them.
+A balanced passive runtime scope brackets those two addresses. The first
+combined Phase C session observed 110,023 scopes, including 94,826 exact
+dynamic-type scopes, but zero procedural submissions inside the scope. That
+clean negative result disproves the original synchronous-submission assumption;
+it is not an ownership failure in the title and cannot qualify C1.
 
-This instrumentation awaits the next batched AppData-backed run. Until then it
-does not prove the runtime join, terrain/road visual identity, or C1 admission.
-It changes no guest state, draw, output authority, or suppression decision.
+Static generated-code evidence supplies the missing handoff. Inside the exact
+track dispatch, `82437040` copies the retained `CProceduralModels` receiver from
+`r25` to `r3`, and `82437044` immediately calls the already-proved semantic
+producer `82417060`. A passive hook at the copy records the exact track root,
+child, descriptor, payload, and bounded world-resource mask against that
+receiver's independently generation-tracked live lifetime. Later submissions
+from the same live generation recover the owner without requiring PM4 work to
+remain on the title's balanced call stack. Re-publication clears the bridge, so
+an address reused by another receiver lifetime cannot inherit track identity.
+
+The payload-free qualifier now requires complete receiver-bridge accounting,
+at least one exact handoff, and at least one semantic submission from a bridged
+receiver. It still reports descriptor/root/child and world-resource equality
+separately rather than conflating them with the direct receiver proof. This
+instrumentation awaits the next batched AppData-backed run. Until then it does
+not prove terrain/road visual identity or C1 admission, and it changes no guest
+state, draw, output authority, or suppression decision.
 
 ## Bounded track world-resource graph identity
 
