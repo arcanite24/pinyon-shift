@@ -1869,6 +1869,9 @@ def procedural_model_receiver_lifecycle(
             "semantic_batch_world_family_partition": (
                 "none_or_exact_track_or_exact_static_or_both"
             ),
+            "semantic_batch_lod_partition": (
+                "exact_title_observation_or_missing"
+            ),
             "semantic_batch_equivalence_ladder_required": True,
             "semantic_batch_pipeline_identity": (
                 "resource_free_layout_and_prepared_state"

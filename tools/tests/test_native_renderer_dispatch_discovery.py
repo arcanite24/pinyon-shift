@@ -1530,6 +1530,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             "none_or_exact_track_or_exact_static_or_both",
             draw_association["semantic_batch_world_family_partition"],
         )
+        self.assertEqual(
+            "exact_title_observation_or_missing",
+            draw_association["semantic_batch_lod_partition"],
+        )
         self.assertFalse(
             draw_association["semantic_batch_execution_enabled"]
         )

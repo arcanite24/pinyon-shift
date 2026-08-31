@@ -8,7 +8,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v4"
+SCHEMA = "pinyon-shift.native-renderer-semantic-batch-admission.v5"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 TITLE_CONFIG = "native_renderer.discovery.title_provenance_config"
 TITLE_SUMMARY = "native_renderer.discovery.title_provenance_summary"
@@ -150,6 +150,7 @@ def _validate_static(static: dict) -> dict:
         "semantic_batch_world_family_partition": (
             "none_or_exact_track_or_exact_static_or_both"
         ),
+        "semantic_batch_lod_partition": "exact_title_observation_or_missing",
         "semantic_batch_equivalence_ladder_required": True,
         "semantic_batch_pipeline_identity": (
             "resource_free_layout_and_prepared_state"
@@ -555,6 +556,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         != "disabled_measurement_only"
         or config.get("semantic_batch_world_family_partition")
         != "none_or_exact_track_or_exact_static_or_both"
+        or config.get("semantic_batch_lod_partition")
+        != "exact_title_observation_or_missing"
         or config.get("semantic_batch_equivalence_ladder")
         != "mesh_material,material,pipeline"
         or config.get("semantic_batch_pipeline_identity")
@@ -649,6 +652,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "world_family_mask": int(
                 _hex(event, "world_family_mask", 8), 16
             ),
+            "title_lod_valid": _boolean(event, "title_lod_valid"),
+            "title_lod_index": _integer(event, "title_lod_index"),
             "draws": _integer(event, "draws"),
             "frames": _integer(event, "frames"),
             "first_frame": _integer(event, "first_frame"),
@@ -672,6 +677,10 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             or item["world_family_mask"] & ~0x3
             or event.get("world_family_partition")
             != "none_or_exact_track_or_exact_static_or_both"
+            or event.get("title_lod_partition")
+            != "exact_title_observation_or_missing"
+            or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
+            or (not item["title_lod_valid"] and item["title_lod_index"] != 0)
             or any(
                 item[key] < 0
                 for key in (
@@ -747,6 +756,9 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
             "static_world_entries",
             "static_world_draws",
             "static_world_multi_draw_runs",
+            "title_lod_entries",
+            "title_lod_draws",
+            "title_lod_multi_draw_runs",
         )
     }
     totals["potential_command_reduction_percent"] = _number(
@@ -794,6 +806,8 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         )
         or summary.get("world_family_partition")
         != "none_or_exact_track_or_exact_static_or_both"
+        or summary.get("title_lod_partition")
+        != "exact_title_observation_or_missing"
     ):
         raise ValueError("semantic-batch aggregate accounting failed")
     track_world_groups = [
@@ -815,6 +829,15 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         != sum(group["multi_draw_runs"] for group in static_world_groups)
     ):
         raise ValueError("semantic world-family partition accounting failed")
+    title_lod_groups = [group for group in entries if group["title_lod_valid"]]
+    if (
+        totals["title_lod_entries"] != len(title_lod_groups)
+        or totals["title_lod_draws"]
+        != sum(group["draws"] for group in title_lod_groups)
+        or totals["title_lod_multi_draw_runs"]
+        != sum(group["multi_draw_runs"] for group in title_lod_groups)
+    ):
+        raise ValueError("semantic title-LOD partition accounting failed")
     expected_percent = (
         100.0 * totals["potential_command_reduction"] / totals["observations"]
     )
@@ -870,6 +893,24 @@ def build(events: list[dict], static: dict, requested: str | None = None) -> dic
         "static_world_batch_opportunity_proved": any(
             group["eligible"] and group["multi_draw_runs"] > 0
             for group in static_world_groups
+        ),
+        "title_lod_batch_opportunity_proved": any(
+            group["eligible"] and group["multi_draw_runs"] > 0
+            for group in title_lod_groups
+        ),
+        "track_world_title_lod_batch_opportunity_proved": any(
+            group["eligible"]
+            and group["multi_draw_runs"] > 0
+            and group["title_lod_valid"]
+            and group["world_family_mask"] & 0x1
+            for group in entries
+        ),
+        "static_world_title_lod_batch_opportunity_proved": any(
+            group["eligible"]
+            and group["multi_draw_runs"] > 0
+            and group["title_lod_valid"]
+            and group["world_family_mask"] & 0x2
+            for group in entries
         ),
         "mesh_material_instancing_opportunity_proved": (
             mesh_material_instancing_opportunity_proved

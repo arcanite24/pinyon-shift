@@ -628,8 +628,10 @@ struct SemanticBatchOpportunityEntry {
   uint32_t primary_resource_key = 0;
   uint32_t secondary_resource_key = 0;
   uint32_t world_family_mask = 0;
+  uint32_t title_lod_index = 0;
   SemanticBatchRejection rejection = SemanticBatchRejection::kNone;
   bool secondary_resource_present = false;
+  bool title_lod_valid = false;
 };
 
 constexpr uint32_t kSemanticWorldFamilyTrack = 1u << 0;
@@ -5833,6 +5835,8 @@ void ConfigureTitleDrawProvenance(bool requested,
         "exact_consecutive_opaque_prepared_draw_order"},
        {"semantic_batch_world_family_partition",
         "none_or_exact_track_or_exact_static_or_both"},
+       {"semantic_batch_lod_partition",
+        "exact_title_observation_or_missing"},
        {"semantic_batch_equivalence_ladder",
         "mesh_material,material,pipeline"},
        {"semantic_batch_pipeline_identity",
@@ -16859,7 +16863,10 @@ size_t FindOrCreateSemanticBatchOpportunity(
       entry.primary_resource_key = identity.primary_resource_key;
       entry.secondary_resource_key = identity.secondary_resource_key;
       entry.world_family_mask = world_family_mask;
+      entry.title_lod_index =
+          identity.title_lod_valid ? identity.title_lod_index : 0;
       entry.secondary_resource_present = identity.secondary_resource_present;
+      entry.title_lod_valid = identity.title_lod_valid;
       entry.rejection = rejection;
       ++g_semantic_batch_opportunity_count;
       return index;
@@ -16872,6 +16879,9 @@ size_t FindOrCreateSemanticBatchOpportunity(
         entry.secondary_resource_present ==
             identity.secondary_resource_present &&
         entry.world_family_mask == world_family_mask &&
+        entry.title_lod_index ==
+            (identity.title_lod_valid ? identity.title_lod_index : 0) &&
+        entry.title_lod_valid == identity.title_lod_valid &&
         entry.rejection == rejection) {
       return index;
     }
@@ -17235,7 +17245,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.visibility_category),
         uint64_t(identity.visibility_result_mask),
         uint64_t(identity.title_lod_valid),
-        uint64_t(identity.title_lod_index),
+        uint64_t(identity.title_lod_valid ? identity.title_lod_index : 0),
         uint64_t(identity.primary_resource_key),
         uint64_t(identity.secondary_resource_present),
         uint64_t(identity.secondary_resource_key),
@@ -17421,6 +17431,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
         contract.texture_resource_hash, uint64_t(identity.primary_resource_key),
         uint64_t(identity.secondary_resource_present),
         uint64_t(identity.secondary_resource_key), uint64_t(world_family_mask),
+        uint64_t(identity.title_lod_valid),
+        uint64_t(identity.title_lod_index),
         uint64_t(rejection)}) {
     key = HashCombine(key, value);
   }
@@ -19141,6 +19153,9 @@ void EmitSemanticBatchOpportunitySummary() {
   uint64_t static_world_entries = 0;
   uint64_t static_world_draws = 0;
   uint64_t static_world_multi_draw_runs = 0;
+  uint64_t title_lod_entries = 0;
+  uint64_t title_lod_draws = 0;
+  uint64_t title_lod_multi_draw_runs = 0;
   for (uint64_t count : g_semantic_batch_rejections) {
     rejection_total += count;
   }
@@ -19168,6 +19183,11 @@ void EmitSemanticBatchOpportunitySummary() {
       static_world_draws += entry.draws;
       static_world_multi_draw_runs += entry.multi_draw_runs;
     }
+    if (entry.title_lod_valid) {
+      ++title_lod_entries;
+      title_lod_draws += entry.draws;
+      title_lod_multi_draw_runs += entry.multi_draw_runs;
+    }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_batch_entry",
         {{"opportunity_key", fmt::format("{:016X}", entry.key)},
@@ -19186,6 +19206,9 @@ void EmitSemanticBatchOpportunitySummary() {
           fmt::format("{:08X}", entry.world_family_mask)},
          {"world_family_partition",
           "none_or_exact_track_or_exact_static_or_both"},
+         {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
+         {"title_lod_index", std::to_string(entry.title_lod_index)},
+         {"title_lod_partition", "exact_title_observation_or_missing"},
          {"draws", std::to_string(entry.draws)},
          {"frames", std::to_string(entry.frames)},
          {"first_frame", std::to_string(entry.first_frame)},
@@ -19224,7 +19247,9 @@ void EmitSemanticBatchOpportunitySummary() {
       track_world_entries <= g_semantic_batch_opportunity_count &&
       track_world_draws <= g_semantic_batch_observations &&
       static_world_entries <= g_semantic_batch_opportunity_count &&
-      static_world_draws <= g_semantic_batch_observations;
+      static_world_draws <= g_semantic_batch_observations &&
+      title_lod_entries <= g_semantic_batch_opportunity_count &&
+      title_lod_draws <= g_semantic_batch_observations;
   const uint64_t projected_commands =
       g_semantic_batch_consecutive_runs + g_semantic_batch_rejected_draws;
   const uint64_t potential_command_reduction =
@@ -19293,6 +19318,11 @@ void EmitSemanticBatchOpportunitySummary() {
         std::to_string(static_world_multi_draw_runs)},
        {"world_family_partition",
         "none_or_exact_track_or_exact_static_or_both"},
+       {"title_lod_entries", std::to_string(title_lod_entries)},
+       {"title_lod_draws", std::to_string(title_lod_draws)},
+       {"title_lod_multi_draw_runs",
+        std::to_string(title_lod_multi_draw_runs)},
+       {"title_lod_partition", "exact_title_observation_or_missing"},
        {"reject_missing_title_resource",
         std::to_string(g_semantic_batch_rejections[size_t(
             SemanticBatchRejection::kMissingTitleResource)])},

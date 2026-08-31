@@ -15,6 +15,8 @@ One opportunity key combines:
 - the title's primary and optional secondary resource keys;
 - a bounded world-family mask that independently marks exact C1 track-world
   and exact C2 static-world lineage; and
+- the title's exact observed LOD-valid bit and normalized index, with every
+  missing observation represented by the single `(false, 0)` identity; and
 - the fail-closed eligibility result.
 
 The title resource keys travel with the already-proved semantic submission
@@ -25,8 +27,9 @@ An executable run exists only while eligible draws with the same exact key are
 adjacent in one frame. A frame boundary, rejected draw, or key transition
 closes the run. Because the world-family mask is part of the key, a generic
 procedural draw cannot extend an exact track/static run even when every GPU
-resource happens to match. The census performs no front-to-back or material
-reordering.
+resource happens to match. Exact title LOD is also part of the key, so two
+otherwise identical draws from different title-selected LODs cannot be merged.
+The census performs no front-to-back or material reordering.
 
 ## Admission boundary
 
@@ -56,7 +59,9 @@ and whether consecutive draws switch semantic instances or repeat the same
 instance. The summary additionally records per-frame density and template,
 geometry, texture, and title-resource transitions. Exact C1 and C2 group,
 draw, and multi-draw-run totals are reconciled independently; they remain
-measurement-only until runtime evidence proves a useful opportunity.
+measurement-only until runtime evidence proves a useful opportunity. The same
+accounting separately measures title-LOD-bearing groups and family-local LOD
+multi-draw opportunities.
 
 Projected command count is conservative:
 
@@ -81,7 +86,7 @@ python tools/summarize-native-renderer-semantic-batches.py `
   --output <semantic-batch-admission.json>
 ```
 
-Schema `pinyon-shift.native-renderer-semantic-batch-admission.v4` requires:
+Schema `pinyon-shift.native-renderer-semantic-batch-admission.v5` requires:
 
 - one armed provenance configuration and one batch summary;
 - exact equality with the prepared semantic-contract call count;
@@ -89,6 +94,8 @@ Schema `pinyon-shift.native-renderer-semantic-batch-admission.v4` requires:
 - entry, run, rejection, projected-command, and reduction accounting to
   reconcile exactly;
 - exact world-family partitions to reconcile to the tagged opportunity groups;
+- exact title-LOD partitions to reconcile, with indices below 32 and all
+  missing observations normalized to zero;
 - explicit Xenos authority with native execution and suppression disabled.
 
 `conservative_batch_plan_proved` also requires at least one eligible draw, one
@@ -99,6 +106,11 @@ the plan unproved and does not change runtime rendering.
 `static_world_batch_opportunity_proved` are stricter family-local signals. Each
 requires an eligible tagged group with a multi-draw run; neither signal admits
 an executor, culling, LOD selection, publication, or suppression.
+
+The title-LOD variants additionally require the family-local run to carry an
+exact title observation. This proves only that later native batching can retain
+the title's already-selected LOD; it does not yet authorize an independent LOD
+choice.
 
 ## Qualification result
 
