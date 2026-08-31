@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v13"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v15"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -14,6 +14,9 @@ CORRELATION_EVENT = (
 CANDIDATE_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_candidate"
 SHADER_CONSTANT_SOURCE_EVENT = (
     "native_renderer.discovery.vehicle_shader_constant_source"
+)
+SHADER_CONSTANT_REGISTER_EVENT = (
+    "native_renderer.discovery.vehicle_shader_constant_register"
 )
 SUMMARY_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_summary"
 CAPTURE_CONFIG_EVENT = (
@@ -108,6 +111,11 @@ def summarize(log_path):
         event
         for event in events
         if event.get("event") == SHADER_CONSTANT_SOURCE_EVENT
+    ]
+    shader_constant_registers = [
+        event
+        for event in events
+        if event.get("event") == SHADER_CONSTANT_REGISTER_EVENT
     ]
     summaries = [
         event for event in events if event.get("event") == SUMMARY_EVENT
@@ -427,15 +435,93 @@ def summarize(log_path):
         "shader constant source summary capacity drift",
     )
     require(
+        integer(summary, "shader_constant_registers_observed")
+        == len(shader_constant_registers),
+        "shader constant register event accounting drift",
+    )
+    register_observed_vectors = 0
+    register_exact_vectors = 0
+    register_missing_vectors = 0
+    register_mismatched_vectors = 0
+    for event in shader_constant_registers:
+        observed_vectors = integer(event, "observed_vectors")
+        exact_vectors = integer(event, "exact_vectors")
+        missing_vectors = integer(event, "missing_vectors")
+        mismatched_vectors = integer(event, "mismatched_vectors")
+        require(
+            exact_vectors + missing_vectors + mismatched_vectors
+            == observed_vectors,
+            "shader constant register outcome drift",
+        )
+        first_mismatch_mask = hexadecimal(
+            event, "first_mismatch_component_mask"
+        )
+        mismatch_mask_variations = integer(
+            event, "mismatch_component_mask_variations"
+        )
+        require(
+            (mismatched_vectors == 0 and first_mismatch_mask == 0)
+            or (
+                mismatched_vectors > 0
+                and 0 < first_mismatch_mask < 16
+                and mismatch_mask_variations < mismatched_vectors
+            ),
+            "shader constant register mismatch mask drift",
+        )
+        register_observed_vectors += observed_vectors
+        register_exact_vectors += exact_vectors
+        register_missing_vectors += missing_vectors
+        register_mismatched_vectors += mismatched_vectors
+    require(
+        register_observed_vectors
+        + integer(summary, "shader_constant_invalid_observed_vectors")
+        == shader_constant_write_observed_vectors,
+        "shader constant register observation total drift",
+    )
+    require(
+        register_exact_vectors == shader_constant_write_exact_vectors
+        and register_missing_vectors
+        + integer(summary, "shader_constant_invalid_observed_vectors")
+        == shader_constant_write_missing_vectors
+        and register_mismatched_vectors
+        == shader_constant_write_mismatched_vectors,
+        "shader constant register classification total drift",
+    )
+    require(
         summary.get("shader_constant_write_contract")
-        == "exact_current_vertex_register_components_and_packet_lineage",
+        == "draw_atomic_current_vertex_register_components_and_packet_lineage",
         "shader constant write summary contract drift",
+    )
+    semantic_bridge_publications = integer(
+        summary, "semantic_constant_bridge_publications"
+    )
+    semantic_bridge_rejections = integer(
+        summary, "semantic_constant_bridge_rejections"
+    )
+    semantic_bridge_complete_lineage_publications = integer(
+        summary, "semantic_constant_bridge_complete_lineage_publications"
+    )
+    require(
+        semantic_bridge_publications == integer(summary, "color_draws_matched")
+        and semantic_bridge_rejections == 0,
+        "semantic constant bridge publication accounting drift",
+    )
+    require(
+        semantic_bridge_complete_lineage_publications
+        <= semantic_bridge_publications,
+        "semantic constant bridge lineage accounting drift",
+    )
+    require(
+        summary.get("semantic_constant_bridge_contract")
+        == "private_draw_atomic_vertex_constant_snapshot",
+        "semantic constant bridge contract drift",
     )
     safety_events = [
         *configs,
         *epochs,
         *correlations,
         *candidates,
+        *shader_constant_registers,
         *shader_constant_sources,
         summary,
     ]
@@ -744,6 +830,48 @@ def summarize(log_path):
                 else "unresolved"
             ),
             "candidate shader constant classification drift",
+        )
+        bridge_publications = integer(
+            event, "semantic_constant_bridge_publications"
+        )
+        bridge_constant_count = integer(
+            event, "semantic_constant_bridge_constant_count"
+        )
+        bridge_exact_vectors = integer(
+            event, "semantic_constant_bridge_exact_packet_lineage_vectors"
+        )
+        bridge_unresolved_vectors = integer(
+            event,
+            "semantic_constant_bridge_unresolved_packet_lineage_vectors",
+        )
+        require(
+            bridge_publications == integer(event, "draws")
+            and 0 < bridge_constant_count <= 64,
+            "candidate semantic constant bridge publication drift",
+        )
+        require(
+            bridge_exact_vectors + bridge_unresolved_vectors
+            == bridge_constant_count,
+            "candidate semantic constant bridge vector drift",
+        )
+        require(
+            integer(event, "semantic_constant_bridge_register_layout_variations")
+            == 0,
+            "candidate semantic constant bridge layout drift",
+        )
+        require(
+            len(event.get("semantic_constant_bridge_register_layout_hash", ""))
+            == 16,
+            "candidate semantic constant bridge layout hash drift",
+        )
+        require(
+            event.get("semantic_constant_bridge_classification")
+            == (
+                "complete_private_draw_atomic_snapshot"
+                if bridge_unresolved_vectors == 0
+                else "private_draw_atomic_snapshot_with_unresolved_lineage"
+            ),
+            "candidate semantic constant bridge classification drift",
         )
         for key in (
             "prepared_signature",
@@ -1112,6 +1240,7 @@ def summarize(log_path):
             ),
             "source_count": len(shader_constant_sources),
             "sources": shader_constant_sources,
+            "registers": shader_constant_registers,
             "complete_lineage_families": sum(
                 event.get("shader_constant_write_classification")
                 == "complete_exact_packet_lineage"

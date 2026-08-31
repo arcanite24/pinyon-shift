@@ -59,8 +59,8 @@ Already landed or substantially qualified:
 - bounded visibility worksets with title visibility and LOD lineage;
 - exact native replay of an 80-draw dynamic shadow epoch with byte-identical
   D24S8 output and bounded multi-frame publication;
-- extensive vehicle provenance investigation, without a qualified semantic
-  vehicle rendering bridge yet; and
+- extensive vehicle provenance plus a qualified private draw-atomic semantic
+  constant bridge, without a visible semantic vehicle rendering path yet; and
 - post-processing topology census plus the mechanical presentation ingress.
 
 Phase A and B1-B5 are merged. The active B6 slice qualifies the first coherent
@@ -732,9 +732,21 @@ repeatable: 255 exact epochs, 7,650 correlated draws, and all 30 families were
 observed. Final register state matched 114,750 of 122,400 shader-used vectors
 (15 of 16 per draw), with no missing or split-component vectors and zero-frame
 age. The structural packet table retained 1,620 sources without overflow.
-The next focused slice identifies the one mismatched vector per draw and then
-publishes the first semantic vehicle-constant bridge from this proven final
-register boundary.
+The draw-atomic follow-up `20260831T203519Z-p39592` identifies register 254 as
+the sole mismatch: all four components differ on every one of 14,505 matched
+draws, with no mask variation, while the other 15 vectors remain exact. This
+proves a special-register path rather than observer timing drift.
+
+First semantic constant-bridge checkpoint: all 14,505 matched draws now publish
+a private current-draw snapshot into the bounded 30-family table with zero
+rejections and zero register-layout variations. Each family carries the same
+16 shader-used registers, 15 exact packet-lineage vectors, and one explicitly
+unresolved register-254 vector. The bridge exports hashes and counts only,
+draws nothing, publishes nothing, and cannot suppress Xenos. It is sufficient
+to advance the retained player-vehicle harness without attributing register
+254 to a guessed title producer. The next C4 slice joins player identity and
+mesh/material roles to this snapshot, then uses per-item replay fallback for
+unresolved or exceptional work.
 
 ### C5. Sky, atmosphere, and global lighting
 
