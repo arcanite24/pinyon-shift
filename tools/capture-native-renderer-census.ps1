@@ -30,7 +30,12 @@ param(
     [switch]$ContinuousWorldWorkset,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
-    [ValidateSet('baseline', 'fasttrackrender')]
+    [ValidateSet(
+        'baseline',
+        'fasttrackrender',
+        'noroaddetailblur',
+        'notrackcommandbuffers'
+    )]
     [string]$TrackRenderMode = 'baseline',
     [ValidatePattern('^[0-9A-Fa-f]{16}$')]
     [string]$PassAnchorSignature,

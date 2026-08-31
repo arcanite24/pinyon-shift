@@ -9,7 +9,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-config.v1"
+SCHEMA = "pinyon-shift.native-renderer-track-config.v2"
 IMAGE_BASE = 0x82000000
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -214,7 +214,32 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         "capture_contract": {
             "baseline_arguments": [],
             "track_arguments": [],
-            "runtime_control": "exact_runtime_copy_override_8259C834",
+            "runtime_control": (
+                "exact_runtime_copy_overrides_"
+                "8259C834_8259C89C_8259C8DC"
+            ),
+            "modes": {
+                "baseline": {
+                    "fast_track_render": False,
+                    "road_detail_blur": True,
+                    "track_command_buffers": True,
+                },
+                "fasttrackrender": {
+                    "fast_track_render": True,
+                    "road_detail_blur": True,
+                    "track_command_buffers": True,
+                },
+                "noroaddetailblur": {
+                    "fast_track_render": False,
+                    "road_detail_blur": False,
+                    "track_command_buffers": True,
+                },
+                "notrackcommandbuffers": {
+                    "fast_track_render": False,
+                    "road_detail_blur": True,
+                    "track_command_buffers": False,
+                },
+            },
             "scene_must_match": True,
             "compare_exact_prepared_signatures": True,
             "semantic_identity": "candidate_until_runtime_delta_and_visual_evidence",

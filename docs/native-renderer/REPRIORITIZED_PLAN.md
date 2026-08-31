@@ -222,6 +222,17 @@ shader resemblance to semantic evidence. Native admission remains off until
 representative candidates receive visual identity, isolated replay, and race
 coverage.
 
+The first fast-track-only isolated candidate failed the color replay contract
+on its render-target layout. A subsequently matched baseline,
+`noroaddetailblur`, and `notrackcommandbuffers` matrix proved both additional
+title switches affect submitted work, but zero material delta joined to a
+mechanically color-replay-eligible semantic candidate. C1 therefore moves to
+the independent `trackfardistance` runtime consumer and then, if needed, the
+semantic world-section/mesh ingress instead of collecting more broad
+frequency deltas. This is a lead change, not a scope reduction: terrain/road
+ownership, continuous hybrid output, and race/streaming qualification remain
+required.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
