@@ -696,6 +696,16 @@ consumed subset size. Runtime proof remains batched with the next substantial
 C4 slice; the corrected contract and first-run evidence are documented in
 [`VEHICLE_TYPED_CONSTANT_UPLOAD.md`](VEHICLE_TYPED_CONSTANT_UPLOAD.md).
 
+Shader-used subset qualification result: the AppData-backed
+`20260831T184645Z-p11956` run exited normally and strictly accounted 2,245,612
+writer observations, including 469,815 valid uploads and zero invalid source
+ranges. It reproduced all 30 families across 15,750 exact geometry matches but
+the subset rule still produced zero upload matches. The join is therefore not
+promoted. The next bounded slice partitions every fresh candidate into
+no-overlap, hash-mismatch, or exact outcomes and records each family's observed
+register envelope without exporting values. This selects the next exact
+contract before any semantic caller bridge, native admission, or suppression.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

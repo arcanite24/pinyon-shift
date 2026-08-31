@@ -655,6 +655,10 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t constant_forward_identity_variations = 0;
   uint64_t constant_forward_register_variations = 0;
   uint64_t typed_upload_scans = 0;
+  uint64_t typed_upload_fresh_candidates = 0;
+  uint64_t typed_upload_no_overlap_candidates = 0;
+  uint64_t typed_upload_hash_mismatch_candidates = 0;
+  uint64_t typed_upload_exact_candidates = 0;
   uint64_t typed_upload_exact_matches = 0;
   uint64_t typed_upload_misses = 0;
   uint64_t typed_upload_exact_used_vectors = 0;
@@ -692,10 +696,13 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint32_t typed_upload_source_address = 0;
   uint32_t typed_upload_buffer_address = 0;
   uint32_t typed_upload_caller_return_address = 0;
+  uint32_t typed_upload_observed_register_min = 0;
+  uint32_t typed_upload_observed_register_max = 0;
   bool full_geometry_match = false;
   bool constant_position_identity_valid = false;
   bool constant_forward_identity_valid = false;
   bool typed_upload_identity_valid = false;
+  bool typed_upload_observed_register_range_valid = false;
   bool occupied = false;
 };
 
@@ -711,6 +718,12 @@ struct VehicleConstantUploadEntry {
              rex::system::kGraphicsFloatConstantObservationLimit>
       vector_hashes{};
   bool occupied = false;
+};
+
+enum class VehicleConstantUploadSubsetResult : uint32_t {
+  kNoOverlap = 0,
+  kHashMismatch,
+  kExact,
 };
 
 struct VehicleShadowColorRun {
@@ -15363,12 +15376,12 @@ void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
   ++g_vehicle_constant_upload_valid;
 }
 
-bool MatchObservedVertexConstantSubset(
+VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
     const rex::system::GraphicsDrawObservation &observation,
     const VehicleConstantUploadEntry &upload,
     uint32_t *matched_vector_count) {
   if (!matched_vector_count) {
-    return false;
+    return VehicleConstantUploadSubsetResult::kNoOverlap;
   }
   *matched_vector_count = 0;
   const uint32_t observed_count = std::min(
@@ -15387,17 +15400,37 @@ bool MatchObservedVertexConstantSubset(
         constant.index, 1,
         std::span(constant.values, std::size(constant.values)));
     if (observed_hash != upload.vector_hashes[vector_offset]) {
-      return false;
+      return VehicleConstantUploadSubsetResult::kHashMismatch;
     }
     ++*matched_vector_count;
   }
-  return *matched_vector_count != 0;
+  return *matched_vector_count
+             ? VehicleConstantUploadSubsetResult::kExact
+             : VehicleConstantUploadSubsetResult::kNoOverlap;
 }
 
 void ObserveVehicleColorTypedConstantUpload(
     const rex::system::GraphicsDrawObservation &observation,
     VehicleShadowGeometryCorrelationEntry &entry) {
   ++entry.typed_upload_scans;
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const uint32_t observed_register =
+        observation.vertex_float_constants[observed_offset].index;
+    if (!entry.typed_upload_observed_register_range_valid) {
+      entry.typed_upload_observed_register_min = observed_register;
+      entry.typed_upload_observed_register_max = observed_register;
+      entry.typed_upload_observed_register_range_valid = true;
+    } else {
+      entry.typed_upload_observed_register_min = std::min(
+          entry.typed_upload_observed_register_min, observed_register);
+      entry.typed_upload_observed_register_max = std::max(
+          entry.typed_upload_observed_register_max, observed_register);
+    }
+  }
   VehicleConstantUploadEntry best{};
   uint32_t best_matched_vector_count = 0;
   {
@@ -15409,11 +15442,20 @@ void ObserveVehicleColorTypedConstantUpload(
               kVehicleConstantUploadMaximumAgeFrames) {
         continue;
       }
+      ++entry.typed_upload_fresh_candidates;
       uint32_t matched_vector_count = 0;
-      if (!MatchObservedVertexConstantSubset(
-              observation, upload, &matched_vector_count)) {
+      const VehicleConstantUploadSubsetResult subset_result =
+          MatchObservedVertexConstantSubset(
+              observation, upload, &matched_vector_count);
+      if (subset_result == VehicleConstantUploadSubsetResult::kNoOverlap) {
+        ++entry.typed_upload_no_overlap_candidates;
         continue;
       }
+      if (subset_result == VehicleConstantUploadSubsetResult::kHashMismatch) {
+        ++entry.typed_upload_hash_mismatch_candidates;
+        continue;
+      }
+      ++entry.typed_upload_exact_candidates;
       if (!best.occupied ||
           matched_vector_count > best_matched_vector_count ||
           (matched_vector_count == best_matched_vector_count &&
@@ -26533,6 +26575,10 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     uint64_t constant_forward_ambiguous_matches = 0;
     uint64_t constant_forward_misses = 0;
     uint64_t typed_upload_scans = 0;
+    uint64_t typed_upload_fresh_candidates = 0;
+    uint64_t typed_upload_no_overlap_candidates = 0;
+    uint64_t typed_upload_hash_mismatch_candidates = 0;
+    uint64_t typed_upload_exact_candidates = 0;
     uint64_t typed_upload_exact_matches = 0;
     uint64_t typed_upload_misses = 0;
     uint64_t typed_upload_exact_used_vectors = 0;
@@ -26558,6 +26604,12 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           entry.constant_forward_ambiguous_matches;
       constant_forward_misses += entry.constant_forward_misses;
       typed_upload_scans += entry.typed_upload_scans;
+      typed_upload_fresh_candidates += entry.typed_upload_fresh_candidates;
+      typed_upload_no_overlap_candidates +=
+          entry.typed_upload_no_overlap_candidates;
+      typed_upload_hash_mismatch_candidates +=
+          entry.typed_upload_hash_mismatch_candidates;
+      typed_upload_exact_candidates += entry.typed_upload_exact_candidates;
       typed_upload_exact_matches += entry.typed_upload_exact_matches;
       typed_upload_misses += entry.typed_upload_misses;
       typed_upload_exact_used_vectors +=
@@ -26742,6 +26794,14 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                 : "unresolved"},
            {"typed_upload_scans",
             std::to_string(entry.typed_upload_scans)},
+           {"typed_upload_fresh_candidates",
+            std::to_string(entry.typed_upload_fresh_candidates)},
+           {"typed_upload_no_overlap_candidates",
+            std::to_string(entry.typed_upload_no_overlap_candidates)},
+           {"typed_upload_hash_mismatch_candidates",
+            std::to_string(entry.typed_upload_hash_mismatch_candidates)},
+           {"typed_upload_exact_candidates",
+            std::to_string(entry.typed_upload_exact_candidates)},
            {"typed_upload_exact_matches",
             std::to_string(entry.typed_upload_exact_matches)},
            {"typed_upload_misses",
@@ -26788,6 +26848,14 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
             entry.typed_upload_identity_valid
                 ? fmt::format("{:08X}",
                               entry.typed_upload_caller_return_address)
+                : "unknown"},
+           {"typed_upload_observed_register_min",
+            entry.typed_upload_observed_register_range_valid
+                ? std::to_string(entry.typed_upload_observed_register_min)
+                : "unknown"},
+           {"typed_upload_observed_register_max",
+            entry.typed_upload_observed_register_range_valid
+                ? std::to_string(entry.typed_upload_observed_register_max)
                 : "unknown"},
            {"typed_upload_classification",
             entry.typed_upload_exact_matches == entry.draws &&
@@ -26967,6 +27035,21 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"typed_upload_capacity",
           std::to_string(kVehicleConstantUploadCapacity)},
          {"typed_upload_scans", std::to_string(typed_upload_scans)},
+         {"typed_upload_fresh_candidates",
+          std::to_string(typed_upload_fresh_candidates)},
+         {"typed_upload_no_overlap_candidates",
+          std::to_string(typed_upload_no_overlap_candidates)},
+         {"typed_upload_hash_mismatch_candidates",
+          std::to_string(typed_upload_hash_mismatch_candidates)},
+         {"typed_upload_exact_candidates",
+          std::to_string(typed_upload_exact_candidates)},
+         {"typed_upload_candidate_accounting_complete",
+          typed_upload_no_overlap_candidates +
+                      typed_upload_hash_mismatch_candidates +
+                      typed_upload_exact_candidates ==
+                  typed_upload_fresh_candidates
+              ? "true"
+              : "false"},
          {"typed_upload_exact_matches",
           std::to_string(typed_upload_exact_matches)},
          {"typed_upload_misses", std::to_string(typed_upload_misses)},
