@@ -786,6 +786,14 @@ This narrows one independent semantic family without guessing from shared
 shader topology; per-resource role labels remain closed until the next batched
 visual-contribution run agrees with this title-owned evidence.
 
+Runtime material-join checkpoint: a strict payload-free qualifier now maps
+the binding census's exact backend signatures onto the 15-resource partition.
+It produces a unique tire/wheel contribution candidate or one of two bounded
+negative results (no direct draw join or an ambiguous multi-resource join).
+Visual-role proof remains independently closed until isolated output agrees,
+so this tooling can be exercised in the combined Phase C session without
+weakening native admission or Xenos fallback.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
