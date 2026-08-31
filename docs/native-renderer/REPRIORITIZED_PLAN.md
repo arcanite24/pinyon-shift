@@ -544,6 +544,24 @@ same long session, never publishes the private target, preserves the original
 Xenos draw, and cannot suppress. This is intended to produce the first direct
 C4 image pair without requiring a second gameplay run.
 
+Batched ingress result: the first AppData qualification committed one exact
+80-draw epoch with 68 unique geometry seeds and no overflow. Across 1,929
+loaded-game frames it found 57,870 exact full-resource color matches in 30
+bounded families; every family changed its parameter hash on every subsequent
+frame. This confirms a stable animated vehicle color ingress, while still not
+proving object identity or a complete material contract. No private color
+capture request was issued because none of the correlated draws passed the
+existing isolated-draw mechanical gate.
+
+Replay-gate diagnostic checkpoint: each matched draw now records the exact
+mechanical rejection mask before capture selection. Bounded family aggregates
+retain eligible/rejected draw counts, first/last/OR/AND masks, and mask-switch
+counts; the final summary emits per-reason draw totals and strict accounting.
+This does not relax admission, publish a native target, capture guest payload,
+or allow suppression. The next batched run will identify the smallest missing
+geometry, texture, pipeline, or render-target contract before any native
+vehicle implementation is admitted.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

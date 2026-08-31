@@ -488,3 +488,19 @@ shadow-depth artifacts. The authoritative Xenos draw still executes, the
 private target is never published, and no suppression is permitted. A usable
 pair gives the first direct visual checkpoint for the C4 ingress; failure or
 absence remains a bounded diagnostic result.
+
+The first loaded-game qualification committed one exact epoch with 68 unique
+seeds and zero overflow. It observed 57,870 exact full-resource matches across
+1,929 frames and 30 bounded families. Every family exhibited per-frame
+parameter variation, which confirms that the bridge tracks animated vehicle
+geometry rather than a static title artifact. The private color request count
+remained zero: the correlation succeeded, but every matched draw failed at
+least one existing isolated-draw mechanical requirement.
+
+The observer therefore retains the gate and adds bounded rejection evidence.
+For each family it reports eligible and rejected draw counts, first and last
+rejection masks, their union and intersection, and mask switches. The session
+summary reports the count for every `isolated_draw_v1` rejection bit and proves
+that eligible plus rejected draws equals all correlated draws. This is still
+measurement-only: no guest payload is exported, no native color target is
+published, every Xenos draw executes, and suppression remains impossible.
