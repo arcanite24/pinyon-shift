@@ -60,6 +60,35 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 **safety,
             },
             {
+                "event": MODULE.CAPTURE_CONFIG_EVENT,
+                "status": "armed",
+                "native_draw": "private_capture_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
+                "event": MODULE.CAPTURE_RESULT_EVENT,
+                "status": "recorded_private_color_candidate",
+                "native_draw": "private_capture_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
+                "event": MODULE.CAPTURE_SUMMARY_EVENT,
+                "status": "recorded_private_color_candidate",
+                "requests": "1",
+                "recorded": "1",
+                "target_creation_failures": "0",
+                "unsupported": "0",
+                "request_accounting_complete": "true",
+                "native_draw": "private_capture_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
                 "event": MODULE.SUMMARY_EVENT,
                 "status": "qualified_epoch_observed",
                 "epochs_committed": "1",
@@ -93,7 +122,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             report["qualification"]["working_color_bridge_candidate"]
         )
         self.assertEqual(1, len(report["candidate_families"]))
+        self.assertEqual(
+            "recorded_private_color_candidate",
+            report["private_color_capture"]["result"]["status"],
+        )
         self.assertFalse(report["qualification"]["native_admission_allowed"])
+        self.assertTrue(
+            report["qualification"]["private_color_capture_recorded"]
+        )
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -119,6 +155,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pose variation accounting drift"):
             self.summarize(events)
 
+    def test_rejects_private_capture_authority_drift(self):
+        events = self.fixture()
+        events[5]["output_authority"] = "native"
+        with self.assertRaisesRegex(ValueError, "output authority"):
+            self.summarize(events)
+
     def test_runtime_contract_is_default_off_and_full_epoch_gated(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -138,9 +180,19 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         )
         self.assertIn('"native_renderer.discovery.vehicle_shadow_geometry_summary"', source)
         self.assertIn('"native_renderer.discovery.vehicle_shadow_geometry_candidate"', source)
+        self.assertIn("CompleteVehicleShadowColorCapture", source)
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_shadow_color_capture_summary"',
+            source,
+        )
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
+        self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
         self.assertIn(
             "VehicleShadowGeometryCorrelation requires ShadowDepthBatch",
+            capture,
+        )
+        self.assertIn(
+            "CaptureVehicleShadowColor requires VehicleShadowGeometryCorrelation",
             capture,
         )
         self.assertIn('{"native_draw", "false"}', source)

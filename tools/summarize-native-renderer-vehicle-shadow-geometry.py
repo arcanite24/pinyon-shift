@@ -13,6 +13,15 @@ CORRELATION_EVENT = (
 )
 CANDIDATE_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_candidate"
 SUMMARY_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_summary"
+CAPTURE_CONFIG_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_capture_config"
+)
+CAPTURE_RESULT_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_capture_result"
+)
+CAPTURE_SUMMARY_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_capture_summary"
+)
 
 
 def require(condition, message):
@@ -54,6 +63,15 @@ def summarize(log_path):
     ]
     summaries = [
         event for event in events if event.get("event") == SUMMARY_EVENT
+    ]
+    capture_configs = [
+        event for event in events if event.get("event") == CAPTURE_CONFIG_EVENT
+    ]
+    capture_results = [
+        event for event in events if event.get("event") == CAPTURE_RESULT_EVENT
+    ]
+    capture_summaries = [
+        event for event in events if event.get("event") == CAPTURE_SUMMARY_EVENT
     ]
     require(len(configs) == 1, "expected exactly one correlation config event")
     require(configs[0].get("status") == "armed", "correlation was not armed")
@@ -138,6 +156,44 @@ def summarize(log_path):
             "last_parameter_hash",
         ):
             require(len(event.get(key, "")) == 16, f"invalid candidate hash: {key}")
+    capture = None
+    if capture_configs or capture_results or capture_summaries:
+        require(len(capture_configs) == 1, "expected one color capture config")
+        require(capture_configs[0].get("status") == "armed", "color capture was not armed")
+        require(len(capture_summaries) == 1, "expected one color capture summary")
+        capture_summary = capture_summaries[0]
+        require(
+            capture_summary.get("request_accounting_complete") == "true",
+            "color capture accounting drift",
+        )
+        requests = integer(capture_summary, "requests")
+        recorded = integer(capture_summary, "recorded")
+        require(requests in {0, 1}, "color capture request bound drift")
+        require(recorded in {0, 1}, "color capture result bound drift")
+        require(len(capture_results) == requests, "color capture result drift")
+        require(recorded <= requests, "recorded capture exceeds requests")
+        for event in [*capture_configs, *capture_results, capture_summary]:
+            require(
+                event.get("xenos_draw") == "preserved"
+                and event.get("output_authority") == "xenos"
+                and event.get("suppression_allowed") == "false",
+                "color capture changed output authority",
+            )
+        if recorded:
+            require(
+                capture_results[0].get("status")
+                == "recorded_private_color_candidate",
+                "private color capture result drift",
+            )
+            require(
+                capture_results[0].get("native_draw") == "private_capture_only",
+                "color capture escaped private replay",
+            )
+        capture = {
+            "config": capture_configs[0],
+            "result": capture_results[0] if capture_results else None,
+            "summary": capture_summary,
+        }
     return {
         "schema": SCHEMA,
         "source_log": str(log_path),
@@ -153,8 +209,13 @@ def summarize(log_path):
         "epochs": epochs,
         "correlations": correlations,
         "candidate_families": candidates,
+        "private_color_capture": capture,
         "qualification": {
             "working_color_bridge_candidate": bool(correlations),
+            "private_color_capture_recorded": bool(
+                capture
+                and integer(capture["summary"], "recorded") == 1
+            ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,
             "native_admission_allowed": False,

@@ -467,6 +467,7 @@ driving session with:
   -Scene open_world_day `
   -ShadowDepthBatch `
   -VehicleShadowGeometryCorrelation `
+  -CaptureVehicleShadowColor `
   -IsolatedDrawDir .local\qualification\vehicle-shadow-geometry
 
 python .\tools\summarize-native-renderer-vehicle-shadow-geometry.py `
@@ -478,3 +479,12 @@ The qualifier requires a backend-confirmed full epoch, exact seed and
 correlation accounting, zero table overflow, unchanged Xenos authority, and no
 native draw or suppression. A non-empty correlation set is only a working C4
 color-ingress candidate; it is not native admission.
+
+The optional capture switch avoids a second long gameplay session. After the
+backend-confirmed shadow epoch, the first correlated color draw that also
+passes the existing isolated-replay mechanical gate is replayed once into a
+private native target. Native and Xenos color readbacks are written beside the
+shadow-depth artifacts. The authoritative Xenos draw still executes, the
+private target is never published, and no suppression is permitted. A usable
+pair gives the first direct visual checkpoint for the C4 ingress; failure or
+absence remains a bounded diagnostic result.
