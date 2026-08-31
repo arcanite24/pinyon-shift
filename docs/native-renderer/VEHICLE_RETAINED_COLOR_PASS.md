@@ -1,7 +1,7 @@
 # Vehicle retained color pass
 
-Status: implemented behind a default-off qualification switch; runtime proof
-pending.
+Status: privately qualified behind a default-off switch; native publication
+remains disabled.
 
 ## Evidence boundary
 
@@ -74,3 +74,19 @@ Visual acceptance is a recognizable multi-submesh vehicle contribution rather
 than the previously captured single rear-body slice. It remains a private
 prototype until object identity, remaining vehicle material families, hybrid
 publication, and per-item fallback are qualified.
+
+## Qualification result
+
+The clean AppData-backed session `20260831T164716Z-p35116` completed normally
+with the retained mode enabled. It recorded all 3,600 requested draws across
+120 complete frames, including 3,480 retained-target reuses, with zero failed
+frames, target failures, unsupported replays, errors, or suppression. The
+session observed 9,600 exact color correlations and produced one complete
+retained readback.
+
+The readback is a coherent multi-submesh rear view: body panels, bumper,
+glazing, wheels, and lower geometry coexist in one native target. This is a
+material improvement over the single rear-body slice. The diagnostic remains
+unlit and isolated, with flat gray/black material regions and no scene
+composition, so it proves frame-wide geometry retention rather than material,
+lighting, object-identity, or final-frame parity.

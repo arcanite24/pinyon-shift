@@ -627,8 +627,16 @@ reuses the private target for the remaining 29 in guest order, releases and
 optionally reads back only the complete frame, and repeats for at most 120
 frames. Missing, extra, non-monotonic, unsupported, or failed work disables the
 path for the process. It never publishes, suppresses, or changes Xenos output
-authority. Runtime and visual proof are deferred to the next batched AppData
-checkpoint.
+authority.
+
+Retained-pass result: the clean AppData run completed all 120 bounded frames
+and recorded all 3,600 requested draws, including 3,480 retained-target reuses,
+with zero failures, unsupported replays, errors, or suppression. Its one
+readback contains a coherent multi-submesh rear view with body, bumper,
+glazing, wheels, and lower geometry in the same native target. This closes the
+frame-wide retention mechanism. The result remains an isolated unlit
+diagnostic; exact player identity, transforms, material completeness, hybrid
+publication, traffic coverage, and per-item fallback remain open C4 work.
 
 ### C5. Sky, atmosphere, and global lighting
 
