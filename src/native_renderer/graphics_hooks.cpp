@@ -614,6 +614,14 @@ struct VehicleShadowGeometryIdentity {
 struct VehicleShadowGeometryCorrelationEntry {
   uint64_t prepared_signature = 0;
   uint64_t template_key = 0;
+  uint64_t material_topology_key = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t render_state_hash = 0;
+  uint64_t texture_layout_hash = 0;
+  uint64_t first_material_parameter_hash = 0;
+  uint64_t last_material_parameter_hash = 0;
+  uint64_t material_parameter_switches = 0;
   uint64_t draw_argument_hash = 0;
   uint64_t geometry_resource_hash = 0;
   uint64_t texture_resource_hash = 0;
@@ -15193,6 +15201,38 @@ bool VehicleShadowGeometrySharesVertexResource(
   return false;
 }
 
+uint64_t VehicleColorMaterialTopologyKey(
+    const SemanticPreparedDrawContract &contract) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {contract.render_state_hash, contract.batch_texture_layout_hash,
+        contract.vertex_shader_hash, contract.pixel_shader_hash,
+        contract.vertex_specialization_mask,
+        contract.pixel_specialization_mask,
+        uint64_t(contract.texture_fetch_mask),
+        uint64_t(contract.texture_layout_valid_mask),
+        uint64_t(contract.texture_state_count)}) {
+    hash = HashCombine(hash, value);
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t VehicleColorMaterialParameterHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  const uint32_t count = std::min(
+      observation.pixel_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t i = 0; i < count; ++i) {
+    const auto &constant = observation.pixel_float_constants[i];
+    hash = HashCombine(hash, constant.index);
+    for (uint32_t value : constant.values) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  return hash ? hash : 1;
+}
+
 void ObserveVehicleColorConstantIdentity(
     const rex::system::GraphicsDrawObservation &observation,
     VehicleShadowGeometryCorrelationEntry &entry) {
@@ -15432,6 +15472,10 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   } else {
     ++g_vehicle_shadow_color_private_capture_eligible_draws;
   }
+  const uint64_t material_topology_key =
+      VehicleColorMaterialTopologyKey(contract);
+  const uint64_t material_parameter_hash =
+      VehicleColorMaterialParameterHash(observation);
   VehicleShadowGeometryCorrelationEntry *available = nullptr;
   size_t available_index = kVehicleShadowGeometryCorrelationCapacity;
   for (size_t correlation_index = 0;
@@ -15447,6 +15491,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
     if (entry.prepared_signature == prepared_signature &&
         entry.seed_index == matched_seed &&
         entry.full_geometry_match == full_geometry_match &&
+        entry.material_topology_key == material_topology_key &&
         entry.draw_argument_hash == contract.draw_argument_hash &&
         entry.geometry_resource_hash == contract.geometry_resource_hash &&
         entry.texture_resource_hash == contract.texture_resource_hash &&
@@ -15456,6 +15501,10 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       if (entry.last_parameter_hash != parameter_hash) {
         ++entry.parameter_switches;
         entry.last_parameter_hash = parameter_hash;
+      }
+      if (entry.last_material_parameter_hash != material_parameter_hash) {
+        ++entry.material_parameter_switches;
+        entry.last_material_parameter_hash = material_parameter_hash;
       }
       if (entry.last_rejection_mask != mechanical_rejection_mask) {
         ++entry.rejection_mask_switches;
@@ -15499,6 +15548,13 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   *available = {
       .prepared_signature = prepared_signature,
       .template_key = contract.template_key,
+      .material_topology_key = material_topology_key,
+      .vertex_shader_hash = contract.vertex_shader_hash,
+      .pixel_shader_hash = contract.pixel_shader_hash,
+      .render_state_hash = contract.render_state_hash,
+      .texture_layout_hash = contract.texture_layout_hash,
+      .first_material_parameter_hash = material_parameter_hash,
+      .last_material_parameter_hash = material_parameter_hash,
       .draw_argument_hash = contract.draw_argument_hash,
       .geometry_resource_hash = contract.geometry_resource_hash,
       .texture_resource_hash = contract.texture_resource_hash,
@@ -15538,7 +15594,15 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_shadow_geometry_correlation",
       {{"prepared_signature", fmt::format("{:016X}", prepared_signature)},
-       {"template_key", fmt::format("{:016X}", contract.template_key)},
+      {"template_key", fmt::format("{:016X}", contract.template_key)},
+       {"material_topology_key",
+        fmt::format("{:016X}", material_topology_key)},
+       {"vertex_shader", fmt::format("{:016X}", contract.vertex_shader_hash)},
+       {"pixel_shader", fmt::format("{:016X}", contract.pixel_shader_hash)},
+       {"render_state_hash",
+        fmt::format("{:016X}", contract.render_state_hash)},
+       {"texture_layout_hash",
+        fmt::format("{:016X}", contract.texture_layout_hash)},
        {"draw_argument_hash",
         fmt::format("{:016X}", contract.draw_argument_hash)},
        {"geometry_resource_hash",
@@ -26233,6 +26297,9 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     uint64_t constant_forward_unique_matches = 0;
     uint64_t constant_forward_ambiguous_matches = 0;
     uint64_t constant_forward_misses = 0;
+    std::array<uint64_t, kVehicleShadowGeometryCorrelationCapacity>
+        material_topology_keys{};
+    size_t material_topology_group_count = 0;
     for (const VehicleShadowGeometryCorrelationEntry &entry :
          g_vehicle_shadow_geometry_correlations) {
       if (!entry.occupied) {
@@ -26251,11 +26318,41 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       constant_forward_ambiguous_matches +=
           entry.constant_forward_ambiguous_matches;
       constant_forward_misses += entry.constant_forward_misses;
+      bool material_topology_seen = false;
+      for (size_t material_index = 0;
+           material_index < material_topology_group_count;
+           ++material_index) {
+        if (material_topology_keys[material_index] ==
+            entry.material_topology_key) {
+          material_topology_seen = true;
+          break;
+        }
+      }
+      if (!material_topology_seen) {
+        material_topology_keys[material_topology_group_count++] =
+            entry.material_topology_key;
+      }
       diagnostics::RecordEvent(
           "native_renderer.discovery.vehicle_shadow_geometry_candidate",
           {{"prepared_signature",
             fmt::format("{:016X}", entry.prepared_signature)},
            {"template_key", fmt::format("{:016X}", entry.template_key)},
+           {"material_topology_key",
+            fmt::format("{:016X}", entry.material_topology_key)},
+           {"vertex_shader",
+            fmt::format("{:016X}", entry.vertex_shader_hash)},
+           {"pixel_shader",
+            fmt::format("{:016X}", entry.pixel_shader_hash)},
+           {"render_state_hash",
+            fmt::format("{:016X}", entry.render_state_hash)},
+           {"texture_layout_hash",
+            fmt::format("{:016X}", entry.texture_layout_hash)},
+           {"first_material_parameter_hash",
+            fmt::format("{:016X}", entry.first_material_parameter_hash)},
+           {"last_material_parameter_hash",
+            fmt::format("{:016X}", entry.last_material_parameter_hash)},
+           {"material_parameter_switches",
+            std::to_string(entry.material_parameter_switches)},
            {"draw_argument_hash",
             fmt::format("{:016X}", entry.draw_argument_hash)},
            {"geometry_resource_hash",
@@ -26554,6 +26651,16 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
               : "false"},
          {"constant_identity_maximum_pose_age_frames",
           std::to_string(kVehicleColorConstantMaximumIdentityAgeFrames)},
+         {"material_topology_groups",
+          std::to_string(material_topology_group_count)},
+         {"material_topology_group_accounting_complete",
+          material_topology_group_count > 0 &&
+                  material_topology_group_count <=
+                      g_vehicle_shadow_geometry_correlation_count
+              ? "true"
+              : "false"},
+         {"material_topology_contract",
+          "shader_specialization_render_state_texture_layout"},
          {"seed_accounting_complete",
           seed_accounting_complete ? "true" : "false"},
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},

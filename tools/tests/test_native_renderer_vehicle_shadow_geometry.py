@@ -38,6 +38,11 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "event": MODULE.CORRELATION_EVENT,
                 "classification": "vehicle_color_geometry_correlation_candidate",
                 "match": "exact_index_and_shared_vertex_resource",
+                "material_topology_key": "A" * 16,
+                "vertex_shader": "B" * 16,
+                "pixel_shader": "C" * 16,
+                "render_state_hash": "D" * 16,
+                "texture_layout_hash": "E" * 16,
                 **safety,
             },
             {
@@ -46,6 +51,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "match": "exact_index_and_shared_vertex_resource",
                 "prepared_signature": "1" * 16,
                 "template_key": "2" * 16,
+                "material_topology_key": "A" * 16,
+                "vertex_shader": "B" * 16,
+                "pixel_shader": "C" * 16,
+                "render_state_hash": "D" * 16,
+                "texture_layout_hash": "E" * 16,
+                "first_material_parameter_hash": "F" * 16,
+                "last_material_parameter_hash": "0" * 16,
+                "material_parameter_switches": "2",
                 "draw_argument_hash": "3" * 16,
                 "geometry_resource_hash": "4" * 16,
                 "texture_resource_hash": "5" * 16,
@@ -215,6 +228,9 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "constant_forward_misses": "0",
                 "constant_forward_accounting_complete": "true",
                 "constant_identity_maximum_pose_age_frames": "1",
+                "material_topology_groups": "1",
+                "material_topology_group_accounting_complete": "true",
+                "material_topology_contract": "shader_specialization_render_state_texture_layout",
                 "reject_resolved_input": "0",
                 "reject_unsupported_geometry": "0",
                 "reject_empty_draw": "0",
@@ -277,6 +293,16 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             report["qualification"][
                 "complete_shared_vehicle_transform_candidate"
             ]
+        )
+        self.assertEqual(1, report["material_topology"]["group_count"])
+        self.assertEqual(
+            1, report["material_topology"]["groups"][0]["family_count"]
+        )
+        self.assertEqual(
+            1,
+            report["material_topology"][
+                "families_with_parameter_variation"
+            ],
         )
 
     def test_rejects_partial_epoch_promotion(self):
@@ -341,6 +367,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         events = self.fixture()
         events[3]["constant_identity_classification"] = "unresolved"
         with self.assertRaisesRegex(ValueError, "constant identity classification"):
+            self.summarize(events)
+
+    def test_rejects_material_topology_group_accounting_drift(self):
+        events = self.fixture()
+        events[-1]["material_topology_groups"] = "2"
+        with self.assertRaisesRegex(ValueError, "material topology"):
             self.summarize(events)
 
     def test_rejects_private_capture_authority_drift(self):
