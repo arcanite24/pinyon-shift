@@ -16,6 +16,22 @@ failures, and preserve its safety boundary. Track, static-world, and continuous
 output reports must prove a final shutdown summary; periodic checkpoints are
 useful for diagnosis but cannot satisfy this gate.
 
+Launch the combined profile with the installed AppData save:
+
+```powershell
+$stateRoot = Join-Path $env:LOCALAPPDATA `
+  'PinyonShift\source\0.1.0\.local\preview'
+./tools/capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot -PhaseCQualification -Json
+```
+
+The profile selects `open_world_day` unless a scene is supplied, enables the
+continuous exact track and static-world selectors together, and arms title
+draw provenance for the passive C4 player/material joins. It deliberately
+does not request the isolated per-resource vehicle readback: shadow-depth
+capture and the continuous workset are mutually exclusive, so conflating them
+would invalidate both gates.
+
 Run the four component qualifiers first, then join them:
 
 ```powershell
