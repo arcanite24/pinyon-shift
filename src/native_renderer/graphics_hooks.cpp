@@ -9164,7 +9164,7 @@ void ConfigureIsolatedDraw() {
          {"color_match", "exact_full_or_index_plus_vertex_resource"},
          {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6,lr"},
          {"typed_constant_upload_contract",
-          "exact_shader_used_vertex_subset_hash"},
+          "exact_shader_used_vertex_register_hash"},
          {"typed_constant_upload_capacity",
           std::to_string(kVehicleConstantUploadCapacity)},
          {"typed_constant_upload_maximum_age_frames",
@@ -15384,6 +15384,7 @@ VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
     return VehicleConstantUploadSubsetResult::kNoOverlap;
   }
   *matched_vector_count = 0;
+  uint32_t mismatched_vector_count = 0;
   const uint32_t observed_count = std::min(
       observation.vertex_float_constant_count,
       rex::system::kGraphicsFloatConstantObservationLimit);
@@ -15400,13 +15401,16 @@ VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
         constant.index, 1,
         std::span(constant.values, std::size(constant.values)));
     if (observed_hash != upload.vector_hashes[vector_offset]) {
-      return VehicleConstantUploadSubsetResult::kHashMismatch;
+      ++mismatched_vector_count;
+      continue;
     }
     ++*matched_vector_count;
   }
   return *matched_vector_count
              ? VehicleConstantUploadSubsetResult::kExact
-             : VehicleConstantUploadSubsetResult::kNoOverlap;
+             : (mismatched_vector_count
+                    ? VehicleConstantUploadSubsetResult::kHashMismatch
+                    : VehicleConstantUploadSubsetResult::kNoOverlap);
 }
 
 void ObserveVehicleColorTypedConstantUpload(
@@ -26864,7 +26868,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                     !entry.typed_upload_vector_count_variations &&
                     !entry.typed_upload_used_vector_count_variations &&
                     !entry.typed_upload_caller_variations
-                ? "stable_exact_used_vertex_subset_candidate"
+                ? "stable_exact_vertex_register_candidate"
                 : "unresolved"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
@@ -27063,7 +27067,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"typed_upload_maximum_age_frames",
           std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
          {"typed_upload_contract",
-          "82435E78_exact_shader_used_vertex_subset_hash"},
+          "82435E78_exact_shader_used_vertex_register_hash"},
          {"material_topology_groups",
           std::to_string(material_topology_group_count)},
          {"material_topology_group_accounting_complete",

@@ -27,7 +27,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "event": MODULE.CONFIG_EVENT,
                 "status": "armed",
                 "typed_constant_upload_hook": "82435E78:r3,r4,r5,r6,lr",
-                "typed_constant_upload_contract": "exact_shader_used_vertex_subset_hash",
+                "typed_constant_upload_contract": "exact_shader_used_vertex_register_hash",
                 "typed_constant_upload_capacity": "8192",
                 "typed_constant_upload_maximum_age_frames": "1",
                 **safety,
@@ -134,7 +134,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_caller_return_address": "8240EB60",
                 "typed_upload_observed_register_min": "208",
                 "typed_upload_observed_register_max": "211",
-                "typed_upload_classification": "stable_exact_used_vertex_subset_candidate",
+                "typed_upload_classification": "stable_exact_vertex_register_candidate",
                 **safety,
             },
             {
@@ -272,7 +272,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "typed_upload_exact_used_vectors": "9",
                 "typed_upload_outcome_accounting_complete": "true",
                 "typed_upload_maximum_age_frames": "1",
-                "typed_upload_contract": "82435E78_exact_shader_used_vertex_subset_hash",
+                "typed_upload_contract": "82435E78_exact_shader_used_vertex_register_hash",
                 "material_topology_groups": "1",
                 "material_topology_group_accounting_complete": "true",
                 "material_topology_contract": "shader_specialization_render_state_texture_layout",
@@ -515,12 +515,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleTypedConstantUpload", source)
         self.assertIn("ObserveVehicleColorTypedConstantUpload", source)
         self.assertIn("MatchObservedVertexConstantSubset", source)
+        self.assertIn("mismatched_vector_count", source)
         self.assertNotIn("HashObservedVertexConstantRange", source)
         self.assertNotIn("g_vehicle_constant_uploads = {};", source)
         self.assertIn("g_vehicle_constant_uploads.begin()", source)
         self.assertIn("VehicleConstantUploadEntry{}", source)
         self.assertIn(
-            '"82435E78_exact_shader_used_vertex_subset_hash"', source
+            '"82435E78_exact_shader_used_vertex_register_hash"', source
         )
         self.assertIn("constant_position_accounting_complete", source)
         self.assertIn("typed_upload_outcome_accounting_complete", source)

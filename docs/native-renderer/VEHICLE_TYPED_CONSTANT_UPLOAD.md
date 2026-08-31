@@ -1,8 +1,8 @@
 # Vehicle typed constant-upload join
 
-Status: both the whole-range and shader-used-subset joins are rejected. The
-next bounded run will partition each fresh candidate as no register overlap,
-hash mismatch, or exact subset and report only register envelopes and counts.
+Status: whole-range and all-overlapping-vector joins are rejected. The v11
+partition proved fresh register overlap and selected an exact per-register
+last-writer join for the next batched qualification.
 
 ## Proven title boundary
 
@@ -76,9 +76,19 @@ draw scans. This rejects the second join rule without weakening the proven
 writer coverage. A narrow diagnostic now records the observed shader register
 envelope and partitions every fresh upload candidate into no-overlap,
 hash-mismatch, or exact-subset outcomes. It does not export constant values.
-The v11 qualifier requires complete candidate accounting. That single
-partition will distinguish register-space/freshness drift from a payload-
-representation mismatch before another join rule is proposed.
+The v11 qualifier requires complete candidate accounting. The short
+AppData-backed `20260831T190405Z-p11884` run then reproduced all 30 families
+across 11,880 exact geometry matches. It classified 8,331,453 fresh upload
+candidates: 7,000,702 had no used-register overlap and 1,330,751 overlapped
+but failed the all-vector rule. Every family observed shader registers 0
+through 255, proving that freshness and register space are not the blocker.
+
+The v12 join now credits each shader-used register independently when its
+index and semantic hash match exactly. Later writes may legitimately replace
+other registers from the same broader title upload, so those unrelated
+mismatches no longer erase exact provenance. The contributing upload with the
+most exact registers wins, with newest sequence as the tie-breaker. Payload
+values remain in memory only and Xenos remains authoritative.
 
 The generic writer boundary and caller provenance are proved, but neither
 runtime join has yet proved which writes feed the prepared vehicle draws. No
