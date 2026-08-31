@@ -210,3 +210,25 @@ slice may observe only the reviewed title lifecycle boundaries and must join an
 exact shared object or resource identity to
 `proceduralGeometry::CProceduralModels`. Xenos remains authoritative; native
 admission and suppression remain disabled.
+
+## Exact track-texture provider join
+
+The previously captured AppData session `20260831T004400Z-p35676` already
+contains the first exact title-to-prepared-record identity join. Its complete
+semantic-submission report contains 867 aggregated entries and 397,142 live
+submission calls. Every entry resolves its primary resource through vtable
+`82001708`. Retail RTTI identifies that vtable as
+`Presentation_Unified::CTrackTexture_Unified`, and all four observed provider
+methods match its exact slots 6, 9, 10, and 11 (vtable byte offsets 24, 36, 40,
+and 44).
+
+`tools/summarize-native-renderer-track-world-join.py` validates that join from
+the payload-free static-ingress and semantic-submission reports. It records
+the track provider coverage without re-reading captured payloads or requiring
+another game run.
+
+This closes track-owned texture-provider identity at the procedural-model
+prepared-record boundary. It does not yet prove that any joined geometry is a
+terrain or road mesh: the next join must carry track model, mesh, submodel, or
+world-section resource identity to the same records. Native admission and
+suppression therefore remain disabled and every call still replays on Xenos.
