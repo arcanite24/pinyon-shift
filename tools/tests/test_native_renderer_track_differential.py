@@ -26,6 +26,31 @@ def events(session, mode, calls):
     ]
 
 
+def candidate(session, rejection_mask="00000000"):
+    return {
+        "event": MODULE.PREPARED_CANDIDATE,
+        "schema": 1,
+        "session": session,
+        "candidate_key": "1234567890ABCDEF",
+        "prepared_signature": "AABBCCDDEEFF0011",
+        "draws": "12",
+        "first_frame": "500",
+        "last_frame": "511",
+        "mechanically_eligible": (
+            "true" if rejection_mask == "00000000" else "false"
+        ),
+        "mechanical_rejection_mask": rejection_mask,
+        "visibility_category": "11",
+        "visibility_result_mask": "7",
+        "guest_state_changed": "false",
+        "control_flow_changed": "false",
+        "native_upload": "false",
+        "native_draw": "false",
+        "xenos_draw": "preserved",
+        "suppression_allowed": "false",
+    }
+
+
 class NativeRendererTrackDifferentialTests(unittest.TestCase):
     def test_qualifies_exact_title_track_delta_without_semantic_promotion(self):
         document = MODULE.build(
@@ -70,14 +95,41 @@ class NativeRendererTrackDifferentialTests(unittest.TestCase):
         )
 
     def test_qualifies_track_far_distance_as_an_isolated_variant(self):
+        baseline = events("baseline-session", "baseline", 60)
+        baseline.insert(-1, candidate("baseline-session"))
         document = MODULE.build(
-            events("baseline-session", "baseline", 60),
+            baseline,
             events("far-session", "trackfardistance", 120),
             track_mode="trackfardistance",
         )
         self.assertEqual("complete", document["status"])
         self.assertEqual(
             "trackfardistance", document["qualification"]["isolated_mode"]
+        )
+        join = document["semantic_visibility_join"]
+        self.assertEqual(1, join["changed_signature_count_with_candidate_lineage"])
+        self.assertEqual(1, join["mechanically_eligible_changed_signature_count"])
+        self.assertEqual(
+            ["AABBCCDDEEFF0011"],
+            join["mechanically_eligible_changed_signatures"],
+        )
+        self.assertFalse(join["representative_gameplay_identity_proved"])
+        self.assertFalse(join["native_admission_allowed"])
+
+    def test_rejects_candidate_mask_eligibility_disagreement(self):
+        baseline = events("baseline-session", "baseline", 60)
+        entry = candidate("baseline-session", "00000001")
+        entry["mechanically_eligible"] = "true"
+        baseline.insert(-1, entry)
+        document = MODULE.build(
+            baseline,
+            events("far-session", "trackfardistance", 120),
+            track_mode="trackfardistance",
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "baseline: prepared candidate eligibility disagrees with its mask",
+            document["failures"],
         )
 
     def test_qualifies_disabled_track_command_buffers_as_an_isolated_variant(self):
