@@ -579,6 +579,23 @@ input and a shader that samples no textures. Generic isolated-draw admission is
 unchanged. This exception remains correlation-gated, private, one-shot,
 non-publishing, Xenos-authoritative, and unable to suppress.
 
+First visual result: the next AppData session privately replayed exact family
+`436C58CA13690625` at frame 2,633, draw 4,358 into a 2560x1024 target. The
+cropped native and Xenos images contain the same rear vehicle body/bumper
+submesh, and their full raw source hashes are identical
+(`F30FFA26CCF670DD`). All 7,320 correlated draws in that session passed the
+private vehicle gate, while generic admission remained closed. This proves one
+working animated vehicle color slice, not a complete car or material system.
+
+Private stability checkpoint: after the one-shot image pair succeeds, the same
+exact prepared signature may now replay privately at most once per frame for a
+hard limit of 300 draws. It performs no further readbacks, never publishes,
+never suppresses, and stops all later private requests on the first backend
+failure. Final accounting distinguishes recorded draws, target failures,
+unsupported state, per-frame quota yields, and limit yields. Long-session
+success is required before considering visible native publication of this
+submesh.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

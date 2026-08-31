@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v3"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v4"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -282,6 +282,36 @@ def summarize(log_path):
         require(recorded in {0, 1}, "color capture result bound drift")
         require(len(capture_results) == requests, "color capture result drift")
         require(recorded <= requests, "recorded capture exceeds requests")
+        require(
+            capture_summary.get("private_replay_accounting_complete") == "true",
+            "private replay accounting drift",
+        )
+        private_replay_requests = integer(
+            capture_summary, "private_replay_requests"
+        )
+        private_replay_recorded = integer(
+            capture_summary, "private_replay_recorded"
+        )
+        private_replay_failures = integer(
+            capture_summary, "private_replay_target_creation_failures"
+        ) + integer(capture_summary, "private_replay_unsupported")
+        private_replay_limit = integer(
+            capture_summary, "private_replay_limit"
+        )
+        require(
+            private_replay_requests
+            == private_replay_recorded + private_replay_failures,
+            "private replay outcome drift",
+        )
+        require(
+            private_replay_requests <= private_replay_limit,
+            "private replay request bound drift",
+        )
+        require(
+            not private_replay_failures
+            or capture_summary.get("private_replay_status") == "failed_closed",
+            "private replay did not fail closed",
+        )
         for event in [*capture_configs, *capture_results, capture_summary]:
             require(
                 event.get("xenos_draw") == "preserved"
@@ -333,6 +363,12 @@ def summarize(log_path):
             "private_color_capture_recorded": bool(
                 capture
                 and integer(capture["summary"], "recorded") == 1
+            ),
+            "private_color_replay_stable": bool(
+                capture
+                and integer(capture["summary"], "private_replay_requests")
+                and integer(capture["summary"], "private_replay_requests")
+                == integer(capture["summary"], "private_replay_recorded")
             ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,

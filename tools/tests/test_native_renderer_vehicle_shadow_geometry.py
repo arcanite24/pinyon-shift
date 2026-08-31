@@ -97,6 +97,15 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "target_creation_failures": "0",
                 "unsupported": "0",
                 "request_accounting_complete": "true",
+                "private_replay_status": "bounded_stability_observed",
+                "private_replay_requests": "3",
+                "private_replay_recorded": "3",
+                "private_replay_target_creation_failures": "0",
+                "private_replay_unsupported": "0",
+                "private_replay_frame_quota_yields": "0",
+                "private_replay_limit_yields": "0",
+                "private_replay_limit": "300",
+                "private_replay_accounting_complete": "true",
                 "native_draw": "private_capture_only",
                 "xenos_draw": "preserved",
                 "output_authority": "xenos",
@@ -166,6 +175,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             report["qualification"]["private_color_capture_recorded"]
         )
         self.assertEqual(2, report["mechanical_rejections"]["prepared_pipeline"])
+        self.assertTrue(report["qualification"]["private_color_replay_stable"])
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -217,6 +227,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         events = self.fixture()
         events[5]["output_authority"] = "native"
         with self.assertRaisesRegex(ValueError, "output authority"):
+            self.summarize(events)
+
+    def test_rejects_private_replay_accounting_drift(self):
+        events = self.fixture()
+        events[6]["private_replay_recorded"] = "2"
+        with self.assertRaisesRegex(ValueError, "private replay outcome drift"):
             self.summarize(events)
 
     def test_runtime_contract_is_default_off_and_full_epoch_gated(self):
