@@ -117,6 +117,13 @@ constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
 constexpr uint64_t kContinuousWorldWorksetMaximumDrawsPerFrame = 64;
 constexpr size_t kVehicleIdentityCapacity = 64;
 constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
+constexpr size_t kVehicleMapEntityCapacity = 128;
+constexpr size_t kVehicleMapPoseCorrelationCapacity = 256;
+constexpr uint32_t kVehicleMapEntityBaseVtable = 0x8201D338;
+constexpr uint32_t kVehicleMapEntityPlayerLocalVtable = 0x8201D380;
+constexpr uint32_t kVehicleMapEntityAiVtable = 0x8201D3C8;
+constexpr uint32_t kVehicleMapEntityFestivalTrafficVtable = 0x8201D430;
+constexpr uint32_t kVehicleMapEntityRemotePlayerVtable = 0x8201D4B0;
 constexpr size_t kVehicleOwnerVtableMethodCount = 32;
 constexpr size_t kVehicleOwnerMethodCandidateCount = 19;
 constexpr size_t kVehicleOwnerMethodStackCapacity = 32;
@@ -1135,6 +1142,115 @@ struct VehicleIdentityEntry {
   bool valid = false;
 };
 
+struct VehicleMapEntityEntry {
+  uint64_t observations = 0;
+  uint64_t assignment_observations = 0;
+  uint64_t pool_observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t vehicle_id_changes = 0;
+  uint64_t vtable_mismatches = 0;
+  uint64_t type_name_mismatches = 0;
+  uint64_t pool_manager_changes = 0;
+  uint64_t pool_root_changes = 0;
+  uint64_t pool_context_changes = 0;
+  uint64_t pose_comparisons = 0;
+  uint64_t pose_source_matches = 0;
+  uint64_t pose_owner_matches = 0;
+  uint64_t pose_slot_matches = 0;
+  uint32_t generation = 0;
+  uint32_t entity = 0;
+  uint32_t vtable = 0;
+  uint32_t vehicle_id = UINT32_MAX;
+  uint32_t type_name_address = 0;
+  uint32_t pool_manager = 0;
+  uint32_t pool_root = 0;
+  uint32_t pool_context = 0;
+  bool valid = false;
+};
+
+enum class VehicleMapPoseRelation : uint32_t {
+  kEntityIsPoseSource,
+  kEntityIsPoseOwner,
+  kVehicleIdIsPoseSlot,
+  kPoolManagerIsPoseSource,
+  kPoolManagerIsPoseOwner,
+  kPoolRootIsPoseSource,
+  kPoolRootIsPoseOwner,
+  kPoolContextIsPoseSource,
+  kPoolContextIsPoseOwner,
+};
+
+struct VehicleMapPoseCorrelationEntry {
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t entity = 0;
+  uint32_t entity_vtable = 0;
+  uint32_t vehicle_id = UINT32_MAX;
+  uint32_t identity_generation = 0;
+  uint32_t identity_source = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  VehicleMapPoseRelation relation =
+      VehicleMapPoseRelation::kEntityIsPoseSource;
+  bool valid = false;
+};
+
+const char *VehicleMapEntityClassName(uint32_t vtable) {
+  switch (vtable) {
+  case kVehicleMapEntityBaseVtable:
+    return "base";
+  case kVehicleMapEntityPlayerLocalVtable:
+    return "player_local";
+  case kVehicleMapEntityAiVtable:
+    return "ai";
+  case kVehicleMapEntityFestivalTrafficVtable:
+    return "festival_traffic";
+  case kVehicleMapEntityRemotePlayerVtable:
+    return "remote_player";
+  default:
+    return "unrecognized";
+  }
+}
+
+uint32_t VehicleMapEntityExpectedTypeNameAddress(uint32_t vtable) {
+  switch (vtable) {
+  case kVehicleMapEntityBaseVtable:
+  case kVehicleMapEntityPlayerLocalVtable:
+  case kVehicleMapEntityAiVtable:
+  case kVehicleMapEntityFestivalTrafficVtable:
+  case kVehicleMapEntityRemotePlayerVtable:
+    return vtable + 13 * sizeof(uint32_t);
+  default:
+    return 0;
+  }
+}
+
+const char *VehicleMapPoseRelationName(VehicleMapPoseRelation relation) {
+  switch (relation) {
+  case VehicleMapPoseRelation::kEntityIsPoseSource:
+    return "entity_is_pose_source";
+  case VehicleMapPoseRelation::kEntityIsPoseOwner:
+    return "entity_is_pose_owner";
+  case VehicleMapPoseRelation::kVehicleIdIsPoseSlot:
+    return "vehicle_id_is_pose_slot";
+  case VehicleMapPoseRelation::kPoolManagerIsPoseSource:
+    return "pool_manager_is_pose_source";
+  case VehicleMapPoseRelation::kPoolManagerIsPoseOwner:
+    return "pool_manager_is_pose_owner";
+  case VehicleMapPoseRelation::kPoolRootIsPoseSource:
+    return "pool_root_is_pose_source";
+  case VehicleMapPoseRelation::kPoolRootIsPoseOwner:
+    return "pool_root_is_pose_owner";
+  case VehicleMapPoseRelation::kPoolContextIsPoseSource:
+    return "pool_context_is_pose_source";
+  case VehicleMapPoseRelation::kPoolContextIsPoseOwner:
+    return "pool_context_is_pose_owner";
+  }
+  return "unknown";
+}
+
 struct VehicleOwnerMethodCandidate {
   uint32_t method_address = 0;
   uint32_t exit_address = 0;
@@ -1482,6 +1598,11 @@ thread_local PendingVehicleDrawIdentityEvidence
 
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
+std::array<VehicleMapEntityEntry, kVehicleMapEntityCapacity>
+    g_vehicle_map_entities{};
+std::array<VehicleMapPoseCorrelationEntry,
+           kVehicleMapPoseCorrelationCapacity>
+    g_vehicle_map_pose_correlations{};
 std::mutex g_vehicle_identity_mutex;
 std::atomic<bool> g_vehicle_discovery_installed{};
 std::atomic<rex::memory::Memory *> g_vehicle_discovery_memory{};
@@ -1490,6 +1611,22 @@ uint64_t g_vehicle_valid_observations = 0;
 uint64_t g_vehicle_invalid_observations = 0;
 uint64_t g_vehicle_identity_count = 0;
 uint64_t g_vehicle_identity_overflow = 0;
+uint64_t g_vehicle_map_entity_observations = 0;
+uint64_t g_vehicle_map_entity_valid_observations = 0;
+uint64_t g_vehicle_map_entity_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_valid_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_pool_observations = 0;
+uint64_t g_vehicle_map_entity_pool_valid_observations = 0;
+uint64_t g_vehicle_map_entity_pool_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_pool_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_count = 0;
+uint64_t g_vehicle_map_entity_overflow = 0;
+uint64_t g_vehicle_map_pose_correlation_count = 0;
+uint64_t g_vehicle_map_pose_correlation_overflow = 0;
 std::array<VehicleOwnerMethodStats, kVehicleOwnerMethodCandidateCount>
     g_vehicle_owner_method_stats{};
 std::atomic<uint64_t> g_vehicle_owner_method_stack_faults{};
@@ -24504,6 +24641,24 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_identity_addresses = {};
     g_vehicle_identity_address_count = 0;
     g_vehicle_identity_address_overflow = 0;
+    g_vehicle_map_entities = {};
+    g_vehicle_map_entity_observations = 0;
+    g_vehicle_map_entity_valid_observations = 0;
+    g_vehicle_map_entity_unrecognized_observations = 0;
+    g_vehicle_map_entity_invalid_observations = 0;
+    g_vehicle_map_entity_assignment_observations = 0;
+    g_vehicle_map_entity_assignment_valid_observations = 0;
+    g_vehicle_map_entity_assignment_unrecognized_observations = 0;
+    g_vehicle_map_entity_assignment_invalid_observations = 0;
+    g_vehicle_map_entity_pool_observations = 0;
+    g_vehicle_map_entity_pool_valid_observations = 0;
+    g_vehicle_map_entity_pool_unrecognized_observations = 0;
+    g_vehicle_map_entity_pool_invalid_observations = 0;
+    g_vehicle_map_entity_count = 0;
+    g_vehicle_map_entity_overflow = 0;
+    g_vehicle_map_pose_correlations = {};
+    g_vehicle_map_pose_correlation_count = 0;
+    g_vehicle_map_pose_correlation_overflow = 0;
     g_vehicle_matrix_correlations = {};
     g_vehicle_matrix_caller_observations = 0;
     g_vehicle_matrix_caller_valid_observations = 0;
@@ -24661,6 +24816,18 @@ void ConfigureVehicleDiscovery(bool census_requested,
         std::to_string(kVehicleIdentitySummaryLimit)},
        {"classification", "unclassified_vehicle_pose_stream"},
        {"player_priority_admitted", "false"},
+       {"map_entity_hook", "82BBA010"},
+       {"map_entity_assignment_hook", "82CCF228"},
+       {"player_pool_hook", "826291A8"},
+       {"map_entity_contract",
+        "rtti_locked_main_vtable,vehicle_id_at_12,type_name_pointer_at_16"},
+       {"map_entity_capacity",
+        std::to_string(kVehicleMapEntityCapacity)},
+       {"map_entity_vtables",
+        "8201D338:base,8201D380:player_local,8201D3C8:ai,"
+        "8201D430:festival_traffic,8201D4B0:remote_player"},
+       {"map_entity_pose_join",
+        "exact_entity_to_source,entity_to_owner,vehicle_id_to_active_slot"},
        {"owner_vtable_method_count",
         std::to_string(kVehicleOwnerVtableMethodCount)},
        {"owner_method_candidates",
@@ -24776,6 +24943,39 @@ void EmitVehicleDiscoverySummary() {
       g_vehicle_composed_matrix_candidate_observations +
           g_vehicle_composed_matrix_routes_without_identity ==
       g_vehicle_composed_matrix_valid_pairs * 8;
+  const bool vehicle_map_entity_accounting_complete =
+      g_vehicle_map_entity_valid_observations +
+          g_vehicle_map_entity_unrecognized_observations +
+          g_vehicle_map_entity_invalid_observations ==
+      g_vehicle_map_entity_observations;
+  const bool vehicle_map_entity_assignment_accounting_complete =
+      g_vehicle_map_entity_assignment_valid_observations +
+          g_vehicle_map_entity_assignment_unrecognized_observations +
+          g_vehicle_map_entity_assignment_invalid_observations ==
+      g_vehicle_map_entity_assignment_observations;
+  const bool vehicle_map_entity_pool_accounting_complete =
+      g_vehicle_map_entity_pool_valid_observations +
+          g_vehicle_map_entity_pool_unrecognized_observations +
+          g_vehicle_map_entity_pool_invalid_observations ==
+      g_vehicle_map_entity_pool_observations;
+  uint64_t player_entity_count = 0;
+  uint64_t player_entity_observations = 0;
+  uint64_t player_pose_comparisons = 0;
+  uint64_t player_pose_source_matches = 0;
+  uint64_t player_pose_owner_matches = 0;
+  uint64_t player_pose_slot_matches = 0;
+  for (const VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid ||
+        entry.vtable != kVehicleMapEntityPlayerLocalVtable) {
+      continue;
+    }
+    ++player_entity_count;
+    player_entity_observations += entry.observations;
+    player_pose_comparisons += entry.pose_comparisons;
+    player_pose_source_matches += entry.pose_source_matches;
+    player_pose_owner_matches += entry.pose_owner_matches;
+    player_pose_slot_matches += entry.pose_slot_matches;
+  }
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_pose_summary",
       {{"status", !g_vehicle_observations
@@ -25010,6 +25210,153 @@ void EmitVehicleDiscoverySummary() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_map_entity_summary",
+      {{"status", !g_vehicle_map_entity_observations
+                      ? "not_observed"
+                      : (vehicle_map_entity_accounting_complete
+                             ? "complete"
+                             : "incomplete")},
+       {"hook", "82BBA010"},
+       {"assignment_hook", "82CCF228"},
+       {"observations", std::to_string(g_vehicle_map_entity_observations)},
+       {"valid_observations",
+        std::to_string(g_vehicle_map_entity_valid_observations)},
+       {"unrecognized_observations",
+        std::to_string(g_vehicle_map_entity_unrecognized_observations)},
+       {"invalid_observations",
+        std::to_string(g_vehicle_map_entity_invalid_observations)},
+       {"entities", std::to_string(g_vehicle_map_entity_count)},
+       {"capacity", std::to_string(kVehicleMapEntityCapacity)},
+       {"overflow", std::to_string(g_vehicle_map_entity_overflow)},
+       {"pose_correlations",
+        std::to_string(g_vehicle_map_pose_correlation_count)},
+       {"pose_correlation_capacity",
+        std::to_string(kVehicleMapPoseCorrelationCapacity)},
+       {"pose_correlation_overflow",
+        std::to_string(g_vehicle_map_pose_correlation_overflow)},
+       {"accounting_complete",
+        vehicle_map_entity_accounting_complete ? "true" : "false"},
+       {"assignment_observations",
+        std::to_string(g_vehicle_map_entity_assignment_observations)},
+       {"assignment_valid_observations",
+        std::to_string(g_vehicle_map_entity_assignment_valid_observations)},
+       {"assignment_unrecognized_observations",
+        std::to_string(
+            g_vehicle_map_entity_assignment_unrecognized_observations)},
+       {"assignment_invalid_observations",
+        std::to_string(g_vehicle_map_entity_assignment_invalid_observations)},
+       {"assignment_accounting_complete",
+        vehicle_map_entity_assignment_accounting_complete ? "true" : "false"},
+       {"pool_hook", "826291A8"},
+       {"pool_observations",
+        std::to_string(g_vehicle_map_entity_pool_observations)},
+       {"pool_valid_observations",
+        std::to_string(g_vehicle_map_entity_pool_valid_observations)},
+       {"pool_unrecognized_observations",
+        std::to_string(g_vehicle_map_entity_pool_unrecognized_observations)},
+       {"pool_invalid_observations",
+        std::to_string(g_vehicle_map_entity_pool_invalid_observations)},
+       {"pool_accounting_complete",
+        vehicle_map_entity_pool_accounting_complete ? "true" : "false"},
+       {"player_local_entities", std::to_string(player_entity_count)},
+       {"player_local_observations",
+        std::to_string(player_entity_observations)},
+       {"player_pose_comparisons",
+        std::to_string(player_pose_comparisons)},
+       {"player_pose_source_matches",
+        std::to_string(player_pose_source_matches)},
+       {"player_pose_owner_matches",
+        std::to_string(player_pose_owner_matches)},
+       {"player_pose_slot_matches",
+        std::to_string(player_pose_slot_matches)},
+       {"classification", "rtti_locked_vehicle_map_entity_census"},
+       {"player_pose_relation_candidate",
+        player_pose_comparisons &&
+                (player_pose_source_matches || player_pose_owner_matches ||
+                 player_pose_slot_matches)
+            ? "true"
+            : "false"},
+       {"player_vehicle_identity_proved", "false"},
+       {"guest_payload_read", "main_vtable,id,type_name_pointer"},
+       {"guest_state_changed", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  for (const VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid) {
+      continue;
+    }
+    const uint32_t expected_type_name =
+        VehicleMapEntityExpectedTypeNameAddress(entry.vtable);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_map_entity",
+        {{"generation", fmt::format("{:08X}", entry.generation)},
+         {"entity", fmt::format("{:08X}", entry.entity)},
+         {"class", VehicleMapEntityClassName(entry.vtable)},
+         {"vtable", fmt::format("{:08X}", entry.vtable)},
+         {"vehicle_id", fmt::format("{:08X}", entry.vehicle_id)},
+         {"type_name_address",
+          fmt::format("{:08X}", entry.type_name_address)},
+         {"expected_type_name_address",
+          fmt::format("{:08X}", expected_type_name)},
+         {"observations", std::to_string(entry.observations)},
+         {"assignment_observations",
+          std::to_string(entry.assignment_observations)},
+         {"pool_observations", std::to_string(entry.pool_observations)},
+         {"pool_manager", fmt::format("{:08X}", entry.pool_manager)},
+         {"pool_root", fmt::format("{:08X}", entry.pool_root)},
+         {"pool_context", fmt::format("{:08X}", entry.pool_context)},
+         {"pool_manager_changes",
+          std::to_string(entry.pool_manager_changes)},
+         {"pool_root_changes", std::to_string(entry.pool_root_changes)},
+         {"pool_context_changes",
+          std::to_string(entry.pool_context_changes)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"vehicle_id_changes", std::to_string(entry.vehicle_id_changes)},
+         {"vtable_mismatches", std::to_string(entry.vtable_mismatches)},
+         {"type_name_mismatches",
+          std::to_string(entry.type_name_mismatches)},
+         {"pose_comparisons", std::to_string(entry.pose_comparisons)},
+         {"pose_source_matches",
+          std::to_string(entry.pose_source_matches)},
+         {"pose_owner_matches", std::to_string(entry.pose_owner_matches)},
+         {"pose_slot_matches", std::to_string(entry.pose_slot_matches)},
+         {"classification", "exact_vehicle_map_entity_identity"},
+         {"player_vehicle_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleMapPoseCorrelationEntry &entry :
+       g_vehicle_map_pose_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_map_pose_correlation",
+        {{"entity", fmt::format("{:08X}", entry.entity)},
+         {"entity_class", VehicleMapEntityClassName(entry.entity_vtable)},
+         {"entity_vtable", fmt::format("{:08X}", entry.entity_vtable)},
+         {"vehicle_id", fmt::format("{:08X}", entry.vehicle_id)},
+         {"relation", VehicleMapPoseRelationName(entry.relation)},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_source", fmt::format("{:08X}", entry.identity_source)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"classification", "exact_map_entity_to_pose_relation_candidate"},
+         {"player_vehicle_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   for (const VehicleRenderContextCalleeProfileEntry &entry :
        g_vehicle_render_context_callee_profiles) {
     if (!entry.valid) {
@@ -25528,6 +25875,197 @@ void ObserveVehicleOwnerIndirectCall(uint32_t method_address,
   ++g_vehicle_owner_indirect_target_count;
 }
 
+enum class VehicleMapObservationKind : uint32_t {
+  kGetter,
+  kIdAssignment,
+  kPlayerPool,
+};
+
+void ObserveVehicleMapEntityInternal(
+    uint32_t generation, uint32_t entity, uint32_t vtable,
+    uint32_t vehicle_id, uint32_t type_name_address,
+    VehicleMapObservationKind kind, uint32_t pool_manager = 0,
+    uint32_t pool_root = 0, uint32_t pool_context = 0) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const uint32_t expected_type_name =
+      VehicleMapEntityExpectedTypeNameAddress(vtable);
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  uint64_t *observations = &g_vehicle_map_entity_observations;
+  uint64_t *valid_observations = &g_vehicle_map_entity_valid_observations;
+  uint64_t *unrecognized_observations =
+      &g_vehicle_map_entity_unrecognized_observations;
+  uint64_t *invalid_observations =
+      &g_vehicle_map_entity_invalid_observations;
+  if (kind == VehicleMapObservationKind::kIdAssignment) {
+    observations = &g_vehicle_map_entity_assignment_observations;
+    valid_observations = &g_vehicle_map_entity_assignment_valid_observations;
+    unrecognized_observations =
+        &g_vehicle_map_entity_assignment_unrecognized_observations;
+    invalid_observations =
+        &g_vehicle_map_entity_assignment_invalid_observations;
+  } else if (kind == VehicleMapObservationKind::kPlayerPool) {
+    observations = &g_vehicle_map_entity_pool_observations;
+    valid_observations = &g_vehicle_map_entity_pool_valid_observations;
+    unrecognized_observations =
+        &g_vehicle_map_entity_pool_unrecognized_observations;
+    invalid_observations = &g_vehicle_map_entity_pool_invalid_observations;
+  }
+  ++*observations;
+  if (!generation || !entity || (entity & 3) || !vtable || (vtable & 3)) {
+    ++*invalid_observations;
+    return;
+  }
+  if (!expected_type_name) {
+    ++*unrecognized_observations;
+    return;
+  }
+  ++*valid_observations;
+  VehicleMapEntityEntry *available = nullptr;
+  VehicleMapEntityEntry *matched = nullptr;
+  for (VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.generation == generation && entry.entity == entity) {
+      matched = &entry;
+      break;
+    }
+  }
+  if (!matched) {
+    if (!available) {
+      ++g_vehicle_map_entity_overflow;
+      return;
+    }
+    matched = available;
+    matched->valid = true;
+    matched->generation = generation;
+    matched->entity = entity;
+    matched->vtable = vtable;
+    matched->vehicle_id = vehicle_id;
+    matched->type_name_address = type_name_address;
+    matched->first_frame = g_frame_sequence.load(std::memory_order_relaxed);
+    ++g_vehicle_map_entity_count;
+  } else {
+    if (matched->vehicle_id != vehicle_id) {
+      ++matched->vehicle_id_changes;
+    }
+    if (matched->vtable != vtable) {
+      ++matched->vtable_mismatches;
+    }
+    matched->vtable = vtable;
+    matched->vehicle_id = vehicle_id;
+    matched->type_name_address = type_name_address;
+  }
+  if (kind == VehicleMapObservationKind::kIdAssignment) {
+    ++matched->assignment_observations;
+  } else if (kind == VehicleMapObservationKind::kPlayerPool) {
+    if (matched->pool_observations) {
+      if (matched->pool_manager != pool_manager) {
+        ++matched->pool_manager_changes;
+      }
+      if (matched->pool_root != pool_root) {
+        ++matched->pool_root_changes;
+      }
+      if (matched->pool_context != pool_context) {
+        ++matched->pool_context_changes;
+      }
+    }
+    ++matched->pool_observations;
+    matched->pool_manager = pool_manager;
+    matched->pool_root = pool_root;
+    matched->pool_context = pool_context;
+  }
+  if (type_name_address != expected_type_name) {
+    ++matched->type_name_mismatches;
+  }
+  ++matched->observations;
+  matched->last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+}
+
+void ObserveVehicleMapEntity(uint32_t generation, uint32_t entity,
+                             uint32_t vtable, uint32_t vehicle_id,
+                             uint32_t type_name_address) {
+  ObserveVehicleMapEntityInternal(generation, entity, vtable, vehicle_id,
+                                  type_name_address,
+                                  VehicleMapObservationKind::kGetter);
+}
+
+void ObserveVehicleMapEntityIdAssignment(uint32_t generation, uint32_t entity,
+                                         uint32_t vtable,
+                                         uint32_t assigned_vehicle_id,
+                                         uint32_t type_name_address) {
+  ObserveVehicleMapEntityInternal(generation, entity, vtable,
+                                  assigned_vehicle_id, type_name_address,
+                                  VehicleMapObservationKind::kIdAssignment);
+}
+
+void ObserveVehiclePlayerPool(uint32_t generation, uint32_t entity,
+                              uint32_t vtable, uint32_t vehicle_id,
+                              uint32_t type_name_address,
+                              uint32_t pool_manager, uint32_t pool_root,
+                              uint32_t pool_context) {
+  ObserveVehicleMapEntityInternal(
+      generation, entity, vtable, vehicle_id, type_name_address,
+      VehicleMapObservationKind::kPlayerPool, pool_manager, pool_root,
+      pool_context);
+}
+
+void RecordVehicleMapPoseCorrelationLocked(
+    const VehicleMapEntityEntry &entity,
+    const VehiclePoseObservation &observation,
+    VehicleMapPoseRelation relation) {
+  VehicleMapPoseCorrelationEntry *available = nullptr;
+  for (VehicleMapPoseCorrelationEntry &entry :
+       g_vehicle_map_pose_correlations) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.entity == entity.entity &&
+        entry.entity_vtable == entity.vtable &&
+        entry.vehicle_id == entity.vehicle_id &&
+        entry.identity_generation == observation.generation &&
+        entry.identity_source == observation.source &&
+        entry.identity_owner == observation.owner &&
+        entry.identity_slot == observation.slot &&
+        entry.relation == relation) {
+      ++entry.observations;
+      entry.last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_map_pose_correlation_overflow;
+    return;
+  }
+  const uint64_t frame = g_frame_sequence.load(std::memory_order_relaxed);
+  *available = {
+      .observations = 1,
+      .first_frame = frame,
+      .last_frame = frame,
+      .entity = entity.entity,
+      .entity_vtable = entity.vtable,
+      .vehicle_id = entity.vehicle_id,
+      .identity_generation = observation.generation,
+      .identity_source = observation.source,
+      .identity_owner = observation.owner,
+      .identity_slot = observation.slot,
+      .relation = relation,
+      .valid = true,
+  };
+  ++g_vehicle_map_pose_correlation_count;
+}
+
 void ObserveVehiclePose(const VehiclePoseObservation &observation) {
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
@@ -25557,6 +26095,55 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
     return;
   }
   ++g_vehicle_valid_observations;
+  for (VehicleMapEntityEntry &entity : g_vehicle_map_entities) {
+    if (!entity.valid || entity.generation != observation.generation) {
+      continue;
+    }
+    ++entity.pose_comparisons;
+    if (entity.entity == observation.source) {
+      ++entity.pose_source_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kEntityIsPoseSource);
+    }
+    if (entity.entity == observation.owner) {
+      ++entity.pose_owner_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kEntityIsPoseOwner);
+    }
+    if (entity.vehicle_id != UINT32_MAX &&
+        entity.vehicle_id == observation.slot) {
+      ++entity.pose_slot_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation,
+          VehicleMapPoseRelation::kVehicleIdIsPoseSlot);
+    }
+    if (entity.pool_observations &&
+        entity.pool_manager == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation,
+          VehicleMapPoseRelation::kPoolManagerIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_manager == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolManagerIsPoseOwner);
+    }
+    if (entity.pool_observations && entity.pool_root == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolRootIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_root == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolRootIsPoseOwner);
+    }
+    if (entity.pool_observations && entity.pool_context == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolContextIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_context == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolContextIsPoseOwner);
+    }
+  }
   VehicleIdentityEntry *available = nullptr;
   VehicleIdentityEntry *matched = nullptr;
   for (VehicleIdentityEntry &entry : g_vehicle_identities) {

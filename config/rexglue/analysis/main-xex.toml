@@ -798,6 +798,36 @@ address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"
 registers = ["r1", "r30", "r31"]
 
+# C4 exact player/traffic semantic ingress. CMapEntityVehicleBase virtual slot
+# 11 is the retail one-instruction vehicle-ID getter at 0x82BBA010. Observe its
+# receiver before the load so the host can census only RTTI-locked vehicle
+# entity vtables and compare the exact ID with the existing pose identity. The
+# hook reads the already-live main vtable, ID, and exact type-name pointer only; it
+# does not scan an object, change guest state, publish native output, or permit
+# suppression.
+[[midasm_hook]]
+address = 0x82BBA010
+name = "PinyonShiftObserveVehicleMapEntity"
+registers = ["r3"]
+
+# The getter qualification found the exact local-player RTTI object but its
+# vehicle ID remained the unassigned 0xFFFFFFFF sentinel. Observe the shared
+# virtual setter immediately before its exact stw r4,12(r3) so the assigned ID
+# and receiver identity are retained without changing the store or guest state.
+[[midasm_hook]]
+address = 0x82CCF228
+name = "PinyonShiftObserveVehicleMapEntityIdAssignment"
+registers = ["r3", "r4"]
+
+# Retail initialization stores the completed 1,792-byte vehicle-map pool at
+# root offset 24 here. Its exact constructor embeds player_local at pool+32 and
+# retains root+4 at pool+16. Observe only those proved lineage addresses.
+[[midasm_hook]]
+address = 0x826291A8
+name = "PinyonShiftObserveVehiclePlayerPool"
+registers = ["r3", "r31"]
+after_instruction = true
+
 # NR-05E owner-vtable draw correlation. Runtime-qualified vtable 0x8213BA54
 # contains 19 nontrivial method bodies after trivial getters, null handlers,
 # and aliases are excluded. Entry hooks preserve r3 as the owner identity;
