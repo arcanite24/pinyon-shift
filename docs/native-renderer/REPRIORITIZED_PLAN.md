@@ -762,6 +762,17 @@ is batched with the next meaningful C4 slice; until it proves one stable unique
 player-to-pose relationship, player attribution, mesh/material labels, native
 publication, and suppression remain closed.
 
+Resource-contribution checkpoint: the existing 30 retained prepared-signature
+families reduce exactly to 15 geometry-resource contributions, each with two
+distinct prepared variants and otherwise identical mechanical state. The
+offline fail-closed partition is documented in
+[`VEHICLE_RESOURCE_CONTRIBUTIONS.md`](VEHICLE_RESOURCE_CONTRIBUTIONS.md). C4
+role attribution now targets those 15 exact resources; prepared signatures
+alone cannot carry a semantic label because two resources reuse one signature
+pair. The next batched slice records isolated per-contribution output evidence
+and joins it to an independent title-owned asset/material discriminator before
+assigning body, glass, wheel, light, livery, or exceptional-work labels.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
