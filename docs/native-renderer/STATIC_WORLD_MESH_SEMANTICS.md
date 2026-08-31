@@ -1,7 +1,7 @@
 # Static-world SimpleMesh semantics
 
-Status: bounded geometry draw and material-binding fields proved; complete
-vertex layout and material parameters remain open
+Status: bounded geometry draw and material-binding fields proved and carried
+to prepared-draw provenance; batched runtime qualification remains pending
 
 ## Purpose
 
@@ -38,6 +38,20 @@ The same path proves a bounded state/material branch:
 This is enough to observe stable geometry/material binding families. Complete
 vertex-fetch layouts, material parameter blocks, building/prop labels, and
 native admission remain unproved.
+
+## Runtime lineage
+
+The passive runtime observer reads only the proved numeric fields after the
+resource/model/submodel/mesh relation and RTTI vtables pass their existing
+exact guards. It carries primitive type, index-buffer binding, source element
+count, submodel state selection, and the optional material reference through
+the physical PM4 origin into prepared-draw provenance. Independent observation,
+read-fault, packet-origin, and missing-origin counters make the combined
+qualifier fail closed. No vertex or material payload bytes are exported.
+
+Runtime evidence remains deferred to the next combined C1/C2 AppData session.
+Until that session qualifies the lineage, this checkpoint is implementation
+complete but not runtime-qualified.
 
 ## Generate the report
 

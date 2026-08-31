@@ -446,11 +446,18 @@ def fixture():
             ),
             "texture_reference_vector": "resource_plus_288_stride_28",
             "asset_metadata_limits": "key_bytes_512_reference_count_4096",
+            "mesh_primitive_type_field": "mesh_plus_36_u32",
+            "mesh_index_buffer_binding_field": "mesh_plus_96_u32",
+            "mesh_source_element_count_field": "mesh_plus_100_u32",
+            "submodel_state_fields": "submodel_plus_32_u32_39_u8_112_u8",
+            "mesh_optional_material_reference_field": "mesh_plus_128_u32",
+            "mesh_semantics_export": "bounded_numeric_identity_fields_only",
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
             "guest_payload_read": (
-                "bounded_host_mapped_identity_and_asset_metadata_fields"
+                "bounded_host_mapped_identity_asset_metadata_and_"
+                "mesh_semantic_fields"
             ),
             "plaintext_asset_names_exported": "false",
             **safety(),
@@ -549,6 +556,11 @@ def fixture():
         member_draws_without_packets="0",
         member_packets_recorded="100",
         member_packet_mismatches="0",
+        mesh_semantic_observations="98",
+        mesh_semantic_exact="98",
+        mesh_semantic_read_faults="0",
+        mesh_semantic_packet_origins="100",
+        mesh_semantic_missing_packet_origins="0",
         presentation_entries="12",
         presentation_exits="12",
         presentation_exact="12",
@@ -603,6 +615,11 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["simple_mesh_to_prepared_draw_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "mesh_semantics_to_prepared_draw_proved"
+            ]
         )
         self.assertTrue(
             document["qualification"]["model_presentation_owner_proved"]
@@ -881,6 +898,55 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             "asset_metadata_missing_joins is nonzero", document["failures"]
         )
 
+    def test_rejects_mesh_semantic_read_fault(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            mesh_semantic_exact="97",
+            mesh_semantic_read_faults="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "mesh_semantic_read_faults is nonzero", document["failures"]
+        )
+
+    def test_rejects_mesh_semantics_missing_from_packet_origin(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            mesh_semantic_packet_origins="99",
+            mesh_semantic_missing_packet_origins="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "mesh_semantic_missing_packet_origins is nonzero",
+            document["failures"],
+        )
+
     def test_rejects_static_asset_key_offset_drift(self):
         metadata = static_asset_metadata()
         metadata["resource_key"]["stored_name_offset"] = 20
@@ -949,6 +1015,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("kModelPresentationNameOffset = 16", hooks)
         self.assertIn("ReadStaticWorldAssetMetadata", hooks)
         self.assertIn("static_world_asset_key_hash", hooks)
+        self.assertIn("kSimpleMeshPrimitiveTypeOffset = 36", hooks)
+        self.assertIn("mesh_semantic_packet_origins", hooks)
+        self.assertIn("static_world_mesh_primitive_type", hooks)
 
 
 if __name__ == "__main__":
