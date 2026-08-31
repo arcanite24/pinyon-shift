@@ -112,6 +112,45 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "suppression_allowed": "false",
             },
             {
+                "event": MODULE.RETAINED_CONFIG_EVENT,
+                "status": "armed",
+                "native_draw": "private_retained_pass_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
+                "event": MODULE.RETAINED_RESULT_EVENT,
+                "status": "recorded_complete_private_vehicle_pass",
+                "draw_count": "30",
+                "native_draw": "private_retained_pass_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
+                "event": MODULE.RETAINED_SUMMARY_EVENT,
+                "status": "bounded_retained_pass_stable",
+                "requests": "60",
+                "recorded": "60",
+                "target_creation_failures": "0",
+                "unsupported": "0",
+                "request_accounting_complete": "true",
+                "reused_target_requests": "58",
+                "frames_started": "2",
+                "frames_completed": "2",
+                "frames_failed": "0",
+                "frame_accounting_complete": "true",
+                "draws_per_frame": "30",
+                "pass_limit": "2",
+                "limit_yields": "1",
+                "capture_recorded": "true",
+                "native_draw": "private_retained_pass_only",
+                "xenos_draw": "preserved",
+                "output_authority": "xenos",
+                "suppression_allowed": "false",
+            },
+            {
                 "event": MODULE.SUMMARY_EVENT,
                 "status": "qualified_epoch_observed",
                 "epochs_committed": "1",
@@ -184,6 +223,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         )
         self.assertEqual(2, report["mechanical_rejections"]["prepared_pipeline"])
         self.assertTrue(report["qualification"]["private_color_replay_stable"])
+        self.assertTrue(
+            report["qualification"]["private_retained_color_pass_stable"]
+        )
+        self.assertEqual(
+            2,
+            int(report["private_retained_color_pass"]["summary"]["frames_completed"]),
+        )
         self.assertEqual(3, report["color_run_topology"]["maximum_run_length"])
 
     def test_rejects_partial_epoch_promotion(self):
@@ -250,6 +296,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "private replay outcome drift"):
             self.summarize(events)
 
+    def test_rejects_retained_frame_accounting_drift(self):
+        events = self.fixture()
+        events[9]["frames_completed"] = "1"
+        with self.assertRaisesRegex(ValueError, "retained frame outcome drift"):
+            self.summarize(events)
+
     def test_runtime_contract_is_default_off_and_full_epoch_gated(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -274,14 +326,23 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             '"native_renderer.discovery.vehicle_shadow_color_capture_summary"',
             source,
         )
+        self.assertIn(
+            '"native_renderer.discovery.vehicle_shadow_color_retained_summary"',
+            source,
+        )
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
+        self.assertIn("[switch]$RetainVehicleShadowColorPass", capture)
         self.assertIn(
             "VehicleShadowGeometryCorrelation requires ShadowDepthBatch",
             capture,
         )
         self.assertIn(
             "CaptureVehicleShadowColor requires VehicleShadowGeometryCorrelation",
+            capture,
+        )
+        self.assertIn(
+            "RetainVehicleShadowColorPass requires CaptureVehicleShadowColor",
             capture,
         )
         self.assertIn('{"native_draw", "false"}', source)

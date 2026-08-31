@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v5"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v6"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -21,6 +21,15 @@ CAPTURE_RESULT_EVENT = (
 )
 CAPTURE_SUMMARY_EVENT = (
     "native_renderer.discovery.vehicle_shadow_color_capture_summary"
+)
+RETAINED_CONFIG_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_retained_config"
+)
+RETAINED_RESULT_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_retained_result"
+)
+RETAINED_SUMMARY_EVENT = (
+    "native_renderer.discovery.vehicle_shadow_color_retained_summary"
 )
 REJECTION_REASON_FIELDS = (
     "reject_resolved_input",
@@ -96,6 +105,15 @@ def summarize(log_path):
     ]
     capture_summaries = [
         event for event in events if event.get("event") == CAPTURE_SUMMARY_EVENT
+    ]
+    retained_configs = [
+        event for event in events if event.get("event") == RETAINED_CONFIG_EVENT
+    ]
+    retained_results = [
+        event for event in events if event.get("event") == RETAINED_RESULT_EVENT
+    ]
+    retained_summaries = [
+        event for event in events if event.get("event") == RETAINED_SUMMARY_EVENT
     ]
     require(len(configs) == 1, "expected exactly one correlation config event")
     require(configs[0].get("status") == "armed", "correlation was not armed")
@@ -354,6 +372,96 @@ def summarize(log_path):
             "result": capture_results[0] if capture_results else None,
             "summary": capture_summary,
         }
+    retained = None
+    if retained_configs or retained_results or retained_summaries:
+        require(len(retained_configs) == 1, "expected one retained pass config")
+        require(
+            retained_configs[0].get("status") == "armed",
+            "retained pass was not armed",
+        )
+        require(len(retained_summaries) == 1, "expected one retained pass summary")
+        retained_summary = retained_summaries[0]
+        require(
+            retained_summary.get("request_accounting_complete") == "true",
+            "retained pass request accounting drift",
+        )
+        retained_requests = integer(retained_summary, "requests")
+        retained_recorded = integer(retained_summary, "recorded")
+        retained_failures = integer(
+            retained_summary, "target_creation_failures"
+        ) + integer(retained_summary, "unsupported")
+        require(
+            retained_requests == retained_recorded + retained_failures,
+            "retained pass outcome drift",
+        )
+        frames_started = integer(retained_summary, "frames_started")
+        frames_completed = integer(retained_summary, "frames_completed")
+        frames_failed = integer(retained_summary, "frames_failed")
+        draws_per_frame = integer(retained_summary, "draws_per_frame")
+        pass_limit = integer(retained_summary, "pass_limit")
+        require(draws_per_frame == 30, "retained family count drift")
+        require(frames_started <= pass_limit, "retained pass limit drift")
+        require(
+            retained_summary.get("frame_accounting_complete") == "true",
+            "retained frame accounting drift",
+        )
+        require(
+            frames_started == frames_completed + frames_failed,
+            "retained frame outcome drift",
+        )
+        require(
+            retained_requests <= frames_started * draws_per_frame,
+            "retained request frame bound drift",
+        )
+        reused_target_requests = integer(
+            retained_summary, "reused_target_requests"
+        )
+        require(
+            reused_target_requests <= retained_requests,
+            "retained target reuse bound drift",
+        )
+        if not retained_failures and frames_completed == frames_started:
+            require(
+                retained_requests == frames_completed * draws_per_frame,
+                "retained complete-frame request drift",
+            )
+            require(
+                reused_target_requests
+                == frames_completed * (draws_per_frame - 1),
+                "retained target lifecycle drift",
+            )
+        require(
+            not retained_failures
+            or retained_summary.get("status") == "failed_closed",
+            "retained pass did not fail closed",
+        )
+        capture_recorded = retained_summary.get("capture_recorded") == "true"
+        require(
+            len(retained_results) == (1 if capture_recorded else 0),
+            "retained capture result drift",
+        )
+        for event in [*retained_configs, *retained_results, retained_summary]:
+            require(
+                event.get("xenos_draw") == "preserved"
+                and event.get("output_authority") == "xenos"
+                and event.get("suppression_allowed") == "false",
+                "retained pass changed output authority",
+            )
+        if retained_results:
+            require(
+                retained_results[0].get("status")
+                == "recorded_complete_private_vehicle_pass",
+                "retained pass result drift",
+            )
+            require(
+                integer(retained_results[0], "draw_count") == draws_per_frame,
+                "retained result draw count drift",
+            )
+        retained = {
+            "config": retained_configs[0],
+            "result": retained_results[0] if retained_results else None,
+            "summary": retained_summary,
+        }
     return {
         "schema": SCHEMA,
         "source_log": str(log_path),
@@ -391,6 +499,7 @@ def summarize(log_path):
         "correlations": correlations,
         "candidate_families": candidates,
         "private_color_capture": capture,
+        "private_retained_color_pass": retained,
         "qualification": {
             "working_color_bridge_candidate": bool(correlations),
             "private_color_capture_recorded": bool(
@@ -402,6 +511,15 @@ def summarize(log_path):
                 and integer(capture["summary"], "private_replay_requests")
                 and integer(capture["summary"], "private_replay_requests")
                 == integer(capture["summary"], "private_replay_recorded")
+            ),
+            "private_retained_color_pass_stable": bool(
+                retained
+                and integer(retained["summary"], "frames_completed")
+                == integer(retained["summary"], "pass_limit")
+                and integer(retained["summary"], "frames_failed") == 0
+                and integer(retained["summary"], "requests")
+                == integer(retained["summary"], "recorded")
+                and retained["summary"].get("capture_recorded") == "true"
             ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,
