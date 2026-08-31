@@ -57,6 +57,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "first_frame": "10",
                 "last_frame": "12",
                 "pose_variation_observed": "true",
+                "mechanically_eligible_draws": "1",
+                "mechanically_rejected_draws": "2",
+                "first_rejection_mask": "00002000",
+                "last_rejection_mask": "00000000",
+                "rejection_mask_or": "00002000",
+                "rejection_mask_and": "00000000",
+                "rejection_mask_switches": "1",
                 **safety,
             },
             {
@@ -101,6 +108,24 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "index_vertex_matches": "2",
                 "correlations": "1",
                 "correlation_overflow": "0",
+                "mechanically_eligible_draws": "1",
+                "mechanically_rejected_draws": "2",
+                "mechanical_rejection_accounting_complete": "true",
+                "reject_resolved_input": "0",
+                "reject_unsupported_geometry": "0",
+                "reject_empty_draw": "0",
+                "reject_vertex_binding_count": "0",
+                "reject_vertex_binding_overflow": "0",
+                "reject_vertex_attribute_overflow": "0",
+                "reject_vertex_constant_overflow": "0",
+                "reject_pixel_constant_overflow": "0",
+                "reject_texture_state_overflow": "0",
+                "reject_memexport": "0",
+                "reject_query": "0",
+                "reject_texture_count": "0",
+                "reject_texture_layout": "0",
+                "reject_prepared_pipeline": "2",
+                "reject_render_targets": "0",
                 **safety,
             },
         ]
@@ -130,6 +155,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertTrue(
             report["qualification"]["private_color_capture_recorded"]
         )
+        self.assertEqual(2, report["mechanical_rejections"]["prepared_pipeline"])
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -153,6 +179,20 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         events = self.fixture()
         events[3]["pose_variation_observed"] = "false"
         with self.assertRaisesRegex(ValueError, "pose variation accounting drift"):
+            self.summarize(events)
+
+    def test_rejects_mechanical_eligibility_accounting_drift(self):
+        events = self.fixture()
+        events[3]["mechanically_rejected_draws"] = "1"
+        with self.assertRaisesRegex(
+            ValueError, "candidate mechanical eligibility accounting drift"
+        ):
+            self.summarize(events)
+
+    def test_rejects_candidate_mask_bounds_drift(self):
+        events = self.fixture()
+        events[3]["rejection_mask_or"] = "00000000"
+        with self.assertRaisesRegex(ValueError, "candidate first mask drift"):
             self.summarize(events)
 
     def test_rejects_private_capture_authority_drift(self):

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v1"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v2"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -22,6 +22,23 @@ CAPTURE_RESULT_EVENT = (
 CAPTURE_SUMMARY_EVENT = (
     "native_renderer.discovery.vehicle_shadow_color_capture_summary"
 )
+REJECTION_REASON_FIELDS = (
+    "reject_resolved_input",
+    "reject_unsupported_geometry",
+    "reject_empty_draw",
+    "reject_vertex_binding_count",
+    "reject_vertex_binding_overflow",
+    "reject_vertex_attribute_overflow",
+    "reject_vertex_constant_overflow",
+    "reject_pixel_constant_overflow",
+    "reject_texture_state_overflow",
+    "reject_memexport",
+    "reject_query",
+    "reject_texture_count",
+    "reject_texture_layout",
+    "reject_prepared_pipeline",
+    "reject_render_targets",
+)
 
 
 def require(condition, message):
@@ -34,6 +51,13 @@ def integer(record, key):
         return int(record[key])
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(f"missing or invalid integer field: {key}") from error
+
+
+def hexadecimal(record, key):
+    try:
+        return int(record[key], 16)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"missing or invalid hexadecimal field: {key}") from error
 
 
 def load_events(path):
@@ -100,6 +124,21 @@ def summarize(log_path):
         + integer(summary, "index_vertex_matches"),
         "match accounting drift",
     )
+    require(
+        summary.get("mechanical_rejection_accounting_complete") == "true",
+        "mechanical rejection accounting drift",
+    )
+    mechanically_eligible_draws = integer(
+        summary, "mechanically_eligible_draws"
+    )
+    mechanically_rejected_draws = integer(
+        summary, "mechanically_rejected_draws"
+    )
+    require(
+        mechanically_eligible_draws + mechanically_rejected_draws
+        == integer(summary, "color_draws_matched"),
+        "mechanical eligibility accounting drift",
+    )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
@@ -144,6 +183,23 @@ def summarize(log_path):
             event.get("pose_variation_observed")
             == ("true" if integer(event, "parameter_switches") else "false"),
             "pose variation accounting drift",
+        )
+        eligible_draws = integer(event, "mechanically_eligible_draws")
+        rejected_draws = integer(event, "mechanically_rejected_draws")
+        require(
+            eligible_draws + rejected_draws == integer(event, "draws"),
+            "candidate mechanical eligibility accounting drift",
+        )
+        first_mask = hexadecimal(event, "first_rejection_mask")
+        last_mask = hexadecimal(event, "last_rejection_mask")
+        mask_or = hexadecimal(event, "rejection_mask_or")
+        mask_and = hexadecimal(event, "rejection_mask_and")
+        require(first_mask & mask_or == first_mask, "candidate first mask drift")
+        require(last_mask & mask_or == last_mask, "candidate last mask drift")
+        require(mask_and & mask_or == mask_and, "candidate mask bounds drift")
+        require(
+            not eligible_draws or mask_and == 0,
+            "candidate eligible draw retained a stable rejection",
         )
         for key in (
             "prepared_signature",
@@ -204,7 +260,13 @@ def summarize(log_path):
             "color_draws_matched": integer(summary, "color_draws_matched"),
             "full_geometry_matches": integer(summary, "full_geometry_matches"),
             "index_vertex_matches": integer(summary, "index_vertex_matches"),
+            "mechanically_eligible_draws": mechanically_eligible_draws,
+            "mechanically_rejected_draws": mechanically_rejected_draws,
             "correlations": len(correlations),
+        },
+        "mechanical_rejections": {
+            key.removeprefix("reject_"): integer(summary, key)
+            for key in REJECTION_REASON_FIELDS
         },
         "epochs": epochs,
         "correlations": correlations,
