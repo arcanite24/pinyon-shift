@@ -431,6 +431,14 @@ The next combined C1/C2 AppData run must prove the matrix convention and a
 unique runtime-to-catalog match; no building/prop category, native admission,
 or suppression is claimed yet.
 
+Category-join implementation checkpoint: the offline qualifier now tests both
+plausible 4x4 translation layouts against the hashed spatial catalog. It
+requires a unique convention, at least eight distinct exact matches including
+a collision prop, zero ambiguous/unmatched/non-finite transforms, a clean
+process lifecycle, and a complete static-world runtime summary. The qualifier
+is ready for the deferred combined AppData run; it cannot self-qualify from
+static fixtures and still enables no native admission or suppression.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
