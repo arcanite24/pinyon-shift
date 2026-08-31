@@ -165,6 +165,11 @@ constexpr uint32_t kTrackTexturePredicate24Method = 0x824107C8;
 constexpr uint32_t kTrackTexturePrimary36Method = 0x824108D0;
 constexpr uint32_t kTrackTextureFallback40Method = 0x82DF1300;
 constexpr uint32_t kTrackTexturePredicate44Method = 0x82DF0B40;
+constexpr uint32_t kTrackRenderModelInstanceUnifiedVtable = 0x820019CC;
+constexpr uint32_t kTrackRenderModelUnifiedVtable = 0x82001D74;
+constexpr uint32_t kTrackRenderModelDescriptorType = 21;
+constexpr uint32_t kTrackRenderModelDescriptorFlag = 1;
+constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -441,6 +446,8 @@ struct SemanticDrawIdentity {
   bool secondary_resource_present = false;
   bool title_lod_valid = false;
   bool track_texture_provider = false;
+  bool track_render_model_scope = false;
+  uint32_t track_render_shared_identity_mask = 0;
   bool valid = false;
 };
 
@@ -568,6 +575,8 @@ struct SemanticVisibilityPreparedCandidateEntry {
   bool mechanically_eligible = false;
   bool title_lod_valid = false;
   bool track_texture_provider = false;
+  bool track_render_model_scope = false;
+  uint32_t track_render_shared_identity_mask = 0;
 };
 
 struct SemanticBatchRun {
@@ -1788,6 +1797,28 @@ struct PendingSemanticResourceResolution {
   bool secondary_resolution_result_seen = false;
 };
 
+enum TrackRenderSharedIdentity : uint32_t {
+  kTrackRenderSharedDescriptor = 1u << 0,
+  kTrackRenderSharedDescriptorPayloadBoundResource = 1u << 1,
+  kTrackRenderSharedDescriptorPayloadProvider = 1u << 2,
+  kTrackRenderSharedDescriptorPayloadRuntimeObject = 1u << 3,
+  kTrackRenderSharedRootReceiver = 1u << 4,
+  kTrackRenderSharedChildReceiver = 1u << 5,
+  kTrackRenderSharedRootRuntimeObject = 1u << 6,
+  kTrackRenderSharedChildRuntimeObject = 1u << 7,
+};
+
+struct TrackRenderModelDispatchScope {
+  uint64_t submission_joins = 0;
+  uint32_t root_address = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t descriptor_payload = 0;
+  uint32_t shared_identity_mask = 0;
+  bool active = false;
+  bool exact = false;
+};
+
 std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
     g_semantic_submissions{};
 std::mutex g_semantic_submission_mutex;
@@ -1845,6 +1876,21 @@ std::atomic<uint64_t> g_semantic_draw_packets_recorded{};
 std::atomic<uint64_t> g_semantic_draw_packet_matches{};
 std::atomic<uint64_t> g_semantic_draw_prepared_matches{};
 std::atomic<uint64_t> g_semantic_draw_unprepared_matches{};
+std::atomic<uint64_t> g_track_render_model_scope_entries{};
+std::atomic<uint64_t> g_track_render_model_scope_exits{};
+std::atomic<uint64_t> g_track_render_model_scope_overlaps{};
+std::atomic<uint64_t> g_track_render_model_scope_exit_without_entry{};
+std::atomic<uint64_t> g_track_render_model_scope_exact{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_root{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_child{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_descriptor{};
+std::atomic<uint64_t> g_track_render_model_scope_contract_mismatches{};
+std::atomic<uint64_t> g_track_render_model_scope_joined{};
+std::atomic<uint64_t> g_track_render_model_scope_unjoined{};
+std::atomic<uint64_t> g_track_render_model_submission_joins{};
+std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
+std::array<std::atomic<uint64_t>, 8>
+    g_track_render_model_shared_identity_relations{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -1855,6 +1901,7 @@ thread_local std::array<SemanticDrawIdentity,
     g_semantic_render_item_stack{};
 thread_local size_t g_semantic_render_item_stack_depth = 0;
 thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
+thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -2319,6 +2366,82 @@ bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
   return heap &&
          heap->QueryRangeAccess(address, address + length - 1) !=
              rex::memory::PageAccess::kNoAccess;
+}
+
+void BeginTrackRenderModelDispatch(uint32_t root_address) {
+  ++g_track_render_model_scope_entries;
+  if (g_track_render_model_scope.active) {
+    ++g_track_render_model_scope_overlaps;
+    g_track_render_model_scope = {};
+  }
+  g_track_render_model_scope.active = true;
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !IsReadableVehicleGuestRange(memory, root_address, 8)) {
+    ++g_track_render_model_scope_invalid_root;
+    return;
+  }
+  std::array<uint32_t, 2> root_words{};
+  LoadSemanticGuestWords(memory, root_address, root_words);
+  if (root_words[0] != kTrackRenderModelInstanceUnifiedVtable) {
+    ++g_track_render_model_scope_invalid_root;
+    return;
+  }
+  const uint32_t child_address = root_words[1];
+  if (!IsReadableVehicleGuestRange(memory, child_address, 52)) {
+    ++g_track_render_model_scope_invalid_child;
+    return;
+  }
+  std::array<uint32_t, 13> child_words{};
+  LoadSemanticGuestWords(memory, child_address, child_words);
+  if (child_words[0] != kTrackRenderModelUnifiedVtable) {
+    ++g_track_render_model_scope_invalid_child;
+    return;
+  }
+  const uint32_t descriptor_base = child_words[12];
+  if (!descriptor_base || descriptor_base > UINT32_MAX - 128) {
+    ++g_track_render_model_scope_invalid_descriptor;
+    return;
+  }
+  const uint32_t descriptor_address = descriptor_base + 128;
+  if (!IsReadableVehicleGuestRange(memory, descriptor_address,
+                                   kTrackRenderModelDescriptorBytes)) {
+    ++g_track_render_model_scope_invalid_descriptor;
+    return;
+  }
+  std::array<uint32_t, kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+      descriptor_words{};
+  LoadSemanticGuestWords(memory, descriptor_address, descriptor_words);
+  const uint32_t descriptor_type = descriptor_words[8] >> 16;
+  const uint32_t descriptor_flag = descriptor_words[61] >> 24;
+  if (descriptor_type != kTrackRenderModelDescriptorType ||
+      descriptor_flag != kTrackRenderModelDescriptorFlag) {
+    ++g_track_render_model_scope_contract_mismatches;
+    return;
+  }
+  g_track_render_model_scope.root_address = root_address;
+  g_track_render_model_scope.child_address = child_address;
+  g_track_render_model_scope.descriptor_address = descriptor_address;
+  g_track_render_model_scope.descriptor_payload = descriptor_words[10];
+  g_track_render_model_scope.exact = true;
+  ++g_track_render_model_scope_exact;
+}
+
+void EndTrackRenderModelDispatch() {
+  ++g_track_render_model_scope_exits;
+  if (!g_track_render_model_scope.active) {
+    ++g_track_render_model_scope_exit_without_entry;
+    return;
+  }
+  if (g_track_render_model_scope.exact) {
+    if (g_track_render_model_scope.submission_joins) {
+      ++g_track_render_model_scope_joined;
+    } else {
+      ++g_track_render_model_scope_unjoined;
+    }
+  }
+  g_track_render_model_scope = {};
 }
 
 const char *VehicleMatrixLayoutName(VehicleMatrixLayout layout) {
@@ -8472,7 +8595,9 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
                                      uint32_t primary_resource_key,
                                      uint32_t secondary_resource_key,
                                      bool secondary_resource_present,
-                                     bool track_texture_provider) {
+                                     bool track_texture_provider,
+                                     bool track_render_model_scope,
+                                     uint32_t track_render_shared_identity_mask) {
   if (!g_semantic_render_item_stack_depth) {
     g_semantic_draw_scope_mismatches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -8497,6 +8622,9 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
   semantic_draw.secondary_resource_key = secondary_resource_key;
   semantic_draw.secondary_resource_present = secondary_resource_present;
   semantic_draw.track_texture_provider = track_texture_provider;
+  semantic_draw.track_render_model_scope = track_render_model_scope;
+  semantic_draw.track_render_shared_identity_mask =
+      track_render_shared_identity_mask;
   semantic_draw.valid = true;
   g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
 }
@@ -8718,11 +8846,63 @@ void RecordProceduralModelGeometrySubmission(
   key = key ? key : 1;
   const bool track_texture_provider =
       IsUnifiedTrackTextureProvider(pending.primary_provider);
+  const bool track_render_model_scope =
+      g_track_render_model_scope.active && g_track_render_model_scope.exact;
+  uint32_t track_render_shared_identity_mask = 0;
+  if (track_render_model_scope) {
+    const TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+    track_render_shared_identity_mask |=
+        scope.descriptor_address == descriptor_address
+            ? kTrackRenderSharedDescriptor
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == pending.primary_bound_resource_object
+            ? kTrackRenderSharedDescriptorPayloadBoundResource
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == pending.primary_provider.provider_object
+            ? kTrackRenderSharedDescriptorPayloadProvider
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == runtime_submission_object
+            ? kTrackRenderSharedDescriptorPayloadRuntimeObject
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.root_address == receiver_address ? kTrackRenderSharedRootReceiver
+                                               : 0;
+    track_render_shared_identity_mask |=
+        scope.child_address == receiver_address
+            ? kTrackRenderSharedChildReceiver
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.root_address == runtime_submission_object
+            ? kTrackRenderSharedRootRuntimeObject
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.child_address == runtime_submission_object
+            ? kTrackRenderSharedChildRuntimeObject
+            : 0;
+    ++g_track_render_model_scope.submission_joins;
+    g_track_render_model_scope.shared_identity_mask |=
+        track_render_shared_identity_mask;
+    ++g_track_render_model_submission_joins;
+    if (track_render_shared_identity_mask) {
+      ++g_track_render_model_shared_identity_joins;
+      for (size_t bit = 0;
+           bit < g_track_render_model_shared_identity_relations.size();
+           ++bit) {
+        if (track_render_shared_identity_mask & (1u << bit)) {
+          ++g_track_render_model_shared_identity_relations[bit];
+        }
+      }
+    }
+  }
   JoinProceduralModelSemanticDraw(
       key, receiver_address, receiver_generation, record_index,
       descriptor_address, runtime_address, descriptor_kind, helper_state,
       primary_resource_key, secondary_resource_key,
-      secondary_resource_present, track_texture_provider);
+      secondary_resource_present, track_texture_provider,
+      track_render_model_scope, track_render_shared_identity_mask);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -9037,6 +9217,101 @@ void EmitProceduralModelSemanticSubmissions() {
         "bounded_submission_and_dispatch_fields_only"},
        {"guest_state_changed", "false"},
        {"native_upload", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitTrackRenderModelRuntimeJoinSummary() {
+  const uint64_t entries =
+      g_track_render_model_scope_entries.load(std::memory_order_relaxed);
+  const uint64_t exits =
+      g_track_render_model_scope_exits.load(std::memory_order_relaxed);
+  const uint64_t exact =
+      g_track_render_model_scope_exact.load(std::memory_order_relaxed);
+  const uint64_t invalid_root =
+      g_track_render_model_scope_invalid_root.load(std::memory_order_relaxed);
+  const uint64_t invalid_child =
+      g_track_render_model_scope_invalid_child.load(std::memory_order_relaxed);
+  const uint64_t invalid_descriptor =
+      g_track_render_model_scope_invalid_descriptor.load(
+          std::memory_order_relaxed);
+  const uint64_t contract_mismatches =
+      g_track_render_model_scope_contract_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t joined =
+      g_track_render_model_scope_joined.load(std::memory_order_relaxed);
+  const uint64_t unjoined =
+      g_track_render_model_scope_unjoined.load(std::memory_order_relaxed);
+  const uint64_t overlaps =
+      g_track_render_model_scope_overlaps.load(std::memory_order_relaxed);
+  const uint64_t exit_without_entry =
+      g_track_render_model_scope_exit_without_entry.load(
+          std::memory_order_relaxed);
+  const bool accounting_complete =
+      entries == exact + invalid_root + invalid_child + invalid_descriptor +
+                     contract_mismatches &&
+      exact == joined + unjoined && entries == exits && !overlaps &&
+      !exit_without_entry;
+  const bool qualification_complete =
+      accounting_complete && exact && joined &&
+      g_track_render_model_submission_joins.load(std::memory_order_relaxed) &&
+      !invalid_root && !invalid_child && !invalid_descriptor &&
+      !contract_mismatches;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_summary",
+      {{"status", !entries ? "not_observed"
+                            : (qualification_complete ? "complete"
+                                                      : "incomplete")},
+       {"scope_entries", std::to_string(entries)},
+       {"scope_exits", std::to_string(exits)},
+       {"exact_scopes", std::to_string(exact)},
+       {"invalid_root", std::to_string(invalid_root)},
+       {"invalid_child", std::to_string(invalid_child)},
+       {"invalid_descriptor", std::to_string(invalid_descriptor)},
+       {"contract_mismatches", std::to_string(contract_mismatches)},
+       {"joined_scopes", std::to_string(joined)},
+       {"unjoined_scopes", std::to_string(unjoined)},
+       {"submission_joins",
+        std::to_string(g_track_render_model_submission_joins.load(
+            std::memory_order_relaxed))},
+       {"shared_identity_joins",
+        std::to_string(g_track_render_model_shared_identity_joins.load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor",
+        std::to_string(g_track_render_model_shared_identity_relations[0].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_bound_resource",
+        std::to_string(g_track_render_model_shared_identity_relations[1].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_provider",
+        std::to_string(g_track_render_model_shared_identity_relations[2].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[3].load(
+            std::memory_order_relaxed))},
+       {"shared_root_receiver",
+        std::to_string(g_track_render_model_shared_identity_relations[4].load(
+            std::memory_order_relaxed))},
+       {"shared_child_receiver",
+        std::to_string(g_track_render_model_shared_identity_relations[5].load(
+            std::memory_order_relaxed))},
+       {"shared_root_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[6].load(
+            std::memory_order_relaxed))},
+       {"shared_child_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[7].load(
+            std::memory_order_relaxed))},
+       {"scope_overlaps", std::to_string(overlaps)},
+       {"exit_without_entry", std::to_string(exit_without_entry)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"qualification_complete",
+        qualification_complete ? "true" : "false"},
+       {"classification",
+        "exact_unified_track_render_model_nested_submission_join"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
@@ -10767,6 +11042,7 @@ void EmitCommandBufferLineageSummary() {
   EmitSemanticVisibilityWorkset();
   EmitProceduralModelSemanticInstances();
   EmitProceduralModelSemanticSubmissions();
+  EmitTrackRenderModelRuntimeJoinSummary();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -13668,6 +13944,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.title_lod_valid),
         uint64_t(identity.title_lod_index),
         uint64_t(identity.track_texture_provider),
+        uint64_t(identity.track_render_model_scope),
+        uint64_t(identity.track_render_shared_identity_mask),
         uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
@@ -13704,6 +13982,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .mechanically_eligible = !mechanical_rejection_mask,
           .title_lod_valid = identity.title_lod_valid,
           .track_texture_provider = identity.track_texture_provider,
+          .track_render_model_scope = identity.track_render_model_scope,
+          .track_render_shared_identity_mask =
+              identity.track_render_shared_identity_mask,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -13727,7 +14008,10 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.visibility_result_mask == identity.visibility_result_mask &&
         entry.title_lod_index == identity.title_lod_index &&
         entry.title_lod_valid == identity.title_lod_valid &&
-        entry.track_texture_provider == identity.track_texture_provider) {
+        entry.track_texture_provider == identity.track_texture_provider &&
+        entry.track_render_model_scope == identity.track_render_model_scope &&
+        entry.track_render_shared_identity_mask ==
+            identity.track_render_shared_identity_mask) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -15228,6 +15512,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t title_lod_entries = 0;
   uint64_t track_texture_provider_draws = 0;
   uint64_t track_texture_provider_entries = 0;
+  uint64_t track_render_model_scope_draws = 0;
+  uint64_t track_render_model_scope_entries = 0;
+  uint64_t track_render_shared_identity_draws = 0;
+  uint64_t track_render_shared_identity_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -15249,6 +15537,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.track_texture_provider) {
       track_texture_provider_draws += entry.draws;
       ++track_texture_provider_entries;
+    }
+    if (entry.track_render_model_scope) {
+      track_render_model_scope_draws += entry.draws;
+      ++track_render_model_scope_entries;
+    }
+    if (entry.track_render_shared_identity_mask) {
+      track_render_shared_identity_draws += entry.draws;
+      ++track_render_shared_identity_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -15284,6 +15580,12 @@ void EmitSemanticVisibilityPreparedCandidates() {
           entry.track_texture_provider ? "true" : "false"},
          {"track_texture_provider_lineage",
           "exact_primary_provider_vtable_and_four_methods"},
+         {"track_render_model_scope",
+          entry.track_render_model_scope ? "true" : "false"},
+         {"track_render_shared_identity_mask",
+          fmt::format("{:08X}", entry.track_render_shared_identity_mask)},
+         {"track_render_model_lineage",
+          "exact_unified_instance_model_nested_dispatch_scope"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -15323,7 +15625,12 @@ void EmitSemanticVisibilityPreparedCandidates() {
           entry_count &&
       title_lod_draws <= entry_draws && title_lod_entries <= entry_count &&
       track_texture_provider_draws <= entry_draws &&
-      track_texture_provider_entries <= entry_count;
+      track_texture_provider_entries <= entry_count &&
+      track_render_model_scope_draws <= entry_draws &&
+      track_render_model_scope_entries <= entry_count &&
+      track_render_shared_identity_draws <= track_render_model_scope_draws &&
+      track_render_shared_identity_entries <=
+          track_render_model_scope_entries;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -15361,6 +15668,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(track_texture_provider_entries)},
        {"track_texture_provider_draws",
         std::to_string(track_texture_provider_draws)},
+       {"track_render_model_scope_entries",
+        std::to_string(track_render_model_scope_entries)},
+       {"track_render_model_scope_draws",
+        std::to_string(track_render_model_scope_draws)},
+       {"track_render_shared_identity_entries",
+        std::to_string(track_render_shared_identity_entries)},
+       {"track_render_shared_identity_draws",
+        std::to_string(track_render_shared_identity_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -15374,6 +15689,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
        {"track_texture_provider_lineage",
         "exact_primary_provider_vtable_and_four_methods"},
+       {"track_render_model_lineage",
+        "exact_unified_instance_model_nested_dispatch_scope"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -20136,6 +20453,28 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_draw", "preserved"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"entry_hook", "8240EC80"},
+       {"exit_hook", "8240ECAC"},
+       {"nested_dispatch", "82436468"},
+       {"instance_vtable", "820019CC"},
+       {"model_vtable", "82001D74"},
+       {"instance_to_model", "root_plus_4"},
+       {"model_to_descriptor", "child_plus_48_then_plus_128"},
+       {"descriptor_type", "21"},
+       {"descriptor_flag", "1"},
+       {"join", "synchronous_scope_to_procedural_model_submission"},
+       {"shared_identity",
+        "descriptor_payload_or_object_address_exact_equality"},
+       {"guest_payload_read", "bounded_308_bytes_per_scope"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -21343,6 +21682,14 @@ void PinyonShiftObserveVehicleMatrixCallerEntry(PPCRegister &r6,
 void PinyonShiftObserveVehicleTypedRenderItem(PPCRegister &r11,
                                               PPCRegister &r31) {
   ObserveVehicleTypedRenderItem(r31.u32, r11.u32);
+}
+
+void PinyonShiftObserveTrackRenderModelDispatchEntry(PPCRegister &r31) {
+  BeginTrackRenderModelDispatch(r31.u32);
+}
+
+void PinyonShiftObserveTrackRenderModelDispatchExit() {
+  EndTrackRenderModelDispatch();
 }
 
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,

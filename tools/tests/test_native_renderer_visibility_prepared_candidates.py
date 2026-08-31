@@ -89,6 +89,11 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_texture_provider_lineage": (
                 "exact_primary_provider_vtable_and_four_methods"
             ),
+            "track_render_model_scope": "true",
+            "track_render_shared_identity_mask": "00000002",
+            "track_render_model_lineage": (
+                "exact_unified_instance_model_nested_dispatch_scope"
+            ),
             "draws": "7",
             "first_frame": "10",
             "last_frame": "12",
@@ -122,6 +127,10 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "title_lod_draws": "7",
             "track_texture_provider_entries": "1",
             "track_texture_provider_draws": "7",
+            "track_render_model_scope_entries": "1",
+            "track_render_model_scope_draws": "7",
+            "track_render_shared_identity_entries": "1",
+            "track_render_shared_identity_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -132,6 +141,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
             "track_texture_provider_lineage": (
                 "exact_primary_provider_vtable_and_four_methods"
+            ),
+            "track_render_model_lineage": (
+                "exact_unified_instance_model_nested_dispatch_scope"
             ),
             **self.safety(),
         }
@@ -159,6 +171,14 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             document["qualification"][
                 "track_texture_provider_lineage_proved"
             ]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "track_render_model_scope_lineage_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"]["track_render_shared_identity_proved"]
         )
 
     def test_build_accepts_candidate_without_title_lod(self):
@@ -207,6 +227,24 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             document["qualification"][
                 "track_texture_provider_lineage_proved"
             ]
+        )
+
+    def test_build_accepts_track_scope_without_shared_identity(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["track_render_shared_identity_mask"] = "00000000"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["track_render_shared_identity_entries"] = "0"
+        summary["track_render_shared_identity_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertTrue(
+            document["qualification"][
+                "track_render_model_scope_lineage_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"]["track_render_shared_identity_proved"]
         )
 
     def test_build_rejects_eligibility_mask_drift(self):

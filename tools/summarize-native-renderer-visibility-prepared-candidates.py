@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v5"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v6"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -180,6 +180,8 @@ def build(events, static, requested_session=None):
         != "exact_visibility_identity_to_prepared_draw"
         or summary.get("track_texture_provider_lineage")
         != "exact_primary_provider_vtable_and_four_methods"
+        or summary.get("track_render_model_lineage")
+        != "exact_unified_instance_model_nested_dispatch_scope"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -202,6 +204,10 @@ def build(events, static, requested_session=None):
         "title_lod_draws",
         "track_texture_provider_entries",
         "track_texture_provider_draws",
+        "track_render_model_scope_entries",
+        "track_render_model_scope_draws",
+        "track_render_shared_identity_entries",
+        "track_render_shared_identity_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -255,6 +261,12 @@ def build(events, static, requested_session=None):
         }
         rejection_mask = int(hexadecimal(event, "mechanical_rejection_mask", 8), 16)
         item["mechanical_rejection_mask"] = rejection_mask
+        item["track_render_model_scope"] = (
+            event.get("track_render_model_scope") == "true"
+        )
+        item["track_render_shared_identity_mask"] = int(
+            hexadecimal(event, "track_render_shared_identity_mask", 8), 16
+        )
         item["mechanical_rejections"] = [
             name
             for bit, name in MECHANICAL_REJECTIONS.items()
@@ -280,6 +292,13 @@ def build(events, static, requested_session=None):
             or event.get("track_texture_provider") not in ("true", "false")
             or event.get("track_texture_provider_lineage")
             != "exact_primary_provider_vtable_and_four_methods"
+            or event.get("track_render_model_scope") not in ("true", "false")
+            or event.get("track_render_model_lineage")
+            != "exact_unified_instance_model_nested_dispatch_scope"
+            or (
+                item["track_render_shared_identity_mask"]
+                and not item["track_render_model_scope"]
+            )
             or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
             or integer(event, "policy_age_limit_frames")
             != totals["policy_age_limit_frames"]
@@ -351,6 +370,27 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in track_provider_entries)
     ):
         failures.append("track texture provider candidate totals drifted")
+    track_model_entries = [
+        entry for entry in entries if entry["track_render_model_scope"]
+    ]
+    if (
+        totals["track_render_model_scope_entries"] != len(track_model_entries)
+        or totals["track_render_model_scope_draws"]
+        != sum(entry["draws"] for entry in track_model_entries)
+    ):
+        failures.append("track render-model scope candidate totals drifted")
+    shared_identity_entries = [
+        entry
+        for entry in entries
+        if entry["track_render_shared_identity_mask"]
+    ]
+    if (
+        totals["track_render_shared_identity_entries"]
+        != len(shared_identity_entries)
+        or totals["track_render_shared_identity_draws"]
+        != sum(entry["draws"] for entry in shared_identity_entries)
+    ):
+        failures.append("track render shared-identity totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -376,6 +416,12 @@ def build(events, static, requested_session=None):
             "title_lod_lineage_proved": not failures and bool(lod_entries),
             "track_texture_provider_lineage_proved": (
                 not failures and bool(track_provider_entries)
+            ),
+            "track_render_model_scope_lineage_proved": (
+                not failures and bool(track_model_entries)
+            ),
+            "track_render_shared_identity_proved": (
+                not failures and bool(shared_identity_entries)
             ),
             "native_draw_enabled": False,
             "suppression_allowed": False,

@@ -311,6 +311,13 @@ vehicle identity bridge. Continue at the explicit `8240E7B0` matrix composition
 that writes the 64-byte payload passed to `82435E78`; do not widen heuristic
 object scans. Native vehicle drawing and suppression remain closed.
 
+Phase C1 follow-up RTTI work reclassifies this one dynamic profile more
+precisely: `820019CC` is the unified track render-model instance and `82001D74`
+is the unified track render model. That strengthens the original rejection as
+a vehicle identity bridge and makes the same exact-lifetime edge useful for the
+terrain/road ownership investigation. It does not retroactively establish a
+vehicle or terrain draw by itself.
+
 ## Object/reference composed matrix
 
 Static instruction flow now closes the next transform boundary inside
