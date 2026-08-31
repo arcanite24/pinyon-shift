@@ -494,6 +494,13 @@ batch, native culling, or native LOD policy is enabled. Runtime qualification is
 batched with the pending representative C1/C2 AppData session; Xenos remains
 authoritative and suppression stays disabled.
 
+Batch-planning checkpoint: the exact world-family mask is also part of the
+order-preserving semantic opportunity key. Generic, exact-track, and
+exact-static draws therefore cannot extend one another's runs solely because
+their GPU resources match. The report exposes family-local multi-draw evidence
+without admitting an executor; runtime qualification remains in the same
+deferred C1/C2 session.
+
 ### C4. Player and traffic vehicles
 
 - Resume vehicle work from the documented rejected paths rather than repeating
