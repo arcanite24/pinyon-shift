@@ -638,6 +638,18 @@ frame-wide retention mechanism. The result remains an isolated unlit
 diagnostic; exact player identity, transforms, material completeness, hybrid
 publication, traffic coverage, and per-item fallback remain open C4 work.
 
+Transform-identity implementation checkpoint: every exact correlated color
+draw now compares its already-bounded vertex constants with title-owned vehicle
+positions and both forward signs no more than one frame old. Per-family
+accounting distinguishes unique, ambiguous, and missing matches and requires a
+stable constant register and identity across every observation. The offline
+gate recognizes a complete shared vehicle-transform candidate only when all 30
+families consistently name the same generation, owner, and slot. No constant
+payload is exported, and the result cannot label the instance as the player,
+publish native output, or suppress Xenos. Runtime evidence is batched with the
+next C4 AppData session; the contract is documented in
+[`VEHICLE_COLOR_CONSTANT_IDENTITY.md`](VEHICLE_COLOR_CONSTANT_IDENTITY.md).
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

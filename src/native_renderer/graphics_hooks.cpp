@@ -141,6 +141,7 @@ constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
 constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
 constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
+constexpr uint64_t kVehicleColorConstantMaximumIdentityAgeFrames = 1;
 constexpr uint64_t kVehicleShadowColorPrivateReplayLimit = 300;
 constexpr uint32_t kVehicleShadowColorRetainedFamilyCount = 30;
 constexpr uint64_t kVehicleShadowColorRetainedPassLimit = 120;
@@ -629,6 +630,22 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t private_capture_eligible_draws = 0;
   uint64_t private_capture_rejected_draws = 0;
   uint64_t private_capture_rejection_mask_switches = 0;
+  uint64_t constant_identity_scans = 0;
+  uint64_t constant_identity_missing_fresh_pose = 0;
+  uint64_t constant_position_unique_matches = 0;
+  uint64_t constant_position_ambiguous_matches = 0;
+  uint64_t constant_position_misses = 0;
+  uint64_t constant_position_identity_variations = 0;
+  uint64_t constant_position_register_variations = 0;
+  uint64_t constant_forward_unique_matches = 0;
+  uint64_t constant_forward_ambiguous_matches = 0;
+  uint64_t constant_forward_misses = 0;
+  uint64_t constant_forward_identity_variations = 0;
+  uint64_t constant_forward_register_variations = 0;
+  double closest_position_delta_squared =
+      std::numeric_limits<double>::infinity();
+  double closest_forward_delta_squared =
+      std::numeric_limits<double>::infinity();
   uint32_t seed_index = 0;
   uint32_t first_rejection_mask = 0;
   uint32_t last_rejection_mask = 0;
@@ -638,7 +655,18 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint32_t last_private_capture_rejection_mask = 0;
   uint32_t private_capture_rejection_mask_or = 0;
   uint32_t private_capture_rejection_mask_and = 0;
+  uint32_t constant_position_identity_generation = 0;
+  uint32_t constant_position_identity_owner = 0;
+  uint32_t constant_position_identity_slot = 0;
+  uint32_t constant_position_register = 0;
+  uint32_t constant_forward_identity_generation = 0;
+  uint32_t constant_forward_identity_owner = 0;
+  uint32_t constant_forward_identity_slot = 0;
+  uint32_t constant_forward_register = 0;
+  int32_t constant_forward_sign = 0;
   bool full_geometry_match = false;
+  bool constant_position_identity_valid = false;
+  bool constant_forward_identity_valid = false;
   bool occupied = false;
 };
 
@@ -1464,6 +1492,9 @@ uint64_t g_vehicle_shadow_geometry_full_matches = 0;
 uint64_t g_vehicle_shadow_geometry_partial_matches = 0;
 uint64_t g_vehicle_shadow_geometry_correlation_count = 0;
 uint64_t g_vehicle_shadow_geometry_correlation_overflow = 0;
+uint64_t g_vehicle_color_constant_vectors_scanned = 0;
+uint64_t g_vehicle_color_constant_non_finite_vectors = 0;
+uint64_t g_vehicle_color_constant_identity_comparisons = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
@@ -15162,6 +15193,180 @@ bool VehicleShadowGeometrySharesVertexResource(
   return false;
 }
 
+void ObserveVehicleColorConstantIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry) {
+  struct PoseCandidate {
+    uint64_t last_frame = 0;
+    uint32_t generation = 0;
+    uint32_t owner = 0;
+    uint32_t slot = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float forward_x = 0.0f;
+    float forward_y = 0.0f;
+    float forward_z = 0.0f;
+  };
+  struct Match {
+    double delta_squared = std::numeric_limits<double>::infinity();
+    uint32_t generation = 0;
+    uint32_t owner = 0;
+    uint32_t slot = 0;
+    uint32_t constant_register = 0;
+    int32_t forward_sign = 0;
+  };
+
+  std::array<PoseCandidate, kVehicleIdentityCapacity> poses{};
+  size_t pose_count = 0;
+  {
+    std::scoped_lock lock(g_vehicle_identity_mutex);
+    for (const VehicleIdentityEntry &identity : g_vehicle_identities) {
+      if (!identity.valid || observation.frame_sequence < identity.last_frame ||
+          observation.frame_sequence - identity.last_frame >
+              kVehicleColorConstantMaximumIdentityAgeFrames) {
+        continue;
+      }
+      poses[pose_count++] = {
+          .last_frame = identity.last_frame,
+          .generation = identity.generation,
+          .owner = identity.owner,
+          .slot = identity.slot,
+          .x = identity.last_x,
+          .y = identity.last_y,
+          .z = identity.last_z,
+          .forward_x = identity.last_forward_x,
+          .forward_y = identity.last_forward_y,
+          .forward_z = identity.last_forward_z,
+      };
+    }
+  }
+
+  ++entry.constant_identity_scans;
+  if (!pose_count) {
+    ++entry.constant_identity_missing_fresh_pose;
+    ++entry.constant_position_misses;
+    ++entry.constant_forward_misses;
+    return;
+  }
+
+  Match best_position{};
+  Match best_forward{};
+  uint64_t tight_position_matches = 0;
+  uint64_t tight_forward_matches = 0;
+  const uint32_t constant_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t constant_offset = 0; constant_offset < constant_count;
+       ++constant_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[constant_offset];
+    const float x = std::bit_cast<float>(constant.values[0]);
+    const float y = std::bit_cast<float>(constant.values[1]);
+    const float z = std::bit_cast<float>(constant.values[2]);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+      ++g_vehicle_color_constant_non_finite_vectors;
+      continue;
+    }
+    ++g_vehicle_color_constant_vectors_scanned;
+    for (const PoseCandidate &pose : std::span(poses.data(), pose_count)) {
+      const double position_dx = double(x) - pose.x;
+      const double position_dy = double(y) - pose.y;
+      const double position_dz = double(z) - pose.z;
+      const double position_delta_squared =
+          position_dx * position_dx + position_dy * position_dy +
+          position_dz * position_dz;
+      ++g_vehicle_color_constant_identity_comparisons;
+      if (position_delta_squared < best_position.delta_squared) {
+        best_position = {
+            .delta_squared = position_delta_squared,
+            .generation = pose.generation,
+            .owner = pose.owner,
+            .slot = pose.slot,
+            .constant_register = constant.index,
+        };
+      }
+      tight_position_matches +=
+          position_delta_squared <=
+          kVehicleMatrixPositionDeltaSquaredThreshold;
+
+      for (int32_t sign : {1, -1}) {
+        const double forward_dx = double(x) - sign * pose.forward_x;
+        const double forward_dy = double(y) - sign * pose.forward_y;
+        const double forward_dz = double(z) - sign * pose.forward_z;
+        const double forward_delta_squared =
+            forward_dx * forward_dx + forward_dy * forward_dy +
+            forward_dz * forward_dz;
+        ++g_vehicle_color_constant_identity_comparisons;
+        if (forward_delta_squared < best_forward.delta_squared) {
+          best_forward = {
+              .delta_squared = forward_delta_squared,
+              .generation = pose.generation,
+              .owner = pose.owner,
+              .slot = pose.slot,
+              .constant_register = constant.index,
+              .forward_sign = sign,
+          };
+        }
+        tight_forward_matches +=
+            forward_delta_squared <=
+            kVehicleMatrixForwardDeltaSquaredThreshold;
+      }
+    }
+  }
+
+  entry.closest_position_delta_squared = std::min(
+      entry.closest_position_delta_squared, best_position.delta_squared);
+  entry.closest_forward_delta_squared = std::min(
+      entry.closest_forward_delta_squared, best_forward.delta_squared);
+  if (tight_position_matches == 1) {
+    ++entry.constant_position_unique_matches;
+    if (entry.constant_position_identity_valid) {
+      entry.constant_position_identity_variations +=
+          entry.constant_position_identity_generation !=
+              best_position.generation ||
+          entry.constant_position_identity_owner != best_position.owner ||
+          entry.constant_position_identity_slot != best_position.slot;
+      entry.constant_position_register_variations +=
+          entry.constant_position_register !=
+          best_position.constant_register;
+    }
+    entry.constant_position_identity_generation = best_position.generation;
+    entry.constant_position_identity_owner = best_position.owner;
+    entry.constant_position_identity_slot = best_position.slot;
+    entry.constant_position_register = best_position.constant_register;
+    entry.constant_position_identity_valid = true;
+  } else if (tight_position_matches) {
+    ++entry.constant_position_ambiguous_matches;
+  } else {
+    ++entry.constant_position_misses;
+  }
+
+  if (tight_forward_matches == 1) {
+    ++entry.constant_forward_unique_matches;
+    if (entry.constant_forward_identity_valid) {
+      entry.constant_forward_identity_variations +=
+          entry.constant_forward_identity_generation !=
+              best_forward.generation ||
+          entry.constant_forward_identity_owner != best_forward.owner ||
+          entry.constant_forward_identity_slot != best_forward.slot;
+      entry.constant_forward_register_variations +=
+          entry.constant_forward_register != best_forward.constant_register ||
+          entry.constant_forward_sign != best_forward.forward_sign;
+    }
+    entry.constant_forward_identity_generation = best_forward.generation;
+    entry.constant_forward_identity_owner = best_forward.owner;
+    entry.constant_forward_identity_slot = best_forward.slot;
+    entry.constant_forward_register = best_forward.constant_register;
+    entry.constant_forward_sign = best_forward.forward_sign;
+    entry.constant_forward_identity_valid = true;
+  } else if (tight_forward_matches) {
+    ++entry.constant_forward_ambiguous_matches;
+  } else {
+    ++entry.constant_forward_misses;
+  }
+}
+
 bool ObserveVehicleShadowGeometryColorCorrelation(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
@@ -15280,6 +15485,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       }
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
+      ObserveVehicleColorConstantIdentity(observation, entry);
       if (matched_correlation_index) {
         *matched_correlation_index = correlation_index;
       }
@@ -15324,6 +15530,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       .full_geometry_match = full_geometry_match,
       .occupied = true,
   };
+  ObserveVehicleColorConstantIdentity(observation, *available);
   if (matched_correlation_index) {
     *matched_correlation_index = available_index;
   }
@@ -26018,11 +26225,32 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   }
   if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
     FinalizeVehicleShadowColorRun();
+    uint64_t constant_identity_scans = 0;
+    uint64_t constant_identity_missing_fresh_pose = 0;
+    uint64_t constant_position_unique_matches = 0;
+    uint64_t constant_position_ambiguous_matches = 0;
+    uint64_t constant_position_misses = 0;
+    uint64_t constant_forward_unique_matches = 0;
+    uint64_t constant_forward_ambiguous_matches = 0;
+    uint64_t constant_forward_misses = 0;
     for (const VehicleShadowGeometryCorrelationEntry &entry :
          g_vehicle_shadow_geometry_correlations) {
       if (!entry.occupied) {
         continue;
       }
+      constant_identity_scans += entry.constant_identity_scans;
+      constant_identity_missing_fresh_pose +=
+          entry.constant_identity_missing_fresh_pose;
+      constant_position_unique_matches +=
+          entry.constant_position_unique_matches;
+      constant_position_ambiguous_matches +=
+          entry.constant_position_ambiguous_matches;
+      constant_position_misses += entry.constant_position_misses;
+      constant_forward_unique_matches +=
+          entry.constant_forward_unique_matches;
+      constant_forward_ambiguous_matches +=
+          entry.constant_forward_ambiguous_matches;
+      constant_forward_misses += entry.constant_forward_misses;
       diagnostics::RecordEvent(
           "native_renderer.discovery.vehicle_shadow_geometry_candidate",
           {{"prepared_signature",
@@ -26089,6 +26317,88 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                 entry.private_capture_rejection_mask_switches)},
            {"private_capture_admission_contract",
             "vehicle_color_private_replay_v1"},
+           {"constant_identity_scans",
+            std::to_string(entry.constant_identity_scans)},
+           {"constant_identity_missing_fresh_pose",
+            std::to_string(entry.constant_identity_missing_fresh_pose)},
+           {"constant_position_unique_matches",
+            std::to_string(entry.constant_position_unique_matches)},
+           {"constant_position_ambiguous_matches",
+            std::to_string(entry.constant_position_ambiguous_matches)},
+           {"constant_position_misses",
+            std::to_string(entry.constant_position_misses)},
+           {"constant_position_identity_variations",
+            std::to_string(entry.constant_position_identity_variations)},
+           {"constant_position_register_variations",
+            std::to_string(entry.constant_position_register_variations)},
+           {"constant_position_identity_generation",
+            entry.constant_position_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_position_identity_generation)
+                : "unknown"},
+           {"constant_position_identity_owner",
+            entry.constant_position_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_position_identity_owner)
+                : "unknown"},
+           {"constant_position_identity_slot",
+            entry.constant_position_identity_valid
+                ? std::to_string(entry.constant_position_identity_slot)
+                : "unknown"},
+           {"constant_position_register",
+            entry.constant_position_identity_valid
+                ? std::to_string(entry.constant_position_register)
+                : "unknown"},
+           {"closest_position_delta_squared",
+            std::isfinite(entry.closest_position_delta_squared)
+                ? fmt::format("{:.9g}",
+                              entry.closest_position_delta_squared)
+                : "unknown"},
+           {"constant_forward_unique_matches",
+            std::to_string(entry.constant_forward_unique_matches)},
+           {"constant_forward_ambiguous_matches",
+            std::to_string(entry.constant_forward_ambiguous_matches)},
+           {"constant_forward_misses",
+            std::to_string(entry.constant_forward_misses)},
+           {"constant_forward_identity_variations",
+            std::to_string(entry.constant_forward_identity_variations)},
+           {"constant_forward_register_variations",
+            std::to_string(entry.constant_forward_register_variations)},
+           {"constant_forward_identity_generation",
+            entry.constant_forward_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_forward_identity_generation)
+                : "unknown"},
+           {"constant_forward_identity_owner",
+            entry.constant_forward_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_forward_identity_owner)
+                : "unknown"},
+           {"constant_forward_identity_slot",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_identity_slot)
+                : "unknown"},
+           {"constant_forward_register",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_register)
+                : "unknown"},
+           {"constant_forward_sign",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_sign)
+                : "unknown"},
+           {"closest_forward_delta_squared",
+            std::isfinite(entry.closest_forward_delta_squared)
+                ? fmt::format("{:.9g}",
+                              entry.closest_forward_delta_squared)
+                : "unknown"},
+           {"constant_identity_classification",
+            entry.constant_position_unique_matches == entry.draws &&
+                    !entry.constant_position_ambiguous_matches &&
+                    !entry.constant_position_misses &&
+                    !entry.constant_position_identity_variations &&
+                    !entry.constant_position_register_variations
+                ? "stable_tight_position_candidate"
+                : "unresolved"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
            {"xenos_authority", "true"},
@@ -26207,6 +26517,43 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                   g_vehicle_shadow_geometry_color_draws_matched
               ? "true"
               : "false"},
+         {"constant_identity_scans", std::to_string(constant_identity_scans)},
+         {"constant_identity_missing_fresh_pose",
+          std::to_string(constant_identity_missing_fresh_pose)},
+         {"constant_vectors_scanned",
+          std::to_string(g_vehicle_color_constant_vectors_scanned)},
+         {"constant_non_finite_vectors",
+          std::to_string(g_vehicle_color_constant_non_finite_vectors)},
+         {"constant_identity_comparisons",
+          std::to_string(g_vehicle_color_constant_identity_comparisons)},
+         {"constant_position_unique_matches",
+          std::to_string(constant_position_unique_matches)},
+         {"constant_position_ambiguous_matches",
+          std::to_string(constant_position_ambiguous_matches)},
+         {"constant_position_misses",
+          std::to_string(constant_position_misses)},
+         {"constant_position_accounting_complete",
+          constant_position_unique_matches +
+                      constant_position_ambiguous_matches +
+                      constant_position_misses ==
+                  constant_identity_scans
+              ? "true"
+              : "false"},
+         {"constant_forward_unique_matches",
+          std::to_string(constant_forward_unique_matches)},
+         {"constant_forward_ambiguous_matches",
+          std::to_string(constant_forward_ambiguous_matches)},
+         {"constant_forward_misses",
+          std::to_string(constant_forward_misses)},
+         {"constant_forward_accounting_complete",
+          constant_forward_unique_matches +
+                      constant_forward_ambiguous_matches +
+                      constant_forward_misses ==
+                  constant_identity_scans
+              ? "true"
+              : "false"},
+         {"constant_identity_maximum_pose_age_frames",
+          std::to_string(kVehicleColorConstantMaximumIdentityAgeFrames)},
          {"seed_accounting_complete",
           seed_accounting_complete ? "true" : "false"},
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
