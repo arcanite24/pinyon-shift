@@ -1,7 +1,7 @@
 # Static-world asset-reference metadata
 
 Status: bounded resource-key and effect/texture reference paths proved;
-runtime hashed-category census pending
+passive hashed runtime lineage implemented; qualification pending
 
 ## Purpose
 
@@ -40,7 +40,12 @@ python tools/discover-native-renderer-static-world-asset-metadata.py `
 
 ## Runtime boundary
 
-The next runtime census may read only these proved, bounded string records. It
-must emit hashes and structural categories, never plaintext asset names or
-payload bytes. Xenos remains authoritative; this checkpoint enables no native
-admission or suppression.
+The passive runtime observer reads only these proved fields. It emits the
+FNV-1a hash and length of the presentation key plus effect/texture counts,
+then carries them through the renderer, physical PM4 packet, and prepared-draw
+lineage. Plaintext names are never emitted. Exact, empty, faulted, joined, and
+missing-join outcomes are independently accounted and the qualifier fails
+closed on any joined draw without valid metadata.
+
+The combined C1/C2 AppData run remains intentionally batched. Xenos remains
+authoritative; this checkpoint enables no native admission or suppression.

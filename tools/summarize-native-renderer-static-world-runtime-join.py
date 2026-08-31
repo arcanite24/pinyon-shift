@@ -9,13 +9,16 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v6"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v7"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
 STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
 GRAPH_SCHEMA = "pinyon-shift.native-renderer-static-world-graph.v1"
 OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v1"
+ASSET_METADATA_SCHEMA = (
+    "pinyon-shift.native-renderer-static-world-asset-metadata.v1"
+)
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -424,6 +427,82 @@ def validate_static_owner(document):
         raise ValueError("static-world owner claims drifted")
 
 
+def validate_static_asset_metadata(document):
+    if (
+        document.get("schema") != ASSET_METADATA_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "bounded_simple_model_asset_reference_metadata"
+    ):
+        raise ValueError("static-world asset metadata proof drifted")
+    try:
+        resource_key = document["resource_key"]
+        effects = document["effect_references"]
+        textures = document["texture_references"]
+        claims = document["claims"]
+        boundary = document["next_boundary"]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "static-world asset metadata proof is incomplete"
+        ) from error
+    expected_resource_key = {
+        "presentation_class": "Presentation_Unified::CModelPresentation",
+        "initialize_method": "82DEA298",
+        "stored_name_offset": 16,
+        "string_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+        "resource_reference_offset": 148,
+        "resource_bind": "82C48038",
+        "resource_type_argument": "00060000",
+        "address_equation": (
+            "resource_bind_key_equals_presentation_plus_16_string_bytes"
+        ),
+    }
+    expected_effects = {
+        "resource_class": "CSimpleModelResource",
+        "prepare_helper": "823F8980",
+        "records_pointer_offset": 124,
+        "record_count_offset": 128,
+        "record_count_width_bits": 16,
+        "record_stride": 28,
+        "record_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+        "suffix": ".fx",
+        "suffix_address": "8224332C",
+        "lookup": "82C39B78",
+        "lookup_type_argument": "00060000",
+    }
+    expected_textures = {
+        "resource_class": "CSimpleModelResource",
+        "records_vector_offset": 288,
+        "vector_begin_offset": 0,
+        "vector_end_offset": 4,
+        "record_stride": 28,
+        "record_layout": "msvc_string_28_bytes_inline_capacity_below_16",
+        "id_marker": "Id=",
+        "id_marker_address": "8201C108",
+        "path_format": "%s%stextures\\%s",
+        "path_format_address": "8224331C",
+        "lookup": "82C39730",
+    }
+    if resource_key != expected_resource_key:
+        raise ValueError("static-world resource key proof drifted")
+    if effects != expected_effects:
+        raise ValueError("static-world effect reference proof drifted")
+    if textures != expected_textures:
+        raise ValueError("static-world texture reference proof drifted")
+    if (
+        claims.get("presentation_name_to_resource_key_proved") is not True
+        or claims.get("bounded_effect_reference_table_proved") is not True
+        or claims.get("bounded_texture_reference_table_proved") is not True
+        or claims.get("effect_and_texture_path_construction_proved")
+        is not True
+        or claims.get("concrete_building_or_prop_category_proved") is not False
+        or boundary.get("runtime_export")
+        != "hash_and_structural_category_only"
+        or boundary.get("plaintext_asset_names_allowed") is not False
+    ):
+        raise ValueError("static-world asset metadata claims drifted")
+
+
 def build(
     static_ingress,
     static_lifetime,
@@ -431,6 +510,7 @@ def build(
     static_streaming,
     static_graph,
     static_owner,
+    static_asset_metadata,
     events,
     requested_session=None,
     allow_checkpoint=False,
@@ -441,6 +521,7 @@ def build(
     validate_static_streaming(static_streaming)
     validate_static_graph(static_graph)
     validate_static_owner(static_owner)
+    validate_static_asset_metadata(static_asset_metadata)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -496,10 +577,18 @@ def build(
         "presentation_resource_join": (
             "presentation_plus_148_equals_renderer_plus_72"
         ),
+        "asset_key_field": "presentation_plus_16_msvc_string",
+        "asset_key_export": "fnv1a64_hash_and_length_only",
+        "effect_reference_fields": "resource_plus_124_pointer_plus_128_u16",
+        "texture_reference_vector": "resource_plus_288_stride_28",
+        "asset_metadata_limits": "key_bytes_512_reference_count_4096",
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
-        "guest_payload_read": "bounded_host_mapped_identity_fields",
+        "guest_payload_read": (
+            "bounded_host_mapped_identity_and_asset_metadata_fields"
+        ),
+        "plaintext_asset_names_exported": "false",
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("static-world runtime configuration drifted")
@@ -625,6 +714,12 @@ def build(
         "presentation_renderer_joins",
         "presentation_renderer_mismatches",
         "presentation_resource_mismatches",
+        "asset_metadata_observations",
+        "asset_metadata_exact",
+        "asset_metadata_empty_keys",
+        "asset_metadata_read_faults",
+        "asset_metadata_joins",
+        "asset_metadata_missing_joins",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -795,10 +890,27 @@ def build(
         "presentation_renderer_joins"
     ]:
         failures.append("static-world presentation renderer join drifted")
+    if totals["asset_metadata_observations"] != totals["presentation_exact"]:
+        failures.append("static-world asset metadata observation drifted")
+    if totals["asset_metadata_observations"] != (
+        totals["asset_metadata_exact"]
+        + totals["asset_metadata_empty_keys"]
+        + totals["asset_metadata_read_faults"]
+    ):
+        failures.append("static-world asset metadata classification drifted")
+    if totals["presentation_renderer_joins"] != (
+        totals["asset_metadata_joins"]
+        + totals["asset_metadata_missing_joins"]
+    ):
+        failures.append("static-world asset metadata join drifted")
     if not totals["presentation_exact"]:
         failures.append("no exact CModelPresentation scope was observed")
     if not totals["presentation_renderer_joins"]:
         failures.append("no CModelPresentation joined its SimpleModel renderer")
+    if not totals["asset_metadata_exact"]:
+        failures.append("no bounded static-world asset metadata was observed")
+    if not totals["asset_metadata_joins"]:
+        failures.append("no asset-key hash joined a SimpleModel renderer")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
@@ -849,6 +961,8 @@ def build(
         "presentation_exit_without_entry",
         "presentation_renderer_mismatches",
         "presentation_resource_mismatches",
+        "asset_metadata_read_faults",
+        "asset_metadata_missing_joins",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -892,6 +1006,8 @@ def build(
             "model_presentation_owner_proved": not failures,
             "model_presentation_to_renderer_proved": not failures,
             "model_presentation_to_renderer_resource_proved": not failures,
+            "bounded_asset_reference_metadata_proved": not failures,
+            "hashed_asset_identity_to_prepared_draw_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
@@ -920,6 +1036,7 @@ def main(argv=None):
     parser.add_argument("--streaming", required=True, type=pathlib.Path)
     parser.add_argument("--graph", required=True, type=pathlib.Path)
     parser.add_argument("--owner", required=True, type=pathlib.Path)
+    parser.add_argument("--asset-metadata", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -932,6 +1049,7 @@ def main(argv=None):
             json.loads(args.streaming.read_text(encoding="utf-8")),
             json.loads(args.graph.read_text(encoding="utf-8")),
             json.loads(args.owner.read_text(encoding="utf-8")),
+            json.loads(args.asset_metadata.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,

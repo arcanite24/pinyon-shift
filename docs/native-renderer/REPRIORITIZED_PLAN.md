@@ -386,6 +386,14 @@ documented in
 payload-free hashed runtime category census remains required before assigning
 building-versus-prop semantics. No native admission or suppression is enabled.
 
+Hashed asset-lineage checkpoint: the passive presentation observer now reads
+only the proved bounded key and reference-count fields, exports no plaintext,
+and carries their stable hash/length and effect/texture counts through the
+renderer, PM4 packet, and prepared-draw provenance. Independent outcome and
+join accounting fails closed when a renderer-joined presentation lacks valid
+metadata. Runtime qualification remains batched with C1/C2; concrete
+building-versus-prop labels remain unproved.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
