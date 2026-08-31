@@ -596,6 +596,22 @@ unsupported state, per-frame quota yields, and limit yields. Long-session
 success is required before considering visible native publication of this
 submesh.
 
+Private stability result: the AppData qualification reached the complete
+300-request bound with 300 recorded replays, zero target failures, zero
+unsupported states, and no per-frame quota misses. A further 168 matching
+frames were correctly declined after the limit. The session observed 14,070
+exact correlations, exited normally, and logged no error or crash. The exact
+submesh is therefore stable in private animated replay, but native admission
+remains closed because player identity and complete vehicle coverage are not
+yet proven.
+
+Full-vehicle topology checkpoint: matched color draws are now grouped into
+exact consecutive prepared-draw runs. The census records run count, matched
+draw accounting, multi-draw runs, maximum length, runs covering the complete
+bounded family table, and the ordered signature hash of those full-family
+runs. It remains measurement-only. A stable full-family sequence is the gate
+for assembling the 30 proven submeshes into one retained private vehicle pass.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

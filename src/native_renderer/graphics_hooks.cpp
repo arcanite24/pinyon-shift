@@ -640,6 +640,14 @@ struct VehicleShadowGeometryCorrelationEntry {
   bool occupied = false;
 };
 
+struct VehicleShadowColorRun {
+  uint64_t frame = 0;
+  uint64_t last_draw = 0;
+  uint64_t length = 0;
+  uint64_t sequence_hash = 0;
+  bool valid = false;
+};
+
 enum class SemanticBatchRejection : uint32_t {
   kNone = 0,
   kMissingTitleResource = 1,
@@ -1459,6 +1467,14 @@ uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
 uint64_t g_vehicle_shadow_color_private_capture_eligible_draws = 0;
 uint64_t g_vehicle_shadow_color_private_capture_rejected_draws = 0;
+VehicleShadowColorRun g_vehicle_shadow_color_run{};
+uint64_t g_vehicle_shadow_color_runs = 0;
+uint64_t g_vehicle_shadow_color_run_draws = 0;
+uint64_t g_vehicle_shadow_color_multi_draw_runs = 0;
+uint64_t g_vehicle_shadow_color_maximum_run_length = 0;
+uint64_t g_vehicle_shadow_color_full_family_runs = 0;
+uint64_t g_vehicle_shadow_color_first_full_family_sequence_hash = 0;
+uint64_t g_vehicle_shadow_color_full_family_sequence_variants = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -15268,6 +15284,61 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   return true;
 }
 
+void FinalizeVehicleShadowColorRun() {
+  if (!g_vehicle_shadow_color_run.valid) {
+    return;
+  }
+  ++g_vehicle_shadow_color_runs;
+  g_vehicle_shadow_color_run_draws +=
+      g_vehicle_shadow_color_run.length;
+  g_vehicle_shadow_color_maximum_run_length =
+      std::max(g_vehicle_shadow_color_maximum_run_length,
+               g_vehicle_shadow_color_run.length);
+  if (g_vehicle_shadow_color_run.length > 1) {
+    ++g_vehicle_shadow_color_multi_draw_runs;
+  }
+  if (g_vehicle_shadow_geometry_correlation_count &&
+      g_vehicle_shadow_color_run.length ==
+          g_vehicle_shadow_geometry_correlation_count) {
+    ++g_vehicle_shadow_color_full_family_runs;
+    if (!g_vehicle_shadow_color_first_full_family_sequence_hash) {
+      g_vehicle_shadow_color_first_full_family_sequence_hash =
+          g_vehicle_shadow_color_run.sequence_hash;
+    } else if (g_vehicle_shadow_color_first_full_family_sequence_hash !=
+               g_vehicle_shadow_color_run.sequence_hash) {
+      ++g_vehicle_shadow_color_full_family_sequence_variants;
+    }
+  }
+  g_vehicle_shadow_color_run = {};
+}
+
+void ObserveVehicleShadowColorRun(bool matched, uint64_t frame,
+                                  uint64_t draw,
+                                  uint64_t prepared_signature) {
+  if (!matched) {
+    FinalizeVehicleShadowColorRun();
+    return;
+  }
+  if (g_vehicle_shadow_color_run.valid &&
+      g_vehicle_shadow_color_run.frame == frame &&
+      draw == g_vehicle_shadow_color_run.last_draw + 1) {
+    ++g_vehicle_shadow_color_run.length;
+    g_vehicle_shadow_color_run.last_draw = draw;
+    g_vehicle_shadow_color_run.sequence_hash = HashCombine(
+        g_vehicle_shadow_color_run.sequence_hash, prepared_signature);
+    return;
+  }
+  FinalizeVehicleShadowColorRun();
+  g_vehicle_shadow_color_run = {
+      .frame = frame,
+      .last_draw = draw,
+      .length = 1,
+      .sequence_hash =
+          HashCombine(UINT64_C(0xCBF29CE484222325), prepared_signature),
+      .valid = true,
+  };
+}
+
 void RecordStaticWorldPreparedLayout(
     const rex::system::GraphicsDrawObservation &observation,
     const StaticWorldDrawIdentity &identity,
@@ -20045,6 +20116,10 @@ void ObservePreparedDraw(
         prepared_signature, prepared_semantic_contract,
         vehicle_shadow_color_rejection_mask,
         vehicle_shadow_color_private_capture_rejection_mask);
+    ObserveVehicleShadowColorRun(vehicle_shadow_geometry_color_match,
+                                 sample.frame_sequence,
+                                 sample.draw_sequence,
+                                 prepared_signature);
     if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
         vehicle_shadow_geometry_color_match &&
         !vehicle_shadow_color_private_capture_rejection_mask) {
@@ -25626,6 +25701,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"suppression_eligible", "false"}});
   }
   if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    FinalizeVehicleShadowColorRun();
     for (const VehicleShadowGeometryCorrelationEntry &entry :
          g_vehicle_shadow_geometry_correlations) {
       if (!entry.occupied) {
@@ -25795,6 +25871,26 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
               : "false"},
          {"private_capture_admission_contract",
           "vehicle_color_private_replay_v1"},
+         {"color_runs", std::to_string(g_vehicle_shadow_color_runs)},
+         {"color_run_draws",
+          std::to_string(g_vehicle_shadow_color_run_draws)},
+         {"multi_draw_color_runs",
+          std::to_string(g_vehicle_shadow_color_multi_draw_runs)},
+         {"maximum_color_run_length",
+          std::to_string(g_vehicle_shadow_color_maximum_run_length)},
+         {"full_family_color_runs",
+          std::to_string(g_vehicle_shadow_color_full_family_runs)},
+         {"first_full_family_sequence_hash",
+          fmt::format("{:016X}",
+                      g_vehicle_shadow_color_first_full_family_sequence_hash)},
+         {"full_family_sequence_variants",
+          std::to_string(
+              g_vehicle_shadow_color_full_family_sequence_variants)},
+         {"color_run_accounting_complete",
+          g_vehicle_shadow_color_run_draws ==
+                  g_vehicle_shadow_geometry_color_draws_matched
+              ? "true"
+              : "false"},
          {"seed_accounting_complete",
           seed_accounting_complete ? "true" : "false"},
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
