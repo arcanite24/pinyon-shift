@@ -779,6 +779,23 @@ struct VehicleShaderConstantSourceEntry {
   bool occupied = false;
 };
 
+struct VehicleSemanticConstantBridgeEntry {
+  std::array<rex::system::GraphicsFloatConstantObservation,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      constants{};
+  uint64_t publications = 0;
+  uint64_t register_layout_hash = 0;
+  uint64_t value_hash = 0;
+  uint64_t register_layout_variations = 0;
+  uint64_t value_variations = 0;
+  uint64_t frame_sequence = 0;
+  uint64_t draw_sequence = 0;
+  uint32_t constant_count = 0;
+  uint32_t exact_packet_lineage_vectors = 0;
+  uint32_t unresolved_packet_lineage_vectors = 0;
+  bool occupied = false;
+};
+
 struct VehicleShadowColorRun {
   uint64_t frame = 0;
   uint64_t last_draw = 0;
@@ -1620,6 +1637,19 @@ std::array<VehicleShaderConstantComponentWrite,
 std::array<VehicleShaderConstantSourceEntry,
            kVehicleShaderConstantSourceCapacity>
     g_vehicle_shader_constant_sources{};
+std::array<VehicleSemanticConstantBridgeEntry,
+           kVehicleShadowGeometryCorrelationCapacity>
+    g_vehicle_semantic_constant_bridges{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_exact_vectors{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_missing_vectors{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_mismatched_vectors{};
+std::array<uint32_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_first_mismatch_mask{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_mismatch_mask_variations{};
 std::mutex g_vehicle_shader_constant_mutex;
 uint64_t g_vehicle_shader_constant_write_observations = 0;
 uint64_t g_vehicle_vertex_shader_constant_write_observations = 0;
@@ -1628,6 +1658,10 @@ uint64_t g_vehicle_shader_constant_write_invalid_register = 0;
 uint64_t g_vehicle_shader_constant_write_sequence = 0;
 uint64_t g_vehicle_shader_constant_source_count = 0;
 uint64_t g_vehicle_shader_constant_source_overflow = 0;
+uint64_t g_vehicle_shader_constant_invalid_observed_vectors = 0;
+uint64_t g_vehicle_semantic_constant_bridge_publications = 0;
+uint64_t g_vehicle_semantic_constant_bridge_rejections = 0;
+uint64_t g_vehicle_semantic_constant_bridge_complete_lineage_publications = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
@@ -15633,37 +15667,48 @@ void ObserveVehicleColorShaderConstantWrites(
     if (component_base + 4 >
         g_vehicle_shader_constant_components.size()) {
       ++entry.shader_constant_write_missing_vectors;
+      ++g_vehicle_shader_constant_invalid_observed_vectors;
       continue;
     }
     const VehicleShaderConstantComponentWrite *components =
         g_vehicle_shader_constant_components.data() + component_base;
-    bool missing = false;
-    bool mismatch = false;
-    bool coherent = true;
-    uint64_t maximum_age_frames = 0;
+    bool observer_provenance_valid = true;
+    bool observer_provenance_split = false;
     for (uint32_t component = 0; component < 4; ++component) {
-      missing |= !components[component].occupied;
-      mismatch |= components[component].occupied &&
-                  components[component].value != constant.values[component];
-      coherent &= component == 0 ||
-                  SameVehicleShaderConstantSource(components[0],
-                                                  components[component]);
-      if (components[component].occupied &&
-          observation.frame_sequence >= components[component].frame) {
-        maximum_age_frames = std::max(
-            maximum_age_frames,
-            observation.frame_sequence - components[component].frame);
-      }
+      observer_provenance_valid &= components[component].occupied;
+      observer_provenance_split |=
+          component != 0 &&
+          !SameVehicleShaderConstantSource(components[0],
+                                           components[component]);
     }
+    const bool missing = !constant.write_provenance_valid ||
+                         !observer_provenance_valid;
+    const bool mismatch = constant.write_value_mismatch_mask != 0;
+    const bool coherent = !constant.write_provenance_split &&
+                          !observer_provenance_split;
+    const uint64_t maximum_age_frames =
+        constant.write_maximum_age_frames;
     if (missing) {
       ++entry.shader_constant_write_missing_vectors;
+      ++g_vehicle_shader_constant_register_missing_vectors[constant.index];
       continue;
     }
     if (mismatch) {
       ++entry.shader_constant_write_mismatched_vectors;
+      ++g_vehicle_shader_constant_register_mismatched_vectors[constant.index];
+      uint32_t &first_mismatch_mask =
+          g_vehicle_shader_constant_register_first_mismatch_mask[constant.index];
+      if (!first_mismatch_mask) {
+        first_mismatch_mask = constant.write_value_mismatch_mask;
+      } else if (first_mismatch_mask !=
+                 constant.write_value_mismatch_mask) {
+        ++g_vehicle_shader_constant_register_mismatch_mask_variations
+              [constant.index];
+      }
       continue;
     }
     ++entry.shader_constant_write_exact_vectors;
+    ++g_vehicle_shader_constant_register_exact_vectors[constant.index];
     entry.shader_constant_write_maximum_age_frames =
         std::max(entry.shader_constant_write_maximum_age_frames,
                  maximum_age_frames);
@@ -15675,6 +15720,61 @@ void ObserveVehicleColorShaderConstantWrites(
     RecordVehicleShaderConstantSource(correlation_index, observation,
                                       components[0], maximum_age_frames);
   }
+}
+
+void PublishVehicleSemanticConstantBridge(
+    const rex::system::GraphicsDrawObservation &observation,
+    size_t correlation_index) {
+  if (correlation_index >= g_vehicle_semantic_constant_bridges.size() ||
+      observation.vertex_float_constant_overflow ||
+      !observation.vertex_float_constant_count ||
+      observation.vertex_float_constant_count >
+          rex::system::kGraphicsFloatConstantObservationLimit) {
+    ++g_vehicle_semantic_constant_bridge_rejections;
+    return;
+  }
+
+  const uint32_t constant_count = observation.vertex_float_constant_count;
+  uint64_t register_layout_hash = 0xCBF29CE484222325ull;
+  uint64_t value_hash = 0xCBF29CE484222325ull;
+  uint32_t exact_packet_lineage_vectors = 0;
+  for (uint32_t i = 0; i < constant_count; ++i) {
+    const auto &constant = observation.vertex_float_constants[i];
+    register_layout_hash = HashCombine(register_layout_hash, constant.index);
+    value_hash = HashCombine(value_hash, constant.index);
+    for (uint32_t value : constant.values) {
+      value_hash = HashCombine(value_hash, value);
+    }
+    exact_packet_lineage_vectors +=
+        constant.write_provenance_valid &&
+                !constant.write_provenance_split &&
+                !constant.write_value_mismatch_mask
+            ? 1u
+            : 0u;
+  }
+
+  VehicleSemanticConstantBridgeEntry &bridge =
+      g_vehicle_semantic_constant_bridges[correlation_index];
+  if (bridge.occupied) {
+    bridge.register_layout_variations +=
+        bridge.register_layout_hash != register_layout_hash;
+    bridge.value_variations += bridge.value_hash != value_hash;
+  }
+  std::copy_n(observation.vertex_float_constants, constant_count,
+              bridge.constants.begin());
+  bridge.publications += 1;
+  bridge.register_layout_hash = register_layout_hash;
+  bridge.value_hash = value_hash;
+  bridge.frame_sequence = observation.frame_sequence;
+  bridge.draw_sequence = observation.draw_sequence;
+  bridge.constant_count = constant_count;
+  bridge.exact_packet_lineage_vectors = exact_packet_lineage_vectors;
+  bridge.unresolved_packet_lineage_vectors =
+      constant_count - exact_packet_lineage_vectors;
+  bridge.occupied = true;
+  ++g_vehicle_semantic_constant_bridge_publications;
+  g_vehicle_semantic_constant_bridge_complete_lineage_publications +=
+      exact_packet_lineage_vectors == constant_count ? 1u : 0u;
 }
 
 VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
@@ -16105,6 +16205,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       ObserveVehicleColorTypedConstantUpload(observation, entry);
       ObserveVehicleColorShaderConstantWrites(observation, entry,
                                               correlation_index);
+      PublishVehicleSemanticConstantBridge(observation, correlation_index);
       if (matched_correlation_index) {
         *matched_correlation_index = correlation_index;
       }
@@ -16160,6 +16261,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
   ObserveVehicleColorTypedConstantUpload(observation, *available);
   ObserveVehicleColorShaderConstantWrites(observation, *available,
                                           available_index);
+  PublishVehicleSemanticConstantBridge(observation, available_index);
   if (matched_correlation_index) {
     *matched_correlation_index = available_index;
   }
@@ -24461,6 +24563,14 @@ void ConfigureVehicleDiscovery(bool census_requested,
     std::fill(g_vehicle_shader_constant_sources.begin(),
               g_vehicle_shader_constant_sources.end(),
               VehicleShaderConstantSourceEntry{});
+    std::fill(g_vehicle_semantic_constant_bridges.begin(),
+              g_vehicle_semantic_constant_bridges.end(),
+              VehicleSemanticConstantBridgeEntry{});
+    g_vehicle_shader_constant_register_exact_vectors.fill(0);
+    g_vehicle_shader_constant_register_missing_vectors.fill(0);
+    g_vehicle_shader_constant_register_mismatched_vectors.fill(0);
+    g_vehicle_shader_constant_register_first_mismatch_mask.fill(0);
+    g_vehicle_shader_constant_register_mismatch_mask_variations.fill(0);
     g_vehicle_shader_constant_write_observations = 0;
     g_vehicle_vertex_shader_constant_write_observations = 0;
     g_vehicle_pixel_shader_constant_write_observations = 0;
@@ -24468,6 +24578,10 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_shader_constant_write_sequence = 0;
     g_vehicle_shader_constant_source_count = 0;
     g_vehicle_shader_constant_source_overflow = 0;
+    g_vehicle_shader_constant_invalid_observed_vectors = 0;
+    g_vehicle_semantic_constant_bridge_publications = 0;
+    g_vehicle_semantic_constant_bridge_rejections = 0;
+    g_vehicle_semantic_constant_bridge_complete_lineage_publications = 0;
   }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
@@ -26983,6 +27097,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       uint64_t shader_constant_source_count_for_family = 0;
       const size_t correlation_index = size_t(
           &entry - g_vehicle_shadow_geometry_correlations.data());
+      const VehicleSemanticConstantBridgeEntry &constant_bridge =
+          g_vehicle_semantic_constant_bridges[correlation_index];
       for (const VehicleShaderConstantSourceEntry &source :
            g_vehicle_shader_constant_sources) {
         shader_constant_source_count_for_family +=
@@ -27257,8 +27373,79 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                     !entry.shader_constant_write_mismatched_vectors &&
                     !entry.shader_constant_write_split_vectors &&
                     shader_constant_source_count_for_family
-                ? "complete_exact_packet_lineage"
-                : "unresolved"},
+                 ? "complete_exact_packet_lineage"
+                 : "unresolved"},
+           {"semantic_constant_bridge_publications",
+            std::to_string(constant_bridge.publications)},
+           {"semantic_constant_bridge_constant_count",
+            std::to_string(constant_bridge.constant_count)},
+           {"semantic_constant_bridge_exact_packet_lineage_vectors",
+            std::to_string(
+                constant_bridge.exact_packet_lineage_vectors)},
+           {"semantic_constant_bridge_unresolved_packet_lineage_vectors",
+            std::to_string(
+                constant_bridge.unresolved_packet_lineage_vectors)},
+           {"semantic_constant_bridge_register_layout_hash",
+            fmt::format("{:016X}",
+                        constant_bridge.register_layout_hash)},
+           {"semantic_constant_bridge_register_layout_variations",
+            std::to_string(
+                constant_bridge.register_layout_variations)},
+           {"semantic_constant_bridge_value_variations",
+            std::to_string(constant_bridge.value_variations)},
+           {"semantic_constant_bridge_classification",
+            constant_bridge.occupied &&
+                    constant_bridge.publications == entry.draws &&
+                    !constant_bridge.register_layout_variations &&
+                    !constant_bridge.unresolved_packet_lineage_vectors
+                ? "complete_private_draw_atomic_snapshot"
+                : constant_bridge.occupied &&
+                          constant_bridge.publications == entry.draws &&
+                          !constant_bridge.register_layout_variations
+                      ? "private_draw_atomic_snapshot_with_unresolved_lineage"
+                      : "unresolved"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    uint64_t shader_constant_register_count = 0;
+    for (size_t register_index = 0;
+         register_index <
+         g_vehicle_shader_constant_register_exact_vectors.size();
+         ++register_index) {
+      const uint64_t exact_vectors =
+          g_vehicle_shader_constant_register_exact_vectors[register_index];
+      const uint64_t missing_vectors =
+          g_vehicle_shader_constant_register_missing_vectors[register_index];
+      const uint64_t mismatched_vectors =
+          g_vehicle_shader_constant_register_mismatched_vectors[register_index];
+      const uint64_t observed_vectors =
+          exact_vectors + missing_vectors + mismatched_vectors;
+      if (!observed_vectors) {
+        continue;
+      }
+      ++shader_constant_register_count;
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shader_constant_register",
+          {{"register_index", std::to_string(register_index)},
+           {"observed_vectors", std::to_string(observed_vectors)},
+           {"exact_vectors", std::to_string(exact_vectors)},
+           {"missing_vectors", std::to_string(missing_vectors)},
+           {"mismatched_vectors", std::to_string(mismatched_vectors)},
+           {"first_mismatch_component_mask",
+            fmt::format("{:X}",
+                        g_vehicle_shader_constant_register_first_mismatch_mask
+                            [register_index])},
+           {"mismatch_component_mask_variations",
+            std::to_string(
+                g_vehicle_shader_constant_register_mismatch_mask_variations
+                    [register_index])},
+           {"classification",
+            mismatched_vectors
+                ? "current_register_value_mismatch"
+                : missing_vectors ? "current_register_value_missing"
+                                  : "exact_current_register_value"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
            {"xenos_authority", "true"},
@@ -27579,8 +27766,21 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
           std::to_string(g_vehicle_shader_constant_source_overflow)},
          {"shader_constant_source_capacity",
           std::to_string(kVehicleShaderConstantSourceCapacity)},
+         {"shader_constant_registers_observed",
+          std::to_string(shader_constant_register_count)},
+         {"shader_constant_invalid_observed_vectors",
+          std::to_string(g_vehicle_shader_constant_invalid_observed_vectors)},
          {"shader_constant_write_contract",
-          "exact_current_vertex_register_components_and_packet_lineage"},
+           "draw_atomic_current_vertex_register_components_and_packet_lineage"},
+          {"semantic_constant_bridge_publications",
+           std::to_string(g_vehicle_semantic_constant_bridge_publications)},
+          {"semantic_constant_bridge_rejections",
+           std::to_string(g_vehicle_semantic_constant_bridge_rejections)},
+          {"semantic_constant_bridge_complete_lineage_publications",
+           std::to_string(
+               g_vehicle_semantic_constant_bridge_complete_lineage_publications)},
+          {"semantic_constant_bridge_contract",
+           "private_draw_atomic_vertex_constant_snapshot"},
          {"material_topology_groups",
           std::to_string(material_topology_group_count)},
          {"material_topology_group_accounting_complete",

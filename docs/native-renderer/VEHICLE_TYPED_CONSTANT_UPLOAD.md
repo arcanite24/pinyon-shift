@@ -131,6 +131,42 @@ the same producer shapes recur across all families. This proves the final
 register-write boundary and narrows the next slice to identifying the single
 per-draw mismatch before publishing a semantic constant bridge.
 
+## Draw-atomic provenance and semantic bridge
+
+ReXGlue patch `0105-graphics-draw-constant-write-provenance.patch` retains the
+last final-write state beside the command processor's live shader registers.
+At draw preparation, each observed float vector now carries only compact
+validation metadata: provenance validity, split-source state, maximum age, and
+a four-bit current-value mismatch mask. The native observer continues to use
+the bounded external packet table for source aggregation, but no longer relies
+on a cross-module timing assumption to decide whether the prepared value is
+the final value for that draw.
+
+Every exact vehicle-family match also publishes its full shader-used vertex
+constant observation into a private in-memory bridge slot. The slot is indexed
+by the already-bounded 30-family correlation table and retains the current
+draw's register layout, values, frame/draw sequence, and provenance counts.
+Only hashes and counts leave the process. The bridge is not a native draw,
+does not publish a render target, cannot suppress Xenos, and is rejected on
+missing or overflowing prepared observations.
+
+The AppData-backed `20260831T203519Z-p39592` qualification exited normally
+after 484 exact epochs and 14,505 correlated draws across all 30 families. It
+observed 232,080 vectors: 217,575 were exact with zero-frame age, zero were
+missing or split, and 14,505 were mismatched. Register-level evidence proves
+that registers 0, 1, 2, 3, 37-42, 58, 116, 126, 127, and 255 are exact on
+every draw. Register 254 alone mismatches on every draw; its component mask is
+always `F`, with zero mask variations. This is a genuine special-register
+update outside the ordinary final-write route, not an observer race.
+
+The private bridge accepted all 14,505 draws with zero rejections. Every
+family kept the same 16-register layout hash with zero layout variations and
+carried 15 exact packet-lineage vectors plus one explicitly unresolved vector.
+The values varied with animation on essentially every frame, as expected. This
+qualifies a working draw-atomic semantic constant snapshot for the retained
+vehicle harness while keeping register 254 unresolved and excluding it from
+any future packet-proven transform claim.
+
 ## Safety boundary
 
 - The hook is active only with the restart-gated vehicle correlation mode.

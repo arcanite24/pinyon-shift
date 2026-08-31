@@ -148,6 +148,26 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "shader_constant_write_maximum_age_frames": "1",
                 "shader_constant_source_count": "1",
                 "shader_constant_write_classification": "complete_exact_packet_lineage",
+                "semantic_constant_bridge_publications": "3",
+                "semantic_constant_bridge_constant_count": "3",
+                "semantic_constant_bridge_exact_packet_lineage_vectors": "3",
+                "semantic_constant_bridge_unresolved_packet_lineage_vectors": "0",
+                "semantic_constant_bridge_register_layout_hash": "2" * 16,
+                "semantic_constant_bridge_register_layout_variations": "0",
+                "semantic_constant_bridge_value_variations": "2",
+                "semantic_constant_bridge_classification": "complete_private_draw_atomic_snapshot",
+                **safety,
+            },
+            {
+                "event": MODULE.SHADER_CONSTANT_REGISTER_EVENT,
+                "register_index": "120",
+                "observed_vectors": "9",
+                "exact_vectors": "9",
+                "missing_vectors": "0",
+                "mismatched_vectors": "0",
+                "first_mismatch_component_mask": "0",
+                "mismatch_component_mask_variations": "0",
+                "classification": "exact_current_register_value",
                 **safety,
             },
             {
@@ -332,7 +352,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "shader_constant_sources": "1",
                 "shader_constant_source_overflow": "0",
                 "shader_constant_source_capacity": "4096",
-                "shader_constant_write_contract": "exact_current_vertex_register_components_and_packet_lineage",
+                "shader_constant_registers_observed": "1",
+                "shader_constant_invalid_observed_vectors": "0",
+                "shader_constant_write_contract": "draw_atomic_current_vertex_register_components_and_packet_lineage",
+                "semantic_constant_bridge_publications": "3",
+                "semantic_constant_bridge_rejections": "0",
+                "semantic_constant_bridge_complete_lineage_publications": "3",
+                "semantic_constant_bridge_contract": "private_draw_atomic_vertex_constant_snapshot",
                 "material_topology_groups": "1",
                 "material_topology_group_accounting_complete": "true",
                 "material_topology_contract": "shader_specialization_render_state_texture_layout",
@@ -442,6 +468,14 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertEqual(
             1, report["shader_constant_register_writes"]["source_count"]
         )
+        self.assertEqual(
+            120,
+            int(
+                report["shader_constant_register_writes"]["registers"][0][
+                    "register_index"
+                ]
+            ),
+        )
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -529,19 +563,19 @@ class VehicleShadowGeometryTests(unittest.TestCase):
 
     def test_rejects_private_capture_authority_drift(self):
         events = self.fixture()
-        events[6]["output_authority"] = "native"
+        events[7]["output_authority"] = "native"
         with self.assertRaisesRegex(ValueError, "output authority"):
             self.summarize(events)
 
     def test_rejects_private_replay_accounting_drift(self):
         events = self.fixture()
-        events[7]["private_replay_recorded"] = "2"
+        events[8]["private_replay_recorded"] = "2"
         with self.assertRaisesRegex(ValueError, "private replay outcome drift"):
             self.summarize(events)
 
     def test_rejects_retained_frame_accounting_drift(self):
         events = self.fixture()
-        events[10]["frames_completed"] = "1"
+        events[11]["frames_completed"] = "1"
         with self.assertRaisesRegex(ValueError, "retained frame outcome drift"):
             self.summarize(events)
 
@@ -562,6 +596,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         write_patch = (
             ROOT
             / "patches/rexglue/0104-graphics-shader-constant-write-observer.patch"
+        ).read_text(encoding="utf-8")
+        provenance_patch = (
+            ROOT
+            / "patches/rexglue/0105-graphics-draw-constant-write-provenance.patch"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION",
@@ -613,6 +651,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertIn("GraphicsShaderConstantWriteObservation", write_patch)
         self.assertIn("shader_constant_write_observer", write_patch)
         self.assertIn("observation_packet_ = packet", write_patch)
+        self.assertIn("ShaderConstantWriteState", provenance_patch)
+        self.assertIn("write_provenance_valid", provenance_patch)
+        self.assertIn("write_value_mismatch_mask", provenance_patch)
+        self.assertIn("PublishVehicleSemanticConstantBridge", source)
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
         self.assertIn("[switch]$RetainVehicleShadowColorPass", capture)
