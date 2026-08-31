@@ -28,6 +28,7 @@ param(
     [switch]$RequireTitleLodCandidate,
     [switch]$VisibilityShadowReplay,
     [switch]$ContinuousWorldWorkset,
+    [switch]$ContinuousStaticWorld,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
     [ValidateSet(
@@ -139,6 +140,9 @@ if ($ContinuousWorldWorkset -and
         $PassAnchorSignature -or $PublishRetainedPass)) {
     throw 'ContinuousWorldWorkset is mutually exclusive with isolated/pass replay options.'
 }
+if ($ContinuousStaticWorld -and -not $ContinuousWorldWorkset) {
+    throw 'ContinuousStaticWorld requires ContinuousWorldWorkset.'
+}
 if ($PublishRetainedPass -and
     (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
     throw 'PublishRetainedPass requires IsolatedDrawSignature and PassAnchorSignature.'
@@ -238,6 +242,8 @@ $savedVisibilityShadowReplay =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY
 $savedContinuousWorldWorkset =
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET
+$savedContinuousStaticWorld =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD
 $savedShadowCasterProvenance =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE
 $savedTrackRenderMode = $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE
@@ -288,6 +294,8 @@ try {
         if ($VisibilityShadowReplay) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
         if ($ContinuousWorldWorkset) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD =
+        if ($ContinuousStaticWorld) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         if ($ShadowCasterProvenance) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $TrackRenderMode
@@ -333,6 +341,8 @@ finally {
         $savedVisibilityShadowReplay
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
         $savedContinuousWorldWorkset
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD =
+        $savedContinuousStaticWorld
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         $savedShadowCasterProvenance
     $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $savedTrackRenderMode

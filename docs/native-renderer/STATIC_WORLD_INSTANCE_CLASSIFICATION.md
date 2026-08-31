@@ -69,3 +69,17 @@ multiple catalog entries remain possible.
 Until that run passes, `building_or_prop_instance_identity_proved` remains
 false. Even a successful category report does not independently enable native
 admission, publication, or suppression; Xenos stays authoritative.
+
+## Default-off native-output probe
+
+The continuous private world workset can now optionally accept an exact
+static-world prepared draw when presentation, resource, hashed asset key,
+transform, model/submodel/mesh, and bounded prepared-layout lineage are all
+present. It uses the existing one-frame, 64-draw, swap-committed retained
+target and preserves the complete Xenos path. Missing lineage is separately
+accounted and rejected.
+
+This probe is armed only by combining `-ContinuousWorldWorkset` and
+`-ContinuousStaticWorld`; it is not enabled by the normal prototype selector.
+Its runtime and visual qualification is intentionally batched with the new
+transform/category capture.

@@ -439,6 +439,15 @@ process lifecycle, and a complete static-world runtime summary. The qualifier
 is ready for the deferred combined AppData run; it cannot self-qualify from
 static fixtures and still enables no native admission or suppression.
 
+Native-output implementation checkpoint: the existing one-frame,
+swap-committed continuous world target now has an independent default-off
+static-world selection. It admits only mechanically replayable draws carrying
+the exact presentation/resource, hashed asset, transform, member-mesh, and
+bounded prepared-layout lineage, with separate request and rejection
+accounting. It neither embeds the local catalog nor changes the normal
+prototype selector, Xenos execution, publication authority, or suppression.
+Runtime and visual proof is batched with the pending C1/C2 AppData run.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

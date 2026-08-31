@@ -7,11 +7,12 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v3"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v4"
 SELECTION = (
     "fresh_track_texture_provider_visibility_or_qualified_"
-    "sky_horizon_and_mechanical"
+    "sky_horizon_or_optional_exact_static_world_and_mechanical"
 )
+STATIC_WORLD_SELECTION = "exact_presentation_resource_mesh_transform_lineage"
 CONFIG = "native_renderer.continuous_world_workset.config"
 SUMMARY = "native_renderer.continuous_world_workset.summary"
 OUTPUT_FRAME = "native_renderer.output.frame"
@@ -85,6 +86,7 @@ def build(events, requested_session=None):
         "target_lifetime": "one_guest_frame",
         "freshness_commit": "matching_swap_after_complete_accumulation",
         "semantic_lineage": "armed",
+        "static_world_selection": config.get("static_world_selection"),
         "readback": "disabled",
         "native_draw": "continuous_world_workset",
         "xenos_draw": "preserved",
@@ -94,6 +96,14 @@ def build(events, requested_session=None):
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("workset runtime configuration drifted")
+    static_world_requested = (
+        config.get("static_world_selection") == STATIC_WORLD_SELECTION
+    )
+    if config.get("static_world_selection") not in (
+        "disabled",
+        STATIC_WORLD_SELECTION,
+    ):
+        raise ValueError("workset static-world configuration drifted")
     require_safety(summary)
     if (
         summary.get("accounting_complete") != "true"
@@ -102,6 +112,8 @@ def build(events, requested_session=None):
         != "matching_swap_after_complete_accumulation"
         or summary.get("maximum_draws_per_frame") != "64"
         or summary.get("selection") != SELECTION
+        or summary.get("static_world_selection")
+        != config.get("static_world_selection")
     ):
         raise ValueError("workset summary is incomplete")
 
@@ -114,6 +126,8 @@ def build(events, requested_session=None):
         "mechanical_rejections",
         "stale_or_unselected_rejections",
         "non_track_provider_rejections",
+        "static_world_lineage_rejections",
+        "static_world_requests",
         "per_frame_quota_yields",
         "fail_closed_yields",
         "qualified_retained_family_requests",
@@ -136,6 +150,7 @@ def build(events, requested_session=None):
         + totals["mechanical_rejections"]
         + totals["stale_or_unselected_rejections"]
         + totals["non_track_provider_rejections"]
+        + totals["static_world_lineage_rejections"]
         + totals["per_frame_quota_yields"]
         + totals["fail_closed_yields"]
     )
@@ -160,8 +175,19 @@ def build(events, requested_session=None):
         failures.append("failed frames do not reconcile with replay fallbacks")
     if not totals["qualified_retained_family_requests"]:
         failures.append("qualified retained-family seed was not observed")
-    if totals["requests"] <= totals["qualified_retained_family_requests"]:
+    track_provider_requests = (
+        totals["requests"]
+        - totals["qualified_retained_family_requests"]
+        - totals["static_world_requests"]
+    )
+    if track_provider_requests <= 0:
         failures.append("no track-provider visibility request was observed")
+    if static_world_requested and not totals["static_world_requests"]:
+        failures.append("no exact static-world request was observed")
+    if not static_world_requested and totals["static_world_requests"]:
+        failures.append("static-world request occurred while disabled")
+    if totals["static_world_lineage_rejections"]:
+        failures.append("static-world lineage rejection was observed")
     if not totals["reused_target_requests"]:
         failures.append("no frame accumulated multiple native draws")
     if totals["maximum_draws_per_frame"] != 64:
@@ -251,7 +277,21 @@ def build(events, requested_session=None):
                 "no track-provider visibility request was observed",
             )
         )
-        and totals["requests"] > totals["qualified_retained_family_requests"]
+        and track_provider_requests > 0
+    )
+    static_world_selection_proved = (
+        static_world_requested
+        and totals["static_world_requests"] > 0
+        and not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no exact static-world request was observed",
+                "static-world lineage rejection was observed",
+            )
+        )
     )
 
     return {
@@ -265,6 +305,7 @@ def build(events, requested_session=None):
             "swap_committed_freshness_proved": freshness_proved,
             "clean_xenos_fallback_proved": clean_fallback_proved,
             "track_provider_selection_proved": track_provider_selection_proved,
+            "static_world_selection_proved": static_world_selection_proved,
             "native_output_markers": len(exact_output_frames),
             "xenos_fallback_markers": len(output_waiting),
             "suppression_allowed": False,
