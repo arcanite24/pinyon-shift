@@ -403,6 +403,13 @@ resource branches are also locked. See
 vertex-fetch layouts and material parameter blocks remain open; no admission
 or suppression is enabled.
 
+Runtime-lineage checkpoint: those bounded mesh and material-selection fields
+are now sampled only after the exact live member-graph gates and carried through
+the physical PM4 origin into prepared-draw provenance. Separate fail-closed
+observation, read-fault, and packet-origin accounting is ready for the next
+combined C1/C2 AppData qualification. This exports numeric identity only and
+does not enable native admission or suppression.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

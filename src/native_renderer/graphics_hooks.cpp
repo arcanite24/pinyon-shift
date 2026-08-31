@@ -182,6 +182,13 @@ constexpr uint32_t kSimpleModelResourcePayloadOffset = 64;
 constexpr uint32_t kSimpleModelVtable = 0x82229208;
 constexpr uint32_t kSimpleSubModelVtable = 0x822291BC;
 constexpr uint32_t kSimpleMeshVtable = 0x822291A0;
+constexpr uint32_t kSimpleMeshPrimitiveTypeOffset = 36;
+constexpr uint32_t kSimpleMeshIndexBufferBindingOffset = 96;
+constexpr uint32_t kSimpleMeshSourceElementCountOffset = 100;
+constexpr uint32_t kSimpleMeshOptionalMaterialReferenceOffset = 128;
+constexpr uint32_t kSimpleSubModelStateObjectOffset = 32;
+constexpr uint32_t kSimpleSubModelStateSelectorOffset = 39;
+constexpr uint32_t kSimpleSubModelStateEnabledOffset = 112;
 constexpr uint32_t kSimpleModelResourceModelOffset = 112;
 constexpr uint32_t kSimpleModelResourceEffectRecordsOffset = 124;
 constexpr uint32_t kSimpleModelResourceEffectCountOffset = 128;
@@ -504,6 +511,14 @@ struct StaticWorldDrawIdentity {
   uint32_t asset_key_length = 0;
   uint32_t effect_reference_count = 0;
   uint32_t texture_reference_count = 0;
+  uint32_t mesh_primitive_type = 0;
+  uint32_t mesh_index_buffer_binding = 0;
+  uint32_t mesh_source_element_count = 0;
+  uint32_t submodel_state_object = 0;
+  uint32_t mesh_optional_material_reference = 0;
+  uint8_t submodel_state_selector = 0;
+  bool submodel_state_enabled = false;
+  bool mesh_semantics_valid = false;
   bool asset_metadata_valid = false;
   bool valid = false;
 };
@@ -1930,6 +1945,14 @@ struct StaticWorldRendererDispatchScope {
   uint32_t asset_key_length = 0;
   uint32_t effect_reference_count = 0;
   uint32_t texture_reference_count = 0;
+  uint32_t mesh_primitive_type = 0;
+  uint32_t mesh_index_buffer_binding = 0;
+  uint32_t mesh_source_element_count = 0;
+  uint32_t submodel_state_object = 0;
+  uint32_t mesh_optional_material_reference = 0;
+  uint8_t submodel_state_selector = 0;
+  bool submodel_state_enabled = false;
+  bool mesh_semantics_valid = false;
   bool asset_metadata_valid = false;
   bool member_active = false;
   bool member_exact = false;
@@ -2169,6 +2192,11 @@ std::atomic<uint64_t> g_static_world_member_draws_with_packets{};
 std::atomic<uint64_t> g_static_world_member_draws_without_packets{};
 std::atomic<uint64_t> g_static_world_member_packets_recorded{};
 std::atomic<uint64_t> g_static_world_member_packet_mismatches{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_observations{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_exact{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_read_faults{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_packet_origins{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_missing_packet_origins{};
 std::atomic<uint64_t> g_static_world_presentation_entries{};
 std::atomic<uint64_t> g_static_world_presentation_exits{};
 std::atomic<uint64_t> g_static_world_presentation_exact{};
@@ -2924,6 +2952,24 @@ bool LoadMappedGuestU16(rex::memory::Memory *memory, uint32_t address,
   }
   value = static_cast<uint16_t>(
       *memory->TranslateVirtual<rex::be_u16 *>(address));
+  return true;
+}
+
+bool LoadMappedGuestU8(rex::memory::Memory *memory, uint32_t address,
+                       uint8_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint8_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      !host_region_length ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = *memory->TranslateVirtual<uint8_t *>(address);
   return true;
 }
 
@@ -3859,6 +3905,14 @@ void BeginStaticWorldMemberDraw(uint32_t model_address,
   scope.simple_model_address = 0;
   scope.simple_submodel_address = 0;
   scope.simple_mesh_address = 0;
+  scope.mesh_primitive_type = 0;
+  scope.mesh_index_buffer_binding = 0;
+  scope.mesh_source_element_count = 0;
+  scope.submodel_state_object = 0;
+  scope.mesh_optional_material_reference = 0;
+  scope.submodel_state_selector = 0;
+  scope.submodel_state_enabled = false;
+  scope.mesh_semantics_valid = false;
   if (!scope.active || !scope.exact) {
     ++g_static_world_member_scope_missing;
     return;
@@ -3892,6 +3946,40 @@ void BeginStaticWorldMemberDraw(uint32_t model_address,
   scope.simple_mesh_address = mesh_address;
   scope.member_exact = true;
   ++g_static_world_member_exact;
+  ++g_static_world_mesh_semantic_observations;
+  uint8_t state_enabled = 0;
+  if (submodel_address >
+          UINT32_MAX - kSimpleSubModelStateEnabledOffset ||
+      mesh_address >
+          UINT32_MAX - kSimpleMeshOptionalMaterialReferenceOffset ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshPrimitiveTypeOffset,
+          scope.mesh_primitive_type) ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshIndexBufferBindingOffset,
+          scope.mesh_index_buffer_binding) ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshSourceElementCountOffset,
+          scope.mesh_source_element_count) ||
+      !LoadMappedGuestU32(
+          memory, submodel_address + kSimpleSubModelStateObjectOffset,
+          scope.submodel_state_object) ||
+      !LoadMappedGuestU8(
+          memory, submodel_address + kSimpleSubModelStateSelectorOffset,
+          scope.submodel_state_selector) ||
+      !LoadMappedGuestU8(
+          memory, submodel_address + kSimpleSubModelStateEnabledOffset,
+          state_enabled) ||
+      !LoadMappedGuestU32(
+          memory,
+          mesh_address + kSimpleMeshOptionalMaterialReferenceOffset,
+          scope.mesh_optional_material_reference)) {
+    ++g_static_world_mesh_semantic_read_faults;
+    return;
+  }
+  scope.submodel_state_enabled = state_enabled != 0;
+  scope.mesh_semantics_valid = true;
+  ++g_static_world_mesh_semantic_exact;
 }
 
 void EndStaticWorldMemberDraw() {
@@ -3913,6 +4001,14 @@ void EndStaticWorldMemberDraw() {
   scope.simple_model_address = 0;
   scope.simple_submodel_address = 0;
   scope.simple_mesh_address = 0;
+  scope.mesh_primitive_type = 0;
+  scope.mesh_index_buffer_binding = 0;
+  scope.mesh_source_element_count = 0;
+  scope.submodel_state_object = 0;
+  scope.mesh_optional_material_reference = 0;
+  scope.submodel_state_selector = 0;
+  scope.submodel_state_enabled = false;
+  scope.mesh_semantics_valid = false;
 }
 
 void EndStaticWorldRendererDispatch() {
@@ -5306,6 +5402,11 @@ void ResetTitleDrawProvenance() {
            &g_static_world_member_draws_without_packets,
            &g_static_world_member_packets_recorded,
            &g_static_world_member_packet_mismatches,
+           &g_static_world_mesh_semantic_observations,
+           &g_static_world_mesh_semantic_exact,
+           &g_static_world_mesh_semantic_read_faults,
+           &g_static_world_mesh_semantic_packet_origins,
+           &g_static_world_mesh_semantic_missing_packet_origins,
            &g_static_world_presentation_entries,
            &g_static_world_presentation_exits,
            &g_static_world_presentation_exact,
@@ -5751,6 +5852,10 @@ void RecordTitleDrawPacketOrigin(uint32_t packet_guest_address,
       ++g_static_world_renderer_scope.member_packet_origins;
       g_static_world_member_packets_recorded.fetch_add(
           1, std::memory_order_relaxed);
+      (origin.static_world_draw.mesh_semantics_valid
+           ? g_static_world_mesh_semantic_packet_origins
+           : g_static_world_mesh_semantic_missing_packet_origins)
+          .fetch_add(1, std::memory_order_relaxed);
     } else {
       g_static_world_member_packet_mismatches.fetch_add(
           1, std::memory_order_relaxed);
@@ -5835,6 +5940,15 @@ void RecordProceduralModelSemanticDrawPacket(
         .asset_key_length = scope.asset_key_length,
         .effect_reference_count = scope.effect_reference_count,
         .texture_reference_count = scope.texture_reference_count,
+        .mesh_primitive_type = scope.mesh_primitive_type,
+        .mesh_index_buffer_binding = scope.mesh_index_buffer_binding,
+        .mesh_source_element_count = scope.mesh_source_element_count,
+        .submodel_state_object = scope.submodel_state_object,
+        .mesh_optional_material_reference =
+            scope.mesh_optional_material_reference,
+        .submodel_state_selector = scope.submodel_state_selector,
+        .submodel_state_enabled = scope.submodel_state_enabled,
+        .mesh_semantics_valid = scope.mesh_semantics_valid,
         .asset_metadata_valid = scope.asset_metadata_valid,
         .valid = true,
     };
@@ -11307,6 +11421,20 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t member_packets_recorded =
       g_static_world_member_packets_recorded.load(
           std::memory_order_relaxed);
+  const uint64_t mesh_semantic_observations =
+      g_static_world_mesh_semantic_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_exact =
+      g_static_world_mesh_semantic_exact.load(std::memory_order_relaxed);
+  const uint64_t mesh_semantic_read_faults =
+      g_static_world_mesh_semantic_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_packet_origins =
+      g_static_world_mesh_semantic_packet_origins.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_missing_packet_origins =
+      g_static_world_mesh_semantic_missing_packet_origins.load(
+          std::memory_order_relaxed);
   const uint64_t presentation_entries =
       g_static_world_presentation_entries.load(std::memory_order_relaxed);
   const uint64_t presentation_exits =
@@ -11407,6 +11535,12 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       member_exact ==
           member_draws_with_packets + member_draws_without_packets &&
       member_packets_recorded == packets_recorded &&
+      mesh_semantic_observations == member_exact &&
+      mesh_semantic_observations ==
+          mesh_semantic_exact + mesh_semantic_read_faults &&
+      member_packets_recorded ==
+          mesh_semantic_packet_origins +
+              mesh_semantic_missing_packet_origins &&
       presentation_entries ==
           presentation_exact +
               g_static_world_presentation_invalid_root.load(
@@ -11480,6 +11614,9 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
           std::memory_order_relaxed) &&
       !g_static_world_member_packet_mismatches.load(
           std::memory_order_relaxed) &&
+      mesh_semantic_exact && mesh_semantic_packet_origins &&
+      !mesh_semantic_read_faults &&
+      !mesh_semantic_missing_packet_origins &&
       presentation_exact && presentation_renderer_joins &&
       asset_metadata_exact && asset_metadata_joins &&
       presentation_scopes_with_renderer &&
@@ -11680,6 +11817,15 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"member_packet_mismatches",
         std::to_string(g_static_world_member_packet_mismatches.load(
             std::memory_order_relaxed))},
+       {"mesh_semantic_observations",
+        std::to_string(mesh_semantic_observations)},
+       {"mesh_semantic_exact", std::to_string(mesh_semantic_exact)},
+       {"mesh_semantic_read_faults",
+        std::to_string(mesh_semantic_read_faults)},
+       {"mesh_semantic_packet_origins",
+        std::to_string(mesh_semantic_packet_origins)},
+       {"mesh_semantic_missing_packet_origins",
+        std::to_string(mesh_semantic_missing_packet_origins)},
        {"presentation_entries", std::to_string(presentation_entries)},
        {"presentation_exits", std::to_string(presentation_exits)},
        {"presentation_exact", std::to_string(presentation_exact)},
@@ -14439,6 +14585,16 @@ void RecordTitleDrawProvenance(
   key = HashCombine(key, origin.static_world_draw.simple_model_address);
   key = HashCombine(key, origin.static_world_draw.simple_submodel_address);
   key = HashCombine(key, origin.static_world_draw.simple_mesh_address);
+  key = HashCombine(key, origin.static_world_draw.mesh_primitive_type);
+  key = HashCombine(key,
+                    origin.static_world_draw.mesh_index_buffer_binding);
+  key = HashCombine(key, origin.static_world_draw.mesh_source_element_count);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_object);
+  key = HashCombine(
+      key, origin.static_world_draw.mesh_optional_material_reference);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_selector);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_enabled);
+  key = HashCombine(key, origin.static_world_draw.mesh_semantics_valid);
   key = HashCombine(key, current_semantic_contract.template_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
@@ -14510,6 +14666,22 @@ void RecordTitleDrawProvenance(
             origin.static_world_draw.simple_submodel_address &&
         entry.origin.static_world_draw.simple_mesh_address ==
             origin.static_world_draw.simple_mesh_address &&
+        entry.origin.static_world_draw.mesh_primitive_type ==
+            origin.static_world_draw.mesh_primitive_type &&
+        entry.origin.static_world_draw.mesh_index_buffer_binding ==
+            origin.static_world_draw.mesh_index_buffer_binding &&
+        entry.origin.static_world_draw.mesh_source_element_count ==
+            origin.static_world_draw.mesh_source_element_count &&
+        entry.origin.static_world_draw.submodel_state_object ==
+            origin.static_world_draw.submodel_state_object &&
+        entry.origin.static_world_draw.mesh_optional_material_reference ==
+            origin.static_world_draw.mesh_optional_material_reference &&
+        entry.origin.static_world_draw.submodel_state_selector ==
+            origin.static_world_draw.submodel_state_selector &&
+        entry.origin.static_world_draw.submodel_state_enabled ==
+            origin.static_world_draw.submodel_state_enabled &&
+        entry.origin.static_world_draw.mesh_semantics_valid ==
+            origin.static_world_draw.mesh_semantics_valid &&
         entry.semantic_contract.template_key ==
             current_semantic_contract.template_key) {
       ++entry.calls;
@@ -14679,6 +14851,48 @@ void EmitTitleDrawProvenanceSummary() {
           entry.origin.static_world_draw.valid
               ? fmt::format("{:08X}", entry.origin.static_world_draw
                                            .simple_mesh_address)
+              : ""},
+         {"static_world_mesh_semantics_valid",
+          entry.origin.static_world_draw.valid
+              ? (entry.origin.static_world_draw.mesh_semantics_valid
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_mesh_primitive_type",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.mesh_primitive_type)
+              : ""},
+         {"static_world_mesh_index_buffer_binding",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .mesh_index_buffer_binding)
+              : ""},
+         {"static_world_mesh_source_element_count",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(entry.origin.static_world_draw
+                                   .mesh_source_element_count)
+              : ""},
+         {"static_world_submodel_state_object",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .submodel_state_object)
+              : ""},
+         {"static_world_submodel_state_selector",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(entry.origin.static_world_draw
+                                   .submodel_state_selector)
+              : ""},
+         {"static_world_submodel_state_enabled",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? (entry.origin.static_world_draw.submodel_state_enabled
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_mesh_optional_material_reference",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .mesh_optional_material_reference)
               : ""},
          {"outcome", entry.prepared ? "prepared" : "not_prepared"},
          {"backend_outcome",
@@ -23170,11 +23384,17 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"effect_reference_fields", "resource_plus_124_pointer_plus_128_u16"},
        {"texture_reference_vector", "resource_plus_288_stride_28"},
        {"asset_metadata_limits", "key_bytes_512_reference_count_4096"},
+       {"mesh_primitive_type_field", "mesh_plus_36_u32"},
+       {"mesh_index_buffer_binding_field", "mesh_plus_96_u32"},
+       {"mesh_source_element_count_field", "mesh_plus_100_u32"},
+       {"submodel_state_fields", "submodel_plus_32_u32_39_u8_112_u8"},
+       {"mesh_optional_material_reference_field", "mesh_plus_128_u32"},
+       {"mesh_semantics_export", "bounded_numeric_identity_fields_only"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
        {"guest_payload_read",
-        "bounded_host_mapped_identity_and_asset_metadata_fields"},
+        "bounded_host_mapped_identity_asset_metadata_and_mesh_semantic_fields"},
        {"plaintext_asset_names_exported", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
