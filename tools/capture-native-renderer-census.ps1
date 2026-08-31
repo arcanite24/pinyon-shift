@@ -18,6 +18,7 @@ param(
     [string]$IsolatedDrawDir,
     [switch]$ShadowDepthIsolated,
     [switch]$ShadowDepthBatch,
+    [switch]$VehicleShadowGeometryCorrelation,
     [switch]$PublishShadowDepth,
     [switch]$ContinuousShadowDepth,
     [ValidateRange(2, 120)]
@@ -110,6 +111,9 @@ if ($ShadowDepthIsolated -and -not $IsolatedDrawDir) {
 }
 if ($ShadowDepthBatch -and -not $IsolatedDrawDir) {
     throw 'ShadowDepthBatch requires IsolatedDrawDir.'
+}
+if ($VehicleShadowGeometryCorrelation -and -not $ShadowDepthBatch) {
+    throw 'VehicleShadowGeometryCorrelation requires ShadowDepthBatch.'
 }
 if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
     throw 'PublishShadowDepth requires ShadowDepthBatch.'
@@ -230,6 +234,8 @@ $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED
 $savedShadowDepthBatch = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH
+$savedVehicleShadowGeometryCorrelation =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION
 $savedShadowDepthPublication =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
 $savedShadowDepthContinuous =
@@ -278,6 +284,8 @@ try {
         if ($ShadowDepthIsolated) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         if ($ShadowDepthBatch) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
+        if ($VehicleShadowGeometryCorrelation) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         if ($PublishShadowDepth) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
@@ -332,6 +340,8 @@ finally {
         $savedShadowDepthIsolated
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         $savedShadowDepthBatch
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
+        $savedVehicleShadowGeometryCorrelation
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         $savedShadowDepthPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =

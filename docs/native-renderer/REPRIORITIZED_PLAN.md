@@ -517,6 +517,18 @@ passthrough boundary.
 - Implement player vehicle first, then traffic and exceptional materials.
 - Retain per-item replay fallback until semantic coverage is complete.
 
+Shadow-geometry ingress checkpoint: the already qualified exact 80-draw
+dynamic-vehicle shadow epoch now seeds a bounded, default-off cross-pass
+resource correlation. Geometry is staged during the consecutive epoch and
+committed only after backend confirmation of all 80 draws; interruptions and
+replay failures discard the entire set. Later indexed color draws must share
+either the complete geometry resource set or the exact index buffer plus an
+exact vertex resource. The observer exports only hashes and numeric resource
+identity, captures no guest payload, draws nothing, preserves Xenos authority,
+and cannot suppress. The next batched gameplay run determines whether this
+produces a working player-vehicle color ingress before transform, wheel,
+livery, traffic, and full material contracts are added.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
