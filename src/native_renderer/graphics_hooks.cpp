@@ -657,8 +657,10 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t typed_upload_scans = 0;
   uint64_t typed_upload_exact_matches = 0;
   uint64_t typed_upload_misses = 0;
+  uint64_t typed_upload_exact_used_vectors = 0;
   uint64_t typed_upload_start_register_variations = 0;
   uint64_t typed_upload_vector_count_variations = 0;
+  uint64_t typed_upload_used_vector_count_variations = 0;
   uint64_t typed_upload_source_address_variations = 0;
   uint64_t typed_upload_buffer_address_variations = 0;
   uint64_t typed_upload_caller_variations = 0;
@@ -686,6 +688,7 @@ struct VehicleShadowGeometryCorrelationEntry {
   int32_t constant_forward_sign = 0;
   uint32_t typed_upload_start_register = 0;
   uint32_t typed_upload_vector_count = 0;
+  uint32_t typed_upload_used_vector_count = 0;
   uint32_t typed_upload_source_address = 0;
   uint32_t typed_upload_buffer_address = 0;
   uint32_t typed_upload_caller_return_address = 0;
@@ -699,12 +702,14 @@ struct VehicleShadowGeometryCorrelationEntry {
 struct VehicleConstantUploadEntry {
   uint64_t frame = 0;
   uint64_t sequence = 0;
-  uint64_t payload_hash = 0;
   uint32_t buffer_address = 0;
   uint32_t source_address = 0;
   uint32_t start_register = 0;
   uint32_t vector_count = 0;
   uint32_t caller_return_address = 0;
+  std::array<uint64_t,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      vector_hashes{};
   bool occupied = false;
 };
 
@@ -9146,7 +9151,7 @@ void ConfigureIsolatedDraw() {
          {"color_match", "exact_full_or_index_plus_vertex_resource"},
          {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6,lr"},
          {"typed_constant_upload_contract",
-          "exact_register_range_and_payload_hash"},
+          "exact_shader_used_vertex_subset_hash"},
          {"typed_constant_upload_capacity",
           std::to_string(kVehicleConstantUploadCapacity)},
          {"typed_constant_upload_maximum_age_frames",
@@ -15329,20 +15334,27 @@ void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
     words[i] = LoadSemanticGuestU32(memory,
                                     source_address + i * sizeof(uint32_t));
   }
+  std::array<uint64_t,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      vector_hashes{};
+  for (uint32_t vector_offset = 0; vector_offset < vector_count;
+       ++vector_offset) {
+    vector_hashes[vector_offset] = VehicleConstantPayloadHash(
+        uint32_t(start_register_64) + vector_offset, 1,
+        std::span(words.data() + vector_offset * 4, 4));
+  }
   VehicleConstantUploadEntry &entry =
       g_vehicle_constant_uploads[g_vehicle_constant_upload_cursor];
   g_vehicle_constant_upload_overwrites += entry.occupied ? 1u : 0u;
   entry = {
       .frame = g_frame_sequence.load(std::memory_order_relaxed),
       .sequence = ++g_vehicle_constant_upload_sequence,
-      .payload_hash = VehicleConstantPayloadHash(
-          uint32_t(start_register_64), vector_count,
-          std::span(words.data(), word_count)),
       .buffer_address = buffer_address,
       .source_address = source_address,
       .start_register = uint32_t(start_register_64),
       .vector_count = vector_count,
       .caller_return_address = caller_return_address,
+      .vector_hashes = vector_hashes,
       .occupied = true,
   };
   g_vehicle_constant_upload_cursor =
@@ -15351,41 +15363,35 @@ void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
   ++g_vehicle_constant_upload_valid;
 }
 
-bool HashObservedVertexConstantRange(
+bool MatchObservedVertexConstantSubset(
     const rex::system::GraphicsDrawObservation &observation,
-    uint32_t start_register, uint32_t vector_count, uint64_t *payload_hash) {
-  if (!payload_hash) {
+    const VehicleConstantUploadEntry &upload,
+    uint32_t *matched_vector_count) {
+  if (!matched_vector_count) {
     return false;
   }
-  std::array<uint32_t,
-             rex::system::kGraphicsFloatConstantObservationLimit * 4>
-      words{};
+  *matched_vector_count = 0;
   const uint32_t observed_count = std::min(
       observation.vertex_float_constant_count,
       rex::system::kGraphicsFloatConstantObservationLimit);
-  for (uint32_t vector_offset = 0; vector_offset < vector_count;
-       ++vector_offset) {
-    const uint32_t target_register = start_register + vector_offset;
-    const rex::system::GraphicsFloatConstantObservation *matched = nullptr;
-    for (uint32_t observed_offset = 0; observed_offset < observed_count;
-         ++observed_offset) {
-      const auto &candidate =
-          observation.vertex_float_constants[observed_offset];
-      if (candidate.index == target_register) {
-        matched = &candidate;
-        break;
-      }
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[observed_offset];
+    if (constant.index < upload.start_register ||
+        constant.index >= upload.start_register + upload.vector_count) {
+      continue;
     }
-    if (!matched) {
+    const uint32_t vector_offset = constant.index - upload.start_register;
+    const uint64_t observed_hash = VehicleConstantPayloadHash(
+        constant.index, 1,
+        std::span(constant.values, std::size(constant.values)));
+    if (observed_hash != upload.vector_hashes[vector_offset]) {
       return false;
     }
-    std::copy(std::begin(matched->values), std::end(matched->values),
-              words.begin() + vector_offset * 4);
+    ++*matched_vector_count;
   }
-  *payload_hash = VehicleConstantPayloadHash(
-      start_register, vector_count,
-      std::span(words.data(), vector_count * 4));
-  return true;
+  return *matched_vector_count != 0;
 }
 
 void ObserveVehicleColorTypedConstantUpload(
@@ -15393,6 +15399,7 @@ void ObserveVehicleColorTypedConstantUpload(
     VehicleShadowGeometryCorrelationEntry &entry) {
   ++entry.typed_upload_scans;
   VehicleConstantUploadEntry best{};
+  uint32_t best_matched_vector_count = 0;
   {
     std::scoped_lock lock(g_vehicle_constant_upload_mutex);
     for (const VehicleConstantUploadEntry &upload :
@@ -15402,15 +15409,17 @@ void ObserveVehicleColorTypedConstantUpload(
               kVehicleConstantUploadMaximumAgeFrames) {
         continue;
       }
-      uint64_t observed_hash = 0;
-      if (!HashObservedVertexConstantRange(
-              observation, upload.start_register, upload.vector_count,
-              &observed_hash) ||
-          observed_hash != upload.payload_hash) {
+      uint32_t matched_vector_count = 0;
+      if (!MatchObservedVertexConstantSubset(
+              observation, upload, &matched_vector_count)) {
         continue;
       }
-      if (!best.occupied || upload.sequence > best.sequence) {
+      if (!best.occupied ||
+          matched_vector_count > best_matched_vector_count ||
+          (matched_vector_count == best_matched_vector_count &&
+           upload.sequence > best.sequence)) {
         best = upload;
+        best_matched_vector_count = matched_vector_count;
       }
     }
   }
@@ -15419,11 +15428,14 @@ void ObserveVehicleColorTypedConstantUpload(
     return;
   }
   ++entry.typed_upload_exact_matches;
+  entry.typed_upload_exact_used_vectors += best_matched_vector_count;
   if (entry.typed_upload_identity_valid) {
     entry.typed_upload_start_register_variations +=
         entry.typed_upload_start_register != best.start_register;
     entry.typed_upload_vector_count_variations +=
         entry.typed_upload_vector_count != best.vector_count;
+    entry.typed_upload_used_vector_count_variations +=
+        entry.typed_upload_used_vector_count != best_matched_vector_count;
     entry.typed_upload_source_address_variations +=
         entry.typed_upload_source_address != best.source_address;
     entry.typed_upload_buffer_address_variations +=
@@ -15434,6 +15446,7 @@ void ObserveVehicleColorTypedConstantUpload(
   }
   entry.typed_upload_start_register = best.start_register;
   entry.typed_upload_vector_count = best.vector_count;
+  entry.typed_upload_used_vector_count = best_matched_vector_count;
   entry.typed_upload_source_address = best.source_address;
   entry.typed_upload_buffer_address = best.buffer_address;
   entry.typed_upload_caller_return_address = best.caller_return_address;
@@ -26520,6 +26533,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     uint64_t typed_upload_scans = 0;
     uint64_t typed_upload_exact_matches = 0;
     uint64_t typed_upload_misses = 0;
+    uint64_t typed_upload_exact_used_vectors = 0;
     std::array<uint64_t, kVehicleShadowGeometryCorrelationCapacity>
         material_topology_keys{};
     size_t material_topology_group_count = 0;
@@ -26544,6 +26558,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       typed_upload_scans += entry.typed_upload_scans;
       typed_upload_exact_matches += entry.typed_upload_exact_matches;
       typed_upload_misses += entry.typed_upload_misses;
+      typed_upload_exact_used_vectors +=
+          entry.typed_upload_exact_used_vectors;
       bool material_topology_seen = false;
       for (size_t material_index = 0;
            material_index < material_topology_group_count;
@@ -26728,11 +26744,16 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
             std::to_string(entry.typed_upload_exact_matches)},
            {"typed_upload_misses",
             std::to_string(entry.typed_upload_misses)},
+           {"typed_upload_exact_used_vectors",
+            std::to_string(entry.typed_upload_exact_used_vectors)},
            {"typed_upload_start_register_variations",
             std::to_string(
                 entry.typed_upload_start_register_variations)},
            {"typed_upload_vector_count_variations",
             std::to_string(entry.typed_upload_vector_count_variations)},
+           {"typed_upload_used_vector_count_variations",
+            std::to_string(
+                entry.typed_upload_used_vector_count_variations)},
            {"typed_upload_source_address_variations",
             std::to_string(
                 entry.typed_upload_source_address_variations)},
@@ -26748,6 +26769,10 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
            {"typed_upload_vector_count",
             entry.typed_upload_identity_valid
                 ? std::to_string(entry.typed_upload_vector_count)
+                : "unknown"},
+           {"typed_upload_used_vector_count",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_used_vector_count)
                 : "unknown"},
            {"typed_upload_source_address",
             entry.typed_upload_identity_valid
@@ -26767,8 +26792,9 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                     !entry.typed_upload_misses &&
                     !entry.typed_upload_start_register_variations &&
                     !entry.typed_upload_vector_count_variations &&
+                    !entry.typed_upload_used_vector_count_variations &&
                     !entry.typed_upload_caller_variations
-                ? "stable_exact_typed_upload_candidate"
+                ? "stable_exact_used_vertex_subset_candidate"
                 : "unresolved"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
@@ -26942,6 +26968,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"typed_upload_exact_matches",
           std::to_string(typed_upload_exact_matches)},
          {"typed_upload_misses", std::to_string(typed_upload_misses)},
+         {"typed_upload_exact_used_vectors",
+          std::to_string(typed_upload_exact_used_vectors)},
          {"typed_upload_outcome_accounting_complete",
           typed_upload_exact_matches + typed_upload_misses ==
                   typed_upload_scans
@@ -26950,7 +26978,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"typed_upload_maximum_age_frames",
           std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
          {"typed_upload_contract",
-          "82435E78_exact_vertex_register_range_and_payload_hash"},
+          "82435E78_exact_shader_used_vertex_subset_hash"},
          {"material_topology_groups",
           std::to_string(material_topology_group_count)},
          {"material_topology_group_accounting_complete",

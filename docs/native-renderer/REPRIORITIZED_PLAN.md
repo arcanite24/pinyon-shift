@@ -682,15 +682,18 @@ retained private pass remains the stable geometry/output harness throughout.
 Typed constant-upload implementation checkpoint: the exact generic title
 writer at `82435E78` now feeds a bounded 8,192-entry recent-upload ledger. Each
 entry retains its destination register range, title source/destination
-addresses, exact caller return address, and semantic payload hash without
+addresses, exact caller return address, and per-vector semantic hashes without
 exporting constant values. Every
 exact vehicle color family joins its observed vertex registers to uploads no
-more than one frame old by exact range and hash. The v9 qualifier requires
+more than one frame old. The first AppData run strictly accounted 2,419,537
+writer observations and 16,230 vehicle draw scans, but the whole-range rule
+produced zero matches because prepared observations contain only constants
+referenced by the active shader. The rule is rejected and replaced by an exact
+shader-used subset join. The v10 qualifier requires
 complete upload/outcome accounting and recognizes a 30-family bridge only
-when every family matches on every draw with a stable caller and register
-range. Runtime
-proof is deliberately batched with the next substantial C4 slice; the contract
-is documented in
+when every family matches on every draw with a stable caller, upload range, and
+consumed subset size. Runtime proof remains batched with the next substantial
+C4 slice; the corrected contract and first-run evidence are documented in
 [`VEHICLE_TYPED_CONSTANT_UPLOAD.md`](VEHICLE_TYPED_CONSTANT_UPLOAD.md).
 
 ### C5. Sky, atmosphere, and global lighting
