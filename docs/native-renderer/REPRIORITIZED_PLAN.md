@@ -706,6 +706,15 @@ no-overlap, hash-mismatch, or exact outcomes and records each family's observed
 register envelope without exporting values. This selects the next exact
 contract before any semantic caller bridge, native admission, or suppression.
 
+The short v11 run `20260831T190405Z-p11884` completed that partition across
+11,880 draws and 8,331,453 fresh candidates. It found 1,330,751 real register
+overlaps and the same observed `0..255` register envelope in all 30 families;
+therefore neither freshness nor register space explains the failed join. The
+v12 contract reconstructs exact last-writer provenance per shader-used
+register, allowing later writes to replace unrelated vectors from a broader
+upload without erasing exact matches. It still requires exact index/hash
+equality for every credited register and changes no draw authority.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

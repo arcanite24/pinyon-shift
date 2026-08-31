@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v11"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v12"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -131,7 +131,7 @@ def summarize(log_path):
     )
     require(
         configs[0].get("typed_constant_upload_contract")
-        == "exact_shader_used_vertex_subset_hash",
+        == "exact_shader_used_vertex_register_hash",
         "typed constant upload contract drift",
     )
     require(
@@ -327,7 +327,7 @@ def summarize(log_path):
     )
     require(
         summary.get("typed_upload_contract")
-        == "82435E78_exact_shader_used_vertex_subset_hash",
+        == "82435E78_exact_shader_used_vertex_register_hash",
         "typed upload summary contract drift",
     )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
@@ -558,7 +558,7 @@ def summarize(log_path):
         require(
             event.get("typed_upload_classification")
             == (
-                "stable_exact_used_vertex_subset_candidate"
+                "stable_exact_vertex_register_candidate"
                 if stable_typed_upload_candidate
                 else "unresolved"
             ),
@@ -785,7 +785,7 @@ def summarize(log_path):
         event
         for event in candidates
         if event.get("typed_upload_classification")
-        == "stable_exact_used_vertex_subset_candidate"
+        == "stable_exact_vertex_register_candidate"
     ]
     complete_typed_upload_bridge_candidate = (
         len(candidates) == 30
