@@ -239,6 +239,19 @@ registers = ["r3", "r4"]
 address = 0x82C4DEA0
 name = "PinyonShiftObserveStaticWorldRendererDispatchExit"
 
+# Immediately around the exact indexed-draw call, r26 is the embedded
+# CSimpleModel, r29 is its selected CSimpleSubModel, and r28 is the selected
+# CSimpleMesh. Runtime validates all three RTTI vtables and the resource+112
+# relation before carrying these addresses into packet provenance.
+[[midasm_hook]]
+address = 0x82C4DC54
+name = "PinyonShiftObserveStaticWorldMemberDrawEntry"
+registers = ["r26", "r29", "r28"]
+
+[[midasm_hook]]
+address = 0x82C4DC58
+name = "PinyonShiftObserveStaticWorldMemberDrawExit"
+
 # The exact CSimpleModelRenderer lifecycle and its owned offset-72 graph
 # boundary. Construction publishes only after the complete 368-byte object is
 # initialized. Destruction is balanced around the complete destructor. Slot 1
@@ -297,6 +310,30 @@ registers = ["r3"]
 [[midasm_hook]]
 address = 0x82C47E44
 name = "PinyonShiftObserveStaticWorldResourceDestructorExit"
+
+# CSimpleModelResource slots 16 and 22 both clear and release the owned
+# pointer at offset 64. Observe balanced entry/exit boundaries so each exact
+# completed reset invalidates the passive payload generation. Slot 22 is
+# shared by other resource classes, which remain explicitly excluded by RTTI.
+[[midasm_hook]]
+address = 0x82C46440
+name = "PinyonShiftObserveStaticWorldResourceDirectResetEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C46480
+name = "PinyonShiftObserveStaticWorldResourceDirectResetExit"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C222C8
+name = "PinyonShiftObserveStaticWorldResourceRefreshResetEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C2231C
+name = "PinyonShiftObserveStaticWorldResourceRefreshResetExit"
+registers = ["r30"]
 
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
