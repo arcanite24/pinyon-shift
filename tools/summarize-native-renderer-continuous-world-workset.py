@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v5"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v6"
 SELECTION = (
     "fresh_track_texture_provider_visibility_or_qualified_"
     "sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"
@@ -18,6 +18,7 @@ TRACK_WORLD_SELECTION = (
 STATIC_WORLD_SELECTION = "exact_presentation_resource_mesh_transform_lineage"
 CONFIG = "native_renderer.continuous_world_workset.config"
 SUMMARY = "native_renderer.continuous_world_workset.summary"
+CHECKPOINT = "native_renderer.continuous_world_workset.checkpoint"
 OUTPUT_FRAME = "native_renderer.output.frame"
 OUTPUT_WAITING = "native_renderer.output.waiting"
 
@@ -75,11 +76,30 @@ def require_safety(event):
         raise ValueError("workset evidence violates safety boundary")
 
 
-def build(events, requested_session=None):
+def select_runtime_event(events, allow_checkpoint):
+    summaries = [event for event in events if event.get("event") == SUMMARY]
+    if len(summaries) > 1:
+        raise ValueError("expected at most one continuous workset summary")
+    if summaries:
+        return summaries[0], True
+    if not allow_checkpoint:
+        raise ValueError("expected exactly one continuous workset summary")
+    checkpoints = [
+        event for event in events if event.get("event") == CHECKPOINT
+    ]
+    if not checkpoints:
+        raise ValueError("no continuous workset summary or checkpoint")
+    return max(checkpoints, key=lambda event: integer(event, "frame_sequence")), False
+
+
+def build(events, requested_session=None, allow_checkpoint=False):
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
-    summary = exact_event(selected, SUMMARY)
+    summary, final_summary = select_runtime_event(selected, allow_checkpoint)
+    evidence_frame = integer(summary, "frame_sequence")
+    if summary.get("final_summary") != ("true" if final_summary else "false"):
+        raise ValueError("workset evidence finality drifted")
     expected_config = {
         "status": "armed_deferred_private_composition",
         "activation": "startup_environment_only",
@@ -157,6 +177,12 @@ def build(events, requested_session=None):
     output_frames = [
         event for event in selected if event.get("event") == OUTPUT_FRAME
     ]
+    if not final_summary:
+        output_frames = [
+            event
+            for event in output_frames
+            if integer(event, "callback") <= evidence_frame
+        ]
     output_waiting = [
         event for event in selected if event.get("event") == OUTPUT_WAITING
     ]
@@ -218,9 +244,16 @@ def build(events, requested_session=None):
         failures.append("no frame accumulated multiple native draws")
     if totals["maximum_draws_per_frame"] != 64:
         failures.append("per-frame workset bound drifted")
-    expected_summary_status = (
-        "fallback_observed" if totals["frames_failed"] else "complete"
-    )
+    if final_summary:
+        expected_summary_status = (
+            "fallback_observed" if totals["frames_failed"] else "complete"
+        )
+    else:
+        expected_summary_status = (
+            "checkpoint_fallback_observed"
+            if totals["frames_failed"]
+            else "checkpoint_complete"
+        )
     if summary.get("status") != expected_summary_status:
         failures.append("runtime workset status does not match its outcomes")
 
@@ -338,7 +371,16 @@ def build(events, requested_session=None):
     return {
         "schema": SCHEMA,
         "session": session,
-        "status": "complete" if not failures else "incomplete",
+        "status": (
+            ("complete" if final_summary else "checkpoint_complete")
+            if not failures
+            else ("incomplete" if final_summary else "checkpoint_incomplete")
+        ),
+        "evidence": {
+            "kind": "final_summary" if final_summary else "checkpoint",
+            "frame_sequence": evidence_frame,
+            "session_exit_proved": final_summary,
+        },
         "failures": failures,
         "totals": totals,
         "qualification": {
@@ -365,16 +407,23 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("events", nargs="+", type=pathlib.Path)
     parser.add_argument("--session")
+    parser.add_argument(
+        "--allow-checkpoint",
+        action="store_true",
+        help="use the latest checkpoint only when the final summary is absent",
+    )
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
-        document = build(read_events(args.events), args.session)
+        document = build(
+            read_events(args.events), args.session, args.allow_checkpoint
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        if document["status"] != "complete":
+        if document["status"] not in ("complete", "checkpoint_complete"):
             raise ValueError("; ".join(document["failures"]))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:

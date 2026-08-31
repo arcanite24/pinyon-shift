@@ -268,6 +268,12 @@ independent exact C2 selection, Xenos draws, and fallback remain intact. The
 next combined AppData run arms `-ContinuousTrackWorld`; runtime and visual
 qualification remain pending before any family promotion or suppression.
 
+Long-session output checkpoint: the continuous workset now emits a
+non-mutating cumulative checkpoint every 300 observed frames. Its qualifier
+requires explicit checkpoint opt-in, records session exit as unproved, and
+always prefers the unique final summary. This preserves evidence from long C1/C2
+runs without weakening the clean-shutdown admission gate.
+
 Next runtime checkpoint: the old typed-render-item evidence is now correctly
 classified by RTTI as the unified track render-model instance/model pair. A
 balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)
