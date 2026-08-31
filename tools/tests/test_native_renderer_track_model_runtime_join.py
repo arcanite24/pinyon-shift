@@ -33,13 +33,17 @@ def fixture(shared=3):
         entry_hook="8240EC80",
         exit_hook="8240ECAC",
         nested_dispatch="82436468",
+        procedural_receiver_bridge_hook="82437040",
         instance_vtable="820019CC",
         model_vtable="82001D74",
         instance_to_model="root_plus_4",
         model_to_descriptor="child_plus_48_then_plus_128",
         descriptor_type="21",
         descriptor_flag="1",
-        join="synchronous_scope_to_procedural_model_submission",
+        join=(
+            "exact_track_dispatch_receiver_bridge_to_"
+            "procedural_model_submission"
+        ),
         shared_identity="descriptor_payload_or_object_address_exact_equality",
         world_resource_vtables=(
             "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,"
@@ -63,6 +67,7 @@ def fixture(shared=3):
     shared_world_relations = {
         key: "0" for key in MODULE.SHARED_WORLD_RELATIONS
     }
+    relations["shared_procedural_receiver_bridge"] = "3"
     if shared:
         relations["shared_descriptor_payload_bound_resource"] = str(shared)
         world_relations["world_track_mesh"] = "6"
@@ -82,7 +87,12 @@ def fixture(shared=3):
         joined_scopes="8",
         unjoined_scopes="2",
         submission_joins="12",
-        shared_identity_joins=str(shared),
+        receiver_bridge_observations="3",
+        receiver_bridge_successes="3",
+        receiver_bridge_missing_scope="0",
+        receiver_bridge_unknown_receiver="0",
+        receiver_bridge_submission_joins="3",
+        shared_identity_joins="3",
         world_resource_graph_scopes="6" if shared else "0",
         world_resource_graph_cache_hits="8",
         world_resource_graph_cache_misses="2",
@@ -93,7 +103,9 @@ def fixture(shared=3):
         exit_without_entry="0",
         accounting_complete="true",
         qualification_complete="true",
-        classification="exact_unified_track_render_model_nested_submission_join",
+        classification=(
+            "exact_unified_track_render_model_procedural_receiver_join"
+        ),
         **relations,
         **world_relations,
         **shared_world_relations,
@@ -112,6 +124,9 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             ]
         )
         self.assertTrue(
+            document["qualification"]["procedural_receiver_bridge_proved"]
+        )
+        self.assertTrue(
             document["qualification"][
                 "shared_object_or_resource_identity_proved"
             ]
@@ -122,10 +137,10 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             ]
         )
 
-    def test_qualifies_scope_without_claiming_shared_identity(self):
+    def test_qualifies_scope_without_claiming_world_identity(self):
         document = MODULE.build(fixture(shared=0))
         self.assertEqual("complete", document["status"])
-        self.assertFalse(
+        self.assertTrue(
             document["qualification"][
                 "shared_object_or_resource_identity_proved"
             ]
@@ -197,6 +212,7 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             joined_scopes="0",
             unjoined_scopes="10",
             submission_joins="0",
+            receiver_bridge_submission_joins="0",
             shared_identity_joins="0",
             shared_descriptor_payload_bound_resource="0",
             world_resource_graph_scopes="0",
@@ -224,6 +240,35 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         self.assertEqual("incomplete", document["status"])
         self.assertIn("scope_overlaps is nonzero", document["failures"])
 
+    def test_rejects_receiver_bridge_fault(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            qualification_complete="false",
+            receiver_bridge_successes="2",
+            receiver_bridge_unknown_receiver="1",
+        )
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "receiver_bridge_unknown_receiver is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_receiver_bridge_relation_drift(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            qualification_complete="false",
+            shared_procedural_receiver_bridge="2",
+        )
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "receiver bridge relation accounting drifted",
+            document["failures"],
+        )
+
     def test_source_contract_has_exact_balanced_hooks(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -243,6 +288,13 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         )
         self.assertIn("address = 0x8240EC80", analysis)
         self.assertIn("address = 0x8240ECAC", analysis)
+        self.assertIn("address = 0x82437040", analysis)
+        self.assertIn(
+            "PinyonShiftObserveTrackRenderModelProceduralReceiver", hooks
+        )
+        self.assertIn(
+            "PinyonShiftObserveTrackRenderModelProceduralReceiver", analysis
+        )
 
 
 if __name__ == "__main__":

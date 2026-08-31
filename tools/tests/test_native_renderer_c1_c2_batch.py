@@ -30,6 +30,7 @@ def fixture():
             "evidence": {"session_exit_proved": True},
             "qualification": {
                 "track_render_model_scope_to_submission_proved": True,
+                "procedural_receiver_bridge_proved": True,
                 "track_world_resource_graph_identity_proved": True,
                 "track_world_resource_to_submission_identity_proved": True,
             },

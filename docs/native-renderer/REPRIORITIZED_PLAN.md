@@ -332,6 +332,18 @@ accepts both `822432D4` and `82002464`; all resource, renderer, transform,
 metadata, prepared-layout, and lifecycle joins remain independently required.
 This fixes a type-family omission without weakening C2 admission.
 
+C1 receiver-handoff correction: that same clean session observed 110,023
+track-render scopes and 94,826 exact unified instance/model scopes, but zero
+procedural submissions inside them. The synchronous-scope join is therefore a
+disproved assumption, not a reason to gather more broad census data. Generated
+title code gives a stronger bounded edge: `82437040` moves the retained
+`CProceduralModels` receiver from `r25` to `r3` immediately before the semantic
+producer call at `82437044`. The passive runtime bridge now attaches the exact
+track owner tuple to the receiver's independently proved live generation and
+requires a later semantic submission from that same generation. Reuse clears
+the bridge; Xenos authority, native admission, and suppression remain unchanged
+until the next batched qualification proves the new edge.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
