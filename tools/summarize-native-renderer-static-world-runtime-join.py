@@ -354,6 +354,7 @@ def validate_static_owner(document):
     try:
         presentation = document["presentation"]
         renderer_join = document["renderer_join"]
+        resource_join = document["resource_join"]
         claims = document["claims"]
     except (KeyError, TypeError) as error:
         raise ValueError("static-world owner proof is incomplete") from error
@@ -382,6 +383,19 @@ def validate_static_owner(document):
         "draw_target": "82C4CCC8",
         "join_kind": "balanced_synchronous_presentation_draw_scope",
     }
+    expected_resource_join = {
+        "initialize_slot": 7,
+        "initialize_method": "82DEA298",
+        "resource_bind": "82C48038",
+        "presentation_resource_field_offset": 148,
+        "binding_constructor": "824AFB20",
+        "renderer_bind": "82C4C838",
+        "reference_assignment": "826E1B10",
+        "renderer_resource_field_offset": 72,
+        "address_equation": (
+            "presentation_plus_148_equals_renderer_plus_72"
+        ),
+    }
     if any(
         presentation.get(key) != value
         for key, value in expected_presentation.items()
@@ -392,11 +406,18 @@ def validate_static_owner(document):
         for key, value in expected_join.items()
     ):
         raise ValueError("static-world presentation renderer join drifted")
+    if any(
+        resource_join.get(key) != value
+        for key, value in expected_resource_join.items()
+    ):
+        raise ValueError("static-world presentation resource join drifted")
     if (
         claims.get("exact_model_presentation_owner_proved") is not True
         or claims.get("presentation_to_renderer_field_proved") is not True
         or claims.get("presentation_to_resource_reference_proved") is not True
         or claims.get("renderer_bind_and_draw_dispatch_proved") is not True
+        or claims.get("presentation_to_renderer_resource_identity_proved")
+        is not True
         or claims.get("concrete_building_or_prop_identity_proved") is not False
         or claims.get("mesh_or_material_semantics_proved") is not False
     ):
@@ -472,6 +493,9 @@ def build(
         "presentation_draw_hooks": "823F8DB8,823F8FA0",
         "presentation_resource_field": "presentation_plus_148",
         "presentation_renderer_field": "presentation_plus_1608",
+        "presentation_resource_join": (
+            "presentation_plus_148_equals_renderer_plus_72"
+        ),
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -600,6 +624,7 @@ def build(
         "presentation_scopes_without_renderer",
         "presentation_renderer_joins",
         "presentation_renderer_mismatches",
+        "presentation_resource_mismatches",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -823,6 +848,7 @@ def build(
         "presentation_overlaps",
         "presentation_exit_without_entry",
         "presentation_renderer_mismatches",
+        "presentation_resource_mismatches",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -865,6 +891,7 @@ def build(
             "simple_mesh_to_prepared_draw_proved": not failures,
             "model_presentation_owner_proved": not failures,
             "model_presentation_to_renderer_proved": not failures,
+            "model_presentation_to_renderer_resource_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,

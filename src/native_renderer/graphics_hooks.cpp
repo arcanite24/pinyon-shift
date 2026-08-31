@@ -2156,6 +2156,7 @@ std::atomic<uint64_t> g_static_world_presentation_scopes_with_renderer{};
 std::atomic<uint64_t> g_static_world_presentation_scopes_without_renderer{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_mismatches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -3631,22 +3632,38 @@ void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
       g_static_world_presentation_scope;
   if (presentation_scope.active && presentation_scope.exact) {
     uint32_t owned_renderer = 0;
-    if (presentation_scope.presentation_address <=
-            UINT32_MAX - kModelPresentationRendererOffset &&
+    uint32_t owned_resource = 0;
+    const bool fields_in_range =
+        presentation_scope.presentation_address <=
+        UINT32_MAX - kModelPresentationRendererOffset;
+    const bool renderer_matches =
+        fields_in_range &&
         LoadMappedGuestU32(
             memory,
             presentation_scope.presentation_address +
                 kModelPresentationRendererOffset,
             owned_renderer) &&
-        owned_renderer == renderer_address) {
+        owned_renderer == renderer_address;
+    const bool resource_matches =
+        fields_in_range &&
+        LoadMappedGuestU32(
+            memory,
+            presentation_scope.presentation_address +
+                kModelPresentationResourceOffset,
+            owned_resource) &&
+        owned_resource == presentation_scope.resource_address &&
+        owned_resource == model_graph_address;
+    if (renderer_matches && resource_matches) {
       scope.model_presentation_address =
           presentation_scope.presentation_address;
       scope.model_presentation_resource_address =
           presentation_scope.resource_address;
       ++presentation_scope.renderer_dispatch_joins;
       ++g_static_world_presentation_renderer_joins;
-    } else {
+    } else if (!renderer_matches) {
       ++g_static_world_presentation_renderer_mismatches;
+    } else {
+      ++g_static_world_presentation_resource_mismatches;
     }
   }
   scope.exact = true;
@@ -5130,6 +5147,7 @@ void ResetTitleDrawProvenance() {
            &g_static_world_presentation_scopes_without_renderer,
            &g_static_world_presentation_renderer_joins,
            &g_static_world_presentation_renderer_mismatches,
+           &g_static_world_presentation_resource_mismatches,
        }) {
     counter->store(0, std::memory_order_relaxed);
   }
@@ -11269,6 +11287,8 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       !g_static_world_presentation_exit_without_entry.load(
           std::memory_order_relaxed) &&
       !g_static_world_presentation_renderer_mismatches.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_resource_mismatches.load(
           std::memory_order_relaxed);
   const uint64_t pending_packets =
       packets_recorded >= packet_matches ? packets_recorded - packet_matches
@@ -11484,6 +11504,10 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"presentation_renderer_mismatches",
         std::to_string(
             g_static_world_presentation_renderer_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_mismatches",
+        std::to_string(
+            g_static_world_presentation_resource_mismatches.load(
                 std::memory_order_relaxed))},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"qualification_complete",
@@ -22886,6 +22910,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
        {"presentation_resource_field", "presentation_plus_148"},
        {"presentation_renderer_field", "presentation_plus_1608"},
+       {"presentation_resource_join",
+        "presentation_plus_148_equals_renderer_plus_72"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
