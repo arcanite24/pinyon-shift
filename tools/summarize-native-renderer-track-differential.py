@@ -18,10 +18,11 @@ DRAW_WINDOW = "native_renderer.census.draw_window"
 PROVENANCE = "native_renderer.discovery.title_provenance_entry"
 INSTALLED = "native_renderer.census.installed"
 MODE_VALUES = {
-    "baseline": (False, True, True),
-    "fasttrackrender": (True, True, True),
-    "noroaddetailblur": (False, False, True),
-    "notrackcommandbuffers": (False, True, False),
+    "baseline": (False, True, True, 55.0),
+    "trackfardistance": (False, True, True, 5.0),
+    "fasttrackrender": (True, True, True, 55.0),
+    "noroaddetailblur": (False, False, True, 55.0),
+    "notrackcommandbuffers": (False, True, False, 55.0),
 }
 
 
@@ -88,7 +89,7 @@ def summarize_side(events, expected_mode, requested_session=None):
     failures = []
     if config.get("status") != "complete" or config.get("mode") != expected_mode:
         failures.append("title did not confirm the requested track mode")
-    expected_fast, expected_road_blur, expected_command_buffers = MODE_VALUES[
+    expected_fast, expected_road_blur, expected_command_buffers, expected_far = MODE_VALUES[
         expected_mode
     ]
     for field, expected, label in (
@@ -100,6 +101,12 @@ def summarize_side(events, expected_mode, requested_session=None):
             failures.append(
                 f"{label} runtime value does not match the requested mode"
             )
+    try:
+        track_far_distance = float(config.get("track_far_distance", "nan"))
+    except (TypeError, ValueError):
+        track_far_distance = float("nan")
+    if track_far_distance != expected_far:
+        failures.append("track far distance does not match the requested mode")
     if not boolean(config, "address_consistent"):
         failures.append("command-line/runtime render-state identity drifted")
     if (
