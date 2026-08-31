@@ -7,7 +7,11 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v2"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v3"
+SELECTION = (
+    "fresh_track_texture_provider_visibility_or_qualified_"
+    "sky_horizon_and_mechanical"
+)
 CONFIG = "native_renderer.continuous_world_workset.config"
 SUMMARY = "native_renderer.continuous_world_workset.summary"
 OUTPUT_FRAME = "native_renderer.output.frame"
@@ -76,7 +80,7 @@ def build(events, requested_session=None):
         "status": "armed_deferred_private_composition",
         "activation": "startup_environment_only",
         "default_enabled": "false",
-        "selection": "fresh_visibility_or_qualified_sky_horizon_and_mechanical",
+        "selection": SELECTION,
         "maximum_draws_per_frame": "64",
         "target_lifetime": "one_guest_frame",
         "freshness_commit": "matching_swap_after_complete_accumulation",
@@ -97,6 +101,7 @@ def build(events, requested_session=None):
         or summary.get("freshness_commit")
         != "matching_swap_after_complete_accumulation"
         or summary.get("maximum_draws_per_frame") != "64"
+        or summary.get("selection") != SELECTION
     ):
         raise ValueError("workset summary is incomplete")
 
@@ -108,6 +113,7 @@ def build(events, requested_session=None):
         "unsupported",
         "mechanical_rejections",
         "stale_or_unselected_rejections",
+        "non_track_provider_rejections",
         "per_frame_quota_yields",
         "fail_closed_yields",
         "qualified_retained_family_requests",
@@ -129,6 +135,7 @@ def build(events, requested_session=None):
         totals["requests"]
         + totals["mechanical_rejections"]
         + totals["stale_or_unselected_rejections"]
+        + totals["non_track_provider_rejections"]
         + totals["per_frame_quota_yields"]
         + totals["fail_closed_yields"]
     )
@@ -153,6 +160,8 @@ def build(events, requested_session=None):
         failures.append("failed frames do not reconcile with replay fallbacks")
     if not totals["qualified_retained_family_requests"]:
         failures.append("qualified retained-family seed was not observed")
+    if totals["requests"] <= totals["qualified_retained_family_requests"]:
+        failures.append("no track-provider visibility request was observed")
     if not totals["reused_target_requests"]:
         failures.append("no frame accumulated multiple native draws")
     if totals["maximum_draws_per_frame"] != 64:
@@ -232,6 +241,18 @@ def build(events, requested_session=None):
             "native output callbacks are not strictly increasing",
         )
     )
+    track_provider_selection_proved = (
+        not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no track-provider visibility request was observed",
+            )
+        )
+        and totals["requests"] > totals["qualified_retained_family_requests"]
+    )
 
     return {
         "schema": SCHEMA,
@@ -243,6 +264,7 @@ def build(events, requested_session=None):
             "continuous_multi_draw_workset_proved": accumulation_proved,
             "swap_committed_freshness_proved": freshness_proved,
             "clean_xenos_fallback_proved": clean_fallback_proved,
+            "track_provider_selection_proved": track_provider_selection_proved,
             "native_output_markers": len(exact_output_frames),
             "xenos_fallback_markers": len(output_waiting),
             "suppression_allowed": False,

@@ -252,6 +252,14 @@ four proved resource-provider methods. This proves track-owned texture ingress
 at the prepared-record boundary without a new capture. Track model/mesh or
 world-section identity is still required before terrain/road visual admission.
 
+Implementation checkpoint: the exact track-texture provider tuple is carried
+through semantic draw identity into the fresh visibility-prepared records. The
+default-off continuous prototype workset now admits ordinary fresh candidates
+only with that tuple and accounts all non-track exclusions; its independently
+qualified sky/horizon seed remains available. Runtime qualification is deferred
+to the next batched build/AppData checkpoint. This precision filter is not yet
+a terrain/road mesh identity or C1 family-admission claim.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

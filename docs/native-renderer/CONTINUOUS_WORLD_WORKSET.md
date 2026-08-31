@@ -15,7 +15,8 @@ capture wrapper's `-ContinuousWorldWorkset` switch. The mode requires renderer
 census and semantic dispatch discovery so every admitted draw has:
 
 - a mechanically replayable prepared-draw contract;
-- either a current, selected semantic visibility decision or the exact,
+- either a current, selected semantic visibility decision carrying the exact
+  unified track-texture provider vtable and four-method tuple, or the exact
   previously qualified sky/horizon follower signature; and
 - exact title-to-backend lineage.
 
@@ -58,7 +59,8 @@ requires at least three strictly increasing output markers with exact matching
 frame and retained-frame identifiers; every waiting marker must retain Xenos
 authority with suppression disabled.
 It reports the exact-family seed count separately as
-`qualified_retained_family_requests`.
+`qualified_retained_family_requests`, and reports fresh visibility candidates
+excluded by the track-provider gate as `non_track_provider_rejections`.
 Build a payload-free qualification report with:
 
 ```powershell
@@ -67,9 +69,9 @@ python .\tools\summarize-native-renderer-continuous-world-workset.py `
   --output .local\qualification\continuous-world-workset.json
 ```
 
-Qualification requires at least one complete frame with multiple accumulated
-draws, zero replay or frame failures, exact accounting, preserved Xenos draws,
-and disabled suppression.
+Qualification requires at least one exact track-provider visibility request,
+one complete frame with multiple accumulated draws, zero replay or frame
+failures, exact accounting, preserved Xenos draws, and disabled suppression.
 
 ## Safety boundary
 
@@ -78,7 +80,11 @@ and disabled suppression.
 - Output selection remains controlled by the existing renderer selector.
 - The mode performs no readback and no guest-target publication.
 - Missing semantic lineage, incompatible replay experiments, stale visibility,
-  capacity exhaustion, or replay failure yields without weakening freshness.
+  non-track provider identity, capacity exhaustion, or replay failure yields
+  without weakening freshness.
+- Track-texture ownership is a precision filter for the existing prototype
+  workset. It is not a terrain/road mesh ownership claim and does not satisfy
+  the C1 semantic-family admission gate by itself.
 - This checkpoint does not yet prove recognizable world coverage; that requires
   a clean build, an AppData run, and visual inspection after the broader Phase B
   implementation batch is ready.

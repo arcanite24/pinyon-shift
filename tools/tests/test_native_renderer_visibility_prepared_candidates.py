@@ -85,6 +85,10 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "title_lod_index": "2",
             "title_lod_valid": "true",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "track_texture_provider": "true",
+            "track_texture_provider_lineage": (
+                "exact_primary_provider_vtable_and_four_methods"
+            ),
             "draws": "7",
             "first_frame": "10",
             "last_frame": "12",
@@ -116,6 +120,8 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "mechanical_admission_contract": "isolated_draw_v1",
             "title_lod_entries": "1",
             "title_lod_draws": "7",
+            "track_texture_provider_entries": "1",
+            "track_texture_provider_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -124,6 +130,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "selection": "independent_visibility_selected_and_fresh",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "track_texture_provider_lineage": (
+                "exact_primary_provider_vtable_and_four_methods"
+            ),
             **self.safety(),
         }
         workset = {
@@ -146,6 +155,11 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             document["qualification"]["isolated_native_candidate_proved"]
         )
         self.assertTrue(document["qualification"]["title_lod_lineage_proved"])
+        self.assertTrue(
+            document["qualification"][
+                "track_texture_provider_lineage_proved"
+            ]
+        )
 
     def test_build_accepts_candidate_without_title_lod(self):
         events = copy.deepcopy(self.events())
@@ -178,6 +192,21 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
         self.assertEqual(
             7,
             document["mechanical_rejection_draw_counts"]["prepared_pipeline"],
+        )
+
+    def test_build_accepts_non_track_provider_partition(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["track_texture_provider"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["track_texture_provider_entries"] = "0"
+        summary["track_texture_provider_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"][
+                "track_texture_provider_lineage_proved"
+            ]
         )
 
     def test_build_rejects_eligibility_mask_drift(self):

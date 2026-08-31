@@ -160,6 +160,11 @@ constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
 constexpr uint64_t kSemanticObservationPayloadBytes = 380;
 constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 64;
 constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
+constexpr uint32_t kTrackTextureUnifiedVtable = 0x82001708;
+constexpr uint32_t kTrackTexturePredicate24Method = 0x824107C8;
+constexpr uint32_t kTrackTexturePrimary36Method = 0x824108D0;
+constexpr uint32_t kTrackTextureFallback40Method = 0x82DF1300;
+constexpr uint32_t kTrackTexturePredicate44Method = 0x82DF0B40;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -435,6 +440,7 @@ struct SemanticDrawIdentity {
       SemanticVisibilityWorksetJoin::kMissing;
   bool secondary_resource_present = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
   bool valid = false;
 };
 
@@ -561,6 +567,7 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t mechanical_rejection_mask = 0;
   bool mechanically_eligible = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
 };
 
 struct SemanticBatchRun {
@@ -6058,6 +6065,7 @@ struct IsolatedDrawState {
       ShadowDepthBatchFamily::kNone;
   bool prepared_visibility_candidate_fresh = false;
   bool prepared_title_lod_valid = false;
+  bool prepared_track_texture_provider = false;
   bool require_fresh_visibility_candidate = false;
   bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
@@ -6155,6 +6163,7 @@ struct ContinuousWorldWorksetState {
   uint64_t unsupported = 0;
   uint64_t mechanical_rejections = 0;
   uint64_t stale_or_unselected_rejections = 0;
+  uint64_t non_track_provider_rejections = 0;
   uint64_t per_frame_quota_yields = 0;
   uint64_t fail_closed_yields = 0;
   uint64_t qualified_retained_family_requests = 0;
@@ -6911,7 +6920,7 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
        {"selection",
-        "fresh_visibility_or_qualified_sky_horizon_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_and_mechanical"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"target_lifetime", "one_guest_frame"},
@@ -7876,6 +7885,15 @@ bool IsResolvedSemanticResourceProviderProvenance(
          selected_provider_path && produced_object;
 }
 
+bool IsUnifiedTrackTextureProvider(
+    const SemanticResourceProviderProvenance &provider) {
+  return provider.provider_vtable == kTrackTextureUnifiedVtable &&
+         provider.predicate_24_method == kTrackTexturePredicate24Method &&
+         provider.primary_36_method == kTrackTexturePrimary36Method &&
+         provider.fallback_40_method == kTrackTextureFallback40Method &&
+         provider.predicate_44_method == kTrackTexturePredicate44Method;
+}
+
 void PublishProceduralModelResourceBinding(
     uint32_t binding_slot, uint32_t bound_resource_object,
     const SemanticResourceProviderProvenance &provider) {
@@ -8453,7 +8471,8 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
                                      uint32_t helper_state,
                                      uint32_t primary_resource_key,
                                      uint32_t secondary_resource_key,
-                                     bool secondary_resource_present) {
+                                     bool secondary_resource_present,
+                                     bool track_texture_provider) {
   if (!g_semantic_render_item_stack_depth) {
     g_semantic_draw_scope_mismatches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -8477,6 +8496,7 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
   semantic_draw.primary_resource_key = primary_resource_key;
   semantic_draw.secondary_resource_key = secondary_resource_key;
   semantic_draw.secondary_resource_present = secondary_resource_present;
+  semantic_draw.track_texture_provider = track_texture_provider;
   semantic_draw.valid = true;
   g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
 }
@@ -8696,11 +8716,13 @@ void RecordProceduralModelGeometrySubmission(
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
+  const bool track_texture_provider =
+      IsUnifiedTrackTextureProvider(pending.primary_provider);
   JoinProceduralModelSemanticDraw(
       key, receiver_address, receiver_generation, record_index,
       descriptor_address, runtime_address, descriptor_kind, helper_state,
       primary_resource_key, secondary_resource_key,
-      secondary_resource_present);
+      secondary_resource_present, track_texture_provider);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -13645,6 +13667,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.visibility_result_mask),
         uint64_t(identity.title_lod_valid),
         uint64_t(identity.title_lod_index),
+        uint64_t(identity.track_texture_provider),
         uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
@@ -13680,6 +13703,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .mechanical_rejection_mask = mechanical_rejection_mask,
           .mechanically_eligible = !mechanical_rejection_mask,
           .title_lod_valid = identity.title_lod_valid,
+          .track_texture_provider = identity.track_texture_provider,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -13702,7 +13726,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.visibility_category == identity.visibility_category &&
         entry.visibility_result_mask == identity.visibility_result_mask &&
         entry.title_lod_index == identity.title_lod_index &&
-        entry.title_lod_valid == identity.title_lod_valid) {
+        entry.title_lod_valid == identity.title_lod_valid &&
+        entry.track_texture_provider == identity.track_texture_provider) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -13719,6 +13744,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
 struct SemanticVisibilityPreparedAdmission {
   bool fresh = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
   uint32_t title_lod_index = 0;
 };
 
@@ -13743,6 +13769,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const SemanticVisibilityPreparedAdmission visibility_admission = {
       .fresh = fresh_visibility_candidate,
       .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
+      .track_texture_provider =
+          fresh_visibility_candidate && identity.track_texture_provider,
       .title_lod_index = identity.title_lod_index,
   };
   const SemanticBatchRejection rejection =
@@ -15198,6 +15226,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t mechanically_ineligible_entries = 0;
   uint64_t title_lod_draws = 0;
   uint64_t title_lod_entries = 0;
+  uint64_t track_texture_provider_draws = 0;
+  uint64_t track_texture_provider_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -15215,6 +15245,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.title_lod_valid) {
       title_lod_draws += entry.draws;
       ++title_lod_entries;
+    }
+    if (entry.track_texture_provider) {
+      track_texture_provider_draws += entry.draws;
+      ++track_texture_provider_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -15246,6 +15280,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
          {"title_lod_index", std::to_string(entry.title_lod_index)},
          {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
          {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+         {"track_texture_provider",
+          entry.track_texture_provider ? "true" : "false"},
+         {"track_texture_provider_lineage",
+          "exact_primary_provider_vtable_and_four_methods"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -15283,7 +15321,9 @@ void EmitSemanticVisibilityPreparedCandidates() {
           entry_draws &&
       mechanically_eligible_entries + mechanically_ineligible_entries ==
           entry_count &&
-      title_lod_draws <= entry_draws && title_lod_entries <= entry_count;
+      title_lod_draws <= entry_draws && title_lod_entries <= entry_count &&
+      track_texture_provider_draws <= entry_draws &&
+      track_texture_provider_entries <= entry_count;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -15317,6 +15357,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"mechanical_admission_contract", "isolated_draw_v1"},
        {"title_lod_entries", std::to_string(title_lod_entries)},
        {"title_lod_draws", std::to_string(title_lod_draws)},
+       {"track_texture_provider_entries",
+        std::to_string(track_texture_provider_entries)},
+       {"track_texture_provider_draws",
+        std::to_string(track_texture_provider_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -15328,6 +15372,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"selection", "independent_visibility_selected_and_fresh"},
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+       {"track_texture_provider_lineage",
+        "exact_primary_provider_vtable_and_four_methods"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -15707,6 +15753,8 @@ void ObservePreparedDraw(
         visibility_admission.fresh;
     g_isolated_draw.prepared_title_lod_valid =
         visibility_admission.title_lod_valid;
+    g_isolated_draw.prepared_track_texture_provider =
+        visibility_admission.track_texture_provider;
     g_isolated_draw.prepared_title_lod_index =
         visibility_admission.title_lod_index;
     g_isolated_draw.prepared_candidate_valid = true;
@@ -17097,6 +17145,7 @@ void EmitContinuousWorldWorksetSummary() {
       g_continuous_world_workset.requests +
       g_continuous_world_workset.mechanical_rejections +
       g_continuous_world_workset.stale_or_unselected_rejections +
+      g_continuous_world_workset.non_track_provider_rejections +
       g_continuous_world_workset.per_frame_quota_yields +
       g_continuous_world_workset.fail_closed_yields;
   pinyon_shift::diagnostics::RecordEvent(
@@ -17120,6 +17169,9 @@ void EmitContinuousWorldWorksetSummary() {
        {"stale_or_unselected_rejections",
         std::to_string(
             g_continuous_world_workset.stale_or_unselected_rejections)},
+       {"non_track_provider_rejections",
+        std::to_string(
+            g_continuous_world_workset.non_track_provider_rejections)},
        {"per_frame_quota_yields",
         std::to_string(g_continuous_world_workset.per_frame_quota_yields)},
        {"fail_closed_yields",
@@ -17143,6 +17195,8 @@ void EmitContinuousWorldWorksetSummary() {
             : "false"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
+       {"selection",
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_and_mechanical"},
        {"freshness_commit", "matching_swap_after_complete_accumulation"},
        {"readback", "disabled"},
        {"native_draw", "continuous_world_workset"},
@@ -17483,6 +17537,11 @@ void RequestIsolatedDraw(
     if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
         !qualified_retained_family) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
+      return;
+    }
+    if (!qualified_retained_family &&
+        !g_isolated_draw.prepared_track_texture_provider) {
+      ++g_continuous_world_workset.non_track_provider_rejections;
       return;
     }
     if (g_continuous_world_workset.current_frame_failed) {
