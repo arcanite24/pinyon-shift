@@ -180,3 +180,33 @@ is allowed.
 The independent title switches are now exhausted as useful C1 discriminators.
 The next lead is semantic world-section/mesh ingress, with the exact
 visibility-to-prepared lineage retained as its fail-closed replay gate.
+
+## Track world-ingress static proof
+
+`tools/discover-native-renderer-track-ingress.py` now makes that lead exact.
+It validates the retail RTTI complete-object locators, full AOT-backed vtables,
+and reviewed specialization slots for the unified track presentation, render
+model, render-model instance, track model/mesh/submodel, procedural-geometry
+object/resource, and PVS-zone object/resource classes.
+
+The proof separates three layers that broad draw deltas could not distinguish:
+
+- the 135-slot unified title presentation surface and its exact overrides;
+- the unified render-model and render-instance surfaces; and
+- the track model, mesh, procedural-geometry, and visibility-zone resource
+  graph that owns world-section identity before prepared draw submission.
+
+Generate the payload-free report with:
+
+```powershell
+python tools/discover-native-renderer-track-ingress.py `
+  .local/generated/default `
+  --image ..\horizon1-recomp\.local\analysis\default-image.bin `
+  --output .local/qualification/native-renderer-track-ingress.json
+```
+
+This is a static ownership proof, not yet the runtime semantic join. The next
+slice may observe only the reviewed title lifecycle boundaries and must join an
+exact shared object or resource identity to
+`proceduralGeometry::CProceduralModels`. Xenos remains authoritative; native
+admission and suppression remain disabled.
