@@ -171,6 +171,8 @@ constexpr uint32_t kTrackRenderModelDescriptorType = 21;
 constexpr uint32_t kTrackRenderModelDescriptorFlag = 1;
 constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
 constexpr uint32_t kTrackRenderModelGraphBytes = 64;
+constexpr uint32_t kSimpleModelRendererVtable = 0x82001B64;
+constexpr uint32_t kSimpleModelRendererGraphOffset = 72;
 constexpr uint32_t kTrackModelVtable = 0x820016B4;
 constexpr uint32_t kTrackMeshVtable = 0x8200143C;
 constexpr uint32_t kTrackSubModelVtable = 0x82001474;
@@ -408,6 +410,7 @@ enum class DispatchWrapper : uint32_t {
   kBinningScissorState = 9,
   kBinningStateReset = 10,
   kProceduralModelDrawIndexed = 11,
+  kStaticWorldDrawIndexed = 12,
 };
 
 struct DispatchCallerEntry {
@@ -463,11 +466,19 @@ struct SemanticDrawIdentity {
   bool valid = false;
 };
 
+struct StaticWorldDrawIdentity {
+  uint32_t renderer_address = 0;
+  uint32_t render_context_address = 0;
+  uint32_t model_graph_address = 0;
+  bool valid = false;
+};
+
 struct TitleDrawOrigin {
   DispatchWrapper wrapper = DispatchWrapper::kDrawIndexed;
   uint32_t caller = 0;
   std::array<uint32_t, 8> arguments{};
   SemanticDrawIdentity semantic_draw{};
+  StaticWorldDrawIdentity static_world_draw{};
   uint32_t vehicle_owner_method = 0;
   uint32_t vehicle_owner = 0;
   uint32_t vehicle_owner_method_index = 0;
@@ -1865,6 +1876,15 @@ struct TrackRenderModelDispatchScope {
   bool exact = false;
 };
 
+struct StaticWorldRendererDispatchScope {
+  uint64_t packet_origins = 0;
+  uint32_t renderer_address = 0;
+  uint32_t render_context_address = 0;
+  uint32_t model_graph_address = 0;
+  bool active = false;
+  bool exact = false;
+};
+
 std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
     g_semantic_submissions{};
 std::mutex g_semantic_submission_mutex;
@@ -1947,6 +1967,20 @@ std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_identity_relations{};
 std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_shared_identity_relations{};
+std::atomic<uint64_t> g_static_world_scope_entries{};
+std::atomic<uint64_t> g_static_world_scope_exits{};
+std::atomic<uint64_t> g_static_world_scope_overlaps{};
+std::atomic<uint64_t> g_static_world_scope_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_scope_exact{};
+std::atomic<uint64_t> g_static_world_scope_invalid_root{};
+std::atomic<uint64_t> g_static_world_scope_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_scope_invalid_graph_field{};
+std::atomic<uint64_t> g_static_world_scopes_with_packets{};
+std::atomic<uint64_t> g_static_world_scopes_without_packets{};
+std::atomic<uint64_t> g_static_world_packets_recorded{};
+std::atomic<uint64_t> g_static_world_packet_matches{};
+std::atomic<uint64_t> g_static_world_prepared_matches{};
+std::atomic<uint64_t> g_static_world_unprepared_matches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -1958,6 +1992,7 @@ thread_local std::array<SemanticDrawIdentity,
 thread_local size_t g_semantic_render_item_stack_depth = 0;
 thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
 thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
+thread_local StaticWorldRendererDispatchScope g_static_world_renderer_scope{};
 thread_local std::array<TrackWorldResourceGraphCacheEntry,
                         kTrackWorldResourceGraphCacheCapacity>
     g_track_world_resource_graph_cache{};
@@ -2211,6 +2246,8 @@ const char *DispatchWrapperName(DispatchWrapper wrapper) {
     return "binning_state_reset";
   case DispatchWrapper::kProceduralModelDrawIndexed:
     return "procedural_model_draw_indexed";
+  case DispatchWrapper::kStaticWorldDrawIndexed:
+    return "static_world_draw_indexed";
   }
   return "unknown";
 }
@@ -2239,6 +2276,8 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
     return "824736F0";
   case DispatchWrapper::kProceduralModelDrawIndexed:
     return "82415F68";
+  case DispatchWrapper::kStaticWorldDrawIndexed:
+    return "82C4CCC8";
   }
   return "00000000";
 }
@@ -2626,6 +2665,80 @@ void EndTrackRenderModelDispatch() {
     }
   }
   g_track_render_model_scope = {};
+}
+
+bool LoadMappedGuestU32(rex::memory::Memory *memory, uint32_t address,
+                        uint32_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = static_cast<uint32_t>(
+      *memory->TranslateVirtual<rex::be_u32 *>(address));
+  return true;
+}
+
+void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
+                                      uint32_t render_context_address) {
+  ++g_static_world_scope_entries;
+  if (g_static_world_renderer_scope.active) {
+    ++g_static_world_scope_overlaps;
+    g_static_world_renderer_scope = {};
+  }
+  StaticWorldRendererDispatchScope &scope = g_static_world_renderer_scope;
+  scope.active = true;
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t vtable = 0;
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      !LoadMappedGuestU32(memory, renderer_address, vtable)) {
+    ++g_static_world_scope_invalid_root;
+    return;
+  }
+  if (vtable != kSimpleModelRendererVtable) {
+    ++g_static_world_scope_vtable_mismatches;
+    return;
+  }
+  if (renderer_address >
+      UINT32_MAX - kSimpleModelRendererGraphOffset) {
+    ++g_static_world_scope_invalid_graph_field;
+    return;
+  }
+  uint32_t model_graph_address = 0;
+  if (!LoadMappedGuestU32(memory,
+                          renderer_address +
+                              kSimpleModelRendererGraphOffset,
+                          model_graph_address)) {
+    ++g_static_world_scope_invalid_graph_field;
+    return;
+  }
+  scope.renderer_address = renderer_address;
+  scope.render_context_address = render_context_address;
+  scope.model_graph_address = model_graph_address;
+  scope.exact = true;
+  ++g_static_world_scope_exact;
+}
+
+void EndStaticWorldRendererDispatch() {
+  ++g_static_world_scope_exits;
+  if (!g_static_world_renderer_scope.active) {
+    ++g_static_world_scope_exit_without_entry;
+    return;
+  }
+  if (g_static_world_renderer_scope.exact) {
+    (g_static_world_renderer_scope.packet_origins
+         ? g_static_world_scopes_with_packets
+         : g_static_world_scopes_without_packets)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  g_static_world_renderer_scope = {};
 }
 
 const char *VehicleMatrixLayoutName(VehicleMatrixLayout layout) {
@@ -4294,6 +4407,11 @@ void RecordTitleDrawPacketOrigin(uint32_t packet_guest_address,
     g_semantic_draw_packets_recorded.fetch_add(1,
                                                 std::memory_order_relaxed);
   }
+  if (origin.static_world_draw.valid) {
+    ++g_static_world_renderer_scope.packet_origins;
+    g_static_world_packets_recorded.fetch_add(1,
+                                               std::memory_order_relaxed);
+  }
   ++g_title_packets_recorded;
 }
 
@@ -4317,26 +4435,48 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
 void RecordProceduralModelSemanticDrawPacket(
     uint32_t packet_guest_address, uint32_t constructor_store_address,
     std::array<uint32_t, 8> arguments) {
-  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
-      !g_semantic_render_item_stack_depth) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
     return;
   }
-  SemanticDrawIdentity &semantic_draw =
-      g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
-  if (!semantic_draw.valid) {
-    g_semantic_draw_scope_mismatches.fetch_add(1,
-                                                std::memory_order_relaxed);
+  SemanticDrawIdentity *semantic_draw = nullptr;
+  if (g_semantic_render_item_stack_depth) {
+    SemanticDrawIdentity &candidate =
+        g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+    if (candidate.valid) {
+      semantic_draw = &candidate;
+    } else {
+      g_semantic_draw_scope_mismatches.fetch_add(1,
+                                                  std::memory_order_relaxed);
+    }
+  }
+  const bool static_world_draw = g_static_world_renderer_scope.active &&
+                                 g_static_world_renderer_scope.exact;
+  if (!semantic_draw && !static_world_draw) {
     return;
   }
   TitleDrawOrigin origin{};
-  origin.wrapper = DispatchWrapper::kProceduralModelDrawIndexed;
+  origin.wrapper = semantic_draw
+                       ? DispatchWrapper::kProceduralModelDrawIndexed
+                       : DispatchWrapper::kStaticWorldDrawIndexed;
   origin.caller = constructor_store_address;
   origin.arguments = arguments;
-  origin.semantic_draw = semantic_draw;
+  if (semantic_draw) {
+    origin.semantic_draw = *semantic_draw;
+    ++semantic_draw->direct_title_origins;
+    g_semantic_draw_origins_captured.fetch_add(1,
+                                                std::memory_order_relaxed);
+  }
+  if (static_world_draw) {
+    const StaticWorldRendererDispatchScope &scope =
+        g_static_world_renderer_scope;
+    origin.static_world_draw = {
+        .renderer_address = scope.renderer_address,
+        .render_context_address = scope.render_context_address,
+        .model_graph_address = scope.model_graph_address,
+        .valid = true,
+    };
+  }
   origin.valid = true;
-  ++semantic_draw.direct_title_origins;
-  g_semantic_draw_origins_captured.fetch_add(1,
-                                              std::memory_order_relaxed);
   RecordTitleDrawPacketOrigin(packet_guest_address, origin);
 }
 
@@ -6135,6 +6275,10 @@ bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
     if (origin.semantic_draw.valid) {
       g_semantic_draw_packet_matches.fetch_add(1,
                                                 std::memory_order_relaxed);
+    }
+    if (origin.static_world_draw.valid) {
+      g_static_world_packet_matches.fetch_add(1,
+                                               std::memory_order_relaxed);
     }
     ++g_title_packets_matched;
     return true;
@@ -9630,6 +9774,107 @@ void EmitTrackRenderModelRuntimeJoinCheckpoint(uint64_t frame_sequence) {
       false, frame_sequence);
 }
 
+void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
+                                     bool final_summary,
+                                     uint64_t frame_sequence) {
+  const uint64_t entries =
+      g_static_world_scope_entries.load(std::memory_order_relaxed);
+  const uint64_t exits =
+      g_static_world_scope_exits.load(std::memory_order_relaxed);
+  const uint64_t exact =
+      g_static_world_scope_exact.load(std::memory_order_relaxed);
+  const uint64_t invalid_root =
+      g_static_world_scope_invalid_root.load(std::memory_order_relaxed);
+  const uint64_t vtable_mismatches =
+      g_static_world_scope_vtable_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t invalid_graph_field =
+      g_static_world_scope_invalid_graph_field.load(
+          std::memory_order_relaxed);
+  const uint64_t scopes_with_packets =
+      g_static_world_scopes_with_packets.load(std::memory_order_relaxed);
+  const uint64_t scopes_without_packets =
+      g_static_world_scopes_without_packets.load(std::memory_order_relaxed);
+  const uint64_t packets_recorded =
+      g_static_world_packets_recorded.load(std::memory_order_relaxed);
+  const uint64_t packet_matches =
+      g_static_world_packet_matches.load(std::memory_order_relaxed);
+  const uint64_t prepared_matches =
+      g_static_world_prepared_matches.load(std::memory_order_relaxed);
+  const uint64_t unprepared_matches =
+      g_static_world_unprepared_matches.load(std::memory_order_relaxed);
+  const uint64_t overlaps =
+      g_static_world_scope_overlaps.load(std::memory_order_relaxed);
+  const uint64_t exit_without_entry =
+      g_static_world_scope_exit_without_entry.load(
+          std::memory_order_relaxed);
+  const bool accounting_complete =
+      entries == exact + invalid_root + vtable_mismatches +
+                           invalid_graph_field &&
+      entries == exits &&
+      exact == scopes_with_packets + scopes_without_packets &&
+      packet_matches == prepared_matches + unprepared_matches &&
+      packet_matches <= packets_recorded && !overlaps &&
+      !exit_without_entry;
+  const bool qualification_complete =
+      accounting_complete && exact && packets_recorded && packet_matches &&
+      prepared_matches && !unprepared_matches && !invalid_root &&
+      !vtable_mismatches && !invalid_graph_field;
+  const uint64_t pending_packets =
+      packets_recorded >= packet_matches ? packets_recorded - packet_matches
+                                          : 0;
+  pinyon_shift::diagnostics::RecordEvent(
+      event_name,
+      {{"status", !entries
+                      ? (final_summary ? "not_observed"
+                                       : "checkpoint_not_observed")
+                      : (qualification_complete
+                             ? (final_summary ? "complete"
+                                              : "checkpoint_complete")
+                             : (final_summary ? "incomplete"
+                                              : "checkpoint_incomplete"))},
+       {"checkpoint_kind", final_summary ? "final" : "periodic"},
+       {"frame_sequence", std::to_string(frame_sequence)},
+       {"scope_entries", std::to_string(entries)},
+       {"scope_exits", std::to_string(exits)},
+       {"exact_scopes", std::to_string(exact)},
+       {"invalid_root", std::to_string(invalid_root)},
+       {"vtable_mismatches", std::to_string(vtable_mismatches)},
+       {"invalid_graph_field", std::to_string(invalid_graph_field)},
+       {"scopes_with_packets", std::to_string(scopes_with_packets)},
+       {"scopes_without_packets", std::to_string(scopes_without_packets)},
+       {"packets_recorded", std::to_string(packets_recorded)},
+       {"packet_matches", std::to_string(packet_matches)},
+       {"pending_packets", std::to_string(pending_packets)},
+       {"prepared_matches", std::to_string(prepared_matches)},
+       {"unprepared_matches", std::to_string(unprepared_matches)},
+       {"scope_overlaps", std::to_string(overlaps)},
+       {"exit_without_entry", std::to_string(exit_without_entry)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"qualification_complete",
+        qualification_complete ? "true" : "false"},
+       {"classification",
+        "exact_simple_model_renderer_scope_to_pm4_prepared_draw"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitStaticWorldRuntimeJoinSummary() {
+  EmitStaticWorldRuntimeJoinEvent(
+      "native_renderer.discovery.static_world_runtime_join_summary", true,
+      g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitStaticWorldRuntimeJoinCheckpoint(uint64_t frame_sequence) {
+  EmitStaticWorldRuntimeJoinEvent(
+      "native_renderer.discovery.static_world_runtime_join_checkpoint",
+      false, frame_sequence);
+}
+
 uint64_t PreparedPipelineHash(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   uint64_t hash = 0xCBF29CE484222325ull;
@@ -11356,6 +11601,7 @@ void EmitCommandBufferLineageSummary() {
   EmitProceduralModelSemanticInstances();
   EmitProceduralModelSemanticSubmissions();
   EmitTrackRenderModelRuntimeJoinSummary();
+  EmitStaticWorldRuntimeJoinSummary();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -12283,8 +12529,16 @@ void RecordTitleDrawProvenance(
               : g_semantic_draw_unprepared_matches)
         .fetch_add(1, std::memory_order_relaxed);
   }
+  if (origin.static_world_draw.valid) {
+    (prepared ? g_static_world_prepared_matches
+              : g_static_world_unprepared_matches)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  const bool prepared_contract_requested =
+      (origin.semantic_draw.valid || origin.static_world_draw.valid) &&
+      prepared_observation;
   const SemanticPreparedDrawContract current_semantic_contract =
-      origin.semantic_draw.valid && prepared_observation
+      prepared_contract_requested
           ? BuildSemanticPreparedDrawContract(observation,
                                               *prepared_observation)
           : SemanticPreparedDrawContract{};
@@ -12293,6 +12547,9 @@ void RecordTitleDrawProvenance(
                  (uint64_t(backend_outcome) << 41) ^
                  (prepared ? uint64_t(1) << 63 : 0);
   key = HashCombine(key, origin.semantic_draw.submission_key);
+  key = HashCombine(key, origin.static_world_draw.renderer_address);
+  key = HashCombine(key, origin.static_world_draw.render_context_address);
+  key = HashCombine(key, origin.static_world_draw.model_graph_address);
   key = HashCombine(key, current_semantic_contract.template_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
@@ -12330,6 +12587,12 @@ void RecordTitleDrawProvenance(
             origin.semantic_draw.receiver_generation &&
         entry.origin.semantic_draw.record_index ==
             origin.semantic_draw.record_index &&
+        entry.origin.static_world_draw.renderer_address ==
+            origin.static_world_draw.renderer_address &&
+        entry.origin.static_world_draw.render_context_address ==
+            origin.static_world_draw.render_context_address &&
+        entry.origin.static_world_draw.model_graph_address ==
+            origin.static_world_draw.model_graph_address &&
         entry.semantic_contract.template_key ==
             current_semantic_contract.template_key) {
       ++entry.calls;
@@ -12344,7 +12607,8 @@ void RecordTitleDrawProvenance(
         entry.maximum_arguments[i] =
             std::max(entry.maximum_arguments[i], origin.arguments[i]);
       }
-      if (origin.semantic_draw.valid && prepared_observation) {
+      if ((origin.semantic_draw.valid || origin.static_world_draw.valid) &&
+          prepared_observation) {
         UpdateSemanticPreparedDrawContract(entry.semantic_contract,
                                            observation,
                                            *prepared_observation);
@@ -12407,6 +12671,24 @@ void EmitTitleDrawProvenanceSummary() {
          {"origin_wrapper_address",
           DispatchWrapperAddress(entry.origin.wrapper)},
          {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
+         {"static_world_origin",
+          entry.origin.static_world_draw.valid ? "true" : "false"},
+         {"static_world_renderer",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.static_world_draw.renderer_address)
+              : ""},
+         {"static_world_render_context",
+          entry.origin.static_world_draw.valid
+              ? fmt::format(
+                    "{:08X}",
+                    entry.origin.static_world_draw.render_context_address)
+              : ""},
+         {"static_world_model_graph",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.static_world_draw.model_graph_address)
+              : ""},
          {"outcome", entry.prepared ? "prepared" : "not_prepared"},
          {"backend_outcome",
           entry.prepared ? "prepared_callback"
@@ -20844,6 +21126,26 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
+      "native_renderer.discovery.static_world_runtime_join_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "CSimpleModelRenderer"},
+       {"vtable", "82001B64"},
+       {"vtable_slot", "12"},
+       {"dispatch", "82C4CCC8"},
+       {"entry_hook", "82C4CCC8"},
+       {"exit_hook", "82C4DEA0"},
+       {"model_graph_field", "renderer_plus_72"},
+       {"draw_emitter", "82416380"},
+       {"packet_hooks", "82416260,824162F4"},
+       {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
+       {"guest_payload_read", "two_host_mapped_u32_fields_per_scope"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
       {{"status", lineage_armed ? "armed" : "disabled"},
        {"class", "proceduralGeometry::CProceduralModels"},
@@ -21915,6 +22217,7 @@ void PinyonShiftObserveGraphicsFrame() {
                                             {"mode", "pass_through"}});
     if (frame_sequence % kFrameSummaryInterval == 0) {
       EmitTrackRenderModelRuntimeJoinCheckpoint(frame_sequence);
+      EmitStaticWorldRuntimeJoinCheckpoint(frame_sequence);
     }
   }
   if (dispatch_requested) {
@@ -22062,6 +22365,15 @@ void PinyonShiftObserveTrackRenderModelDispatchEntry(PPCRegister &r31) {
 
 void PinyonShiftObserveTrackRenderModelDispatchExit() {
   EndTrackRenderModelDispatch();
+}
+
+void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,
+                                                        PPCRegister &r4) {
+  BeginStaticWorldRendererDispatch(r3.u32, r4.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererDispatchExit() {
+  EndStaticWorldRendererDispatch();
 }
 
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,

@@ -306,6 +306,14 @@ recorded in [`STATIC_WORLD_INGRESS.md`](STATIC_WORLD_INGRESS.md). Concrete
 building/prop instance identity, streaming lifetime, prepared-record joining,
 native admission, and suppression remain pending.
 
+Implementation checkpoint: primary `CSimpleModelRenderer` slot 12 now has a
+balanced exact scope from `82C4CCC8` to its common `82C4DEA0` exit. Its direct
+`82416380` indexed-draw emissions carry the exact renderer, render-context, and
+opaque graph identity through physical PM4 generation into prepared-draw
+records, with periodic and final fail-closed accounting. Runtime qualification
+is batched after the current guarded C1 session. This proves no concrete
+building/prop instance or streaming lifetime and enables no native admission.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

@@ -71,3 +71,38 @@ lifetime boundary from generated title flow and join an exact shared
 SimpleModel object/resource identity to the existing procedural-model prepared
 record. Only that joined runtime evidence may classify concrete building/prop
 instances. Missing or ambiguous joins remain per-item Xenos fallback.
+
+## Exact renderer-to-PM4 runtime lineage
+
+Static instruction flow narrows the first runtime boundary further. Primary
+`CSimpleModelRenderer` vtable slot 12 enters `82C4CCC8`, preserves its `r3`
+renderer and `r4` render context, walks its model/submodel graph, and invokes
+the direct indexed-draw emitter at `82416380`. All paths converge at
+`82C4DEA0` before restoring the caller state.
+
+A balanced passive scope now brackets those exact addresses. Entry accepts
+only vtable `82001B64` and reads only the renderer vtable plus its already-used
+offset-72 graph field. Both four-byte reads require guest range access and a
+mapped host page. The existing exact PM4 header hooks at `82416260` and
+`824162F4` attach the renderer, render context, and opaque graph identity only
+when they execute synchronously inside that scope. The normal physical-header
+generation join then carries the identity to the backend prepared-draw
+boundary.
+
+The cumulative scope, packet, and prepared-draw accounting is emitted every
+300 census frames and once authoritatively at shutdown. Generate its report
+with:
+
+```powershell
+python tools/summarize-native-renderer-static-world-runtime-join.py `
+  .local/preview/logs/<session>.jsonl `
+  --static .local/qualification/native-renderer-static-world-ingress.json `
+  --session <session> `
+  --output .local/qualification/native-renderer-static-world-runtime-join.json
+```
+
+`--allow-checkpoint` may diagnose an interrupted run, but checkpoint-only
+evidence never proves session exit or permits admission. Even a clean final
+join proves generic SimpleModel ownership, not concrete building/prop identity
+or streaming lifetime. Native upload, draw, publication, and suppression stay
+disabled until those next exact gates are closed.
