@@ -35,6 +35,7 @@ param(
     [switch]$ContinuousWorldWorkset,
     [switch]$ContinuousTrackWorld,
     [switch]$ContinuousStaticWorld,
+    [switch]$PhaseCQualification,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
     [ValidateSet(
@@ -58,6 +59,20 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# One long-lived profile for the pending C1/C2 runtime gates and passive C4
+# semantic/material joins. The isolated per-resource vehicle readback remains
+# a separate run because shadow-depth capture and the continuous workset are
+# intentionally mutually exclusive.
+if ($PhaseCQualification) {
+    if ($Scene -eq 'unmarked') {
+        $Scene = 'open_world_day'
+    }
+    $ContinuousWorldWorkset = $true
+    $ContinuousTrackWorld = $true
+    $ContinuousStaticWorld = $true
+    $VehicleDrawCorrelation = $true
+}
 
 if (-not $StateRoot) {
     $sourceRoot = Join-Path $env:LOCALAPPDATA 'PinyonShift\source'

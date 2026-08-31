@@ -283,6 +283,14 @@ clean final session. It proves neither manual visual acceptance nor race and
 streaming coverage. The contract and command are documented in
 [`C1_C2_BATCH_QUALIFICATION.md`](C1_C2_BATCH_QUALIFICATION.md).
 
+Phase C capture profile checkpoint: `-PhaseCQualification` now arms the exact
+C1 track-world selector, exact C2 static-world selector, continuous
+swap-committed workset, and passive C4 player/material provenance in one
+AppData-backed process. The incompatible isolated vehicle-resource readback
+stays in a later dedicated run. This gives the next manual session one clear
+purpose and prevents accidental combinations that would invalidate the
+continuous and shadow-depth gates.
+
 Next runtime checkpoint: the old typed-render-item evidence is now correctly
 classified by RTTI as the unified track render-model instance/model pair. A
 balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)
