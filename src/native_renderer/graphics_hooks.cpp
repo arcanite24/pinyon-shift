@@ -610,10 +610,14 @@ struct VehicleShadowGeometryIdentity {
 struct VehicleShadowGeometryCorrelationEntry {
   uint64_t prepared_signature = 0;
   uint64_t template_key = 0;
+  uint64_t draw_argument_hash = 0;
   uint64_t geometry_resource_hash = 0;
   uint64_t texture_resource_hash = 0;
   uint64_t prepared_pipeline_hash = 0;
+  uint64_t first_parameter_hash = 0;
+  uint64_t last_parameter_hash = 0;
   uint64_t draws = 0;
+  uint64_t parameter_switches = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
   uint32_t seed_index = 0;
@@ -15067,7 +15071,17 @@ void ObserveVehicleShadowGeometryColorCorrelation(
     }
     if (entry.prepared_signature == prepared_signature &&
         entry.seed_index == matched_seed &&
-        entry.full_geometry_match == full_geometry_match) {
+        entry.full_geometry_match == full_geometry_match &&
+        entry.draw_argument_hash == contract.draw_argument_hash &&
+        entry.geometry_resource_hash == contract.geometry_resource_hash &&
+        entry.texture_resource_hash == contract.texture_resource_hash &&
+        entry.prepared_pipeline_hash == contract.prepared_pipeline_hash) {
+      const uint64_t parameter_hash =
+          SemanticInstanceParameterHash(observation);
+      if (entry.last_parameter_hash != parameter_hash) {
+        ++entry.parameter_switches;
+        entry.last_parameter_hash = parameter_hash;
+      }
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       return;
@@ -15080,9 +15094,12 @@ void ObserveVehicleShadowGeometryColorCorrelation(
   *available = {
       .prepared_signature = prepared_signature,
       .template_key = contract.template_key,
+      .draw_argument_hash = contract.draw_argument_hash,
       .geometry_resource_hash = contract.geometry_resource_hash,
       .texture_resource_hash = contract.texture_resource_hash,
       .prepared_pipeline_hash = contract.prepared_pipeline_hash,
+      .first_parameter_hash = SemanticInstanceParameterHash(observation),
+      .last_parameter_hash = SemanticInstanceParameterHash(observation),
       .draws = 1,
       .first_frame = observation.frame_sequence,
       .last_frame = observation.frame_sequence,
@@ -15095,6 +15112,8 @@ void ObserveVehicleShadowGeometryColorCorrelation(
       "native_renderer.discovery.vehicle_shadow_geometry_correlation",
       {{"prepared_signature", fmt::format("{:016X}", prepared_signature)},
        {"template_key", fmt::format("{:016X}", contract.template_key)},
+       {"draw_argument_hash",
+        fmt::format("{:016X}", contract.draw_argument_hash)},
        {"geometry_resource_hash",
         fmt::format("{:016X}", contract.geometry_resource_hash)},
        {"texture_resource_hash",
@@ -25314,6 +25333,46 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"suppression_eligible", "false"}});
   }
   if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    for (const VehicleShadowGeometryCorrelationEntry &entry :
+         g_vehicle_shadow_geometry_correlations) {
+      if (!entry.occupied) {
+        continue;
+      }
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shadow_geometry_candidate",
+          {{"prepared_signature",
+            fmt::format("{:016X}", entry.prepared_signature)},
+           {"template_key", fmt::format("{:016X}", entry.template_key)},
+           {"draw_argument_hash",
+            fmt::format("{:016X}", entry.draw_argument_hash)},
+           {"geometry_resource_hash",
+            fmt::format("{:016X}", entry.geometry_resource_hash)},
+           {"texture_resource_hash",
+            fmt::format("{:016X}", entry.texture_resource_hash)},
+           {"prepared_pipeline_hash",
+            fmt::format("{:016X}", entry.prepared_pipeline_hash)},
+           {"first_parameter_hash",
+            fmt::format("{:016X}", entry.first_parameter_hash)},
+           {"last_parameter_hash",
+            fmt::format("{:016X}", entry.last_parameter_hash)},
+           {"draws", std::to_string(entry.draws)},
+           {"parameter_switches",
+            std::to_string(entry.parameter_switches)},
+           {"first_frame", std::to_string(entry.first_frame)},
+           {"last_frame", std::to_string(entry.last_frame)},
+           {"seed_index", std::to_string(entry.seed_index)},
+           {"match", entry.full_geometry_match
+                         ? "exact_geometry_resource_set"
+                         : "exact_index_and_shared_vertex_resource"},
+           {"classification",
+            "bounded_vehicle_color_geometry_candidate_family"},
+           {"pose_variation_observed",
+            entry.parameter_switches ? "true" : "false"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
     const bool seed_accounting_complete =
         g_vehicle_shadow_geometry_seed_count +
                 g_vehicle_shadow_geometry_seed_duplicates +

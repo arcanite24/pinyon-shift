@@ -529,6 +529,14 @@ and cannot suppress. The next batched gameplay run determines whether this
 produces a working player-vehicle color ingress before transform, wheel,
 livery, traffic, and full material contracts are added.
 
+Color-family hardening checkpoint: correlated draws are now partitioned by
+exact draw arguments, geometry, texture resources, prepared pipeline, and the
+committed shadow seed rather than by a loose shader family. Stable aggregate
+records retain draw/frame coverage and parameter-switch counts, so animated
+pose candidates can be identified without exporting constant payloads and
+different submeshes or liveries cannot silently collapse together. Runtime
+qualification remains part of the next batched gameplay run.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
