@@ -34,7 +34,10 @@ superset.
 Fresh candidates are aggregated in a fixed 4,096-entry table keyed by exact
 semantic identity plus immutable prepared template, geometry-resource, texture-
 resource, prepared-signature, visibility-category, result-mask, and title-LOD
-identities. A record without an observed title LOD remains a distinct candidate
+identities. The key also preserves the independently proved C2 static-world
+origin and exact-lineage bits, so generic procedural candidates cannot merge
+with presentation/resource/mesh/transform-qualified static-world candidates.
+A record without an observed title LOD remains a distinct candidate
 with `title_lod_valid=false`; zero is never inferred to be a valid LOD.
 The exact prepared signature prevents a resource family from merging a
 replayable draw with a resolved-input or otherwise mechanically ineligible
@@ -48,6 +51,9 @@ variant. The runtime records:
   eligibility;
 - title-LOD-bearing candidate entries and draws, reconciled with the exact
   visibility-record workset lineage;
+- exact C1 track render-model/world-resource identity and exact C2 static-world
+  origin/lineage partitions, with the latter constrained to be a subset of the
+  former static-world origin population;
 - the complete isolated-draw mechanical rejection mask for every ineligible
   entry, preserving simultaneous failures instead of reporting only the first;
 - table occupancy, overflow, and complete partition accounting.
@@ -78,7 +84,8 @@ python tools/summarize-native-renderer-visibility-prepared-candidates.py `
 Qualification requires exact accounting, at least one fresh prepared
 candidate, zero future decisions, and zero table overflow. Stale, rejected, and
 missing observations remain measured exclusions and never enter the candidate
-table.
+table. The report exposes C1 and C2 lineage proof independently; neither proof
+enables semantic batching, culling, native LOD selection, or suppression.
 
 ## Safety boundary
 
