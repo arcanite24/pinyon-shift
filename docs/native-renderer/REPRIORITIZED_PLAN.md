@@ -537,6 +537,13 @@ pose candidates can be identified without exporting constant payloads and
 different submeshes or liveries cannot silently collapse together. Runtime
 qualification remains part of the next batched gameplay run.
 
+Same-session visual checkpoint: an independent opt-in now privately replays
+the first mechanically eligible correlated color family after the full shadow
+epoch has been committed. It captures native and Xenos color targets in the
+same long session, never publishes the private target, preserves the original
+Xenos draw, and cannot suppress. This is intended to produce the first direct
+C4 image pair without requiring a second gameplay run.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

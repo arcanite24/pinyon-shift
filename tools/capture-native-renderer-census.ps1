@@ -19,6 +19,7 @@ param(
     [switch]$ShadowDepthIsolated,
     [switch]$ShadowDepthBatch,
     [switch]$VehicleShadowGeometryCorrelation,
+    [switch]$CaptureVehicleShadowColor,
     [switch]$PublishShadowDepth,
     [switch]$ContinuousShadowDepth,
     [ValidateRange(2, 120)]
@@ -114,6 +115,9 @@ if ($ShadowDepthBatch -and -not $IsolatedDrawDir) {
 }
 if ($VehicleShadowGeometryCorrelation -and -not $ShadowDepthBatch) {
     throw 'VehicleShadowGeometryCorrelation requires ShadowDepthBatch.'
+}
+if ($CaptureVehicleShadowColor -and -not $VehicleShadowGeometryCorrelation) {
+    throw 'CaptureVehicleShadowColor requires VehicleShadowGeometryCorrelation.'
 }
 if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
     throw 'PublishShadowDepth requires ShadowDepthBatch.'
@@ -236,6 +240,8 @@ $savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLA
 $savedShadowDepthBatch = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH
 $savedVehicleShadowGeometryCorrelation =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION
+$savedVehicleShadowColorCapture =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE
 $savedShadowDepthPublication =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
 $savedShadowDepthContinuous =
@@ -286,6 +292,8 @@ try {
         if ($ShadowDepthBatch) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
         if ($VehicleShadowGeometryCorrelation) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE =
+        if ($CaptureVehicleShadowColor) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         if ($PublishShadowDepth) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
@@ -342,6 +350,8 @@ finally {
         $savedShadowDepthBatch
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
         $savedVehicleShadowGeometryCorrelation
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE =
+        $savedVehicleShadowColorCapture
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         $savedShadowDepthPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
