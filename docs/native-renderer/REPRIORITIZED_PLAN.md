@@ -501,6 +501,13 @@ their GPU resources match. The report exposes family-local multi-draw evidence
 without admitting an executor; runtime qualification remains in the same
 deferred C1/C2 session.
 
+LOD-safety checkpoint: exact title-LOD validity and the normalized title index
+are now also part of the semantic batch key. Missing observations collapse only
+to `(false, 0)`, while different proved LODs can never share a run. Family-local
+LOD opportunity signals remain measurement-only; independent native LOD
+selection is still disabled until the batched runtime evidence proves this
+passthrough boundary.
+
 ### C4. Player and traffic vehicles
 
 - Resume vehicle work from the documented rejected paths rather than repeating

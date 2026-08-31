@@ -30,6 +30,9 @@ def static_inventory():
                 "semantic_batch_world_family_partition": (
                     "none_or_exact_track_or_exact_static_or_both"
                 ),
+                "semantic_batch_lod_partition": (
+                    "exact_title_observation_or_missing"
+                ),
                 "semantic_batch_equivalence_ladder_required": True,
                 "semantic_batch_pipeline_identity": (
                     "resource_free_layout_and_prepared_state"
@@ -83,9 +86,13 @@ def events():
         "static_world_entries": "1",
         "static_world_draws": "10",
         "static_world_multi_draw_runs": "2",
+        "title_lod_entries": "1",
+        "title_lod_draws": "10",
+        "title_lod_multi_draw_runs": "2",
         "world_family_partition": (
             "none_or_exact_track_or_exact_static_or_both"
         ),
+        "title_lod_partition": "exact_title_observation_or_missing",
         "accounting_complete": "true",
         "ordering": MODULE.EXPECTED_ORDERING,
         "reordering": "false",
@@ -262,6 +269,9 @@ def events():
             "semantic_batch_world_family_partition": (
                 "none_or_exact_track_or_exact_static_or_both"
             ),
+            "semantic_batch_lod_partition": (
+                "exact_title_observation_or_missing"
+            ),
             "semantic_batch_equivalence_ladder": (
                 "mesh_material,material,pipeline"
             ),
@@ -299,6 +309,9 @@ def events():
             "world_family_partition": (
                 "none_or_exact_track_or_exact_static_or_both"
             ),
+            "title_lod_valid": "true",
+            "title_lod_index": "2",
+            "title_lod_partition": "exact_title_observation_or_missing",
             "draws": "10",
             "frames": "2",
             "first_frame": "20",
@@ -331,6 +344,9 @@ def events():
             "world_family_partition": (
                 "none_or_exact_track_or_exact_static_or_both"
             ),
+            "title_lod_valid": "false",
+            "title_lod_index": "0",
+            "title_lod_partition": "exact_title_observation_or_missing",
             "draws": "2",
             "frames": "1",
             "first_frame": "21",
@@ -367,6 +383,13 @@ class SemanticBatchTests(unittest.TestCase):
         self.assertTrue(document["conservative_batch_plan_proved"])
         self.assertTrue(document["track_world_batch_opportunity_proved"])
         self.assertTrue(document["static_world_batch_opportunity_proved"])
+        self.assertTrue(document["title_lod_batch_opportunity_proved"])
+        self.assertTrue(
+            document["track_world_title_lod_batch_opportunity_proved"]
+        )
+        self.assertTrue(
+            document["static_world_title_lod_batch_opportunity_proved"]
+        )
         self.assertFalse(document["execution_admitted"])
         self.assertEqual(10, document["totals"]["eligible_draws"])
         self.assertEqual(6, document["totals"]["potential_command_reduction"])
@@ -415,6 +438,18 @@ class SemanticBatchTests(unittest.TestCase):
         observed = events()
         observed[-1]["potential_command_reduction"] = "5"
         with self.assertRaisesRegex(ValueError, "aggregate accounting"):
+            MODULE.build(observed, static_inventory())
+
+    def test_rejects_nonzero_index_without_title_lod(self):
+        observed = events()
+        rejected = next(
+            event
+            for event in observed
+            if event.get("event") == MODULE.BATCH_ENTRY
+            and event.get("eligible") == "false"
+        )
+        rejected["title_lod_index"] = "3"
+        with self.assertRaisesRegex(ValueError, "invalid counters"):
             MODULE.build(observed, static_inventory())
 
     def test_requires_static_admission_contract(self):
