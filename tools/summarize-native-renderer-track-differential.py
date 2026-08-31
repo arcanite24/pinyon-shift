@@ -9,13 +9,16 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-differential.v2"
+SCHEMA = "pinyon-shift.native-renderer-track-differential.v3"
 MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES = 5.0
 MINIMUM_MATERIAL_RELATIVE_DELTA = 0.05
 MAXIMUM_CHANGED_FAMILY_DETAILS = 128
 CONFIG = "native_renderer.discovery.track_render_config"
 DRAW_WINDOW = "native_renderer.census.draw_window"
 PROVENANCE = "native_renderer.discovery.title_provenance_entry"
+PREPARED_CANDIDATE = (
+    "native_renderer.discovery.semantic_visibility_prepared_candidate_entry"
+)
 INSTALLED = "native_renderer.census.installed"
 MODE_VALUES = {
     "baseline": (False, True, True, 55.0),
@@ -52,6 +55,15 @@ def boolean(event, key):
     if value not in ("true", "false"):
         raise ValueError(f"invalid {key} in {event.get('event', 'event')}")
     return value == "true"
+
+
+def hexadecimal(event, key, width):
+    value = str(event.get(key, "")).upper()
+    if len(value) != width or any(
+        character not in "0123456789ABCDEF" for character in value
+    ):
+        raise ValueError(f"invalid {key} in {event.get('event', 'event')}")
+    return value
 
 
 def session_events(events, requested_session=None):
@@ -175,6 +187,41 @@ def summarize_side(events, expected_mode, requested_session=None):
     if not signatures:
         failures.append("no exact semantic prepared families were observed")
 
+    prepared_candidates = collections.defaultdict(list)
+    for event in selected:
+        if event.get("event") != PREPARED_CANDIDATE:
+            continue
+        signature = hexadecimal(event, "prepared_signature", 16)
+        rejection_mask = hexadecimal(event, "mechanical_rejection_mask", 8)
+        mechanically_eligible = boolean(event, "mechanically_eligible")
+        if mechanically_eligible != (rejection_mask == "00000000"):
+            failures.append("prepared candidate eligibility disagrees with its mask")
+        if (
+            boolean(event, "guest_state_changed")
+            or boolean(event, "control_flow_changed")
+            or boolean(event, "native_upload")
+            or boolean(event, "native_draw")
+            or event.get("xenos_draw") != "preserved"
+            or boolean(event, "suppression_allowed")
+        ):
+            failures.append("prepared candidate violated Xenos safety")
+        first_frame = integer(event, "first_frame")
+        last_frame = integer(event, "last_frame")
+        if last_frame < first_frame:
+            failures.append("prepared candidate frame bounds are invalid")
+        prepared_candidates[signature].append(
+            {
+                "candidate_key": hexadecimal(event, "candidate_key", 16),
+                "draws": integer(event, "draws"),
+                "first_frame": first_frame,
+                "last_frame": last_frame,
+                "mechanically_eligible": mechanically_eligible,
+                "mechanical_rejection_mask": rejection_mask,
+                "visibility_category": str(event.get("visibility_category", "")),
+                "visibility_result_mask": str(event.get("visibility_result_mask", "")),
+            }
+        )
+
     return {
         "session": session,
         "mode": expected_mode,
@@ -189,6 +236,7 @@ def summarize_side(events, expected_mode, requested_session=None):
         "frames": frame_count,
         "draws": draw_count,
         "signatures": signatures,
+        "prepared_candidates": prepared_candidates,
     }
 
 
@@ -274,6 +322,37 @@ def build(
         failures.append("no prepared semantic family materially changed between modes")
 
     detailed_changed = changed[:MAXIMUM_CHANGED_FAMILY_DETAILS]
+    changed_signatures = {row["prepared_signature"] for row in changed}
+    candidate_rows = []
+    for side_name, side in (("baseline", baseline), (track_mode, track)):
+        for signature, entries in side["prepared_candidates"].items():
+            if signature not in changed_signatures:
+                continue
+            for entry in entries:
+                candidate_rows.append(
+                    {
+                        "session_mode": side_name,
+                        "prepared_signature": signature,
+                        **entry,
+                    }
+                )
+    candidate_rows.sort(
+        key=lambda row: (
+            row["prepared_signature"],
+            row["session_mode"],
+            row["first_frame"],
+            row["candidate_key"],
+        )
+    )
+    joined_signatures = {row["prepared_signature"] for row in candidate_rows}
+    eligible_signatures = {
+        row["prepared_signature"]
+        for row in candidate_rows
+        if row["mechanically_eligible"]
+    }
+    rejection_mask_counts = collections.Counter(
+        row["mechanical_rejection_mask"] for row in candidate_rows
+    )
 
     return {
         "schema": SCHEMA,
@@ -302,6 +381,22 @@ def build(
             "minimum_absolute_calls_per_1000_frames": MINIMUM_MATERIAL_DELTA_PER_1000_FRAMES,
             "minimum_relative_delta": MINIMUM_MATERIAL_RELATIVE_DELTA,
             "appearance_or_disappearance_bypasses_relative_threshold": True,
+        },
+        "semantic_visibility_join": {
+            "changed_signature_count_with_candidate_lineage": len(joined_signatures),
+            "candidate_entry_count": len(candidate_rows),
+            "mechanically_eligible_changed_signature_count": len(
+                eligible_signatures
+            ),
+            "mechanically_eligible_changed_signatures": sorted(
+                eligible_signatures
+            ),
+            "rejection_mask_entry_counts": dict(
+                sorted(rejection_mask_counts.items())
+            ),
+            "candidate_entries": candidate_rows,
+            "representative_gameplay_identity_proved": False,
+            "native_admission_allowed": False,
         },
         "qualification": {
             "title_track_render_delta_proved": not failures,

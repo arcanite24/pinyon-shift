@@ -93,18 +93,20 @@ python tools/summarize-native-renderer-track-differential.py `
   --output .local/qualification/native-renderer-track-differential.json
 ```
 
-For either additional discriminator, replace `--fasttrackrender` with
-`--variant <jsonl>` and pass `--variant-mode noroaddetailblur` or
-`--variant-mode notrackcommandbuffers`.
+For another discriminator, replace `--fasttrackrender` with `--variant
+<jsonl>` and pass `--variant-mode trackfardistance`, `noroaddetailblur`, or
+`notrackcommandbuffers`.
 
-The report requires distinct sessions from the same executable and patch set,
+The v3 report requires distinct sessions from the same executable and patch set,
 one shared marked scene, at least 600 frames per side, zero signature overflow,
 normal shutdown, and runtime confirmation that the title accepted the requested
 mode. It compares exact prepared procedural-model provenance in calls per 1,000
 frames and retains shader, template, receiver-generation, and record identity
-for each changed family. A complete report proves a title-owned track delta;
-it deliberately leaves terrain/road semantic identity, native admission, and
-suppression false.
+for each changed family. It also joins materially changed signatures to exact
+prepared semantic-visibility candidates and reports their mechanical rejection
+masks. A complete report proves a title-owned track delta; it deliberately
+leaves representative terrain/road identity, native admission, and suppression
+false.
 
 ## Qualified open-world differential
 
@@ -154,11 +156,27 @@ found zero changed families with mechanical rejection mask `00000000`.
 Consequently neither discriminator currently identifies a safe visible color
 replay. Xenos remains authoritative and native admission remains disabled.
 
-The independent floating `trackfardistance` control is now ready for one
-matched `55.0` versus `5.0` capture pair. Its exact live option store is
-proved; its downstream renderer consumer and observable workset delta are not.
-If that pair also resolves only dependent work, C1 returns to the semantic
-world-section/mesh ingress rather than spending more captures on title-wide
-frequency deltas. The runtime emits the exact rejection mask on rejected
-isolated draws, so either path can discard unsafe candidates without an extra
-decoding run.
+## Track-far-distance qualification checkpoint
+
+The matched AppData-backed `55.0` versus `5.0` pair used one clean executable
+and the same stationary festival scene:
+
+- baseline `20260831T004121Z-p23820`: 4,146 frames and 4,344,201 draws;
+- `trackfardistance` `20260831T004400Z-p35676`: 4,480 frames and 4,860,836
+  draws; and
+- 77 material families changed after 756 normalized rate-noise families were
+  rejected.
+
+This proves that the live floating option reaches submitted renderer work.
+Four changed signatures joined to ten exact semantic-visibility candidate
+entries. Six entries rejected on mask `00004000`, two on `00000001`, and two
+entries for one signature (`BE5FF23CA0389E54`) were mechanically eligible.
+That signature had 132 baseline calls and zero variant calls, but its eligible
+candidate rows comprised only 17 draws at baseline frames 3,083 and
+3,095-3,097 during the transition into the save. Representative gameplay
+identity is therefore not proved, and neither native admission nor suppression
+is allowed.
+
+The independent title switches are now exhausted as useful C1 discriminators.
+The next lead is semantic world-section/mesh ingress, with the exact
+visibility-to-prepared lineage retained as its fail-closed replay gate.
