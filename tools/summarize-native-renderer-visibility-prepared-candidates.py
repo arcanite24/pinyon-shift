@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v8"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v9"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -112,6 +112,9 @@ def static_contract(document):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "static_world_lineage": (
+            "exact_presentation_resource_mesh_transform_lineage"
+        ),
         "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": False,
         "control_flow_changed": False,
@@ -157,6 +160,9 @@ def build(events, static, requested_session=None):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "static_world_lineage": (
+            "exact_presentation_resource_mesh_transform_lineage"
+        ),
         "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": "false",
         "control_flow_changed": "false",
@@ -184,6 +190,8 @@ def build(events, static, requested_session=None):
         != "exact_unified_instance_model_nested_dispatch_scope"
         or summary.get("track_world_resource_lineage")
         != "host_mapped_direct_vtable_identity_from_exact_model_graph"
+        or summary.get("static_world_lineage")
+        != "exact_presentation_resource_mesh_transform_lineage"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -214,6 +222,10 @@ def build(events, static, requested_session=None):
         "track_world_resource_identity_draws",
         "track_world_resource_shared_identity_entries",
         "track_world_resource_shared_identity_draws",
+        "static_world_origin_entries",
+        "static_world_origin_draws",
+        "static_world_exact_entries",
+        "static_world_exact_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -282,6 +294,8 @@ def build(events, static, requested_session=None):
             ),
             16,
         )
+        item["static_world_origin"] = event.get("static_world_origin") == "true"
+        item["static_world_exact"] = event.get("static_world_exact") == "true"
         item["mechanical_rejections"] = [
             name
             for bit, name in MECHANICAL_REJECTIONS.items()
@@ -312,6 +326,11 @@ def build(events, static, requested_session=None):
             != "exact_unified_instance_model_nested_dispatch_scope"
             or event.get("track_world_resource_lineage")
             != "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            or event.get("static_world_origin") not in ("true", "false")
+            or event.get("static_world_exact") not in ("true", "false")
+            or event.get("static_world_lineage")
+            != "exact_presentation_resource_mesh_transform_lineage"
+            or (item["static_world_exact"] and not item["static_world_origin"])
             or (
                 item["track_render_shared_identity_mask"]
                 and not item["track_render_model_scope"]
@@ -442,6 +461,30 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in shared_world_resource_entries)
     ):
         failures.append("track world-resource shared-identity totals drifted")
+    exact_track_world_entries = [
+        entry
+        for entry in entries
+        if entry["track_render_model_scope"]
+        and entry["track_world_resource_shared_identity_mask"]
+    ]
+    static_world_origin_entries = [
+        entry for entry in entries if entry["static_world_origin"]
+    ]
+    if (
+        totals["static_world_origin_entries"] != len(static_world_origin_entries)
+        or totals["static_world_origin_draws"]
+        != sum(entry["draws"] for entry in static_world_origin_entries)
+    ):
+        failures.append("static-world origin totals drifted")
+    static_world_exact_entries = [
+        entry for entry in entries if entry["static_world_exact"]
+    ]
+    if (
+        totals["static_world_exact_entries"] != len(static_world_exact_entries)
+        or totals["static_world_exact_draws"]
+        != sum(entry["draws"] for entry in static_world_exact_entries)
+    ):
+        failures.append("exact static-world totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -479,6 +522,15 @@ def build(events, static, requested_session=None):
             ),
             "track_world_resource_shared_identity_proved": (
                 not failures and bool(shared_world_resource_entries)
+            ),
+            "track_world_exact_lineage_proved": (
+                not failures and bool(exact_track_world_entries)
+            ),
+            "static_world_origin_lineage_proved": (
+                not failures and bool(static_world_origin_entries)
+            ),
+            "static_world_exact_lineage_proved": (
+                not failures and bool(static_world_exact_entries)
             ),
             "native_draw_enabled": False,
             "suppression_allowed": False,

@@ -486,6 +486,14 @@ Runtime and visual proof is batched with the pending C1/C2 AppData run.
 - Preserve query and guest-visible behavior independently from visual culling.
 - Prove material reductions in draw count and submission time.
 
+Implementation checkpoint: the bounded visibility-to-prepared candidate table
+now preserves independent exact C1 track-world and C2 static-world family tags.
+Its payload-free report reconciles generic static origins and the stricter
+presentation/resource/mesh/transform-qualified subset before any production
+batch, native culling, or native LOD policy is enabled. Runtime qualification is
+batched with the pending representative C1/C2 AppData session; Xenos remains
+authoritative and suppression stays disabled.
+
 ### C4. Player and traffic vehicles
 
 - Resume vehicle work from the documented rejected paths rather than repeating

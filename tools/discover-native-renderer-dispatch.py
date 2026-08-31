@@ -1628,6 +1628,9 @@ def procedural_model_receiver_lifecycle(
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             "title_lod_capture_gate": "optional_exact_observation_startup_gate",
             "mechanical_admission_contract": "isolated_draw_v1",
             "guest_state_changed": False,

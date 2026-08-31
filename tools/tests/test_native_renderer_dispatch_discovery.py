@@ -1423,6 +1423,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             prepared_candidates["title_lod_lineage"],
         )
         self.assertEqual(
+            "exact_presentation_resource_mesh_transform_lineage",
+            prepared_candidates["static_world_lineage"],
+        )
+        self.assertEqual(
             "isolated_draw_v1",
             prepared_candidates["mechanical_admission_contract"],
         )

@@ -659,6 +659,8 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t track_render_shared_identity_mask = 0;
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_shared_identity_mask = 0;
+  bool static_world_origin = false;
+  bool static_world_exact = false;
 };
 
 struct SemanticBatchRun {
@@ -17182,7 +17184,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     const SemanticDrawIdentity &identity,
     const SemanticPreparedDrawContract &contract,
-    uint64_t prepared_signature, uint32_t mechanical_rejection_mask) {
+    uint64_t prepared_signature, uint32_t mechanical_rejection_mask,
+    bool static_world_origin, bool static_world_exact) {
   ++g_semantic_visibility_prepared_observations;
   if (identity.visibility_workset_join ==
       SemanticVisibilityWorksetJoin::kMissing) {
@@ -17224,6 +17227,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.track_render_shared_identity_mask),
         uint64_t(identity.track_world_resource_identity_mask),
         uint64_t(identity.track_world_resource_shared_identity_mask),
+        uint64_t(static_world_origin), uint64_t(static_world_exact),
         uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
@@ -17267,6 +17271,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
               identity.track_world_resource_identity_mask,
           .track_world_resource_shared_identity_mask =
               identity.track_world_resource_shared_identity_mask,
+          .static_world_origin = static_world_origin,
+          .static_world_exact = static_world_exact,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -17297,7 +17303,9 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.track_world_resource_identity_mask ==
             identity.track_world_resource_identity_mask &&
         entry.track_world_resource_shared_identity_mask ==
-            identity.track_world_resource_shared_identity_mask) {
+            identity.track_world_resource_shared_identity_mask &&
+        entry.static_world_origin == static_world_origin &&
+        entry.static_world_exact == static_world_exact) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -17348,7 +17356,9 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const bool fresh_visibility_candidate =
       RecordSemanticVisibilityPreparedCandidate(observation, identity,
                                                 contract, prepared_signature,
-                                                 mechanical_rejection_mask);
+                                                mechanical_rejection_mask,
+                                                static_world_origin,
+                                                static_world_exact);
   const SemanticVisibilityPreparedAdmission visibility_admission = {
       .fresh = fresh_visibility_candidate,
       .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
@@ -18827,6 +18837,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t track_world_resource_identity_entries = 0;
   uint64_t track_world_resource_shared_identity_draws = 0;
   uint64_t track_world_resource_shared_identity_entries = 0;
+  uint64_t static_world_origin_draws = 0;
+  uint64_t static_world_origin_entries = 0;
+  uint64_t static_world_exact_draws = 0;
+  uint64_t static_world_exact_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -18864,6 +18878,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.track_world_resource_shared_identity_mask) {
       track_world_resource_shared_identity_draws += entry.draws;
       ++track_world_resource_shared_identity_entries;
+    }
+    if (entry.static_world_origin) {
+      static_world_origin_draws += entry.draws;
+      ++static_world_origin_entries;
+    }
+    if (entry.static_world_exact) {
+      static_world_exact_draws += entry.draws;
+      ++static_world_exact_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -18912,6 +18934,12 @@ void EmitSemanticVisibilityPreparedCandidates() {
                       entry.track_world_resource_shared_identity_mask)},
          {"track_world_resource_lineage",
           "host_mapped_direct_vtable_identity_from_exact_model_graph"},
+         {"static_world_origin",
+          entry.static_world_origin ? "true" : "false"},
+         {"static_world_exact",
+          entry.static_world_exact ? "true" : "false"},
+         {"static_world_lineage",
+          "exact_presentation_resource_mesh_transform_lineage"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -18964,7 +18992,11 @@ void EmitSemanticVisibilityPreparedCandidates() {
       track_world_resource_shared_identity_draws <=
           track_world_resource_identity_draws &&
       track_world_resource_shared_identity_entries <=
-          track_world_resource_identity_entries;
+          track_world_resource_identity_entries &&
+      static_world_origin_draws <= entry_draws &&
+      static_world_origin_entries <= entry_count &&
+      static_world_exact_draws <= static_world_origin_draws &&
+      static_world_exact_entries <= static_world_origin_entries;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -19018,6 +19050,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(track_world_resource_shared_identity_entries)},
        {"track_world_resource_shared_identity_draws",
         std::to_string(track_world_resource_shared_identity_draws)},
+       {"static_world_origin_entries",
+        std::to_string(static_world_origin_entries)},
+       {"static_world_origin_draws",
+        std::to_string(static_world_origin_draws)},
+       {"static_world_exact_entries",
+        std::to_string(static_world_exact_entries)},
+       {"static_world_exact_draws",
+        std::to_string(static_world_exact_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -19035,6 +19075,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
         "exact_unified_instance_model_nested_dispatch_scope"},
        {"track_world_resource_lineage",
         "host_mapped_direct_vtable_identity_from_exact_model_graph"},
+       {"static_world_lineage",
+        "exact_presentation_resource_mesh_transform_lineage"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -23876,6 +23918,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"selection", "independent_visibility_selected_and_fresh"},
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+       {"static_world_lineage",
+        "exact_presentation_resource_mesh_transform_lineage"},
        {"mechanical_admission_contract", "isolated_draw_v1"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},

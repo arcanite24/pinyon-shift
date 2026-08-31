@@ -25,6 +25,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
                     "selection": "independent_visibility_selected_and_fresh",
                     "prepared_lineage": "exact_semantic_pm4_prepared_draw",
                     "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+                    "static_world_lineage": (
+                        "exact_presentation_resource_mesh_transform_lineage"
+                    ),
                     "mechanical_admission_contract": "isolated_draw_v1",
                     "guest_state_changed": False,
                     "control_flow_changed": False,
@@ -61,6 +64,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             "mechanical_admission_contract": "isolated_draw_v1",
             **self.safety(),
         }
@@ -98,6 +104,11 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_world_resource_shared_identity_mask": "00000002",
             "track_world_resource_lineage": (
                 "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            ),
+            "static_world_origin": "true",
+            "static_world_exact": "true",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
             ),
             "draws": "7",
             "first_frame": "10",
@@ -140,6 +151,10 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_world_resource_identity_draws": "7",
             "track_world_resource_shared_identity_entries": "1",
             "track_world_resource_shared_identity_draws": "7",
+            "static_world_origin_entries": "1",
+            "static_world_origin_draws": "7",
+            "static_world_exact_entries": "1",
+            "static_world_exact_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -156,6 +171,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             ),
             "track_world_resource_lineage": (
                 "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            ),
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
             ),
             **self.safety(),
         }
@@ -199,6 +217,15 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             document["qualification"][
                 "track_world_resource_shared_identity_proved"
             ]
+        )
+        self.assertTrue(
+            document["qualification"]["track_world_exact_lineage_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["static_world_origin_lineage_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["static_world_exact_lineage_proved"]
         )
 
     def test_build_accepts_candidate_without_title_lod(self):
@@ -266,6 +293,32 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
         self.assertFalse(
             document["qualification"]["track_render_shared_identity_proved"]
         )
+
+    def test_build_accepts_non_static_world_partition(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["static_world_origin"] = "false"
+        entry["static_world_exact"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["static_world_origin_entries"] = "0"
+        summary["static_world_origin_draws"] = "0"
+        summary["static_world_exact_entries"] = "0"
+        summary["static_world_exact_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"]["static_world_origin_lineage_proved"]
+        )
+        self.assertFalse(
+            document["qualification"]["static_world_exact_lineage_proved"]
+        )
+
+    def test_build_rejects_exact_static_world_without_origin(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["static_world_origin"] = "false"
+        with self.assertRaisesRegex(ValueError, "entry evidence drifted"):
+            MODULE.build(events, self.static())
 
     def test_build_rejects_eligibility_mask_drift(self):
         events = copy.deepcopy(self.events())
