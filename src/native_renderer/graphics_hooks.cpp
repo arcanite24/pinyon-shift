@@ -623,11 +623,18 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t mechanically_eligible_draws = 0;
   uint64_t mechanically_rejected_draws = 0;
   uint64_t rejection_mask_switches = 0;
+  uint64_t private_capture_eligible_draws = 0;
+  uint64_t private_capture_rejected_draws = 0;
+  uint64_t private_capture_rejection_mask_switches = 0;
   uint32_t seed_index = 0;
   uint32_t first_rejection_mask = 0;
   uint32_t last_rejection_mask = 0;
   uint32_t rejection_mask_or = 0;
   uint32_t rejection_mask_and = 0;
+  uint32_t first_private_capture_rejection_mask = 0;
+  uint32_t last_private_capture_rejection_mask = 0;
+  uint32_t private_capture_rejection_mask_or = 0;
+  uint32_t private_capture_rejection_mask_and = 0;
   bool full_geometry_match = false;
   bool occupied = false;
 };
@@ -1449,6 +1456,8 @@ uint64_t g_vehicle_shadow_geometry_correlation_overflow = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
+uint64_t g_vehicle_shadow_color_private_capture_eligible_draws = 0;
+uint64_t g_vehicle_shadow_color_private_capture_rejected_draws = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -15073,7 +15082,8 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
     const rex::system::GraphicsPreparedDrawObservation &prepared,
     uint64_t prepared_signature,
     const SemanticPreparedDrawContract &contract,
-    uint32_t mechanical_rejection_mask) {
+    uint32_t mechanical_rejection_mask,
+    uint32_t private_capture_rejection_mask) {
   if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
       !g_vehicle_shadow_geometry_seed_count || samples_resolved_target ||
       !contract.geometry_bounded || !observation.indexed ||
@@ -15122,6 +15132,11 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       ++g_vehicle_shadow_geometry_rejection_reason_counts[bit];
     }
   }
+  if (private_capture_rejection_mask) {
+    ++g_vehicle_shadow_color_private_capture_rejected_draws;
+  } else {
+    ++g_vehicle_shadow_color_private_capture_eligible_draws;
+  }
   VehicleShadowGeometryCorrelationEntry *available = nullptr;
   for (VehicleShadowGeometryCorrelationEntry &entry :
        g_vehicle_shadow_geometry_correlations) {
@@ -15153,6 +15168,21 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       } else {
         ++entry.mechanically_eligible_draws;
       }
+      if (entry.last_private_capture_rejection_mask !=
+          private_capture_rejection_mask) {
+        ++entry.private_capture_rejection_mask_switches;
+        entry.last_private_capture_rejection_mask =
+            private_capture_rejection_mask;
+      }
+      entry.private_capture_rejection_mask_or |=
+          private_capture_rejection_mask;
+      entry.private_capture_rejection_mask_and &=
+          private_capture_rejection_mask;
+      if (private_capture_rejection_mask) {
+        ++entry.private_capture_rejected_draws;
+      } else {
+        ++entry.private_capture_eligible_draws;
+      }
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       return true;
@@ -15176,11 +15206,23 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       .last_frame = observation.frame_sequence,
       .mechanically_eligible_draws = mechanical_rejection_mask ? 0u : 1u,
       .mechanically_rejected_draws = mechanical_rejection_mask ? 1u : 0u,
+      .private_capture_eligible_draws =
+          private_capture_rejection_mask ? 0u : 1u,
+      .private_capture_rejected_draws =
+          private_capture_rejection_mask ? 1u : 0u,
       .seed_index = uint32_t(matched_seed),
       .first_rejection_mask = mechanical_rejection_mask,
       .last_rejection_mask = mechanical_rejection_mask,
       .rejection_mask_or = mechanical_rejection_mask,
       .rejection_mask_and = mechanical_rejection_mask,
+      .first_private_capture_rejection_mask =
+          private_capture_rejection_mask,
+      .last_private_capture_rejection_mask =
+          private_capture_rejection_mask,
+      .private_capture_rejection_mask_or =
+          private_capture_rejection_mask,
+      .private_capture_rejection_mask_and =
+          private_capture_rejection_mask,
       .full_geometry_match = full_geometry_match,
       .occupied = true,
   };
@@ -15201,6 +15243,10 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
         fmt::format("{:08X}", mechanical_rejection_mask)},
        {"mechanically_eligible",
         mechanical_rejection_mask ? "false" : "true"},
+       {"private_capture_rejection_mask",
+        fmt::format("{:08X}", private_capture_rejection_mask)},
+       {"private_capture_eligible",
+        private_capture_rejection_mask ? "false" : "true"},
        {"seed_index", std::to_string(matched_seed)},
        {"match", full_geometry_match
                      ? "exact_geometry_resource_set"
@@ -16377,6 +16423,29 @@ bool IsIsolatedDrawEligible(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   return !IsolatedDrawMechanicalRejectionMask(
       observation, samples_resolved_target, prepared);
+}
+
+uint32_t VehicleShadowColorPrivateCaptureRejectionMask(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  uint32_t mask = IsolatedDrawMechanicalRejectionMask(
+      observation, samples_resolved_target, prepared);
+  // The generic isolated-draw gate is also used by payload snapshots, which
+  // currently serialize one vertex stream and at least one texture. Vehicle
+  // color capture duplicates the already-prepared backend draw directly, so
+  // it can retain bounded multi-stream input and a shader with no textures.
+  if (observation.vertex_binding_count >= 1 &&
+      observation.vertex_binding_count <=
+          rex::system::kGraphicsVertexBindingObservationLimit &&
+      !observation.vertex_binding_overflow) {
+    mask &= ~kIsolatedRejectVertexBindingCount;
+  }
+  if (std::popcount(observation.texture_fetch_mask) <= 4 &&
+      !observation.texture_state_overflow) {
+    mask &= ~kIsolatedRejectTextureCount;
+  }
+  return mask;
 }
 
 bool IsShadowDepthBatchMechanicalDraw(
@@ -19957,15 +20026,20 @@ void ObservePreparedDraw(
         IsolatedDrawMechanicalRejectionMask(
             sample, g_pending_candidate.samples_resolved_target,
             observation);
+    const uint32_t vehicle_shadow_color_private_capture_rejection_mask =
+        VehicleShadowColorPrivateCaptureRejectionMask(
+            sample, g_pending_candidate.samples_resolved_target,
+            observation);
     const bool vehicle_shadow_geometry_color_match =
         ObserveVehicleShadowGeometryColorCorrelation(
         sample, g_pending_candidate.samples_resolved_target, observation,
         prepared_signature, prepared_semantic_contract,
-        vehicle_shadow_color_rejection_mask);
+        vehicle_shadow_color_rejection_mask,
+        vehicle_shadow_color_private_capture_rejection_mask);
     if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
         !g_isolated_draw.vehicle_shadow_color_capture_completed &&
         vehicle_shadow_geometry_color_match &&
-        !vehicle_shadow_color_rejection_mask) {
+        !vehicle_shadow_color_private_capture_rejection_mask) {
       g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible = true;
       g_isolated_draw.vehicle_shadow_color_capture_pending = true;
     }
@@ -25538,6 +25612,27 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
            {"rejection_mask_switches",
             std::to_string(entry.rejection_mask_switches)},
            {"mechanical_admission_contract", "isolated_draw_v1"},
+           {"private_capture_eligible_draws",
+            std::to_string(entry.private_capture_eligible_draws)},
+           {"private_capture_rejected_draws",
+            std::to_string(entry.private_capture_rejected_draws)},
+           {"first_private_capture_rejection_mask",
+            fmt::format("{:08X}",
+                        entry.first_private_capture_rejection_mask)},
+           {"last_private_capture_rejection_mask",
+            fmt::format("{:08X}",
+                        entry.last_private_capture_rejection_mask)},
+           {"private_capture_rejection_mask_or",
+            fmt::format("{:08X}",
+                        entry.private_capture_rejection_mask_or)},
+           {"private_capture_rejection_mask_and",
+            fmt::format("{:08X}",
+                        entry.private_capture_rejection_mask_and)},
+           {"private_capture_rejection_mask_switches",
+            std::to_string(
+                entry.private_capture_rejection_mask_switches)},
+           {"private_capture_admission_contract",
+            "vehicle_color_private_replay_v1"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
            {"xenos_authority", "true"},
@@ -25622,6 +25717,20 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                   g_vehicle_shadow_geometry_color_draws_matched
               ? "true"
               : "false"},
+         {"private_capture_eligible_draws",
+          std::to_string(
+              g_vehicle_shadow_color_private_capture_eligible_draws)},
+         {"private_capture_rejected_draws",
+          std::to_string(
+              g_vehicle_shadow_color_private_capture_rejected_draws)},
+         {"private_capture_rejection_accounting_complete",
+          g_vehicle_shadow_color_private_capture_eligible_draws +
+                      g_vehicle_shadow_color_private_capture_rejected_draws ==
+                  g_vehicle_shadow_geometry_color_draws_matched
+              ? "true"
+              : "false"},
+         {"private_capture_admission_contract",
+          "vehicle_color_private_replay_v1"},
          {"seed_accounting_complete",
           seed_accounting_complete ? "true" : "false"},
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
