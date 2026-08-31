@@ -24091,7 +24091,9 @@ void ConfigureVehicleDiscovery(bool census_requested,
   }
   {
     std::scoped_lock lock(g_vehicle_constant_upload_mutex);
-    g_vehicle_constant_uploads = {};
+    std::fill(g_vehicle_constant_uploads.begin(),
+              g_vehicle_constant_uploads.end(),
+              VehicleConstantUploadEntry{});
     g_vehicle_constant_upload_observations = 0;
     g_vehicle_constant_upload_valid = 0;
     g_vehicle_constant_upload_invalid_register_range = 0;

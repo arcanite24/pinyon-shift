@@ -487,6 +487,9 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertIn("ObserveVehicleColorTypedConstantUpload", source)
         self.assertIn("MatchObservedVertexConstantSubset", source)
         self.assertNotIn("HashObservedVertexConstantRange", source)
+        self.assertNotIn("g_vehicle_constant_uploads = {};", source)
+        self.assertIn("g_vehicle_constant_uploads.begin()", source)
+        self.assertIn("VehicleConstantUploadEntry{}", source)
         self.assertIn(
             '"82435E78_exact_shader_used_vertex_subset_hash"', source
         )
