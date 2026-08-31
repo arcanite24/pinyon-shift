@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v8"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v9"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
@@ -124,6 +124,24 @@ def summarize(log_path):
     ]
     require(len(configs) == 1, "expected exactly one correlation config event")
     require(configs[0].get("status") == "armed", "correlation was not armed")
+    require(
+        configs[0].get("typed_constant_upload_hook")
+        == "82435E78:r3,r4,r5,r6",
+        "typed constant upload hook drift",
+    )
+    require(
+        configs[0].get("typed_constant_upload_contract")
+        == "exact_register_range_and_payload_hash",
+        "typed constant upload contract drift",
+    )
+    require(
+        integer(configs[0], "typed_constant_upload_capacity") == 8192,
+        "typed constant upload capacity drift",
+    )
+    require(
+        integer(configs[0], "typed_constant_upload_maximum_age_frames") == 1,
+        "typed constant upload freshness drift",
+    )
     require(len(summaries) == 1, "expected exactly one correlation summary")
     summary = summaries[0]
     require(summary.get("status") == "qualified_epoch_observed", "no qualified epoch")
@@ -243,6 +261,44 @@ def summarize(log_path):
         summary.get("material_topology_contract")
         == "shader_specialization_render_state_texture_layout",
         "material topology contract drift",
+    )
+    typed_upload_scans = integer(summary, "typed_upload_scans")
+    typed_upload_exact_matches = integer(
+        summary, "typed_upload_exact_matches"
+    )
+    typed_upload_misses = integer(summary, "typed_upload_misses")
+    require(
+        typed_upload_scans == integer(summary, "color_draws_matched"),
+        "typed upload scan accounting drift",
+    )
+    require(
+        summary.get("typed_upload_outcome_accounting_complete") == "true",
+        "typed upload outcome accounting drift",
+    )
+    require(
+        typed_upload_exact_matches + typed_upload_misses
+        == typed_upload_scans,
+        "typed upload outcome drift",
+    )
+    require(
+        integer(summary, "typed_upload_valid")
+        + integer(summary, "typed_upload_invalid_register_range")
+        + integer(summary, "typed_upload_invalid_source_range")
+        == integer(summary, "typed_upload_observations"),
+        "typed upload observation accounting drift",
+    )
+    require(
+        integer(summary, "typed_upload_capacity") == 8192,
+        "typed upload summary capacity drift",
+    )
+    require(
+        integer(summary, "typed_upload_maximum_age_frames") == 1,
+        "typed upload summary freshness drift",
+    )
+    require(
+        summary.get("typed_upload_contract")
+        == "82435E78_exact_vertex_register_range_and_payload_hash",
+        "typed upload summary contract drift",
     )
     safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
@@ -414,6 +470,46 @@ def summarize(log_path):
                 decimal(event, "closest_forward_delta_squared") <= 0.04,
                 "candidate forward threshold drift",
             )
+        family_typed_upload_scans = integer(event, "typed_upload_scans")
+        family_typed_upload_matches = integer(
+            event, "typed_upload_exact_matches"
+        )
+        family_typed_upload_misses = integer(event, "typed_upload_misses")
+        require(
+            family_typed_upload_scans == integer(event, "draws"),
+            "candidate typed upload scan accounting drift",
+        )
+        require(
+            family_typed_upload_matches + family_typed_upload_misses
+            == family_typed_upload_scans,
+            "candidate typed upload outcome drift",
+        )
+        stable_typed_upload_candidate = (
+            family_typed_upload_matches == integer(event, "draws")
+            and family_typed_upload_misses == 0
+            and integer(event, "typed_upload_start_register_variations") == 0
+            and integer(event, "typed_upload_vector_count_variations") == 0
+        )
+        require(
+            event.get("typed_upload_classification")
+            == (
+                "stable_exact_typed_upload_candidate"
+                if stable_typed_upload_candidate
+                else "unresolved"
+            ),
+            "candidate typed upload classification drift",
+        )
+        if family_typed_upload_matches:
+            require(
+                0 <= integer(event, "typed_upload_start_register") < 256,
+                "candidate typed upload register drift",
+            )
+            require(
+                0 < integer(event, "typed_upload_vector_count") <= 64,
+                "candidate typed upload vector count drift",
+            )
+            hexadecimal(event, "typed_upload_source_address")
+            hexadecimal(event, "typed_upload_buffer_address")
         for key in (
             "prepared_signature",
             "template_key",
@@ -614,6 +710,16 @@ def summarize(log_path):
         and len(stable_position_candidates) == len(candidates)
         and len(stable_position_identities) == 1
     )
+    stable_typed_upload_candidates = [
+        event
+        for event in candidates
+        if event.get("typed_upload_classification")
+        == "stable_exact_typed_upload_candidate"
+    ]
+    complete_typed_upload_bridge_candidate = (
+        len(candidates) == 30
+        and len(stable_typed_upload_candidates) == len(candidates)
+    )
     material_groups = {}
     for event in candidates:
         material_groups.setdefault(event["material_topology_key"], []).append(
@@ -685,6 +791,24 @@ def summarize(log_path):
                 )
             ],
         },
+        "typed_constant_upload": {
+            "observations": integer(summary, "typed_upload_observations"),
+            "valid": integer(summary, "typed_upload_valid"),
+            "invalid_register_range": integer(
+                summary, "typed_upload_invalid_register_range"
+            ),
+            "invalid_source_range": integer(
+                summary, "typed_upload_invalid_source_range"
+            ),
+            "overwrites": integer(summary, "typed_upload_overwrites"),
+            "capacity": integer(summary, "typed_upload_capacity"),
+            "scans": typed_upload_scans,
+            "exact_matches": typed_upload_exact_matches,
+            "misses": typed_upload_misses,
+            "stable_candidate_families": len(
+                stable_typed_upload_candidates
+            ),
+        },
         "material_topology": {
             "group_count": material_topology_groups,
             "groups": [
@@ -725,6 +849,9 @@ def summarize(log_path):
             ),
             "complete_shared_vehicle_transform_candidate": (
                 complete_shared_vehicle_transform_candidate
+            ),
+            "complete_typed_upload_bridge_candidate": (
+                complete_typed_upload_bridge_candidate
             ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,

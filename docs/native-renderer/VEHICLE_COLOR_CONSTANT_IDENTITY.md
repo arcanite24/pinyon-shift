@@ -78,3 +78,7 @@ direct world-position carrier under the tested convention. Repeating or
 widening the raw scan is not justified. C4 should instead observe the typed
 constant upload/bind boundary that produces the prepared color pipeline, then
 join that typed transform carrier back to the 30 exact families.
+
+That bounded join is implemented in
+[`VEHICLE_TYPED_CONSTANT_UPLOAD.md`](VEHICLE_TYPED_CONSTANT_UPLOAD.md). Its
+runtime evidence remains deferred to the next combined C4 qualification.

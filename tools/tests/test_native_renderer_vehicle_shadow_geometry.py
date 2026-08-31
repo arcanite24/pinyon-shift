@@ -26,6 +26,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             {
                 "event": MODULE.CONFIG_EVENT,
                 "status": "armed",
+                "typed_constant_upload_hook": "82435E78:r3,r4,r5,r6",
+                "typed_constant_upload_contract": "exact_register_range_and_payload_hash",
+                "typed_constant_upload_capacity": "8192",
+                "typed_constant_upload_maximum_age_frames": "1",
                 **safety,
             },
             {
@@ -108,6 +112,18 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "constant_forward_sign": "unknown",
                 "closest_forward_delta_squared": "0.01",
                 "constant_identity_classification": "stable_tight_position_candidate",
+                "typed_upload_scans": "3",
+                "typed_upload_exact_matches": "3",
+                "typed_upload_misses": "0",
+                "typed_upload_start_register_variations": "0",
+                "typed_upload_vector_count_variations": "0",
+                "typed_upload_source_address_variations": "2",
+                "typed_upload_buffer_address_variations": "0",
+                "typed_upload_start_register": "208",
+                "typed_upload_vector_count": "4",
+                "typed_upload_source_address": "7FFF1000",
+                "typed_upload_buffer_address": "50001000",
+                "typed_upload_classification": "stable_exact_typed_upload_candidate",
                 **safety,
             },
             {
@@ -228,6 +244,18 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "constant_forward_misses": "0",
                 "constant_forward_accounting_complete": "true",
                 "constant_identity_maximum_pose_age_frames": "1",
+                "typed_upload_observations": "4",
+                "typed_upload_valid": "3",
+                "typed_upload_invalid_register_range": "1",
+                "typed_upload_invalid_source_range": "0",
+                "typed_upload_overwrites": "0",
+                "typed_upload_capacity": "8192",
+                "typed_upload_scans": "3",
+                "typed_upload_exact_matches": "3",
+                "typed_upload_misses": "0",
+                "typed_upload_outcome_accounting_complete": "true",
+                "typed_upload_maximum_age_frames": "1",
+                "typed_upload_contract": "82435E78_exact_vertex_register_range_and_payload_hash",
                 "material_topology_groups": "1",
                 "material_topology_group_accounting_complete": "true",
                 "material_topology_contract": "shader_specialization_render_state_texture_layout",
@@ -304,6 +332,13 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 "families_with_parameter_variation"
             ],
         )
+        self.assertEqual(3, report["typed_constant_upload"]["exact_matches"])
+        self.assertEqual(
+            1, report["typed_constant_upload"]["stable_candidate_families"]
+        )
+        self.assertFalse(
+            report["qualification"]["complete_typed_upload_bridge_candidate"]
+        )
 
     def test_rejects_partial_epoch_promotion(self):
         events = self.fixture()
@@ -375,6 +410,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "material topology"):
             self.summarize(events)
 
+    def test_rejects_typed_upload_outcome_drift(self):
+        events = self.fixture()
+        events[-1]["typed_upload_exact_matches"] = "2"
+        with self.assertRaisesRegex(ValueError, "typed upload outcome drift"):
+            self.summarize(events)
+
     def test_rejects_private_capture_authority_drift(self):
         events = self.fixture()
         events[5]["output_authority"] = "native"
@@ -422,7 +463,10 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             source,
         )
         self.assertIn("ObserveVehicleColorConstantIdentity", source)
+        self.assertIn("ObserveVehicleTypedConstantUpload", source)
+        self.assertIn("ObserveVehicleColorTypedConstantUpload", source)
         self.assertIn("constant_position_accounting_complete", source)
+        self.assertIn("typed_upload_outcome_accounting_complete", source)
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn("[switch]$CaptureVehicleShadowColor", capture)
         self.assertIn("[switch]$RetainVehicleShadowColorPass", capture)

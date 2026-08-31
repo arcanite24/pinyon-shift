@@ -139,6 +139,10 @@ constexpr size_t kVehicleTypedDescriptorCorrelationCapacity = 512;
 constexpr uint32_t kVehicleComposedMatrixHook = 0x8240EB5C;
 constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
+constexpr uint32_t kVehicleConstantUploadHook = 0x82435E78;
+constexpr uint32_t kVehicleConstantUploadRegisterBias = 120;
+constexpr size_t kVehicleConstantUploadCapacity = 8192;
+constexpr uint64_t kVehicleConstantUploadMaximumAgeFrames = 1;
 constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
 constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
 constexpr uint64_t kVehicleColorConstantMaximumIdentityAgeFrames = 1;
@@ -650,6 +654,13 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint64_t constant_forward_misses = 0;
   uint64_t constant_forward_identity_variations = 0;
   uint64_t constant_forward_register_variations = 0;
+  uint64_t typed_upload_scans = 0;
+  uint64_t typed_upload_exact_matches = 0;
+  uint64_t typed_upload_misses = 0;
+  uint64_t typed_upload_start_register_variations = 0;
+  uint64_t typed_upload_vector_count_variations = 0;
+  uint64_t typed_upload_source_address_variations = 0;
+  uint64_t typed_upload_buffer_address_variations = 0;
   double closest_position_delta_squared =
       std::numeric_limits<double>::infinity();
   double closest_forward_delta_squared =
@@ -672,9 +683,25 @@ struct VehicleShadowGeometryCorrelationEntry {
   uint32_t constant_forward_identity_slot = 0;
   uint32_t constant_forward_register = 0;
   int32_t constant_forward_sign = 0;
+  uint32_t typed_upload_start_register = 0;
+  uint32_t typed_upload_vector_count = 0;
+  uint32_t typed_upload_source_address = 0;
+  uint32_t typed_upload_buffer_address = 0;
   bool full_geometry_match = false;
   bool constant_position_identity_valid = false;
   bool constant_forward_identity_valid = false;
+  bool typed_upload_identity_valid = false;
+  bool occupied = false;
+};
+
+struct VehicleConstantUploadEntry {
+  uint64_t frame = 0;
+  uint64_t sequence = 0;
+  uint64_t payload_hash = 0;
+  uint32_t buffer_address = 0;
+  uint32_t source_address = 0;
+  uint32_t start_register = 0;
+  uint32_t vector_count = 0;
   bool occupied = false;
 };
 
@@ -1503,6 +1530,16 @@ uint64_t g_vehicle_shadow_geometry_correlation_overflow = 0;
 uint64_t g_vehicle_color_constant_vectors_scanned = 0;
 uint64_t g_vehicle_color_constant_non_finite_vectors = 0;
 uint64_t g_vehicle_color_constant_identity_comparisons = 0;
+std::array<VehicleConstantUploadEntry, kVehicleConstantUploadCapacity>
+    g_vehicle_constant_uploads{};
+std::mutex g_vehicle_constant_upload_mutex;
+uint64_t g_vehicle_constant_upload_observations = 0;
+uint64_t g_vehicle_constant_upload_valid = 0;
+uint64_t g_vehicle_constant_upload_invalid_register_range = 0;
+uint64_t g_vehicle_constant_upload_invalid_source_range = 0;
+uint64_t g_vehicle_constant_upload_overwrites = 0;
+uint64_t g_vehicle_constant_upload_sequence = 0;
+size_t g_vehicle_constant_upload_cursor = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
 uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
 std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
@@ -9104,6 +9141,13 @@ void ConfigureIsolatedDraw() {
          {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
          {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
          {"color_match", "exact_full_or_index_plus_vertex_resource"},
+         {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6"},
+         {"typed_constant_upload_contract",
+          "exact_register_range_and_payload_hash"},
+         {"typed_constant_upload_capacity",
+          std::to_string(kVehicleConstantUploadCapacity)},
+         {"typed_constant_upload_maximum_age_frames",
+          std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
          {"guest_payload_capture", "false"},
          {"native_draw", "false"},
          {"xenos_authority", "true"},
@@ -15233,6 +15277,160 @@ uint64_t VehicleColorMaterialParameterHash(
   return hash ? hash : 1;
 }
 
+uint64_t VehicleConstantPayloadHash(uint32_t start_register,
+                                    uint32_t vector_count,
+                                    std::span<const uint32_t> words) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  hash = HashCombine(hash, start_register);
+  hash = HashCombine(hash, vector_count);
+  for (uint32_t word : words) {
+    hash = HashCombine(hash, word);
+  }
+  return hash ? hash : 1;
+}
+
+void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
+                                       uint32_t register_offset,
+                                       uint32_t source_address,
+                                       uint32_t vector_count) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
+      !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+  ++g_vehicle_constant_upload_observations;
+  const uint64_t start_register_64 =
+      uint64_t(register_offset) + kVehicleConstantUploadRegisterBias;
+  if (!vector_count ||
+      vector_count > rex::system::kGraphicsFloatConstantObservationLimit ||
+      start_register_64 > UINT32_MAX ||
+      start_register_64 + vector_count > 256) {
+    ++g_vehicle_constant_upload_invalid_register_range;
+    return;
+  }
+  const uint64_t byte_count = uint64_t(vector_count) * 4 * sizeof(uint32_t);
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  if (byte_count > UINT32_MAX ||
+      !IsReadableVehicleGuestRange(memory, source_address,
+                                   uint32_t(byte_count))) {
+    ++g_vehicle_constant_upload_invalid_source_range;
+    return;
+  }
+  std::array<uint32_t,
+             rex::system::kGraphicsFloatConstantObservationLimit * 4>
+      words{};
+  const uint32_t word_count = vector_count * 4;
+  for (uint32_t i = 0; i < word_count; ++i) {
+    words[i] = LoadSemanticGuestU32(memory,
+                                    source_address + i * sizeof(uint32_t));
+  }
+  VehicleConstantUploadEntry &entry =
+      g_vehicle_constant_uploads[g_vehicle_constant_upload_cursor];
+  g_vehicle_constant_upload_overwrites += entry.occupied ? 1u : 0u;
+  entry = {
+      .frame = g_frame_sequence.load(std::memory_order_relaxed),
+      .sequence = ++g_vehicle_constant_upload_sequence,
+      .payload_hash = VehicleConstantPayloadHash(
+          uint32_t(start_register_64), vector_count,
+          std::span(words.data(), word_count)),
+      .buffer_address = buffer_address,
+      .source_address = source_address,
+      .start_register = uint32_t(start_register_64),
+      .vector_count = vector_count,
+      .occupied = true,
+  };
+  g_vehicle_constant_upload_cursor =
+      (g_vehicle_constant_upload_cursor + 1) %
+      g_vehicle_constant_uploads.size();
+  ++g_vehicle_constant_upload_valid;
+}
+
+bool HashObservedVertexConstantRange(
+    const rex::system::GraphicsDrawObservation &observation,
+    uint32_t start_register, uint32_t vector_count, uint64_t *payload_hash) {
+  if (!payload_hash) {
+    return false;
+  }
+  std::array<uint32_t,
+             rex::system::kGraphicsFloatConstantObservationLimit * 4>
+      words{};
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t vector_offset = 0; vector_offset < vector_count;
+       ++vector_offset) {
+    const uint32_t target_register = start_register + vector_offset;
+    const rex::system::GraphicsFloatConstantObservation *matched = nullptr;
+    for (uint32_t observed_offset = 0; observed_offset < observed_count;
+         ++observed_offset) {
+      const auto &candidate =
+          observation.vertex_float_constants[observed_offset];
+      if (candidate.index == target_register) {
+        matched = &candidate;
+        break;
+      }
+    }
+    if (!matched) {
+      return false;
+    }
+    std::copy(std::begin(matched->values), std::end(matched->values),
+              words.begin() + vector_offset * 4);
+  }
+  *payload_hash = VehicleConstantPayloadHash(
+      start_register, vector_count,
+      std::span(words.data(), vector_count * 4));
+  return true;
+}
+
+void ObserveVehicleColorTypedConstantUpload(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry) {
+  ++entry.typed_upload_scans;
+  VehicleConstantUploadEntry best{};
+  {
+    std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+    for (const VehicleConstantUploadEntry &upload :
+         g_vehicle_constant_uploads) {
+      if (!upload.occupied || observation.frame_sequence < upload.frame ||
+          observation.frame_sequence - upload.frame >
+              kVehicleConstantUploadMaximumAgeFrames) {
+        continue;
+      }
+      uint64_t observed_hash = 0;
+      if (!HashObservedVertexConstantRange(
+              observation, upload.start_register, upload.vector_count,
+              &observed_hash) ||
+          observed_hash != upload.payload_hash) {
+        continue;
+      }
+      if (!best.occupied || upload.sequence > best.sequence) {
+        best = upload;
+      }
+    }
+  }
+  if (!best.occupied) {
+    ++entry.typed_upload_misses;
+    return;
+  }
+  ++entry.typed_upload_exact_matches;
+  if (entry.typed_upload_identity_valid) {
+    entry.typed_upload_start_register_variations +=
+        entry.typed_upload_start_register != best.start_register;
+    entry.typed_upload_vector_count_variations +=
+        entry.typed_upload_vector_count != best.vector_count;
+    entry.typed_upload_source_address_variations +=
+        entry.typed_upload_source_address != best.source_address;
+    entry.typed_upload_buffer_address_variations +=
+        entry.typed_upload_buffer_address != best.buffer_address;
+  }
+  entry.typed_upload_start_register = best.start_register;
+  entry.typed_upload_vector_count = best.vector_count;
+  entry.typed_upload_source_address = best.source_address;
+  entry.typed_upload_buffer_address = best.buffer_address;
+  entry.typed_upload_identity_valid = true;
+}
+
 void ObserveVehicleColorConstantIdentity(
     const rex::system::GraphicsDrawObservation &observation,
     VehicleShadowGeometryCorrelationEntry &entry) {
@@ -15535,6 +15733,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       ObserveVehicleColorConstantIdentity(observation, entry);
+      ObserveVehicleColorTypedConstantUpload(observation, entry);
       if (matched_correlation_index) {
         *matched_correlation_index = correlation_index;
       }
@@ -15587,6 +15786,7 @@ bool ObserveVehicleShadowGeometryColorCorrelation(
       .occupied = true,
   };
   ObserveVehicleColorConstantIdentity(observation, *available);
+  ObserveVehicleColorTypedConstantUpload(observation, *available);
   if (matched_correlation_index) {
     *matched_correlation_index = available_index;
   }
@@ -23867,6 +24067,17 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_composed_matrix_correlation_count = 0;
     g_vehicle_composed_matrix_correlation_overflow = 0;
   }
+  {
+    std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+    g_vehicle_constant_uploads = {};
+    g_vehicle_constant_upload_observations = 0;
+    g_vehicle_constant_upload_valid = 0;
+    g_vehicle_constant_upload_invalid_register_range = 0;
+    g_vehicle_constant_upload_invalid_source_range = 0;
+    g_vehicle_constant_upload_overwrites = 0;
+    g_vehicle_constant_upload_sequence = 0;
+    g_vehicle_constant_upload_cursor = 0;
+  }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
     stats.matched_owner_calls.store(0, std::memory_order_relaxed);
@@ -26297,6 +26508,9 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     uint64_t constant_forward_unique_matches = 0;
     uint64_t constant_forward_ambiguous_matches = 0;
     uint64_t constant_forward_misses = 0;
+    uint64_t typed_upload_scans = 0;
+    uint64_t typed_upload_exact_matches = 0;
+    uint64_t typed_upload_misses = 0;
     std::array<uint64_t, kVehicleShadowGeometryCorrelationCapacity>
         material_topology_keys{};
     size_t material_topology_group_count = 0;
@@ -26318,6 +26532,9 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
       constant_forward_ambiguous_matches +=
           entry.constant_forward_ambiguous_matches;
       constant_forward_misses += entry.constant_forward_misses;
+      typed_upload_scans += entry.typed_upload_scans;
+      typed_upload_exact_matches += entry.typed_upload_exact_matches;
+      typed_upload_misses += entry.typed_upload_misses;
       bool material_topology_seen = false;
       for (size_t material_index = 0;
            material_index < material_topology_group_count;
@@ -26496,6 +26713,46 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
                     !entry.constant_position_register_variations
                 ? "stable_tight_position_candidate"
                 : "unresolved"},
+           {"typed_upload_scans",
+            std::to_string(entry.typed_upload_scans)},
+           {"typed_upload_exact_matches",
+            std::to_string(entry.typed_upload_exact_matches)},
+           {"typed_upload_misses",
+            std::to_string(entry.typed_upload_misses)},
+           {"typed_upload_start_register_variations",
+            std::to_string(
+                entry.typed_upload_start_register_variations)},
+           {"typed_upload_vector_count_variations",
+            std::to_string(entry.typed_upload_vector_count_variations)},
+           {"typed_upload_source_address_variations",
+            std::to_string(
+                entry.typed_upload_source_address_variations)},
+           {"typed_upload_buffer_address_variations",
+            std::to_string(
+                entry.typed_upload_buffer_address_variations)},
+           {"typed_upload_start_register",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_start_register)
+                : "unknown"},
+           {"typed_upload_vector_count",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_vector_count)
+                : "unknown"},
+           {"typed_upload_source_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}", entry.typed_upload_source_address)
+                : "unknown"},
+           {"typed_upload_buffer_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}", entry.typed_upload_buffer_address)
+                : "unknown"},
+           {"typed_upload_classification",
+            entry.typed_upload_exact_matches == entry.draws &&
+                    !entry.typed_upload_misses &&
+                    !entry.typed_upload_start_register_variations &&
+                    !entry.typed_upload_vector_count_variations
+                ? "stable_exact_typed_upload_candidate"
+                : "unresolved"},
            {"guest_payload_capture", "false"},
            {"native_draw", "false"},
            {"xenos_authority", "true"},
@@ -26651,6 +26908,32 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
               : "false"},
          {"constant_identity_maximum_pose_age_frames",
           std::to_string(kVehicleColorConstantMaximumIdentityAgeFrames)},
+         {"typed_upload_observations",
+          std::to_string(g_vehicle_constant_upload_observations)},
+         {"typed_upload_valid",
+          std::to_string(g_vehicle_constant_upload_valid)},
+         {"typed_upload_invalid_register_range",
+          std::to_string(
+              g_vehicle_constant_upload_invalid_register_range)},
+         {"typed_upload_invalid_source_range",
+          std::to_string(g_vehicle_constant_upload_invalid_source_range)},
+         {"typed_upload_overwrites",
+          std::to_string(g_vehicle_constant_upload_overwrites)},
+         {"typed_upload_capacity",
+          std::to_string(kVehicleConstantUploadCapacity)},
+         {"typed_upload_scans", std::to_string(typed_upload_scans)},
+         {"typed_upload_exact_matches",
+          std::to_string(typed_upload_exact_matches)},
+         {"typed_upload_misses", std::to_string(typed_upload_misses)},
+         {"typed_upload_outcome_accounting_complete",
+          typed_upload_exact_matches + typed_upload_misses ==
+                  typed_upload_scans
+              ? "true"
+              : "false"},
+         {"typed_upload_maximum_age_frames",
+          std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
+         {"typed_upload_contract",
+          "82435E78_exact_vertex_register_range_and_payload_hash"},
          {"material_topology_groups",
           std::to_string(material_topology_group_count)},
          {"material_topology_group_accounting_complete",
@@ -27277,6 +27560,11 @@ void PinyonShiftObserveStaticWorldResourceRefreshResetExit(
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
                                              PPCRegister &r22) {
   ObserveVehicleComposedMatrix(r22.u32, r5.u32);
+}
+
+void PinyonShiftObserveVehicleTypedConstantUpload(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6) {
+  ObserveVehicleTypedConstantUpload(r3.u32, r4.u32, r5.u32, r6.u32);
 }
 
 void PinyonShiftObserveVehicleRenderContextDispatcherEntry(

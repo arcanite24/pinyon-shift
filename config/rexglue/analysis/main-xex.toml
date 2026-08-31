@@ -358,6 +358,15 @@ address = 0x8240EB5C
 name = "PinyonShiftObserveVehicleComposedMatrix"
 registers = ["r5", "r22"]
 
+# Observe the exact generic constant-buffer writer before it copies the source
+# vectors. The bounded C4 ledger retains only a semantic payload hash and the
+# typed destination range so prepared vehicle draws can prove their upload
+# source without exporting constant values.
+[[midasm_hook]]
+address = 0x82435E78
+name = "PinyonShiftObserveVehicleTypedConstantUpload"
+registers = ["r3", "r4", "r5", "r6"]
+
 [[midasm_hook]]
 address = 0x8243646C
 name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"
