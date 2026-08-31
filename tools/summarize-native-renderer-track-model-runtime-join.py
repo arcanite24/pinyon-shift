@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v1"
+SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v2"
 CONFIG = "native_renderer.discovery.track_render_model_runtime_join_config"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
 
@@ -20,6 +20,20 @@ RELATIONS = (
     "shared_child_receiver",
     "shared_root_runtime_object",
     "shared_child_runtime_object",
+)
+
+WORLD_RELATIONS = (
+    "world_track_model",
+    "world_track_mesh",
+    "world_track_submodel",
+    "world_procedural_geometry_object",
+    "world_procedural_geometry_resource",
+    "world_pvs_zone_object",
+    "world_pvs_zone_resource",
+)
+
+SHARED_WORLD_RELATIONS = tuple(
+    f"shared_{relation}" for relation in WORLD_RELATIONS
 )
 
 
@@ -94,7 +108,21 @@ def build(events, requested_session=None):
         "descriptor_flag": "1",
         "join": "synchronous_scope_to_procedural_model_submission",
         "shared_identity": "descriptor_payload_or_object_address_exact_equality",
-        "guest_payload_read": "bounded_308_bytes_per_scope",
+        "world_resource_vtables": (
+            "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,"
+            "82144E64"
+        ),
+        "world_resource_graph": (
+            "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+        ),
+        "world_resource_shared_identity": (
+            "exact_address_equality_to_submission_objects_or_resources"
+        ),
+        "world_resource_graph_cache_capacity": "1024",
+        "world_resource_reference_capacity": "16",
+        "guest_payload_read": (
+            "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"
+        ),
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("track-model runtime configuration drifted")
@@ -121,7 +149,14 @@ def build(events, requested_session=None):
         "shared_identity_joins",
         "scope_overlaps",
         "exit_without_entry",
+        "world_resource_graph_scopes",
+        "world_resource_graph_cache_hits",
+        "world_resource_graph_cache_misses",
+        "world_resource_graph_reference_overflow",
+        "world_resource_shared_identity_joins",
         *RELATIONS,
+        *WORLD_RELATIONS,
+        *SHARED_WORLD_RELATIONS,
     )
     totals = {key: integer(summary, key) for key in keys}
     failures = []
@@ -162,6 +197,39 @@ def build(events, requested_session=None):
         totals[key] for key in RELATIONS
     ):
         failures.append("shared identity relation accounting is empty")
+    if (
+        totals["world_resource_graph_cache_hits"]
+        + totals["world_resource_graph_cache_misses"]
+        != totals["exact_scopes"]
+    ):
+        failures.append("world-resource graph cache accounting drifted")
+    if totals["world_resource_graph_scopes"] > totals["exact_scopes"]:
+        failures.append("world-resource graph scopes exceed exact scopes")
+    if totals["world_resource_graph_reference_overflow"]:
+        failures.append("world-resource graph reference overflow is nonzero")
+    if totals["world_resource_graph_scopes"] and not any(
+        totals[key] for key in WORLD_RELATIONS
+    ):
+        failures.append("world-resource graph relation accounting is empty")
+    if any(
+        totals[key] > totals["world_resource_graph_scopes"]
+        for key in WORLD_RELATIONS
+    ):
+        failures.append("world-resource graph relation exceeds graph scopes")
+    if (
+        totals["world_resource_shared_identity_joins"]
+        > totals["submission_joins"]
+    ):
+        failures.append("world-resource shared joins exceed submission joins")
+    if totals["world_resource_shared_identity_joins"] and not any(
+        totals[key] for key in SHARED_WORLD_RELATIONS
+    ):
+        failures.append("shared world-resource relation accounting is empty")
+    if any(
+        totals[key] > totals["world_resource_shared_identity_joins"]
+        for key in SHARED_WORLD_RELATIONS
+    ):
+        failures.append("shared world-resource relation exceeds shared joins")
     expected_status = "complete" if not failures else "incomplete"
     if summary.get("status") != expected_status:
         failures.append("runtime status does not match qualification outcome")
@@ -179,10 +247,23 @@ def build(events, requested_session=None):
         "shared_identity_relations": {
             key: totals[key] for key in RELATIONS
         },
+        "world_resource_relations": {
+            key: totals[key] for key in WORLD_RELATIONS
+        },
+        "shared_world_resource_relations": {
+            key: totals[key] for key in SHARED_WORLD_RELATIONS
+        },
         "qualification": {
             "track_render_model_scope_to_submission_proved": not failures,
             "shared_object_or_resource_identity_proved": (
                 not failures and totals["shared_identity_joins"] > 0
+            ),
+            "track_world_resource_graph_identity_proved": (
+                not failures and totals["world_resource_graph_scopes"] > 0
+            ),
+            "track_world_resource_to_submission_identity_proved": (
+                not failures
+                and totals["world_resource_shared_identity_joins"] > 0
             ),
             "terrain_or_road_visual_identity_proved": False,
             "native_admission": False,

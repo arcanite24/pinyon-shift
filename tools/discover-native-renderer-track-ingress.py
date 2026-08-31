@@ -261,6 +261,28 @@ def build(functions: set[int], image: bytes) -> dict:
             "proved": False,
             "required_evidence": "exact_shared_object_or_resource_identity_at_both_boundaries",
         },
+        "runtime_graph_probe": {
+            "source_scope": "8240EC80_8240ECAC",
+            "child_bytes": 64,
+            "descriptor_bytes": 248,
+            "direct_vtable_classes": [
+                "track_model",
+                "track_mesh",
+                "track_sub_model",
+                "track_procedural_geometry_object",
+                "track_procedural_geometry_resource",
+                "track_pvs_zone_object",
+                "track_pvs_zone_resource",
+            ],
+            "cache_capacity": 1024,
+            "reference_capacity": 16,
+            "identity_join": (
+                "exact_address_equality_to_procedural_submission_objects_or_resources"
+            ),
+            "guest_state_changed": False,
+            "native_admission": False,
+            "suppression_allowed": False,
+        },
         "safety": {
             "static_analysis_only": True,
             "guest_payload_exported": False,

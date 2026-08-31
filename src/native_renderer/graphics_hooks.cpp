@@ -170,6 +170,16 @@ constexpr uint32_t kTrackRenderModelUnifiedVtable = 0x82001D74;
 constexpr uint32_t kTrackRenderModelDescriptorType = 21;
 constexpr uint32_t kTrackRenderModelDescriptorFlag = 1;
 constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
+constexpr uint32_t kTrackRenderModelGraphBytes = 64;
+constexpr uint32_t kTrackModelVtable = 0x820016B4;
+constexpr uint32_t kTrackMeshVtable = 0x8200143C;
+constexpr uint32_t kTrackSubModelVtable = 0x82001474;
+constexpr uint32_t kTrackProceduralGeometryObjectVtable = 0x82144CF8;
+constexpr uint32_t kTrackProceduralGeometryResourceVtable = 0x82144D7C;
+constexpr uint32_t kTrackPvsZoneObjectVtable = 0x82144DE0;
+constexpr uint32_t kTrackPvsZoneResourceVtable = 0x82144E64;
+constexpr size_t kTrackWorldResourceIdentityCapacity = 16;
+constexpr size_t kTrackWorldResourceGraphCacheCapacity = 1024;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -448,6 +458,8 @@ struct SemanticDrawIdentity {
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
   uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
   bool valid = false;
 };
 
@@ -577,6 +589,8 @@ struct SemanticVisibilityPreparedCandidateEntry {
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
   uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
 };
 
 struct SemanticBatchRun {
@@ -1808,6 +1822,32 @@ enum TrackRenderSharedIdentity : uint32_t {
   kTrackRenderSharedChildRuntimeObject = 1u << 7,
 };
 
+enum TrackWorldResourceIdentity : uint32_t {
+  kTrackWorldResourceTrackModel = 1u << 0,
+  kTrackWorldResourceTrackMesh = 1u << 1,
+  kTrackWorldResourceTrackSubModel = 1u << 2,
+  kTrackWorldResourceProceduralGeometryObject = 1u << 3,
+  kTrackWorldResourceProceduralGeometryResource = 1u << 4,
+  kTrackWorldResourcePvsZoneObject = 1u << 5,
+  kTrackWorldResourcePvsZoneResource = 1u << 6,
+};
+
+struct TrackWorldResourceReference {
+  uint32_t address = 0;
+  uint32_t identity = 0;
+};
+
+struct TrackWorldResourceGraphCacheEntry {
+  uint64_t fingerprint = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t identity_mask = 0;
+  uint32_t reference_count = 0;
+  std::array<TrackWorldResourceReference,
+             kTrackWorldResourceIdentityCapacity>
+      references{};
+};
+
 struct TrackRenderModelDispatchScope {
   uint64_t submission_joins = 0;
   uint32_t root_address = 0;
@@ -1815,6 +1855,12 @@ struct TrackRenderModelDispatchScope {
   uint32_t descriptor_address = 0;
   uint32_t descriptor_payload = 0;
   uint32_t shared_identity_mask = 0;
+  uint32_t world_resource_identity_mask = 0;
+  uint32_t world_resource_shared_identity_mask = 0;
+  uint32_t world_resource_reference_count = 0;
+  std::array<TrackWorldResourceReference,
+             kTrackWorldResourceIdentityCapacity>
+      world_resource_references{};
   bool active = false;
   bool exact = false;
 };
@@ -1891,6 +1937,15 @@ std::atomic<uint64_t> g_track_render_model_submission_joins{};
 std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 8>
     g_track_render_model_shared_identity_relations{};
+std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
+std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
+std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
+std::atomic<uint64_t> g_track_world_resource_graph_scopes{};
+std::atomic<uint64_t> g_track_world_resource_shared_identity_joins{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_identity_relations{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_shared_identity_relations{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -1902,6 +1957,9 @@ thread_local std::array<SemanticDrawIdentity,
 thread_local size_t g_semantic_render_item_stack_depth = 0;
 thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
 thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
+thread_local std::array<TrackWorldResourceGraphCacheEntry,
+                        kTrackWorldResourceGraphCacheCapacity>
+    g_track_world_resource_graph_cache{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -2229,6 +2287,8 @@ const char *DrawOutcomeName(uint32_t outcome) {
 
 std::string CensusSceneMarker();
 uint64_t HashCombine(uint64_t hash, uint64_t value);
+uint32_t LoadSemanticGuestU32(rex::memory::Memory *memory,
+                              uint32_t address);
 template <size_t N>
 void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
                             std::array<uint32_t, N> &words);
@@ -2368,6 +2428,115 @@ bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
              rex::memory::PageAccess::kNoAccess;
 }
 
+uint32_t ClassifyTrackWorldResourceVtable(uint32_t vtable) {
+  switch (vtable) {
+  case kTrackModelVtable:
+    return kTrackWorldResourceTrackModel;
+  case kTrackMeshVtable:
+    return kTrackWorldResourceTrackMesh;
+  case kTrackSubModelVtable:
+    return kTrackWorldResourceTrackSubModel;
+  case kTrackProceduralGeometryObjectVtable:
+    return kTrackWorldResourceProceduralGeometryObject;
+  case kTrackProceduralGeometryResourceVtable:
+    return kTrackWorldResourceProceduralGeometryResource;
+  case kTrackPvsZoneObjectVtable:
+    return kTrackWorldResourcePvsZoneObject;
+  case kTrackPvsZoneResourceVtable:
+    return kTrackWorldResourcePvsZoneResource;
+  default:
+    return 0;
+  }
+}
+
+void AddTrackWorldResourceReference(
+    TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
+    uint32_t identity) {
+  if (!address || !identity) {
+    return;
+  }
+  entry.identity_mask |= identity;
+  for (size_t index = 0; index < entry.reference_count; ++index) {
+    if (entry.references[index].address == address) {
+      entry.references[index].identity |= identity;
+      return;
+    }
+  }
+  if (entry.reference_count >= entry.references.size()) {
+    ++g_track_world_resource_graph_reference_overflow;
+    return;
+  }
+  entry.references[entry.reference_count++] = {
+      .address = address,
+      .identity = identity,
+  };
+}
+
+template <size_t N>
+void ScanTrackWorldResourcePointers(
+    rex::memory::Memory *memory, const std::array<uint32_t, N> &words,
+    TrackWorldResourceGraphCacheEntry &entry) {
+  for (uint32_t address : words) {
+    if (!address || (address & 3) ||
+        !IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+      continue;
+    }
+    const uint32_t identity = ClassifyTrackWorldResourceVtable(
+        LoadSemanticGuestU32(memory, address));
+    AddTrackWorldResourceReference(entry, address, identity);
+  }
+}
+
+template <size_t ChildWords, size_t DescriptorWords>
+void PopulateTrackWorldResourceGraph(
+    rex::memory::Memory *memory, uint32_t child_address,
+    uint32_t descriptor_address,
+    const std::array<uint32_t, ChildWords> &child_words,
+    const std::array<uint32_t, DescriptorWords> &descriptor_words) {
+  uint64_t fingerprint = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t word : child_words) {
+    fingerprint = HashCombine(fingerprint, word);
+  }
+  for (uint32_t word : descriptor_words) {
+    fingerprint = HashCombine(fingerprint, word);
+  }
+  fingerprint = fingerprint ? fingerprint : 1;
+  const size_t index =
+      size_t(((child_address >> 4) ^ (descriptor_address >> 4)) &
+             (kTrackWorldResourceGraphCacheCapacity - 1));
+  static_assert((kTrackWorldResourceGraphCacheCapacity &
+                 (kTrackWorldResourceGraphCacheCapacity - 1)) == 0);
+  TrackWorldResourceGraphCacheEntry &entry =
+      g_track_world_resource_graph_cache[index];
+  if (entry.child_address == child_address &&
+      entry.descriptor_address == descriptor_address &&
+      entry.fingerprint == fingerprint) {
+    ++g_track_world_resource_graph_cache_hits;
+  } else {
+    ++g_track_world_resource_graph_cache_misses;
+    entry = {
+        .fingerprint = fingerprint,
+        .child_address = child_address,
+        .descriptor_address = descriptor_address,
+    };
+    ScanTrackWorldResourcePointers(memory, child_words, entry);
+    ScanTrackWorldResourcePointers(memory, descriptor_words, entry);
+  }
+  TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+  scope.world_resource_identity_mask = entry.identity_mask;
+  scope.world_resource_reference_count = entry.reference_count;
+  scope.world_resource_references = entry.references;
+  if (entry.identity_mask) {
+    ++g_track_world_resource_graph_scopes;
+    for (size_t bit = 0;
+         bit < g_track_world_resource_identity_relations.size(); ++bit) {
+      if (entry.identity_mask & (1u << bit)) {
+        ++g_track_world_resource_identity_relations[bit];
+      }
+    }
+  }
+}
+
 void BeginTrackRenderModelDispatch(uint32_t root_address) {
   ++g_track_render_model_scope_entries;
   if (g_track_render_model_scope.active) {
@@ -2389,11 +2558,13 @@ void BeginTrackRenderModelDispatch(uint32_t root_address) {
     return;
   }
   const uint32_t child_address = root_words[1];
-  if (!IsReadableVehicleGuestRange(memory, child_address, 52)) {
+  if (!IsReadableVehicleGuestRange(memory, child_address,
+                                   kTrackRenderModelGraphBytes)) {
     ++g_track_render_model_scope_invalid_child;
     return;
   }
-  std::array<uint32_t, 13> child_words{};
+  std::array<uint32_t, kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+      child_words{};
   LoadSemanticGuestWords(memory, child_address, child_words);
   if (child_words[0] != kTrackRenderModelUnifiedVtable) {
     ++g_track_render_model_scope_invalid_child;
@@ -2425,6 +2596,8 @@ void BeginTrackRenderModelDispatch(uint32_t root_address) {
   g_track_render_model_scope.descriptor_address = descriptor_address;
   g_track_render_model_scope.descriptor_payload = descriptor_words[10];
   g_track_render_model_scope.exact = true;
+  PopulateTrackWorldResourceGraph(memory, child_address, descriptor_address,
+                                  child_words, descriptor_words);
   ++g_track_render_model_scope_exact;
 }
 
@@ -8597,7 +8770,10 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
                                      bool secondary_resource_present,
                                      bool track_texture_provider,
                                      bool track_render_model_scope,
-                                     uint32_t track_render_shared_identity_mask) {
+                                     uint32_t track_render_shared_identity_mask,
+                                     uint32_t track_world_resource_identity_mask,
+                                     uint32_t
+                                         track_world_resource_shared_identity_mask) {
   if (!g_semantic_render_item_stack_depth) {
     g_semantic_draw_scope_mismatches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -8625,6 +8801,10 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
   semantic_draw.track_render_model_scope = track_render_model_scope;
   semantic_draw.track_render_shared_identity_mask =
       track_render_shared_identity_mask;
+  semantic_draw.track_world_resource_identity_mask =
+      track_world_resource_identity_mask;
+  semantic_draw.track_world_resource_shared_identity_mask =
+      track_world_resource_shared_identity_mask;
   semantic_draw.valid = true;
   g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
 }
@@ -8849,6 +9029,8 @@ void RecordProceduralModelGeometrySubmission(
   const bool track_render_model_scope =
       g_track_render_model_scope.active && g_track_render_model_scope.exact;
   uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
   if (track_render_model_scope) {
     const TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
     track_render_shared_identity_mask |=
@@ -8882,6 +9064,23 @@ void RecordProceduralModelGeometrySubmission(
         scope.child_address == runtime_submission_object
             ? kTrackRenderSharedChildRuntimeObject
             : 0;
+    track_world_resource_identity_mask =
+        scope.world_resource_identity_mask;
+    for (size_t index = 0; index < scope.world_resource_reference_count;
+         ++index) {
+      const TrackWorldResourceReference &reference =
+          scope.world_resource_references[index];
+      if (reference.address == receiver_address ||
+          reference.address == runtime_submission_object ||
+          reference.address == pending.primary_bound_resource_object ||
+          reference.address == pending.primary_provider.provider_object ||
+          (secondary_resource_present &&
+           (reference.address == pending.secondary_bound_resource_object ||
+            reference.address ==
+                pending.secondary_provider.provider_object))) {
+        track_world_resource_shared_identity_mask |= reference.identity;
+      }
+    }
     ++g_track_render_model_scope.submission_joins;
     g_track_render_model_scope.shared_identity_mask |=
         track_render_shared_identity_mask;
@@ -8896,13 +9095,27 @@ void RecordProceduralModelGeometrySubmission(
         }
       }
     }
+    g_track_render_model_scope.world_resource_shared_identity_mask |=
+        track_world_resource_shared_identity_mask;
+    if (track_world_resource_shared_identity_mask) {
+      ++g_track_world_resource_shared_identity_joins;
+      for (size_t bit = 0;
+           bit < g_track_world_resource_shared_identity_relations.size();
+           ++bit) {
+        if (track_world_resource_shared_identity_mask & (1u << bit)) {
+          ++g_track_world_resource_shared_identity_relations[bit];
+        }
+      }
+    }
   }
   JoinProceduralModelSemanticDraw(
       key, receiver_address, receiver_generation, record_index,
       descriptor_address, runtime_address, descriptor_kind, helper_state,
       primary_resource_key, secondary_resource_key,
       secondary_resource_present, track_texture_provider,
-      track_render_model_scope, track_render_shared_identity_mask);
+      track_render_model_scope, track_render_shared_identity_mask,
+      track_world_resource_identity_mask,
+      track_world_resource_shared_identity_mask);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -9302,6 +9515,70 @@ void EmitTrackRenderModelRuntimeJoinSummary() {
        {"shared_child_runtime_object",
         std::to_string(g_track_render_model_shared_identity_relations[7].load(
             std::memory_order_relaxed))},
+       {"world_resource_graph_scopes",
+        std::to_string(g_track_world_resource_graph_scopes.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_cache_hits",
+        std::to_string(g_track_world_resource_graph_cache_hits.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_cache_misses",
+        std::to_string(g_track_world_resource_graph_cache_misses.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_reference_overflow",
+        std::to_string(g_track_world_resource_graph_reference_overflow.load(
+            std::memory_order_relaxed))},
+       {"world_resource_shared_identity_joins",
+        std::to_string(g_track_world_resource_shared_identity_joins.load(
+            std::memory_order_relaxed))},
+       {"world_track_model",
+        std::to_string(g_track_world_resource_identity_relations[0].load(
+            std::memory_order_relaxed))},
+       {"world_track_mesh",
+        std::to_string(g_track_world_resource_identity_relations[1].load(
+            std::memory_order_relaxed))},
+       {"world_track_submodel",
+        std::to_string(g_track_world_resource_identity_relations[2].load(
+            std::memory_order_relaxed))},
+       {"world_procedural_geometry_object",
+        std::to_string(g_track_world_resource_identity_relations[3].load(
+            std::memory_order_relaxed))},
+       {"world_procedural_geometry_resource",
+        std::to_string(g_track_world_resource_identity_relations[4].load(
+            std::memory_order_relaxed))},
+       {"world_pvs_zone_object",
+        std::to_string(g_track_world_resource_identity_relations[5].load(
+            std::memory_order_relaxed))},
+       {"world_pvs_zone_resource",
+        std::to_string(g_track_world_resource_identity_relations[6].load(
+            std::memory_order_relaxed))},
+       {"shared_world_track_model",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[0].load(
+                std::memory_order_relaxed))},
+       {"shared_world_track_mesh",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[1].load(
+                std::memory_order_relaxed))},
+       {"shared_world_track_submodel",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[2].load(
+                std::memory_order_relaxed))},
+       {"shared_world_procedural_geometry_object",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[3].load(
+                std::memory_order_relaxed))},
+       {"shared_world_procedural_geometry_resource",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[4].load(
+                std::memory_order_relaxed))},
+       {"shared_world_pvs_zone_object",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[5].load(
+                std::memory_order_relaxed))},
+       {"shared_world_pvs_zone_resource",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[6].load(
+                std::memory_order_relaxed))},
        {"scope_overlaps", std::to_string(overlaps)},
        {"exit_without_entry", std::to_string(exit_without_entry)},
        {"accounting_complete", accounting_complete ? "true" : "false"},
@@ -13946,6 +14223,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.track_texture_provider),
         uint64_t(identity.track_render_model_scope),
         uint64_t(identity.track_render_shared_identity_mask),
+        uint64_t(identity.track_world_resource_identity_mask),
+        uint64_t(identity.track_world_resource_shared_identity_mask),
         uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
@@ -13985,6 +14264,10 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .track_render_model_scope = identity.track_render_model_scope,
           .track_render_shared_identity_mask =
               identity.track_render_shared_identity_mask,
+          .track_world_resource_identity_mask =
+              identity.track_world_resource_identity_mask,
+          .track_world_resource_shared_identity_mask =
+              identity.track_world_resource_shared_identity_mask,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -14011,7 +14294,11 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.track_texture_provider == identity.track_texture_provider &&
         entry.track_render_model_scope == identity.track_render_model_scope &&
         entry.track_render_shared_identity_mask ==
-            identity.track_render_shared_identity_mask) {
+            identity.track_render_shared_identity_mask &&
+        entry.track_world_resource_identity_mask ==
+            identity.track_world_resource_identity_mask &&
+        entry.track_world_resource_shared_identity_mask ==
+            identity.track_world_resource_shared_identity_mask) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -15516,6 +15803,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t track_render_model_scope_entries = 0;
   uint64_t track_render_shared_identity_draws = 0;
   uint64_t track_render_shared_identity_entries = 0;
+  uint64_t track_world_resource_identity_draws = 0;
+  uint64_t track_world_resource_identity_entries = 0;
+  uint64_t track_world_resource_shared_identity_draws = 0;
+  uint64_t track_world_resource_shared_identity_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -15545,6 +15836,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.track_render_shared_identity_mask) {
       track_render_shared_identity_draws += entry.draws;
       ++track_render_shared_identity_entries;
+    }
+    if (entry.track_world_resource_identity_mask) {
+      track_world_resource_identity_draws += entry.draws;
+      ++track_world_resource_identity_entries;
+    }
+    if (entry.track_world_resource_shared_identity_mask) {
+      track_world_resource_shared_identity_draws += entry.draws;
+      ++track_world_resource_shared_identity_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -15586,6 +15885,13 @@ void EmitSemanticVisibilityPreparedCandidates() {
           fmt::format("{:08X}", entry.track_render_shared_identity_mask)},
          {"track_render_model_lineage",
           "exact_unified_instance_model_nested_dispatch_scope"},
+         {"track_world_resource_identity_mask",
+          fmt::format("{:08X}", entry.track_world_resource_identity_mask)},
+         {"track_world_resource_shared_identity_mask",
+          fmt::format("{:08X}",
+                      entry.track_world_resource_shared_identity_mask)},
+         {"track_world_resource_lineage",
+          "bounded_direct_vtable_identity_from_exact_model_graph"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -15630,7 +15936,15 @@ void EmitSemanticVisibilityPreparedCandidates() {
       track_render_model_scope_entries <= entry_count &&
       track_render_shared_identity_draws <= track_render_model_scope_draws &&
       track_render_shared_identity_entries <=
-          track_render_model_scope_entries;
+          track_render_model_scope_entries &&
+      track_world_resource_identity_draws <=
+          track_render_model_scope_draws &&
+      track_world_resource_identity_entries <=
+          track_render_model_scope_entries &&
+      track_world_resource_shared_identity_draws <=
+          track_world_resource_identity_draws &&
+      track_world_resource_shared_identity_entries <=
+          track_world_resource_identity_entries;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -15676,6 +15990,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(track_render_shared_identity_entries)},
        {"track_render_shared_identity_draws",
         std::to_string(track_render_shared_identity_draws)},
+       {"track_world_resource_identity_entries",
+        std::to_string(track_world_resource_identity_entries)},
+       {"track_world_resource_identity_draws",
+        std::to_string(track_world_resource_identity_draws)},
+       {"track_world_resource_shared_identity_entries",
+        std::to_string(track_world_resource_shared_identity_entries)},
+       {"track_world_resource_shared_identity_draws",
+        std::to_string(track_world_resource_shared_identity_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -15691,6 +16013,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
         "exact_primary_provider_vtable_and_four_methods"},
        {"track_render_model_lineage",
         "exact_unified_instance_model_nested_dispatch_scope"},
+       {"track_world_resource_lineage",
+        "bounded_direct_vtable_identity_from_exact_model_graph"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -20467,7 +20791,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"join", "synchronous_scope_to_procedural_model_submission"},
        {"shared_identity",
         "descriptor_payload_or_object_address_exact_equality"},
-       {"guest_payload_read", "bounded_308_bytes_per_scope"},
+       {"world_resource_vtables",
+        "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,82144E64"},
+       {"world_resource_graph",
+        "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"},
+       {"world_resource_shared_identity",
+        "exact_address_equality_to_submission_objects_or_resources"},
+       {"world_resource_graph_cache_capacity", "1024"},
+       {"world_resource_reference_capacity", "16"},
+       {"guest_payload_read",
+        "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
