@@ -1940,6 +1940,7 @@ std::array<std::atomic<uint64_t>, 8>
 std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
 std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
+std::atomic<uint64_t> g_track_world_resource_graph_host_unmapped_rejections{};
 std::atomic<uint64_t> g_track_world_resource_graph_scopes{};
 std::atomic<uint64_t> g_track_world_resource_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 7>
@@ -2481,8 +2482,18 @@ void ScanTrackWorldResourcePointers(
         !IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
       continue;
     }
+    size_t host_region_length = 0;
+    rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+    void *host_address = memory->TranslateVirtual<void *>(address);
+    if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                   host_access) ||
+        host_access == rex::memory::PageAccess::kNoAccess) {
+      ++g_track_world_resource_graph_host_unmapped_rejections;
+      continue;
+    }
     const uint32_t identity = ClassifyTrackWorldResourceVtable(
-        LoadSemanticGuestU32(memory, address));
+        static_cast<uint32_t>(
+            *memory->TranslateVirtual<rex::be_u32 *>(address)));
     AddTrackWorldResourceReference(entry, address, identity);
   }
 }
@@ -9527,6 +9538,10 @@ void EmitTrackRenderModelRuntimeJoinSummary() {
        {"world_resource_graph_reference_overflow",
         std::to_string(g_track_world_resource_graph_reference_overflow.load(
             std::memory_order_relaxed))},
+       {"world_resource_graph_host_unmapped_rejections",
+        std::to_string(
+            g_track_world_resource_graph_host_unmapped_rejections.load(
+                std::memory_order_relaxed))},
        {"world_resource_shared_identity_joins",
         std::to_string(g_track_world_resource_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -15891,7 +15906,7 @@ void EmitSemanticVisibilityPreparedCandidates() {
           fmt::format("{:08X}",
                       entry.track_world_resource_shared_identity_mask)},
          {"track_world_resource_lineage",
-          "bounded_direct_vtable_identity_from_exact_model_graph"},
+          "host_mapped_direct_vtable_identity_from_exact_model_graph"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -16014,7 +16029,7 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"track_render_model_lineage",
         "exact_unified_instance_model_nested_dispatch_scope"},
        {"track_world_resource_lineage",
-        "bounded_direct_vtable_identity_from_exact_model_graph"},
+        "host_mapped_direct_vtable_identity_from_exact_model_graph"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -20794,7 +20809,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"world_resource_vtables",
         "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,82144E64"},
        {"world_resource_graph",
-        "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"},
+        "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"},
        {"world_resource_shared_identity",
         "exact_address_equality_to_submission_objects_or_resources"},
        {"world_resource_graph_cache_capacity", "1024"},

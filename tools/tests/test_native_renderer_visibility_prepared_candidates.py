@@ -97,7 +97,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "track_world_resource_identity_mask": "00000012",
             "track_world_resource_shared_identity_mask": "00000002",
             "track_world_resource_lineage": (
-                "bounded_direct_vtable_identity_from_exact_model_graph"
+                "host_mapped_direct_vtable_identity_from_exact_model_graph"
             ),
             "draws": "7",
             "first_frame": "10",
@@ -155,7 +155,7 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
                 "exact_unified_instance_model_nested_dispatch_scope"
             ),
             "track_world_resource_lineage": (
-                "bounded_direct_vtable_identity_from_exact_model_graph"
+                "host_mapped_direct_vtable_identity_from_exact_model_graph"
             ),
             **self.safety(),
         }

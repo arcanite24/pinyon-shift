@@ -113,7 +113,7 @@ def build(events, requested_session=None):
             "82144E64"
         ),
         "world_resource_graph": (
-            "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+            "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
         ),
         "world_resource_shared_identity": (
             "exact_address_equality_to_submission_objects_or_resources"
@@ -153,6 +153,7 @@ def build(events, requested_session=None):
         "world_resource_graph_cache_hits",
         "world_resource_graph_cache_misses",
         "world_resource_graph_reference_overflow",
+        "world_resource_graph_host_unmapped_rejections",
         "world_resource_shared_identity_joins",
         *RELATIONS,
         *WORLD_RELATIONS,

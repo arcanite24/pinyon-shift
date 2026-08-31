@@ -279,6 +279,7 @@ def build(functions: set[int], image: bytes) -> dict:
             "identity_join": (
                 "exact_address_equality_to_procedural_submission_objects_or_resources"
             ),
+            "pointer_validation": "heap_readable_and_host_page_mapped",
             "guest_state_changed": False,
             "native_admission": False,
             "suppression_allowed": False,
