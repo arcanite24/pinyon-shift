@@ -10,7 +10,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v1"
+SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v2"
 IMAGE_BASE = 0x82000000
 PRESENTATION_VTABLE = 0x822432D4
 PRESENTATION_SLOT_COUNT = 18
@@ -34,9 +34,13 @@ BINDING_CONSTRUCTOR = 0x824AFB20
 REFERENCE_ASSIGN = 0x826E1B10
 RENDERER_BIND_SLOT = 0
 RENDERER_DRAW_SLOT = 12
+RENDERER_TRANSFORM_SLOT = 6
+RENDERER_TRANSFORM = 0x82C4C568
 RESOURCE_REFERENCE_OFFSET = 148
 RENDERER_FIELD_OFFSET = 1608
 STATE_FIELD_OFFSET = 144
+PRESENTATION_TRANSFORM_OFFSET = 80
+RENDERER_TRANSFORM_OFFSET = 128
 
 
 def parse_functions(paths: list[pathlib.Path]) -> dict[int, dict[int, str]]:
@@ -95,6 +99,8 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
     renderer_slots = [
         image_u32(image, RENDERER_VTABLE + index * 4) for index in range(17)
     ]
+    if renderer_slots[RENDERER_TRANSFORM_SLOT] != RENDERER_TRANSFORM:
+        raise ValueError("CSimpleModelRenderer transform slot drifted")
 
     require_instructions(
         functions,
@@ -186,10 +192,40 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             0x823F8DC4: "mr r31,r3",
             0x823F8DDC: "bl 0x823f8980",
             0x823F8E20: "lwz r11,1608(r31)",
+            0x823F8E30: "ld r11,136(r31)",
+            0x823F8E34: "ld r4,80(r31)",
+            0x823F8E38: "ld r5,88(r31)",
+            0x823F8E3C: "ld r6,96(r31)",
+            0x823F8E40: "ld r7,104(r31)",
+            0x823F8E44: "lwz r29,0(r3)",
+            0x823F8E48: "ld r8,112(r31)",
+            0x823F8E4C: "ld r9,120(r31)",
+            0x823F8E50: "ld r10,128(r31)",
+            0x823F8E58: "lwz r29,24(r29)",
+            0x823F8E5C: "mtctr r29",
+            0x823F8E60: "bctrl",
             0x823F8F0C: "lwz r3,1608(r31)",
             0x823F8F18: "lwz r11,48(r11)",
             0x823F8F20: "bctrl",
             PRESENTATION_DRAW_EXIT: "addi r1,r1,160",
+        },
+    )
+    require_instructions(
+        functions,
+        RENDERER_TRANSFORM,
+        {
+            0x82C4C568: "std r4,32(r1)",
+            0x82C4C56C: "addi r11,r3,128",
+            0x82C4C570: "std r6,48(r1)",
+            0x82C4C578: "std r8,64(r1)",
+            0x82C4C580: "std r9,72(r1)",
+            0x82C4C588: "std r10,80(r1)",
+            0x82C4C590: "std r7,56(r1)",
+            0x82C4C598: "std r5,40(r1)",
+            0x82C4C5B4: "stvx128 v61,r11,r10",
+            0x82C4C5B8: "stvx128 v63,r0,r11",
+            0x82C4C5BC: "stvx128 v62,r11,r6",
+            0x82C4C5C0: "stvx128 v60,r11,r9",
         },
     )
 
@@ -235,12 +271,23 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
                 "presentation_plus_148_equals_renderer_plus_72"
             ),
         },
+        "transform_join": {
+            "presentation_transform_offset": PRESENTATION_TRANSFORM_OFFSET,
+            "transform_size_bytes": 64,
+            "renderer_transform_slot": RENDERER_TRANSFORM_SLOT,
+            "renderer_transform_target": f"{RENDERER_TRANSFORM:08X}",
+            "renderer_transform_offset": RENDERER_TRANSFORM_OFFSET,
+            "address_equation": (
+                "presentation_plus_80_64_bytes_copied_to_renderer_plus_128"
+            ),
+        },
         "claims": {
             "exact_model_presentation_owner_proved": True,
             "presentation_to_renderer_field_proved": True,
             "presentation_to_resource_reference_proved": True,
             "renderer_bind_and_draw_dispatch_proved": True,
             "presentation_to_renderer_resource_identity_proved": True,
+            "presentation_transform_to_renderer_proved": True,
             "concrete_building_or_prop_identity_proved": False,
             "mesh_or_material_semantics_proved": False,
         },

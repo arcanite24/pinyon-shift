@@ -9,13 +9,13 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v9"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v10"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
 STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
 GRAPH_SCHEMA = "pinyon-shift.native-renderer-static-world-graph.v1"
-OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v1"
+OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v2"
 ASSET_METADATA_SCHEMA = (
     "pinyon-shift.native-renderer-static-world-asset-metadata.v1"
 )
@@ -361,6 +361,7 @@ def validate_static_owner(document):
         presentation = document["presentation"]
         renderer_join = document["renderer_join"]
         resource_join = document["resource_join"]
+        transform_join = document["transform_join"]
         claims = document["claims"]
     except (KeyError, TypeError) as error:
         raise ValueError("static-world owner proof is incomplete") from error
@@ -402,6 +403,16 @@ def validate_static_owner(document):
             "presentation_plus_148_equals_renderer_plus_72"
         ),
     }
+    expected_transform_join = {
+        "presentation_transform_offset": 80,
+        "transform_size_bytes": 64,
+        "renderer_transform_slot": 6,
+        "renderer_transform_target": "82C4C568",
+        "renderer_transform_offset": 128,
+        "address_equation": (
+            "presentation_plus_80_64_bytes_copied_to_renderer_plus_128"
+        ),
+    }
     if any(
         presentation.get(key) != value
         for key, value in expected_presentation.items()
@@ -417,6 +428,8 @@ def validate_static_owner(document):
         for key, value in expected_resource_join.items()
     ):
         raise ValueError("static-world presentation resource join drifted")
+    if transform_join != expected_transform_join:
+        raise ValueError("static-world presentation transform join drifted")
     if (
         claims.get("exact_model_presentation_owner_proved") is not True
         or claims.get("presentation_to_renderer_field_proved") is not True
@@ -424,6 +437,7 @@ def validate_static_owner(document):
         or claims.get("renderer_bind_and_draw_dispatch_proved") is not True
         or claims.get("presentation_to_renderer_resource_identity_proved")
         is not True
+        or claims.get("presentation_transform_to_renderer_proved") is not True
         or claims.get("concrete_building_or_prop_identity_proved") is not False
         or claims.get("mesh_or_material_semantics_proved") is not False
     ):
@@ -679,6 +693,11 @@ def build(
         "presentation_resource_join": (
             "presentation_plus_148_equals_renderer_plus_72"
         ),
+        "presentation_transform_field": "presentation_plus_80_16_be_u32",
+        "presentation_transform_dispatch": (
+            "renderer_slot_6_82C4C568_to_renderer_plus_128"
+        ),
+        "transform_export": "hash_and_16_numeric_words_only",
         "asset_key_field": "presentation_plus_16_msvc_string",
         "asset_key_export": "fnv1a64_hash_and_length_only",
         "effect_reference_fields": "resource_plus_124_pointer_plus_128_u16",
@@ -848,6 +867,13 @@ def build(
         "asset_metadata_read_faults",
         "asset_metadata_joins",
         "asset_metadata_missing_joins",
+        "transform_observations",
+        "transform_exact",
+        "transform_read_faults",
+        "transform_joins",
+        "transform_missing_joins",
+        "transform_packet_origins",
+        "transform_missing_packet_origins",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -1051,6 +1077,21 @@ def build(
         + totals["asset_metadata_missing_joins"]
     ):
         failures.append("static-world asset metadata join drifted")
+    if totals["transform_observations"] != totals["presentation_exact"]:
+        failures.append("static-world transform observation drifted")
+    if totals["transform_observations"] != (
+        totals["transform_exact"] + totals["transform_read_faults"]
+    ):
+        failures.append("static-world transform classification drifted")
+    if totals["presentation_renderer_joins"] != (
+        totals["transform_joins"] + totals["transform_missing_joins"]
+    ):
+        failures.append("static-world transform renderer join drifted")
+    if totals["member_packets_recorded"] != (
+        totals["transform_packet_origins"]
+        + totals["transform_missing_packet_origins"]
+    ):
+        failures.append("static-world transform packet join drifted")
     if not totals["presentation_exact"]:
         failures.append("no exact CModelPresentation scope was observed")
     if not totals["presentation_renderer_joins"]:
@@ -1059,6 +1100,12 @@ def build(
         failures.append("no bounded static-world asset metadata was observed")
     if not totals["asset_metadata_joins"]:
         failures.append("no asset-key hash joined a SimpleModel renderer")
+    if not totals["transform_exact"]:
+        failures.append("no exact static-world instance transform was observed")
+    if not totals["transform_joins"]:
+        failures.append("no instance transform joined a SimpleModel renderer")
+    if not totals["transform_packet_origins"]:
+        failures.append("no instance transform joined a prepared-draw origin")
     if not totals["mesh_semantic_exact"]:
         failures.append("no bounded static-world mesh semantics were observed")
     if not totals["mesh_semantic_packet_origins"]:
@@ -1124,6 +1171,9 @@ def build(
         "presentation_resource_mismatches",
         "asset_metadata_read_faults",
         "asset_metadata_missing_joins",
+        "transform_read_faults",
+        "transform_missing_joins",
+        "transform_missing_packet_origins",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -1167,6 +1217,7 @@ def build(
             "model_presentation_owner_proved": not failures,
             "model_presentation_to_renderer_proved": not failures,
             "model_presentation_to_renderer_resource_proved": not failures,
+            "model_presentation_transform_to_prepared_draw_proved": not failures,
             "bounded_asset_reference_metadata_proved": not failures,
             "hashed_asset_identity_to_prepared_draw_proved": not failures,
             "bounded_mesh_draw_semantics_proved": not failures,
