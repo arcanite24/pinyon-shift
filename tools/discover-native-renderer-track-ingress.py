@@ -57,6 +57,20 @@ CLASSES = {
         "destructor": 0x82DEA6B8,
         "role": "active_unified_track_render_instance",
     },
+    "track_texture": {
+        "decorated_name": ".?AVCTrackTexture@@",
+        "vtable": 0x822433D8,
+        "slots": 14,
+        "destructor": 0x82DEA608,
+        "role": "legacy_track_texture_provider_baseline",
+    },
+    "track_texture_unified": {
+        "decorated_name": ".?AVCTrackTexture_Unified@Presentation_Unified@@",
+        "vtable": 0x82001708,
+        "slots": 14,
+        "destructor": 0x82DF13C8,
+        "role": "active_unified_track_texture_provider",
+    },
     "track_model": {
         "decorated_name": ".?AVCTrackModel@@",
         "vtable": 0x820016B4,
@@ -112,6 +126,7 @@ RELATIONSHIPS = (
     ("track_presentation_unified", "track_presentation", "unified_presentation_overrides"),
     ("track_render_model_unified", "track_render_model", "unified_render_model_overrides"),
     ("track_render_model_instance_unified", "track_render_model_instance", "unified_render_instance_overrides"),
+    ("track_texture_unified", "track_texture", "unified_track_texture_overrides"),
     ("track_procedural_geometry_resource", "track_pvs_zone_resource", "geometry_vs_visibility_resource_specialization"),
 )
 
@@ -132,6 +147,12 @@ KEY_SLOTS = {
         6: 0x82DEB7B0, 8: 0x8243BC80, 9: 0x824416A0,
         10: 0x82463710, 11: 0x824416C8, 12: 0x824416B0,
         13: 0x82DEB7D8, 14: 0x82DEB7F0,
+    },
+    "track_texture_unified": {
+        6: 0x824107C8,
+        9: 0x824108D0,
+        10: 0x82DF1300,
+        11: 0x82DF0B40,
     },
     "track_procedural_geometry_resource": {
         15: 0x82C22E60, 16: 0x82C22EE8, 19: 0x82C22BE0,

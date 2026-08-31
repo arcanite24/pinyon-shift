@@ -245,6 +245,13 @@ graph. The next batched slice is the passive exact-identity runtime join from
 those title-owned lifetimes to the existing procedural-model prepared-record
 boundary; this checkpoint does not enable native admission or suppression.
 
+Runtime identity checkpoint: the existing matched AppData evidence joins all
+867 aggregated procedural-model submission entries (397,142 calls) to the
+exact `Presentation_Unified::CTrackTexture_Unified` provider vtable and its
+four proved resource-provider methods. This proves track-owned texture ingress
+at the prepared-record boundary without a new capture. Track model/mesh or
+world-section identity is still required before terrain/road visual admission.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
