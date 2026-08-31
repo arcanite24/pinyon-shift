@@ -17,6 +17,8 @@ SPEC.loader.exec_module(MODULE)
 def fixture():
     highest = max(
         MODULE.PRESENTATION_VTABLE + MODULE.PRESENTATION_SLOT_COUNT * 4,
+        MODULE.REFCOUNTED_PRESENTATION_VTABLE
+        + MODULE.PRESENTATION_SLOT_COUNT * 4,
         MODULE.RENDERER_VTABLE + 17 * 4,
     )
     image = bytearray(highest - MODULE.IMAGE_BASE)
@@ -24,12 +26,17 @@ def fixture():
     presentation_slots[0] = MODULE.PRESENTATION_DELETING_DESTRUCTOR
     presentation_slots[7] = MODULE.PRESENTATION_INITIALIZE
     presentation_slots[12] = MODULE.PRESENTATION_DRAW
+    refcounted_presentation_slots = list(presentation_slots)
     renderer_slots = [0x82900000 + index * 4 for index in range(17)]
     renderer_slots[0] = 0x82C4C838
     renderer_slots[6] = MODULE.RENDERER_TRANSFORM
     renderer_slots[12] = 0x82C4CCC8
     for base, slots in (
         (MODULE.PRESENTATION_VTABLE, presentation_slots),
+        (
+            MODULE.REFCOUNTED_PRESENTATION_VTABLE,
+            refcounted_presentation_slots,
+        ),
         (MODULE.RENDERER_VTABLE, renderer_slots),
     ):
         for index, target in enumerate(slots):
@@ -164,6 +171,18 @@ class StaticWorldOwnerTests(unittest.TestCase):
         offset = MODULE.PRESENTATION_VTABLE + 12 * 4 - MODULE.IMAGE_BASE
         corrupted[offset : offset + 4] = (0x823F8DBC).to_bytes(4, "big")
         with self.assertRaisesRegex(ValueError, "draw slot drifted"):
+            MODULE.build(functions, bytes(corrupted))
+
+    def test_rejects_refcounted_presentation_draw_slot_drift(self):
+        functions, image = fixture()
+        corrupted = bytearray(image)
+        offset = (
+            MODULE.REFCOUNTED_PRESENTATION_VTABLE
+            + 12 * 4
+            - MODULE.IMAGE_BASE
+        )
+        corrupted[offset : offset + 4] = (0x823F8DBC).to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "ref-counted.*draw slot drifted"):
             MODULE.build(functions, bytes(corrupted))
 
     def test_rejects_renderer_field_drift(self):

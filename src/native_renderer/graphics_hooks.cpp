@@ -221,6 +221,7 @@ constexpr uint32_t kSimpleModelResourceEffectRecordsOffset = 124;
 constexpr uint32_t kSimpleModelResourceEffectCountOffset = 128;
 constexpr uint32_t kSimpleModelResourceTextureVectorOffset = 288;
 constexpr uint32_t kModelPresentationVtable = 0x822432D4;
+constexpr uint32_t kRefCountedModelPresentationVtable = 0x82002464;
 constexpr uint32_t kModelPresentationNameOffset = 16;
 constexpr uint32_t kModelPresentationTransformOffset = 80;
 constexpr uint32_t kModelPresentationTransformWordCount = 16;
@@ -4354,7 +4355,8 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
     ++g_static_world_presentation_invalid_root;
     return;
   }
-  if (vtable != kModelPresentationVtable) {
+  if (vtable != kModelPresentationVtable &&
+      vtable != kRefCountedModelPresentationVtable) {
     ++g_static_world_presentation_vtable_mismatches;
     return;
   }
@@ -27193,6 +27195,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"simple_member_draw_hooks", "82C4DC54,82C4DC58"},
        {"presentation_class", "Presentation_Unified::CModelPresentation"},
        {"presentation_vtable", "822432D4"},
+       {"presentation_refcounted_vtable", "82002464"},
        {"presentation_draw_slot", "12"},
        {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
        {"presentation_resource_field", "presentation_plus_148"},

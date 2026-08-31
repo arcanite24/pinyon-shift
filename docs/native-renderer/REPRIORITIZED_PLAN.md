@@ -323,6 +323,15 @@ does not prove clean shutdown or permit native admission; the unique final
 summary remains authoritative. This removes an observability dead end without
 weakening the pending C1 gate.
 
+Failed-batch correction: the first combined Phase C session exposed that the
+static presentation runtime gate accepted only the base `CModelPresentation`
+primary vtable even though the existing complete RTTI census also proves the
+thread-safe ref-counted complete object's primary vtable at the same object
+offset and with the same inherited slot-12 draw target. The exact owner gate now
+accepts both `822432D4` and `82002464`; all resource, renderer, transform,
+metadata, prepared-layout, and lifecycle joins remain independently required.
+This fixes a type-family omission without weakening C2 admission.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
