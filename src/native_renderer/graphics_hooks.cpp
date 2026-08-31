@@ -8103,6 +8103,8 @@ struct IsolatedDrawState {
   bool prepared_visibility_candidate_fresh = false;
   bool prepared_title_lod_valid = false;
   bool prepared_track_texture_provider = false;
+  bool prepared_static_world_origin = false;
+  bool prepared_static_world_exact = false;
   bool require_fresh_visibility_candidate = false;
   bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
@@ -8201,6 +8203,8 @@ struct ContinuousWorldWorksetState {
   uint64_t mechanical_rejections = 0;
   uint64_t stale_or_unselected_rejections = 0;
   uint64_t non_track_provider_rejections = 0;
+  uint64_t static_world_lineage_rejections = 0;
+  uint64_t static_world_requests = 0;
   uint64_t per_frame_quota_yields = 0;
   uint64_t fail_closed_yields = 0;
   uint64_t qualified_retained_family_requests = 0;
@@ -8213,6 +8217,7 @@ struct ContinuousWorldWorksetState {
   uint64_t current_frame_recorded = 0;
   bool current_frame_failed = false;
   bool requested = false;
+  bool static_world_requested = false;
   bool valid = true;
 };
 
@@ -8880,15 +8885,34 @@ void ConfigureContinuousWorldWorkset() {
     std::free(value);
     g_continuous_world_workset.requested = prototype_selected;
     g_continuous_world_workset.valid = true;
-    return;
+  } else {
+    const std::string setting(value);
+    std::free(value);
+    if (setting != "false") {
+      g_continuous_world_workset.requested = true;
+      g_continuous_world_workset.valid = setting == "true";
+    }
   }
-  const std::string setting(value);
+
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    if (setting != "false") {
+      g_continuous_world_workset.static_world_requested = true;
+      if (setting != "true") {
+        g_continuous_world_workset.valid = false;
+      }
+    }
+  }
   std::free(value);
-  if (setting == "false") {
-    return;
+  if (g_continuous_world_workset.static_world_requested &&
+      !g_continuous_world_workset.requested) {
+    g_continuous_world_workset.valid = false;
   }
-  g_continuous_world_workset.requested = true;
-  g_continuous_world_workset.valid = setting == "true";
 }
 
 void ValidateAndEmitVisibilityShadowReplayConfiguration() {
@@ -8957,7 +8981,11 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_static_world_and_mechanical"},
+       {"static_world_selection",
+        g_continuous_world_workset.static_world_requested
+            ? "exact_presentation_resource_mesh_transform_lineage"
+            : "disabled"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"target_lifetime", "one_guest_frame"},
@@ -17258,6 +17286,8 @@ struct SemanticVisibilityPreparedAdmission {
   bool fresh = false;
   bool title_lod_valid = false;
   bool track_texture_provider = false;
+  bool static_world_origin = false;
+  bool static_world_exact = false;
   uint32_t title_lod_index = 0;
 };
 
@@ -17266,8 +17296,17 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
     const TitleDrawOrigin &origin, uint64_t prepared_signature) {
+  const bool static_world_origin = origin.static_world_draw.valid;
+  const bool static_world_exact =
+      static_world_origin &&
+      origin.static_world_draw.asset_metadata_valid &&
+      origin.static_world_draw.transform_valid &&
+      origin.static_world_draw.mesh_semantics_valid;
   if (!origin.semantic_draw.valid) {
-    return {};
+    return {
+        .static_world_origin = static_world_origin,
+        .static_world_exact = static_world_exact,
+    };
   }
   const SemanticDrawIdentity &identity = origin.semantic_draw;
   const SemanticPreparedDrawContract contract =
@@ -17284,6 +17323,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
       .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
       .track_texture_provider =
           fresh_visibility_candidate && identity.track_texture_provider,
+      .static_world_origin = static_world_origin,
+      .static_world_exact = static_world_exact,
       .title_lod_index = identity.title_lod_index,
   };
   const SemanticBatchRejection rejection =
@@ -19338,6 +19379,10 @@ void ObservePreparedDraw(
         visibility_admission.title_lod_valid;
     g_isolated_draw.prepared_track_texture_provider =
         visibility_admission.track_texture_provider;
+    g_isolated_draw.prepared_static_world_origin =
+        visibility_admission.static_world_origin;
+    g_isolated_draw.prepared_static_world_exact =
+        visibility_admission.static_world_exact;
     g_isolated_draw.prepared_title_lod_index =
         visibility_admission.title_lod_index;
     g_isolated_draw.prepared_candidate_valid = true;
@@ -20729,6 +20774,7 @@ void EmitContinuousWorldWorksetSummary() {
       g_continuous_world_workset.mechanical_rejections +
       g_continuous_world_workset.stale_or_unselected_rejections +
       g_continuous_world_workset.non_track_provider_rejections +
+      g_continuous_world_workset.static_world_lineage_rejections +
       g_continuous_world_workset.per_frame_quota_yields +
       g_continuous_world_workset.fail_closed_yields;
   pinyon_shift::diagnostics::RecordEvent(
@@ -20755,6 +20801,11 @@ void EmitContinuousWorldWorksetSummary() {
        {"non_track_provider_rejections",
         std::to_string(
             g_continuous_world_workset.non_track_provider_rejections)},
+       {"static_world_lineage_rejections",
+        std::to_string(
+            g_continuous_world_workset.static_world_lineage_rejections)},
+       {"static_world_requests",
+        std::to_string(g_continuous_world_workset.static_world_requests)},
        {"per_frame_quota_yields",
         std::to_string(g_continuous_world_workset.per_frame_quota_yields)},
        {"fail_closed_yields",
@@ -20779,7 +20830,11 @@ void EmitContinuousWorldWorksetSummary() {
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_static_world_and_mechanical"},
+       {"static_world_selection",
+        g_continuous_world_workset.static_world_requested
+            ? "exact_presentation_resource_mesh_transform_lineage"
+            : "disabled"},
        {"freshness_commit", "matching_swap_after_complete_accumulation"},
        {"readback", "disabled"},
        {"native_draw", "continuous_world_workset"},
@@ -21117,12 +21172,22 @@ void RequestIsolatedDraw(
     }
     const bool qualified_retained_family =
         g_isolated_draw.prepared_signature == kSkyHorizonFollowerSignature;
+    const bool exact_static_world =
+        g_continuous_world_workset.static_world_requested &&
+        g_isolated_draw.prepared_static_world_exact;
+    if (g_continuous_world_workset.static_world_requested &&
+        g_isolated_draw.prepared_static_world_origin &&
+        !g_isolated_draw.prepared_static_world_exact) {
+      ++g_continuous_world_workset.static_world_lineage_rejections;
+      return;
+    }
     if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
-        !qualified_retained_family) {
+        !qualified_retained_family && !exact_static_world) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
       return;
     }
     if (!qualified_retained_family &&
+        !exact_static_world &&
         !g_isolated_draw.prepared_track_texture_provider) {
       ++g_continuous_world_workset.non_track_provider_rejections;
       return;
@@ -21147,6 +21212,9 @@ void RequestIsolatedDraw(
     ++g_continuous_world_workset.requests;
     if (qualified_retained_family) {
       ++g_continuous_world_workset.qualified_retained_family_requests;
+    }
+    if (exact_static_world) {
+      ++g_continuous_world_workset.static_world_requests;
     }
     request.requested = true;
     request.retain_target = true;

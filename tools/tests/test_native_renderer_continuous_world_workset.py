@@ -28,6 +28,7 @@ def fixture():
         target_lifetime="one_guest_frame",
         freshness_commit="matching_swap_after_complete_accumulation",
         semantic_lineage="armed",
+        static_world_selection=MODULE.STATIC_WORLD_SELECTION,
         readback="disabled",
         native_draw="continuous_world_workset",
         xenos_draw="preserved",
@@ -46,6 +47,8 @@ def fixture():
         mechanical_rejections="4",
         stale_or_unselected_rejections="3",
         non_track_provider_rejections="2",
+        static_world_lineage_rejections="0",
+        static_world_requests="3",
         per_frame_quota_yields="2",
         fail_closed_yields="0",
         qualified_retained_family_requests="2",
@@ -56,6 +59,7 @@ def fixture():
         accounting_complete="true",
         selection_accounting_complete="true",
         selection=MODULE.SELECTION,
+        static_world_selection=MODULE.STATIC_WORLD_SELECTION,
         maximum_draws_per_frame="64",
         freshness_commit="matching_swap_after_complete_accumulation",
         readback="disabled",
@@ -100,6 +104,10 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("request.defer_preview_publication_until_swap = true", source)
         self.assertIn("qualified_retained_family_requests", source)
         self.assertIn("prepared_track_texture_provider", source)
+        self.assertIn("prepared_static_world_exact", source)
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD", source
+        )
         self.assertIn("kTrackTextureUnifiedVtable = 0x82001708", source)
         self.assertIn("non_track_provider_rejections", source)
         self.assertIn('"native_renderer.continuous_world_workset.summary"', source)
@@ -133,6 +141,9 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertTrue(
             document["qualification"]["track_provider_selection_proved"]
         )
+        self.assertTrue(
+            document["qualification"]["static_world_selection_proved"]
+        )
         self.assertFalse(document["qualification"]["suppression_allowed"])
 
     def test_rejects_single_draw_frames(self):
@@ -151,10 +162,22 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         summary["requests"] = "2"
         summary["recorded"] = "2"
         summary["qualified_retained_family_requests"] = "2"
+        summary["static_world_requests"] = "0"
         document = MODULE.build(events)
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "no track-provider visibility request was observed",
+            document["failures"],
+        )
+
+    def test_rejects_static_world_lineage_failure(self):
+        events = fixture()
+        events[-1]["static_world_lineage_rejections"] = "1"
+        events[-1]["stale_or_unselected_rejections"] = "2"
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "static-world lineage rejection was observed",
             document["failures"],
         )
 
