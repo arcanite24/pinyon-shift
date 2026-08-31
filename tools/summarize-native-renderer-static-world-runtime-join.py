@@ -9,9 +9,10 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v2"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v3"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
+RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -168,15 +169,67 @@ def validate_static_lifetime(document):
         raise ValueError("static-world lifetime claims drifted")
 
 
+def validate_static_resource(document):
+    if (
+        document.get("schema") != RESOURCE_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "exact_simple_model_resource_factory_and_lifetime"
+    ):
+        raise ValueError("static-world resource proof drifted")
+    try:
+        resource = document["resource"]
+        binding = document["binding"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("static-world resource proof is incomplete") from error
+    expected_resource = {
+        "class": "CSimpleModelResource",
+        "vtable": "82229294",
+        "object_bytes": 320,
+        "factory": "82C47F10",
+        "constructor": "82C47DA0",
+        "publish_hook": "82C47FBC",
+        "registration_hook": "82C4802C",
+        "deleting_destructor_slot": 0,
+        "deleting_destructor": "82C47EC0",
+        "destructor": "82C47DF8",
+        "destructor_entry_hook": "82C47DF8",
+        "destructor_exit_hook": "82C47E44",
+    }
+    expected_binding = {
+        "renderer_bind": "82C48038",
+        "renderer_graph_field_offset": 72,
+        "factory_output_argument": "r5",
+        "reference_assignment": "824E81A8",
+        "existing_resource_path_join": "82C4802C",
+        "new_resource_path_join": "82C4802C",
+    }
+    if any(resource.get(key) != value for key, value in expected_resource.items()):
+        raise ValueError("static-world resource lifetime proof drifted")
+    if any(binding.get(key) != value for key, value in expected_binding.items()):
+        raise ValueError("static-world resource binding proof drifted")
+    if (
+        claims.get("bound_graph_dynamic_type_proved") is not True
+        or claims.get("resource_generation_boundary_proved") is not True
+        or claims.get("factory_registration_boundary_proved") is not True
+        or claims.get("concrete_building_or_prop_identity_proved") is not False
+        or claims.get("streaming_invalidation_proved") is not False
+    ):
+        raise ValueError("static-world resource claims drifted")
+
+
 def build(
     static_ingress,
     static_lifetime,
+    static_resource,
     events,
     requested_session=None,
     allow_checkpoint=False,
 ):
     validate_static_ingress(static_ingress)
     validate_static_lifetime(static_lifetime)
+    validate_static_resource(static_resource)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -203,6 +256,14 @@ def build(
         "model_graph_bind_hook": "82C4CCB0",
         "model_graph_release_slot": "15",
         "model_graph_release_hook": "82C4C6A8,82C4E0A0",
+        "model_resource_class": "CSimpleModelResource",
+        "model_resource_vtable": "82229294",
+        "model_resource_bytes": "320",
+        "model_resource_factory": "82C47F10",
+        "model_resource_publish_hook": "82C47FBC",
+        "model_resource_registration_hook": "82C4802C",
+        "model_resource_destructor_entry_hook": "82C47DF8",
+        "model_resource_destructor_exit_hook": "82C47E44",
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -226,7 +287,7 @@ def build(
         or summary.get("checkpoint_kind")
         != ("final" if final_summary else "periodic")
         or summary.get("classification")
-        != "live_simple_model_renderer_graph_to_pm4_prepared_draw"
+        != "live_simple_model_resource_to_pm4_prepared_draw"
     ):
         raise ValueError("static-world runtime summary drifted")
 
@@ -270,6 +331,24 @@ def build(
         "graph_release_empty",
         "graph_release_unregistered",
         "graph_release_faults",
+        "resource_instances_published",
+        "resource_instances_destroyed",
+        "resource_address_reuses",
+        "resource_table_overflow",
+        "resource_lifecycle_faults",
+        "resource_destructor_entries",
+        "resource_destructor_exits",
+        "resource_destructors_open",
+        "resource_destructors_without_instance",
+        "resource_registration_observations",
+        "resource_registration_successes",
+        "resource_registration_null",
+        "resource_registration_unregistered",
+        "resource_registration_type_mismatches",
+        "resource_registration_faults",
+        "resource_graph_bind_joins",
+        "resource_scope_joins",
+        "resource_scope_mismatches",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -302,6 +381,14 @@ def build(
         )
     if not totals["graph_bind_successes"]:
         failures.append("no owned SimpleModel renderer graph was observed")
+    if not totals["resource_instances_published"]:
+        failures.append("no completed SimpleModel resource lifetime was observed")
+    if not totals["resource_registration_successes"]:
+        failures.append("no registered SimpleModel resource was observed")
+    if not totals["resource_graph_bind_joins"]:
+        failures.append("no renderer bind joined a registered resource")
+    if not totals["resource_scope_joins"]:
+        failures.append("no exact scope joined a live resource generation")
     if not totals["scopes_with_packets"] or not totals["packets_recorded"]:
         failures.append("no exact scope emitted a PM4 draw packet")
     if totals["packet_matches"] + totals["pending_packets"] != totals[
@@ -334,6 +421,28 @@ def build(
         != totals["graph_release_observations"]
     ):
         failures.append("static-world graph release accounting drifted")
+    if totals["resource_destructor_entries"] != (
+        totals["resource_destructor_exits"]
+        + totals["resource_destructors_open"]
+    ):
+        failures.append("static-world resource destructor accounting drifted")
+    if totals["resource_instances_destroyed"] > totals[
+        "resource_instances_published"
+    ]:
+        failures.append("static-world resource lifetime accounting drifted")
+    if (
+        totals["resource_registration_successes"]
+        + totals["resource_registration_null"]
+        + totals["resource_registration_unregistered"]
+        + totals["resource_registration_type_mismatches"]
+        + totals["resource_registration_faults"]
+        != totals["resource_registration_observations"]
+    ):
+        failures.append("static-world resource registration accounting drifted")
+    if totals["resource_graph_bind_joins"] != totals["graph_bind_successes"]:
+        failures.append("static-world resource graph-bind accounting drifted")
+    if totals["resource_scope_joins"] != totals["exact_scopes"]:
+        failures.append("static-world resource scope accounting drifted")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
@@ -354,6 +463,14 @@ def build(
         "graph_bind_faults",
         "graph_release_unregistered",
         "graph_release_faults",
+        "resource_table_overflow",
+        "resource_lifecycle_faults",
+        "resource_destructors_without_instance",
+        "resource_destructors_open",
+        "resource_registration_unregistered",
+        "resource_registration_type_mismatches",
+        "resource_registration_faults",
+        "resource_scope_mismatches",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -385,6 +502,9 @@ def build(
             "simple_model_renderer_scope_proved": not failures,
             "simple_model_renderer_lifetime_proved": not failures,
             "renderer_to_owned_graph_field_proved": not failures,
+            "simple_model_resource_type_proved": not failures,
+            "simple_model_resource_lifetime_proved": not failures,
+            "renderer_to_registered_resource_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
@@ -408,6 +528,7 @@ def main(argv=None):
     parser.add_argument("events", nargs="+", type=pathlib.Path)
     parser.add_argument("--static", required=True, type=pathlib.Path)
     parser.add_argument("--lifetime", required=True, type=pathlib.Path)
+    parser.add_argument("--resource", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -416,6 +537,7 @@ def main(argv=None):
         document = build(
             json.loads(args.static.read_text(encoding="utf-8")),
             json.loads(args.lifetime.read_text(encoding="utf-8")),
+            json.loads(args.resource.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,

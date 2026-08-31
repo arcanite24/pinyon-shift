@@ -98,6 +98,7 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   .local/preview/logs/<session>.jsonl `
   --static .local/qualification/native-renderer-static-world-ingress.json `
   --lifetime .local/qualification/native-renderer-static-world-lifetime.json `
+  --resource .local/qualification/native-renderer-static-world-resource.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
@@ -111,4 +112,6 @@ disabled until those next exact gates are closed.
 The renderer lifetime and owned graph field are now independently proved in
 [`STATIC_WORLD_LIFETIME.md`](STATIC_WORLD_LIFETIME.md). The runtime join
 requires a completed renderer generation and matching graph-binding generation
-before it attributes any PM4 packet.
+before it attributes any PM4 packet. The bound graph is now independently
+proved as an exact, live, registered `CSimpleModelResource` generation in
+[`STATIC_WORLD_RESOURCE.md`](STATIC_WORLD_RESOURCE.md).

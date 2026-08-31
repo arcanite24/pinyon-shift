@@ -89,6 +89,43 @@ def static_lifetime():
     }
 
 
+def static_resource():
+    return {
+        "schema": MODULE.RESOURCE_SCHEMA,
+        "status": "complete",
+        "classification": "exact_simple_model_resource_factory_and_lifetime",
+        "resource": {
+            "class": "CSimpleModelResource",
+            "vtable": "82229294",
+            "object_bytes": 320,
+            "factory": "82C47F10",
+            "constructor": "82C47DA0",
+            "publish_hook": "82C47FBC",
+            "registration_hook": "82C4802C",
+            "deleting_destructor_slot": 0,
+            "deleting_destructor": "82C47EC0",
+            "destructor": "82C47DF8",
+            "destructor_entry_hook": "82C47DF8",
+            "destructor_exit_hook": "82C47E44",
+        },
+        "binding": {
+            "renderer_bind": "82C48038",
+            "renderer_graph_field_offset": 72,
+            "factory_output_argument": "r5",
+            "reference_assignment": "824E81A8",
+            "existing_resource_path_join": "82C4802C",
+            "new_resource_path_join": "82C4802C",
+        },
+        "claims": {
+            "bound_graph_dynamic_type_proved": True,
+            "resource_generation_boundary_proved": True,
+            "factory_registration_boundary_proved": True,
+            "concrete_building_or_prop_identity_proved": False,
+            "streaming_invalidation_proved": False,
+        },
+    }
+
+
 def fixture():
     config = event(
         MODULE.CONFIG,
@@ -112,6 +149,14 @@ def fixture():
             "model_graph_bind_hook": "82C4CCB0",
             "model_graph_release_slot": "15",
             "model_graph_release_hook": "82C4C6A8,82C4E0A0",
+            "model_resource_class": "CSimpleModelResource",
+            "model_resource_vtable": "82229294",
+            "model_resource_bytes": "320",
+            "model_resource_factory": "82C47F10",
+            "model_resource_publish_hook": "82C47FBC",
+            "model_resource_registration_hook": "82C4802C",
+            "model_resource_destructor_entry_hook": "82C47DF8",
+            "model_resource_destructor_exit_hook": "82C47E44",
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -163,9 +208,27 @@ def fixture():
         graph_release_empty="0",
         graph_release_unregistered="0",
         graph_release_faults="0",
+        resource_instances_published="3",
+        resource_instances_destroyed="1",
+        resource_address_reuses="0",
+        resource_table_overflow="0",
+        resource_lifecycle_faults="0",
+        resource_destructor_entries="1",
+        resource_destructor_exits="1",
+        resource_destructors_open="0",
+        resource_destructors_without_instance="0",
+        resource_registration_observations="4",
+        resource_registration_successes="3",
+        resource_registration_null="1",
+        resource_registration_unregistered="0",
+        resource_registration_type_mismatches="0",
+        resource_registration_faults="0",
+        resource_graph_bind_joins="3",
+        resource_scope_joins="10",
+        resource_scope_mismatches="0",
         accounting_complete="true",
         qualification_complete="true",
-        classification="live_simple_model_renderer_graph_to_pm4_prepared_draw",
+        classification="live_simple_model_resource_to_pm4_prepared_draw",
         **safety(),
     )
     return [config, summary]
@@ -173,13 +236,18 @@ def fixture():
 
 class StaticWorldRuntimeJoinTests(unittest.TestCase):
     def test_qualifies_exact_scope_to_prepared_draw(self):
-        document = MODULE.build(static_ingress(), static_lifetime(), fixture())
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), fixture()
+        )
         self.assertEqual("complete", document["status"])
         self.assertTrue(
             document["qualification"]["static_world_pm4_to_prepared_draw_proved"]
         )
         self.assertTrue(
             document["qualification"]["simple_model_renderer_lifetime_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["simple_model_resource_type_proved"]
         )
         self.assertFalse(
             document["qualification"]["building_or_prop_instance_identity_proved"]
@@ -197,6 +265,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         document = MODULE.build(
             static_ingress(),
             static_lifetime(),
+            static_resource(),
             events + [checkpoint],
             allow_checkpoint=True,
         )
@@ -212,7 +281,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             unprepared_matches="1",
             qualification_complete="false",
         )
-        document = MODULE.build(static_ingress(), static_lifetime(), events)
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), events
+        )
         self.assertEqual("incomplete", document["status"])
         self.assertIn("unprepared_matches is nonzero", document["failures"])
 
@@ -224,7 +295,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             accounting_complete="false",
             qualification_complete="false",
         )
-        document = MODULE.build(static_ingress(), static_lifetime(), events)
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), events
+        )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "static-world scope entry/exit accounting drifted",
@@ -237,7 +310,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             "slot_targets"
         ][12] = "82C4CCD0"
         with self.assertRaisesRegex(ValueError, "dispatch proof drifted"):
-            MODULE.build(ingress, static_lifetime(), fixture())
+            MODULE.build(ingress, static_lifetime(), static_resource(), fixture())
 
     def test_rejects_unregistered_renderer_dispatch(self):
         events = copy.deepcopy(fixture())
@@ -249,10 +322,46 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             accounting_complete="true",
             qualification_complete="false",
         )
-        document = MODULE.build(static_ingress(), static_lifetime(), events)
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), events
+        )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "unregistered_renderers is nonzero", document["failures"]
+        )
+
+    def test_rejects_resource_type_mismatch(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            resource_registration_successes="2",
+            resource_registration_type_mismatches="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), events
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "resource_registration_type_mismatches is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_unregistered_resource(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            resource_registration_successes="2",
+            resource_registration_unregistered="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(), static_lifetime(), static_resource(), events
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "resource_registration_unregistered is nonzero",
+            document["failures"],
         )
 
     def test_source_contract_has_balanced_static_world_hooks(self):
@@ -274,6 +383,10 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x82C4CCB0", analysis)
         self.assertIn("address = 0x82C4C6A8", analysis)
         self.assertIn("address = 0x82C4E0A0", analysis)
+        self.assertIn("address = 0x82C47FBC", analysis)
+        self.assertIn("address = 0x82C4802C", analysis)
+        self.assertIn("address = 0x82C47DF8", analysis)
+        self.assertIn("address = 0x82C47E44", analysis)
 
 
 if __name__ == "__main__":
