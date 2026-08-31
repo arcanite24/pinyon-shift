@@ -48,4 +48,6 @@ missing-join outcomes are independently accounted and the qualifier fails
 closed on any joined draw without valid metadata.
 
 The combined C1/C2 AppData run remains intentionally batched. Xenos remains
-authoritative; this checkpoint enables no native admission or suppression.
+authoritative; this report and the adjacent mesh-semantics report are required
+static inputs to that qualifier. This checkpoint enables no native admission
+or suppression.

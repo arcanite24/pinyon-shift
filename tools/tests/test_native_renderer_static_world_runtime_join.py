@@ -330,6 +330,63 @@ def static_asset_metadata():
     }
 
 
+def static_mesh_semantics():
+    scale_bias = (
+        (0, 0), (1, 0), (2, 0), (1, 1), (3, 0), (1, 2), (1, 2),
+        (0, 0), (3, 0), (0, 0), (0, 0), (0, 0), (0, 0), (4, 0),
+    )
+    return {
+        "schema": MODULE.MESH_SEMANTICS_SCHEMA,
+        "status": "complete",
+        "classification": "bounded_simple_mesh_draw_and_material_binding",
+        "geometry": {
+            "class": "CSimpleMesh",
+            "vtable": "822291A0",
+            "primitive_type_offset": 36,
+            "index_buffer_binding_offset": 96,
+            "source_element_count_offset": 100,
+            "primitive_count_helper": "82C48558",
+            "primitive_scale_bias_table": "820023F0",
+            "primitive_scale_bias": [
+                {"primitive_type": index, "scale": scale, "bias": bias}
+                for index, (scale, bias) in enumerate(scale_bias)
+            ],
+            "index_buffer_bind": "8244D760",
+            "index_buffer_context_offset": 12812,
+            "draw_emitter": "82416380",
+            "draw_arguments": {
+                "r3": "graphics_context",
+                "r4": "mesh_plus_36_primitive_type",
+                "r5": "zero_base_index",
+                "r6": "zero_index_offset",
+                "r7": "scale_times_primitive_count_plus_bias",
+            },
+            "index_buffer_clear_after_draw": True,
+        },
+        "material_binding": {
+            "class": "CSimpleSubModel_and_CSimpleMesh",
+            "submodel_state_enabled_offset": 112,
+            "submodel_state_selector_offset": 39,
+            "submodel_state_object_offset": 32,
+            "state_bind": "82410A70",
+            "mesh_optional_reference_offset": 128,
+            "optional_reference_resource_offset": 168,
+            "optional_reference_dispatch_slot": 5,
+            "resource_bind": "8244E728",
+            "fallback_source": "renderer_r22",
+        },
+        "claims": {
+            "primitive_and_element_count_fields_proved": True,
+            "index_buffer_bind_draw_clear_sequence_proved": True,
+            "submodel_state_binding_fields_proved": True,
+            "optional_material_resource_branch_proved": True,
+            "complete_vertex_layout_decoding_proved": False,
+            "complete_material_parameter_decoding_proved": False,
+            "native_draw_admission_proved": False,
+        },
+    }
+
+
 def fixture():
     config = event(
         MODULE.CONFIG,
@@ -531,6 +588,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             fixture(),
         )
         self.assertEqual("complete", document["status"])
@@ -575,6 +633,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events + [checkpoint],
             allow_checkpoint=True,
         )
@@ -598,6 +657,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -619,6 +679,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -641,6 +702,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 static_graph(),
                 static_owner(),
                 static_asset_metadata(),
+                static_mesh_semantics(),
                 fixture(),
             )
 
@@ -662,6 +724,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -685,6 +748,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -709,6 +773,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -735,6 +800,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -758,6 +824,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -781,6 +848,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -805,6 +873,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_graph(),
             static_owner(),
             static_asset_metadata(),
+            static_mesh_semantics(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -824,6 +893,23 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 static_graph(),
                 static_owner(),
                 metadata,
+                static_mesh_semantics(),
+                fixture(),
+            )
+
+    def test_rejects_static_mesh_primitive_offset_drift(self):
+        semantics = static_mesh_semantics()
+        semantics["geometry"]["primitive_type_offset"] = 40
+        with self.assertRaisesRegex(ValueError, "mesh geometry proof drifted"):
+            MODULE.build(
+                static_ingress(),
+                static_lifetime(),
+                static_resource(),
+                static_streaming(),
+                static_graph(),
+                static_owner(),
+                    static_asset_metadata(),
+                semantics,
                 fixture(),
             )
 

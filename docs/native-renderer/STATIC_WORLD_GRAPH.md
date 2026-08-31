@@ -56,6 +56,7 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   --graph .local/qualification/native-renderer-static-world-graph.json `
   --owner .local/qualification/native-renderer-static-world-owner.json `
   --asset-metadata .local/qualification/native-renderer-static-world-asset-metadata.json `
+  --mesh-semantics .local/qualification/native-renderer-static-world-mesh-semantics.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
@@ -63,8 +64,10 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
 ## Remaining boundary
 
 This identifies the exact generic SimpleModel member graph behind each joined
-draw. It does not distinguish an individual building from a prop, classify
-mesh/material fields, or authorize native replay. Runtime qualification must
-also prove the graph and payload-reset transitions under representative
+draw. It does not distinguish an individual building from a prop. The bounded
+fields used by the mesh draw and material binding branches are now proved in
+[`STATIC_WORLD_MESH_SEMANTICS.md`](STATIC_WORLD_MESH_SEMANTICS.md), while
+complete vertex/material payload decoding remains open. Runtime qualification
+must also prove the graph and payload-reset transitions under representative
 streaming. Native admission, publication, and suppression remain disabled;
 Xenos stays authoritative.
