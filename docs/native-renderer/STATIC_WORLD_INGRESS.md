@@ -97,6 +97,7 @@ with:
 python tools/summarize-native-renderer-static-world-runtime-join.py `
   .local/preview/logs/<session>.jsonl `
   --static .local/qualification/native-renderer-static-world-ingress.json `
+  --lifetime .local/qualification/native-renderer-static-world-lifetime.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
@@ -106,3 +107,8 @@ evidence never proves session exit or permits admission. Even a clean final
 join proves generic SimpleModel ownership, not concrete building/prop identity
 or streaming lifetime. Native upload, draw, publication, and suppression stay
 disabled until those next exact gates are closed.
+
+The renderer lifetime and owned graph field are now independently proved in
+[`STATIC_WORLD_LIFETIME.md`](STATIC_WORLD_LIFETIME.md). The runtime join
+requires a completed renderer generation and matching graph-binding generation
+before it attributes any PM4 packet.

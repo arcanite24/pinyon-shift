@@ -10,7 +10,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v1"
+SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 IMAGE_BASE = 0x82000000
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 REVIEWED_THUNKS = {
@@ -125,7 +125,13 @@ def build(functions: set[int], image: bytes) -> dict:
         if decorated_name != spec["decorated_name"]:
             raise ValueError(f"{name} RTTI evidence drifted")
         surfaces = []
-        for label, locator, vtable, slot_count, destructor in spec["surfaces"]:
+        for (
+            label,
+            locator,
+            vtable,
+            slot_count,
+            slot_zero_target,
+        ) in spec["surfaces"]:
             if vtable in all_vtables:
                 raise ValueError(f"duplicate static-world vtable: {vtable:08X}")
             all_vtables.add(vtable)
@@ -137,8 +143,8 @@ def build(functions: set[int], image: bytes) -> dict:
                 image_u32(image, vtable + index * 4)
                 for index in range(slot_count)
             ]
-            if slots[0] != destructor:
-                raise ValueError(f"{name} {label} destructor drifted")
+            if slots[0] != slot_zero_target:
+                raise ValueError(f"{name} {label} slot-zero target drifted")
             ungenerated = [
                 target
                 for target in slots
@@ -155,7 +161,7 @@ def build(functions: set[int], image: bytes) -> dict:
                     "complete_object_locator": f"{locator:08X}",
                     "vtable_address": f"{vtable:08X}",
                     "vtable_slot_count": slot_count,
-                    "deleting_destructor": f"{destructor:08X}",
+                    "slot_zero_target": f"{slot_zero_target:08X}",
                     "slot_targets": [f"{target:08X}" for target in slots],
                     "reviewed_thunk_slots": [
                         index

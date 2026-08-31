@@ -9,8 +9,9 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v1"
-STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v1"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v2"
+STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
+LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -116,8 +117,66 @@ def validate_static_ingress(document):
         raise ValueError("static-world renderer dispatch proof drifted")
 
 
-def build(static_ingress, events, requested_session=None, allow_checkpoint=False):
+def validate_static_lifetime(document):
+    if (
+        document.get("schema") != LIFETIME_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "exact_simple_model_renderer_lifetime_and_graph_owner"
+    ):
+        raise ValueError("static-world lifetime proof drifted")
+    try:
+        renderer = document["renderer"]
+        graph = document["graph_ownership"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("static-world lifetime proof is incomplete") from error
+    expected_renderer = {
+        "class": "CSimpleModelRenderer",
+        "vtable": "82001B64",
+        "object_bytes": 368,
+        "constructor": "82C4DF78",
+        "constructor_publish_hook": "82C4E094",
+        "deleting_destructor_slot": 16,
+        "deleting_destructor": "82C4E420",
+        "destructor_entry_hook": "82C4E1F8",
+        "destructor_exit_hook": "82C4E264",
+    }
+    expected_graph = {
+        "field_offset": 72,
+        "bind_slot": 1,
+        "bind_method": "82C4CC50",
+        "bind_completion_hook": "82C4CCB0",
+        "release_slot": 15,
+        "release_method": "82C4C6A8",
+        "destructor_cleanup": "82C4E0A0",
+        "draw_slot": 12,
+        "draw_dispatch": "82C4CCC8",
+    }
+    if any(
+        renderer.get(key) != value
+        for key, value in expected_renderer.items()
+    ):
+        raise ValueError("static-world renderer lifetime proof drifted")
+    if any(graph.get(key) != value for key, value in expected_graph.items()):
+        raise ValueError("static-world graph ownership proof drifted")
+    if (
+        claims.get("renderer_generation_boundary_proved") is not True
+        or claims.get("renderer_to_owned_graph_field_proved") is not True
+        or claims.get("concrete_building_or_prop_identity_proved") is not False
+    ):
+        raise ValueError("static-world lifetime claims drifted")
+
+
+def build(
+    static_ingress,
+    static_lifetime,
+    events,
+    requested_session=None,
+    allow_checkpoint=False,
+):
     validate_static_ingress(static_ingress)
+    validate_static_lifetime(static_lifetime)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -128,11 +187,22 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         "status": "armed",
         "class": "CSimpleModelRenderer",
         "vtable": "82001B64",
+        "object_bytes": "368",
+        "constructor": "82C4DF78",
+        "constructor_publish_hook": "82C4E094",
+        "deleting_destructor_slot": "16",
+        "deleting_destructor": "82C4E420",
+        "destructor_entry_hook": "82C4E1F8",
+        "destructor_exit_hook": "82C4E264",
         "vtable_slot": "12",
         "dispatch": "82C4CCC8",
         "entry_hook": "82C4CCC8",
         "exit_hook": "82C4DEA0",
         "model_graph_field": "renderer_plus_72",
+        "model_graph_bind_slot": "1",
+        "model_graph_bind_hook": "82C4CCB0",
+        "model_graph_release_slot": "15",
+        "model_graph_release_hook": "82C4C6A8,82C4E0A0",
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -156,7 +226,7 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         or summary.get("checkpoint_kind")
         != ("final" if final_summary else "periodic")
         or summary.get("classification")
-        != "exact_simple_model_renderer_scope_to_pm4_prepared_draw"
+        != "live_simple_model_renderer_graph_to_pm4_prepared_draw"
     ):
         raise ValueError("static-world runtime summary drifted")
 
@@ -167,6 +237,10 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         "invalid_root",
         "vtable_mismatches",
         "invalid_graph_field",
+        "unregistered_renderers",
+        "nonlive_renderers",
+        "unbound_graphs",
+        "graph_mismatches",
         "scopes_with_packets",
         "scopes_without_packets",
         "packets_recorded",
@@ -176,6 +250,26 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         "unprepared_matches",
         "scope_overlaps",
         "exit_without_entry",
+        "instances_published",
+        "instances_destroyed",
+        "instance_address_reuses",
+        "lifecycle_table_overflow",
+        "lifecycle_faults",
+        "destructor_entries",
+        "destructor_exits",
+        "destructors_open",
+        "destructors_without_instance",
+        "graph_bind_observations",
+        "graph_bind_successes",
+        "graph_bind_null",
+        "graph_bind_unregistered",
+        "graph_bind_faults",
+        "graph_replacements",
+        "graph_release_observations",
+        "graph_release_successes",
+        "graph_release_empty",
+        "graph_release_unregistered",
+        "graph_release_faults",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -185,6 +279,10 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         + totals["invalid_root"]
         + totals["vtable_mismatches"]
         + totals["invalid_graph_field"]
+        + totals["unregistered_renderers"]
+        + totals["nonlive_renderers"]
+        + totals["unbound_graphs"]
+        + totals["graph_mismatches"]
     )
     if summary.get("accounting_complete") != "true":
         failures.append("runtime accounting is incomplete")
@@ -198,6 +296,12 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         failures.append("static-world scope outcome accounting drifted")
     if not totals["exact_scopes"]:
         failures.append("no exact SimpleModel renderer scope was observed")
+    if not totals["instances_published"]:
+        failures.append(
+            "no completed SimpleModel renderer lifetime was observed"
+        )
+    if not totals["graph_bind_successes"]:
+        failures.append("no owned SimpleModel renderer graph was observed")
     if not totals["scopes_with_packets"] or not totals["packets_recorded"]:
         failures.append("no exact scope emitted a PM4 draw packet")
     if totals["packet_matches"] + totals["pending_packets"] != totals[
@@ -208,15 +312,48 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         totals["prepared_matches"] + totals["unprepared_matches"]
     ):
         failures.append("static-world prepared accounting drifted")
+    if totals["destructor_entries"] != (
+        totals["destructor_exits"] + totals["destructors_open"]
+    ):
+        failures.append("static-world destructor accounting drifted")
+    if totals["instances_destroyed"] > totals["instances_published"]:
+        failures.append("static-world instance lifetime accounting drifted")
+    if (
+        totals["graph_bind_successes"]
+        + totals["graph_bind_null"]
+        + totals["graph_bind_unregistered"]
+        + totals["graph_bind_faults"]
+        != totals["graph_bind_observations"]
+    ):
+        failures.append("static-world graph bind accounting drifted")
+    if (
+        totals["graph_release_successes"]
+        + totals["graph_release_empty"]
+        + totals["graph_release_unregistered"]
+        + totals["graph_release_faults"]
+        != totals["graph_release_observations"]
+    ):
+        failures.append("static-world graph release accounting drifted")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
         "invalid_root",
         "vtable_mismatches",
         "invalid_graph_field",
+        "unregistered_renderers",
+        "nonlive_renderers",
+        "graph_mismatches",
         "unprepared_matches",
         "scope_overlaps",
         "exit_without_entry",
+        "lifecycle_table_overflow",
+        "lifecycle_faults",
+        "destructors_without_instance",
+        "destructors_open",
+        "graph_bind_unregistered",
+        "graph_bind_faults",
+        "graph_release_unregistered",
+        "graph_release_faults",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -246,6 +383,8 @@ def build(static_ingress, events, requested_session=None, allow_checkpoint=False
         "totals": totals,
         "qualification": {
             "simple_model_renderer_scope_proved": not failures,
+            "simple_model_renderer_lifetime_proved": not failures,
+            "renderer_to_owned_graph_field_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
@@ -268,6 +407,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("events", nargs="+", type=pathlib.Path)
     parser.add_argument("--static", required=True, type=pathlib.Path)
+    parser.add_argument("--lifetime", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -275,6 +415,7 @@ def main(argv=None):
     try:
         document = build(
             json.loads(args.static.read_text(encoding="utf-8")),
+            json.loads(args.lifetime.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,
