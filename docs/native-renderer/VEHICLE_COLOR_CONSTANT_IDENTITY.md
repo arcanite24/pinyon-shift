@@ -1,8 +1,8 @@
 # Vehicle color constant identity census
 
-Status: implemented as a default-off, measurement-only extension of the
-qualified vehicle shadow/color correlation; runtime evidence is batched with
-the next C4 AppData session.
+Status: qualified as a default-off, measurement-only extension of the vehicle
+shadow/color correlation. The raw constant scan is closed as an identity path;
+the next step is the typed upload/bind edge.
 
 ## Purpose
 
@@ -59,3 +59,22 @@ Qualify it with the existing retained-pass batch command in
 vehicle report requires full scan/outcome accounting and exposes
 `complete_shared_vehicle_transform_candidate` without changing
 `object_identity_proven` or `native_admission_allowed`.
+
+## AppData qualification result
+
+The clean combined C4 session examined 18,360 exact correlated draws across all
+30 families. It completed 18,360 constant scans, inspected 293,760 finite
+three-component vectors, and performed 18,207,360 tight identity comparisons
+with no stale-pose or non-finite-vector gaps.
+
+No family produced a stable world-position candidate. Every position outcome
+was a miss, and the closest observed squared delta was still roughly 753,399,
+far outside the `0.25` bound. Forward vectors were near the title-owned pose
+but ambiguous rather than uniquely identifying one owner. Therefore
+`complete_shared_vehicle_transform_candidate` correctly remains false.
+
+This is a useful negative result: the correlated vertex constants are not a
+direct world-position carrier under the tested convention. Repeating or
+widening the raw scan is not justified. C4 should instead observe the typed
+constant upload/bind boundary that produces the prepared color pipeline, then
+join that typed transform carrier back to the 30 exact families.
