@@ -41,6 +41,25 @@ class VehicleShadowGeometryTests(unittest.TestCase):
                 **safety,
             },
             {
+                "event": MODULE.CANDIDATE_EVENT,
+                "classification": "bounded_vehicle_color_geometry_candidate_family",
+                "match": "exact_index_and_shared_vertex_resource",
+                "prepared_signature": "1" * 16,
+                "template_key": "2" * 16,
+                "draw_argument_hash": "3" * 16,
+                "geometry_resource_hash": "4" * 16,
+                "texture_resource_hash": "5" * 16,
+                "prepared_pipeline_hash": "6" * 16,
+                "first_parameter_hash": "7" * 16,
+                "last_parameter_hash": "8" * 16,
+                "draws": "3",
+                "parameter_switches": "2",
+                "first_frame": "10",
+                "last_frame": "12",
+                "pose_variation_observed": "true",
+                **safety,
+            },
+            {
                 "event": MODULE.SUMMARY_EVENT,
                 "status": "qualified_epoch_observed",
                 "epochs_committed": "1",
@@ -73,6 +92,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         self.assertTrue(
             report["qualification"]["working_color_bridge_candidate"]
         )
+        self.assertEqual(1, len(report["candidate_families"]))
         self.assertFalse(report["qualification"]["native_admission_allowed"])
 
     def test_rejects_partial_epoch_promotion(self):
@@ -93,6 +113,12 @@ class VehicleShadowGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "suppression was allowed"):
             self.summarize(events)
 
+    def test_rejects_pose_variation_accounting_drift(self):
+        events = self.fixture()
+        events[3]["pose_variation_observed"] = "false"
+        with self.assertRaisesRegex(ValueError, "pose variation accounting drift"):
+            self.summarize(events)
+
     def test_runtime_contract_is_default_off_and_full_epoch_gated(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
@@ -111,6 +137,7 @@ class VehicleShadowGeometryTests(unittest.TestCase):
             source,
         )
         self.assertIn('"native_renderer.discovery.vehicle_shadow_geometry_summary"', source)
+        self.assertIn('"native_renderer.discovery.vehicle_shadow_geometry_candidate"', source)
         self.assertIn("[switch]$VehicleShadowGeometryCorrelation", capture)
         self.assertIn(
             "VehicleShadowGeometryCorrelation requires ShadowDepthBatch",

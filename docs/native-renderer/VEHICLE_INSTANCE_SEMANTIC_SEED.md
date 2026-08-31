@@ -449,6 +449,14 @@ texture hash form a bounded candidate table for the player-vehicle color
 bridge. This is a cross-pass resource correlation, not yet object identity:
 transform, wheel, livery, traffic, and complete material semantics remain open.
 
+Candidate aggregation is deliberately stable across animated constants. A
+family is partitioned by the exact shadow seed, prepared signature, draw
+arguments, geometry resources, texture resources, and prepared pipeline. The
+final report retains draw/frame coverage and first/last parameter hashes plus
+parameter-switch counts. This prevents different submeshes or liveries from
+collapsing together while exposing likely pose-bearing families without
+exporting the constant payload itself.
+
 The mode captures no guest payload, submits no native color draw, preserves all
 Xenos draws, and cannot suppress anything. Qualify it in a representative
 driving session with:

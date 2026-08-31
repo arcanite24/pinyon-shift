@@ -11,6 +11,7 @@ EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
     "native_renderer.discovery.vehicle_shadow_geometry_correlation"
 )
+CANDIDATE_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_candidate"
 SUMMARY_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_summary"
 
 
@@ -48,6 +49,9 @@ def summarize(log_path):
     correlations = [
         event for event in events if event.get("event") == CORRELATION_EVENT
     ]
+    candidates = [
+        event for event in events if event.get("event") == CANDIDATE_EVENT
+    ]
     summaries = [
         event for event in events if event.get("event") == SUMMARY_EVENT
     ]
@@ -69,12 +73,16 @@ def summarize(log_path):
         "correlation event accounting drift",
     )
     require(
+        integer(summary, "correlations") == len(candidates),
+        "candidate family accounting drift",
+    )
+    require(
         integer(summary, "color_draws_matched")
         == integer(summary, "full_geometry_matches")
         + integer(summary, "index_vertex_matches"),
         "match accounting drift",
     )
-    safety_events = [*configs, *epochs, *correlations, summary]
+    safety_events = [*configs, *epochs, *correlations, *candidates, summary]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
         require(event.get("xenos_authority") == "true", "Xenos authority changed")
@@ -103,6 +111,33 @@ def summarize(log_path):
             },
             "unbounded correlation match",
         )
+    for event in candidates:
+        require(
+            event.get("classification")
+            == "bounded_vehicle_color_geometry_candidate_family",
+            "candidate family classification drift",
+        )
+        require(integer(event, "draws") > 0, "empty candidate family")
+        require(
+            integer(event, "last_frame") >= integer(event, "first_frame"),
+            "candidate frame range drift",
+        )
+        require(
+            event.get("pose_variation_observed")
+            == ("true" if integer(event, "parameter_switches") else "false"),
+            "pose variation accounting drift",
+        )
+        for key in (
+            "prepared_signature",
+            "template_key",
+            "draw_argument_hash",
+            "geometry_resource_hash",
+            "texture_resource_hash",
+            "prepared_pipeline_hash",
+            "first_parameter_hash",
+            "last_parameter_hash",
+        ):
+            require(len(event.get(key, "")) == 16, f"invalid candidate hash: {key}")
     return {
         "schema": SCHEMA,
         "source_log": str(log_path),
@@ -117,6 +152,7 @@ def summarize(log_path):
         },
         "epochs": epochs,
         "correlations": correlations,
+        "candidate_families": candidates,
         "qualification": {
             "working_color_bridge_candidate": bool(correlations),
             "object_identity_proven": False,
