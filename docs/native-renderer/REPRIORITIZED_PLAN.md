@@ -661,6 +661,24 @@ publication, or suppression. Runtime evidence is combined with the pending
 transform census; the contract is documented in
 [`VEHICLE_MATERIAL_TOPOLOGY.md`](VEHICLE_MATERIAL_TOPOLOGY.md).
 
+Combined transform/material result: the clean merged-`dev` build loaded the
+AppData save and exited normally with no error or fatal log entries. The
+retained full-vehicle diagnostic again completed 120/120 frames and all 3,600
+draws, including 3,480 retained-target reuses, with zero failures. Across
+18,360 correlated draws, the constant census completed 18,360 scans and
+18,207,360 comparisons but found no stable world-position carrier in the raw
+vertex constants; the nearest squared position delta was still about 753,399.
+Forward matches were close but ambiguous. The v8 report therefore correctly
+keeps the shared-transform and object-identity gates closed.
+
+The material census reconciled all 30 families into one stable mechanical
+topology while every family varied its hashed material parameters. C4 is now
+re-prioritized around the typed constant/material upload and bind edges: first
+recover the exact player transform carrier and semantic player discriminator,
+then label body, glass, wheel, light, and livery contributions within the
+shared topology. More broad raw-constant or hash-only scans are deferred. The
+retained private pass remains the stable geometry/output harness throughout.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

@@ -1,7 +1,7 @@
 # Vehicle material topology census
 
-Status: implemented as payload-free metadata in the default-off C4 correlation
-mode; runtime evidence is batched with the transform-constant census.
+Status: qualified as payload-free metadata in the default-off C4 correlation
+mode. The mechanical topology is closed; semantic material labels remain open.
 
 ## Boundary
 
@@ -43,3 +43,18 @@ publication or suppression.
 - Every original Xenos draw executes unchanged.
 - The output is metadata only and cannot establish player identity, complete
   material coverage, or native admission.
+
+## AppData qualification result
+
+The clean combined C4 session reconciled all 30 exact families into one
+mechanical material-topology group. All 30 families changed their hashed pixel
+parameters over the session, while the shared shader specialization, prepared
+render state, and texture layout remained stable. The report passed exact
+family/group accounting without exporting material values or assets.
+
+The single group means shader/topology hashes cannot separate body, glass,
+wheels, lights, or livery. Those distinctions are parameter- or title-semantic
+driven inside the shared mechanical contract. The next material slice should
+join the bounded families to the typed title material/upload edge and use
+visual contribution evidence for labels; it should not invent semantics from
+the common topology key.
