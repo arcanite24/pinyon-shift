@@ -22,6 +22,7 @@ def fixture():
     image = bytearray(highest - MODULE.IMAGE_BASE)
     presentation_slots = [0x82800000 + index * 4 for index in range(18)]
     presentation_slots[0] = MODULE.PRESENTATION_DELETING_DESTRUCTOR
+    presentation_slots[7] = MODULE.PRESENTATION_INITIALIZE
     presentation_slots[12] = MODULE.PRESENTATION_DRAW
     renderer_slots = [0x82900000 + index * 4 for index in range(17)]
     renderer_slots[0] = 0x82C4C838
@@ -54,15 +55,36 @@ def fixture():
             0x82DEA530: "mr r3,r31",
             0x82DEA534: "bl 0x823fd208",
         },
+        MODULE.PRESENTATION_INITIALIZE: {
+            0x82DEA2A4: "mr r31,r3",
+            0x82DEA384: "addi r3,r31,148",
+            0x82DEA388: "bl 0x82c48038",
+            0x82DEA390: "stw r11,144(r31)",
+        },
         MODULE.PRESENTATION_PREPARE: {
             0x823F89A4: "lwz r11,148(r24)",
             0x823F89A8: "addi r31,r24,148",
             0x823F8A14: "bl 0x82c4e3a0",
             0x823F8A18: "stw r3,1608(r24)",
+            0x823F8A24: "bl 0x824afb20",
             0x823F8A28: "lwz r3,1608(r24)",
             0x823F8A34: "lwz r11,0(r11)",
             0x823F8A3C: "bctrl",
             0x823F8A44: "stw r11,144(r24)",
+        },
+        MODULE.BINDING_CONSTRUCTOR: {
+            0x824AFB40: "lwz r31,0(r4)",
+            0x824AFB60: "stw r31,0(r30)",
+        },
+        MODULE.RENDERER_BIND: {
+            0x82C4C848: "addi r3,r3,72",
+            0x82C4C84C: "mr r31,r4",
+            0x82C4C850: "bl 0x826e1b10",
+        },
+        MODULE.REFERENCE_ASSIGN: {
+            0x826E1B24: "lwz r31,0(r4)",
+            0x826E1B48: "lwz r3,0(r30)",
+            0x826E1B4C: "stw r31,0(r30)",
         },
         MODULE.PRESENTATION_DRAW: {
             0x823F8DC4: "mr r31,r3",
@@ -87,8 +109,17 @@ class StaticWorldOwnerTests(unittest.TestCase):
         )
         self.assertEqual(1608, document["presentation"]["renderer_field_offset"])
         self.assertEqual("82C4CCC8", document["renderer_join"]["draw_target"])
+        self.assertEqual(
+            "presentation_plus_148_equals_renderer_plus_72",
+            document["resource_join"]["address_equation"],
+        )
         self.assertTrue(
             document["claims"]["exact_model_presentation_owner_proved"]
+        )
+        self.assertTrue(
+            document["claims"][
+                "presentation_to_renderer_resource_identity_proved"
+            ]
         )
         self.assertFalse(
             document["claims"]["concrete_building_or_prop_identity_proved"]

@@ -365,6 +365,17 @@ with an exact offset-1608 renderer equality gate. Runtime qualification remains
 batched with C1/C2. This does not prove building-versus-prop identity or
 mesh/material semantics.
 
+Presentation-type checkpoint: a complete retail RTTI hierarchy census finds
+only generic `CModelPresentation` and its thread-safe reference-count wrapper;
+there is no building- or prop-specific derived presentation class. Slot 7 and
+the renderer bind helpers now also prove that presentation offset 148 and
+renderer offset 72 hold the same exact `CSimpleModelResource`. Runtime lineage
+requires that address equation before attribution. The locked census is
+documented in
+[`STATIC_WORLD_PRESENTATION_TYPES.md`](STATIC_WORLD_PRESENTATION_TYPES.md).
+The next semantic lead is bounded resource/asset metadata, not another RTTI
+subclass search.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

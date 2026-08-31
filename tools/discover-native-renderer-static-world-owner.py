@@ -25,8 +25,13 @@ PRESENTATION_DRAW_SLOT = 12
 PRESENTATION_DRAW = 0x823F8DB8
 PRESENTATION_DRAW_EXIT = 0x823F8FA0
 PRESENTATION_PREPARE = 0x823F8980
+PRESENTATION_INITIALIZE = 0x82DEA298
 RENDERER_CONSTRUCTOR_WRAPPER = 0x82C4E3A0
 RENDERER_VTABLE = 0x82001B64
+RENDERER_BIND = 0x82C4C838
+RESOURCE_BIND = 0x82C48038
+BINDING_CONSTRUCTOR = 0x824AFB20
+REFERENCE_ASSIGN = 0x826E1B10
 RENDERER_BIND_SLOT = 0
 RENDERER_DRAW_SLOT = 12
 RESOURCE_REFERENCE_OFFSET = 148
@@ -85,6 +90,8 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         raise ValueError("CModelPresentation deleting destructor drifted")
     if slots[PRESENTATION_DRAW_SLOT] != PRESENTATION_DRAW:
         raise ValueError("CModelPresentation draw slot drifted")
+    if slots[7] != PRESENTATION_INITIALIZE:
+        raise ValueError("CModelPresentation initialize slot drifted")
     renderer_slots = [
         image_u32(image, RENDERER_VTABLE + index * 4) for index in range(17)
     ]
@@ -123,16 +130,53 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
     )
     require_instructions(
         functions,
+        PRESENTATION_INITIALIZE,
+        {
+            0x82DEA2A4: "mr r31,r3",
+            0x82DEA384: "addi r3,r31,148",
+            0x82DEA388: "bl 0x82c48038",
+            0x82DEA390: "stw r11,144(r31)",
+        },
+    )
+    require_instructions(
+        functions,
         PRESENTATION_PREPARE,
         {
             0x823F89A4: "lwz r11,148(r24)",
             0x823F89A8: "addi r31,r24,148",
             0x823F8A14: "bl 0x82c4e3a0",
             0x823F8A18: "stw r3,1608(r24)",
+            0x823F8A24: "bl 0x824afb20",
             0x823F8A28: "lwz r3,1608(r24)",
             0x823F8A34: "lwz r11,0(r11)",
             0x823F8A3C: "bctrl",
             0x823F8A44: "stw r11,144(r24)",
+        },
+    )
+    require_instructions(
+        functions,
+        BINDING_CONSTRUCTOR,
+        {
+            0x824AFB40: "lwz r31,0(r4)",
+            0x824AFB60: "stw r31,0(r30)",
+        },
+    )
+    require_instructions(
+        functions,
+        RENDERER_BIND,
+        {
+            0x82C4C848: "addi r3,r3,72",
+            0x82C4C84C: "mr r31,r4",
+            0x82C4C850: "bl 0x826e1b10",
+        },
+    )
+    require_instructions(
+        functions,
+        REFERENCE_ASSIGN,
+        {
+            0x826E1B24: "lwz r31,0(r4)",
+            0x826E1B48: "lwz r3,0(r30)",
+            0x826E1B4C: "stw r31,0(r30)",
         },
     )
     require_instructions(
@@ -178,11 +222,25 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             "draw_target": f"{renderer_slots[RENDERER_DRAW_SLOT]:08X}",
             "join_kind": "balanced_synchronous_presentation_draw_scope",
         },
+        "resource_join": {
+            "initialize_slot": 7,
+            "initialize_method": f"{PRESENTATION_INITIALIZE:08X}",
+            "resource_bind": f"{RESOURCE_BIND:08X}",
+            "presentation_resource_field_offset": RESOURCE_REFERENCE_OFFSET,
+            "binding_constructor": f"{BINDING_CONSTRUCTOR:08X}",
+            "renderer_bind": f"{RENDERER_BIND:08X}",
+            "reference_assignment": f"{REFERENCE_ASSIGN:08X}",
+            "renderer_resource_field_offset": 72,
+            "address_equation": (
+                "presentation_plus_148_equals_renderer_plus_72"
+            ),
+        },
         "claims": {
             "exact_model_presentation_owner_proved": True,
             "presentation_to_renderer_field_proved": True,
             "presentation_to_resource_reference_proved": True,
             "renderer_bind_and_draw_dispatch_proved": True,
+            "presentation_to_renderer_resource_identity_proved": True,
             "concrete_building_or_prop_identity_proved": False,
             "mesh_or_material_semantics_proved": False,
         },

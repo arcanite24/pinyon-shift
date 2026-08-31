@@ -248,11 +248,25 @@ def static_owner():
             "draw_target": "82C4CCC8",
             "join_kind": "balanced_synchronous_presentation_draw_scope",
         },
+        "resource_join": {
+            "initialize_slot": 7,
+            "initialize_method": "82DEA298",
+            "resource_bind": "82C48038",
+            "presentation_resource_field_offset": 148,
+            "binding_constructor": "824AFB20",
+            "renderer_bind": "82C4C838",
+            "reference_assignment": "826E1B10",
+            "renderer_resource_field_offset": 72,
+            "address_equation": (
+                "presentation_plus_148_equals_renderer_plus_72"
+            ),
+        },
         "claims": {
             "exact_model_presentation_owner_proved": True,
             "presentation_to_renderer_field_proved": True,
             "presentation_to_resource_reference_proved": True,
             "renderer_bind_and_draw_dispatch_proved": True,
+            "presentation_to_renderer_resource_identity_proved": True,
             "concrete_building_or_prop_identity_proved": False,
             "mesh_or_material_semantics_proved": False,
         },
@@ -308,6 +322,9 @@ def fixture():
             "presentation_draw_hooks": "823F8DB8,823F8FA0",
             "presentation_resource_field": "presentation_plus_148",
             "presentation_renderer_field": "presentation_plus_1608",
+            "presentation_resource_join": (
+                "presentation_plus_148_equals_renderer_plus_72"
+            ),
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -420,6 +437,7 @@ def fixture():
         presentation_scopes_without_renderer="4",
         presentation_renderer_joins="8",
         presentation_renderer_mismatches="0",
+        presentation_resource_mismatches="0",
         accounting_complete="true",
         qualification_complete="true",
         classification=(
@@ -456,6 +474,11 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["model_presentation_owner_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "model_presentation_to_renderer_resource_proved"
+            ]
         )
         self.assertFalse(
             document["qualification"]["building_or_prop_instance_identity_proved"]
@@ -657,6 +680,28 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "presentation_renderer_mismatches is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_presentation_resource_mismatch(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            presentation_resource_mismatches="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "presentation_resource_mismatches is nonzero",
             document["failures"],
         )
 
