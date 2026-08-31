@@ -314,6 +314,15 @@ records, with periodic and final fail-closed accounting. Runtime qualification
 is batched after the current guarded C1 session. This proves no concrete
 building/prop instance or streaming lifetime and enables no native admission.
 
+Lifetime checkpoint: static instruction flow now proves the 368-byte
+`CSimpleModelRenderer` construction, its actual slot-16 deleting destructor,
+and the bind/clear/release ownership protocol for its offset-72 graph field.
+Runtime lineage carries independent renderer and graph generations and rejects
+unregistered, non-live, unbound, or mismatched ownership before attribution.
+The proof and batched qualifier are documented in
+[`STATIC_WORLD_LIFETIME.md`](STATIC_WORLD_LIFETIME.md). Concrete graph dynamic
+type, building/prop identity, and streaming registration remain pending.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

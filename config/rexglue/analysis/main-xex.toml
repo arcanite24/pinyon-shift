@@ -239,6 +239,41 @@ registers = ["r3", "r4"]
 address = 0x82C4DEA0
 name = "PinyonShiftObserveStaticWorldRendererDispatchExit"
 
+# The exact CSimpleModelRenderer lifecycle and its owned offset-72 graph
+# boundary. Construction publishes only after the complete 368-byte object is
+# initialized. Destruction is balanced around the complete destructor. Slot 1
+# observes graph binding after 0x82C48038 returns; slot 15 and the destructor
+# cleanup observe the old graph before clearing/releasing it. These hooks are
+# passive and preserve every title release and allocation side effect.
+[[midasm_hook]]
+address = 0x82C4E094
+name = "PinyonShiftObserveStaticWorldRendererConstructed"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C4E1F8
+name = "PinyonShiftObserveStaticWorldRendererDestructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C4E264
+name = "PinyonShiftObserveStaticWorldRendererDestructorExit"
+
+[[midasm_hook]]
+address = 0x82C4CCB0
+name = "PinyonShiftObserveStaticWorldRendererGraphBind"
+registers = ["r30"]
+
+[[midasm_hook]]
+address = 0x82C4C6A8
+name = "PinyonShiftObserveStaticWorldRendererGraphRelease"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C4E0A0
+name = "PinyonShiftObserveStaticWorldRendererGraphRelease"
+registers = ["r3"]
+
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
 # fully composed stack payload. Compare both exact live matrices with admitted

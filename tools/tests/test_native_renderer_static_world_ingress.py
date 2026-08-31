@@ -30,7 +30,7 @@ def fixture():
         offset = type_descriptor + 8 - MODULE.IMAGE_BASE
         image[offset : offset + len(encoded)] = encoded
         for surface_index, surface in enumerate(spec["surfaces"]):
-            _, locator, vtable, slot_count, destructor = surface
+            _, locator, vtable, slot_count, slot_zero_target = surface
             u32(locator + 12, type_descriptor)
             u32(vtable - 4, locator)
             slots = [
@@ -40,7 +40,7 @@ def fixture():
                 + index * 4
                 for index in range(slot_count)
             ]
-            slots[0] = destructor
+            slots[0] = slot_zero_target
             for index, target in enumerate(slots):
                 u32(vtable + index * 4, target)
                 if target not in MODULE.REVIEWED_THUNKS:
@@ -70,6 +70,11 @@ class StaticWorldIngressTests(unittest.TestCase):
                 "surfaces"
             ][0]["reviewed_thunk_slots"],
         )
+        renderer_surface = document["classes"]["simple_model_renderer"][
+            "surfaces"
+        ][0]
+        self.assertEqual("82C4C838", renderer_surface["slot_zero_target"])
+        self.assertNotIn("deleting_destructor", renderer_surface)
         self.assertFalse(
             document["topology"]["building_or_prop_instance_identity_proved"]
         )
