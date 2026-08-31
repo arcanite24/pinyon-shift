@@ -715,6 +715,27 @@ register, allowing later writes to replace unrelated vectors from a broader
 upload without erasing exact matches. It still requires exact index/hash
 equality for every credited register and changes no draw authority.
 
+Per-register qualification result: the corrected AppData run
+`20260831T191732Z-p39892` completed 308 exact epochs and 9,210 correlated draws
+across all 30 families, but found zero exact typed-writer register matches.
+This closes the generic title writer route. The next bounded slice observes the
+command processor's final shader-register writes instead, retaining exact
+packet and command-buffer lineage for current vertex-constant components. A
+fixed 4,096-source table aggregates source identity by family, packet header,
+packet offset, and nesting depth while retaining dynamic buffer length and
+physical-address variation as evidence. Strict component/source accounting
+selects the semantic command-buffer producer before player identity,
+publication, or suppression can advance.
+
+Command-stream qualification `20260831T200117Z-p31000` is bounded and
+repeatable: 255 exact epochs, 7,650 correlated draws, and all 30 families were
+observed. Final register state matched 114,750 of 122,400 shader-used vectors
+(15 of 16 per draw), with no missing or split-component vectors and zero-frame
+age. The structural packet table retained 1,620 sources without overflow.
+The next focused slice identifies the one mismatched vector per draw and then
+publishes the first semantic vehicle-constant bridge from this proven final
+register boundary.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.

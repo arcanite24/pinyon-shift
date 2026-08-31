@@ -5,13 +5,16 @@ import json
 from pathlib import Path
 
 
-SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v12"
+SCHEMA = "pinyon-shift.native-renderer-vehicle-shadow-geometry.v13"
 CONFIG_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_config"
 EPOCH_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_epoch"
 CORRELATION_EVENT = (
     "native_renderer.discovery.vehicle_shadow_geometry_correlation"
 )
 CANDIDATE_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_candidate"
+SHADER_CONSTANT_SOURCE_EVENT = (
+    "native_renderer.discovery.vehicle_shader_constant_source"
+)
 SUMMARY_EVENT = "native_renderer.discovery.vehicle_shadow_geometry_summary"
 CAPTURE_CONFIG_EVENT = (
     "native_renderer.discovery.vehicle_shadow_color_capture_config"
@@ -101,6 +104,11 @@ def summarize(log_path):
     candidates = [
         event for event in events if event.get("event") == CANDIDATE_EVENT
     ]
+    shader_constant_sources = [
+        event
+        for event in events
+        if event.get("event") == SHADER_CONSTANT_SOURCE_EVENT
+    ]
     summaries = [
         event for event in events if event.get("event") == SUMMARY_EVENT
     ]
@@ -141,6 +149,20 @@ def summarize(log_path):
     require(
         integer(configs[0], "typed_constant_upload_maximum_age_frames") == 1,
         "typed constant upload freshness drift",
+    )
+    require(
+        configs[0].get("shader_constant_write_observer")
+        == "command_processor_final_shader_register_write",
+        "shader constant write observer drift",
+    )
+    require(
+        configs[0].get("shader_constant_write_contract")
+        == "exact_current_vertex_register_components_and_packet_lineage",
+        "shader constant write contract drift",
+    )
+    require(
+        integer(configs[0], "shader_constant_source_capacity") == 4096,
+        "shader constant source capacity drift",
     )
     require(len(summaries) == 1, "expected exactly one correlation summary")
     summary = summaries[0]
@@ -330,7 +352,93 @@ def summarize(log_path):
         == "82435E78_exact_shader_used_vertex_register_hash",
         "typed upload summary contract drift",
     )
-    safety_events = [*configs, *epochs, *correlations, *candidates, summary]
+    shader_constant_write_scans = integer(
+        summary, "shader_constant_write_scans"
+    )
+    shader_constant_write_observed_vectors = integer(
+        summary, "shader_constant_write_observed_vectors"
+    )
+    shader_constant_write_exact_vectors = integer(
+        summary, "shader_constant_write_exact_vectors"
+    )
+    shader_constant_write_missing_vectors = integer(
+        summary, "shader_constant_write_missing_vectors"
+    )
+    shader_constant_write_mismatched_vectors = integer(
+        summary, "shader_constant_write_mismatched_vectors"
+    )
+    shader_constant_write_coherent_vectors = integer(
+        summary, "shader_constant_write_coherent_vectors"
+    )
+    shader_constant_write_split_vectors = integer(
+        summary, "shader_constant_write_split_vectors"
+    )
+    require(
+        summary.get("shader_constant_write_observation_accounting_complete")
+        == "true",
+        "shader constant write observation accounting drift",
+    )
+    require(
+        integer(summary, "vertex_shader_constant_write_observations")
+        + integer(summary, "pixel_shader_constant_write_observations")
+        + integer(summary, "shader_constant_write_invalid_register")
+        == integer(summary, "shader_constant_write_observations"),
+        "shader constant write observation outcome drift",
+    )
+    require(
+        shader_constant_write_scans
+        == integer(summary, "color_draws_matched"),
+        "shader constant write scan accounting drift",
+    )
+    require(
+        summary.get("shader_constant_write_vector_accounting_complete")
+        == "true",
+        "shader constant write vector accounting drift",
+    )
+    require(
+        shader_constant_write_exact_vectors
+        + shader_constant_write_missing_vectors
+        + shader_constant_write_mismatched_vectors
+        == shader_constant_write_observed_vectors,
+        "shader constant write vector outcome drift",
+    )
+    require(
+        summary.get("shader_constant_write_source_accounting_complete")
+        == "true",
+        "shader constant write source accounting drift",
+    )
+    require(
+        shader_constant_write_coherent_vectors
+        + shader_constant_write_split_vectors
+        == shader_constant_write_exact_vectors,
+        "shader constant write source outcome drift",
+    )
+    require(
+        integer(summary, "shader_constant_sources")
+        == len(shader_constant_sources),
+        "shader constant source event accounting drift",
+    )
+    require(
+        integer(summary, "shader_constant_source_overflow") == 0,
+        "shader constant source table overflowed",
+    )
+    require(
+        integer(summary, "shader_constant_source_capacity") == 4096,
+        "shader constant source summary capacity drift",
+    )
+    require(
+        summary.get("shader_constant_write_contract")
+        == "exact_current_vertex_register_components_and_packet_lineage",
+        "shader constant write summary contract drift",
+    )
+    safety_events = [
+        *configs,
+        *epochs,
+        *correlations,
+        *candidates,
+        *shader_constant_sources,
+        summary,
+    ]
     for event in safety_events:
         require(event.get("native_draw") == "false", "native draw was enabled")
         require(event.get("xenos_authority") == "true", "Xenos authority changed")
@@ -581,6 +689,62 @@ def summarize(log_path):
             hexadecimal(event, "typed_upload_source_address")
             hexadecimal(event, "typed_upload_buffer_address")
             hexadecimal(event, "typed_upload_caller_return_address")
+        family_shader_constant_scans = integer(
+            event, "shader_constant_write_scans"
+        )
+        family_shader_constant_observed = integer(
+            event, "shader_constant_write_observed_vectors"
+        )
+        family_shader_constant_exact = integer(
+            event, "shader_constant_write_exact_vectors"
+        )
+        family_shader_constant_missing = integer(
+            event, "shader_constant_write_missing_vectors"
+        )
+        family_shader_constant_mismatched = integer(
+            event, "shader_constant_write_mismatched_vectors"
+        )
+        family_shader_constant_coherent = integer(
+            event, "shader_constant_write_coherent_vectors"
+        )
+        family_shader_constant_split = integer(
+            event, "shader_constant_write_split_vectors"
+        )
+        family_shader_constant_sources = integer(
+            event, "shader_constant_source_count"
+        )
+        require(
+            family_shader_constant_scans == integer(event, "draws"),
+            "candidate shader constant scan accounting drift",
+        )
+        require(
+            family_shader_constant_exact
+            + family_shader_constant_missing
+            + family_shader_constant_mismatched
+            == family_shader_constant_observed,
+            "candidate shader constant vector outcome drift",
+        )
+        require(
+            family_shader_constant_coherent + family_shader_constant_split
+            == family_shader_constant_exact,
+            "candidate shader constant source outcome drift",
+        )
+        complete_shader_constant_lineage = (
+            family_shader_constant_exact == family_shader_constant_observed
+            and family_shader_constant_missing == 0
+            and family_shader_constant_mismatched == 0
+            and family_shader_constant_split == 0
+            and family_shader_constant_sources > 0
+        )
+        require(
+            event.get("shader_constant_write_classification")
+            == (
+                "complete_exact_packet_lineage"
+                if complete_shader_constant_lineage
+                else "unresolved"
+            ),
+            "candidate shader constant classification drift",
+        )
         for key in (
             "prepared_signature",
             "template_key",
@@ -604,6 +768,34 @@ def summarize(log_path):
             <= integer(event, "draws") - 1,
             "candidate material parameter switch drift",
         )
+    candidate_signatures = {
+        event["prepared_signature"] for event in candidates
+    }
+    for event in shader_constant_sources:
+        require(
+            event.get("classification")
+            == "exact_current_vertex_register_source",
+            "shader constant source classification drift",
+        )
+        require(
+            event.get("prepared_signature") in candidate_signatures,
+            "shader constant source family drift",
+        )
+        require(integer(event, "vectors") > 0, "empty shader constant source")
+        require(integer(event, "draws") > 0, "unused shader constant source")
+        require(0 <= integer(event, "opcode") <= 0x7F, "invalid packet opcode")
+        hexadecimal(event, "packet")
+        for key in (
+            "first_packet_physical_address",
+            "last_packet_physical_address",
+            "first_command_buffer_physical_address",
+            "last_command_buffer_physical_address",
+            "first_parent_packet_physical_address",
+            "last_parent_packet_physical_address",
+            "first_root_buffer_physical_address",
+            "last_root_buffer_physical_address",
+        ):
+            hexadecimal(event, key)
     capture = None
     if capture_configs or capture_results or capture_summaries:
         require(len(capture_configs) == 1, "expected one color capture config")
@@ -895,6 +1087,37 @@ def summarize(log_path):
             ),
             "caller_return_addresses": typed_upload_callers,
         },
+        "shader_constant_register_writes": {
+            "observations": integer(
+                summary, "shader_constant_write_observations"
+            ),
+            "vertex_observations": integer(
+                summary, "vertex_shader_constant_write_observations"
+            ),
+            "pixel_observations": integer(
+                summary, "pixel_shader_constant_write_observations"
+            ),
+            "invalid_register": integer(
+                summary, "shader_constant_write_invalid_register"
+            ),
+            "scans": shader_constant_write_scans,
+            "observed_vectors": shader_constant_write_observed_vectors,
+            "exact_vectors": shader_constant_write_exact_vectors,
+            "missing_vectors": shader_constant_write_missing_vectors,
+            "mismatched_vectors": shader_constant_write_mismatched_vectors,
+            "coherent_vectors": shader_constant_write_coherent_vectors,
+            "split_vectors": shader_constant_write_split_vectors,
+            "maximum_age_frames": integer(
+                summary, "shader_constant_write_maximum_age_frames"
+            ),
+            "source_count": len(shader_constant_sources),
+            "sources": shader_constant_sources,
+            "complete_lineage_families": sum(
+                event.get("shader_constant_write_classification")
+                == "complete_exact_packet_lineage"
+                for event in candidates
+            ),
+        },
         "material_topology": {
             "group_count": material_topology_groups,
             "groups": [
@@ -938,6 +1161,14 @@ def summarize(log_path):
             ),
             "complete_typed_upload_bridge_candidate": (
                 complete_typed_upload_bridge_candidate
+            ),
+            "complete_shader_constant_packet_lineage_candidate": (
+                len(candidates) == 30
+                and all(
+                    event.get("shader_constant_write_classification")
+                    == "complete_exact_packet_lineage"
+                    for event in candidates
+                )
             ),
             "object_identity_proven": False,
             "mesh_material_contract_proven": False,
