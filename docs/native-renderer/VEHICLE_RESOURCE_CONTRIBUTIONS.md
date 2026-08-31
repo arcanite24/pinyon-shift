@@ -1,8 +1,9 @@
 # Vehicle resource contributions
 
 Status: exact offline C4 partition qualified from the existing v15 semantic
-constant-bridge report. No semantic body/glass/wheel/light/livery label is
-assigned yet.
+constant-bridge report. A default-off private two-variant resource capture is
+implemented for the next batched run. No semantic
+body/glass/wheel/light/livery label is assigned yet.
 
 ## Result
 
@@ -38,10 +39,37 @@ details, but those names remain hypotheses until an independent title-owned
 asset/material discriminator agrees. Player identity, native publication, and
 suppression remain closed.
 
+## Private resource capture
+
+`-VehicleResourceContribution <geometry_resource_hash>` targets one qualified
+resource in the existing shadow/color correlation mode. After all 30 prepared
+families and the single-draw replay gate are established, it requires exactly
+two correlation entries for the requested resource in one frame. The first
+variant creates and retains the private target; the second reuses, releases,
+and reads it back. Any variant-count, frame-order, duplicate-family, target, or
+backend-result mismatch fails closed for the process.
+
+The capture never replaces the game target and never suppresses either guest
+draw. Its artifact is written below the requested `.local` isolated-draw root
+with the selected resource hash in the directory name. One target resource is
+captured per run so evidence cannot be mislabeled by overlapping asynchronous
+readbacks. The next gameplay run should start with a visually large resource,
+then use the result to decide whether the remaining 14 captures can be batched
+without weakening artifact identity.
+
 ## Reproduction
 
 ```powershell
 python tools/summarize-native-renderer-vehicle-contributions.py `
   .local/qualification/native-renderer-vehicle-c4-semantic-constant-bridge-v15-20260831.json `
   --output .local/qualification/native-renderer-vehicle-resource-contributions-v1.json
+
+$stateRoot = Join-Path $env:LOCALAPPDATA `
+  'PinyonShift\source\0.1.0\.local\preview'
+./tools/capture-native-renderer-census.ps1 -StateRoot $stateRoot `
+  -Scene open_world_day -ShadowDepthBatch `
+  -VehicleShadowGeometryCorrelation -CaptureVehicleShadowColor `
+  -VehicleResourceContribution D77EBD5592D13A1D `
+  -IsolatedDrawDir .local/qualification/vehicle-resource-d77ebd `
+  -VehicleDrawCorrelation -Json
 ```
