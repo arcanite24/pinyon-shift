@@ -181,6 +181,9 @@ constexpr uint32_t kSimpleModelVtable = 0x82229208;
 constexpr uint32_t kSimpleSubModelVtable = 0x822291BC;
 constexpr uint32_t kSimpleMeshVtable = 0x822291A0;
 constexpr uint32_t kSimpleModelResourceModelOffset = 112;
+constexpr uint32_t kModelPresentationVtable = 0x822432D4;
+constexpr uint32_t kModelPresentationResourceOffset = 148;
+constexpr uint32_t kModelPresentationRendererOffset = 1608;
 constexpr uint32_t kTrackModelVtable = 0x820016B4;
 constexpr uint32_t kTrackMeshVtable = 0x8200143C;
 constexpr uint32_t kTrackSubModelVtable = 0x82001474;
@@ -475,6 +478,8 @@ struct SemanticDrawIdentity {
 };
 
 struct StaticWorldDrawIdentity {
+  uint32_t model_presentation_address = 0;
+  uint32_t model_presentation_resource_address = 0;
   uint32_t renderer_address = 0;
   uint32_t renderer_generation = 0;
   uint32_t render_context_address = 0;
@@ -1900,12 +1905,22 @@ struct StaticWorldRendererDispatchScope {
   uint32_t model_graph_generation = 0;
   uint32_t model_resource_generation = 0;
   uint32_t model_resource_payload_generation = 0;
+  uint32_t model_presentation_address = 0;
+  uint32_t model_presentation_resource_address = 0;
   uint64_t member_packet_origins = 0;
   uint32_t simple_model_address = 0;
   uint32_t simple_submodel_address = 0;
   uint32_t simple_mesh_address = 0;
   bool member_active = false;
   bool member_exact = false;
+  bool active = false;
+  bool exact = false;
+};
+
+struct StaticWorldPresentationDispatchScope {
+  uint64_t renderer_dispatch_joins = 0;
+  uint32_t presentation_address = 0;
+  uint32_t resource_address = 0;
   bool active = false;
   bool exact = false;
 };
@@ -2129,6 +2144,18 @@ std::atomic<uint64_t> g_static_world_member_draws_with_packets{};
 std::atomic<uint64_t> g_static_world_member_draws_without_packets{};
 std::atomic<uint64_t> g_static_world_member_packets_recorded{};
 std::atomic<uint64_t> g_static_world_member_packet_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_entries{};
+std::atomic<uint64_t> g_static_world_presentation_exits{};
+std::atomic<uint64_t> g_static_world_presentation_exact{};
+std::atomic<uint64_t> g_static_world_presentation_invalid_root{};
+std::atomic<uint64_t> g_static_world_presentation_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_overlaps{};
+std::atomic<uint64_t> g_static_world_presentation_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_presentation_scopes_with_renderer{};
+std::atomic<uint64_t> g_static_world_presentation_scopes_without_renderer{};
+std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
+std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -2141,6 +2168,8 @@ thread_local size_t g_semantic_render_item_stack_depth = 0;
 thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
 thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
 thread_local StaticWorldRendererDispatchScope g_static_world_renderer_scope{};
+thread_local StaticWorldPresentationDispatchScope
+    g_static_world_presentation_scope{};
 thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
     g_static_world_renderer_destructor_stack{};
 thread_local size_t g_static_world_renderer_destructor_stack_depth = 0;
@@ -3466,6 +3495,57 @@ void ObserveStaticWorldRendererGraphRelease(uint32_t renderer_address) {
       1, std::memory_order_relaxed);
 }
 
+void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
+  ++g_static_world_presentation_entries;
+  if (g_static_world_presentation_scope.active) {
+    ++g_static_world_presentation_overlaps;
+    g_static_world_presentation_scope = {};
+  }
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  scope.active = true;
+  scope.presentation_address = presentation_address;
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t vtable = 0;
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      !LoadMappedGuestU32(memory, presentation_address, vtable)) {
+    ++g_static_world_presentation_invalid_root;
+    return;
+  }
+  if (vtable != kModelPresentationVtable) {
+    ++g_static_world_presentation_vtable_mismatches;
+    return;
+  }
+  if (presentation_address >
+          UINT32_MAX - kModelPresentationResourceOffset ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationResourceOffset,
+          scope.resource_address)) {
+    ++g_static_world_presentation_resource_read_faults;
+    return;
+  }
+  scope.exact = true;
+  ++g_static_world_presentation_exact;
+}
+
+void EndStaticWorldPresentationDispatch() {
+  ++g_static_world_presentation_exits;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active) {
+    ++g_static_world_presentation_exit_without_entry;
+    return;
+  }
+  if (scope.exact) {
+    (scope.renderer_dispatch_joins
+         ? g_static_world_presentation_scopes_with_renderer
+         : g_static_world_presentation_scopes_without_renderer)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  scope = {};
+}
+
 void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
                                       uint32_t render_context_address) {
   ++g_static_world_scope_entries;
@@ -3547,6 +3627,28 @@ void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
       lifecycle->model_graph_generation.load(std::memory_order_relaxed);
   scope.model_resource_generation = resource_generation;
   scope.model_resource_payload_generation = resource_payload_generation;
+  StaticWorldPresentationDispatchScope &presentation_scope =
+      g_static_world_presentation_scope;
+  if (presentation_scope.active && presentation_scope.exact) {
+    uint32_t owned_renderer = 0;
+    if (presentation_scope.presentation_address <=
+            UINT32_MAX - kModelPresentationRendererOffset &&
+        LoadMappedGuestU32(
+            memory,
+            presentation_scope.presentation_address +
+                kModelPresentationRendererOffset,
+            owned_renderer) &&
+        owned_renderer == renderer_address) {
+      scope.model_presentation_address =
+          presentation_scope.presentation_address;
+      scope.model_presentation_resource_address =
+          presentation_scope.resource_address;
+      ++presentation_scope.renderer_dispatch_joins;
+      ++g_static_world_presentation_renderer_joins;
+    } else {
+      ++g_static_world_presentation_renderer_mismatches;
+    }
+  }
   scope.exact = true;
   lifecycle->dispatches.fetch_add(1, std::memory_order_relaxed);
   ++g_static_world_scope_exact;
@@ -5016,6 +5118,18 @@ void ResetTitleDrawProvenance() {
            &g_static_world_member_draws_without_packets,
            &g_static_world_member_packets_recorded,
            &g_static_world_member_packet_mismatches,
+           &g_static_world_presentation_entries,
+           &g_static_world_presentation_exits,
+           &g_static_world_presentation_exact,
+           &g_static_world_presentation_invalid_root,
+           &g_static_world_presentation_vtable_mismatches,
+           &g_static_world_presentation_resource_read_faults,
+           &g_static_world_presentation_overlaps,
+           &g_static_world_presentation_exit_without_entry,
+           &g_static_world_presentation_scopes_with_renderer,
+           &g_static_world_presentation_scopes_without_renderer,
+           &g_static_world_presentation_renderer_joins,
+           &g_static_world_presentation_renderer_mismatches,
        }) {
     counter->store(0, std::memory_order_relaxed);
   }
@@ -5245,6 +5359,7 @@ void ResetTitleDrawProvenance() {
   g_semantic_receiver_destructor_stack_depth = 0;
   g_semantic_receiver_destructor_overflow_depth = 0;
   g_static_world_renderer_scope = {};
+  g_static_world_presentation_scope = {};
   g_static_world_renderer_destructor_stack = {};
   g_static_world_renderer_destructor_stack_depth = 0;
   g_static_world_renderer_destructor_overflow_depth = 0;
@@ -5504,6 +5619,9 @@ void RecordProceduralModelSemanticDrawPacket(
     const StaticWorldRendererDispatchScope &scope =
         g_static_world_renderer_scope;
     origin.static_world_draw = {
+        .model_presentation_address = scope.model_presentation_address,
+        .model_presentation_resource_address =
+            scope.model_presentation_resource_address,
         .renderer_address = scope.renderer_address,
         .renderer_generation = scope.renderer_generation,
         .render_context_address = scope.render_context_address,
@@ -10989,6 +11107,21 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t member_packets_recorded =
       g_static_world_member_packets_recorded.load(
           std::memory_order_relaxed);
+  const uint64_t presentation_entries =
+      g_static_world_presentation_entries.load(std::memory_order_relaxed);
+  const uint64_t presentation_exits =
+      g_static_world_presentation_exits.load(std::memory_order_relaxed);
+  const uint64_t presentation_exact =
+      g_static_world_presentation_exact.load(std::memory_order_relaxed);
+  const uint64_t presentation_scopes_with_renderer =
+      g_static_world_presentation_scopes_with_renderer.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_scopes_without_renderer =
+      g_static_world_presentation_scopes_without_renderer.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_renderer_joins =
+      g_static_world_presentation_renderer_joins.load(
+          std::memory_order_relaxed);
   const bool accounting_complete =
       entries == exact + invalid_root + vtable_mismatches +
                            invalid_graph_field + unregistered_renderers +
@@ -11058,6 +11191,19 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       member_exact ==
           member_draws_with_packets + member_draws_without_packets &&
       member_packets_recorded == packets_recorded &&
+      presentation_entries ==
+          presentation_exact +
+              g_static_world_presentation_invalid_root.load(
+                  std::memory_order_relaxed) +
+              g_static_world_presentation_vtable_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_presentation_resource_read_faults.load(
+                  std::memory_order_relaxed) &&
+      presentation_entries == presentation_exits &&
+      presentation_exact ==
+          presentation_scopes_with_renderer +
+              presentation_scopes_without_renderer &&
+      presentation_scopes_with_renderer <= presentation_renderer_joins &&
       !overlaps && !exit_without_entry;
   const bool qualification_complete =
       accounting_complete && exact && packets_recorded && packet_matches &&
@@ -11111,6 +11257,18 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       !g_static_world_member_exit_without_entry.load(
           std::memory_order_relaxed) &&
       !g_static_world_member_packet_mismatches.load(
+          std::memory_order_relaxed) &&
+      presentation_exact && presentation_renderer_joins &&
+      presentation_scopes_with_renderer &&
+      !g_static_world_presentation_invalid_root.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_resource_read_faults.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_overlaps.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_exit_without_entry.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_renderer_mismatches.load(
           std::memory_order_relaxed);
   const uint64_t pending_packets =
       packets_recorded >= packet_matches ? packets_recorded - packet_matches
@@ -11296,11 +11454,42 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"member_packet_mismatches",
         std::to_string(g_static_world_member_packet_mismatches.load(
             std::memory_order_relaxed))},
+       {"presentation_entries", std::to_string(presentation_entries)},
+       {"presentation_exits", std::to_string(presentation_exits)},
+       {"presentation_exact", std::to_string(presentation_exact)},
+       {"presentation_invalid_root",
+        std::to_string(g_static_world_presentation_invalid_root.load(
+            std::memory_order_relaxed))},
+       {"presentation_vtable_mismatches",
+        std::to_string(
+            g_static_world_presentation_vtable_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_read_faults",
+        std::to_string(
+            g_static_world_presentation_resource_read_faults.load(
+                std::memory_order_relaxed))},
+       {"presentation_overlaps",
+        std::to_string(g_static_world_presentation_overlaps.load(
+            std::memory_order_relaxed))},
+       {"presentation_exit_without_entry",
+        std::to_string(
+            g_static_world_presentation_exit_without_entry.load(
+                std::memory_order_relaxed))},
+       {"presentation_scopes_with_renderer",
+        std::to_string(presentation_scopes_with_renderer)},
+       {"presentation_scopes_without_renderer",
+        std::to_string(presentation_scopes_without_renderer)},
+       {"presentation_renderer_joins",
+        std::to_string(presentation_renderer_joins)},
+       {"presentation_renderer_mismatches",
+        std::to_string(
+            g_static_world_presentation_renderer_mismatches.load(
+                std::memory_order_relaxed))},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"qualification_complete",
         qualification_complete ? "true" : "false"},
        {"classification",
-        "live_simple_model_mesh_payload_generation_to_prepared_draw"},
+        "live_model_presentation_simple_model_mesh_to_prepared_draw"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
@@ -13993,6 +14182,10 @@ void RecordTitleDrawProvenance(
                  (uint64_t(backend_outcome) << 41) ^
                  (prepared ? uint64_t(1) << 63 : 0);
   key = HashCombine(key, origin.semantic_draw.submission_key);
+  key = HashCombine(
+      key, origin.static_world_draw.model_presentation_address);
+  key = HashCombine(
+      key, origin.static_world_draw.model_presentation_resource_address);
   key = HashCombine(key, origin.static_world_draw.renderer_address);
   key = HashCombine(key, origin.static_world_draw.renderer_generation);
   key = HashCombine(key, origin.static_world_draw.render_context_address);
@@ -14044,6 +14237,10 @@ void RecordTitleDrawProvenance(
             origin.semantic_draw.record_index &&
         entry.origin.static_world_draw.renderer_address ==
             origin.static_world_draw.renderer_address &&
+        entry.origin.static_world_draw.model_presentation_address ==
+            origin.static_world_draw.model_presentation_address &&
+        entry.origin.static_world_draw.model_presentation_resource_address ==
+            origin.static_world_draw.model_presentation_resource_address &&
         entry.origin.static_world_draw.renderer_generation ==
             origin.static_world_draw.renderer_generation &&
         entry.origin.static_world_draw.render_context_address ==
@@ -14142,6 +14339,19 @@ void EmitTitleDrawProvenanceSummary() {
          {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
          {"static_world_origin",
           entry.origin.static_world_draw.valid ? "true" : "false"},
+         {"static_world_model_presentation",
+          entry.origin.static_world_draw.valid &&
+                  entry.origin.static_world_draw.model_presentation_address
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .model_presentation_address)
+              : ""},
+         {"static_world_model_presentation_resource",
+          entry.origin.static_world_draw.valid &&
+                  entry.origin.static_world_draw
+                      .model_presentation_resource_address
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .model_presentation_resource_address)
+              : ""},
          {"static_world_renderer",
           entry.origin.static_world_draw.valid
               ? fmt::format("{:08X}",
@@ -22670,10 +22880,16 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"simple_submodel_vtable", "822291BC"},
        {"simple_mesh_vtable", "822291A0"},
        {"simple_member_draw_hooks", "82C4DC54,82C4DC58"},
+       {"presentation_class", "Presentation_Unified::CModelPresentation"},
+       {"presentation_vtable", "822432D4"},
+       {"presentation_draw_slot", "12"},
+       {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
+       {"presentation_resource_field", "presentation_plus_148"},
+       {"presentation_renderer_field", "presentation_plus_1608"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
-       {"guest_payload_read", "two_host_mapped_u32_fields_per_scope"},
+       {"guest_payload_read", "bounded_host_mapped_identity_fields"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
@@ -23903,8 +24119,17 @@ void PinyonShiftObserveTrackRenderModelDispatchExit() {
 }
 
 void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,
-                                                        PPCRegister &r4) {
+                                                         PPCRegister &r4) {
   BeginStaticWorldRendererDispatch(r3.u32, r4.u32);
+}
+
+void PinyonShiftObserveStaticWorldPresentationDispatchEntry(
+    PPCRegister &r3) {
+  BeginStaticWorldPresentationDispatch(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldPresentationDispatchExit() {
+  EndStaticWorldPresentationDispatch();
 }
 
 void PinyonShiftObserveStaticWorldRendererDispatchExit() {

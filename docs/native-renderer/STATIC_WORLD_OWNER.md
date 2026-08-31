@@ -1,7 +1,7 @@
 # Static-world model-presentation ownership
 
-Status: exact presentation-to-renderer ownership proved; passive runtime join
-pending the next batched C1/C2 qualification
+Status: exact presentation-to-renderer ownership and passive runtime join
+implemented; runtime qualification pending the next batched C1/C2 run
 
 ## Purpose
 
@@ -26,9 +26,13 @@ Retail RTTI, vtables, and generated AOT instructions prove:
   renderer slot 12, whose exact vtable target is `82C4CCC8`.
 
 This creates a safe synchronous join: an exact SimpleModel renderer dispatch
-occurring inside the balanced presentation slot-12 scope may carry the
-`CModelPresentation` address into existing packet and prepared-draw
-provenance. The runtime join still needs to be implemented and qualified.
+occurring inside the balanced presentation slot-12 scope carries the
+`CModelPresentation` and opaque presentation-resource addresses into existing
+packet and prepared-draw provenance. Runtime also requires the owner's
+offset-1608 renderer field to equal the nested dispatch receiver. Calls on
+other dynamic presentation types that share the implementation are counted as
+excluded vtable mismatches, while exact-owner field mismatches fail closed.
+The join changes no title behavior.
 
 ## Generate the report
 
@@ -46,3 +50,6 @@ an individual instance is a building rather than a prop. Mesh/material field
 semantics and representative streaming transitions also remain open. This
 checkpoint changes no guest data, native admission, publication, or
 suppression; Xenos remains authoritative.
+
+The combined runtime qualifier now also requires this static report through
+`--owner .local/qualification/native-renderer-static-world-owner.json`.

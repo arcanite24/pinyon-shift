@@ -225,6 +225,20 @@ registers = ["r31"]
 address = 0x8240ECAC
 name = "PinyonShiftObserveTrackRenderModelDispatchExit"
 
+# Phase C2 exact model-presentation owner scope. Retail RTTI proves slot 12 of
+# Presentation_Unified::CModelPresentation is 0x823F8DB8 and every path joins
+# at 0x823F8FA0. The nested SimpleModel renderer dispatch is accepted only when
+# the presentation's offset-1608 renderer field equals the dispatch receiver.
+# The offset-148 resource reference is carried as opaque identity only.
+[[midasm_hook]]
+address = 0x823F8DB8
+name = "PinyonShiftObserveStaticWorldPresentationDispatchEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x823F8FA0
+name = "PinyonShiftObserveStaticWorldPresentationDispatchExit"
+
 # Phase C2 exact SimpleModel renderer scope. Retail RTTI proves vtable slot 12
 # resolves to 0x82C4CCC8. Entry r3 is the CSimpleModelRenderer instance and r4
 # is its render context; every path converges at 0x82C4DEA0. The scope attaches

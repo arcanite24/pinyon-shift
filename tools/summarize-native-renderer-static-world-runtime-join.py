@@ -9,12 +9,13 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v5"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v6"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
 STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
 GRAPH_SCHEMA = "pinyon-shift.native-renderer-static-world-graph.v1"
+OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v1"
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -342,12 +343,73 @@ def validate_static_graph(document):
         raise ValueError("static-world graph claims drifted")
 
 
+def validate_static_owner(document):
+    if (
+        document.get("schema") != OWNER_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "exact_model_presentation_to_simple_model_renderer_owner"
+    ):
+        raise ValueError("static-world owner proof drifted")
+    try:
+        presentation = document["presentation"]
+        renderer_join = document["renderer_join"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("static-world owner proof is incomplete") from error
+    expected_presentation = {
+        "class": "Presentation_Unified::CModelPresentation",
+        "vtable": "822432D4",
+        "constructor": "82DE9840",
+        "destructor": "82DEA218",
+        "deleting_destructor_slot": 0,
+        "deleting_destructor": "82DEA508",
+        "draw_slot": 12,
+        "draw_method": "823F8DB8",
+        "draw_entry_hook": "823F8DB8",
+        "draw_exit_hook": "823F8FA0",
+        "state_field_offset": 144,
+        "resource_reference_offset": 148,
+        "renderer_field_offset": 1608,
+    }
+    expected_join = {
+        "prepare_helper": "823F8980",
+        "constructor_wrapper": "82C4E3A0",
+        "renderer_vtable": "82001B64",
+        "bind_slot": 0,
+        "bind_target": "82C4C838",
+        "draw_slot": 12,
+        "draw_target": "82C4CCC8",
+        "join_kind": "balanced_synchronous_presentation_draw_scope",
+    }
+    if any(
+        presentation.get(key) != value
+        for key, value in expected_presentation.items()
+    ):
+        raise ValueError("static-world presentation proof drifted")
+    if any(
+        renderer_join.get(key) != value
+        for key, value in expected_join.items()
+    ):
+        raise ValueError("static-world presentation renderer join drifted")
+    if (
+        claims.get("exact_model_presentation_owner_proved") is not True
+        or claims.get("presentation_to_renderer_field_proved") is not True
+        or claims.get("presentation_to_resource_reference_proved") is not True
+        or claims.get("renderer_bind_and_draw_dispatch_proved") is not True
+        or claims.get("concrete_building_or_prop_identity_proved") is not False
+        or claims.get("mesh_or_material_semantics_proved") is not False
+    ):
+        raise ValueError("static-world owner claims drifted")
+
+
 def build(
     static_ingress,
     static_lifetime,
     static_resource,
     static_streaming,
     static_graph,
+    static_owner,
     events,
     requested_session=None,
     allow_checkpoint=False,
@@ -357,6 +419,7 @@ def build(
     validate_static_resource(static_resource)
     validate_static_streaming(static_streaming)
     validate_static_graph(static_graph)
+    validate_static_owner(static_owner)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -403,10 +466,16 @@ def build(
         "simple_submodel_vtable": "822291BC",
         "simple_mesh_vtable": "822291A0",
         "simple_member_draw_hooks": "82C4DC54,82C4DC58",
+        "presentation_class": "Presentation_Unified::CModelPresentation",
+        "presentation_vtable": "822432D4",
+        "presentation_draw_slot": "12",
+        "presentation_draw_hooks": "823F8DB8,823F8FA0",
+        "presentation_resource_field": "presentation_plus_148",
+        "presentation_renderer_field": "presentation_plus_1608",
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
-        "guest_payload_read": "two_host_mapped_u32_fields_per_scope",
+        "guest_payload_read": "bounded_host_mapped_identity_fields",
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("static-world runtime configuration drifted")
@@ -426,7 +495,7 @@ def build(
         or summary.get("checkpoint_kind")
         != ("final" if final_summary else "periodic")
         or summary.get("classification")
-        != "live_simple_model_mesh_payload_generation_to_prepared_draw"
+        != "live_model_presentation_simple_model_mesh_to_prepared_draw"
     ):
         raise ValueError("static-world runtime summary drifted")
 
@@ -519,6 +588,18 @@ def build(
         "member_draws_without_packets",
         "member_packets_recorded",
         "member_packet_mismatches",
+        "presentation_entries",
+        "presentation_exits",
+        "presentation_exact",
+        "presentation_invalid_root",
+        "presentation_vtable_mismatches",
+        "presentation_resource_read_faults",
+        "presentation_overlaps",
+        "presentation_exit_without_entry",
+        "presentation_scopes_with_renderer",
+        "presentation_scopes_without_renderer",
+        "presentation_renderer_joins",
+        "presentation_renderer_mismatches",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -670,6 +751,29 @@ def build(
         failures.append("static-world member draw outcome accounting drifted")
     if totals["member_packets_recorded"] != totals["packets_recorded"]:
         failures.append("static-world member packet join accounting drifted")
+    presentation_classified = (
+        totals["presentation_exact"]
+        + totals["presentation_invalid_root"]
+        + totals["presentation_vtable_mismatches"]
+        + totals["presentation_resource_read_faults"]
+    )
+    if totals["presentation_entries"] != presentation_classified:
+        failures.append("static-world presentation classification drifted")
+    if totals["presentation_entries"] != totals["presentation_exits"]:
+        failures.append("static-world presentation entry/exit accounting drifted")
+    if totals["presentation_exact"] != (
+        totals["presentation_scopes_with_renderer"]
+        + totals["presentation_scopes_without_renderer"]
+    ):
+        failures.append("static-world presentation outcome accounting drifted")
+    if totals["presentation_scopes_with_renderer"] > totals[
+        "presentation_renderer_joins"
+    ]:
+        failures.append("static-world presentation renderer join drifted")
+    if not totals["presentation_exact"]:
+        failures.append("no exact CModelPresentation scope was observed")
+    if not totals["presentation_renderer_joins"]:
+        failures.append("no CModelPresentation joined its SimpleModel renderer")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
@@ -714,6 +818,11 @@ def build(
         "member_exit_without_entry",
         "member_draws_without_packets",
         "member_packet_mismatches",
+        "presentation_invalid_root",
+        "presentation_resource_read_faults",
+        "presentation_overlaps",
+        "presentation_exit_without_entry",
+        "presentation_renderer_mismatches",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -754,6 +863,8 @@ def build(
             "simple_model_to_submodel_proved": not failures,
             "simple_submodel_to_mesh_proved": not failures,
             "simple_mesh_to_prepared_draw_proved": not failures,
+            "model_presentation_owner_proved": not failures,
+            "model_presentation_to_renderer_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
@@ -781,6 +892,7 @@ def main(argv=None):
     parser.add_argument("--resource", required=True, type=pathlib.Path)
     parser.add_argument("--streaming", required=True, type=pathlib.Path)
     parser.add_argument("--graph", required=True, type=pathlib.Path)
+    parser.add_argument("--owner", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -792,6 +904,7 @@ def main(argv=None):
             json.loads(args.resource.read_text(encoding="utf-8")),
             json.loads(args.streaming.read_text(encoding="utf-8")),
             json.loads(args.graph.read_text(encoding="utf-8")),
+            json.loads(args.owner.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,

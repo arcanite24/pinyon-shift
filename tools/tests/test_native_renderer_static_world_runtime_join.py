@@ -216,6 +216,49 @@ def static_graph():
     }
 
 
+def static_owner():
+    return {
+        "schema": MODULE.OWNER_SCHEMA,
+        "status": "complete",
+        "classification": (
+            "exact_model_presentation_to_simple_model_renderer_owner"
+        ),
+        "presentation": {
+            "class": "Presentation_Unified::CModelPresentation",
+            "vtable": "822432D4",
+            "constructor": "82DE9840",
+            "destructor": "82DEA218",
+            "deleting_destructor_slot": 0,
+            "deleting_destructor": "82DEA508",
+            "draw_slot": 12,
+            "draw_method": "823F8DB8",
+            "draw_entry_hook": "823F8DB8",
+            "draw_exit_hook": "823F8FA0",
+            "state_field_offset": 144,
+            "resource_reference_offset": 148,
+            "renderer_field_offset": 1608,
+        },
+        "renderer_join": {
+            "prepare_helper": "823F8980",
+            "constructor_wrapper": "82C4E3A0",
+            "renderer_vtable": "82001B64",
+            "bind_slot": 0,
+            "bind_target": "82C4C838",
+            "draw_slot": 12,
+            "draw_target": "82C4CCC8",
+            "join_kind": "balanced_synchronous_presentation_draw_scope",
+        },
+        "claims": {
+            "exact_model_presentation_owner_proved": True,
+            "presentation_to_renderer_field_proved": True,
+            "presentation_to_resource_reference_proved": True,
+            "renderer_bind_and_draw_dispatch_proved": True,
+            "concrete_building_or_prop_identity_proved": False,
+            "mesh_or_material_semantics_proved": False,
+        },
+    }
+
+
 def fixture():
     config = event(
         MODULE.CONFIG,
@@ -259,10 +302,16 @@ def fixture():
             "simple_submodel_vtable": "822291BC",
             "simple_mesh_vtable": "822291A0",
             "simple_member_draw_hooks": "82C4DC54,82C4DC58",
+            "presentation_class": "Presentation_Unified::CModelPresentation",
+            "presentation_vtable": "822432D4",
+            "presentation_draw_slot": "12",
+            "presentation_draw_hooks": "823F8DB8,823F8FA0",
+            "presentation_resource_field": "presentation_plus_148",
+            "presentation_renderer_field": "presentation_plus_1608",
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
-            "guest_payload_read": "two_host_mapped_u32_fields_per_scope",
+            "guest_payload_read": "bounded_host_mapped_identity_fields",
             **safety(),
         },
     )
@@ -359,10 +408,22 @@ def fixture():
         member_draws_without_packets="0",
         member_packets_recorded="100",
         member_packet_mismatches="0",
+        presentation_entries="12",
+        presentation_exits="12",
+        presentation_exact="12",
+        presentation_invalid_root="0",
+        presentation_vtable_mismatches="0",
+        presentation_resource_read_faults="0",
+        presentation_overlaps="0",
+        presentation_exit_without_entry="0",
+        presentation_scopes_with_renderer="8",
+        presentation_scopes_without_renderer="4",
+        presentation_renderer_joins="8",
+        presentation_renderer_mismatches="0",
         accounting_complete="true",
         qualification_complete="true",
         classification=(
-            "live_simple_model_mesh_payload_generation_to_prepared_draw"
+            "live_model_presentation_simple_model_mesh_to_prepared_draw"
         ),
         **safety(),
     )
@@ -377,6 +438,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             fixture(),
         )
         self.assertEqual("complete", document["status"])
@@ -391,6 +453,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["simple_mesh_to_prepared_draw_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["model_presentation_owner_proved"]
         )
         self.assertFalse(
             document["qualification"]["building_or_prop_instance_identity_proved"]
@@ -411,6 +476,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events + [checkpoint],
             allow_checkpoint=True,
         )
@@ -432,6 +498,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -451,6 +518,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -471,6 +539,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 static_resource(),
                 static_streaming(),
                 static_graph(),
+                static_owner(),
                 fixture(),
             )
 
@@ -490,6 +559,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -511,6 +581,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -533,6 +604,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
@@ -557,11 +629,34 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_resource(),
             static_streaming(),
             static_graph(),
+            static_owner(),
             events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "resource_transition_completion_faults is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_presentation_renderer_mismatch(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            presentation_renderer_mismatches="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "presentation_renderer_mismatches is nonzero",
             document["failures"],
         )
 
@@ -575,6 +670,8 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("kSimpleModelRendererVtable = 0x82001B64", hooks)
         self.assertIn("BeginStaticWorldRendererDispatch", hooks)
         self.assertIn("EndStaticWorldRendererDispatch", hooks)
+        self.assertIn("BeginStaticWorldPresentationDispatch", hooks)
+        self.assertIn("EndStaticWorldPresentationDispatch", hooks)
         self.assertIn("static_world_draw", hooks)
         self.assertIn("address = 0x82C4CCC8", analysis)
         self.assertIn("address = 0x82C4DEA0", analysis)
@@ -594,6 +691,8 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x82C2231C", analysis)
         self.assertIn("address = 0x82C4DC54", analysis)
         self.assertIn("address = 0x82C4DC58", analysis)
+        self.assertIn("address = 0x823F8DB8", analysis)
+        self.assertIn("address = 0x823F8FA0", analysis)
 
 
 if __name__ == "__main__":
