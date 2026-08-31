@@ -210,6 +210,21 @@ address = 0x8240EC18
 name = "PinyonShiftObserveVehicleTypedRenderItem"
 registers = ["r11", "r31"]
 
+# Phase C1 exact track-render-model scope. At 0x8240EC80 every title predicate
+# has accepted r31, whose RTTI-proved unified instance owns the unified render
+# model at +4 and its live descriptor through child +48 then +128. The balanced
+# return hook runs immediately after the nested 0x82436468 dispatch. Runtime
+# joins only procedural-model submissions made synchronously inside this exact
+# dynamic-type scope; it changes no registers, guest state, or control flow.
+[[midasm_hook]]
+address = 0x8240EC80
+name = "PinyonShiftObserveTrackRenderModelDispatchEntry"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x8240ECAC
+name = "PinyonShiftObserveTrackRenderModelDispatchExit"
+
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
 # fully composed stack payload. Compare both exact live matrices with admitted

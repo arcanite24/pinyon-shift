@@ -260,6 +260,14 @@ qualified sky/horizon seed remains available. Runtime qualification is deferred
 to the next batched build/AppData checkpoint. This precision filter is not yet
 a terrain/road mesh identity or C1 family-admission claim.
 
+Next runtime checkpoint: the old typed-render-item evidence is now correctly
+classified by RTTI as the unified track render-model instance/model pair. A
+balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)
+joins exact dynamic-type ownership and explicit shared-identity relations to
+procedural-model submissions and prepared records. The implementation and
+payload-free qualifier are ready; runtime proof is deferred to the next batched
+AppData session. No C1 admission or suppression is enabled by this probe.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
