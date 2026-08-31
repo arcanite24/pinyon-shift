@@ -44,13 +44,28 @@ Retail instructions prove that `CModelPresentation` stores its complete
 observer now carries those 16 numeric words and their hash through the
 renderer, physical PM4 packet, and prepared-draw provenance.
 
-The next batched AppData run must determine the title's matrix convention from
-observed values and prove a unique, tolerance-bounded spatial match against the
-catalog. Ambiguous, absent, or out-of-bounds matches must remain unclassified.
-Only then can a prepared draw claim a collision-prop or gameplay-object class.
-Asset-key hashes may strengthen that join, but spatial proximity alone is not
-accepted when multiple catalog entries remain possible.
+`tools/summarize-native-renderer-static-world-instance-classification.py`
+implements the next fail-closed gate. It evaluates the two plausible 4x4
+translation layouts independently, uses a 0.05-world-unit spatial bound, and
+requires at least eight distinct prepared-draw transforms. Every observed
+transform must match exactly one catalog entry, exactly one matrix convention
+must pass, and at least one collision prop must be present. Ambiguous, absent,
+non-finite, or unsafe observations reject the whole report. The input session
+must also have a unique clean process lifecycle and a complete static-world
+runtime summary.
 
-Until that gate passes, `building_or_prop_instance_identity_proved` remains
-false. Xenos stays authoritative; native admission, publication, and
-suppression remain disabled.
+```powershell
+python tools/summarize-native-renderer-static-world-instance-classification.py `
+  <session.jsonl> `
+  --catalog .local/qualification/native-renderer-static-world-instance-catalog.json `
+  --output .local/qualification/native-renderer-static-world-instance-classification.json
+```
+
+This matcher is implemented but cannot qualify until a build containing the
+new transform observer completes the deferred AppData run. Asset-key hashes
+may later strengthen the join, but spatial proximity is never accepted when
+multiple catalog entries remain possible.
+
+Until that run passes, `building_or_prop_instance_identity_proved` remains
+false. Even a successful category report does not independently enable native
+admission, publication, or suppression; Xenos stays authoritative.
