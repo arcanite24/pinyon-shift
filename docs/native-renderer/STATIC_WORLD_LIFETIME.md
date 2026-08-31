@@ -57,8 +57,8 @@ python tools/discover-native-renderer-static-world-lifetime.py `
   --output .local/qualification/native-renderer-static-world-lifetime.json
 ```
 
-The runtime join now requires the ingress, renderer-lifetime, and exact
-resource reports:
+The runtime join now requires the ingress, renderer-lifetime, exact-resource,
+payload-reset, and member-graph reports:
 
 ```powershell
 python tools/summarize-native-renderer-static-world-runtime-join.py `
@@ -66,6 +66,8 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   --static .local/qualification/native-renderer-static-world-ingress.json `
   --lifetime .local/qualification/native-renderer-static-world-lifetime.json `
   --resource .local/qualification/native-renderer-static-world-resource.json `
+  --streaming .local/qualification/native-renderer-static-world-streaming.json `
+  --graph .local/qualification/native-renderer-static-world-graph.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```

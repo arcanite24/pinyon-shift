@@ -44,7 +44,7 @@ python tools/discover-native-renderer-static-world-resource.py `
   --output .local/qualification/native-renderer-static-world-resource.json
 ```
 
-The batched runtime qualifier requires all three static reports:
+The batched runtime qualifier requires all five static reports:
 
 ```powershell
 python tools/summarize-native-renderer-static-world-runtime-join.py `
@@ -52,6 +52,8 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   --static .local/qualification/native-renderer-static-world-ingress.json `
   --lifetime .local/qualification/native-renderer-static-world-lifetime.json `
   --resource .local/qualification/native-renderer-static-world-resource.json `
+  --streaming .local/qualification/native-renderer-static-world-streaming.json `
+  --graph .local/qualification/native-renderer-static-world-graph.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
@@ -64,6 +66,8 @@ prove clean shutdown and never enables native admission.
 This proves the exact dynamic type and generation of the resource bound to a
 live renderer, plus the factory registration boundary and resource destructor.
 It does not identify a concrete building or prop, decode mesh/material
-members, or prove every independent streaming invalidation route. Native
-upload, draw, publication, and suppression remain disabled; Xenos stays
-authoritative.
+members, or prove every independent streaming invalidation route. The first
+two exact payload-reset transitions and their independent generation boundary
+are documented in
+[`STATIC_WORLD_STREAMING.md`](STATIC_WORLD_STREAMING.md). Native upload, draw,
+publication, and suppression remain disabled; Xenos stays authoritative.

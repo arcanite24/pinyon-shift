@@ -126,6 +126,96 @@ def static_resource():
     }
 
 
+def static_streaming():
+    return {
+        "schema": MODULE.STREAMING_SCHEMA,
+        "status": "complete",
+        "classification": "exact_simple_model_resource_payload_reset_paths",
+        "resource": {
+            "class": "CSimpleModelResource",
+            "vtable": "82229294",
+            "payload_reference_offset": 64,
+            "graph_offset": 112,
+            "binding_offset": 76,
+        },
+        "refresh": {
+            "slot": 15,
+            "method": "82C46410",
+            "graph_argument": "resource_plus_112",
+            "binding_argument": "resource_plus_76",
+        },
+        "transitions": [
+            {
+                "kind": "direct_payload_reset",
+                "slot": 16,
+                "entry_hook": "82C46440",
+                "exit_hook": "82C46480",
+                "exit_resource_register": "r31",
+            },
+            {
+                "kind": "refresh_then_payload_reset",
+                "slot": 22,
+                "entry_hook": "82C222C8",
+                "exit_hook": "82C2231C",
+                "exit_resource_register": "r30",
+            },
+        ],
+        "claims": {
+            "owned_payload_reference_field_proved": True,
+            "balanced_payload_reset_boundaries_proved": True,
+            "payload_generation_invalidation_boundary_proved": True,
+            "complete_streaming_invalidation_coverage_proved": False,
+            "concrete_building_or_prop_identity_proved": False,
+        },
+    }
+
+
+def static_graph():
+    return {
+        "schema": MODULE.GRAPH_SCHEMA,
+        "status": "complete",
+        "classification": "exact_simple_model_resource_to_mesh_draw_graph",
+        "objects": {
+            "resource": {
+                "class": "CSimpleModelResource",
+                "vtable": "82229294",
+            },
+            "model": {
+                "class": "CSimpleModel",
+                "resource_offset": 112,
+                "primary_vtable": "82229208",
+                "secondary_vtable": "822291E8",
+            },
+            "submodel": {
+                "class": "CSimpleSubModel",
+                "vtable": "822291BC",
+            },
+            "mesh": {"class": "CSimpleMesh", "vtable": "822291A0"},
+        },
+        "dispatch": {
+            "renderer": "82C4CCC8",
+            "model_count_slot": 2,
+            "model_submodel_slot": 4,
+            "submodel_count_slot": 3,
+            "submodel_mesh_slot": 5,
+            "draw_member_entry_hook": "82C4DC54",
+            "draw_member_exit_hook": "82C4DC58",
+            "draw_emitter": "82416380",
+            "entry_model_register": "r26",
+            "entry_submodel_register": "r29",
+            "entry_mesh_register": "r28",
+        },
+        "claims": {
+            "resource_to_embedded_model_proved": True,
+            "model_to_submodel_dispatch_proved": True,
+            "submodel_to_mesh_dispatch_proved": True,
+            "mesh_to_indexed_draw_proved": True,
+            "concrete_building_or_prop_identity_proved": False,
+            "mesh_material_semantics_proved": False,
+        },
+    }
+
+
 def fixture():
     config = event(
         MODULE.CONFIG,
@@ -157,6 +247,18 @@ def fixture():
             "model_resource_registration_hook": "82C4802C",
             "model_resource_destructor_entry_hook": "82C47DF8",
             "model_resource_destructor_exit_hook": "82C47E44",
+            "model_resource_payload_reference": "resource_plus_64",
+            "model_resource_refresh_slot": "15",
+            "model_resource_refresh": "82C46410",
+            "model_resource_direct_reset_slot": "16",
+            "model_resource_direct_reset_hooks": "82C46440,82C46480",
+            "model_resource_refresh_reset_slot": "22",
+            "model_resource_refresh_reset_hooks": "82C222C8,82C2231C",
+            "simple_model_offset": "resource_plus_112",
+            "simple_model_vtable": "82229208",
+            "simple_submodel_vtable": "822291BC",
+            "simple_mesh_vtable": "822291A0",
+            "simple_member_draw_hooks": "82C4DC54,82C4DC58",
             "draw_emitter": "82416380",
             "packet_hooks": "82416260,824162F4",
             "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -226,9 +328,42 @@ def fixture():
         resource_graph_bind_joins="3",
         resource_scope_joins="10",
         resource_scope_mismatches="0",
+        resource_transition_entries="6",
+        resource_transition_exits="6",
+        resource_transitions_open="0",
+        resource_transition_overflow="0",
+        resource_transition_exit_without_entry="0",
+        resource_transition_exact="2",
+        resource_direct_resets="1",
+        resource_refresh_resets="1",
+        resource_transition_invalid_root="0",
+        resource_transition_vtable_mismatches="4",
+        resource_transition_unregistered="0",
+        resource_transition_nonlive="0",
+        resource_transition_begin_read_faults="0",
+        resource_transition_completions="2",
+        resource_transition_completion_faults="0",
+        resource_payload_resets_with_reference="1",
+        resource_payload_resets_empty="1",
+        resource_payload_generation_invalidations="2",
+        member_entries="98",
+        member_exits="98",
+        member_exact="98",
+        member_scope_missing="0",
+        member_relation_mismatches="0",
+        member_vtable_read_faults="0",
+        member_vtable_mismatches="0",
+        member_overlaps="0",
+        member_exit_without_entry="0",
+        member_draws_with_packets="98",
+        member_draws_without_packets="0",
+        member_packets_recorded="100",
+        member_packet_mismatches="0",
         accounting_complete="true",
         qualification_complete="true",
-        classification="live_simple_model_resource_to_pm4_prepared_draw",
+        classification=(
+            "live_simple_model_mesh_payload_generation_to_prepared_draw"
+        ),
         **safety(),
     )
     return [config, summary]
@@ -237,7 +372,12 @@ def fixture():
 class StaticWorldRuntimeJoinTests(unittest.TestCase):
     def test_qualifies_exact_scope_to_prepared_draw(self):
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), fixture()
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            fixture(),
         )
         self.assertEqual("complete", document["status"])
         self.assertTrue(
@@ -248,6 +388,9 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["simple_model_resource_type_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["simple_mesh_to_prepared_draw_proved"]
         )
         self.assertFalse(
             document["qualification"]["building_or_prop_instance_identity_proved"]
@@ -266,6 +409,8 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             static_ingress(),
             static_lifetime(),
             static_resource(),
+            static_streaming(),
+            static_graph(),
             events + [checkpoint],
             allow_checkpoint=True,
         )
@@ -282,7 +427,12 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             qualification_complete="false",
         )
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), events
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn("unprepared_matches is nonzero", document["failures"])
@@ -296,7 +446,12 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             qualification_complete="false",
         )
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), events
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
@@ -310,7 +465,14 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             "slot_targets"
         ][12] = "82C4CCD0"
         with self.assertRaisesRegex(ValueError, "dispatch proof drifted"):
-            MODULE.build(ingress, static_lifetime(), static_resource(), fixture())
+            MODULE.build(
+                ingress,
+                static_lifetime(),
+                static_resource(),
+                static_streaming(),
+                static_graph(),
+                fixture(),
+            )
 
     def test_rejects_unregistered_renderer_dispatch(self):
         events = copy.deepcopy(fixture())
@@ -323,7 +485,12 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             qualification_complete="false",
         )
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), events
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
@@ -339,7 +506,12 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             qualification_complete="false",
         )
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), events
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
@@ -356,11 +528,40 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
             qualification_complete="false",
         )
         document = MODULE.build(
-            static_ingress(), static_lifetime(), static_resource(), events
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "resource_registration_unregistered is nonzero",
+            document["failures"],
+        )
+
+    def test_rejects_payload_reset_completion_fault(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            resource_transition_completions="1",
+            resource_transition_completion_faults="1",
+            resource_payload_resets_empty="0",
+            resource_payload_generation_invalidations="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "resource_transition_completion_faults is nonzero",
             document["failures"],
         )
 
@@ -387,6 +588,12 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x82C4802C", analysis)
         self.assertIn("address = 0x82C47DF8", analysis)
         self.assertIn("address = 0x82C47E44", analysis)
+        self.assertIn("address = 0x82C46440", analysis)
+        self.assertIn("address = 0x82C46480", analysis)
+        self.assertIn("address = 0x82C222C8", analysis)
+        self.assertIn("address = 0x82C2231C", analysis)
+        self.assertIn("address = 0x82C4DC54", analysis)
+        self.assertIn("address = 0x82C4DC58", analysis)
 
 
 if __name__ == "__main__":

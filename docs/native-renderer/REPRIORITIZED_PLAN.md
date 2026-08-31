@@ -334,6 +334,26 @@ with C1/C2 and documented in
 identity, mesh/material decoding, and independent streaming invalidation paths
 remain required; no admission or suppression is enabled.
 
+Payload-reset checkpoint: exact resource slots 16 and 22 both clear and
+release the offset-64 owned payload, while slot 15 rebuilds through the
+offset-112 graph and offset-76 binding object. Balanced hooks now advance an
+independent payload generation, so a same-address resource reset cannot reuse
+stale prepared-draw provenance. Static proof and the deferred runtime gate are
+documented in
+[`STATIC_WORLD_STREAMING.md`](STATIC_WORLD_STREAMING.md). Representative
+runtime transition coverage, any additional invalidation routes, concrete
+building/prop identity, and mesh/material decoding remain pending. Xenos stays
+authoritative and no admission or suppression is enabled.
+
+Member-graph checkpoint: the exact live resource now joins its embedded
+`CSimpleModel` at offset 112, selected `CSimpleSubModel`, and selected
+`CSimpleMesh` to the direct indexed-draw call and prepared PM4 provenance.
+All three RTTI vtables and the resource-to-model address equation are checked
+at runtime. Static proof and the deferred combined qualifier are documented
+in [`STATIC_WORLD_GRAPH.md`](STATIC_WORLD_GRAPH.md). This closes the generic
+SimpleModel member lineage, not concrete building-versus-prop semantics or
+mesh/material decoding; native admission and suppression remain off.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

@@ -9,10 +9,12 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v3"
+SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v5"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
+STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
+GRAPH_SCHEMA = "pinyon-shift.native-renderer-static-world-graph.v1"
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -219,10 +221,133 @@ def validate_static_resource(document):
         raise ValueError("static-world resource claims drifted")
 
 
+def validate_static_streaming(document):
+    if (
+        document.get("schema") != STREAMING_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "exact_simple_model_resource_payload_reset_paths"
+    ):
+        raise ValueError("static-world streaming proof drifted")
+    try:
+        resource = document["resource"]
+        refresh = document["refresh"]
+        transitions = document["transitions"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("static-world streaming proof is incomplete") from error
+    expected_resource = {
+        "class": "CSimpleModelResource",
+        "vtable": "82229294",
+        "payload_reference_offset": 64,
+        "graph_offset": 112,
+        "binding_offset": 76,
+    }
+    expected_refresh = {
+        "slot": 15,
+        "method": "82C46410",
+        "graph_argument": "resource_plus_112",
+        "binding_argument": "resource_plus_76",
+    }
+    expected_transitions = [
+        {
+            "kind": "direct_payload_reset",
+            "slot": 16,
+            "entry_hook": "82C46440",
+            "exit_hook": "82C46480",
+            "exit_resource_register": "r31",
+        },
+        {
+            "kind": "refresh_then_payload_reset",
+            "slot": 22,
+            "entry_hook": "82C222C8",
+            "exit_hook": "82C2231C",
+            "exit_resource_register": "r30",
+        },
+    ]
+    if any(resource.get(key) != value for key, value in expected_resource.items()):
+        raise ValueError("static-world streaming resource proof drifted")
+    if any(refresh.get(key) != value for key, value in expected_refresh.items()):
+        raise ValueError("static-world streaming refresh proof drifted")
+    if transitions != expected_transitions:
+        raise ValueError("static-world streaming transition proof drifted")
+    if (
+        claims.get("owned_payload_reference_field_proved") is not True
+        or claims.get("balanced_payload_reset_boundaries_proved") is not True
+        or claims.get("payload_generation_invalidation_boundary_proved")
+        is not True
+        or claims.get("complete_streaming_invalidation_coverage_proved")
+        is not False
+        or claims.get("concrete_building_or_prop_identity_proved") is not False
+    ):
+        raise ValueError("static-world streaming claims drifted")
+
+
+def validate_static_graph(document):
+    if (
+        document.get("schema") != GRAPH_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "exact_simple_model_resource_to_mesh_draw_graph"
+    ):
+        raise ValueError("static-world graph proof drifted")
+    try:
+        objects = document["objects"]
+        dispatch = document["dispatch"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("static-world graph proof is incomplete") from error
+    expected_objects = {
+        "resource": {
+            "class": "CSimpleModelResource",
+            "vtable": "82229294",
+        },
+        "model": {
+            "class": "CSimpleModel",
+            "resource_offset": 112,
+            "primary_vtable": "82229208",
+            "secondary_vtable": "822291E8",
+        },
+        "submodel": {
+            "class": "CSimpleSubModel",
+            "vtable": "822291BC",
+        },
+        "mesh": {"class": "CSimpleMesh", "vtable": "822291A0"},
+    }
+    expected_dispatch = {
+        "renderer": "82C4CCC8",
+        "model_count_slot": 2,
+        "model_submodel_slot": 4,
+        "submodel_count_slot": 3,
+        "submodel_mesh_slot": 5,
+        "draw_member_entry_hook": "82C4DC54",
+        "draw_member_exit_hook": "82C4DC58",
+        "draw_emitter": "82416380",
+        "entry_model_register": "r26",
+        "entry_submodel_register": "r29",
+        "entry_mesh_register": "r28",
+    }
+    if objects != expected_objects:
+        raise ValueError("static-world graph object proof drifted")
+    if any(dispatch.get(key) != value for key, value in expected_dispatch.items()):
+        raise ValueError("static-world graph dispatch proof drifted")
+    if (
+        claims.get("resource_to_embedded_model_proved") is not True
+        or claims.get("model_to_submodel_dispatch_proved") is not True
+        or claims.get("submodel_to_mesh_dispatch_proved") is not True
+        or claims.get("mesh_to_indexed_draw_proved") is not True
+        or claims.get("concrete_building_or_prop_identity_proved") is not False
+        or claims.get("mesh_material_semantics_proved") is not False
+    ):
+        raise ValueError("static-world graph claims drifted")
+
+
 def build(
     static_ingress,
     static_lifetime,
     static_resource,
+    static_streaming,
+    static_graph,
     events,
     requested_session=None,
     allow_checkpoint=False,
@@ -230,6 +355,8 @@ def build(
     validate_static_ingress(static_ingress)
     validate_static_lifetime(static_lifetime)
     validate_static_resource(static_resource)
+    validate_static_streaming(static_streaming)
+    validate_static_graph(static_graph)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -264,6 +391,18 @@ def build(
         "model_resource_registration_hook": "82C4802C",
         "model_resource_destructor_entry_hook": "82C47DF8",
         "model_resource_destructor_exit_hook": "82C47E44",
+        "model_resource_payload_reference": "resource_plus_64",
+        "model_resource_refresh_slot": "15",
+        "model_resource_refresh": "82C46410",
+        "model_resource_direct_reset_slot": "16",
+        "model_resource_direct_reset_hooks": "82C46440,82C46480",
+        "model_resource_refresh_reset_slot": "22",
+        "model_resource_refresh_reset_hooks": "82C222C8,82C2231C",
+        "simple_model_offset": "resource_plus_112",
+        "simple_model_vtable": "82229208",
+        "simple_submodel_vtable": "822291BC",
+        "simple_mesh_vtable": "822291A0",
+        "simple_member_draw_hooks": "82C4DC54,82C4DC58",
         "draw_emitter": "82416380",
         "packet_hooks": "82416260,824162F4",
         "join": "synchronous_scope_to_physical_pm4_prepared_draw",
@@ -287,7 +426,7 @@ def build(
         or summary.get("checkpoint_kind")
         != ("final" if final_summary else "periodic")
         or summary.get("classification")
-        != "live_simple_model_resource_to_pm4_prepared_draw"
+        != "live_simple_model_mesh_payload_generation_to_prepared_draw"
     ):
         raise ValueError("static-world runtime summary drifted")
 
@@ -349,6 +488,37 @@ def build(
         "resource_graph_bind_joins",
         "resource_scope_joins",
         "resource_scope_mismatches",
+        "resource_transition_entries",
+        "resource_transition_exits",
+        "resource_transitions_open",
+        "resource_transition_overflow",
+        "resource_transition_exit_without_entry",
+        "resource_transition_exact",
+        "resource_direct_resets",
+        "resource_refresh_resets",
+        "resource_transition_invalid_root",
+        "resource_transition_vtable_mismatches",
+        "resource_transition_unregistered",
+        "resource_transition_nonlive",
+        "resource_transition_begin_read_faults",
+        "resource_transition_completions",
+        "resource_transition_completion_faults",
+        "resource_payload_resets_with_reference",
+        "resource_payload_resets_empty",
+        "resource_payload_generation_invalidations",
+        "member_entries",
+        "member_exits",
+        "member_exact",
+        "member_scope_missing",
+        "member_relation_mismatches",
+        "member_vtable_read_faults",
+        "member_vtable_mismatches",
+        "member_overlaps",
+        "member_exit_without_entry",
+        "member_draws_with_packets",
+        "member_draws_without_packets",
+        "member_packets_recorded",
+        "member_packet_mismatches",
     )
     totals = {key: integer(summary, key) for key in keys}
     frame_sequence = integer(summary, "frame_sequence")
@@ -389,6 +559,14 @@ def build(
         failures.append("no renderer bind joined a registered resource")
     if not totals["resource_scope_joins"]:
         failures.append("no exact scope joined a live resource generation")
+    if not totals["resource_transition_exact"]:
+        failures.append("no exact SimpleModel payload reset was observed")
+    if not totals["resource_transition_completions"]:
+        failures.append("no SimpleModel payload reset completed")
+    if not totals["member_exact"]:
+        failures.append("no exact SimpleModel model/submodel/mesh draw was observed")
+    if not totals["member_packets_recorded"]:
+        failures.append("no exact SimpleModel mesh draw emitted a PM4 packet")
     if not totals["scopes_with_packets"] or not totals["packets_recorded"]:
         failures.append("no exact scope emitted a PM4 draw packet")
     if totals["packet_matches"] + totals["pending_packets"] != totals[
@@ -443,6 +621,55 @@ def build(
         failures.append("static-world resource graph-bind accounting drifted")
     if totals["resource_scope_joins"] != totals["exact_scopes"]:
         failures.append("static-world resource scope accounting drifted")
+    resource_transition_classified = (
+        totals["resource_transition_exact"]
+        + totals["resource_transition_invalid_root"]
+        + totals["resource_transition_vtable_mismatches"]
+        + totals["resource_transition_unregistered"]
+        + totals["resource_transition_nonlive"]
+        + totals["resource_transition_begin_read_faults"]
+        + totals["resource_transition_overflow"]
+    )
+    if totals["resource_transition_entries"] != resource_transition_classified:
+        failures.append("static-world resource transition classification drifted")
+    if totals["resource_transition_entries"] != totals["resource_transition_exits"]:
+        failures.append("static-world resource transition entry/exit drifted")
+    if totals["resource_transition_exact"] != (
+        totals["resource_direct_resets"] + totals["resource_refresh_resets"]
+    ):
+        failures.append("static-world resource transition kind accounting drifted")
+    if totals["resource_transition_exact"] != (
+        totals["resource_transition_completions"]
+        + totals["resource_transition_completion_faults"]
+    ):
+        failures.append("static-world resource transition outcome drifted")
+    if totals["resource_transition_completions"] != (
+        totals["resource_payload_resets_with_reference"]
+        + totals["resource_payload_resets_empty"]
+    ):
+        failures.append("static-world resource payload-reset accounting drifted")
+    if totals["resource_payload_generation_invalidations"] != totals[
+        "resource_transition_completions"
+    ]:
+        failures.append("static-world resource payload generation drifted")
+    member_classified = (
+        totals["member_exact"]
+        + totals["member_scope_missing"]
+        + totals["member_relation_mismatches"]
+        + totals["member_vtable_read_faults"]
+        + totals["member_vtable_mismatches"]
+    )
+    if totals["member_entries"] != member_classified:
+        failures.append("static-world member classification drifted")
+    if totals["member_entries"] != totals["member_exits"]:
+        failures.append("static-world member entry/exit accounting drifted")
+    if totals["member_exact"] != (
+        totals["member_draws_with_packets"]
+        + totals["member_draws_without_packets"]
+    ):
+        failures.append("static-world member draw outcome accounting drifted")
+    if totals["member_packets_recorded"] != totals["packets_recorded"]:
+        failures.append("static-world member packet join accounting drifted")
     if not totals["prepared_matches"]:
         failures.append("no static-world PM4 packet joined a prepared draw")
     for key in (
@@ -471,6 +698,22 @@ def build(
         "resource_registration_type_mismatches",
         "resource_registration_faults",
         "resource_scope_mismatches",
+        "resource_transitions_open",
+        "resource_transition_overflow",
+        "resource_transition_exit_without_entry",
+        "resource_transition_invalid_root",
+        "resource_transition_unregistered",
+        "resource_transition_nonlive",
+        "resource_transition_begin_read_faults",
+        "resource_transition_completion_faults",
+        "member_scope_missing",
+        "member_relation_mismatches",
+        "member_vtable_read_faults",
+        "member_vtable_mismatches",
+        "member_overlaps",
+        "member_exit_without_entry",
+        "member_draws_without_packets",
+        "member_packet_mismatches",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -505,10 +748,17 @@ def build(
             "simple_model_resource_type_proved": not failures,
             "simple_model_resource_lifetime_proved": not failures,
             "renderer_to_registered_resource_proved": not failures,
+            "simple_model_payload_reset_runtime_proved": not failures,
+            "payload_generation_invalidation_proved": not failures,
+            "resource_to_simple_model_proved": not failures,
+            "simple_model_to_submodel_proved": not failures,
+            "simple_submodel_to_mesh_proved": not failures,
+            "simple_mesh_to_prepared_draw_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
             "streaming_lifetime_proved": False,
+            "complete_streaming_invalidation_coverage_proved": False,
             "native_admission": False,
             "suppression_allowed": False,
         },
@@ -529,6 +779,8 @@ def main(argv=None):
     parser.add_argument("--static", required=True, type=pathlib.Path)
     parser.add_argument("--lifetime", required=True, type=pathlib.Path)
     parser.add_argument("--resource", required=True, type=pathlib.Path)
+    parser.add_argument("--streaming", required=True, type=pathlib.Path)
+    parser.add_argument("--graph", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -538,6 +790,8 @@ def main(argv=None):
             json.loads(args.static.read_text(encoding="utf-8")),
             json.loads(args.lifetime.read_text(encoding="utf-8")),
             json.loads(args.resource.read_text(encoding="utf-8")),
+            json.loads(args.streaming.read_text(encoding="utf-8")),
+            json.loads(args.graph.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,
