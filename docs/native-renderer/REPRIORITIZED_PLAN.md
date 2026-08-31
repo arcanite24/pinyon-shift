@@ -376,6 +376,16 @@ documented in
 The next semantic lead is bounded resource/asset metadata, not another RTTI
 subclass search.
 
+Asset-metadata checkpoint: presentation initialization now proves that the
+stored name at owner offset 16 is the exact key passed to the
+`CSimpleModelResource` binder. Preparation also proves bounded 28-byte effect
+and texture-reference tables at resource offsets 124/128 and 288, including
+the exact `.fx`, `Id=`, and `textures\` path construction. The static proof is
+documented in
+[`STATIC_WORLD_ASSET_METADATA.md`](STATIC_WORLD_ASSET_METADATA.md). A
+payload-free hashed runtime category census remains required before assigning
+building-versus-prop semantics. No native admission or suppression is enabled.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
