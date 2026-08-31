@@ -367,6 +367,16 @@ address = 0x82435E78
 name = "PinyonShiftObserveVehicleTypedConstantUpload"
 registers = ["r3", "r4", "r5", "r6", "lr"]
 
+# Exact title-owned tire/wheel material binding. 82549670 receives the car
+# material root in r3, its root+1056 destination binding in r4, the UI-load
+# flag in r5, and the normal/SLOD selector in r6. The passive census hashes
+# only the MSVC asset-key string at root+1712 and retains exact draw-argument
+# address joins; it never exports a path or changes the bind.
+[[midasm_hook]]
+address = 0x82549670
+name = "PinyonShiftObserveVehicleMaterialBinding"
+registers = ["r3", "r4", "r5", "r6"]
+
 [[midasm_hook]]
 address = 0x8243646C
 name = "PinyonShiftObserveVehicleRenderContextDispatcherEntry"
