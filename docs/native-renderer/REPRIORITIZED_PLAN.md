@@ -612,6 +612,24 @@ bounded family table, and the ordered signature hash of those full-family
 runs. It remains measurement-only. A stable full-family sequence is the gate
 for assembling the 30 proven submeshes into one retained private vehicle pass.
 
+Topology result: the clean AppData run observed all 30 families exactly once
+per frame for 187 consecutive frames (5,610 matches), but unrelated guest work
+partitions them into 2,992 consecutive runs whose maximum length is five. A
+single consecutive 30-draw pass therefore does not exist. The retained-pass
+gate is corrected to the stronger frame-wide contract already implied by the
+per-family summaries: all 30 exact families, once each in original guest draw
+order, may accumulate across unrelated Xenos draws in one private target.
+
+Retained-pass implementation checkpoint: the default-off qualification mode
+starts only after the one-family native/Xenos capture succeeds and the exact
+correlation table contains 30 families. It retains the first matching draw,
+reuses the private target for the remaining 29 in guest order, releases and
+optionally reads back only the complete frame, and repeats for at most 120
+frames. Missing, extra, non-monotonic, unsupported, or failed work disables the
+path for the process. It never publishes, suppresses, or changes Xenos output
+authority. Runtime and visual proof are deferred to the next batched AppData
+checkpoint.
+
 ### C5. Sky, atmosphere, and global lighting
 
 - Replace the qualified sky/global-light families.
