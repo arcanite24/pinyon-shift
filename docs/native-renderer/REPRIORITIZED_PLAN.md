@@ -298,6 +298,14 @@ weakening the pending C1 gate.
 - Preserve exceptional shader states through exact replay fallback.
 - Track streaming registration, invalidation, and destruction.
 
+Static ingress checkpoint: retail RTTI and complete-object locators now prove
+the generic SimpleModel mesh/submodel/model/resource chain plus immediate,
+deferred, and unified presentation surfaces. All vtable extents resolve to AOT
+functions or one exact reviewed adjustment thunk. The payload-free proof is
+recorded in [`STATIC_WORLD_INGRESS.md`](STATIC_WORLD_INGRESS.md). Concrete
+building/prop instance identity, streaming lifetime, prepared-record joining,
+native admission, and suppression remain pending.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
