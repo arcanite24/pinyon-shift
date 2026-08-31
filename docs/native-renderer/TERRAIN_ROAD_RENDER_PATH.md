@@ -303,6 +303,22 @@ identity alone is useful track ownership evidence, while exact shared identity
 is the preferred C1 terrain/road admission gate. Until runtime qualification,
 Xenos remains authoritative and no native admission or suppression is enabled.
 
+## Exact track-world native selection
+
+The default-off continuous workset can now apply that preferred gate directly.
+`-ContinuousTrackWorld` requires an exact unified render-model scope and a
+nonzero shared world-resource identity mask before a fresh, mechanically
+eligible semantic draw is replayed into the private native target. Merely
+sharing the track-texture provider is insufficient in this mode and is counted
+as an identity exclusion.
+
+This is an isolated C1 qualification path, not a default family promotion. It
+keeps the independently qualified sky seed, can run beside the exact C2
+static-world selector, preserves every Xenos draw, and enables no suppression.
+The combined AppData run must observe at least one exact request and coherent
+multi-draw output before this selector can establish visible terrain/road
+progress.
+
 ### First-run host mapping correction
 
 The first merged AppData run reached 8,700 frames before an access violation at

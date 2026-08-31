@@ -23,6 +23,13 @@ census and semantic dispatch discovery so every admitted draw has:
   prepared-layout lineage; and
 - exact title-to-backend lineage.
 
+For the C1 qualification probe, add `-ContinuousTrackWorld`. Semantic draws
+then require both the exact unified track render-model scope and a nonzero
+shared world-resource identity mask: the same RTTI-proved track model, mesh,
+submodel, procedural-geometry, or PVS-zone object/resource address must occur
+at the title scope and procedural submission boundary. A provider-only match
+is excluded rather than promoted to terrain/road evidence.
+
 The exact retained family supplies a current-frame seed in supported gameplay
 scenes where the visibility-selected opaque set contains no mechanically
 replayable color target. It does not admit unknown signatures. The mode accepts
@@ -64,8 +71,11 @@ authority with suppression disabled.
 It reports the exact-family seed count separately as
 `qualified_retained_family_requests`, and reports fresh visibility candidates
 excluded by the track-provider gate as `non_track_provider_rejections`.
+When exact track-world selection is armed, accepted requests and provider-only
+identity exclusions are reported separately as `track_world_requests` and
+`track_world_identity_exclusions`.
 Static-world requests and incomplete-lineage rejections are reported
-independently. The v4 qualifier requires at least one exact static-world
+independently. The v5 qualifier requires at least one exact static-world
 request and zero static-world lineage rejection when that optional selection
 is armed.
 Build a payload-free qualification report with:
@@ -83,12 +93,15 @@ Arm the still-default-off static-world extension for the deferred C1/C2 run:
   -StateRoot $stateRoot `
   -Scene open_world_day `
   -ContinuousWorldWorkset `
+  -ContinuousTrackWorld `
   -ContinuousStaticWorld
 ```
 
 Qualification requires at least one exact track-provider visibility request,
 one complete frame with multiple accumulated draws, zero replay or frame
 failures, exact accounting, preserved Xenos draws, and disabled suppression.
+When `-ContinuousTrackWorld` is armed, at least one accepted semantic request
+must also satisfy the exact shared-resource gate.
 
 ## Safety boundary
 
@@ -102,6 +115,9 @@ failures, exact accounting, preserved Xenos draws, and disabled suppression.
 - Track-texture ownership is a precision filter for the existing prototype
   workset. It is not a terrain/road mesh ownership claim and does not satisfy
   the C1 semantic-family admission gate by itself.
+- The optional exact track-world selector admits semantic draws only after the
+  strongest already-carried shared-resource identity join. It does not infer
+  a road/terrain label from shaders, frequency, or provider identity.
 - The optional static-world extension accepts only exact lineage already
   carried into a mechanically replayable prepared draw. It does not embed the
   local category catalog, infer a content class, suppress Xenos, or enable

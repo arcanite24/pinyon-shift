@@ -260,6 +260,14 @@ qualified sky/horizon seed remains available. Runtime qualification is deferred
 to the next batched build/AppData checkpoint. This precision filter is not yet
 a terrain/road mesh identity or C1 family-admission claim.
 
+Exact-output checkpoint: the default-off continuous workset now has a stricter
+C1 selector that requires the exact unified track render-model scope and a
+nonzero shared RTTI-proved world-resource identity at the procedural submission
+boundary. Provider-only candidates are excluded, while the qualified sky seed,
+independent exact C2 selection, Xenos draws, and fallback remain intact. The
+next combined AppData run arms `-ContinuousTrackWorld`; runtime and visual
+qualification remain pending before any family promotion or suppression.
+
 Next runtime checkpoint: the old typed-render-item evidence is now correctly
 classified by RTTI as the unified track render-model instance/model pair. A
 balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)

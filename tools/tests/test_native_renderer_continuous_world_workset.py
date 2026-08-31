@@ -28,6 +28,7 @@ def fixture():
         target_lifetime="one_guest_frame",
         freshness_commit="matching_swap_after_complete_accumulation",
         semantic_lineage="armed",
+        track_world_selection=MODULE.TRACK_WORLD_SELECTION,
         static_world_selection=MODULE.STATIC_WORLD_SELECTION,
         readback="disabled",
         native_draw="continuous_world_workset",
@@ -39,7 +40,7 @@ def fixture():
     summary = event(
         MODULE.SUMMARY,
         status="complete",
-        prepared_observations="19",
+        prepared_observations="20",
         requests="8",
         recorded="8",
         target_creation_failures="0",
@@ -47,6 +48,8 @@ def fixture():
         mechanical_rejections="4",
         stale_or_unselected_rejections="3",
         non_track_provider_rejections="2",
+        track_world_identity_exclusions="1",
+        track_world_requests="3",
         static_world_lineage_rejections="0",
         static_world_requests="3",
         per_frame_quota_yields="2",
@@ -59,6 +62,7 @@ def fixture():
         accounting_complete="true",
         selection_accounting_complete="true",
         selection=MODULE.SELECTION,
+        track_world_selection=MODULE.TRACK_WORLD_SELECTION,
         static_world_selection=MODULE.STATIC_WORLD_SELECTION,
         maximum_draws_per_frame="64",
         freshness_commit="matching_swap_after_complete_accumulation",
@@ -104,9 +108,16 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("request.defer_preview_publication_until_swap = true", source)
         self.assertIn("qualified_retained_family_requests", source)
         self.assertIn("prepared_track_texture_provider", source)
+        self.assertIn("prepared_track_render_model_scope", source)
+        self.assertIn(
+            "prepared_track_world_resource_shared_identity_mask", source
+        )
         self.assertIn("prepared_static_world_exact", source)
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD", source
+        )
+        self.assertIn(
+            "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD", source
         )
         self.assertIn("kTrackTextureUnifiedVtable = 0x82001708", source)
         self.assertIn("non_track_provider_rejections", source)
@@ -128,6 +139,7 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("[switch]$ContinuousWorldWorkset", capture)
+        self.assertIn("[switch]$ContinuousTrackWorld", capture)
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET", capture
         )
@@ -140,6 +152,9 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["track_provider_selection_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["track_world_selection_proved"]
         )
         self.assertTrue(
             document["qualification"]["static_world_selection_proved"]
@@ -179,6 +194,30 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn(
             "static-world lineage rejection was observed",
             document["failures"],
+        )
+
+    def test_rejects_missing_exact_track_world_request(self):
+        events = fixture()
+        events[-1]["track_world_requests"] = "0"
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "no exact track-world request was observed", document["failures"]
+        )
+
+    def test_keeps_exact_track_world_selection_optional(self):
+        events = fixture()
+        events[0]["track_world_selection"] = "disabled"
+        events[-1].update(
+            prepared_observations="19",
+            track_world_selection="disabled",
+            track_world_identity_exclusions="0",
+            track_world_requests="0",
+        )
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"]["track_world_selection_proved"]
         )
 
     def test_qualifies_an_accounted_fail_closed_frame(self):
