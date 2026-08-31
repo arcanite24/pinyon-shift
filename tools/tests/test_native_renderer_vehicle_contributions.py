@@ -134,6 +134,24 @@ class VehicleContributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Xenos authority"):
             summarize(document)
 
+    def test_private_capture_is_targeted_and_preserves_xenos(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("VEHICLE_RESOURCE_CONTRIBUTION", hooks)
+        self.assertIn("CompleteVehicleResourceContributionReadback", hooks)
+        self.assertIn("retain_first_release_second", hooks)
+        self.assertIn('"xenos_draw", "preserved"', hooks)
+        self.assertIn('"suppression_allowed", "false"', hooks)
+        self.assertIn("[string]$VehicleResourceContribution", capture)
+        self.assertIn(
+            "VehicleResourceContribution and RetainVehicleShadowColorPass",
+            capture,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

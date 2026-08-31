@@ -8532,6 +8532,7 @@ struct IsolatedDrawState {
   std::jthread seed_depth_artifact_writer;
   std::jthread reference_seed_depth_artifact_writer;
   std::jthread vehicle_retained_artifact_writer;
+  std::jthread vehicle_contribution_artifact_writer;
   bool requested = false;
   bool readback_requested = false;
   bool completed = false;
@@ -8560,12 +8561,15 @@ struct IsolatedDrawState {
   bool vehicle_shadow_geometry_correlation_mode = false;
   bool vehicle_shadow_color_capture_mode = false;
   bool vehicle_shadow_color_retained_pass_mode = false;
+  bool vehicle_resource_contribution_capture_mode = false;
   bool prepared_vehicle_shadow_color_replay_eligible = false;
   bool vehicle_shadow_color_capture_pending = false;
   bool vehicle_shadow_color_capture_completed = false;
   bool vehicle_shadow_color_private_replay_failed_closed = false;
   bool vehicle_shadow_color_retained_pass_failed_closed = false;
   bool vehicle_shadow_color_retained_capture_completed = false;
+  bool vehicle_resource_contribution_failed_closed = false;
+  bool vehicle_resource_contribution_capture_completed = false;
   bool shadow_depth_publication_mode = false;
   bool shadow_depth_continuous_mode = false;
   bool shadow_depth_continuous_failed_closed = false;
@@ -8614,6 +8618,17 @@ struct IsolatedDrawState {
   uint64_t vehicle_shadow_color_retained_frames_completed = 0;
   uint64_t vehicle_shadow_color_retained_frames_failed = 0;
   uint64_t vehicle_shadow_color_retained_limit_yields = 0;
+  uint64_t vehicle_resource_contribution_hash = 0;
+  uint64_t vehicle_resource_contribution_frame = UINT64_MAX;
+  uint64_t vehicle_resource_contribution_last_draw = 0;
+  uint64_t vehicle_resource_contribution_requests = 0;
+  uint64_t vehicle_resource_contribution_recorded = 0;
+  uint64_t vehicle_resource_contribution_target_failures = 0;
+  uint64_t vehicle_resource_contribution_unsupported = 0;
+  uint32_t vehicle_resource_contribution_current_requests = 0;
+  uint32_t vehicle_resource_contribution_current_outcomes = 0;
+  uint32_t vehicle_resource_contribution_current_recorded = 0;
+  uint32_t vehicle_resource_contribution_family_mask = 0;
   uint32_t vehicle_shadow_color_retained_current_requests = 0;
   uint32_t vehicle_shadow_color_retained_current_outcomes = 0;
   uint32_t vehicle_shadow_color_retained_current_recorded = 0;
@@ -9209,6 +9224,16 @@ void ConfigureIsolatedDraw() {
       !g_isolated_draw.vehicle_shadow_color_capture_mode) {
     g_isolated_draw.valid = false;
   }
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION",
+      g_isolated_draw.vehicle_resource_contribution_hash,
+      g_isolated_draw.vehicle_resource_contribution_capture_mode,
+      g_isolated_draw.valid);
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode &&
+      (!g_isolated_draw.vehicle_shadow_color_capture_mode ||
+       g_isolated_draw.vehicle_shadow_color_retained_pass_mode)) {
+    g_isolated_draw.valid = false;
+  }
   if (g_isolated_draw.shadow_depth_mode) {
     g_isolated_draw.requested = true;
     if (signature_requested || g_isolated_draw.shadow_depth_batch_mode) {
@@ -9444,6 +9469,22 @@ void ConfigureIsolatedDraw() {
           std::to_string(kVehicleShadowColorRetainedPassLimit)},
          {"readback", "first_complete_native_retained_pass"},
          {"native_draw", "private_retained_pass_only"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_resource_contribution_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}",
+                      g_isolated_draw.vehicle_resource_contribution_hash)},
+         {"selection", "two_exact_prepared_variants_for_one_geometry_resource"},
+         {"target_lifecycle", "retain_first_release_second"},
+         {"readback", "complete_private_resource_contribution"},
+         {"native_draw", "private_resource_contribution_only"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},
          {"suppression_allowed", "false"}});
@@ -22134,6 +22175,18 @@ void CompleteVehicleShadowColorRetainedReadback(
       g_isolated_draw.vehicle_retained_artifact_writer);
 }
 
+void CompleteVehicleResourceContributionReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path contribution_root = g_isolated_draw.output_root;
+  contribution_root += L".vehicle.contribution.";
+  contribution_root += fmt::format(
+      "{:016X}", g_isolated_draw.vehicle_resource_contribution_hash);
+  contribution_root += L".native";
+  CompleteIsolatedReadbackArtifact(
+      readback, "native_vehicle_resource_contribution", contribution_root,
+      g_isolated_draw.vehicle_contribution_artifact_writer);
+}
+
 void CompleteIsolatedDepthReadbackArtifact(
     const rex::system::GraphicsIsolatedDrawReadback &readback,
     const char *capture_role, const std::filesystem::path &artifact_root,
@@ -22443,6 +22496,90 @@ void CompleteVehicleShadowColorPrivateReplay(
        {"draw", std::to_string(g_isolated_draw.draw)},
        {"fallback", "authoritative_xenos_draw"},
        {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void FailClosedVehicleResourceContribution(const char *reason) {
+  if (g_isolated_draw.vehicle_resource_contribution_failed_closed) {
+    return;
+  }
+  g_isolated_draw.vehicle_resource_contribution_failed_closed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_resource_contribution_failure",
+      {{"status", "failed_closed"},
+       {"reason", reason},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}",
+                    g_isolated_draw.vehicle_resource_contribution_hash)},
+       {"frame",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_frame)},
+       {"last_draw",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_last_draw)},
+       {"requests",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_requests)},
+       {"outcomes",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_outcomes)},
+       {"recorded",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_recorded)},
+       {"family_mask",
+        fmt::format("{:08X}",
+                    g_isolated_draw.vehicle_resource_contribution_family_mask)},
+       {"fallback", "authoritative_xenos_draws"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void CompleteVehicleResourceContribution(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  ++g_isolated_draw.vehicle_resource_contribution_current_outcomes;
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  if (recorded) {
+    ++g_isolated_draw.vehicle_resource_contribution_recorded;
+    ++g_isolated_draw.vehicle_resource_contribution_current_recorded;
+  } else {
+    if (result.status == rex::system::
+                             GraphicsIsolatedDrawStatus::
+                                 kTargetCreationFailed) {
+      ++g_isolated_draw.vehicle_resource_contribution_target_failures;
+    } else {
+      ++g_isolated_draw.vehicle_resource_contribution_unsupported;
+    }
+    FailClosedVehicleResourceContribution("backend_replay_failure");
+    return;
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_current_requests != 2 ||
+      g_isolated_draw.vehicle_resource_contribution_current_outcomes != 2 ||
+      g_isolated_draw.vehicle_resource_contribution_capture_completed) {
+    return;
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_current_recorded != 2) {
+    FailClosedVehicleResourceContribution("incomplete_recording");
+    return;
+  }
+  g_isolated_draw.vehicle_resource_contribution_capture_completed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_resource_contribution_result",
+      {{"status", "recorded_complete_private_resource_contribution"},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}",
+                    g_isolated_draw.vehicle_resource_contribution_hash)},
+       {"frame",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_frame)},
+       {"last_draw",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_last_draw)},
+       {"draw_count", "2"},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"readback", "native_resource_contribution"},
+       {"native_draw", "private_resource_contribution_only"},
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_allowed", "false"}});
@@ -23456,6 +23593,99 @@ void RequestIsolatedDraw(
       request.reference_readback_completion =
           g_isolated_draw.readback_requested
               ? &CompleteIsolatedReferenceReadback
+              : nullptr;
+      return;
+    }
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_recorded &&
+        g_isolated_draw.vehicle_resource_contribution_capture_mode &&
+        !g_isolated_draw.vehicle_resource_contribution_failed_closed &&
+        !g_isolated_draw.vehicle_resource_contribution_capture_completed &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible) {
+      if (g_vehicle_shadow_geometry_correlation_count !=
+          kVehicleShadowColorRetainedFamilyCount) {
+        return;
+      }
+      const uint32_t family_index =
+          g_isolated_draw.prepared_vehicle_shadow_color_family_index;
+      if (family_index >= kVehicleShadowColorRetainedFamilyCount) {
+        FailClosedVehicleResourceContribution("invalid_family_index");
+        return;
+      }
+      const VehicleShadowGeometryCorrelationEntry &family =
+          g_vehicle_shadow_geometry_correlations[family_index];
+      if (!family.occupied ||
+          family.geometry_resource_hash !=
+              g_isolated_draw.vehicle_resource_contribution_hash) {
+        return;
+      }
+      uint32_t resource_variant_count = 0;
+      for (const VehicleShadowGeometryCorrelationEntry &entry :
+           g_vehicle_shadow_geometry_correlations) {
+        resource_variant_count +=
+            entry.occupied &&
+            entry.geometry_resource_hash ==
+                g_isolated_draw.vehicle_resource_contribution_hash;
+      }
+      if (resource_variant_count != 2) {
+        FailClosedVehicleResourceContribution("unexpected_variant_count");
+        return;
+      }
+      const uint64_t frame = g_isolated_draw.frame;
+      if (g_isolated_draw.vehicle_resource_contribution_frame != frame) {
+        if (g_isolated_draw.vehicle_resource_contribution_frame != UINT64_MAX &&
+            g_isolated_draw.vehicle_resource_contribution_current_requests) {
+          FailClosedVehicleResourceContribution("incomplete_resource_frame");
+          return;
+        }
+        g_isolated_draw.vehicle_resource_contribution_frame = frame;
+        g_isolated_draw.vehicle_resource_contribution_last_draw = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_requests = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_outcomes = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_recorded = 0;
+        g_isolated_draw.vehicle_resource_contribution_family_mask = 0;
+      }
+      if (g_isolated_draw.vehicle_resource_contribution_current_requests >= 2) {
+        FailClosedVehicleResourceContribution("extra_resource_variant");
+        return;
+      }
+      if (g_isolated_draw.vehicle_resource_contribution_last_draw &&
+          g_isolated_draw.draw <=
+              g_isolated_draw.vehicle_resource_contribution_last_draw) {
+        FailClosedVehicleResourceContribution("non_monotonic_draw_order");
+        return;
+      }
+      const uint32_t family_bit = uint32_t(1) << family_index;
+      if (g_isolated_draw.vehicle_resource_contribution_family_mask &
+          family_bit) {
+        FailClosedVehicleResourceContribution("duplicate_resource_variant");
+        return;
+      }
+      g_isolated_draw.vehicle_resource_contribution_family_mask |= family_bit;
+      ++g_isolated_draw.vehicle_resource_contribution_current_requests;
+      ++g_isolated_draw.vehicle_resource_contribution_requests;
+      g_isolated_draw.vehicle_resource_contribution_last_draw =
+          g_isolated_draw.draw;
+      const bool completing_contribution =
+          g_isolated_draw.vehicle_resource_contribution_current_requests == 2;
+      if (completing_contribution) {
+        g_isolated_draw.captured_signature =
+            g_isolated_draw.prepared_signature;
+        g_isolated_draw.captured_frame = frame;
+        g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      }
+      request.requested = true;
+      request.retain_target = !completing_contribution;
+      request.reuse_target = completing_contribution;
+      request.frame_sequence = frame;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleResourceContribution;
+      request.readback_requested =
+          completing_contribution && g_isolated_draw.readback_requested;
+      request.readback_completion =
+          request.readback_requested
+              ? &CompleteVehicleResourceContributionReadback
               : nullptr;
       return;
     }
@@ -28461,6 +28691,56 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"native_draw",
           g_isolated_draw.vehicle_shadow_color_capture_recorded
               ? "private_capture_only"
+              : "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode) {
+    const uint64_t contribution_outcomes =
+        g_isolated_draw.vehicle_resource_contribution_recorded +
+        g_isolated_draw.vehicle_resource_contribution_target_failures +
+        g_isolated_draw.vehicle_resource_contribution_unsupported;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_resource_contribution_summary",
+        {{"status",
+          g_isolated_draw.vehicle_resource_contribution_failed_closed
+              ? "failed_closed"
+              : (g_isolated_draw
+                         .vehicle_resource_contribution_capture_completed
+                     ? "bounded_resource_contribution_recorded"
+                     : "not_observed")},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}",
+                      g_isolated_draw.vehicle_resource_contribution_hash)},
+         {"requests",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_requests)},
+         {"recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_recorded)},
+         {"target_creation_failures",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_target_failures)},
+         {"unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_unsupported)},
+         {"request_accounting_complete",
+          contribution_outcomes ==
+                  g_isolated_draw.vehicle_resource_contribution_requests
+              ? "true"
+              : "false"},
+         {"expected_variants", "2"},
+         {"capture_recorded",
+          g_isolated_draw.vehicle_resource_contribution_capture_completed
+              ? "true"
+              : "false"},
+         {"selection", "two_exact_prepared_variants_for_one_geometry_resource"},
+         {"target_lifecycle", "retain_first_release_second"},
+         {"readback", "complete_private_resource_contribution"},
+         {"native_draw",
+          g_isolated_draw.vehicle_resource_contribution_capture_completed
+              ? "private_resource_contribution_only"
               : "false"},
          {"xenos_draw", "preserved"},
          {"output_authority", "xenos"},

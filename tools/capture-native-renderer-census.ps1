@@ -21,6 +21,8 @@ param(
     [switch]$VehicleShadowGeometryCorrelation,
     [switch]$CaptureVehicleShadowColor,
     [switch]$RetainVehicleShadowColorPass,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$VehicleResourceContribution,
     [switch]$PublishShadowDepth,
     [switch]$ContinuousShadowDepth,
     [ValidateRange(2, 120)]
@@ -122,6 +124,12 @@ if ($CaptureVehicleShadowColor -and -not $VehicleShadowGeometryCorrelation) {
 }
 if ($RetainVehicleShadowColorPass -and -not $CaptureVehicleShadowColor) {
     throw 'RetainVehicleShadowColorPass requires CaptureVehicleShadowColor.'
+}
+if ($VehicleResourceContribution -and -not $CaptureVehicleShadowColor) {
+    throw 'VehicleResourceContribution requires CaptureVehicleShadowColor.'
+}
+if ($VehicleResourceContribution -and $RetainVehicleShadowColorPass) {
+    throw 'VehicleResourceContribution and RetainVehicleShadowColorPass are mutually exclusive.'
 }
 if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
     throw 'PublishShadowDepth requires ShadowDepthBatch.'
@@ -248,6 +256,8 @@ $savedVehicleShadowColorCapture =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE
 $savedVehicleShadowColorRetainedPass =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS
+$savedVehicleResourceContribution =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION
 $savedShadowDepthPublication =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
 $savedShadowDepthContinuous =
@@ -302,6 +312,8 @@ try {
         if ($CaptureVehicleShadowColor) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS =
         if ($RetainVehicleShadowColorPass) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION =
+        $VehicleResourceContribution
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         if ($PublishShadowDepth) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
@@ -362,6 +374,8 @@ finally {
         $savedVehicleShadowColorCapture
     $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS =
         $savedVehicleShadowColorRetainedPass
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION =
+        $savedVehicleResourceContribution
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         $savedShadowDepthPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =

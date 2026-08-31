@@ -769,8 +769,11 @@ offline fail-closed partition is documented in
 [`VEHICLE_RESOURCE_CONTRIBUTIONS.md`](VEHICLE_RESOURCE_CONTRIBUTIONS.md). C4
 role attribution now targets those 15 exact resources; prepared signatures
 alone cannot carry a semantic label because two resources reuse one signature
-pair. The next batched slice records isolated per-contribution output evidence
-and joins it to an independent title-owned asset/material discriminator before
+pair. A default-off private capture now retains the two exact variants for one
+selected resource, releases after the second, and reads back only that bounded
+contribution while preserving both Xenos draws. The next batched gameplay run
+qualifies the first isolated resource result and joins it to an independent
+title-owned asset/material discriminator before
 assigning body, glass, wheel, light, livery, or exceptional-work labels.
 
 ### C5. Sky, atmosphere, and global lighting
