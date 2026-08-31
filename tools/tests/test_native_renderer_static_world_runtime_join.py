@@ -144,6 +144,24 @@ def static_streaming():
             "graph_argument": "resource_plus_112",
             "binding_argument": "resource_plus_76",
         },
+        "invalidation_surface": {
+            "vtable_slot_count": 23,
+            "vtable_targets": [
+                "82C47EC0", "82A0E238", "824493C0", "82448FD8",
+                "82B755A8", "82D68710", "830B2320", "82611B80",
+                "82D68710", "82D68710", "82D68710", "82D68710",
+                "82D68710", "82611B80", "824D7F98", "82C46410",
+                "82C46440", "82D68710", "830B2320", "82C462C0",
+                "824D7FA8", "82611B80", "82C222C8",
+            ],
+            "unique_target_count": 14,
+            "destruction_slot": 0,
+            "destructor": "82C47DF8",
+            "base_destructor": "82E45B20",
+            "destructor_payload_release": "resource_plus_64_reference_clear",
+            "live_payload_reset_slots": [16, 22],
+            "other_live_payload_reset_slots": [],
+        },
         "transitions": [
             {
                 "kind": "direct_payload_reset",
@@ -164,6 +182,7 @@ def static_streaming():
             "owned_payload_reference_field_proved": True,
             "balanced_payload_reset_boundaries_proved": True,
             "payload_generation_invalidation_boundary_proved": True,
+            "complete_class_vtable_invalidation_coverage_proved": True,
             "complete_streaming_invalidation_coverage_proved": False,
             "concrete_building_or_prop_identity_proved": False,
         },

@@ -345,6 +345,15 @@ runtime transition coverage, any additional invalidation routes, concrete
 building/prop identity, and mesh/material decoding remain pending. Xenos stays
 authoritative and no admission or suppression is enabled.
 
+Invalidation-census checkpoint: all 23 `CSimpleModelResource` vtable slots are
+now locked to their retail targets. Only slots 16 and 22 reset the live
+offset-64 payload; slot 0 destruction reaches the base destructor that releases
+the same reference. This closes the class-exposed invalidation surface while
+leaving representative runtime transition coverage, external invalidation
+routes, and post-transition rebinding for the batched C1/C2 AppData run. The
+proof is recorded in
+[`STATIC_WORLD_STREAMING.md`](STATIC_WORLD_STREAMING.md).
+
 Member-graph checkpoint: the exact live resource now joins its embedded
 `CSimpleModel` at offset 112, selected `CSimpleSubModel`, and selected
 `CSimpleMesh` to the direct indexed-draw call and prepared PM4 provenance.

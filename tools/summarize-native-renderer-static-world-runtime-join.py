@@ -13,7 +13,7 @@ SCHEMA = "pinyon-shift.native-renderer-static-world-runtime-join.v10"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-static-world-ingress.v2"
 LIFETIME_SCHEMA = "pinyon-shift.native-renderer-static-world-lifetime.v1"
 RESOURCE_SCHEMA = "pinyon-shift.native-renderer-static-world-resource.v1"
-STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
+STREAMING_SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v2"
 GRAPH_SCHEMA = "pinyon-shift.native-renderer-static-world-graph.v1"
 OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v2"
 ASSET_METADATA_SCHEMA = (
@@ -239,6 +239,7 @@ def validate_static_streaming(document):
     try:
         resource = document["resource"]
         refresh = document["refresh"]
+        invalidation_surface = document["invalidation_surface"]
         transitions = document["transitions"]
         claims = document["claims"]
     except (KeyError, TypeError) as error:
@@ -272,16 +273,38 @@ def validate_static_streaming(document):
             "exit_resource_register": "r30",
         },
     ]
+    expected_invalidation_surface = {
+        "vtable_slot_count": 23,
+        "vtable_targets": [
+            "82C47EC0", "82A0E238", "824493C0", "82448FD8",
+            "82B755A8", "82D68710", "830B2320", "82611B80",
+            "82D68710", "82D68710", "82D68710", "82D68710",
+            "82D68710", "82611B80", "824D7F98", "82C46410",
+            "82C46440", "82D68710", "830B2320", "82C462C0",
+            "824D7FA8", "82611B80", "82C222C8",
+        ],
+        "unique_target_count": 14,
+        "destruction_slot": 0,
+        "destructor": "82C47DF8",
+        "base_destructor": "82E45B20",
+        "destructor_payload_release": "resource_plus_64_reference_clear",
+        "live_payload_reset_slots": [16, 22],
+        "other_live_payload_reset_slots": [],
+    }
     if any(resource.get(key) != value for key, value in expected_resource.items()):
         raise ValueError("static-world streaming resource proof drifted")
     if any(refresh.get(key) != value for key, value in expected_refresh.items()):
         raise ValueError("static-world streaming refresh proof drifted")
     if transitions != expected_transitions:
         raise ValueError("static-world streaming transition proof drifted")
+    if invalidation_surface != expected_invalidation_surface:
+        raise ValueError("static-world streaming invalidation surface drifted")
     if (
         claims.get("owned_payload_reference_field_proved") is not True
         or claims.get("balanced_payload_reset_boundaries_proved") is not True
         or claims.get("payload_generation_invalidation_boundary_proved")
+        is not True
+        or claims.get("complete_class_vtable_invalidation_coverage_proved")
         is not True
         or claims.get("complete_streaming_invalidation_coverage_proved")
         is not False

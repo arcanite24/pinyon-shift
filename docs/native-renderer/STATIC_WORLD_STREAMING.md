@@ -1,7 +1,7 @@
 # Static-world SimpleModel payload-reset transitions
 
-Status: exact payload-reset boundaries and generation invalidation implemented;
-runtime qualification pending
+Status: complete class-exposed invalidation surface and generation tracking
+proved; representative runtime qualification pending
 
 ## Purpose
 
@@ -10,15 +10,21 @@ An allocation generation is not sufficient for open-world streaming. A live
 the same object address. Prepared-draw provenance must become stale when that
 happens, even if the renderer still points at the same resource object.
 
-`tools/discover-native-renderer-static-world-streaming.py` proves the minimum
-exact reset surface against the retail image and generated AOT instructions.
-It names only structural behavior visible in those instructions; it does not
-claim that these two methods cover every title streaming route.
+`tools/discover-native-renderer-static-world-streaming.py` proves the complete
+23-slot class vtable and its exact reset surface against the retail image and
+generated AOT instructions. It names only structural behavior visible in those
+instructions; external callers and representative title streaming behavior
+still require runtime qualification.
 
 ## Exact transitions
 
 The resource's vtable and instruction flow prove:
 
+- all 23 vtable slots resolve to the locked retail target census, covering 14
+  unique functions;
+- slot 0 destruction reaches `82C47DF8`, which calls base destructor
+  `82E45B20`; the base destructor clears/releases the same offset-64 owned
+  reference;
 - slot 15, `82C46410`, refreshes the offset-112 graph using the offset-76
   binding object through `82C462D0`;
 - slot 16, `82C46440`, reads the owned pointer at offset 64, clears it before
@@ -27,6 +33,11 @@ The resource's vtable and instruction flow prove:
 - slot 22, shared method `82C222C8`, invokes virtual slot 15, preserves its
   result, then clears and releases the same offset-64 pointer. Balanced hooks
   are `82C222C8` and `82C2231C`; exact RTTI excludes other resource classes.
+
+No other class-vtable target clears the live offset-64 payload. Slots 16 and 22
+therefore cover every live-object payload reset exposed by this class, while
+slot 0 covers destruction. The broader claim that representative gameplay
+exercises every relevant streaming transition intentionally remains false.
 
 Every completed exact transition must leave offset 64 null. The passive
 registry then increments a payload generation independently from the resource
@@ -68,11 +79,11 @@ shared slot-22 implementation are counted as exclusions, not faults.
 ## Remaining boundary
 
 Runtime evidence must show which transition paths occur during representative
-driving and streaming, whether every later draw is rebound to the new payload
-generation, and whether other independent invalidation routes exist. Concrete
-building/prop identity and mesh/material ownership also remain open. Therefore
-this checkpoint enables no native upload, draw, publication, or suppression;
-Xenos remains authoritative.
+driving and streaming and whether every later draw is rebound to the new
+payload generation. Any invalidation route outside the complete class vtable
+must also be identified from that evidence. Concrete building/prop identity
+and mesh/material ownership remain open. Therefore this checkpoint enables no
+native upload, draw, publication, or suppression; Xenos remains authoritative.
 
 The adjacent member-lineage proof is documented in
 [`STATIC_WORLD_GRAPH.md`](STATIC_WORLD_GRAPH.md).
