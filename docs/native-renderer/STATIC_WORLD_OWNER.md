@@ -1,7 +1,8 @@
 # Static-world model-presentation ownership
 
-Status: exact presentation-to-renderer ownership and passive runtime join
-implemented; runtime qualification pending the next batched C1/C2 run
+Status: exact presentation-to-renderer ownership and transform dispatch proved;
+passive runtime join implemented; qualification pending the next batched C1/C2
+run
 
 ## Purpose
 
@@ -26,7 +27,10 @@ Retail RTTI, vtables, and generated AOT instructions prove:
   invokes renderer bind slot 0; the binding and reference-assignment helpers
   copy that same resource address into renderer offset 72; and
 - the same slot-12 scope later loads the offset-1608 renderer and invokes
-  renderer slot 12, whose exact vtable target is `82C4CCC8`.
+  renderer slot 12, whose exact vtable target is `82C4CCC8`; and
+- immediately before that draw, the scope loads the complete 64-byte transform
+  from owner offset 80 and invokes renderer slot 6 at `82C4C568`, which copies
+  the same 16 words to renderer offset 128.
 
 This creates a safe synchronous join: an exact SimpleModel renderer dispatch
 occurring inside the balanced presentation slot-12 scope carries the
@@ -36,6 +40,12 @@ offset-1608 renderer field to equal the nested dispatch receiver. Calls on
 other dynamic presentation types that share the implementation are counted as
 excluded vtable mismatches, while exact-owner field mismatches fail closed.
 The join changes no title behavior.
+
+The passive observer reads the transform only inside the exact presentation
+scope, exports its hash and 16 numeric words, and carries it through the exact
+renderer, PM4 packet, and prepared-draw lineage. Independent read, renderer
+join, and packet-origin accounting fails closed on missing provenance. No
+matrix convention or building/prop category is inferred from static code.
 
 The complete RTTI hierarchy census is documented in
 [`STATIC_WORLD_PRESENTATION_TYPES.md`](STATIC_WORLD_PRESENTATION_TYPES.md). It
@@ -52,14 +62,16 @@ python tools/discover-native-renderer-static-world-owner.py `
 
 ## Remaining boundary
 
-`CModelPresentation` plus its identical renderer resource is an exact
-title-owned static-model instance identity, not proof that the asset should be
-called a building rather than a prop. The bounded resource-key and
+`CModelPresentation`, its renderer resource, and its complete transform are an
+exact title-owned static-model instance identity, not proof that the asset
+should be called a building rather than a prop. The bounded resource-key and
 effect/texture reference path is now proved in
 [`STATIC_WORLD_ASSET_METADATA.md`](STATIC_WORLD_ASSET_METADATA.md), but its
-payload-free runtime category census, mesh field semantics, and representative
-streaming transitions remain open. This
-checkpoint changes no guest data, native admission, publication, or
+payload-free category join and representative streaming transitions remain
+open. The title-authored offline spatial catalog and its deliberately unproved
+runtime boundary are documented in
+[`STATIC_WORLD_INSTANCE_CLASSIFICATION.md`](STATIC_WORLD_INSTANCE_CLASSIFICATION.md).
+This checkpoint changes no guest data, native admission, publication, or
 suppression; Xenos remains authoritative.
 
 The combined runtime qualifier requires this report through `--owner`, the

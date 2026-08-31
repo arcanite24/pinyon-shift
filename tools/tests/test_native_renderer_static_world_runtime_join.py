@@ -261,12 +261,23 @@ def static_owner():
                 "presentation_plus_148_equals_renderer_plus_72"
             ),
         },
+        "transform_join": {
+            "presentation_transform_offset": 80,
+            "transform_size_bytes": 64,
+            "renderer_transform_slot": 6,
+            "renderer_transform_target": "82C4C568",
+            "renderer_transform_offset": 128,
+            "address_equation": (
+                "presentation_plus_80_64_bytes_copied_to_renderer_plus_128"
+            ),
+        },
         "claims": {
             "exact_model_presentation_owner_proved": True,
             "presentation_to_renderer_field_proved": True,
             "presentation_to_resource_reference_proved": True,
             "renderer_bind_and_draw_dispatch_proved": True,
             "presentation_to_renderer_resource_identity_proved": True,
+            "presentation_transform_to_renderer_proved": True,
             "concrete_building_or_prop_identity_proved": False,
             "mesh_or_material_semantics_proved": False,
         },
@@ -453,6 +464,13 @@ def fixture():
             "presentation_resource_join": (
                 "presentation_plus_148_equals_renderer_plus_72"
             ),
+            "presentation_transform_field": (
+                "presentation_plus_80_16_be_u32"
+            ),
+            "presentation_transform_dispatch": (
+                "renderer_slot_6_82C4C568_to_renderer_plus_128"
+            ),
+            "transform_export": "hash_and_16_numeric_words_only",
             "asset_key_field": "presentation_plus_16_msvc_string",
             "asset_key_export": "fnv1a64_hash_and_length_only",
             "effect_reference_fields": (
@@ -608,6 +626,13 @@ def fixture():
         asset_metadata_read_faults="0",
         asset_metadata_joins="8",
         asset_metadata_missing_joins="0",
+        transform_observations="12",
+        transform_exact="12",
+        transform_read_faults="0",
+        transform_joins="8",
+        transform_missing_joins="0",
+        transform_packet_origins="100",
+        transform_missing_packet_origins="0",
         accounting_complete="true",
         qualification_complete="true",
         classification=(
@@ -667,6 +692,11 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 "model_presentation_to_renderer_resource_proved"
             ]
         )
+        self.assertTrue(
+            document["qualification"][
+                "model_presentation_transform_to_prepared_draw_proved"
+            ]
+        )
         self.assertFalse(
             document["qualification"]["building_or_prop_instance_identity_proved"]
         )
@@ -717,6 +747,53 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         )
         self.assertEqual("incomplete", document["status"])
         self.assertIn("unprepared_matches is nonzero", document["failures"])
+
+    def test_rejects_transform_read_fault(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            transform_exact="11",
+            transform_read_faults="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn("transform_read_faults is nonzero", document["failures"])
+
+    def test_rejects_missing_transform_packet_origin(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            transform_packet_origins="99",
+            transform_missing_packet_origins="1",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "transform_missing_packet_origins is nonzero",
+            document["failures"],
+        )
 
     def test_rejects_scope_accounting_fault(self):
         events = copy.deepcopy(fixture())
@@ -1086,7 +1163,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
                 static_streaming(),
                 static_graph(),
                 static_owner(),
-                    static_asset_metadata(),
+                static_asset_metadata(),
                 semantics,
                 fixture(),
             )
@@ -1125,6 +1202,10 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x823F8DB8", analysis)
         self.assertIn("address = 0x823F8FA0", analysis)
         self.assertIn("kModelPresentationNameOffset = 16", hooks)
+        self.assertIn("kModelPresentationTransformOffset = 80", hooks)
+        self.assertIn("ReadStaticWorldPresentationTransform", hooks)
+        self.assertIn("static_world_transform_words", hooks)
+        self.assertIn("transform_missing_packet_origins", hooks)
         self.assertIn("ReadStaticWorldAssetMetadata", hooks)
         self.assertIn("static_world_asset_key_hash", hooks)
         self.assertIn("kSimpleMeshPrimitiveTypeOffset = 36", hooks)

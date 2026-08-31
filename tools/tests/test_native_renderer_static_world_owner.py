@@ -26,6 +26,7 @@ def fixture():
     presentation_slots[12] = MODULE.PRESENTATION_DRAW
     renderer_slots = [0x82900000 + index * 4 for index in range(17)]
     renderer_slots[0] = 0x82C4C838
+    renderer_slots[6] = MODULE.RENDERER_TRANSFORM
     renderer_slots[12] = 0x82C4CCC8
     for base, slots in (
         (MODULE.PRESENTATION_VTABLE, presentation_slots),
@@ -90,10 +91,36 @@ def fixture():
             0x823F8DC4: "mr r31,r3",
             0x823F8DDC: "bl 0x823f8980",
             0x823F8E20: "lwz r11,1608(r31)",
+            0x823F8E30: "ld r11,136(r31)",
+            0x823F8E34: "ld r4,80(r31)",
+            0x823F8E38: "ld r5,88(r31)",
+            0x823F8E3C: "ld r6,96(r31)",
+            0x823F8E40: "ld r7,104(r31)",
+            0x823F8E44: "lwz r29,0(r3)",
+            0x823F8E48: "ld r8,112(r31)",
+            0x823F8E4C: "ld r9,120(r31)",
+            0x823F8E50: "ld r10,128(r31)",
+            0x823F8E58: "lwz r29,24(r29)",
+            0x823F8E5C: "mtctr r29",
+            0x823F8E60: "bctrl",
             0x823F8F0C: "lwz r3,1608(r31)",
             0x823F8F18: "lwz r11,48(r11)",
             0x823F8F20: "bctrl",
             MODULE.PRESENTATION_DRAW_EXIT: "addi r1,r1,160",
+        },
+        MODULE.RENDERER_TRANSFORM: {
+            0x82C4C568: "std r4,32(r1)",
+            0x82C4C56C: "addi r11,r3,128",
+            0x82C4C570: "std r6,48(r1)",
+            0x82C4C578: "std r8,64(r1)",
+            0x82C4C580: "std r9,72(r1)",
+            0x82C4C588: "std r10,80(r1)",
+            0x82C4C590: "std r7,56(r1)",
+            0x82C4C598: "std r5,40(r1)",
+            0x82C4C5B4: "stvx128 v61,r11,r10",
+            0x82C4C5B8: "stvx128 v63,r0,r11",
+            0x82C4C5BC: "stvx128 v62,r11,r6",
+            0x82C4C5C0: "stvx128 v60,r11,r9",
         },
     }
     return functions, bytes(image)
@@ -121,6 +148,11 @@ class StaticWorldOwnerTests(unittest.TestCase):
                 "presentation_to_renderer_resource_identity_proved"
             ]
         )
+        self.assertTrue(
+            document["claims"][
+                "presentation_transform_to_renderer_proved"
+            ]
+        )
         self.assertFalse(
             document["claims"]["concrete_building_or_prop_identity_proved"]
         )
@@ -142,6 +174,18 @@ class StaticWorldOwnerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "823F8A18"):
             MODULE.build(corrupted, image)
+
+    def test_rejects_renderer_transform_slot_drift(self):
+        functions, image = fixture()
+        corrupted = bytearray(image)
+        offset = (
+            MODULE.RENDERER_VTABLE
+            + MODULE.RENDERER_TRANSFORM_SLOT * 4
+            - MODULE.IMAGE_BASE
+        )
+        corrupted[offset : offset + 4] = (0x82C4C56C).to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "transform slot drifted"):
+            MODULE.build(functions, bytes(corrupted))
 
     def test_rejects_unbalanced_exit_drift(self):
         functions, image = fixture()

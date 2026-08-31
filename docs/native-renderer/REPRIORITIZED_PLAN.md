@@ -418,6 +418,19 @@ The 512-family census and its independent overflow accounting are documented in
 qualification remains batched; resource payload bytes are not exported and
 Xenos remains authoritative.
 
+Instance-classification checkpoint: retail instruction flow now proves the
+complete 64-byte `CModelPresentation` transform at owner offset 80 and its
+slot-6 copy into renderer offset 128 before the exact draw. The passive runtime
+lineage carries all 16 numeric words and their hash into prepared-draw
+provenance with fail-closed accounting. Separately, the title-authored Colorado
+collision and gameplay manifests produce a payload-free catalog of 24,025
+hashed spatial entries (21,877 collision props and 2,148 gameplay objects).
+See
+[`STATIC_WORLD_INSTANCE_CLASSIFICATION.md`](STATIC_WORLD_INSTANCE_CLASSIFICATION.md).
+The next combined C1/C2 AppData run must prove the matrix convention and a
+unique runtime-to-catalog match; no building/prop category, native admission,
+or suppression is claimed yet.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
