@@ -19,6 +19,9 @@ OWNER_SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v1"
 ASSET_METADATA_SCHEMA = (
     "pinyon-shift.native-renderer-static-world-asset-metadata.v1"
 )
+MESH_SEMANTICS_SCHEMA = (
+    "pinyon-shift.native-renderer-static-world-mesh-semantics.v1"
+)
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
 CHECKPOINT = "native_renderer.discovery.static_world_runtime_join_checkpoint"
@@ -503,6 +506,84 @@ def validate_static_asset_metadata(document):
         raise ValueError("static-world asset metadata claims drifted")
 
 
+def validate_static_mesh_semantics(document):
+    if (
+        document.get("schema") != MESH_SEMANTICS_SCHEMA
+        or document.get("status") != "complete"
+        or document.get("classification")
+        != "bounded_simple_mesh_draw_and_material_binding"
+    ):
+        raise ValueError("static-world mesh semantics proof drifted")
+    try:
+        geometry = document["geometry"]
+        material = document["material_binding"]
+        claims = document["claims"]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "static-world mesh semantics proof is incomplete"
+        ) from error
+    expected_geometry = {
+        "class": "CSimpleMesh",
+        "vtable": "822291A0",
+        "primitive_type_offset": 36,
+        "index_buffer_binding_offset": 96,
+        "source_element_count_offset": 100,
+        "primitive_count_helper": "82C48558",
+        "primitive_scale_bias_table": "820023F0",
+        "index_buffer_bind": "8244D760",
+        "index_buffer_context_offset": 12812,
+        "draw_emitter": "82416380",
+        "draw_arguments": {
+            "r3": "graphics_context",
+            "r4": "mesh_plus_36_primitive_type",
+            "r5": "zero_base_index",
+            "r6": "zero_index_offset",
+            "r7": "scale_times_primitive_count_plus_bias",
+        },
+        "index_buffer_clear_after_draw": True,
+    }
+    for key, value in expected_geometry.items():
+        if geometry.get(key) != value:
+            raise ValueError("static-world mesh geometry proof drifted")
+    expected_scale_bias = [
+        {"primitive_type": index, "scale": scale, "bias": bias}
+        for index, (scale, bias) in enumerate(
+            (
+                (0, 0), (1, 0), (2, 0), (1, 1), (3, 0), (1, 2),
+                (1, 2), (0, 0), (3, 0), (0, 0), (0, 0), (0, 0),
+                (0, 0), (4, 0),
+            )
+        )
+    ]
+    if geometry.get("primitive_scale_bias") != expected_scale_bias:
+        raise ValueError("static-world primitive scale/bias proof drifted")
+    expected_material = {
+        "class": "CSimpleSubModel_and_CSimpleMesh",
+        "submodel_state_enabled_offset": 112,
+        "submodel_state_selector_offset": 39,
+        "submodel_state_object_offset": 32,
+        "state_bind": "82410A70",
+        "mesh_optional_reference_offset": 128,
+        "optional_reference_resource_offset": 168,
+        "optional_reference_dispatch_slot": 5,
+        "resource_bind": "8244E728",
+        "fallback_source": "renderer_r22",
+    }
+    if material != expected_material:
+        raise ValueError("static-world material binding proof drifted")
+    if (
+        claims.get("primitive_and_element_count_fields_proved") is not True
+        or claims.get("index_buffer_bind_draw_clear_sequence_proved")
+        is not True
+        or claims.get("submodel_state_binding_fields_proved") is not True
+        or claims.get("optional_material_resource_branch_proved") is not True
+        or claims.get("complete_vertex_layout_decoding_proved") is not False
+        or claims.get("complete_material_parameter_decoding_proved") is not False
+        or claims.get("native_draw_admission_proved") is not False
+    ):
+        raise ValueError("static-world mesh semantics claims drifted")
+
+
 def build(
     static_ingress,
     static_lifetime,
@@ -511,6 +592,7 @@ def build(
     static_graph,
     static_owner,
     static_asset_metadata,
+    static_mesh_semantics,
     events,
     requested_session=None,
     allow_checkpoint=False,
@@ -522,6 +604,7 @@ def build(
     validate_static_graph(static_graph)
     validate_static_owner(static_owner)
     validate_static_asset_metadata(static_asset_metadata)
+    validate_static_mesh_semantics(static_mesh_semantics)
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
@@ -1008,6 +1091,8 @@ def build(
             "model_presentation_to_renderer_resource_proved": not failures,
             "bounded_asset_reference_metadata_proved": not failures,
             "hashed_asset_identity_to_prepared_draw_proved": not failures,
+            "bounded_mesh_draw_semantics_proved": not failures,
+            "bounded_material_binding_semantics_proved": not failures,
             "static_world_scope_to_pm4_proved": not failures,
             "static_world_pm4_to_prepared_draw_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
@@ -1037,6 +1122,7 @@ def main(argv=None):
     parser.add_argument("--graph", required=True, type=pathlib.Path)
     parser.add_argument("--owner", required=True, type=pathlib.Path)
     parser.add_argument("--asset-metadata", required=True, type=pathlib.Path)
+    parser.add_argument("--mesh-semantics", required=True, type=pathlib.Path)
     parser.add_argument("--session")
     parser.add_argument("--allow-checkpoint", action="store_true")
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -1050,6 +1136,7 @@ def main(argv=None):
             json.loads(args.graph.read_text(encoding="utf-8")),
             json.loads(args.owner.read_text(encoding="utf-8")),
             json.loads(args.asset_metadata.read_text(encoding="utf-8")),
+            json.loads(args.mesh_semantics.read_text(encoding="utf-8")),
             read_events(args.events),
             args.session,
             args.allow_checkpoint,

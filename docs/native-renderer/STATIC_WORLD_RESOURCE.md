@@ -56,6 +56,7 @@ python tools/summarize-native-renderer-static-world-runtime-join.py `
   --graph .local/qualification/native-renderer-static-world-graph.json `
   --owner .local/qualification/native-renderer-static-world-owner.json `
   --asset-metadata .local/qualification/native-renderer-static-world-asset-metadata.json `
+  --mesh-semantics .local/qualification/native-renderer-static-world-mesh-semantics.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```

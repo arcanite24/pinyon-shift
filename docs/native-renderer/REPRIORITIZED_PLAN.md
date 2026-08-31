@@ -394,6 +394,15 @@ join accounting fails closed when a renderer-joined presentation lacks valid
 metadata. Runtime qualification remains batched with C1/C2; concrete
 building-versus-prop labels remain unproved.
 
+Mesh-semantics checkpoint: the SimpleMesh draw path now proves numeric
+primitive type at mesh offset 36, index-buffer binding at 96, source element
+count at 100, the exact primitive-count and scale/bias conversion, and the
+bind/draw/clear sequence. The bounded submodel state and optional mesh material
+resource branches are also locked. See
+[`STATIC_WORLD_MESH_SEMANTICS.md`](STATIC_WORLD_MESH_SEMANTICS.md). Complete
+vertex-fetch layouts and material parameter blocks remain open; no admission
+or suppression is enabled.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production

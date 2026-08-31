@@ -62,6 +62,7 @@ streaming transitions remain open. This
 checkpoint changes no guest data, native admission, publication, or
 suppression; Xenos remains authoritative.
 
-The combined runtime qualifier requires this report through `--owner` and the
-bounded metadata report through `--asset-metadata`; both remain static inputs
-to the batched runtime gate.
+The combined runtime qualifier requires this report through `--owner`, the
+bounded metadata report through `--asset-metadata`, and the mesh field proof
+through `--mesh-semantics`; all remain static inputs to the batched runtime
+gate.
