@@ -321,7 +321,18 @@ Runtime lineage carries independent renderer and graph generations and rejects
 unregistered, non-live, unbound, or mismatched ownership before attribution.
 The proof and batched qualifier are documented in
 [`STATIC_WORLD_LIFETIME.md`](STATIC_WORLD_LIFETIME.md). Concrete graph dynamic
-type, building/prop identity, and streaming registration remain pending.
+type and registration are closed by the next checkpoint; building/prop
+identity and complete streaming invalidation remain pending.
+
+Resource checkpoint: the renderer's bound graph is now statically proved as
+the exact 320-byte `CSimpleModelResource` produced by factory `82C47F10`.
+Allocation and reuse paths converge at one registration boundary, while
+generation-aware construction and destruction hooks prevent address reuse
+from contaminating prepared-draw provenance. Runtime qualification is batched
+with C1/C2 and documented in
+[`STATIC_WORLD_RESOURCE.md`](STATIC_WORLD_RESOURCE.md). Concrete building/prop
+identity, mesh/material decoding, and independent streaming invalidation paths
+remain required; no admission or suppression is enabled.
 
 ### C3. Semantic batching, culling, and LOD
 

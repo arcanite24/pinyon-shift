@@ -274,6 +274,30 @@ address = 0x82C4E0A0
 name = "PinyonShiftObserveStaticWorldRendererGraphRelease"
 registers = ["r3"]
 
+# Slot-1 binding creates or retrieves an exact 320-byte
+# CSimpleModelResource. Publish only after the derived vtable is installed,
+# observe both the new and existing-resource paths at their shared output
+# join, and balance the complete resource destructor. The title's reference
+# assignment, registration, and release calls remain authoritative.
+[[midasm_hook]]
+address = 0x82C47FBC
+name = "PinyonShiftObserveStaticWorldResourceConstructed"
+registers = ["r29"]
+
+[[midasm_hook]]
+address = 0x82C4802C
+name = "PinyonShiftObserveStaticWorldResourceRegistration"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C47DF8
+name = "PinyonShiftObserveStaticWorldResourceDestructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C47E44
+name = "PinyonShiftObserveStaticWorldResourceDestructorExit"
+
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
 # fully composed stack payload. Compare both exact live matrices with admitted

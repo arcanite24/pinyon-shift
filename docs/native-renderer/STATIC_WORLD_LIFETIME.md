@@ -57,21 +57,25 @@ python tools/discover-native-renderer-static-world-lifetime.py `
   --output .local/qualification/native-renderer-static-world-lifetime.json
 ```
 
-The runtime join now requires both static reports:
+The runtime join now requires the ingress, renderer-lifetime, and exact
+resource reports:
 
 ```powershell
 python tools/summarize-native-renderer-static-world-runtime-join.py `
   .local/preview/logs/<session>.jsonl `
   --static .local/qualification/native-renderer-static-world-ingress.json `
   --lifetime .local/qualification/native-renderer-static-world-lifetime.json `
+  --resource .local/qualification/native-renderer-static-world-resource.json `
   --session <session> `
   --output .local/qualification/native-renderer-static-world-runtime-join.json
 ```
 
 ## Remaining boundary
 
-This proves a live renderer generation and the exact graph it owns at draw
-time. It does not yet identify that graph's dynamic type, concrete building or
-prop instances, mesh/material members, or streaming registration and
-destruction. Native admission, publication, and suppression remain disabled;
-Xenos stays authoritative.
+This proves a live renderer generation and the graph it owns at draw time.
+The graph's exact dynamic type, factory registration, and resource generation
+are proved separately in
+[`STATIC_WORLD_RESOURCE.md`](STATIC_WORLD_RESOURCE.md). Concrete building or
+prop instances, mesh/material members, and every streaming invalidation route
+remain pending. Native admission, publication, and suppression remain
+disabled; Xenos stays authoritative.

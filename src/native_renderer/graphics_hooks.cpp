@@ -99,6 +99,7 @@ constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
 constexpr size_t kStaticWorldRendererLifecycleCapacity = 256;
+constexpr size_t kStaticWorldResourceLifecycleCapacity = 4096;
 constexpr size_t kSemanticVisibilityCategoryCapacity = 32;
 constexpr size_t kSemanticVisibilityLodCapacity = 32;
 constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
@@ -174,6 +175,7 @@ constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
 constexpr uint32_t kTrackRenderModelGraphBytes = 64;
 constexpr uint32_t kSimpleModelRendererVtable = 0x82001B64;
 constexpr uint32_t kSimpleModelRendererGraphOffset = 72;
+constexpr uint32_t kSimpleModelResourceVtable = 0x82229294;
 constexpr uint32_t kTrackModelVtable = 0x820016B4;
 constexpr uint32_t kTrackMeshVtable = 0x8200143C;
 constexpr uint32_t kTrackSubModelVtable = 0x82001474;
@@ -473,6 +475,7 @@ struct StaticWorldDrawIdentity {
   uint32_t render_context_address = 0;
   uint32_t model_graph_address = 0;
   uint32_t model_graph_generation = 0;
+  uint32_t model_resource_generation = 0;
   bool valid = false;
 };
 
@@ -1886,6 +1889,7 @@ struct StaticWorldRendererDispatchScope {
   uint32_t render_context_address = 0;
   uint32_t model_graph_address = 0;
   uint32_t model_graph_generation = 0;
+  uint32_t model_resource_generation = 0;
   bool active = false;
   bool exact = false;
 };
@@ -1903,9 +1907,19 @@ struct StaticWorldRendererLifecycleEntry {
   std::atomic<uint32_t> state{};
   std::atomic<uint32_t> model_graph_address{};
   std::atomic<uint32_t> model_graph_generation{};
+  std::atomic<uint32_t> model_resource_generation{};
   std::atomic<uint64_t> dispatches{};
   std::atomic<uint64_t> graph_binds{};
   std::atomic<uint64_t> graph_releases{};
+};
+
+struct StaticWorldResourceLifecycleEntry {
+  std::atomic<uint32_t> address{};
+  std::atomic<uint32_t> generation{};
+  std::atomic<uint32_t> state{};
+  std::atomic<bool> registered{};
+  std::atomic<uint64_t> registrations{};
+  std::atomic<uint64_t> renderer_joins{};
 };
 
 std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
@@ -2031,6 +2045,27 @@ std::atomic<uint64_t> g_static_world_graph_release_successes{};
 std::atomic<uint64_t> g_static_world_graph_release_empty{};
 std::atomic<uint64_t> g_static_world_graph_release_unregistered{};
 std::atomic<uint64_t> g_static_world_graph_release_faults{};
+std::array<StaticWorldResourceLifecycleEntry,
+           kStaticWorldResourceLifecycleCapacity>
+    g_static_world_resource_lifecycles{};
+std::atomic<uint64_t> g_static_world_resource_instances_published{};
+std::atomic<uint64_t> g_static_world_resource_instances_destroyed{};
+std::atomic<uint64_t> g_static_world_resource_address_reuses{};
+std::atomic<uint64_t> g_static_world_resource_table_overflow{};
+std::atomic<uint64_t> g_static_world_resource_lifecycle_faults{};
+std::atomic<uint64_t> g_static_world_resource_destructor_entries{};
+std::atomic<uint64_t> g_static_world_resource_destructor_exits{};
+std::atomic<uint64_t> g_static_world_resource_destructors_open{};
+std::atomic<uint64_t> g_static_world_resource_destructors_without_instance{};
+std::atomic<uint64_t> g_static_world_resource_registration_observations{};
+std::atomic<uint64_t> g_static_world_resource_registration_successes{};
+std::atomic<uint64_t> g_static_world_resource_registration_null{};
+std::atomic<uint64_t> g_static_world_resource_registration_unregistered{};
+std::atomic<uint64_t> g_static_world_resource_registration_type_mismatches{};
+std::atomic<uint64_t> g_static_world_resource_registration_faults{};
+std::atomic<uint64_t> g_static_world_resource_graph_bind_joins{};
+std::atomic<uint64_t> g_static_world_resource_scope_joins{};
+std::atomic<uint64_t> g_static_world_resource_scope_mismatches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -2047,6 +2082,10 @@ thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
     g_static_world_renderer_destructor_stack{};
 thread_local size_t g_static_world_renderer_destructor_stack_depth = 0;
 thread_local size_t g_static_world_renderer_destructor_overflow_depth = 0;
+thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
+    g_static_world_resource_destructor_stack{};
+thread_local size_t g_static_world_resource_destructor_stack_depth = 0;
+thread_local size_t g_static_world_resource_destructor_overflow_depth = 0;
 thread_local std::array<TrackWorldResourceGraphCacheEntry,
                         kTrackWorldResourceGraphCacheCapacity>
     g_track_world_resource_graph_cache{};
@@ -2787,6 +2826,198 @@ StaticWorldRendererLifecycleEntry *FindOrClaimStaticWorldRendererLifecycle(
   return nullptr;
 }
 
+size_t StaticWorldResourceLifecycleIndex(uint32_t address) {
+  return size_t((address >> 4) % kStaticWorldResourceLifecycleCapacity);
+}
+
+StaticWorldResourceLifecycleEntry *FindStaticWorldResourceLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldResourceLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldResourceLifecycleCapacity;
+       ++probe) {
+    StaticWorldResourceLifecycleEntry &entry =
+        g_static_world_resource_lifecycles[index];
+    const uint32_t observed =
+        entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed) {
+      return nullptr;
+    }
+    index = (index + 1) % kStaticWorldResourceLifecycleCapacity;
+  }
+  return nullptr;
+}
+
+StaticWorldResourceLifecycleEntry *FindOrClaimStaticWorldResourceLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldResourceLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldResourceLifecycleCapacity;
+       ++probe) {
+    StaticWorldResourceLifecycleEntry &entry =
+        g_static_world_resource_lifecycles[index];
+    uint32_t observed = entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed && entry.address.compare_exchange_strong(
+                         observed, address, std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      return &entry;
+    }
+    index = (index + 1) % kStaticWorldResourceLifecycleCapacity;
+  }
+  g_static_world_resource_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+  return nullptr;
+}
+
+void PublishStaticWorldResource(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindOrClaimStaticWorldResourceLifecycle(address);
+  if (!entry) {
+    return;
+  }
+  const auto previous = static_cast<StaticWorldRendererState>(
+      entry->state.load(std::memory_order_acquire));
+  if (previous == StaticWorldRendererState::kLive ||
+      previous == StaticWorldRendererState::kDestroying) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t generation =
+      entry->generation.load(std::memory_order_relaxed) + 1;
+  if (!generation) {
+    generation = 1;
+  }
+  if (previous == StaticWorldRendererState::kDestroyed) {
+    g_static_world_resource_address_reuses.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  entry->registered.store(false, std::memory_order_relaxed);
+  entry->registrations.store(0, std::memory_order_relaxed);
+  entry->renderer_joins.store(0, std::memory_order_relaxed);
+  entry->generation.store(generation, std::memory_order_relaxed);
+  entry->state.store(uint32_t(StaticWorldRendererState::kLive),
+                     std::memory_order_release);
+  g_static_world_resource_instances_published.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldResourceRegistration(uint32_t output_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_registration_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t resource_address = 0;
+  if (!LoadMappedGuestU32(memory, output_address, resource_address)) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_static_world_resource_registration_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!resource_address) {
+    g_static_world_resource_registration_null.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t vtable = 0;
+  if (!LoadMappedGuestU32(memory, resource_address, vtable) ||
+      vtable != kSimpleModelResourceVtable) {
+    g_static_world_resource_registration_type_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(resource_address);
+  if (!entry || entry->state.load(std::memory_order_acquire) !=
+                    uint32_t(StaticWorldRendererState::kLive)) {
+    g_static_world_resource_registration_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  entry->registered.store(true, std::memory_order_release);
+  entry->registrations.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_resource_registration_successes.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void BeginStaticWorldResourceDestruction(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_destructor_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_destructor_stack_depth ==
+      g_static_world_resource_destructor_stack.size()) {
+    ++g_static_world_resource_destructor_overflow_depth;
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_resource_destructor_stack
+      [g_static_world_resource_destructor_stack_depth++] = address;
+  g_static_world_resource_destructors_open.fetch_add(
+      1, std::memory_order_relaxed);
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kLive);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(StaticWorldRendererState::kDestroying),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_static_world_resource_destructors_without_instance.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  entry->registered.store(false, std::memory_order_release);
+}
+
+void EndStaticWorldResourceDestruction() {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_destructor_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_destructor_overflow_depth) {
+    --g_static_world_resource_destructor_overflow_depth;
+    return;
+  }
+  if (!g_static_world_resource_destructor_stack_depth) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t address = g_static_world_resource_destructor_stack
+      [--g_static_world_resource_destructor_stack_depth];
+  g_static_world_resource_destructors_open.fetch_sub(
+      1, std::memory_order_relaxed);
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kDestroying);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(StaticWorldRendererState::kDestroyed),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_resource_instances_destroyed.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 void PublishStaticWorldRenderer(uint32_t address) {
   if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
     return;
@@ -2815,6 +3046,7 @@ void PublishStaticWorldRenderer(uint32_t address) {
   }
   entry->model_graph_address.store(0, std::memory_order_relaxed);
   entry->model_graph_generation.store(0, std::memory_order_relaxed);
+  entry->model_resource_generation.store(0, std::memory_order_relaxed);
   entry->dispatches.store(0, std::memory_order_relaxed);
   entry->graph_binds.store(0, std::memory_order_relaxed);
   entry->graph_releases.store(0, std::memory_order_relaxed);
@@ -2921,8 +3153,26 @@ void ObserveStaticWorldRendererGraphBind(uint32_t renderer_address) {
       entry->model_graph_address.load(std::memory_order_acquire);
   if (!model_graph_address) {
     entry->model_graph_address.store(0, std::memory_order_release);
+    entry->model_resource_generation.store(0,
+                                            std::memory_order_relaxed);
     g_static_world_graph_bind_null.fetch_add(1,
                                              std::memory_order_relaxed);
+    return;
+  }
+  uint32_t resource_vtable = 0;
+  if (!LoadMappedGuestU32(memory, model_graph_address, resource_vtable) ||
+      resource_vtable != kSimpleModelResourceVtable) {
+    g_static_world_graph_bind_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *resource =
+      FindStaticWorldResourceLifecycle(model_graph_address);
+  if (!resource || resource->state.load(std::memory_order_acquire) !=
+                       uint32_t(StaticWorldRendererState::kLive) ||
+      !resource->registered.load(std::memory_order_acquire)) {
+    g_static_world_graph_bind_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
     return;
   }
   if (previous && previous != model_graph_address) {
@@ -2936,10 +3186,16 @@ void ObserveStaticWorldRendererGraphBind(uint32_t renderer_address) {
   }
   entry->model_graph_generation.store(graph_generation,
                                        std::memory_order_relaxed);
+  entry->model_resource_generation.store(
+      resource->generation.load(std::memory_order_relaxed),
+      std::memory_order_relaxed);
   entry->model_graph_address.store(model_graph_address,
                                    std::memory_order_release);
   entry->graph_binds.fetch_add(1, std::memory_order_relaxed);
   g_static_world_graph_bind_successes.fetch_add(
+      1, std::memory_order_relaxed);
+  resource->renderer_joins.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_resource_graph_bind_joins.fetch_add(
       1, std::memory_order_relaxed);
 }
 
@@ -2979,6 +3235,8 @@ void ObserveStaticWorldRendererGraphRelease(uint32_t renderer_address) {
   }
   const uint32_t registered_graph =
       entry->model_graph_address.exchange(0, std::memory_order_acq_rel);
+  entry->model_resource_generation.store(0,
+                                          std::memory_order_relaxed);
   if (!model_graph_address) {
     if (registered_graph) {
       g_static_world_lifecycle_faults.fetch_add(
@@ -3057,6 +3315,19 @@ void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
     ++g_static_world_scope_graph_mismatches;
     return;
   }
+  StaticWorldResourceLifecycleEntry *resource =
+      FindStaticWorldResourceLifecycle(model_graph_address);
+  const uint32_t resource_generation =
+      lifecycle->model_resource_generation.load(std::memory_order_relaxed);
+  if (!resource || resource->state.load(std::memory_order_acquire) !=
+                       uint32_t(StaticWorldRendererState::kLive) ||
+      !resource->registered.load(std::memory_order_acquire) ||
+      resource->generation.load(std::memory_order_relaxed) !=
+          resource_generation) {
+    ++g_static_world_scope_graph_mismatches;
+    ++g_static_world_resource_scope_mismatches;
+    return;
+  }
   scope.renderer_address = renderer_address;
   scope.renderer_generation =
       lifecycle->generation.load(std::memory_order_relaxed);
@@ -3064,9 +3335,12 @@ void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
   scope.model_graph_address = model_graph_address;
   scope.model_graph_generation =
       lifecycle->model_graph_generation.load(std::memory_order_relaxed);
+  scope.model_resource_generation = resource_generation;
   scope.exact = true;
   lifecycle->dispatches.fetch_add(1, std::memory_order_relaxed);
   ++g_static_world_scope_exact;
+  resource->renderer_joins.fetch_add(1, std::memory_order_relaxed);
+  ++g_static_world_resource_scope_joins;
 }
 
 void EndStaticWorldRendererDispatch() {
@@ -4355,9 +4629,19 @@ void ResetTitleDrawProvenance() {
     entry.state.store(0, std::memory_order_relaxed);
     entry.model_graph_address.store(0, std::memory_order_relaxed);
     entry.model_graph_generation.store(0, std::memory_order_relaxed);
+    entry.model_resource_generation.store(0, std::memory_order_relaxed);
     entry.dispatches.store(0, std::memory_order_relaxed);
     entry.graph_binds.store(0, std::memory_order_relaxed);
     entry.graph_releases.store(0, std::memory_order_relaxed);
+  }
+  for (StaticWorldResourceLifecycleEntry &entry :
+       g_static_world_resource_lifecycles) {
+    entry.address.store(0, std::memory_order_relaxed);
+    entry.generation.store(0, std::memory_order_relaxed);
+    entry.state.store(0, std::memory_order_relaxed);
+    entry.registered.store(false, std::memory_order_relaxed);
+    entry.registrations.store(0, std::memory_order_relaxed);
+    entry.renderer_joins.store(0, std::memory_order_relaxed);
   }
   for (std::atomic<uint64_t> *counter : {
            &g_static_world_scope_entries,
@@ -4398,6 +4682,24 @@ void ResetTitleDrawProvenance() {
            &g_static_world_graph_release_empty,
            &g_static_world_graph_release_unregistered,
            &g_static_world_graph_release_faults,
+           &g_static_world_resource_instances_published,
+           &g_static_world_resource_instances_destroyed,
+           &g_static_world_resource_address_reuses,
+           &g_static_world_resource_table_overflow,
+           &g_static_world_resource_lifecycle_faults,
+           &g_static_world_resource_destructor_entries,
+           &g_static_world_resource_destructor_exits,
+           &g_static_world_resource_destructors_open,
+           &g_static_world_resource_destructors_without_instance,
+           &g_static_world_resource_registration_observations,
+           &g_static_world_resource_registration_successes,
+           &g_static_world_resource_registration_null,
+           &g_static_world_resource_registration_unregistered,
+           &g_static_world_resource_registration_type_mismatches,
+           &g_static_world_resource_registration_faults,
+           &g_static_world_resource_graph_bind_joins,
+           &g_static_world_resource_scope_joins,
+           &g_static_world_resource_scope_mismatches,
        }) {
     counter->store(0, std::memory_order_relaxed);
   }
@@ -4630,6 +4932,9 @@ void ResetTitleDrawProvenance() {
   g_static_world_renderer_destructor_stack = {};
   g_static_world_renderer_destructor_stack_depth = 0;
   g_static_world_renderer_destructor_overflow_depth = 0;
+  g_static_world_resource_destructor_stack = {};
+  g_static_world_resource_destructor_stack_depth = 0;
+  g_static_world_resource_destructor_overflow_depth = 0;
   g_semantic_visibility_stack = {};
   g_semantic_visibility_stack_depth = 0;
   g_semantic_visibility_overflow_depth = 0;
@@ -4875,6 +5180,7 @@ void RecordProceduralModelSemanticDrawPacket(
         .render_context_address = scope.render_context_address,
         .model_graph_address = scope.model_graph_address,
         .model_graph_generation = scope.model_graph_generation,
+        .model_resource_generation = scope.model_resource_generation,
         .valid = true,
     };
   }
@@ -10263,6 +10569,47 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t graph_release_faults =
       g_static_world_graph_release_faults.load(
           std::memory_order_relaxed);
+  const uint64_t resource_instances_published =
+      g_static_world_resource_instances_published.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_instances_destroyed =
+      g_static_world_resource_instances_destroyed.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructor_entries =
+      g_static_world_resource_destructor_entries.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructor_exits =
+      g_static_world_resource_destructor_exits.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructors_open =
+      g_static_world_resource_destructors_open.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_observations =
+      g_static_world_resource_registration_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_successes =
+      g_static_world_resource_registration_successes.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_null =
+      g_static_world_resource_registration_null.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_unregistered =
+      g_static_world_resource_registration_unregistered.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_type_mismatches =
+      g_static_world_resource_registration_type_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_faults =
+      g_static_world_resource_registration_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_graph_bind_joins =
+      g_static_world_resource_graph_bind_joins.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_scope_joins =
+      g_static_world_resource_scope_joins.load(std::memory_order_relaxed);
+  const uint64_t resource_scope_mismatches =
+      g_static_world_resource_scope_mismatches.load(
+          std::memory_order_relaxed);
   const bool accounting_complete =
       entries == exact + invalid_root + vtable_mismatches +
                            invalid_graph_field + unregistered_renderers +
@@ -10280,6 +10627,16 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       graph_release_observations ==
           graph_release_successes + graph_release_empty +
               graph_release_unregistered + graph_release_faults &&
+      resource_destructor_entries ==
+          resource_destructor_exits + resource_destructors_open &&
+      resource_instances_destroyed <= resource_instances_published &&
+      resource_registration_observations ==
+          resource_registration_successes + resource_registration_null +
+              resource_registration_unregistered +
+              resource_registration_type_mismatches +
+              resource_registration_faults &&
+      resource_graph_bind_joins == graph_bind_successes &&
+      resource_scope_joins == exact &&
       !overlaps && !exit_without_entry;
   const bool qualification_complete =
       accounting_complete && exact && packets_recorded && packet_matches &&
@@ -10291,7 +10648,19 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       !graph_bind_unregistered && !graph_bind_faults &&
       !g_static_world_destructors_without_instance.load(
           std::memory_order_relaxed) &&
-      !graph_release_unregistered && !graph_release_faults;
+      !graph_release_unregistered && !graph_release_faults &&
+      resource_instances_published && resource_registration_successes &&
+      resource_graph_bind_joins && resource_scope_joins &&
+      !resource_destructors_open &&
+      !g_static_world_resource_table_overflow.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_lifecycle_faults.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_destructors_without_instance.load(
+          std::memory_order_relaxed) &&
+      !resource_registration_unregistered &&
+      !resource_registration_type_mismatches &&
+      !resource_registration_faults && !resource_scope_mismatches;
   const uint64_t pending_packets =
       packets_recorded >= packet_matches ? packets_recorded - packet_matches
                                           : 0;
@@ -10356,11 +10725,51 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"graph_release_unregistered",
         std::to_string(graph_release_unregistered)},
        {"graph_release_faults", std::to_string(graph_release_faults)},
+       {"resource_instances_published",
+        std::to_string(resource_instances_published)},
+       {"resource_instances_destroyed",
+        std::to_string(resource_instances_destroyed)},
+       {"resource_address_reuses",
+        std::to_string(g_static_world_resource_address_reuses.load(
+            std::memory_order_relaxed))},
+       {"resource_table_overflow",
+        std::to_string(g_static_world_resource_table_overflow.load(
+            std::memory_order_relaxed))},
+       {"resource_lifecycle_faults",
+        std::to_string(g_static_world_resource_lifecycle_faults.load(
+            std::memory_order_relaxed))},
+       {"resource_destructor_entries",
+        std::to_string(resource_destructor_entries)},
+       {"resource_destructor_exits",
+        std::to_string(resource_destructor_exits)},
+       {"resource_destructors_open",
+        std::to_string(resource_destructors_open)},
+       {"resource_destructors_without_instance",
+        std::to_string(
+            g_static_world_resource_destructors_without_instance.load(
+                std::memory_order_relaxed))},
+       {"resource_registration_observations",
+        std::to_string(resource_registration_observations)},
+       {"resource_registration_successes",
+        std::to_string(resource_registration_successes)},
+       {"resource_registration_null",
+        std::to_string(resource_registration_null)},
+       {"resource_registration_unregistered",
+        std::to_string(resource_registration_unregistered)},
+       {"resource_registration_type_mismatches",
+        std::to_string(resource_registration_type_mismatches)},
+       {"resource_registration_faults",
+        std::to_string(resource_registration_faults)},
+       {"resource_graph_bind_joins",
+        std::to_string(resource_graph_bind_joins)},
+       {"resource_scope_joins", std::to_string(resource_scope_joins)},
+       {"resource_scope_mismatches",
+        std::to_string(resource_scope_mismatches)},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"qualification_complete",
         qualification_complete ? "true" : "false"},
        {"classification",
-        "live_simple_model_renderer_graph_to_pm4_prepared_draw"},
+        "live_simple_model_resource_to_pm4_prepared_draw"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
@@ -13058,6 +13467,8 @@ void RecordTitleDrawProvenance(
   key = HashCombine(key, origin.static_world_draw.render_context_address);
   key = HashCombine(key, origin.static_world_draw.model_graph_address);
   key = HashCombine(key, origin.static_world_draw.model_graph_generation);
+  key = HashCombine(key,
+                    origin.static_world_draw.model_resource_generation);
   key = HashCombine(key, current_semantic_contract.template_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
@@ -13105,6 +13516,8 @@ void RecordTitleDrawProvenance(
             origin.static_world_draw.model_graph_address &&
         entry.origin.static_world_draw.model_graph_generation ==
             origin.static_world_draw.model_graph_generation &&
+        entry.origin.static_world_draw.model_resource_generation ==
+            origin.static_world_draw.model_resource_generation &&
         entry.semantic_contract.template_key ==
             current_semantic_contract.template_key) {
       ++entry.calls;
@@ -13210,6 +13623,11 @@ void EmitTitleDrawProvenanceSummary() {
           entry.origin.static_world_draw.valid
               ? std::to_string(
                     entry.origin.static_world_draw.model_graph_generation)
+              : ""},
+         {"static_world_model_resource_generation",
+          entry.origin.static_world_draw.valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.model_resource_generation)
               : ""},
          {"outcome", entry.prepared ? "prepared" : "not_prepared"},
          {"backend_outcome",
@@ -21668,6 +22086,14 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"model_graph_bind_hook", "82C4CCB0"},
        {"model_graph_release_slot", "15"},
        {"model_graph_release_hook", "82C4C6A8,82C4E0A0"},
+       {"model_resource_class", "CSimpleModelResource"},
+       {"model_resource_vtable", "82229294"},
+       {"model_resource_bytes", "320"},
+       {"model_resource_factory", "82C47F10"},
+       {"model_resource_publish_hook", "82C47FBC"},
+       {"model_resource_registration_hook", "82C4802C"},
+       {"model_resource_destructor_entry_hook", "82C47DF8"},
+       {"model_resource_destructor_exit_hook", "82C47E44"},
        {"draw_emitter", "82416380"},
        {"packet_hooks", "82416260,824162F4"},
        {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
@@ -22927,6 +23353,22 @@ void PinyonShiftObserveStaticWorldRendererGraphBind(PPCRegister &r30) {
 
 void PinyonShiftObserveStaticWorldRendererGraphRelease(PPCRegister &r3) {
   ObserveStaticWorldRendererGraphRelease(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceConstructed(PPCRegister &r29) {
+  PublishStaticWorldResource(r29.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceRegistration(PPCRegister &r31) {
+  ObserveStaticWorldResourceRegistration(r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceDestructorEntry(PPCRegister &r3) {
+  BeginStaticWorldResourceDestruction(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceDestructorExit() {
+  EndStaticWorldResourceDestruction();
 }
 
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
