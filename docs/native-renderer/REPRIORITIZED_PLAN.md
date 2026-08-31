@@ -278,6 +278,13 @@ submission objects/resources are carried separately into prepared records.
 This is ready for the same deferred AppData checkpoint; it still changes no
 admission, draw, authority, or suppression decision.
 
+Safety correction: the first batched run exposed that the guest heap page
+table can label an arbitrary descriptor word readable while its translated
+host page remains uncommitted. The exact classifier's speculative vtable load
+faulted on guest `40D8D0D8` (RVA `5D0616F`). Every candidate pointer now also
+passes the host mapping/protection query before dereference, with explicit
+rejection accounting. C1 qualification remains pending a clean rerun.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v7"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v8"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -183,7 +183,7 @@ def build(events, static, requested_session=None):
         or summary.get("track_render_model_lineage")
         != "exact_unified_instance_model_nested_dispatch_scope"
         or summary.get("track_world_resource_lineage")
-        != "bounded_direct_vtable_identity_from_exact_model_graph"
+        != "host_mapped_direct_vtable_identity_from_exact_model_graph"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -311,7 +311,7 @@ def build(events, static, requested_session=None):
             or event.get("track_render_model_lineage")
             != "exact_unified_instance_model_nested_dispatch_scope"
             or event.get("track_world_resource_lineage")
-            != "bounded_direct_vtable_identity_from_exact_model_graph"
+            != "host_mapped_direct_vtable_identity_from_exact_model_graph"
             or (
                 item["track_render_shared_identity_mask"]
                 and not item["track_render_model_scope"]

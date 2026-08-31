@@ -302,3 +302,19 @@ This instrumentation is part of the next batched AppData checkpoint. A graph
 identity alone is useful track ownership evidence, while exact shared identity
 is the preferred C1 terrain/road admission gate. Until runtime qualification,
 Xenos remains authoritative and no native admission or suppression is enabled.
+
+### First-run host mapping correction
+
+The first merged AppData run reached 8,700 frames before an access violation at
+native RVA `5D0616F`, reading guest value `40D8D0D8`. The local dump and binary
+disassembly identify that RVA as the new direct-pointer vtable load immediately
+before comparisons with the exact procedural-geometry vtables. This was not a
+title, save, or Xenos draw failure.
+
+The guest heap page table had reported that arbitrary descriptor word readable,
+but the translated host page was still uncommitted. The classifier now requires
+both the guest heap range check and the platform host mapping/protection query
+before loading a candidate vtable. Rejected host-unmapped values are counted in
+the runtime summary. Optimized binary disassembly confirms the protection query
+and fail-closed branch execute before the vtable load. The failed session is
+crash evidence only and cannot qualify C1; a clean batched rerun is required.

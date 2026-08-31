@@ -46,7 +46,7 @@ def fixture(shared=3):
             "82144E64"
         ),
         world_resource_graph=(
-            "direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+            "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
         ),
         world_resource_shared_identity=(
             "exact_address_equality_to_submission_objects_or_resources"
@@ -85,6 +85,7 @@ def fixture(shared=3):
         world_resource_graph_cache_hits="8",
         world_resource_graph_cache_misses="2",
         world_resource_graph_reference_overflow="0",
+        world_resource_graph_host_unmapped_rejections="3",
         world_resource_shared_identity_joins=str(shared),
         scope_overlaps="0",
         exit_without_entry="0",
@@ -179,6 +180,7 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         self.assertIn("kTrackRenderModelUnifiedVtable = 0x82001D74", hooks)
         self.assertIn("BeginTrackRenderModelDispatch", hooks)
         self.assertIn("EndTrackRenderModelDispatch", hooks)
+        self.assertIn("rex::memory::QueryProtect", hooks)
         self.assertIn("address = 0x8240EC80", analysis)
         self.assertIn("address = 0x8240ECAC", analysis)
 

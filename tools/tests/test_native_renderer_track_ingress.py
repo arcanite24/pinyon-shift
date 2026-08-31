@@ -73,6 +73,10 @@ class NativeRendererTrackIngressTests(unittest.TestCase):
         )
         self.assertFalse(document["runtime_graph_probe"]["native_admission"])
         self.assertEqual(
+            "heap_readable_and_host_page_mapped",
+            document["runtime_graph_probe"]["pointer_validation"],
+        )
+        self.assertEqual(
             "82DF3F00",
             next(
                 row["target"]
