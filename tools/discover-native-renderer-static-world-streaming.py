@@ -10,7 +10,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v1"
+SCHEMA = "pinyon-shift.native-renderer-static-world-streaming.v2"
 IMAGE_BASE = 0x82000000
 RESOURCE_VTABLE = 0x82229294
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
@@ -25,6 +25,33 @@ VIRTUAL_RESET_EXIT_HOOK = 0x82C2231C
 RESOURCE_PAYLOAD_OFFSET = 64
 RESOURCE_GRAPH_OFFSET = 112
 RESOURCE_BINDING_OFFSET = 76
+RESOURCE_VTABLE_TARGETS = (
+    0x82C47EC0,
+    0x82A0E238,
+    0x824493C0,
+    0x82448FD8,
+    0x82B755A8,
+    0x82D68710,
+    0x830B2320,
+    0x82611B80,
+    0x82D68710,
+    0x82D68710,
+    0x82D68710,
+    0x82D68710,
+    0x82D68710,
+    0x82611B80,
+    0x824D7F98,
+    RESOURCE_REFRESH,
+    DIRECT_RESET,
+    0x82D68710,
+    0x830B2320,
+    0x82C462C0,
+    0x824D7FA8,
+    0x82611B80,
+    VIRTUAL_RESET,
+)
+RESOURCE_DESTRUCTOR = 0x82C47DF8
+BASE_RESOURCE_DESTRUCTOR = 0x82E45B20
 
 
 def parse_functions(paths: list[pathlib.Path]) -> dict[int, dict[int, str]]:
@@ -74,6 +101,12 @@ def require_instructions(
 
 
 def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
+    observed_targets = tuple(
+        image_u32(image, RESOURCE_VTABLE + slot * 4)
+        for slot in range(len(RESOURCE_VTABLE_TARGETS))
+    )
+    if observed_targets != RESOURCE_VTABLE_TARGETS:
+        raise ValueError("SimpleModelResource complete vtable drifted")
     if image_u32(image, RESOURCE_VTABLE + 15 * 4) != RESOURCE_REFRESH:
         raise ValueError("SimpleModelResource refresh slot drifted")
     if image_u32(image, RESOURCE_VTABLE + 16 * 4) != DIRECT_RESET:
@@ -120,6 +153,22 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             VIRTUAL_RESET_EXIT_HOOK: "mr r3,r31",
         },
     )
+    require_instructions(
+        functions,
+        RESOURCE_DESTRUCTOR,
+        {
+            0x82C47E3C: "mr r3,r30",
+            0x82C47E40: "bl 0x82e45b20",
+        },
+    )
+    require_instructions(
+        functions,
+        BASE_RESOURCE_DESTRUCTOR,
+        {
+            0x82E45BB4: "addi r3,r31,64",
+            0x82E45BB8: "bl 0x82de7330",
+        },
+    )
 
     return {
         "schema": SCHEMA,
@@ -137,6 +186,17 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             "method": f"{RESOURCE_REFRESH:08X}",
             "graph_argument": "resource_plus_112",
             "binding_argument": "resource_plus_76",
+        },
+        "invalidation_surface": {
+            "vtable_slot_count": len(RESOURCE_VTABLE_TARGETS),
+            "vtable_targets": [f"{target:08X}" for target in observed_targets],
+            "unique_target_count": len(set(observed_targets)),
+            "destruction_slot": 0,
+            "destructor": f"{RESOURCE_DESTRUCTOR:08X}",
+            "base_destructor": f"{BASE_RESOURCE_DESTRUCTOR:08X}",
+            "destructor_payload_release": "resource_plus_64_reference_clear",
+            "live_payload_reset_slots": [16, 22],
+            "other_live_payload_reset_slots": [],
         },
         "transitions": [
             {
@@ -158,6 +218,7 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             "owned_payload_reference_field_proved": True,
             "balanced_payload_reset_boundaries_proved": True,
             "payload_generation_invalidation_boundary_proved": True,
+            "complete_class_vtable_invalidation_coverage_proved": True,
             "complete_streaming_invalidation_coverage_proved": False,
             "concrete_building_or_prop_identity_proved": False,
         },
