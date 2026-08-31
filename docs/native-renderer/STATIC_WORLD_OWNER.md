@@ -16,7 +16,9 @@ semantics.
 
 Retail RTTI, vtables, and generated AOT instructions prove:
 
-- `Presentation_Unified::CModelPresentation` uses primary vtable `822432D4`;
+- `Presentation_Unified::CModelPresentation` uses primary vtable `822432D4`,
+  while its proved thread-safe ref-counted complete object uses primary vtable
+  `82002464`; both inherit slot 12 target `823F8DB8` at object offset zero;
 - its slot 12 is method `823F8DB8`, with one balanced exit at `823F8FA0`;
 - the owner stores its exact `CSimpleModelResource` reference at offset 148,
   state at offset 144, and renderer at offset 1608;

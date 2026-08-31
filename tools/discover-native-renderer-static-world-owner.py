@@ -13,6 +13,7 @@ import sys
 SCHEMA = "pinyon-shift.native-renderer-static-world-owner.v2"
 IMAGE_BASE = 0x82000000
 PRESENTATION_VTABLE = 0x822432D4
+REFCOUNTED_PRESENTATION_VTABLE = 0x82002464
 PRESENTATION_SLOT_COUNT = 18
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -96,6 +97,12 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         raise ValueError("CModelPresentation draw slot drifted")
     if slots[7] != PRESENTATION_INITIALIZE:
         raise ValueError("CModelPresentation initialize slot drifted")
+    refcounted_slots = [
+        image_u32(image, REFCOUNTED_PRESENTATION_VTABLE + index * 4)
+        for index in range(PRESENTATION_SLOT_COUNT)
+    ]
+    if refcounted_slots[PRESENTATION_DRAW_SLOT] != PRESENTATION_DRAW:
+        raise ValueError("ref-counted CModelPresentation draw slot drifted")
     renderer_slots = [
         image_u32(image, RENDERER_VTABLE + index * 4) for index in range(17)
     ]
@@ -236,6 +243,9 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         "presentation": {
             "class": "Presentation_Unified::CModelPresentation",
             "vtable": f"{PRESENTATION_VTABLE:08X}",
+            "refcounted_primary_vtable": (
+                f"{REFCOUNTED_PRESENTATION_VTABLE:08X}"
+            ),
             "constructor": f"{PRESENTATION_CONSTRUCTOR:08X}",
             "destructor": f"{PRESENTATION_DESTRUCTOR:08X}",
             "deleting_destructor_slot": 0,

@@ -391,6 +391,7 @@ def validate_static_owner(document):
     expected_presentation = {
         "class": "Presentation_Unified::CModelPresentation",
         "vtable": "822432D4",
+        "refcounted_primary_vtable": "82002464",
         "constructor": "82DE9840",
         "destructor": "82DEA218",
         "deleting_destructor_slot": 0,
@@ -709,6 +710,7 @@ def build(
         "simple_member_draw_hooks": "82C4DC54,82C4DC58",
         "presentation_class": "Presentation_Unified::CModelPresentation",
         "presentation_vtable": "822432D4",
+        "presentation_refcounted_vtable": "82002464",
         "presentation_draw_slot": "12",
         "presentation_draw_hooks": "823F8DB8,823F8FA0",
         "presentation_resource_field": "presentation_plus_148",

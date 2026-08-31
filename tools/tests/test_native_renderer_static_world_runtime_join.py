@@ -245,6 +245,7 @@ def static_owner():
         "presentation": {
             "class": "Presentation_Unified::CModelPresentation",
             "vtable": "822432D4",
+            "refcounted_primary_vtable": "82002464",
             "constructor": "82DE9840",
             "destructor": "82DEA218",
             "deleting_destructor_slot": 0,
@@ -476,6 +477,7 @@ def fixture():
             "simple_member_draw_hooks": "82C4DC54,82C4DC58",
             "presentation_class": "Presentation_Unified::CModelPresentation",
             "presentation_vtable": "822432D4",
+            "presentation_refcounted_vtable": "82002464",
             "presentation_draw_slot": "12",
             "presentation_draw_hooks": "823F8DB8,823F8FA0",
             "presentation_resource_field": "presentation_plus_148",
@@ -1221,6 +1223,7 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertIn("address = 0x823F8DB8", analysis)
         self.assertIn("address = 0x823F8FA0", analysis)
         self.assertIn("kModelPresentationNameOffset = 16", hooks)
+        self.assertIn("kRefCountedModelPresentationVtable = 0x82002464", hooks)
         self.assertIn("kModelPresentationTransformOffset = 80", hooks)
         self.assertIn("ReadStaticWorldPresentationTransform", hooks)
         self.assertIn("static_world_transform_words", hooks)
