@@ -20802,11 +20802,15 @@ void CompleteContinuousWorldWorksetReplay(
   }
 }
 
-void EmitContinuousWorldWorksetSummary() {
+void EmitContinuousWorldWorksetEvent(const char *event_name,
+                                     bool final_summary,
+                                     uint64_t frame_sequence) {
   if (!g_continuous_world_workset.requested) {
     return;
   }
-  FinalizeContinuousWorldWorksetFrame();
+  if (final_summary) {
+    FinalizeContinuousWorldWorksetFrame();
+  }
   const uint64_t outcomes = g_continuous_world_workset.recorded +
                             g_continuous_world_workset.target_creation_failures +
                             g_continuous_world_workset.unsupported;
@@ -20819,15 +20823,34 @@ void EmitContinuousWorldWorksetSummary() {
       g_continuous_world_workset.static_world_lineage_rejections +
       g_continuous_world_workset.per_frame_quota_yields +
       g_continuous_world_workset.fail_closed_yields;
+  uint64_t frames_completed = g_continuous_world_workset.frames_completed;
+  uint64_t frames_failed = g_continuous_world_workset.frames_failed;
+  if (!final_summary &&
+      g_continuous_world_workset.current_frame != UINT64_MAX &&
+      g_continuous_world_workset.current_frame_requests) {
+    if (g_continuous_world_workset.current_frame_failed) {
+      ++frames_failed;
+    } else if (g_continuous_world_workset.current_frame_recorded ==
+               g_continuous_world_workset.current_frame_requests) {
+      ++frames_completed;
+    }
+  }
   pinyon_shift::diagnostics::RecordEvent(
-      "native_renderer.continuous_world_workset.summary",
+      event_name,
       {{"status", !g_continuous_world_workset.valid
-                      ? "invalid_configuration"
-                      : (g_continuous_world_workset.frames_failed
-                             ? "fallback_observed"
-                             : (g_continuous_world_workset.frames_completed
-                                    ? "complete"
-                                    : "not_observed"))},
+                      ? (final_summary ? "invalid_configuration"
+                                       : "checkpoint_invalid_configuration")
+                      : (frames_failed
+                             ? (final_summary ? "fallback_observed"
+                                              : "checkpoint_fallback_observed")
+                             : (frames_completed
+                                    ? (final_summary ? "complete"
+                                                     : "checkpoint_complete")
+                                    : (final_summary
+                                           ? "not_observed"
+                                           : "checkpoint_not_observed")))},
+       {"final_summary", final_summary ? "true" : "false"},
+       {"frame_sequence", std::to_string(frame_sequence)},
        {"prepared_observations",
         std::to_string(g_continuous_world_workset.prepared_observations)},
        {"requests", std::to_string(g_continuous_world_workset.requests)},
@@ -20864,10 +20887,8 @@ void EmitContinuousWorldWorksetSummary() {
         std::to_string(g_continuous_world_workset.reused_target_requests)},
        {"frames_started",
         std::to_string(g_continuous_world_workset.frames_started)},
-       {"frames_completed",
-        std::to_string(g_continuous_world_workset.frames_completed)},
-       {"frames_failed",
-        std::to_string(g_continuous_world_workset.frames_failed)},
+       {"frames_completed", std::to_string(frames_completed)},
+       {"frames_failed", std::to_string(frames_failed)},
        {"accounting_complete",
         outcomes == g_continuous_world_workset.requests ? "true" : "false"},
        {"selection_accounting_complete",
@@ -20893,6 +20914,18 @@ void EmitContinuousWorldWorksetSummary() {
        {"output_authority", "renderer_selector"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
+}
+
+void EmitContinuousWorldWorksetSummary() {
+  EmitContinuousWorldWorksetEvent(
+      "native_renderer.continuous_world_workset.summary", true,
+      g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitContinuousWorldWorksetCheckpoint(uint64_t frame_sequence) {
+  EmitContinuousWorldWorksetEvent(
+      "native_renderer.continuous_world_workset.checkpoint", false,
+      frame_sequence);
 }
 
 void EmitVisibilityShadowReplaySummary() {
@@ -25037,6 +25070,9 @@ void PinyonShiftObserveGraphicsFrame() {
       EmitTrackRenderModelRuntimeJoinCheckpoint(frame_sequence);
       EmitStaticWorldRuntimeJoinCheckpoint(frame_sequence);
     }
+  }
+  if (frame_sequence % kFrameSummaryInterval == 0) {
+    EmitContinuousWorldWorksetCheckpoint(frame_sequence);
   }
   if (dispatch_requested) {
     pinyon_shift::diagnostics::RecordEvent(

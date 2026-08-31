@@ -59,7 +59,13 @@ frame comparison and the complete Xenos output remains authoritative.
 The runtime emits:
 
 - `native_renderer.continuous_world_workset.config`; and
+- `native_renderer.continuous_world_workset.checkpoint` every 300 observed
+  frames while the mode is armed; and
 - `native_renderer.continuous_world_workset.summary`.
+
+Periodic checkpoints derive the current frame outcome without finalizing or
+mutating the live workset. They are diagnostic evidence only: session exit is
+unproved, and a later unique shutdown summary always takes precedence.
 
 The summary reconciles prepared observations, selection outcomes, replay
 outcomes, target reuse, complete frames, failed frames, and the 64-draw bound.
@@ -75,7 +81,7 @@ When exact track-world selection is armed, accepted requests and provider-only
 identity exclusions are reported separately as `track_world_requests` and
 `track_world_identity_exclusions`.
 Static-world requests and incomplete-lineage rejections are reported
-independently. The v5 qualifier requires at least one exact static-world
+independently. The v6 qualifier requires at least one exact static-world
 request and zero static-world lineage rejection when that optional selection
 is armed.
 Build a payload-free qualification report with:
@@ -85,6 +91,10 @@ python .\tools\summarize-native-renderer-continuous-world-workset.py `
   .local\preview\logs\events.jsonl `
   --output .local\qualification\continuous-world-workset.json
 ```
+
+For an interrupted long-session diagnosis only, add `--allow-checkpoint`. The
+latest checkpoint may produce `checkpoint_complete`, but cannot satisfy any
+gate that requires a normal process exit.
 
 Arm the still-default-off static-world extension for the deferred C1/C2 run:
 

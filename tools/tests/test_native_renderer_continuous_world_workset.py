@@ -40,6 +40,8 @@ def fixture():
     summary = event(
         MODULE.SUMMARY,
         status="complete",
+        final_summary="true",
+        frame_sequence="900",
         prepared_observations="20",
         requests="8",
         recorded="8",
@@ -122,6 +124,9 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("kTrackTextureUnifiedVtable = 0x82001708", source)
         self.assertIn("non_track_provider_rejections", source)
         self.assertIn('"native_renderer.continuous_world_workset.summary"', source)
+        self.assertIn(
+            '"native_renderer.continuous_world_workset.checkpoint"', source
+        )
         self.assertIn('{"xenos_draw", "preserved"}', source)
         self.assertIn('{"draw_suppression", "false"}', source)
 
@@ -160,6 +165,43 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             document["qualification"]["static_world_selection_proved"]
         )
         self.assertFalse(document["qualification"]["suppression_allowed"])
+        self.assertTrue(document["evidence"]["session_exit_proved"])
+
+    def test_qualifies_latest_non_mutating_checkpoint(self):
+        events = fixture()
+        checkpoint = events[-1]
+        checkpoint.update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            final_summary="false",
+        )
+        document = MODULE.build(events, allow_checkpoint=True)
+        self.assertEqual("checkpoint_complete", document["status"])
+        self.assertEqual("checkpoint", document["evidence"]["kind"])
+        self.assertFalse(document["evidence"]["session_exit_proved"])
+
+    def test_requires_explicit_checkpoint_opt_in(self):
+        events = fixture()
+        events[-1].update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            final_summary="false",
+        )
+        with self.assertRaisesRegex(ValueError, "exactly one.*summary"):
+            MODULE.build(events)
+
+    def test_final_summary_wins_over_later_checkpoint_input(self):
+        events = fixture()
+        checkpoint = copy.deepcopy(events[-1])
+        checkpoint.update(
+            event=MODULE.CHECKPOINT,
+            status="checkpoint_complete",
+            final_summary="false",
+            frame_sequence="1200",
+        )
+        document = MODULE.build([*events, checkpoint], allow_checkpoint=True)
+        self.assertEqual("complete", document["status"])
+        self.assertTrue(document["evidence"]["session_exit_proved"])
 
     def test_rejects_single_draw_frames(self):
         events = fixture()
