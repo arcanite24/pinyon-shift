@@ -1,0 +1,139 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index 144a20e..1169a00 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -144,7 +144,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   void EndIsolatedReplayTarget(
+       uint64_t frame_sequence,
+       bool defer_preview_publication_until_swap = false,
+-      bool depth_only_target = false);
++      bool depth_only_target = false,
++      bool frame_accumulator_source = false);
+   void CommitDeferredIsolatedReplayPreview(uint64_t frame_sequence);
+   void CancelDeferredIsolatedReplayPreview(uint64_t frame_sequence);
+   system::GraphicsIsolatedDrawPublicationResult PublishIsolatedReplayTarget(
+@@ -761,6 +762,7 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   ID3D12PipelineState*
+       isolated_replay_frame_accumulator_2xmsaa_pipeline_ = nullptr;
+   uint64_t isolated_replay_frame_accumulator_frame_sequence_ = 0;
++  uint64_t isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
+   uint64_t isolated_replay_frame_accumulator_committed_frame_sequence_ = 0;
+   uint32_t isolated_replay_frame_accumulator_width_ = 0;
+   uint32_t isolated_replay_frame_accumulator_height_ = 0;
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 949fa4f..a0d1162 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -366,6 +366,7 @@ enum class GraphicsNativeFrameAccumulatorStatus : uint32_t {
+   kUnavailable = 4,
+   kUnsupportedTarget = 5,
+   kAllocationFailed = 6,
++  kUnqualifiedSource = 7,
+ };
+ 
+ struct GraphicsNativeFrameAccumulatorResult {
+@@ -618,6 +619,10 @@ struct GraphicsIsolatedDrawRequest {
+   // complete frame. Any failed draw in the accumulation cancels the pending
+   // preview and leaves the previous Xenos frame authoritative.
+   bool defer_preview_publication_until_swap = false;
++  // Make the completed private color replay eligible as the source of one
++  // same-frame native accumulator append. The accumulator consumes this tag;
++  // unrelated isolated replays can never become procedural input implicitly.
++  bool frame_accumulator_source = false;
+   // After the original authoritative guest draw, publish the completed private
+   // pass into the same guest color and depth/stencil resources. The backend
+   // must validate the entire pair before recording either copy. This never
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index a8040e7..a86cd12 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3917,7 +3917,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         render_target_cache_->EndIsolatedReplayTarget(
+             isolated_draw_request.frame_sequence,
+             isolated_draw_request.defer_preview_publication_until_swap,
+-            isolated_draw_request.depth_only_target);
++            isolated_draw_request.depth_only_target,
++            isolated_draw_request.frame_accumulator_source);
+         isolated_replay_recorded = true;
+         isolated_result.status =
+             system::GraphicsIsolatedDrawStatus::kRecorded;
+@@ -4177,7 +4178,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         render_target_cache_->EndIsolatedReplayTarget(
+             isolated_draw_request.frame_sequence,
+             isolated_draw_request.defer_preview_publication_until_swap,
+-            isolated_draw_request.depth_only_target);
++            isolated_draw_request.depth_only_target,
++            isolated_draw_request.frame_accumulator_source);
+         isolated_replay_recorded = true;
+         isolated_result.status =
+             system::GraphicsIsolatedDrawStatus::kRecorded;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index d71e419..8fd933c 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -1797,6 +1797,7 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayTarget(
+   width_out = 0;
+   height_out = 0;
+   failure_out = system::GraphicsIsolatedDrawTargetFailure::kNone;
++  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
+   isolated_replay_active_depth_target_ = nullptr;
+   if ((depth_only_target && color_only_target) ||
+       (stencil_seed_probe_requested && color_only_target)) {
+@@ -2613,6 +2614,7 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+     isolated_replay_frame_accumulator_logical_height_ = 0;
+     isolated_replay_frame_accumulator_appended_row_end_ = 0;
+     isolated_replay_frame_accumulator_reseed_required_ = false;
++    isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
+   };
+   if (request.cancel && !request.begin && !request.append &&
+       !request.commit) {
+@@ -2648,6 +2650,13 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+         system::GraphicsNativeFrameAccumulatorStatus::kUnavailable;
+     return result;
+   }
++  if (isolated_replay_frame_accumulator_source_frame_sequence_ !=
++          frame_sequence) {
++    clear_active();
++    result.status =
++        system::GraphicsNativeFrameAccumulatorStatus::kUnqualifiedSource;
++    return result;
++  }
+ 
+   auto* isolated_color = static_cast<D3D12RenderTarget*>(
+       isolated_replay_color_target_.get());
+@@ -2907,12 +2916,13 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+   result.appended_row_end =
+       isolated_replay_frame_accumulator_appended_row_end_;
+   result.committed = request.commit;
++  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
+   return result;
+ }
+ 
+ void D3D12RenderTargetCache::EndIsolatedReplayTarget(
+     uint64_t frame_sequence, bool defer_preview_publication_until_swap,
+-    bool depth_only_target) {
++    bool depth_only_target, bool frame_accumulator_source) {
+   if (GetPath() != Path::kHostRenderTargets) {
+     return;
+   }
+@@ -2922,6 +2932,8 @@ void D3D12RenderTargetCache::EndIsolatedReplayTarget(
+   if (depth_only_target) {
+     return;
+   }
++  isolated_replay_frame_accumulator_source_frame_sequence_ =
++      frame_accumulator_source ? frame_sequence : 0;
+   if (defer_preview_publication_until_swap) {
+     isolated_replay_deferred_preview_frame_sequence_ = frame_sequence;
+     isolated_replay_deferred_preview_width_ =
+@@ -2972,6 +2984,10 @@ void D3D12RenderTargetCache::CancelDeferredIsolatedReplayPreview(
+     isolated_replay_frame_accumulator_appended_row_end_ = 0;
+     isolated_replay_frame_accumulator_reseed_required_ = false;
+   }
++  if (isolated_replay_frame_accumulator_source_frame_sequence_ ==
++      frame_sequence) {
++    isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
++  }
+ }
+ 
+ system::GraphicsIsolatedDrawPublicationResult
+

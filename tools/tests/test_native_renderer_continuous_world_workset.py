@@ -130,6 +130,11 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("procedural_color_producer_requests", source)
         self.assertIn("procedural_color_producer_target_failures", source)
         self.assertIn("procedural_color_target_failure_reasons", source)
+        self.assertIn(
+            "request.frame_accumulator_source = "
+            "exact_procedural_color_producer",
+            source,
+        )
         self.assertIn("ContinuousWorldRetainedTargetIdentity", source)
         self.assertIn("current_retained_target_identity", source)
         self.assertIn("target_reseed_requests", source)
@@ -195,6 +200,21 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("kColorTargetCreationFailed", patch)
         self.assertIn("kRetainedTargetMismatch", patch)
         self.assertIn("isolated_result.target_failure", patch)
+
+    def test_accumulator_requires_exact_private_source_ownership(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0113-d3d12-procedural-accumulator-source-ownership.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("frame_accumulator_source", patch)
+        self.assertIn("kUnqualifiedSource", patch)
+        self.assertIn(
+            "isolated_replay_frame_accumulator_source_frame_sequence_", patch
+        )
+        self.assertIn("unqualified_source", source)
 
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
