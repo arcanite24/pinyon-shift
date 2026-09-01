@@ -42,7 +42,9 @@ class TrackPresentationPassTests(unittest.TestCase):
             source,
         )
         self.assertIn("track_presentation_pass_mask", source)
-        self.assertIn("kTrackRenderModelInstanceUnifiedVtable", source)
+        self.assertIn(
+            "kTrackPresentationRefCountedUnifiedVtable = 0x82003CCC", source
+        )
         self.assertIn(
             '"native_renderer.discovery.track_presentation_prepared_target_entry"',
             source,

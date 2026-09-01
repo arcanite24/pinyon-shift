@@ -104,7 +104,7 @@ def fixture():
     receiver_79 = event(
         MODULE.RECEIVER,
         pass_mask="00000002",
-        receiver_vtable="820019CC",
+        receiver_vtable="82003CCC",
         calls="8",
         **safety(),
     )
@@ -129,7 +129,7 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
         )
         self.assertEqual([78], document["qualification"]["color_target_slots"])
         self.assertEqual(
-            {"820019CC": 8}, document["runtime_receivers_by_slot"]["79"]
+            {"82003CCC": 8}, document["runtime_receivers_by_slot"]["79"]
         )
         self.assertIn(
             "1024x1024:43800000:44400000:C3800000:43800000:00010F00",

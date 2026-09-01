@@ -20,7 +20,10 @@ opaque road/terrain color pass that the visible prototype needs.
 ## Static pass ownership
 
 Retail RTTI identifies vtable `82243774` as
-`Presentation_Unified::CTrackPresentation`. Its adjacent slots are:
+`Presentation_Unified::CTrackPresentation`. Runtime qualification then proved
+that calls use its exact thread-safe refcounted wrapper at vtable `82003CCC`.
+Both tables have 135 entries and the wrapper carries these same adjacent
+targets:
 
 | Slot | Function |
 |---:|---:|
@@ -86,19 +89,28 @@ so no prepared target inherited a pass mask. The zero-target result therefore
 does not reject either live slot.
 
 The check incorrectly treated membership in the static `82243774`
-presentation vtable as a runtime receiver constraint. Existing qualified
-evidence inside slot 79 already identifies its live `r3` receiver as unified
-track render-model instance vtable `820019CC`. Slot 79 now accepts only that
-proved runtime type. A bounded receiver-signature census records the readable
-`r3` vtable for every neighboring slot with exact observation, entry,
-read-fault, and overflow accounting. Slots 78, 80, and 81 remain unaccepted
-until their runtime receiver types are captured and classified.
+presentation vtable as a runtime receiver constraint. A first correction also
+mistook the inner slot-79 render-model scope (`820019CC`) for the outer method
+receiver. Controlled retry session `20260901T044525Z-p9440` resolved the
+ambiguity: all four slot-79 calls and all six slot-80 calls used `82003CCC`.
+Retail RTTI identifies that exact complete-object vtable as
+`TRefCountedObjectThreadSafe<CTrackPresentation<Presentation_Unified>>`, and
+its slots 78-81 resolve to the four already hooked AOT targets. The census now
+accepts only this proved wrapper receiver for all four slots; observed runtime
+activity remains limited to slots 79 and 80.
 
 This correction still changes no renderer behavior: it only allows the
 already diagnostic packet lineage to retain slot 79's identity. Xenos remains
 authoritative, and native admission, publication, and suppression stay closed.
 
-The prepared-target key now also retains the already observed raw viewport,
+The retry exited normally with zero receiver read faults, overflow, overlap,
+or lifecycle drift. It intentionally produced no prepared-target entries
+because the incorrect inner-scope receiver gate rejected all ten calls. That
+result closes the receiver classification rather than classifying either live
+pass. The next batched run can carry both exact live slot masks into prepared
+draws.
+
+The prepared-target key also retains the already observed raw viewport,
 viewport-transform control, and window scissor. The offline report decodes
 only the scissor extent while preserving the raw state. The next batched run
 can therefore separate main-view color, square shadow/reflection, and reduced
@@ -108,7 +120,8 @@ a draw.
 
 ## Safety
 
-- The hooks read only the presentation vtable already live at entry.
+- The hooks read only the exact refcounted presentation-wrapper vtable already
+  live at entry.
 - Prepared target data is bounded numeric metadata from the existing backend
   observer.
 - Guest state, title control flow, Xenos draws, and output are unchanged.

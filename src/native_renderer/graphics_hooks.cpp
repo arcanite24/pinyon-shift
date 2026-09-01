@@ -204,6 +204,7 @@ constexpr uint32_t kTrackTexturePredicate44Method = 0x82DF0B40;
 constexpr uint32_t kTrackRenderModelInstanceUnifiedVtable = 0x820019CC;
 constexpr uint32_t kTrackRenderModelUnifiedVtable = 0x82001D74;
 constexpr uint32_t kTrackPresentationUnifiedVtable = 0x82243774;
+constexpr uint32_t kTrackPresentationRefCountedUnifiedVtable = 0x82003CCC;
 constexpr uint32_t kTrackRenderModelDescriptorType = 21;
 constexpr uint32_t kTrackRenderModelDescriptorFlag = 1;
 constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
@@ -3963,9 +3964,7 @@ void BeginTrackPresentationPass(size_t pass_index, uint32_t root_address) {
       ++g_track_presentation_receiver_overflow;
     }
   }
-  const uint32_t expected_receiver_vtable =
-      pass_index == 1 ? kTrackRenderModelInstanceUnifiedVtable : 0;
-  if (!expected_receiver_vtable || root_words[0] != expected_receiver_vtable) {
+  if (root_words[0] != kTrackPresentationRefCountedUnifiedVtable) {
     ++g_track_presentation_pass_invalid_root[pass_index];
     return;
   }
@@ -13759,8 +13758,8 @@ void EmitTrackPresentationPassSummary() {
                       : (accounting_complete ? "complete" : "incomplete")},
        {"presentation_vtable",
         fmt::format("{:08X}", kTrackPresentationUnifiedVtable)},
-       {"slot_79_runtime_receiver_vtable",
-        fmt::format("{:08X}", kTrackRenderModelInstanceUnifiedVtable)},
+       {"runtime_receiver_vtable",
+        fmt::format("{:08X}", kTrackPresentationRefCountedUnifiedVtable)},
        {"slot_78_function", "82DEEEE0"},
        {"slot_78_entries", std::to_string(entries[0])},
        {"slot_78_exits", std::to_string(exits[0])},

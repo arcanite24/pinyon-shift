@@ -29,6 +29,13 @@ CLASSES = {
         "destructor": 0x82DF3C80,
         "role": "active_unified_track_presentation",
     },
+    "track_presentation_refcounted_unified": {
+        "decorated_name": ".?AV?$TRefCountedObjectThreadSafe@VCTrackPresentation@Presentation_Unified@@@@",
+        "vtable": 0x82003CCC,
+        "slots": 135,
+        "destructor": 0x82DE6DA8,
+        "role": "active_refcounted_unified_track_presentation_receiver",
+    },
     "track_render_model": {
         "decorated_name": ".?AVCTrackRenderModel@@",
         "vtable": 0x82243414,
@@ -123,6 +130,11 @@ CLASSES = {
 }
 
 RELATIONSHIPS = (
+    (
+        "track_presentation_refcounted_unified",
+        "track_presentation_unified",
+        "refcounted_unified_presentation_overrides",
+    ),
     ("track_presentation_unified", "track_presentation", "unified_presentation_overrides"),
     ("track_render_model_unified", "track_render_model", "unified_render_model_overrides"),
     ("track_render_model_instance_unified", "track_render_model_instance", "unified_render_instance_overrides"),
@@ -131,6 +143,12 @@ RELATIONSHIPS = (
 )
 
 KEY_SLOTS = {
+    "track_presentation_refcounted_unified": {
+        78: 0x82DEEEE0,
+        79: 0x8240E7B0,
+        80: 0x82DEF2B0,
+        81: 0x82DEADE0,
+    },
     "track_presentation_unified": {
         38: 0x82DF2D40, 52: 0x82DEC6F0, 53: 0x82DEEAE0,
         68: 0x82DF2528, 77: 0x82DF3AC0, 79: 0x8240E7B0,
