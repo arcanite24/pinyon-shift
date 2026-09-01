@@ -987,6 +987,18 @@ only padded destination rows and inferred a source crop. The existing copy
 implementation does not consume the new crop/sample fields yet, so scaled
 backend admission and the 1x1 compatibility gate remain unchanged.
 
+Exact-copy implementation checkpoint: D3D12 accumulator copies now validate
+and consume the qualified source rectangle and logical copy-row count rather
+than using the destination row as a source crop or copying padding as scene
+pixels. Single-sample targets use an exact texture box. Two-sample targets can
+either expand a proved horizontal sample layout or resolve the selected pair at
+matching width. A new four-sample compute path implements the Xenos `k0123`
+average observed on the procedural family and writes only logical rows, leaving
+padding outside the presented extent. Resource bounds, topology, row
+accounting, and sample selection remain fail-closed. The 2x presentation gate
+is still closed pending a batched AppData qualification of replay geometry and
+this backend path.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

@@ -359,6 +359,32 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn('"requested_rows"', source)
         self.assertIn("!physical_layout.ready()", source)
 
+    def test_backend_copies_exact_accumulator_source_regions(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0120-d3d12-exact-accumulator-source-copy.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("request.source_x", patch)
+        self.assertIn("request.source_y", patch)
+        self.assertIn("request.source_width", patch)
+        self.assertIn("request.source_height", patch)
+        self.assertIn("request.copy_row_count", patch)
+        self.assertIn("request.padding_row_count", patch)
+        self.assertIn("request.sample_select", patch)
+        self.assertIn("procedural_frame_accumulator_4xmsaa_cs", patch)
+        self.assertIn("Texture2DMS<float4, 4>", patch)
+        self.assertIn("source_offset + output_position", patch)
+        self.assertIn("* 0.25", patch)
+        self.assertIn("source_desc.SampleDesc.Count == 4", patch)
+        self.assertIn("source_desc.SampleDesc.Count > 1", patch)
+        self.assertIn("request.source_y + request.source_height", patch)
+        self.assertIn("Constants.Num32BitValues = 8", patch)
+        self.assertIn("request.copy_row_count + 7", patch)
+        self.assertIn(
+            "source_position = source_offset + uint2(source_x, output_position.y)",
+            patch,
+        )
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
