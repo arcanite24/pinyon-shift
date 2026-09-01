@@ -235,6 +235,13 @@ address = 0x823F8DB8
 name = "PinyonShiftObserveStaticWorldPresentationDispatchEntry"
 registers = ["r3"]
 
+# Record whether the exact presentation preparation helper accepts the owner
+# before slot 12 either returns early or enters its renderer path.
+[[midasm_hook]]
+address = 0x823F8DE0
+name = "PinyonShiftObserveStaticWorldPresentationPrepareOutcome"
+registers = ["r3", "r31"]
+
 [[midasm_hook]]
 address = 0x823F8FA0
 name = "PinyonShiftObserveStaticWorldPresentationDispatchExit"

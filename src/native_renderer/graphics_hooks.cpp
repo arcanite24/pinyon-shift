@@ -225,6 +225,7 @@ constexpr uint32_t kRefCountedModelPresentationVtable = 0x82002464;
 constexpr uint32_t kModelPresentationNameOffset = 16;
 constexpr uint32_t kModelPresentationTransformOffset = 80;
 constexpr uint32_t kModelPresentationTransformWordCount = 16;
+constexpr uint32_t kModelPresentationStateOffset = 144;
 constexpr uint32_t kModelPresentationResourceOffset = 148;
 constexpr uint32_t kModelPresentationRendererOffset = 1608;
 constexpr uint32_t kDeferredSimpleModelRendererVtable = 0x82021334;
@@ -2740,6 +2741,19 @@ std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
 std::atomic<uint64_t> g_static_world_presentation_resource_mismatches{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_observations{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_observations{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_accepted{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_rejected{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_missing_scope{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_owner_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_null_resources{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_live_resources{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_null_renderers{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_live_renderers{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_state{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_resource{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_renderer{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_exact{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_missing_scope{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_owner_mismatches{};
@@ -4499,6 +4513,55 @@ void ObserveStaticWorldPresentationRendererHandoff(
     ++g_static_world_presentation_handoff_unknown_targets;
   }
   ++g_static_world_presentation_handoff_exact;
+}
+
+void ObserveStaticWorldPresentationPrepareOutcome(
+    uint32_t result, uint32_t presentation_address) {
+  ++g_static_world_presentation_prepare_observations;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active || !scope.exact) {
+    ++g_static_world_presentation_prepare_missing_scope;
+    return;
+  }
+  if (presentation_address != scope.presentation_address) {
+    ++g_static_world_presentation_prepare_owner_mismatches;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t state = 0;
+  uint32_t resource = 0;
+  uint32_t renderer = 0;
+  if (presentation_address >
+          UINT32_MAX - kModelPresentationRendererOffset ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationStateOffset,
+          state) ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationResourceOffset,
+          resource) ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationRendererOffset,
+          renderer)) {
+    ++g_static_world_presentation_prepare_read_faults;
+    return;
+  }
+  g_static_world_presentation_prepare_sample_state.store(
+      state, std::memory_order_relaxed);
+  g_static_world_presentation_prepare_sample_resource.store(
+      resource, std::memory_order_relaxed);
+  g_static_world_presentation_prepare_sample_renderer.store(
+      renderer, std::memory_order_relaxed);
+  (resource ? g_static_world_presentation_prepare_live_resources
+            : g_static_world_presentation_prepare_null_resources)
+      .fetch_add(1, std::memory_order_relaxed);
+  (renderer ? g_static_world_presentation_prepare_live_renderers
+            : g_static_world_presentation_prepare_null_renderers)
+      .fetch_add(1, std::memory_order_relaxed);
+  ((result & 0xFF) ? g_static_world_presentation_prepare_accepted
+                   : g_static_world_presentation_prepare_rejected)
+      .fetch_add(1, std::memory_order_relaxed);
 }
 
 void EndStaticWorldPresentationDispatch() {
@@ -12633,6 +12696,36 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t presentation_renderer_joins =
       g_static_world_presentation_renderer_joins.load(
           std::memory_order_relaxed);
+  const uint64_t presentation_prepare_observations =
+      g_static_world_presentation_prepare_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_accepted =
+      g_static_world_presentation_prepare_accepted.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_rejected =
+      g_static_world_presentation_prepare_rejected.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_missing_scope =
+      g_static_world_presentation_prepare_missing_scope.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_owner_mismatches =
+      g_static_world_presentation_prepare_owner_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_read_faults =
+      g_static_world_presentation_prepare_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_null_resources =
+      g_static_world_presentation_prepare_null_resources.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_live_resources =
+      g_static_world_presentation_prepare_live_resources.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_null_renderers =
+      g_static_world_presentation_prepare_null_renderers.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_live_renderers =
+      g_static_world_presentation_prepare_live_renderers.load(
+          std::memory_order_relaxed);
   const uint64_t asset_metadata_observations =
       g_static_world_asset_metadata_observations.load(
           std::memory_order_relaxed);
@@ -12760,6 +12853,17 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
           presentation_scopes_with_renderer +
               presentation_scopes_without_renderer &&
       presentation_scopes_with_renderer <= presentation_renderer_joins &&
+      presentation_prepare_observations ==
+          presentation_prepare_accepted + presentation_prepare_rejected +
+              presentation_prepare_missing_scope +
+              presentation_prepare_owner_mismatches +
+              presentation_prepare_read_faults &&
+      presentation_prepare_accepted + presentation_prepare_rejected ==
+          presentation_prepare_null_resources +
+              presentation_prepare_live_resources &&
+      presentation_prepare_accepted + presentation_prepare_rejected ==
+          presentation_prepare_null_renderers +
+              presentation_prepare_live_renderers &&
       asset_metadata_observations == presentation_exact &&
       asset_metadata_observations ==
           asset_metadata_exact + asset_metadata_empty_keys +
@@ -13091,6 +13195,38 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_static_world_presentation_resource_mismatches.load(
                 std::memory_order_relaxed))},
+       {"presentation_prepare_observations",
+        std::to_string(presentation_prepare_observations)},
+       {"presentation_prepare_accepted",
+        std::to_string(presentation_prepare_accepted)},
+       {"presentation_prepare_rejected",
+        std::to_string(presentation_prepare_rejected)},
+       {"presentation_prepare_missing_scope",
+        std::to_string(presentation_prepare_missing_scope)},
+       {"presentation_prepare_owner_mismatches",
+        std::to_string(presentation_prepare_owner_mismatches)},
+       {"presentation_prepare_read_faults",
+        std::to_string(presentation_prepare_read_faults)},
+       {"presentation_prepare_null_resources",
+        std::to_string(presentation_prepare_null_resources)},
+       {"presentation_prepare_live_resources",
+        std::to_string(presentation_prepare_live_resources)},
+       {"presentation_prepare_null_renderers",
+        std::to_string(presentation_prepare_null_renderers)},
+       {"presentation_prepare_live_renderers",
+        std::to_string(presentation_prepare_live_renderers)},
+       {"presentation_prepare_sample_state",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_state.load(
+                        std::memory_order_relaxed))},
+       {"presentation_prepare_sample_resource",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_resource.load(
+                        std::memory_order_relaxed))},
+       {"presentation_prepare_sample_renderer",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_renderer.load(
+                        std::memory_order_relaxed))},
        {"presentation_handoff_observations",
         std::to_string(g_static_world_presentation_handoff_observations.load(
             std::memory_order_relaxed))},
@@ -27546,6 +27682,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"presentation_refcounted_vtable", "82002464"},
        {"presentation_draw_slot", "12"},
        {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
+       {"presentation_prepare_outcome_hook", "823F8DE0"},
+       {"presentation_prepare_outcome",
+        "result_owner_state_resource_renderer_diagnostic"},
        {"presentation_renderer_handoff_hook", "823F8F1C"},
        {"presentation_renderer_handoff",
         "owner_resource_vtable_and_virtual_target_diagnostic"},
@@ -29818,6 +29957,11 @@ void PinyonShiftObserveStaticWorldPresentationDispatchEntry(
 
 void PinyonShiftObserveStaticWorldPresentationDispatchExit() {
   EndStaticWorldPresentationDispatch();
+}
+
+void PinyonShiftObserveStaticWorldPresentationPrepareOutcome(
+    PPCRegister &r3, PPCRegister &r31) {
+  ObserveStaticWorldPresentationPrepareOutcome(r3.u32, r31.u32);
 }
 
 void PinyonShiftObserveStaticWorldPresentationRendererHandoff(

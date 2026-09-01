@@ -49,6 +49,14 @@ renderer, PM4 packet, and prepared-draw lineage. Independent read, renderer
 join, and packet-origin accounting fails closed on missing provenance. No
 matrix convention or building/prop category is inferred from static code.
 
+The first runtime batches entered this exact method but never reached the
+renderer handoff. A diagnostic hook at `823F8DE0`, immediately after helper
+`823F8980`, now partitions the helper result and records whether owner offsets
+148 and 1608 contain null or live resource/renderer addresses. It also samples
+the bounded offset-144 state word. The accounting is passive and payload-free;
+it does not treat any address or state value as asset semantics and cannot
+admit or suppress a draw.
+
 The complete RTTI hierarchy census is documented in
 [`STATIC_WORLD_PRESENTATION_TYPES.md`](STATIC_WORLD_PRESENTATION_TYPES.md). It
 proves there is no more-specific building or prop presentation subclass.
