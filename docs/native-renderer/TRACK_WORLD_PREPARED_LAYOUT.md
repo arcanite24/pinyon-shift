@@ -49,6 +49,9 @@ lists vertex/pixel float-constant register frequency and maximal runs of at
 least four consecutive finite vertex registers. The extended report groups
 the exact backend target bitmask and five formats by layout and call count so
 depth-only, color-only, paired, and unusual attachment shapes remain distinct.
+Schema v2 additionally carries the complete track-world identity mask and its
+exact nested subset into each layout, reports per-class layout/call frequency,
+and rejects a nested identity outside the owning scope's complete mask.
 
 The checked-in catalog classifier then evaluates every four-register window
 under both plausible title matrix conventions:
@@ -70,6 +73,16 @@ positions cannot qualify it.
 These runs are candidates, not transforms. Terrain/road identity, native
 admission, publication, and suppression remain unproved and disabled unless a
 single mapping passes the full catalog contract.
+
+## Nested-identity runtime result
+
+Clean session `20260901T062819Z-p15356` retained 730 exact layouts across 2,574
+prepared calls. Every call carried nested `CTrackSubModel`; 2,526 also carried
+nested `CTrackMesh`. Geometry and parameters remained bounded and the layout
+table did not overflow. Every joined target was depth-only, so the report now
+pivots this exact family away from opaque-world color ingress. It remains
+useful shadow/depth evidence but cannot establish visible terrain or road
+coverage.
 
 ## First runtime result
 

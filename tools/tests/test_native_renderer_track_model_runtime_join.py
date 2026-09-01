@@ -58,7 +58,8 @@ def fixture(shared=3):
             "exact_address_equality_to_submission_objects_or_resources"
         ),
         world_resource_graph_cache_capacity="1024",
-        world_resource_reference_capacity="16",
+        world_resource_reference_capacity="64",
+        world_pointee_root_capacity="16",
         guest_payload_read=(
             "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
             "cache_miss"
@@ -106,6 +107,7 @@ def fixture(shared=3):
         world_resource_graph_cache_hits="8",
         world_resource_graph_cache_misses="2",
         world_resource_graph_reference_overflow="0",
+        world_resource_graph_reference_high_watermark="24" if shared else "0",
         world_resource_graph_host_unmapped_rejections="3",
         world_pointee_graph_samples="4",
         world_pointee_direct_hits="2",
@@ -134,6 +136,8 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("kTrackWorldPointeePrefixWords = 16", source)
+        self.assertIn("kTrackWorldPointeeRootCapacity = 16", source)
+        self.assertIn("kTrackWorldResourceReferenceCapacity = 64", source)
         self.assertIn("CensusTrackWorldPointees", source)
         self.assertIn("world_pointee_direct_relations", source)
         self.assertIn("world_pointee_nested_relations", source)
@@ -257,6 +261,15 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         document = MODULE.build(events)
         self.assertIn(
             "nested world-pointee relation accounting drifted",
+            document["failures"],
+        )
+
+    def test_rejects_reference_watermark_beyond_capacity(self):
+        events = fixture()
+        events[-1]["world_resource_graph_reference_high_watermark"] = "65"
+        document = MODULE.build(events)
+        self.assertIn(
+            "world-resource graph reference capacity drifted",
             document["failures"],
         )
 

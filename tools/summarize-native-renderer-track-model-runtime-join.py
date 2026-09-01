@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v5"
+SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v6"
 CONFIG = "native_renderer.discovery.track_render_model_runtime_join_config"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
 CHECKPOINT = (
@@ -183,7 +183,8 @@ def build(events, requested_session=None, allow_checkpoint=False):
             "exact_address_equality_to_submission_objects_or_resources"
         ),
         "world_resource_graph_cache_capacity": "1024",
-        "world_resource_reference_capacity": "16",
+        "world_resource_reference_capacity": "64",
+        "world_pointee_root_capacity": "16",
         "guest_payload_read": (
             "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
             "cache_miss"
@@ -247,6 +248,7 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "world_resource_graph_cache_hits",
         "world_resource_graph_cache_misses",
         "world_resource_graph_reference_overflow",
+        "world_resource_graph_reference_high_watermark",
         "world_resource_graph_host_unmapped_rejections",
         "world_resource_shared_identity_joins",
         *RELATIONS,
@@ -368,6 +370,13 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("nested world-resource scopes exceed graph scopes")
     if totals["world_resource_graph_reference_overflow"]:
         failures.append("world-resource graph reference overflow is nonzero")
+    if totals["world_resource_graph_reference_high_watermark"] > 64:
+        failures.append("world-resource graph reference capacity drifted")
+    if (
+        totals["world_resource_graph_scopes"]
+        and not totals["world_resource_graph_reference_high_watermark"]
+    ):
+        failures.append("world-resource graph reference watermark is empty")
     if totals["world_resource_graph_scopes"] and not any(
         totals[key] for key in WORLD_RELATIONS
     ):

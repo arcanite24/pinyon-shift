@@ -654,7 +654,7 @@ semantic mesh/world-section ingress instead of tracing deeper through either
 presentation shadow route. No native draw or suppression was admitted.
 
 Combined-report compatibility checkpoint: the C1/C2 join now consumes the
-current track-model v5 and continuous-workset v7 schemas. This repairs report
+current track-model v6 and continuous-workset v7 schemas. This repairs report
 composition only; every incomplete component remains fail closed.
 
 Nested world-identity implementation checkpoint: the bounded one-level
@@ -676,6 +676,18 @@ identity only when the same bounded draw layout reaches a prepared draw. This
 closes the instrumentation hop needed to select exact mesh/submodel-owned C1
 layouts after the next batched run; it still changes no native admission or
 output behavior.
+
+Nested prepared-lineage runtime result: clean AppData session
+`20260901T062819Z-p15356` reached the saved festival and exited normally. All
+2,574 bounded prepared draws carried exact nested `CTrackSubModel` ownership;
+2,526 also carried `CTrackMesh`, across 730 layouts with zero geometry,
+parameter, or table faults. Every joined target was depth-only. This proves the
+semantic mesh/submodel-to-prepared hop but classifies this command route as a
+track-owned depth/shadow family, not the missing opaque color world. The run
+also exposed 72 retained-reference overflows at the original 16-entry bound.
+The reference store is now independently raised to 64 while the 16-root scan
+bound remains unchanged, and schema v6 reports its high-water mark and makes
+any overflow fail the runtime status itself.
 
 ### C2. Static world buildings and props
 

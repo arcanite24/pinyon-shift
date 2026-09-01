@@ -419,3 +419,19 @@ frequency and exposes a separate
 `nested_track_world_to_prepared_layout_proved` result. This is the exact gate
 for choosing the first nested mesh/submodel isolated replay candidate in the
 next AppData batch, not permission to admit or suppress it before that run.
+
+Clean AppData session `20260901T062819Z-p15356` proved the retained identity
+survives that full path: 2,574 exact bounded prepared draws carried nested
+`CTrackSubModel`, 2,526 also carried nested `CTrackMesh`, and no prepared-layout
+geometry, parameter, or table bound failed. All 2,574 draws were depth-only.
+The route is therefore exact track-owned shadow/depth work and is closed as an
+opaque terrain/road color lead.
+
+Promoting nested references also showed that the old 16-entry reference store
+was smaller than the already-bounded census: 72 additions overflowed across
+222 cache misses. The retained-reference capacity is now 64, independent from
+the unchanged 16-root and 16-word-prefix scan bounds. A reported high-water
+mark proves actual demand, and any remaining overflow makes the runtime event
+itself incomplete instead of leaving that mismatch solely to the offline
+qualifier. This capacity correction does not expand the guest-memory scan or
+change rendering behavior.
