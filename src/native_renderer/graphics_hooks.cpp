@@ -16956,6 +16956,10 @@ void EmitDependencyCensusWindow() {
       break;
     }
     const bool sampled = target.sampled_draw_count != 0;
+    const uint32_t copy_source = target.sample.rb_copy_control & 7;
+    const uint32_t copy_source_info =
+        copy_source < 4 ? target.sample.color_info[copy_source]
+                        : target.sample.depth_info;
     const std::string query_relation =
         target.conditional_sample_draw_count ||
                 target.query_state_sample_draw_count
@@ -16988,6 +16992,15 @@ void EmitDependencyCensusWindow() {
                                     target.sample.rb_copy_dest_info,
                                     target.sample.rb_copy_dest_pitch,
                                     target.sample.surface_info)},
+         {"copy_source", number(copy_source)},
+         {"copy_source_state",
+          fmt::format("{:08X}:{:08X}", target.sample.surface_info,
+                      copy_source_info)},
+         {"copy_source_targets",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      target.sample.color_info[0], target.sample.color_info[1],
+                      target.sample.color_info[2], target.sample.color_info[3],
+                      target.sample.depth_info)},
          {"presentation_only", "unknown_uninstrumented"},
          {"guest_cpu_read", "unknown_uninstrumented"},
          {"query_dependency", query_relation},
@@ -30393,6 +30406,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"procedural_color_target_profile_dispatch", "82417BC0"},
        {"procedural_color_target_profile_preview_extent", "1280x720"},
        {"procedural_color_target_profile_bin_state", "exact_backend_v1"},
+       {"procedural_color_resolve_source_state", "exact_backend_v1"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
