@@ -11057,8 +11057,9 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
             : "disabled"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
-       {"target_lifetime", "one_guest_frame"},
-       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"target_lifetime", "one_guest_frame"},
+        {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"preview_publication", "disabled_pending_complete_scene_compositor"},
        {"semantic_lineage",
         semantic_lineage_armed ? "armed" : "unavailable"},
        {"readback", "disabled"},
@@ -11067,7 +11068,7 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
                            ? "continuous_world_workset"
                            : "false"},
        {"xenos_draw", "preserved"},
-       {"output_authority", "renderer_selector"},
+        {"output_authority", "xenos_until_complete_scene_compositor"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
 }
@@ -27596,11 +27597,12 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
         g_continuous_world_workset.static_world_requested
             ? "exact_presentation_resource_mesh_transform_lineage"
             : "disabled"},
-       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"preview_publication", "disabled_pending_complete_scene_compositor"},
        {"readback", "disabled"},
        {"native_draw", "continuous_world_workset"},
        {"xenos_draw", "preserved"},
-       {"output_authority", "renderer_selector"},
+        {"output_authority", "xenos_until_complete_scene_compositor"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
 }
@@ -28055,7 +28057,12 @@ void RequestIsolatedDraw(
     request.color_only_target = color_only_target;
     request.retain_target = true;
     request.reuse_target = reuse_target;
-    request.defer_preview_publication_until_swap = true;
+    // A target-family transition currently reseeds the single retained target,
+    // so the last successful replay is not proof of a complete scene. Keep the
+    // workset private until a compositor can preserve and join every required
+    // camera-consistent family. Publishing the last isolated target produces
+    // the known wrong-view / missing-world prototype.
+    request.defer_preview_publication_until_swap = false;
     request.frame_accumulator_source = exact_procedural_color_producer;
     request.frame_sequence = g_isolated_draw.frame;
     request.reference_marker_requested = true;

@@ -120,7 +120,13 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         )
         self.assertIn("kContinuousWorldWorksetMaximumDrawsPerFrame = 64", source)
         self.assertIn("request.reuse_target = reuse_target", source)
-        self.assertIn("request.defer_preview_publication_until_swap = true", source)
+        self.assertIn("request.defer_preview_publication_until_swap = false", source)
+        self.assertIn(
+            '"disabled_pending_complete_scene_compositor"', source
+        )
+        self.assertIn(
+            '"xenos_until_complete_scene_compositor"', source
+        )
         self.assertIn("qualified_retained_family_requests", source)
         self.assertIn("prepared_track_texture_provider", source)
         self.assertIn("prepared_track_render_model_scope", source)
