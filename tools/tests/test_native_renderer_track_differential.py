@@ -18,12 +18,37 @@ def events(session, mode, calls):
     expected = MODULE.MODE_VALUES[mode]
     return [
         {"event": "process.start", **common, "executable_sha256": "EXE", "rexglue_patch_set_sha256": "PATCH", "rexglue_patch_count": "102"},
-        {"event": MODULE.CONFIG, **common, "status": "complete", "mode": mode, "fast_track_render": "true" if expected[0] else "false", "road_detail_blur": "true" if expected[1] else "false", "track_command_buffers": "true" if expected[2] else "false", "address_consistent": "true", "xenos_authority": "true", "native_draw": "false", "suppression_allowed": "false"},
+        {"event": MODULE.CONFIG, **common, "status": "complete", "mode": mode, "fast_track_render": "true" if expected[0] else "false", "road_detail_blur": "true" if expected[1] else "false", "track_command_buffers": "true" if expected[2] else "false", "track_far_distance": str(expected[3]), "address_consistent": "true", "xenos_authority": "true", "native_draw": "false", "suppression_allowed": "false"},
         {"event": MODULE.INSTALLED, **common, "scene": "open_world_day"},
         {"event": MODULE.DRAW_WINDOW, **common, "first_frame": "1", "last_frame": "600", "draws": "1200", "overflow_draws": "0"},
         {"event": MODULE.PROVENANCE, **common, "outcome": "prepared", "semantic_identity": "procedural_model_submission", "prepared_signature": "AABBCCDDEEFF0011", "calls": str(calls), "semantic_vertex_shader": "1111111111111111", "semantic_pixel_shader": "2222222222222222", "semantic_template_key": "3333333333333333", "semantic_receiver_address": "AAAABBBB", "semantic_receiver_generation": "1", "semantic_record_index": "7", "xenos_draw": "preserved", "suppression_eligible": "false"},
         {"event": "process.shutdown", **common},
     ]
+
+
+def candidate(session, rejection_mask="00000000"):
+    return {
+        "event": MODULE.PREPARED_CANDIDATE,
+        "schema": 1,
+        "session": session,
+        "candidate_key": "1234567890ABCDEF",
+        "prepared_signature": "AABBCCDDEEFF0011",
+        "draws": "12",
+        "first_frame": "500",
+        "last_frame": "511",
+        "mechanically_eligible": (
+            "true" if rejection_mask == "00000000" else "false"
+        ),
+        "mechanical_rejection_mask": rejection_mask,
+        "visibility_category": "11",
+        "visibility_result_mask": "7",
+        "guest_state_changed": "false",
+        "control_flow_changed": "false",
+        "native_upload": "false",
+        "native_draw": "false",
+        "xenos_draw": "preserved",
+        "suppression_allowed": "false",
+    }
 
 
 class NativeRendererTrackDifferentialTests(unittest.TestCase):
@@ -67,6 +92,44 @@ class NativeRendererTrackDifferentialTests(unittest.TestCase):
         )
         self.assertEqual(
             120, document["changed_families"][0]["noroaddetailblur_calls"]
+        )
+
+    def test_qualifies_track_far_distance_as_an_isolated_variant(self):
+        baseline = events("baseline-session", "baseline", 60)
+        baseline.insert(-1, candidate("baseline-session"))
+        document = MODULE.build(
+            baseline,
+            events("far-session", "trackfardistance", 120),
+            track_mode="trackfardistance",
+        )
+        self.assertEqual("complete", document["status"])
+        self.assertEqual(
+            "trackfardistance", document["qualification"]["isolated_mode"]
+        )
+        join = document["semantic_visibility_join"]
+        self.assertEqual(1, join["changed_signature_count_with_candidate_lineage"])
+        self.assertEqual(1, join["mechanically_eligible_changed_signature_count"])
+        self.assertEqual(
+            ["AABBCCDDEEFF0011"],
+            join["mechanically_eligible_changed_signatures"],
+        )
+        self.assertFalse(join["representative_gameplay_identity_proved"])
+        self.assertFalse(join["native_admission_allowed"])
+
+    def test_rejects_candidate_mask_eligibility_disagreement(self):
+        baseline = events("baseline-session", "baseline", 60)
+        entry = candidate("baseline-session", "00000001")
+        entry["mechanically_eligible"] = "true"
+        baseline.insert(-1, entry)
+        document = MODULE.build(
+            baseline,
+            events("far-session", "trackfardistance", 120),
+            track_mode="trackfardistance",
+        )
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "baseline: prepared candidate eligibility disagrees with its mask",
+            document["failures"],
         )
 
     def test_qualifies_disabled_track_command_buffers_as_an_isolated_variant(self):

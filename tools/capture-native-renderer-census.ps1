@@ -18,6 +18,11 @@ param(
     [string]$IsolatedDrawDir,
     [switch]$ShadowDepthIsolated,
     [switch]$ShadowDepthBatch,
+    [switch]$VehicleShadowGeometryCorrelation,
+    [switch]$CaptureVehicleShadowColor,
+    [switch]$RetainVehicleShadowColorPass,
+    [ValidatePattern('^[0-9A-Fa-f]{16}$')]
+    [string]$VehicleResourceContribution,
     [switch]$PublishShadowDepth,
     [switch]$ContinuousShadowDepth,
     [ValidateRange(2, 120)]
@@ -28,10 +33,16 @@ param(
     [switch]$RequireTitleLodCandidate,
     [switch]$VisibilityShadowReplay,
     [switch]$ContinuousWorldWorkset,
+    [switch]$ContinuousTrackWorld,
+    [switch]$ContinuousStaticWorld,
+    [switch]$PhaseCQualification,
     [switch]$VehicleDrawCorrelation,
     [switch]$ShadowCasterProvenance,
+    [switch]$ProceduralFrameAccumulator,
+    [switch]$ScaledAccumulatorQualification,
     [ValidateSet(
         'baseline',
+        'trackfardistance',
         'fasttrackrender',
         'noroaddetailblur',
         'notrackcommandbuffers'
@@ -50,6 +61,30 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# One long-lived profile for the pending C1/C2 runtime gates and passive C4
+# semantic/material joins. The isolated per-resource vehicle readback remains
+# a separate run because shadow-depth capture and the continuous workset are
+# intentionally mutually exclusive.
+if ($PhaseCQualification) {
+    if ($Scene -eq 'unmarked') {
+        $Scene = 'open_world_day'
+    }
+    $ContinuousWorldWorkset = $true
+    $ContinuousTrackWorld = $true
+    $ContinuousStaticWorld = $true
+    $VehicleDrawCorrelation = $true
+}
+
+if ($ScaledAccumulatorQualification) {
+    if ($Scene -eq 'unmarked') {
+        $Scene = 'open_world_day'
+    }
+    $ProceduralFrameAccumulator = $true
+    $ContinuousWorldWorkset = $true
+    $ContinuousTrackWorld = $true
+    $ContinuousStaticWorld = $true
+}
 
 if (-not $StateRoot) {
     $sourceRoot = Join-Path $env:LOCALAPPDATA 'PinyonShift\source'
@@ -108,6 +143,21 @@ if ($ShadowDepthIsolated -and -not $IsolatedDrawDir) {
 if ($ShadowDepthBatch -and -not $IsolatedDrawDir) {
     throw 'ShadowDepthBatch requires IsolatedDrawDir.'
 }
+if ($VehicleShadowGeometryCorrelation -and -not $ShadowDepthBatch) {
+    throw 'VehicleShadowGeometryCorrelation requires ShadowDepthBatch.'
+}
+if ($CaptureVehicleShadowColor -and -not $VehicleShadowGeometryCorrelation) {
+    throw 'CaptureVehicleShadowColor requires VehicleShadowGeometryCorrelation.'
+}
+if ($RetainVehicleShadowColorPass -and -not $CaptureVehicleShadowColor) {
+    throw 'RetainVehicleShadowColorPass requires CaptureVehicleShadowColor.'
+}
+if ($VehicleResourceContribution -and -not $CaptureVehicleShadowColor) {
+    throw 'VehicleResourceContribution requires CaptureVehicleShadowColor.'
+}
+if ($VehicleResourceContribution -and $RetainVehicleShadowColorPass) {
+    throw 'VehicleResourceContribution and RetainVehicleShadowColorPass are mutually exclusive.'
+}
 if ($PublishShadowDepth -and -not $ShadowDepthBatch) {
     throw 'PublishShadowDepth requires ShadowDepthBatch.'
 }
@@ -137,6 +187,12 @@ if ($ContinuousWorldWorkset -and
         $AutoSelectFreshVisibilityCandidate -or $RequireTitleLodCandidate -or
         $PassAnchorSignature -or $PublishRetainedPass)) {
     throw 'ContinuousWorldWorkset is mutually exclusive with isolated/pass replay options.'
+}
+if ($ContinuousStaticWorld -and -not $ContinuousWorldWorkset) {
+    throw 'ContinuousStaticWorld requires ContinuousWorldWorkset.'
+}
+if ($ContinuousTrackWorld -and -not $ContinuousWorldWorkset) {
+    throw 'ContinuousTrackWorld requires ContinuousWorldWorkset.'
 }
 if ($PublishRetainedPass -and
     (-not $IsolatedDrawSignature -or -not $PassAnchorSignature)) {
@@ -212,6 +268,11 @@ if ($ConsumerReadbackDir) {
 
 $savedCensus = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS
 $savedDiscovery = $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY
+$savedProceduralFrameAccumulator =
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR
+$savedScaledAccumulatorQualification =
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_SCALED_ACCUMULATOR_QUALIFICATION
+$savedNativeRenderer = $env:REX_PINYON_SHIFT_NATIVE_RENDERER
 $savedScene = $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE
 $savedIndexScan = $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE
 $savedTextureScan = $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE
@@ -221,6 +282,14 @@ $savedIsolatedDraw = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_SIGNATURE
 $savedIsolatedDrawDir = $env:PINYON_SHIFT_NATIVE_RENDERER_ISOLATED_DRAW_DIR
 $savedShadowDepthIsolated = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_ISOLATED
 $savedShadowDepthBatch = $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH
+$savedVehicleShadowGeometryCorrelation =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION
+$savedVehicleShadowColorCapture =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE
+$savedVehicleShadowColorRetainedPass =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS
+$savedVehicleResourceContribution =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION
 $savedShadowDepthPublication =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION
 $savedShadowDepthContinuous =
@@ -237,6 +306,10 @@ $savedVisibilityShadowReplay =
     $env:PINYON_SHIFT_NATIVE_RENDERER_VISIBILITY_SHADOW_REPLAY
 $savedContinuousWorldWorkset =
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET
+$savedContinuousTrackWorld =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD
+$savedContinuousStaticWorld =
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD
 $savedShadowCasterProvenance =
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE
 $savedTrackRenderMode = $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE
@@ -254,6 +327,13 @@ try {
             $ShadowCasterProvenance -or $trackDifferentialRequested) {
             'true'
         } else { $savedDiscovery }
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR =
+        if ($ProceduralFrameAccumulator) { 'true' } else { $null }
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_SCALED_ACCUMULATOR_QUALIFICATION =
+        if ($ScaledAccumulatorQualification) { 'true' } else { $null }
+    if ($ScaledAccumulatorQualification) {
+        $env:REX_PINYON_SHIFT_NATIVE_RENDERER = 'xenos'
+    }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $Scene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $IndexScanSignature
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $TextureScanSignature
@@ -265,6 +345,14 @@ try {
         if ($ShadowDepthIsolated) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         if ($ShadowDepthBatch) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
+        if ($VehicleShadowGeometryCorrelation) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE =
+        if ($CaptureVehicleShadowColor) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS =
+        if ($RetainVehicleShadowColorPass) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION =
+        $VehicleResourceContribution
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         if ($PublishShadowDepth) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
@@ -287,6 +375,10 @@ try {
         if ($VisibilityShadowReplay) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
         if ($ContinuousWorldWorkset) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD =
+        if ($ContinuousTrackWorld) { 'true' } else { $null }
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD =
+        if ($ContinuousStaticWorld) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         if ($ShadowCasterProvenance) { 'true' } else { $null }
     $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $TrackRenderMode
@@ -304,6 +396,11 @@ try {
 finally {
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_CENSUS = $savedCensus
     $env:REX_PINYON_SHIFT_NATIVE_RENDERER_DISPATCH_DISCOVERY = $savedDiscovery
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR =
+        $savedProceduralFrameAccumulator
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER_SCALED_ACCUMULATOR_QUALIFICATION =
+        $savedScaledAccumulatorQualification
+    $env:REX_PINYON_SHIFT_NATIVE_RENDERER = $savedNativeRenderer
     $env:PINYON_SHIFT_NATIVE_RENDERER_SCENE = $savedScene
     $env:PINYON_SHIFT_NATIVE_RENDERER_INDEX_SCAN_SIGNATURE = $savedIndexScan
     $env:PINYON_SHIFT_NATIVE_RENDERER_TEXTURE_SCAN_SIGNATURE = $savedTextureScan
@@ -315,6 +412,14 @@ finally {
         $savedShadowDepthIsolated
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH =
         $savedShadowDepthBatch
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION =
+        $savedVehicleShadowGeometryCorrelation
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE =
+        $savedVehicleShadowColorCapture
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS =
+        $savedVehicleShadowColorRetainedPass
+    $env:PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION =
+        $savedVehicleResourceContribution
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION =
         $savedShadowDepthPublication
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_CONTINUOUS =
@@ -332,6 +437,10 @@ finally {
         $savedVisibilityShadowReplay
     $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET =
         $savedContinuousWorldWorkset
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD =
+        $savedContinuousTrackWorld
+    $env:PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD =
+        $savedContinuousStaticWorld
     $env:PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE =
         $savedShadowCasterProvenance
     $env:PINYON_SHIFT_NATIVE_RENDERER_TRACK_RENDER_MODE = $savedTrackRenderMode

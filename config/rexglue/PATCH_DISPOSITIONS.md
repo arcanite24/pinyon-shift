@@ -3,6 +3,8 @@
 The resulting source is now materialized in ShiftGlue migration commit
 `079c10ef1fbe3ef418a1c535ac025ab39dda7a2d`; these numbers are retained only as
 historical migration evidence and are no longer replayed during setup.
+Later renderer patches 0103–0122 were migrated as normal fork commits through
+`01534689ad33442423dc089dd27d08eb984e12eb`.
 
 This record covers every patch in the ReXGlue 0.9.0 series that was present at
 project revision `b00fcfe40b544d09cec034fc432fa05cf418d286`. The replacement

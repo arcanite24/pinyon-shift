@@ -255,6 +255,27 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem *graphics_system) {
   const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
   const bool legacy_clear =
       REXCVAR_GET(pinyon_shift_native_renderer_diagnostic_clear);
+  const bool prototype_mode =
+      mode == "native_prototype" || mode == "hybrid_prototype" ||
+      mode == "comparison_native" || mode == "comparison_xenos";
+  const std::string draw_resolution_scale_x =
+      rex::cvar::GetFlagByName("draw_resolution_scale_x");
+  const std::string draw_resolution_scale_y =
+      rex::cvar::GetFlagByName("draw_resolution_scale_y");
+  if (prototype_mode &&
+      (draw_resolution_scale_x != "1" || draw_resolution_scale_y != "1")) {
+    diagnostics::RecordEvent(
+        "native_renderer.output.failure",
+        {{"reason", "unsupported_draw_resolution_scale"},
+         {"requested_mode", mode},
+         {"draw_resolution_scale_x", draw_resolution_scale_x},
+         {"draw_resolution_scale_y", draw_resolution_scale_y},
+         {"qualified_scale", "1x1"},
+         {"fallback", "xenos"},
+         {"xenos_draw", "preserved"},
+         {"suppression", "disabled"}});
+    return;
+  }
   if (mode == "xenos" && !legacy_clear) {
     diagnostics::RecordEvent("native_renderer.output.state",
                              {{"mode", "xenos"}, {"authority", "xenos"}});

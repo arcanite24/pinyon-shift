@@ -36,8 +36,11 @@ class NativeRendererPrototypeComparisonTests(unittest.TestCase):
         )
         self.assertIn("qualified_retained_family_requests", hooks)
         self.assertIn(
-            "fresh_visibility_or_qualified_sky_horizon_and_mechanical", hooks
+            "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical",
+            hooks,
         )
+        self.assertIn("static_world_requested = false", hooks)
+        self.assertIn("prepared_static_world_exact", hooks)
         self.assertIn("!g_isolated_draw.prepared_candidate_eligible", hooks)
 
     def test_capture_does_not_inject_legacy_isolated_draw_configuration(self):

@@ -200,6 +200,71 @@ address = 0x8240E7B4
 name = "PinyonShiftObserveVehicleMatrixCallerEntry"
 registers = ["r6", "r12"]
 
+# Phase C1 unified track-presentation pass census. Retail RTTI proves slots
+# 78-81 of Presentation_Unified::CTrackPresentation resolve to these exact
+# functions, with the previously followed 8240E7B0 path at slot 79. Balanced
+# passive scopes distinguish which adjacent title-owned passes are live in the
+# saved world before extending packet lineage to the opaque road/terrain pass.
+# Only r3's vtable is read; registers, control flow, draws, and output remain
+# unchanged.
+[[midasm_hook]]
+address = 0x82DEEEE0
+name = "PinyonShiftObserveTrackPresentationSlot78Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEF2A4
+name = "PinyonShiftObserveTrackPresentationSlot78Exit"
+
+[[midasm_hook]]
+address = 0x8240E7B0
+name = "PinyonShiftObserveTrackPresentationSlot79Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x8240ED40
+name = "PinyonShiftObserveTrackPresentationSlot79Exit"
+
+[[midasm_hook]]
+address = 0x82DEF2B0
+name = "PinyonShiftObserveTrackPresentationSlot80Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEFE78
+name = "PinyonShiftObserveTrackPresentationSlot80Exit"
+
+[[midasm_hook]]
+address = 0x82DEADE0
+name = "PinyonShiftObserveTrackPresentationSlot81Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEAEE8
+name = "PinyonShiftObserveTrackPresentationSlot81Exit"
+
+# Slot 80 can bypass the common 82436468 render-context dispatcher through
+# the title-owned 8243BD40 adapter. These passive stages distinguish adapter
+# entry, its two title gates, and the final virtual target while an exact
+# track-presentation scope is active. They do not modify the adapter, target,
+# arguments, or control flow.
+[[midasm_hook]]
+address = 0x8243BD40
+name = "PinyonShiftObserveTrackPresentationAdapterEntry"
+
+[[midasm_hook]]
+address = 0x8243BD78
+name = "PinyonShiftObserveTrackPresentationAdapterEnabled"
+
+[[midasm_hook]]
+address = 0x8243BDA8
+name = "PinyonShiftObserveTrackPresentationAdapterEligible"
+
+[[midasm_hook]]
+address = 0x8243BEB4
+name = "PinyonShiftObserveTrackPresentationAdapterDispatch"
+registers = ["ctr"]
+
 # After the 8240E7B0 render-item predicate succeeds, title instructions have
 # resolved r31's typed child/descriptor chain and immediately read through
 # descriptor offset 244. Observe that exact-lifetime root and descriptor for a
@@ -210,6 +275,192 @@ address = 0x8240EC18
 name = "PinyonShiftObserveVehicleTypedRenderItem"
 registers = ["r11", "r31"]
 
+# Phase C1 exact track-render-model scope. At 0x8240EC80 every title predicate
+# has accepted r31, whose RTTI-proved unified instance owns the unified render
+# model at +4 and its live descriptor through child +48 then +128. The balanced
+# return hook runs immediately after the nested 0x82436468 dispatch. Runtime
+# joins only procedural-model submissions made synchronously inside this exact
+# dynamic-type scope; it changes no registers, guest state, or control flow.
+[[midasm_hook]]
+address = 0x8240EC80
+name = "PinyonShiftObserveTrackRenderModelDispatchEntry"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x8240ECAC
+name = "PinyonShiftObserveTrackRenderModelDispatchExit"
+
+# Phase C2 exact model-presentation owner scope. Retail RTTI proves slot 12 of
+# Presentation_Unified::CModelPresentation is 0x823F8DB8 and every path joins
+# at 0x823F8FA0. The nested SimpleModel renderer dispatch is accepted only when
+# the presentation's offset-1608 renderer field equals the dispatch receiver
+# and its exact offset-148 CSimpleModelResource equals renderer offset 72.
+[[midasm_hook]]
+address = 0x823F8DB8
+name = "PinyonShiftObserveStaticWorldPresentationDispatchEntry"
+registers = ["r3"]
+
+# Record whether the exact presentation preparation helper accepts the owner
+# before slot 12 either returns early or enters its renderer path.
+[[midasm_hook]]
+address = 0x823F8DE0
+name = "PinyonShiftObserveStaticWorldPresentationPrepareOutcome"
+registers = ["r3", "r31"]
+
+[[midasm_hook]]
+address = 0x823F8FA0
+name = "PinyonShiftObserveStaticWorldPresentationDispatchExit"
+
+# Observe the exact virtual renderer handoff after slot 12 is loaded but before
+# mtctr/bctrl. This distinguishes the base and deferred renderer families and
+# validates owner/resource equality without assuming the callee target.
+[[midasm_hook]]
+address = 0x823F8F1C
+name = "PinyonShiftObserveStaticWorldPresentationRendererHandoff"
+registers = ["r3", "r11"]
+
+# Deferred SimpleModel slot 12 queues a task at 82585F84. Callback 82BA61D0
+# later invokes slot 12 on the deferred target object. Keep the task identity
+# across that asynchronous boundary without changing the queue or callback.
+[[midasm_hook]]
+address = 0x82585F84
+name = "PinyonShiftObserveStaticWorldDeferredTaskPublish"
+registers = ["r7", "r31"]
+
+[[midasm_hook]]
+address = 0x82BA61D0
+name = "PinyonShiftObserveStaticWorldDeferredTaskCallback"
+registers = ["r3", "r4"]
+
+[[midasm_hook]]
+address = 0x82BA61DC
+name = "PinyonShiftObserveStaticWorldDeferredTaskHandoff"
+registers = ["r3", "r11"]
+
+# The title has thirteen statically enumerated direct calls to the indexed-draw
+# emitter. At entry, LR identifies the exact producer. Only the unified track
+# mesh return also interprets preserved r26 as the RTTI-proved CTrackMesh and
+# r31 as the 64-byte transform consumed by that producer. The bounded census
+# changes no arguments, packets, guest state, authority, or suppression.
+[[midasm_hook]]
+address = 0x82416380
+name = "PinyonShiftObserveDirectIndexedDrawProducer"
+registers = ["r26", "r31", "lr"]
+
+[[midasm_hook]]
+address = 0x824167EC
+name = "PinyonShiftObserveDirectIndexedDrawProducerExit"
+
+# Phase C2 exact SimpleModel renderer scope. Retail RTTI proves vtable slot 12
+# resolves to 0x82C4CCC8. Entry r3 is the CSimpleModelRenderer instance and r4
+# is its render context; every path converges at 0x82C4DEA0. The scope attaches
+# only to PM4_DRAW_INDX headers emitted synchronously through 0x82416380 and
+# changes no registers, guest state, packets, control flow, or Xenos authority.
+[[midasm_hook]]
+address = 0x82C4CCC8
+name = "PinyonShiftObserveStaticWorldRendererDispatchEntry"
+registers = ["r3", "r4"]
+
+[[midasm_hook]]
+address = 0x82C4DEA0
+name = "PinyonShiftObserveStaticWorldRendererDispatchExit"
+
+# Immediately around the exact indexed-draw call, r26 is the embedded
+# CSimpleModel, r29 is its selected CSimpleSubModel, and r28 is the selected
+# CSimpleMesh. Runtime validates all three RTTI vtables and the resource+112
+# relation before carrying these addresses into packet provenance.
+[[midasm_hook]]
+address = 0x82C4DC54
+name = "PinyonShiftObserveStaticWorldMemberDrawEntry"
+registers = ["r26", "r29", "r28"]
+
+[[midasm_hook]]
+address = 0x82C4DC58
+name = "PinyonShiftObserveStaticWorldMemberDrawExit"
+
+# The exact CSimpleModelRenderer lifecycle and its owned offset-72 graph
+# boundary. Construction publishes only after the complete 368-byte object is
+# initialized. Destruction is balanced around the complete destructor. Slot 1
+# observes graph binding after 0x82C48038 returns; slot 15 and the destructor
+# cleanup observe the old graph before clearing/releasing it. These hooks are
+# passive and preserve every title release and allocation side effect.
+[[midasm_hook]]
+address = 0x82C4E094
+name = "PinyonShiftObserveStaticWorldRendererConstructed"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C4E1F8
+name = "PinyonShiftObserveStaticWorldRendererDestructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C4E264
+name = "PinyonShiftObserveStaticWorldRendererDestructorExit"
+
+[[midasm_hook]]
+address = 0x82C4CCB0
+name = "PinyonShiftObserveStaticWorldRendererGraphBind"
+registers = ["r30"]
+
+[[midasm_hook]]
+address = 0x82C4C6A8
+name = "PinyonShiftObserveStaticWorldRendererGraphRelease"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C4E0A0
+name = "PinyonShiftObserveStaticWorldRendererGraphRelease"
+registers = ["r3"]
+
+# Slot-1 binding creates or retrieves an exact 320-byte
+# CSimpleModelResource. Publish only after the derived vtable is installed,
+# observe both the new and existing-resource paths at their shared output
+# join, and balance the complete resource destructor. The title's reference
+# assignment, registration, and release calls remain authoritative.
+[[midasm_hook]]
+address = 0x82C47FBC
+name = "PinyonShiftObserveStaticWorldResourceConstructed"
+registers = ["r29"]
+
+[[midasm_hook]]
+address = 0x82C4802C
+name = "PinyonShiftObserveStaticWorldResourceRegistration"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C47DF8
+name = "PinyonShiftObserveStaticWorldResourceDestructorEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C47E44
+name = "PinyonShiftObserveStaticWorldResourceDestructorExit"
+
+# CSimpleModelResource slots 16 and 22 both clear and release the owned
+# pointer at offset 64. Observe balanced entry/exit boundaries so each exact
+# completed reset invalidates the passive payload generation. Slot 22 is
+# shared by other resource classes, which remain explicitly excluded by RTTI.
+[[midasm_hook]]
+address = 0x82C46440
+name = "PinyonShiftObserveStaticWorldResourceDirectResetEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C46480
+name = "PinyonShiftObserveStaticWorldResourceDirectResetExit"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82C222C8
+name = "PinyonShiftObserveStaticWorldResourceRefreshResetEntry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C2231C
+name = "PinyonShiftObserveStaticWorldResourceRefreshResetExit"
+registers = ["r30"]
+
 # Immediately before 8240E7B0 submits its 64-byte matrix payload to 82435E78,
 # r22 still owns the original r7 object/reference matrix and r5 points at the
 # fully composed stack payload. Compare both exact live matrices with admitted
@@ -218,6 +469,25 @@ registers = ["r11", "r31"]
 address = 0x8240EB5C
 name = "PinyonShiftObserveVehicleComposedMatrix"
 registers = ["r5", "r22"]
+
+# Observe the exact generic constant-buffer writer before it copies the source
+# vectors. The bounded C4 ledger retains only a semantic payload hash and the
+# typed destination range so prepared vehicle draws can prove their upload
+# source without exporting constant values.
+[[midasm_hook]]
+address = 0x82435E78
+name = "PinyonShiftObserveVehicleTypedConstantUpload"
+registers = ["r3", "r4", "r5", "r6", "lr"]
+
+# Exact title-owned tire/wheel material binding. 82549670 receives the car
+# material root in r3, its root+1056 destination binding in r4, the UI-load
+# flag in r5, and the normal/SLOD selector in r6. The passive census hashes
+# only the MSVC asset-key string at root+1712 and retains exact draw-argument
+# address joins; it never exports a path or changes the bind.
+[[midasm_hook]]
+address = 0x82549670
+name = "PinyonShiftObserveVehicleMaterialBinding"
+registers = ["r3", "r4", "r5", "r6"]
 
 [[midasm_hook]]
 address = 0x8243646C
@@ -268,6 +538,11 @@ name = "PinyonShiftObserveProceduralModelDestructorExit"
 # live CForzaCommandLineParameters object in r30 and copies exact option fields
 # into runtime render state rooted at r31. Hooks observe registers after each
 # source load/transform and before the original destination store.
+[[midasm_hook]]
+address = 0x824F7DC0
+name = "PinyonShiftObserveTrackFarDistanceConfiguration"
+registers = ["f0"]
+
 [[midasm_hook]]
 address = 0x8259C834
 name = "PinyonShiftObserveFastTrackRenderConfiguration"
@@ -644,6 +919,36 @@ registers = ["r28", "r31"]
 address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"
 registers = ["r1", "r30", "r31"]
+
+# C4 exact player/traffic semantic ingress. CMapEntityVehicleBase virtual slot
+# 11 is the retail one-instruction vehicle-ID getter at 0x82BBA010. Observe its
+# receiver before the load so the host can census only RTTI-locked vehicle
+# entity vtables and compare the exact ID with the existing pose identity. The
+# hook reads the already-live main vtable, ID, and exact type-name pointer only; it
+# does not scan an object, change guest state, publish native output, or permit
+# suppression.
+[[midasm_hook]]
+address = 0x82BBA010
+name = "PinyonShiftObserveVehicleMapEntity"
+registers = ["r3"]
+
+# The getter qualification found the exact local-player RTTI object but its
+# vehicle ID remained the unassigned 0xFFFFFFFF sentinel. Observe the shared
+# virtual setter immediately before its exact stw r4,12(r3) so the assigned ID
+# and receiver identity are retained without changing the store or guest state.
+[[midasm_hook]]
+address = 0x82CCF228
+name = "PinyonShiftObserveVehicleMapEntityIdAssignment"
+registers = ["r3", "r4"]
+
+# Retail initialization stores the completed 1,792-byte vehicle-map pool at
+# root offset 24 here. Its exact constructor embeds player_local at pool+32 and
+# retains root+4 at pool+16. Observe only those proved lineage addresses.
+[[midasm_hook]]
+address = 0x826291A8
+name = "PinyonShiftObserveVehiclePlayerPool"
+registers = ["r3", "r31"]
+after_instruction = true
 
 # NR-05E owner-vtable draw correlation. Runtime-qualified vtable 0x8213BA54
 # contains 19 nontrivial method bodies after trivial getters, null handlers,

@@ -9,7 +9,7 @@ import re
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-config.v2"
+SCHEMA = "pinyon-shift.native-renderer-track-config.v3"
 IMAGE_BASE = 0x82000000
 FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
@@ -19,6 +19,9 @@ COMMAND_LINE_FUNCTION = 0x824F8150
 RUNTIME_COPY_FUNCTION = 0x8259C7D8
 COMMAND_LINE_VTABLE = 0x8200E724
 COMMAND_LINE_TYPE = ".?AVCForzaCommandLineParameters@@"
+TRACK_FAR_DEFAULT_FUNCTION = 0x824F7898
+TRACK_FAR_DEFAULT_VALUE = 55.0
+TRACK_FAR_DEFAULT_BITS = 0x425C0000
 
 OPTIONS = {
     "perfmode": {
@@ -146,7 +149,8 @@ def require(function: dict[int, str], address: int, text: str, label: str) -> No
 def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
     command_line = functions.get(COMMAND_LINE_FUNCTION)
     runtime_copy = functions.get(RUNTIME_COPY_FUNCTION)
-    if command_line is None or runtime_copy is None:
+    track_far_default = functions.get(TRACK_FAR_DEFAULT_FUNCTION)
+    if command_line is None or runtime_copy is None or track_far_default is None:
         raise ValueError("track configuration function set is incomplete")
 
     locator = image_u32(image, COMMAND_LINE_VTABLE - 4)
@@ -176,6 +180,21 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
 
     for address, text in PERFMODE_FANOUT.items():
         require(command_line, address, text, "perfmode fanout")
+
+    require(
+        track_far_default,
+        0x824F7DB8,
+        "lfs f0,-3056(r11)",
+        "trackfardistance default source",
+    )
+    require(
+        track_far_default,
+        0x824F7DC0,
+        "stfs f0,4176(r31)",
+        "trackfardistance live option store",
+    )
+    if image_u32(image, 0x8200F410) != TRACK_FAR_DEFAULT_BITS:
+        raise ValueError("trackfardistance default value drifted")
 
     require(runtime_copy, 0x8259C7E8, "bl 0x82479e88", "parameter lookup")
     require(runtime_copy, 0x8259C7EC, "mr r30,r3", "parameter receiver")
@@ -215,29 +234,47 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
             "baseline_arguments": [],
             "track_arguments": [],
             "runtime_control": (
-                "exact_runtime_copy_overrides_"
-                "8259C834_8259C89C_8259C8DC"
+                "exact_option_and_runtime_overrides_"
+                "824F7DC0_8259C834_8259C89C_8259C8DC"
             ),
+            "track_far_distance_control": {
+                "command_line_field_offset": 4176,
+                "default_source_address": "8200F410",
+                "default_store_address": "824F7DC0",
+                "baseline_value": TRACK_FAR_DEFAULT_VALUE,
+                "isolated_value": 5.0,
+                "downstream_consumer_proved": False,
+            },
             "modes": {
                 "baseline": {
+                    "track_far_distance": TRACK_FAR_DEFAULT_VALUE,
                     "fast_track_render": False,
                     "road_detail_blur": True,
                     "track_command_buffers": True,
                 },
                 "fasttrackrender": {
+                    "track_far_distance": TRACK_FAR_DEFAULT_VALUE,
                     "fast_track_render": True,
                     "road_detail_blur": True,
                     "track_command_buffers": True,
                 },
                 "noroaddetailblur": {
+                    "track_far_distance": TRACK_FAR_DEFAULT_VALUE,
                     "fast_track_render": False,
                     "road_detail_blur": False,
                     "track_command_buffers": True,
                 },
                 "notrackcommandbuffers": {
+                    "track_far_distance": TRACK_FAR_DEFAULT_VALUE,
                     "fast_track_render": False,
                     "road_detail_blur": True,
                     "track_command_buffers": False,
+                },
+                "trackfardistance": {
+                    "track_far_distance": 5.0,
+                    "fast_track_render": False,
+                    "road_detail_blur": True,
+                    "track_command_buffers": True,
                 },
             },
             "scene_must_match": True,

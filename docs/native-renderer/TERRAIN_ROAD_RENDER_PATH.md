@@ -18,16 +18,22 @@ identity drifts. The relevant title fields are:
 | Option | Command-line field | Runtime field | Role |
 | --- | ---: | ---: | --- |
 | `fasttrackrender` | 4204 | 6297 | isolated title track-family switch |
-| `trackfardistance` | 4176 | not yet proved | floating distance control |
+| `trackfardistance` | 4176 | live option store proved; downstream consumer open | floating distance control |
 | `renderroaddetailblur` | 4181 | 6035 | road-detail effect switch |
 | `notrackcommandbuffers` | 2732 | 6230/6232 | inverted command-buffer control |
 
-The runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
+The `trackfardistance` default load and live-object store occur in
+`sub_824F7898` at `0x824F7DB8` and `0x824F7DC0`. The source image value is
+exactly `55.0`; the isolated mode replaces only that store with `5.0` and
+records both values. This proves deterministic ownership of the title option,
+but not yet the downstream renderer consumer.
+
+The boolean runtime copy occurs in `sub_8259C7D8` after the title retrieves the live
 command-line parameter object. The retail startup path does not consume
 ReXGlue's `ExLoadedCommandLine` bridge for this object. The census therefore
-uses opt-in hooks at the exact `fasttrackrender`, `renderroaddetailblur`, and
+uses opt-in hooks at the exact `trackfardistance`, `fasttrackrender`, `renderroaddetailblur`, and
 transformed `notrackcommandbuffers` destination stores (`0x8259C834`,
-`0x8259C89C`, and `0x8259C8DC`). It forces a deterministic one-switch mode and
+`0x8259C89C`, and `0x8259C8DC`, plus `0x824F7DC0`). It forces a deterministic one-switch mode and
 records every original value. This proves a bounded title configuration path;
 it does not yet prove which prepared signatures are terrain, road surface,
 track props, or an exceptional dependent family.
@@ -43,16 +49,17 @@ python tools/discover-native-renderer-track-config.py `
 
 ## Paired runtime census
 
-The census wrapper accepts four deterministic modes. Each mode forces all
-three proved booleans at their exact runtime-copy instruction so only one
-value differs from the baseline:
+The census wrapper accepts five deterministic modes. Each mode forces the
+proved floating option and all three booleans at their exact stores so only
+one value differs from the baseline:
 
-| Mode | Fast track | Road-detail blur | Track command buffers |
-| --- | --- | --- | --- |
-| `baseline` | off | on | on |
-| `fasttrackrender` | on | on | on |
-| `noroaddetailblur` | off | off | on |
-| `notrackcommandbuffers` | off | on | off |
+| Mode | Track far distance | Fast track | Road-detail blur | Track command buffers |
+| --- | ---: | --- | --- | --- |
+| `baseline` | 55.0 | off | on | on |
+| `trackfardistance` | 5.0 | off | on | on |
+| `fasttrackrender` | 55.0 | on | on | on |
+| `noroaddetailblur` | 55.0 | off | off | on |
+| `notrackcommandbuffers` | 55.0 | off | on | off |
 
 These controls do not enable the broader `perfmode` group. Explicitly
 supplying a mode also arms the exact prepared-draw provenance required by the
@@ -86,18 +93,20 @@ python tools/summarize-native-renderer-track-differential.py `
   --output .local/qualification/native-renderer-track-differential.json
 ```
 
-For either additional discriminator, replace `--fasttrackrender` with
-`--variant <jsonl>` and pass `--variant-mode noroaddetailblur` or
-`--variant-mode notrackcommandbuffers`.
+For another discriminator, replace `--fasttrackrender` with `--variant
+<jsonl>` and pass `--variant-mode trackfardistance`, `noroaddetailblur`, or
+`notrackcommandbuffers`.
 
-The report requires distinct sessions from the same executable and patch set,
+The v3 report requires distinct sessions from the same executable and patch set,
 one shared marked scene, at least 600 frames per side, zero signature overflow,
 normal shutdown, and runtime confirmation that the title accepted the requested
 mode. It compares exact prepared procedural-model provenance in calls per 1,000
 frames and retains shader, template, receiver-generation, and record identity
-for each changed family. A complete report proves a title-owned track delta;
-it deliberately leaves terrain/road semantic identity, native admission, and
-suppression false.
+for each changed family. It also joins materially changed signatures to exact
+prepared semantic-visibility candidates and reports their mechanical rejection
+masks. A complete report proves a title-owned track delta; it deliberately
+leaves representative terrain/road identity, native admission, and suppression
+false.
 
 ## Qualified open-world differential
 
@@ -147,10 +156,317 @@ found zero changed families with mechanical rejection mask `00000000`.
 Consequently neither discriminator currently identifies a safe visible color
 replay. Xenos remains authoritative and native admission remains disabled.
 
-The next bounded lead is the independent floating `trackfardistance` control.
-Its command-line field is known, but its exact runtime consumer still needs to
-be proved before another paired capture. If that control also resolves only
-dependent work, C1 returns to the semantic world-section/mesh ingress rather
-than spending more captures on title-wide frequency deltas. The runtime now
-emits the exact rejection mask on rejected isolated draws, so either path can
-discard unsafe candidates without an extra decoding run.
+## Track-far-distance qualification checkpoint
+
+The matched AppData-backed `55.0` versus `5.0` pair used one clean executable
+and the same stationary festival scene:
+
+- baseline `20260831T004121Z-p23820`: 4,146 frames and 4,344,201 draws;
+- `trackfardistance` `20260831T004400Z-p35676`: 4,480 frames and 4,860,836
+  draws; and
+- 77 material families changed after 756 normalized rate-noise families were
+  rejected.
+
+This proves that the live floating option reaches submitted renderer work.
+Four changed signatures joined to ten exact semantic-visibility candidate
+entries. Six entries rejected on mask `00004000`, two on `00000001`, and two
+entries for one signature (`BE5FF23CA0389E54`) were mechanically eligible.
+That signature had 132 baseline calls and zero variant calls, but its eligible
+candidate rows comprised only 17 draws at baseline frames 3,083 and
+3,095-3,097 during the transition into the save. Representative gameplay
+identity is therefore not proved, and neither native admission nor suppression
+is allowed.
+
+The independent title switches are now exhausted as useful C1 discriminators.
+The next lead is semantic world-section/mesh ingress, with the exact
+visibility-to-prepared lineage retained as its fail-closed replay gate.
+
+## Track world-ingress static proof
+
+`tools/discover-native-renderer-track-ingress.py` now makes that lead exact.
+It validates the retail RTTI complete-object locators, full AOT-backed vtables,
+and reviewed specialization slots for the unified track presentation, render
+model, render-model instance, track model/mesh/submodel, procedural-geometry
+object/resource, and PVS-zone object/resource classes.
+
+The proof separates three layers that broad draw deltas could not distinguish:
+
+- the 135-slot unified title presentation surface and its exact overrides;
+- the unified render-model and render-instance surfaces; and
+- the track model, mesh, procedural-geometry, and visibility-zone resource
+  graph that owns world-section identity before prepared draw submission.
+
+Generate the payload-free report with:
+
+```powershell
+python tools/discover-native-renderer-track-ingress.py `
+  .local/generated/default `
+  --image ..\horizon1-recomp\.local\analysis\default-image.bin `
+  --output .local/qualification/native-renderer-track-ingress.json
+```
+
+This is a static ownership proof, not yet the runtime semantic join. The next
+slice may observe only the reviewed title lifecycle boundaries and must join an
+exact shared object or resource identity to
+`proceduralGeometry::CProceduralModels`. Xenos remains authoritative; native
+admission and suppression remain disabled.
+
+## Exact track-texture provider join
+
+The previously captured AppData session `20260831T004400Z-p35676` already
+contains the first exact title-to-prepared-record identity join. Its complete
+semantic-submission report contains 867 aggregated entries and 397,142 live
+submission calls. Every entry resolves its primary resource through vtable
+`82001708`. Retail RTTI identifies that vtable as
+`Presentation_Unified::CTrackTexture_Unified`, and all four observed provider
+methods match its exact slots 6, 9, 10, and 11 (vtable byte offsets 24, 36, 40,
+and 44).
+
+`tools/summarize-native-renderer-track-world-join.py` validates that join from
+the payload-free static-ingress and semantic-submission reports. It records
+the track provider coverage without re-reading captured payloads or requiring
+another game run.
+
+This closes track-owned texture-provider identity at the procedural-model
+prepared-record boundary. It does not yet prove that any joined geometry is a
+terrain or road mesh: the next join must carry track model, mesh, submodel, or
+world-section resource identity to the same records. Native admission and
+suppression therefore remain disabled and every call still replays on Xenos.
+
+## Prepared-workset provider filter
+
+The runtime now carries that exact primary-provider tuple through the semantic
+draw identity and fresh visibility-prepared candidate record. The existing
+default-off continuous prototype workset rejects fresh visibility candidates
+without it, while retaining the separately qualified sky/horizon seed. Its
+summary accounts `non_track_provider_rejections`, and the payload-free
+prepared-candidate report partitions exact provider entries and draws.
+
+This is an implementation checkpoint pending the next batched preview build
+and AppData-backed run. It narrows the prototype's existing private native
+replay; it does not identify terrain/road geometry, enable C1 family admission,
+enable suppression, or change Xenos authority.
+
+## Exact track render-model submission scope
+
+The earlier typed-render-item diagnostic at `8240EC18` was originally pursued
+as a vehicle lead. Its qualified runtime profile was actually unambiguous track
+RTTI: root vtable `820019CC` is
+`Presentation_Unified::CTrackRenderModelInstance_Unified`, and child vtable
+`82001D74` is `Presentation_Unified::CTrackRenderModel_Unified`. Static title
+flow shows that `8240EC80` is reached only after the instance, its child, and
+the child-owned 248-byte type-21 descriptor pass the title predicates. The
+nested render dispatch returns at `8240ECAC`.
+
+A balanced passive runtime scope brackets those two addresses. The first clean
+combined AppData run disproved the earlier synchronous-submission assumption:
+45,523 exact scopes produced no in-scope procedural submission. It also proved
+that `824365B0` and the later `82417BC0` procedural-model context use the same
+fixed command root (`41A5E740`), while only `82417BC0` receives the real
+`CProceduralModels` object. The retained `r25` at `82437040` is therefore the
+command root, not a semantic receiver.
+
+The corrected bridge records exact track ownership when `824365B0` enters
+inside an accepted scope, then carries that immutable value through the
+existing context, producer, owner, constructor, indirect-packet, and prepared-
+draw lineage. Ordinary calls to the shared entry outside an exact scope remain
+explicit exclusions. No receiver lifetime is marked and unrelated command
+traffic cannot inherit track identity.
+
+This command-lineage implementation awaits the next batched AppData-backed
+run. Until then it does not prove terrain/road visual identity or C1 family
+promotion. It changes no guest state, Xenos draw, output authority, or
+suppression decision.
+
+### First clean command-lineage result
+
+The combined Phase C run closed the first two runtime hops exactly: 80,790
+balanced unified track scopes produced 80,790 accepted `824365B0` context
+bridges and 80,790 matched indirect packets, with no invalid roots, descriptor
+faults, overlaps, or unmatched accepted scopes. The prepared counter was still
+zero even though 2,600,588 prepared indirect draws completed in the same
+process.
+
+That zero exposed observer ordering rather than missing command provenance.
+Prepared semantic processing returned immediately when a title draw had no
+procedural semantic record, before it queried the already-matched active
+indirect command buffer. Exact command-lineage accounting now runs before that
+semantic-only early return and separately counts prepared joins with and
+without a procedural semantic origin. The latter remain evidence only: they
+are not synthesized into visibility candidates and cannot enter the private
+continuous workset. A later batched run must prove the final hop before any C1
+admission work proceeds.
+
+The clean follow-up session proved that final hop: 23,976 exact scope/packet
+joins reached 36,266 prepared draws with zero accounting faults and a normal
+shutdown. All prepared joins were command-only and had no procedural semantic
+record. The default-off exact C1 selector therefore admits the currently
+executing matched command directly after its normal mechanical replay checks;
+it does not invent a receiver, visibility category, LOD, or resource identity.
+The private native target, full Xenos execution, fallback, and zero suppression
+remain unchanged. A later batched run must now prove coherent multi-draw output
+and visual terrain/road identity.
+
+## Bounded track world-resource graph identity
+
+The balanced render-model scope now extends the passive join without adding a
+new title hook. After the exact unified instance/model vtables and type-21
+descriptor contract pass, it scans the already-live 64-byte render-model child
+prefix and 248-byte descriptor for aligned direct object pointers. A pointer is
+classified only when its first word is one of the static-ingress proof's exact
+RTTI-backed vtables:
+
+- `CTrackModel`, `CTrackMesh`, or `CTrackSubModel`;
+- `CTrackProceduralGeometryObject` or
+  `CTrackProceduralGeometryResource`; and
+- `CTrackPVSZoneObject` or `CTrackPVSZoneResource`.
+
+The scope records two distinct facts. The world-resource mask means an exact
+class appeared directly in the accepted title graph. The shared-resource mask
+is stronger: that same object address also equalled the procedural receiver,
+runtime submission object, bound resource, or exact provider object for a
+synchronous submission. Neither fact is inferred from frequency, shader
+similarity, or payload contents.
+
+The scan is bounded and cached. A 1,024-entry thread-local cache is keyed by
+child/descriptor address plus a fingerprint of the already-read words; a cache
+hit performs no repeated pointer validation. Each graph retains at most 16
+unique exact-class references and fail-visible overflow accounting. The runtime
+and prepared-candidate qualifiers separately report graph presence and exact
+cross-boundary shared identity.
+
+This instrumentation is part of the next batched AppData checkpoint. A graph
+identity alone is useful track ownership evidence, while exact shared identity
+is the preferred C1 terrain/road admission gate. Until runtime qualification,
+Xenos remains authoritative and no native admission or suppression is enabled.
+
+## Exact track-world native selection
+
+The default-off continuous workset accepts either a nonzero shared world-
+resource identity or the stronger per-command track lineage before a fresh,
+mechanically eligible semantic draw is replayed into the private native target.
+Merely sharing the track-texture provider remains insufficient and is counted
+as an identity exclusion.
+
+This is an isolated C1 qualification path, not a default family promotion. It
+keeps the independently qualified sky seed, can run beside the exact C2
+static-world selector, preserves every Xenos draw, and enables no suppression.
+The combined AppData run must observe at least one exact request and coherent
+multi-draw output before this selector can establish visible terrain/road
+progress.
+
+### First-run host mapping correction
+
+The first merged AppData run reached 8,700 frames before an access violation at
+native RVA `5D0616F`, reading guest value `40D8D0D8`. The local dump and binary
+disassembly identify that RVA as the new direct-pointer vtable load immediately
+before comparisons with the exact procedural-geometry vtables. This was not a
+title, save, or Xenos draw failure.
+
+The guest heap page table had reported that arbitrary descriptor word readable,
+but the translated host page was still uncommitted. The classifier now requires
+both the guest heap range check and the platform host mapping/protection query
+before loading a candidate vtable. Rejected host-unmapped values are counted in
+the runtime summary. Optimized binary disassembly confirms the protection query
+and fail-closed branch execute before the vtable load. The failed session is
+crash evidence only and cannot qualify C1; a clean batched rerun is required.
+
+### Durable long-session checkpoints
+
+The track render-model join now emits a distinct cumulative checkpoint every
+300 observed frames while renderer census is active. It contains the same
+bounded atomic accounting as the shutdown summary, plus the exact frame number,
+without reading new guest memory or changing guest, draw, authority, or
+suppression state. The final shutdown event remains unique and authoritative.
+
+`summarize-native-renderer-track-model-runtime-join.py --allow-checkpoint` may
+use the latest checkpoint only when the final summary is absent. Its output is
+explicitly `checkpoint_complete` or `checkpoint_incomplete`, records that
+session exit was not proved, and cannot serve as native-admission evidence. A
+later final summary always wins. This makes long-run crash diagnosis durable
+without weakening the clean-shutdown gate that remains required for C1.
+
+## Exact nested track-world identity
+
+The earlier bounded pointee census repeatedly observed exact `CTrackMesh` and
+`CTrackSubModel` vtables one pointer below the accepted child/descriptor graph,
+but discarded their addresses after incrementing diagnostic counters. The
+world graph now retains those addresses with explicit nested provenance.
+
+Promotion remains narrower than the diagnostic census. Only the seven exact
+RTTI-backed track, procedural-geometry, and PVS-zone classes accepted by the
+direct world-resource classifier may enter the graph. `CSimpleModelRenderer`,
+`CSimpleModelResource`, model-presentation, and the remaining SimpleModel
+family continue to be counted for investigation but cannot establish C1 track
+ownership. References are deduplicated inside the independently bounded
+64-entry cache record, while the guest-memory census remains limited to 16
+roots and 16 words per root. Overflow and host-mapping failures stay visible
+in the report.
+
+Track-model report schema v5 separates nested graph scopes and per-class
+relations from direct graph evidence. This proves where the identity came from
+while carrying the same exact object address into the established command and
+prepared-draw lineage. It does not infer terrain or road visual identity,
+enable native admission, suppress Xenos work, or change output authority. The
+next batched AppData qualification must observe nonzero nested graph scopes
+with complete accounting before this boundary can guide isolated replay.
+
+The nested subset is also retained across deferred command construction. It is
+copied from the accepted render-model scope into the command context, packet
+provenance, active indirect buffer, command-lineage record, and bounded
+prepared-layout entry. The layout key includes both the complete resource mask
+and its nested subset so changing ownership cannot coalesce unrelated layouts.
+Track prepared-layout schema v2 reports per-class nested layout and call
+frequency and exposes a separate
+`nested_track_world_to_prepared_layout_proved` result. This is the exact gate
+for choosing the first nested mesh/submodel isolated replay candidate in the
+next AppData batch, not permission to admit or suppress it before that run.
+
+Clean AppData session `20260901T062819Z-p15356` proved the retained identity
+survives that full path: 2,574 exact bounded prepared draws carried nested
+`CTrackSubModel`, 2,526 also carried nested `CTrackMesh`, and no prepared-layout
+geometry, parameter, or table bound failed. All 2,574 draws were depth-only.
+The route is therefore exact track-owned shadow/depth work and is closed as an
+opaque terrain/road color lead.
+
+Promoting nested references also showed that the old 16-entry reference store
+was smaller than the already-bounded census: 72 additions overflowed across
+222 cache misses. The retained-reference capacity is now 64, independent from
+the unchanged 16-root and 16-word-prefix scan bounds. A reported high-water
+mark proves actual demand, and any remaining overflow makes the runtime event
+itself incomplete instead of leaving that mismatch solely to the offline
+qualifier. This capacity correction does not expand the guest-memory scan or
+change rendering behavior.
+
+## Complete track-presentation callgraph inventory
+
+`tools/discover-native-renderer-track-presentation-callgraph.py` now traces all
+135 exact runtime wrapper-vtable slots through the generated AOT direct-call
+graph. The analysis is payload-free and bounded to six call edges. It ranks
+shortest paths to the known track dispatcher, command context, unified track
+mesh helper, procedural/simple-model helpers, and indexed-draw emitter, while
+reporting reachable indirect-call boundaries separately. It makes no runtime
+activity or color-target claim.
+
+Against the locked retail image and generated corpus, only slots 75, 78, 79,
+and 80 have a direct path to the track dispatcher and unified track-mesh draw.
+The earlier complete runtime presentation census observed only slots 79 and 80
+in the saved festival. Their packet, prepared-draw, and target lineage is
+already closed as 1024x1024 depth-only shadow work. Slots 75 and 78 were
+inactive in that census, so static reachability cannot promote them.
+
+This closes the exact unified track-presentation surface as the missing opaque
+terrain/road color ingress for the representative scene. The remaining 61
+static candidates reach only indirect dispatch boundaries and have neither a
+known graphics sink nor runtime activity. They remain investigation leads, not
+admission candidates. C1 therefore stays focused on a separate live color-world
+producer instead of adding another hook beneath the known shadow family.
+
+The inventory can be reproduced without launching the game:
+
+```powershell
+python tools/discover-native-renderer-track-presentation-callgraph.py `
+  .local/generated/default `
+  --image .local/analysis/default-image.bin `
+  --output .local/qualification/native-renderer-track-presentation-callgraph.json
+```

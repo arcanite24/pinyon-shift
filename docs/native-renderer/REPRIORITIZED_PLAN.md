@@ -59,13 +59,18 @@ Already landed or substantially qualified:
 - bounded visibility worksets with title visibility and LOD lineage;
 - exact native replay of an 80-draw dynamic shadow epoch with byte-identical
   D24S8 output and bounded multi-frame publication;
-- extensive vehicle provenance investigation, without a qualified semantic
-  vehicle rendering bridge yet; and
+- extensive vehicle provenance plus a qualified private draw-atomic semantic
+  constant bridge; exact player-local RTTI is now proved, direct entity and
+  numeric-ID pose joins are closed negatively, and the exact owning
+  vehicle-map pool lineage is the final bounded follow-up; and
 - post-processing topology census plus the mechanical presentation ingress.
 
-Phase A and B1-B5 are merged. The active B6 slice qualifies the first coherent
-continuous frame and closes the retained-target lifecycle discovered during
-the AppData run. Phase C terrain and roads are the next visible-impact target.
+Phase A and B are merged and qualified. Phase C is active: C1 has reached a
+live procedural color producer, proved its padded full-frame resolve assembly,
+and has corrected the 2x-MSAA sample topology plus source-row addressing in its
+private 1280x736 accumulator. The corrected source is visually coherent, while
+Xenos remains authoritative and no guest publication or suppression is enabled.
+Terrain and roads remain the next visible-impact target.
 
 ---
 
@@ -212,9 +217,11 @@ qualification.
 - Cover representative daytime, nighttime, race, and high-speed streaming
   scenes.
 
-Active checkpoint: the title-owned `fasttrackrender` differential, independent
-`trackfardistance`, road-detail, and track-command-buffer controls are proven
-from retail RTTI and exact AOT instructions. The paired census path in
+Active checkpoint: the title-owned `fasttrackrender`, road-detail, and
+track-command-buffer controls are proven from retail RTTI and exact AOT
+instructions. The `trackfardistance` live option default and store are also
+proved: baseline holds the retail `55.0`, while an isolated mode
+deterministically forces `5.0`. The paired census path in
 [`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md) now proves the
 runtime differential against matched AppData-backed open-world sessions and
 records the bounded exact-family candidate set without promoting frequency or
@@ -226,18 +233,998 @@ The first fast-track-only isolated candidate failed the color replay contract
 on its render-target layout. A subsequently matched baseline,
 `noroaddetailblur`, and `notrackcommandbuffers` matrix proved both additional
 title switches affect submitted work, but zero material delta joined to a
-mechanically color-replay-eligible semantic candidate. C1 therefore moves to
-the independent `trackfardistance` runtime consumer and then, if needed, the
-semantic world-section/mesh ingress instead of collecting more broad
-frequency deltas. This is a lead change, not a scope reduction: terrain/road
-ownership, continuous hybrid output, and race/streaming qualification remain
-required.
+mechanically color-replay-eligible semantic candidate. The matched
+`trackfardistance` `55.0`/`5.0` pair then proved a 77-family submitted-work
+delta. Only one changed signature passed the mechanical color gate, and its 17
+eligible draws occurred solely during the transition into the save rather than
+a representative gameplay window. The title-switch leads are therefore
+exhausted. C1 now moves to semantic world-section/mesh ingress instead of
+collecting more broad frequency deltas. This is a lead change, not a scope
+reduction: terrain/road ownership, continuous hybrid output, and
+race/streaming qualification remain required.
+
+Static ingress checkpoint: retail RTTI, complete-object locators, and full
+AOT-backed vtables now prove the unified track presentation/model/instance
+surfaces and the track model, mesh, procedural-geometry, and PVS-zone resource
+graph. The next batched slice is the passive exact-identity runtime join from
+those title-owned lifetimes to the existing procedural-model prepared-record
+boundary; this checkpoint does not enable native admission or suppression.
+
+Runtime identity checkpoint: the existing matched AppData evidence joins all
+867 aggregated procedural-model submission entries (397,142 calls) to the
+exact `Presentation_Unified::CTrackTexture_Unified` provider vtable and its
+four proved resource-provider methods. This proves track-owned texture ingress
+at the prepared-record boundary without a new capture. Track model/mesh or
+world-section identity is still required before terrain/road visual admission.
+
+Implementation checkpoint: the exact track-texture provider tuple is carried
+through semantic draw identity into the fresh visibility-prepared records. The
+default-off continuous prototype workset now admits ordinary fresh candidates
+only with that tuple and accounts all non-track exclusions; its independently
+qualified sky/horizon seed remains available. Runtime qualification is deferred
+to the next batched build/AppData checkpoint. This precision filter is not yet
+a terrain/road mesh identity or C1 family-admission claim.
+
+Exact-output checkpoint: the default-off continuous workset requires exact
+per-command track lineage or a nonzero shared RTTI-proved world-resource
+identity. Provider-only candidates are excluded, while the qualified sky seed,
+independent exact C2 selection, Xenos draws, and fallback remain intact. The
+next combined AppData run arms `-ContinuousTrackWorld`; runtime and visual
+qualification remain pending before any family promotion or suppression.
+
+Long-session output checkpoint: the continuous workset now emits a
+non-mutating cumulative checkpoint every 300 observed frames. Its qualifier
+requires explicit checkpoint opt-in, records session exit as unproved, and
+always prefers the unique final summary. This preserves evidence from long C1/C2
+runs without weakening the clean-shutdown admission gate.
+
+Combined qualification checkpoint: the payload-free C1/C2 batch gate now
+requires the exact track join, complete static-world join, catalog-backed
+instance classification, and swap-committed workset reports to describe one
+clean final session. It proves neither manual visual acceptance nor race and
+streaming coverage. The contract and command are documented in
+[`C1_C2_BATCH_QUALIFICATION.md`](C1_C2_BATCH_QUALIFICATION.md).
+
+Phase C capture profile checkpoint: `-PhaseCQualification` now arms the exact
+C1 track-world selector, exact C2 static-world selector, continuous
+swap-committed workset, and passive C4 player/material provenance in one
+AppData-backed process. The incompatible isolated vehicle-resource readback
+stays in a later dedicated run. This gives the next manual session one clear
+purpose and prevents accidental combinations that would invalidate the
+continuous and shadow-depth gates.
+
+Current runtime checkpoint: the old typed-render-item evidence is correctly
+classified by RTTI as the unified track render-model instance/model pair. The
+clean combined AppData run observed 45,523 exact scopes but zero synchronous
+procedural submissions, disproving that join. Offline lineage from the same run
+proved `824365B0` and the later procedural-model context share fixed command
+root `41A5E740`; retained `r25` is that root, not `CProceduralModels`.
+
+Correction in progress: exact scope ownership is now captured at the
+`824365B0` context entry and copied through the existing producer, owner,
+constructor, indirect-packet, and prepared-draw lineage. This is per-command,
+does not persist identity on a shared receiver, and treats non-track calls as
+normal exclusions. The next batched run must prove context, packet, and
+prepared-draw joins before C1 can advance. No suppression is enabled.
+
+Clean command-lineage checkpoint: the AppData-backed Phase C run observed
+80,790 exact scopes, context bridges, and command-packet joins with zero scope
+or packet accounting faults. Prepared-draw joins remained zero because their
+observer returned before consulting active command lineage whenever the title
+draw lacked an independent procedural semantic record. The observer now counts
+exact active command lineage before that semantic-only early return and
+partitions joins with and without semantic origin. This is evidence-only: a
+command without a fresh semantic candidate is still not admitted to the
+continuous workset, and Xenos authority and suppression remain unchanged.
+
+Qualified command-lineage checkpoint: clean session
+`20260901T004109Z-p33268` proved 23,976 balanced exact scopes and packet joins
+reached 36,266 prepared draws with complete accounting and a normal shutdown.
+All 36,266 lacked an independent procedural semantic origin. The default-off
+C1 selector now treats the currently executing, exactly matched command as a
+fresh command candidate without fabricating a semantic record. Mechanical
+replay gates, the per-frame quota, private target, Xenos draws, fallback, and
+zero suppression remain unchanged; visual output qualification is deferred to
+the next meaningful batch.
+
+Implementation checkpoint: the exact model scope now inspects only its
+already-validated 64-byte child prefix and 248-byte type-21 descriptor for
+direct pointers to the seven RTTI-proved track model, mesh, submodel,
+procedural-geometry, and PVS-zone object/resource vtables. A 1,024-entry
+fingerprinted cache avoids repeating guest pointer validation for unchanged
+graphs. Detected identities and stronger exact address equality to procedural
+submission objects/resources are carried separately into prepared records.
+This is ready for the same deferred AppData checkpoint; it still changes no
+admission, draw, authority, or suppression decision.
+
+Safety correction: the first batched run exposed that the guest heap page
+table can label an arbitrary descriptor word readable while its translated
+host page remains uncommitted. The exact classifier's speculative vtable load
+faulted on guest `40D8D0D8` (RVA `5D0616F`). Every candidate pointer now also
+passes the host mapping/protection query before dereference, with explicit
+rejection accounting. C1 qualification remains pending a clean rerun.
+
+Long-session evidence checkpoint: cumulative track render-model and world-graph
+accounting is now durably emitted every 300 observed frames under a distinct
+periodic event. A checkpoint can diagnose an interrupted run, but it explicitly
+does not prove clean shutdown or permit native admission; the unique final
+summary remains authoritative. This removes an observability dead end without
+weakening the pending C1 gate.
+
+Failed-batch correction: the first combined Phase C session exposed that the
+static presentation runtime gate accepted only the base `CModelPresentation`
+primary vtable even though the existing complete RTTI census also proves the
+thread-safe ref-counted complete object's primary vtable at the same object
+offset and with the same inherited slot-12 draw target. The exact owner gate now
+accepts both `822432D4` and `82002464`; all resource, renderer, transform,
+metadata, prepared-layout, and lifecycle joins remain independently required.
+This fixes a type-family omission without weakening C2 admission.
+
+Clean-batch follow-up: accepting the ref-counted presentation vtable produced
+148,077 exact owner scopes and zero vtable mismatches, so that correction is
+proved. None reached the expected base-renderer entry, and all bounded asset
+metadata reads failed. The next batch therefore records the exact slot-12
+virtual handoff at `823F8F1C`, including owner/resource equality, renderer
+vtable, dispatch target, and the offset-148 resource vtable. This will separate
+a deferred-renderer route from incorrect field assumptions before C2 lineage
+is widened.
+
+Latest Phase C checkpoint: a longer clean festival session produced 238,592
+exact balanced presentation scopes and transforms, but again no renderer
+handoff. Every offset-148 resource-vtable and bounded asset-metadata read
+failed, while the slot-12 handoff hook remained untouched. This proves the
+accepted wrapper path does not execute the assumed base method body in this
+scene. The next C2 slice must resolve the wrapper's actual dispatch target or
+lazy resource initialization point before widening lineage; it must not treat
+the stale offset-148 assumption as runtime identity.
+
+Preparation-outcome implementation checkpoint: the exact return from helper
+`823F8980` is now observed at `823F8DE0` inside the balanced presentation
+scope. Payload-free accounting partitions accepted and rejected results,
+scope/owner faults, and null versus live offset-148 resources and offset-1608
+renderers, with bounded state/address samples. This directly explains the
+missing handoff on the next batched run and changes no guest state, call
+target, native selection, Xenos authority, or suppression decision.
+
+Preparation-outcome runtime result: the clean combined session observed
+78,464 helper returns. Every one of the 78,312 exact scopes rejected with both
+offset-148 resource and offset-1608 renderer null; the other 152 were safely
+classified as invalid presentation roots, with complete accounting and no
+handoff. This path is a dormant/unprepared population in the tested scene, not
+the live static-world draw ingress. C2 is reprioritized to identify the live
+deferred or alternate SimpleModel renderer population before reusing any owner
+or asset-field assumption from this path.
+
+Deferred-ingress implementation checkpoint: static instruction flow proves
+deferred renderer slot 12 (`82585F38`) publishes an exact `820213B8` task and
+queues callback `82BA61D0`, which later invokes slot 12 on a target object.
+A passive 1,024-entry task table now joins publication to callback and records
+the target vtable and dispatch at `82BA61DC` with complete fail-closed
+accounting. This is the next batched C2 lead; it changes no queue, callback,
+draw, output authority, or suppression state.
+
+Combined runtime result: clean AppData session `20260901T005806Z-p31580`
+preserved a visually normal festival frame and exited normally. C1 proved
+17,373 balanced exact scopes and 26,209 prepared command-lineage joins, all
+without an independent procedural semantic origin. The workset still emitted
+zero exact track requests while completing 156 older retained-family frames;
+the existing counter could not distinguish replay-mechanical rejection from a
+selector bug. The workset now partitions exact command candidates into
+mechanically eligible and rejected outcomes and reports all 15 rejection bits.
+This is the next batched C1 gate and does not widen replay support.
+
+The same session observed zero deferred-task publications, callbacks, or
+handoffs. The proved deferred slot-12 route is therefore dormant in this
+festival population, just like the synchronous presentation population. C2
+must move to a live SimpleModel construction/registration or draw-producing
+call edge rather than adding more assumptions to either dormant path.
+
+Live-world pointee census checkpoint: on each cache miss, the exact C1 child
+and type-21 descriptor now supply at most 16 unique mapped roots apiece to a
+one-level, 16-word prefix census. Direct and nested RTTI matches are counted
+separately for the seven proved track-world types and the immediate/deferred
+SimpleModel renderer, resource, model, submodel, mesh, and presentation types.
+Nested results are diagnostic only: they are not copied into command identity,
+native selection, or suppression. The next combined run can therefore tell us
+whether C2's live static objects sit behind the already-live command graph
+without widening either renderer contract or doing another broad draw census.
+
+Combined eligibility result: clean AppData session
+`20260901T011508Z-p39720` reached 1,744 balanced exact track scopes and 2,570
+prepared-draw joins. All 2,570 candidates failed only the render-target gate;
+every other mechanical replay requirement passed. The same live graph census
+found 1,189 nested `CTrackMesh` and 1,875 nested `CTrackSubModel` identities,
+with zero direct or nested SimpleModel-family identities. C1 therefore advances
+through the observed color-only target shape, while C2 leaves this graph and
+continues toward a separate live construction or draw-producing ingress.
+
+Color-only replay implementation checkpoint: the exact track selector may
+clear only the generic paired-target rejection when the prepared backend draw
+proves first-color-only binding (`bound_render_target_bits == 2`). The D3D12
+private replay path validates that depth/stencil and later color targets are
+absent, copies and binds a private clone of the authoritative first color
+target, and retains the existing swap-committed, fail-closed lifecycle. This
+does not widen generic isolated replay, publish into guest targets, suppress a
+draw, or change Xenos authority. Runtime visual qualification remains batched
+with the next meaningful Phase C slice.
+
+C2 producer-pivot checkpoint: static AOT flow now enumerates all 13 direct
+callsites to indexed-draw emitter `82416380` and gives each an exact guest
+return-address discriminator. The `82C5B038` family is an exact
+`Presentation_Unified::CTrackPresentation` mesh draw: preserved `r26` is the
+selected `CTrackMesh`, while `r31` supplies the 64-byte transform consumed by
+the draw helper. A default-off census records the 13 producer counts and a
+bounded table of exact track-mesh transforms only when census plus dispatch
+discovery are armed. This replaces the dormant SimpleModel assumption with a
+live-candidate draw edge without yet claiming runtime activity or a concrete
+building/prop category. Static proof and the next batched gate are documented
+in [`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md).
+
+Runtime pivot result: clean festival-world session
+`20260901T022910Z-p35168` balanced all 68,356 direct indexed-draw scopes with
+zero unknown callers or lifecycle faults, but both the exact unified-track
+helper `82C5B038` and SimpleModel helper `82C4DC58` remained inactive. The
+proven indirect track route remained healthy with 485 balanced exact scopes,
+485 packet joins, and 732 prepared-draw joins. C1 therefore stays on that
+indirect route; the direct unified-track edge is deferred until a scene proves
+it live, and C2 must not infer building/prop identity from generic active
+helpers.
+
+Prepared-layout pivot checkpoint: the proven indirect track lineage now retains
+at most 1,024 shader-decoded prepared-layout families, keyed by the exact track
+root/child/descriptor tuple and pipeline/layout/render-state contract. Final
+shutdown emits one bounded numeric metadata sample per family plus complete
+exact, unbounded, parameter-overflow, and table-overflow accounting. The offline
+report identifies recurring finite vertex-constant register runs for comparison
+against the static world transform catalog. This replaces further speculation
+at generic direct helpers; it does not yet prove a transform, terrain/road
+identity, native admission, or suppression. The next expensive build/AppData
+run is deliberately batched until this census and its offline analyzer can
+answer that concrete transform-layout question. See
+[`TRACK_WORLD_PREPARED_LAYOUT.md`](TRACK_WORLD_PREPARED_LAYOUT.md).
+
+First batched result: clean AppData session `20260901T030124Z-p12228`
+confirmed 732 exact prepared observations with zero unbounded geometry and zero
+parameter overflow, but the original 512-entry table filled and rejected 54
+later observations. The fixed capacity is therefore raised to 1,024, covering
+the first run's worst case of 566 families while keeping explicit overflow
+failure. Transform classification remains gated on one complete clean rerun.
+An immediately preceding identical launch encountered the known intermittent
+guest null
+dereference before this observer recorded any track layout; the controlled
+retry reached gameplay and exited normally.
+
+Catalog-correlation checkpoint: a second payload-free classifier now tests
+every four-register vertex-constant window against the existing 24,025-entry
+title-authored spatial catalog under both plausible matrix conventions. It
+groups evidence by exact vertex shader and starting register, requires at least
+eight distinct unambiguous positions including a collision prop, rejects any
+unmatched layout in the group, and requires exactly one qualifying mapping.
+This is ready before the batched capture, so that run can either prove one
+concrete transform contract or close the constant-window lead without another
+instrumentation cycle.
+
+Qualified prepared-layout result: clean session
+`20260901T031325Z-p38496` retained 562 families from all 732 exact observations
+with zero geometry, parameter, or table overflow and a normal shutdown. Across
+90 complete shader/register/convention groups, catalog correlation produced
+zero unique world-position matches (2,066 unmatched and 1,022 ambiguous
+common-value windows). The prepared constant lead is closed.
+
+Upstream spatial pivot: the next passive census retains bounded numeric words
+from the exact command's already-validated 64-byte child and 248-byte type-21
+descriptor, grouped by exact address pair with hash-variation accounting. Its
+offline classifier applies the same fail-closed spatial-catalog contract to
+every finite 16-word window. This adds no guest reads, admission, native draw,
+or suppression, and its AppData qualification is deliberately batched with a
+larger renderer slice. See
+[`TRACK_WORLD_SCOPE_SPATIAL.md`](TRACK_WORLD_SCOPE_SPATIAL.md).
+
+Reference-composition extension: static flow in the same exact title function
+already proves a live object/reference matrix and its composed constant payload
+at `8240EB5C`, immediately before the accepted `8240EC80` track scope. The
+observer now stages those two finite matrices and consumes them only after the
+exact unified instance/model and type-21 predicates pass. Offline correlation
+tests every local child/descriptor window under both matrix sources,
+multiplication orders, and title conventions. This materially strengthens the
+next batch: one run can prove an authored local-to-world composition or close
+both raw and reference-composed interpretations without another build cycle.
+See
+[`TRACK_WORLD_REFERENCE_COMPOSITION.md`](TRACK_WORLD_REFERENCE_COMPOSITION.md).
+
+First combined-census correction: clean session
+`20260901T033932Z-p38084` reached the saved festival with 485 exact scopes,
+zero table overflow, normal Xenos output, and a normal exit. It exposed two
+content-lineage facts before classification: 79 child/descriptor address pairs
+changed contents during the run, and four upstream matrix stages fed all 485
+downstream scopes. Scope entries are now keyed by address plus exact content
+hash, while the current same-thread matrix stage remains valid until the next
+proved upstream stage overwrites it. Reference entries carry that exact scope
+content hash. This preserves every changing sample and the one-to-many retail
+control flow without widening the accepted scope or weakening accounting.
+
+Corrected combined-census result: session `20260901T034815Z-p46676` retained
+all 485 exact scopes as 140 content snapshots and 167 reference-composition
+snapshots, with zero missing stage, invalid range, non-finite value, overflow,
+or accounting fault. Across 96 raw and 384 composed candidate groups, neither
+classifier found a unique match in the 24,025-entry authored spatial catalog.
+Those transform interpretations are closed.
+
+Opaque-pass pivot: the same run showed 732 exact prepared draws passing every
+mechanical gate except attachment shape, so the native workset admitted zero
+exact track draws. Static RTTI places the followed function at unified track-
+presentation slot 79. Balanced census hooks now cover adjacent slots 78-81,
+and slot-79 prepared entries export exact backend target bits/formats. The next
+batched run will select the live color-producing title pass before extending
+packet lineage; depth-only activity may feed shadows but cannot satisfy C1.
+See
+[`TRACK_PRESENTATION_PASS_CENSUS.md`](TRACK_PRESENTATION_PASS_CENSUS.md).
+
+Pass-lineage batching checkpoint: exact slot identity now follows the existing
+`824365B0` context/producer/owner/constructor/packet chain into prepared draws.
+A bounded final report partitions shader and attachment shapes per slot with
+complete overflow accounting. The next AppData run can therefore identify a
+live color-producing pass directly; no intermediate call-count-only run is
+needed, and no candidate gains admission before private visual proof.
+
+The first lineage run proved slots 79 and 80 live but exposed an incorrect
+static-owner receiver gate. A controlled retry then showed all ten calls use
+vtable `82003CCC`. Retail RTTI proves this is the 135-slot thread-safe
+refcounted wrapper around unified `CTrackPresentation`, and its slots 78-81
+resolve to the exact hooked AOT targets. The corrected slice accepts only that
+wrapper for diagnostic lineage; the inner render-model instance (`820019CC`)
+remains a separate scope. Rendering authority and suppression are unchanged.
+
+Spatial-state batching checkpoint: the same per-slot prepared-target key now
+includes raw viewport, viewport-transform control, and scissor state. The next
+run can distinguish main-view color work from square shadow/reflection and
+reduced offscreen passes in the same report, avoiding another call-count-only
+capture. This records no camera payload and still admits no native draw.
+
+Target-identity batching checkpoint: raw surface, color-target, and depth-
+target registers now accompany each prepared-target profile. The next run can
+therefore distinguish exact EDRAM resources as well as attachment shape and
+spatial extent before any private replay candidate is selected.
+
+Exact pass result: clean AppData session `20260901T050049Z-p8056` proved slot
+79 owns 732 depth-only draws on the known dynamic-shadow target, not opaque
+world color. Slot 80 is receiver-exact and live but carries no draw through the
+existing `824365B0` packet lineage. AOT flow shows its alternate dispatcher
+path may bypass that context. The census now labels exact synchronous scope
+and inherited packet lineage independently; neither source enables admission.
+Per-slot direct/context dispatcher counters accompany the next batch so an
+empty draw result can distinguish a dormant render branch from lost lineage.
+
+Dispatcher-route result: clean AppData session `20260901T051350Z-p17184`
+reproduced the exact slot-79 shadow workload (485 context dispatches and 732
+depth-only prepared draws). Slot 80 remained receiver-exact and live for six
+calls but recorded zero direct dispatches, zero context dispatches, and zero
+prepared draws. The existing common-dispatch lineage is therefore not lost;
+this scene's slot-80 work either stops at its title gates or uses the alternate
+`8243BD40` adapter.
+
+Alternate-adapter checkpoint: passive exact-scope stages now count entry,
+enabled, eligible, and final virtual-dispatch reachability through `8243BD40`.
+The final stage records only the first/last target address and target-change
+count. The next batched AppData checkpoint can select one exact downstream
+function or close slot 80 as dormant in the saved festival without tracing
+arbitrary indirect calls. No guest state, title control flow, native admission,
+or Xenos authority changes.
+
+Combined-gate checkpoint: the C1/C2 batch join now requires the exact
+track-presentation report from the same clean session. An incomplete batch
+routes a stable slot-80 adapter target to exact downstream instrumentation, or
+closes a gated adapter and pivots to semantic world ingress. Neither outcome
+is treated as opaque-world color proof, keeping promotion fail closed while
+making the expensive combined run decisive.
+
+Combined runtime result: clean AppData session `20260901T054234Z-p276`
+reached the saved festival and exited normally. Slot 80 crossed the alternate
+adapter's final gate 135 times and held one stable target, `823FDE50`, with no
+target changes. Static AOT flow shows that target enumerates presentation
+records through `82414A00`, which reaches the already-proved procedural model
+resource/submission path. Slot 79 remained the known depth-only shadow route.
+The corrected C2 census classified all 8,576 null generic-presentation
+resources as missing resources with zero guest-memory read faults; no exact
+static-world renderer/resource/PM4 join was present in this scene.
+
+Deferred-packet lineage checkpoint: exact presentation provenance is now
+captured when a title indirect packet is constructed, then retained until its
+later prepared draw is consumed. Per-slot packet-construction counters keep
+this construction-time source distinct from both synchronous prepared-draw
+scope and the older context-specific packet lineage. The next batched run can
+therefore determine whether slot 80 produces the main-view color target through
+`823FDE50` without widening hooks below its 50 indirect dispatch sites. This is
+passive evidence only; Xenos remains authoritative and native admission stays
+disabled.
+
+Incomplete-classification artifact checkpoint: static-world instance
+classification now emits a fail-closed JSON report when its upstream runtime
+qualification is incomplete instead of discarding all downstream evidence.
+This lets the combined C1/C2 join explain both the failed static gate and the
+successful presentation lineage from one expensive session. The artifact
+remains `incomplete`, records the upstream failure explicitly, and cannot
+enable native admission or suppression.
+
+Deferred-packet runtime result: clean AppData session
+`20260901T060513Z-p5744` reached the saved festival, remained visually stable,
+and exited normally. Slot 80 constructed 21 exact packets beneath the stable
+`823FDE50` adapter target; those packets produced 80 prepared draws, all on a
+1024x1024 depth-only target. Slot 79 constructed 491 packets and remained the
+known shadow family. The recovered provenance proves the bridge works and
+closes slot 80 as an opaque-world candidate for this scene. C1 now pivots to
+semantic mesh/world-section ingress instead of tracing deeper through either
+presentation shadow route. No native draw or suppression was admitted.
+
+Combined-report compatibility checkpoint: the C1/C2 join now consumes the
+current track-model v6 and continuous-workset v7 schemas. This repairs report
+composition only; every incomplete component remains fail closed.
+
+Nested world-identity implementation checkpoint: the bounded one-level
+pointee census now retains exact RTTI-backed `CTrackModel`, `CTrackMesh`,
+`CTrackSubModel`, procedural-geometry, and PVS-zone objects in the cached
+track-world graph instead of discarding their addresses after diagnostic
+counting. Direct and nested provenance remain separately reported, and the
+broader SimpleModel-family census cannot enter this C1 graph. This carries a
+semantic track-owned resource identity into the existing command lineage
+without enabling native admission, suppression, or changing Xenos authority.
+Runtime qualification is intentionally deferred to the next meaningful C1
+batch.
+
+Nested prepared-lineage implementation checkpoint: nested track-resource masks
+now survive the exact context, deferred packet, active indirect buffer, and
+prepared-layout path. Prepared-layout schema v2 reports both the complete
+world-resource mask and its nested subset, then qualifies per-class nested
+identity only when the same bounded draw layout reaches a prepared draw. This
+closes the instrumentation hop needed to select exact mesh/submodel-owned C1
+layouts after the next batched run; it still changes no native admission or
+output behavior.
+
+Nested prepared-lineage runtime result: clean AppData session
+`20260901T062819Z-p15356` reached the saved festival and exited normally. All
+2,574 bounded prepared draws carried exact nested `CTrackSubModel` ownership;
+2,526 also carried `CTrackMesh`, across 730 layouts with zero geometry,
+parameter, or table faults. Every joined target was depth-only. This proves the
+semantic mesh/submodel-to-prepared hop but classifies this command route as a
+track-owned depth/shadow family, not the missing opaque color world. The run
+also exposed 72 retained-reference overflows at the original 16-entry bound.
+The reference store is now independently raised to 64 while the 16-root scan
+bound remains unchanged, and schema v6 reports its high-water mark and makes
+any overflow fail the runtime status itself.
+
+Complete presentation-callgraph checkpoint: a payload-free six-edge static
+trace now inventories all 135 exact unified track-presentation wrapper slots.
+Only slots 75, 78, 79, and 80 directly reach the track dispatcher, unified
+track-mesh helper, and indexed-draw emitter. The complete saved-festival runtime
+census observed only 79 and 80; both are already proved 1024x1024 depth-only
+shadow routes. Slots 75 and 78 were inactive, and the other 61 static
+candidates terminate at unclassified indirect boundaries without a known
+graphics sink. This closes the exact presentation surface as the missing C1
+opaque-color ingress for this scene. The next visible-world slice must select a
+separate live color producer; no further hook is added beneath this shadow
+family. The reproducible inventory is documented in
+[`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md).
+
+Live color-producer qualification checkpoint: clean AppData session
+`20260901T065854Z-p37928` proves 688 opaque, bounded color-plus-depth draws
+under exact procedural-model context `82417BC0`. Its first prepared signature
+`751139AF66FBCCF4` and shader pair are independently present in the same
+session's mechanically eligible candidate census, closing the semantic-to-
+prepared color join. That sample uses a 1280x256 scissor, and the same session
+contains no monolithic 1280x720 draw scissor. Because the title has proved
+bin-mask/select wrappers and a tiled 1280x720 presentation resource, this may
+be a predicated EDRAM tile of the main view rather than an offscreen pass. A
+bounded exact target-role profiler now retains backend bin-select/mask state in
+addition to signature, shaders, viewport, scissor, attachments, and target
+registers. The next batched AppData run can distinguish monolithic profiles
+from EDRAM tiles; a tile advances to resolve-assembly work and is never
+published alone. Xenos output remains authoritative. See
+[`COLOR_PRODUCER_LINEAGE.md`](COLOR_PRODUCER_LINEAGE.md).
+
+EDRAM target-role runtime result: clean AppData session
+`20260901T073926Z-p40856` reached the saved festival and exited normally. All
+382 exact procedural color draws are bounded opaque 1280x256 predicated draws
+with bin intersection `0000000080000003`; no monolithic 1280x720 draw profile
+exists. The final resolve census independently exposes a three-range contiguous
+source-zero candidate on the same surface with 1280x720 destination pitch and
+1280x736 physical storage. The extra 16 rows are bounded alignment, so the
+earlier 1280x256 publication was one component of the padded full frame and
+explains its wrong camera/view. Resolve events now retain exact selected-source
+state, and a fail-closed offline join proves target identity, contiguity,
+format, logical extent, and padding on the next batched run. No native
+admission or suppression changes in this checkpoint.
+
+Exact resolve-assembly result: clean AppData session
+`20260901T080735Z-p36580` proves that selected copy-source state
+`14020500:00030000` exactly matches the procedural target. Its three contiguous
+ranges begin at `1C4E1000`, `1C621000`, and `1C761000`, use one destination
+state `003E0382:02D00500`, and decode to four-byte pixels, logical 1280x720,
+padded 1280x736, and 16 alignment rows. Target and assembly accounting are
+complete and the process exited normally. A bounded fail-closed runtime tracker
+now performs the same exact source, destination, contiguity, format, extent,
+and padding join without publishing or suppressing anything. Its event contract
+will ride the next substantial AppData batch rather than forcing a standalone
+long validation run.
+
+Private-accumulator planning checkpoint: the proved three-copy workset now
+produces exact backend-neutral row operations `0+256`, `256+256`, and
+`512+224`, with only 208 logical rows in the last stored chunk. The plan commits
+only at 720 logical / 736 padded rows and cancels on frame advance, target
+conflict, destination mismatch, malformed row geometry, or bounded chunk
+overflow. Runtime details are capped at 64 and final counters remain
+payload-free. This creates the fail-closed contract for the next D3D12 private
+resource slice, but performs no backend resource action, native admission,
+publication, or suppression itself.
+
+Private D3D12 accumulator checkpoint: a dormant backend callback now consumes
+those exact row operations only after the authoritative Xenos resolve has
+succeeded. It assembles a single-sample private 1280x736 resource, re-seeds the
+isolated replay target from authoritative guest EDRAM between tiles, and makes
+only a fully committed 1280x720 logical frame eligible for the existing
+swap-time preview. Gaps, overlap, target or extent changes, unsupported formats,
+and allocation failures clear the active sequence; an incomplete frame cannot
+replace the guest output. There is still no guest-memory publication or draw
+suppression. Title-side planner registration and bounded result diagnostics
+are now implemented behind the default-off
+`pinyon_shift_native_renderer_procedural_frame_accumulator` switch. The live
+callback consumes the existing planner exactly once per successful Xenos copy,
+submits the fixed 1280x736 storage contract, and reports recorded, cancelled,
+invalid, unavailable, unsupported, and allocation-failed outcomes. The next
+meaningful AppData validation can therefore exercise the complete target-role,
+resolve-workset, row-plan, private assembly, and swap-preview chain as one
+batch.
+
+Qualification-tooling checkpoint: the combined runtime slice now has a strict
+offline gate. It accepts only an armed private backend, one exact three-step
+`0+256`, `256+256`, `512+224` row plan, matching recorded results ending in a
+committed 1280x736 private resource with 1280x720 logical output, complete
+bounded status accounting, zero hard backend failures, and a clean shutdown.
+It independently locks completed-first Xenos resolves, zero guest-memory
+publication, and zero draw suppression. This converts the pending visual run
+into a reproducible evidence gate without adding another gameplay capture.
+
+Accumulator checkpoint: descriptor evidence showed that the 1280-wide guest
+resolve is sourced from a 640-wide RGBA16F 2x-MSAA host target whose samples are
+adjacent horizontal guest pixels. The private compute expansion preserves both
+samples instead of averaging them. AppData session
+`20260901T102213Z-p45980` recorded 12 exact frames / 36 operations, all at
+`1280x736` storage and `1280x720` logical extent, with zero hard failures,
+normal exit, completed-first Xenos resolves, no draw suppression, and no guest
+memory publication. Structural accumulation is qualified. Patch `0111` then
+corrected source-row addressing: equivalent Phase-C AppData session
+`20260901T104300Z-p42688` recorded nine exact frames / 27 operations, all
+successful, with the same extents and safety invariants before a normal exit.
+The corrected frame is visually coherent, so producer coverage and continuous
+presentation are now the next visible gates. The prototype selectors now arm
+the qualified private accumulator by default, with an explicit restart-time
+environment override for fail-safe disablement. This promotes the corrected
+full-frame source into the launcher-visible prototype while preserving exact
+current-frame admission, Xenos fallback, and zero suppression/publication.
+When the explicit census cvar is off, prototype mode now skips broad candidate
+hashing, prepared-shader cataloging, and periodic census serialization while
+retaining the exact observers used by provenance, replay, and accumulation.
+This is the first focused response to the observed prototype CPU overhead; a
+batched AppData comparison remains required before claiming a measured gain.
+
+Open-world coverage checkpoint: the first launcher-visible prototype run
+showed the qualified three-chunk 1280x736 resolve family continuing every
+frame, but using Xenos color mode 12 (`2_10_10_10_FLOAT_AS_16_16_16_16`)
+instead of mode 3. Both modes map to the same R16G16B16A16_FLOAT D3D12
+resource. A fail-closed resolve ingress now arms the private accumulator only
+from the exact proved first chunk: source surface, either of those two modes,
+destination format/pitch, address, length, and 1280x720 logical extent must all
+match. Source-mode and arm accounting is emitted for the next batched run.
+This widens producer coverage without guest publication, draw suppression, or
+relaxing any later chunk/commit check.
+
+Fast-path safety correction: clean-build AppData validation proved the private
+accumulator depends on the native isolated-replay producer target. A copy-only
+prototype correctly failed closed as `unavailable`, because removing draw and
+prepared-draw observers also removed that native producer. The resolve-only
+path is reverted; mode-12 ingress and the broad-census optimization remain.
+Future performance work must retain the minimal native replay producer graph
+and cannot substitute the authoritative Xenos target as native content.
+
+Minimal-producer checkpoint: ordinary census-off prototype runs now keep the
+draw, prepared-draw, indirect-lineage, draw-outcome, isolated-request, and
+private accumulator planner chain that creates native replay content. Only the
+broad dependency-census tail of the copy observer is bypassed; exact mode-3 and
+mode-12 resolve ingress and padded full-frame assembly remain armed. Explicit
+census/qualification runs retain the complete copy observer. This removes work
+that is unrelated to prototype production without repeating the invalid
+copy-only architecture, changing guest memory, or suppressing Xenos work.
+
+Prototype hot-path checkpoint: draw signatures are now computed only for the
+full census or active vehicle discovery, and the shader-constant write observer
+is installed only for its exact vehicle-shadow correlation mode. Ordinary
+prototype production still builds the prepared signature used for native
+replay selection and retains title/indirect lineage, semantic admission, and
+draw outcomes. This removes two discovery-only costs from every ordinary draw
+and constant write without changing the producer contract.
+
+Prepared-contract hot-path checkpoint: successful native-prototype evidence
+showed the prepared observer processing millions of draws while most were
+mechanically rejected. The observer now builds each semantic prepared contract
+and mechanical rejection mask once and shares them across semantic admission,
+continuous replay selection, shadow staging, and optional vehicle correlation.
+Vehicle-only private-capture classification is skipped unless its exact
+correlation mode is armed. Producer observers, prepared signatures, native
+shadow replay, Xenos authority, and fail-closed selection remain unchanged.
+
+Accumulator availability checkpoint: exact mode-12 ingress can precede any
+same-frame isolated native color producer. After the backend reports that first
+chunk unavailable, the planner now yields the remaining accumulator callbacks
+for that frame and retries from a freshly armed first chunk on the next frame.
+This removes two guaranteed-invalid backend requests per unavailable three-copy
+frame without borrowing Xenos content, weakening producer ownership, or
+preventing later native frames from becoming eligible.
+
+Exact color-producer checkpoint: the accumulator no longer accepts an
+unrelated retained sky/horizon replay as sufficient producer ownership. The
+continuous workset now explicitly recognizes only the already-proved
+`82417BC0` procedural color context with a live semantic receiver and first
+color attachment, then replays its mechanically eligible tiled draws into the
+same-frame private target consumed by the three-copy accumulator. The v8
+qualifier requires distinct candidate and accepted-request accounting for this
+producer. Depth-only slot-79 track draws remain excluded as shadow work, and
+Xenos output remains the mandatory fallback until the exact producer completes.
+
+Target-failure diagnostic checkpoint: the first batched AppData run after exact
+producer admission observed 318 exact candidates across nine gameplay frames.
+Each frame's first procedural replay failed target construction, while 102
+existing retained-family requests still recorded and eight frames completed.
+ReXGlue now returns a bounded fail-closed reason for every isolated target
+construction failure, and the workset partitions the exact procedural subset.
+The next run can therefore fix the specific attachment, allocation, extent, or
+retained-target incompatibility without guessing or enabling Xenos-derived
+content as a native producer.
+
+The diagnostic AppData checkpoint identified the exact incompatibility: all 12
+procedural producer requests failed with `retained_mismatch`, while allocation,
+format, extent, and attachment-presence failures remained zero. The workset had
+treated every later request in a frame as reusable even when the raw guest
+attachment identity changed. Reuse is now keyed by the complete bound target
+identity; target-family transitions reseed a private target, and only identical
+consecutive attachments reuse it. This is a correctness repair for continuous
+procedural accumulation, not a relaxation of native authority gates.
+
+Accumulator-source ownership checkpoint: the exact `82417BC0` replay request
+now tags its completed private color target for one same-frame accumulator
+append. ReXGlue consumes the tag on successful use and reports a distinct
+`unqualified_source` result when the latest private replay belongs to any other
+family. This prevents a later sky/world replay from becoming procedural input
+merely because it is the most recent retained target; no Xenos content is
+accepted as a native source.
+
+Accumulator source-gate checkpoint: two equivalent prototype launches crashed
+before gameplay after title-only mode-12 resolves repeatedly reached the
+accumulator without an exact private producer. A pure-Xenos run and a prototype
+run with only the accumulator disabled both remained healthy past the failure
+window, isolating the fault. Accumulator planning now requires a successfully
+recorded exact procedural replay from the same guest frame before observing a
+copy. The enabled AppData rerun exited normally after rejecting 78,646
+unqualified title callbacks at the gate, with zero backend requests, upload
+failures, allocation failures, or crashes. This keeps discovery observations
+available without creating title-screen resources and preserves Xenos output.
+
+Draw-scale compatibility checkpoint: the next open-world transition exposed
+that the saved launcher configuration uses 2x draw resolution. Both the normal
+prototype and an accumulator-disabled prototype failed with the same crash ID,
+while an otherwise equivalent pure-Xenos control reached the saved festival,
+remained stable, and exited normally. The current private replay and output
+contracts are qualified only at 1x1 draw scale, so all prototype observers,
+replay, accumulation, and native output now fail closed to Xenos before install
+at any other scale. Scaled native replay remains required work: it must prove
+render-target extent, emulated-MSAA sample mapping, logical presentation, and
+performance independently before the compatibility gate can widen.
+
+Replay-completion ownership checkpoint: exact-source qualification no longer
+depends on one mutable title-side pending frame shared by all replay requests.
+The backend completion result now returns the request's frame sequence and
+accumulator-source role on both indexed and auto-indexed paths. The title marks
+an accumulator source only when that exact request records successfully. This
+keeps frame ownership correct if title submission and graphics completion are
+decoupled, and is required before scaled replay can safely widen.
+
+Scaled-topology evidence checkpoint: accumulator completion results now carry
+the private source resource extent, host sample count and quality, guest MSAA
+count, active draw scale, and whether native 2x MSAA is available. These fields
+are emitted in the bounded payload-free result event even when the backend
+rejects the target. This turns the next batched 1x/2x qualification into an
+exact topology comparison and prevents sample expansion or presentation extent
+from being implemented from an ambiguous D3D12 descriptor alone.
+
+Authoritative-resolve topology checkpoint: the ordinary D3D12 copy observation
+now snapshots the selected live guest render target before any native replay is
+required. Full-census Xenos runs therefore report its resource extent, format,
+host samples, guest MSAA, draw scale, and native-2x capability without arming
+the unstable scaled prototype. Comparing this safe source contract with the
+private replay result isolates target-selection errors from accumulator sample
+expansion and presentation errors.
+
+The first safe 2x AppData census (`20260901T143210Z-p35268`) reached the saved
+scene with Xenos authority and exited normally. It proved that the procedural
+three-chunk family (`1280x256`, `1280x256`, `1280x224` guest destinations) is
+sourced from a `2560x1024` RGBA16F target with genuine guest and host 4x MSAA,
+while native 2x MSAA support is available. The next observation checkpoint now
+records the resolve-derived guest and physical source rectangles, destination
+offset and extent, sample selection, and render-target key agreement. This
+closes the ambiguity between a wrong source target and a wrong crop before any
+scaled replay is enabled.
+
+Resolve-region qualification (`20260901T144616Z-p15856`) proved that the live
+source and resolve both use target key `0:32:12:4`. The two visible full-width
+chunks read guest rectangles `1280x256` and `1280x208`, corresponding to
+physical `2560x512` and `2560x416` rectangles at 2x, both beginning at source
+origin `0,0` with sample select `6`. Target selection is therefore correct; the
+remaining mismatch is downstream in private replay geometry, accumulator
+row/sample mapping, or presentation.
+
+Replay-geometry implementation checkpoint: every indexed and auto-indexed
+isolated completion now reports the exact scaled logical extent, private target
+extent, and active draw scale together with request identity. The continuous
+procedural workset retains this contract in its bounded summary. This creates a
+direct replay-versus-resolve comparison before any 2x replay or output gate is
+widened; Xenos remains authoritative and suppression remains disabled.
+
+Scaled-layout implementation checkpoint: a backend-neutral, checked-arithmetic
+contract now reconciles each logical accumulator transition with the exact live
+resolve target, guest and physical source rectangles, draw scale, destination
+mapping, and sample selection. At 2x the three proved chunks map to destination
+rows `0`, `512`, and `1024`; the final chunk copies 416 physical source rows
+from source origin and preserves 32 separate padding rows in the 1472-row
+storage allocation. A destination-row source crop, target mismatch, missing
+topology, non-averaging sample selection, or arithmetic overflow fails closed.
+The bounded census reports the resulting physical plan, but backend copying is
+not admitted yet and the prototype compatibility gate remains 1x1.
+
+Backend-boundary checkpoint: the title now submits an accumulator request only
+when that physical plan is ready. The request carries the exact source origin
+and extent, physical copy and padding row counts, destination geometry, and
+sample selection; the D3D12 result echoes the same contract even on a rejected
+target. This closes the previous interface ambiguity where the backend knew
+only padded destination rows and inferred a source crop. The existing copy
+implementation does not consume the new crop/sample fields yet, so scaled
+backend admission and the 1x1 compatibility gate remain unchanged.
+
+Exact-copy implementation checkpoint: D3D12 accumulator copies now validate
+and consume the qualified source rectangle and logical copy-row count rather
+than using the destination row as a source crop or copying padding as scene
+pixels. Single-sample targets use an exact texture box. Two-sample targets can
+either expand a proved horizontal sample layout or resolve the selected pair at
+matching width. A new four-sample compute path implements the Xenos `k0123`
+average observed on the procedural family and writes only logical rows, leaving
+padding outside the presented extent. Resource bounds, topology, row
+accounting, and sample selection remain fail-closed. The 2x presentation gate
+is still closed pending a batched AppData qualification of replay geometry and
+this backend path.
+
+Scaled-qualification harness checkpoint: a default-off census profile may arm
+the private procedural replay and exact accumulator at exactly `2x2`, but only
+when the selected output renderer is explicitly `xenos`. The harness enables
+the complete track/static continuous workset, forces Xenos authority for the
+process, records an armed-or-blocked configuration event, publishes no native
+frame, suppresses no guest draws, and restores every environment override on
+exit. Any other scale, renderer, missing census, or missing accumulator request
+fails closed. This is a diagnostic admission path only; it does not widen the
+visible prototype compatibility gate.
 
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
 - Preserve exceptional shader states through exact replay fallback.
 - Track streaming registration, invalidation, and destruction.
+
+Static ingress checkpoint: retail RTTI and complete-object locators now prove
+the generic SimpleModel mesh/submodel/model/resource chain plus immediate,
+deferred, and unified presentation surfaces. All vtable extents resolve to AOT
+functions or one exact reviewed adjustment thunk. The payload-free proof is
+recorded in [`STATIC_WORLD_INGRESS.md`](STATIC_WORLD_INGRESS.md). Concrete
+building/prop instance identity, streaming lifetime, prepared-record joining,
+native admission, and suppression remain pending.
+
+Implementation checkpoint: primary `CSimpleModelRenderer` slot 12 now has a
+balanced exact scope from `82C4CCC8` to its common `82C4DEA0` exit. Its direct
+`82416380` indexed-draw emissions carry the exact renderer, render-context, and
+opaque graph identity through physical PM4 generation into prepared-draw
+records, with periodic and final fail-closed accounting. Runtime qualification
+is batched after the current guarded C1 session. This proves no concrete
+building/prop instance or streaming lifetime and enables no native admission.
+
+Lifetime checkpoint: static instruction flow now proves the 368-byte
+`CSimpleModelRenderer` construction, its actual slot-16 deleting destructor,
+and the bind/clear/release ownership protocol for its offset-72 graph field.
+Runtime lineage carries independent renderer and graph generations and rejects
+unregistered, non-live, unbound, or mismatched ownership before attribution.
+The proof and batched qualifier are documented in
+[`STATIC_WORLD_LIFETIME.md`](STATIC_WORLD_LIFETIME.md). Concrete graph dynamic
+type and registration are closed by the next checkpoint; building/prop
+identity and complete streaming invalidation remain pending.
+
+Resource checkpoint: the renderer's bound graph is now statically proved as
+the exact 320-byte `CSimpleModelResource` produced by factory `82C47F10`.
+Allocation and reuse paths converge at one registration boundary, while
+generation-aware construction and destruction hooks prevent address reuse
+from contaminating prepared-draw provenance. Runtime qualification is batched
+with C1/C2 and documented in
+[`STATIC_WORLD_RESOURCE.md`](STATIC_WORLD_RESOURCE.md). Concrete building/prop
+identity, mesh/material decoding, and independent streaming invalidation paths
+remain required; no admission or suppression is enabled.
+
+Payload-reset checkpoint: exact resource slots 16 and 22 both clear and
+release the offset-64 owned payload, while slot 15 rebuilds through the
+offset-112 graph and offset-76 binding object. Balanced hooks now advance an
+independent payload generation, so a same-address resource reset cannot reuse
+stale prepared-draw provenance. Static proof and the deferred runtime gate are
+documented in
+[`STATIC_WORLD_STREAMING.md`](STATIC_WORLD_STREAMING.md). Representative
+runtime transition coverage, any additional invalidation routes, concrete
+building/prop identity, and mesh/material decoding remain pending. Xenos stays
+authoritative and no admission or suppression is enabled.
+
+Invalidation-census checkpoint: all 23 `CSimpleModelResource` vtable slots are
+now locked to their retail targets. Only slots 16 and 22 reset the live
+offset-64 payload; slot 0 destruction reaches the base destructor that releases
+the same reference. This closes the class-exposed invalidation surface while
+leaving representative runtime transition coverage, external invalidation
+routes, and post-transition rebinding for the batched C1/C2 AppData run. The
+proof is recorded in
+[`STATIC_WORLD_STREAMING.md`](STATIC_WORLD_STREAMING.md).
+
+Member-graph checkpoint: the exact live resource now joins its embedded
+`CSimpleModel` at offset 112, selected `CSimpleSubModel`, and selected
+`CSimpleMesh` to the direct indexed-draw call and prepared PM4 provenance.
+All three RTTI vtables and the resource-to-model address equation are checked
+at runtime. Static proof and the deferred combined qualifier are documented
+in [`STATIC_WORLD_GRAPH.md`](STATIC_WORLD_GRAPH.md). This closes the generic
+SimpleModel member lineage, not concrete building-versus-prop semantics or
+mesh/material decoding; native admission and suppression remain off.
+
+Presentation-owner checkpoint: exact retail vtable and instruction flow now
+prove `Presentation_Unified::CModelPresentation` as the synchronous owner above
+the SimpleModel resource reference and renderer. Its balanced slot-12 scope
+constructs/binds the renderer and invokes the renderer's exact slot-12 draw
+path. The proof is documented in [`STATIC_WORLD_OWNER.md`](STATIC_WORLD_OWNER.md).
+The passive runtime scope now carries the exact presentation owner and opaque
+resource identity through the existing renderer/PM4/prepared-draw lineage,
+with an exact offset-1608 renderer equality gate. Runtime qualification remains
+batched with C1/C2. This does not prove building-versus-prop identity or
+mesh/material semantics.
+
+Presentation-type checkpoint: a complete retail RTTI hierarchy census finds
+only generic `CModelPresentation` and its thread-safe reference-count wrapper;
+there is no building- or prop-specific derived presentation class. Slot 7 and
+the renderer bind helpers now also prove that presentation offset 148 and
+renderer offset 72 hold the same exact `CSimpleModelResource`. Runtime lineage
+requires that address equation before attribution. The locked census is
+documented in
+[`STATIC_WORLD_PRESENTATION_TYPES.md`](STATIC_WORLD_PRESENTATION_TYPES.md).
+The next semantic lead is bounded resource/asset metadata, not another RTTI
+subclass search.
+
+Asset-metadata checkpoint: presentation initialization now proves that the
+stored name at owner offset 16 is the exact key passed to the
+`CSimpleModelResource` binder. Preparation also proves bounded 28-byte effect
+and texture-reference tables at resource offsets 124/128 and 288, including
+the exact `.fx`, `Id=`, and `textures\` path construction. The static proof is
+documented in
+[`STATIC_WORLD_ASSET_METADATA.md`](STATIC_WORLD_ASSET_METADATA.md). A
+payload-free hashed runtime category census remains required before assigning
+building-versus-prop semantics. No native admission or suppression is enabled.
+
+Hashed asset-lineage checkpoint: the passive presentation observer now reads
+only the proved bounded key and reference-count fields, exports no plaintext,
+and carries their stable hash/length and effect/texture counts through the
+renderer, PM4 packet, and prepared-draw provenance. Independent outcome and
+join accounting fails closed when a renderer-joined presentation lacks valid
+metadata. Runtime qualification remains batched with C1/C2; concrete
+building-versus-prop labels remain unproved.
+
+Mesh-semantics checkpoint: the SimpleMesh draw path now proves numeric
+primitive type at mesh offset 36, index-buffer binding at 96, source element
+count at 100, the exact primitive-count and scale/bias conversion, and the
+bind/draw/clear sequence. The bounded submodel state and optional mesh material
+resource branches are also locked. See
+[`STATIC_WORLD_MESH_SEMANTICS.md`](STATIC_WORLD_MESH_SEMANTICS.md). Complete
+shader-derived layouts and parameter metadata are handled by the prepared-layout
+checkpoint below; no admission or suppression is enabled.
+
+Runtime-lineage checkpoint: those bounded mesh and material-selection fields
+are now sampled only after the exact live member-graph gates and carried through
+the physical PM4 origin into prepared-draw provenance. Separate fail-closed
+observation, read-fault, and packet-origin accounting is ready for the next
+combined C1/C2 AppData qualification. This exports numeric identity only and
+does not enable native admission or suppression.
+
+Prepared-layout checkpoint: the exact mesh-to-PM4 join now snapshots the
+complete bounded shader-derived vertex bindings and attributes plus the float,
+bool, loop, and texture parameter boundary needed by a native implementation.
+The 512-family census and its independent overflow accounting are documented in
+[`STATIC_WORLD_PREPARED_LAYOUT.md`](STATIC_WORLD_PREPARED_LAYOUT.md). Runtime
+qualification remains batched; resource payload bytes are not exported and
+Xenos remains authoritative.
+
+Instance-classification checkpoint: retail instruction flow now proves the
+complete 64-byte `CModelPresentation` transform at owner offset 80 and its
+slot-6 copy into renderer offset 128 before the exact draw. The passive runtime
+lineage carries all 16 numeric words and their hash into prepared-draw
+provenance with fail-closed accounting. Separately, the title-authored Colorado
+collision and gameplay manifests produce a payload-free catalog of 24,025
+hashed spatial entries (21,877 collision props and 2,148 gameplay objects).
+See
+[`STATIC_WORLD_INSTANCE_CLASSIFICATION.md`](STATIC_WORLD_INSTANCE_CLASSIFICATION.md).
+The next C2-specific AppData run must prove the matrix convention and a
+unique runtime-to-catalog match; no building/prop category, native admission,
+or suppression is claimed yet.
+
+Category-join implementation checkpoint: the offline qualifier now tests both
+plausible 4x4 translation layouts against the hashed spatial catalog. It
+requires a unique convention, at least eight distinct exact matches including
+a collision prop, zero ambiguous/unmatched/non-finite transforms, a clean
+process lifecycle, and a complete static-world runtime summary. The qualifier
+is ready for the deferred combined AppData run; it cannot self-qualify from
+static fixtures and still enables no native admission or suppression.
+
+Candidate C2 ingress checkpoint: the closed 13-caller indexed-draw inventory
+found a statically exact candidate independent of the dormant SimpleModel
+graph. Exact unified
+track helper `82C5ADC0` carries RTTI-proved `CTrackMesh` plus its 64-byte live
+transform into emitter `82416380`. A balanced entry/common-exit scope now joins
+that identity through the synchronous PM4 packet into prepared-draw provenance,
+with separate lifecycle, packet, and prepared counters. The catalog qualifier
+can consume this alternate origin via `--origin unified_track_mesh`. See
+[`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md). Clean
+session `20260901T022910Z-p35168` proved the complete direct producer inventory
+and balanced lifecycle, but recorded zero calls from `82C5B038`. A future
+scene-specific recheck must first prove the path live and then uniquely map at least eight
+instances, including a collision prop. This is evidence-only: native admission
+and suppression remain disabled and Xenos remains authoritative.
+
+C1 visible-prototype promotion checkpoint: because the same clean session
+reconfirmed the indirect route's exact packet/prepared lineage, selecting
+`native_prototype` now also requests the exact track-world family by default.
+An explicit `PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD=false` remains
+a fail-safe override. The existing mechanical eligibility, one-frame private
+target, swap commit, fallback, and Xenos-authority gates are unchanged.
+
+Native-output implementation checkpoint: the existing one-frame,
+swap-committed continuous world target now has an independent default-off
+static-world selection. It admits only mechanically replayable draws carrying
+the exact presentation/resource, hashed asset, transform, member-mesh, and
+bounded prepared-layout lineage, with separate request and rejection
+accounting. It neither embeds the local catalog nor changes the normal
+prototype selector, Xenos execution, publication authority, or suppression.
+Runtime and visual proof is batched with the pending C1/C2 AppData run.
+
+Complete-scene publication correction: runtime visual evidence proved that the
+continuous workset reseeds its one retained target when attachment identity
+changes, then exposes whichever isolated family happens to finish last. That is
+the direct cause of the wrong camera and missing open world seen in the early
+prototype; it is not a presentation-scale issue. Workset replays remain private
+and fully observable, but deferred swap publication is now disabled and output
+stays Xenos-authoritative until a compositor can retain and join all required
+camera-consistent color families. This removes the misleading partial frame
+from the supported prototype path without discarding the native replay work.
+The next implementation slice is multi-target scene-family retention followed
+by an explicit complete-frame coverage gate.
+
+Representative-scene result: clean festival session
+`20260901T042139Z-p17172` exercised 6,016 exact generic model-presentation
+scopes but joined none to a `CSimpleModelRenderer`, resource graph, PM4 packet,
+or prepared draw. The same run exposed 6,016 asset-metadata read faults and
+5,772 resource-transition receiver-vtable mismatches. The generic SimpleModel
+route is therefore not a visible-prototype lead in this scene and requires a
+runtime-receiver correction plus a scene that exercises its renderer before
+C2 admission resumes. C1 color-pass lineage remains ahead of this route; final
+C2 scope is unchanged.
+
+Null-resource classification correction: all 6,016 exact presentation scopes
+in that session carried a null offset-148 resource, so their metadata outcome
+was absence rather than a guest-memory read fault. Runtime accounting now
+reports null presentation resources and metadata-missing-resource outcomes
+separately from genuine mapped-read failures. Broad generic presentation
+scopes may be null without poisoning safety accounting, while C2 qualification
+still requires exact resource metadata and renderer joins.
 
 ### C3. Semantic batching, culling, and LOD
 
@@ -247,6 +1234,37 @@ required.
 - Preserve query and guest-visible behavior independently from visual culling.
 - Prove material reductions in draw count and submission time.
 
+Implementation checkpoint: the bounded visibility-to-prepared candidate table
+now preserves independent exact C1 track-world and C2 static-world family tags.
+Its payload-free report reconciles generic static origins and the stricter
+presentation/resource/mesh/transform-qualified subset before any production
+batch, native culling, or native LOD policy is enabled. Runtime qualification is
+batched with the pending representative C1/C2 AppData session; Xenos remains
+authoritative and suppression stays disabled.
+
+Batch-planning checkpoint: the exact world-family mask is also part of the
+order-preserving semantic opportunity key. Generic, exact-track, and
+exact-static draws therefore cannot extend one another's runs solely because
+their GPU resources match. The report exposes family-local multi-draw evidence
+without admitting an executor; runtime qualification remains in the same
+deferred C1/C2 session.
+
+LOD-safety checkpoint: exact title-LOD validity and the normalized title index
+are now also part of the semantic batch key. Missing observations collapse only
+to `(false, 0)`, while different proved LODs can never share a run. Family-local
+LOD opportunity signals remain measurement-only; independent native LOD
+selection is still disabled until the batched runtime evidence proves this
+passthrough boundary.
+
+First combined runtime result: the same clean festival session retained 38
+fresh track-texture candidates in nine bounded families; 11 draws in two
+families were mechanically replayable, with zero future decisions or table
+overflow. Exact track-world, title-LOD, and static-world lineage remained
+absent. The current semantic batch key then partitioned 2,873 eligible draws
+into 2,873 single-draw runs (maximum length one), proving zero command
+reduction for this evidence set. C3 executor and optimization work stays behind
+C1 semantic identity instead of optimizing an unbatchable key.
+
 ### C4. Player and traffic vehicles
 
 - Resume vehicle work from the documented rejected paths rather than repeating
@@ -255,6 +1273,281 @@ required.
   livery contract.
 - Implement player vehicle first, then traffic and exceptional materials.
 - Retain per-item replay fallback until semantic coverage is complete.
+
+Shadow-geometry ingress checkpoint: the already qualified exact 80-draw
+dynamic-vehicle shadow epoch now seeds a bounded, default-off cross-pass
+resource correlation. Geometry is staged during the consecutive epoch and
+committed only after backend confirmation of all 80 draws; interruptions and
+replay failures discard the entire set. Later indexed color draws must share
+either the complete geometry resource set or the exact index buffer plus an
+exact vertex resource. The observer exports only hashes and numeric resource
+identity, captures no guest payload, draws nothing, preserves Xenos authority,
+and cannot suppress. The next batched gameplay run determines whether this
+produces a working player-vehicle color ingress before transform, wheel,
+livery, traffic, and full material contracts are added.
+
+Color-family hardening checkpoint: correlated draws are now partitioned by
+exact draw arguments, geometry, texture resources, prepared pipeline, and the
+committed shadow seed rather than by a loose shader family. Stable aggregate
+records retain draw/frame coverage and parameter-switch counts, so animated
+pose candidates can be identified without exporting constant payloads and
+different submeshes or liveries cannot silently collapse together. Runtime
+qualification remains part of the next batched gameplay run.
+
+Same-session visual checkpoint: an independent opt-in now privately replays
+the first mechanically eligible correlated color family after the full shadow
+epoch has been committed. It captures native and Xenos color targets in the
+same long session, never publishes the private target, preserves the original
+Xenos draw, and cannot suppress. This is intended to produce the first direct
+C4 image pair without requiring a second gameplay run.
+
+Batched ingress result: the first AppData qualification committed one exact
+80-draw epoch with 68 unique geometry seeds and no overflow. Across 1,929
+loaded-game frames it found 57,870 exact full-resource color matches in 30
+bounded families; every family changed its parameter hash on every subsequent
+frame. This confirms a stable animated vehicle color ingress, while still not
+proving object identity or a complete material contract. No private color
+capture request was issued because none of the correlated draws passed the
+existing isolated-draw mechanical gate.
+
+Replay-gate diagnostic checkpoint: each matched draw now records the exact
+mechanical rejection mask before capture selection. Bounded family aggregates
+retain eligible/rejected draw counts, first/last/OR/AND masks, and mask-switch
+counts; the final summary emits per-reason draw totals and strict accounting.
+This does not relax admission, publish a native target, capture guest payload,
+or allow suppression. The next batched run will identify the smallest missing
+geometry, texture, pipeline, or render-target contract before any native
+vehicle implementation is admitted.
+
+Replay-gate result: a clean AppData session reproduced all 30 families across
+25,200 exact matches. Every draw retained the same `00000808` generic mask:
+three-stream vertex input and zero sampled textures. All other rejection
+reasons were zero, and every family kept the same mask across 840 animated
+frames. Backend inspection confirms that private replay restores and duplicates
+the already-prepared guest pipeline, bindings, and texture state; the one-stream
+and at-least-one-texture rules belong to payload snapshot serialization rather
+than backend replay.
+
+Private vehicle capture therefore uses a narrower admission contract. It still
+requires bounded geometry, no overflows, supported indexed input, complete
+prepared pipeline and render targets, no query, memexport, or resolved input,
+and at most four valid textures. It additionally permits bounded multi-stream
+input and a shader that samples no textures. Generic isolated-draw admission is
+unchanged. This exception remains correlation-gated, private, one-shot,
+non-publishing, Xenos-authoritative, and unable to suppress.
+
+First visual result: the next AppData session privately replayed exact family
+`436C58CA13690625` at frame 2,633, draw 4,358 into a 2560x1024 target. The
+cropped native and Xenos images contain the same rear vehicle body/bumper
+submesh, and their full raw source hashes are identical
+(`F30FFA26CCF670DD`). All 7,320 correlated draws in that session passed the
+private vehicle gate, while generic admission remained closed. This proves one
+working animated vehicle color slice, not a complete car or material system.
+
+Private stability checkpoint: after the one-shot image pair succeeds, the same
+exact prepared signature may now replay privately at most once per frame for a
+hard limit of 300 draws. It performs no further readbacks, never publishes,
+never suppresses, and stops all later private requests on the first backend
+failure. Final accounting distinguishes recorded draws, target failures,
+unsupported state, per-frame quota yields, and limit yields. Long-session
+success is required before considering visible native publication of this
+submesh.
+
+Private stability result: the AppData qualification reached the complete
+300-request bound with 300 recorded replays, zero target failures, zero
+unsupported states, and no per-frame quota misses. A further 168 matching
+frames were correctly declined after the limit. The session observed 14,070
+exact correlations, exited normally, and logged no error or crash. The exact
+submesh is therefore stable in private animated replay, but native admission
+remains closed because player identity and complete vehicle coverage are not
+yet proven.
+
+Full-vehicle topology checkpoint: matched color draws are now grouped into
+exact consecutive prepared-draw runs. The census records run count, matched
+draw accounting, multi-draw runs, maximum length, runs covering the complete
+bounded family table, and the ordered signature hash of those full-family
+runs. It remains measurement-only. A stable full-family sequence is the gate
+for assembling the 30 proven submeshes into one retained private vehicle pass.
+
+Topology result: the clean AppData run observed all 30 families exactly once
+per frame for 187 consecutive frames (5,610 matches), but unrelated guest work
+partitions them into 2,992 consecutive runs whose maximum length is five. A
+single consecutive 30-draw pass therefore does not exist. The retained-pass
+gate is corrected to the stronger frame-wide contract already implied by the
+per-family summaries: all 30 exact families, once each in original guest draw
+order, may accumulate across unrelated Xenos draws in one private target.
+
+Retained-pass implementation checkpoint: the default-off qualification mode
+starts only after the one-family native/Xenos capture succeeds and the exact
+correlation table contains 30 families. It retains the first matching draw,
+reuses the private target for the remaining 29 in guest order, releases and
+optionally reads back only the complete frame, and repeats for at most 120
+frames. Missing, extra, non-monotonic, unsupported, or failed work disables the
+path for the process. It never publishes, suppresses, or changes Xenos output
+authority.
+
+Retained-pass result: the clean AppData run completed all 120 bounded frames
+and recorded all 3,600 requested draws, including 3,480 retained-target reuses,
+with zero failures, unsupported replays, errors, or suppression. Its one
+readback contains a coherent multi-submesh rear view with body, bumper,
+glazing, wheels, and lower geometry in the same native target. This closes the
+frame-wide retention mechanism. The result remains an isolated unlit
+diagnostic; exact player identity, transforms, material completeness, hybrid
+publication, traffic coverage, and per-item fallback remain open C4 work.
+
+Transform-identity implementation checkpoint: every exact correlated color
+draw now compares its already-bounded vertex constants with title-owned vehicle
+positions and both forward signs no more than one frame old. Per-family
+accounting distinguishes unique, ambiguous, and missing matches and requires a
+stable constant register and identity across every observation. The offline
+gate recognizes a complete shared vehicle-transform candidate only when all 30
+families consistently name the same generation, owner, and slot. No constant
+payload is exported, and the result cannot label the instance as the player,
+publish native output, or suppress Xenos. Runtime evidence is batched with the
+next C4 AppData session; the contract is documented in
+[`VEHICLE_COLOR_CONSTANT_IDENTITY.md`](VEHICLE_COLOR_CONSTANT_IDENTITY.md).
+
+Material-topology implementation checkpoint: the same 30 exact families now
+carry a geometry-independent key over shader identity and specialization,
+prepared render state, and texture layout. Pixel-float parameter changes are
+counted through hashes without exporting their values. The v8 report groups
+every family by that key, providing the bounded mechanical topology needed to
+target body, glass, wheel, light, livery, and exceptional-material follow-ups.
+Hashes do not receive semantic labels and cannot establish completeness,
+publication, or suppression. Runtime evidence is combined with the pending
+transform census; the contract is documented in
+[`VEHICLE_MATERIAL_TOPOLOGY.md`](VEHICLE_MATERIAL_TOPOLOGY.md).
+
+Combined transform/material result: the clean merged-`dev` build loaded the
+AppData save and exited normally with no error or fatal log entries. The
+retained full-vehicle diagnostic again completed 120/120 frames and all 3,600
+draws, including 3,480 retained-target reuses, with zero failures. Across
+18,360 correlated draws, the constant census completed 18,360 scans and
+18,207,360 comparisons but found no stable world-position carrier in the raw
+vertex constants; the nearest squared position delta was still about 753,399.
+Forward matches were close but ambiguous. The v8 report therefore correctly
+keeps the shared-transform and object-identity gates closed.
+
+The material census reconciled all 30 families into one stable mechanical
+topology while every family varied its hashed material parameters. C4 is now
+re-prioritized around the typed constant/material upload and bind edges: first
+recover the exact player transform carrier and semantic player discriminator,
+then label body, glass, wheel, light, and livery contributions within the
+shared topology. More broad raw-constant or hash-only scans are deferred. The
+retained private pass remains the stable geometry/output harness throughout.
+
+Typed constant-upload implementation checkpoint: the exact generic title
+writer at `82435E78` now feeds a bounded 8,192-entry recent-upload ledger. Each
+entry retains its destination register range, title source/destination
+addresses, exact caller return address, and per-vector semantic hashes without
+exporting constant values. Every
+exact vehicle color family joins its observed vertex registers to uploads no
+more than one frame old. The first AppData run strictly accounted 2,419,537
+writer observations and 16,230 vehicle draw scans, but the whole-range rule
+produced zero matches because prepared observations contain only constants
+referenced by the active shader. The rule is rejected and replaced by an exact
+shader-used subset join. The v10 qualifier requires
+complete upload/outcome accounting and recognizes a 30-family bridge only
+when every family matches on every draw with a stable caller, upload range, and
+consumed subset size. Runtime proof remains batched with the next substantial
+C4 slice; the corrected contract and first-run evidence are documented in
+[`VEHICLE_TYPED_CONSTANT_UPLOAD.md`](VEHICLE_TYPED_CONSTANT_UPLOAD.md).
+
+Shader-used subset qualification result: the AppData-backed
+`20260831T184645Z-p11956` run exited normally and strictly accounted 2,245,612
+writer observations, including 469,815 valid uploads and zero invalid source
+ranges. It reproduced all 30 families across 15,750 exact geometry matches but
+the subset rule still produced zero upload matches. The join is therefore not
+promoted. The next bounded slice partitions every fresh candidate into
+no-overlap, hash-mismatch, or exact outcomes and records each family's observed
+register envelope without exporting values. This selects the next exact
+contract before any semantic caller bridge, native admission, or suppression.
+
+The short v11 run `20260831T190405Z-p11884` completed that partition across
+11,880 draws and 8,331,453 fresh candidates. It found 1,330,751 real register
+overlaps and the same observed `0..255` register envelope in all 30 families;
+therefore neither freshness nor register space explains the failed join. The
+v12 contract reconstructs exact last-writer provenance per shader-used
+register, allowing later writes to replace unrelated vectors from a broader
+upload without erasing exact matches. It still requires exact index/hash
+equality for every credited register and changes no draw authority.
+
+Per-register qualification result: the corrected AppData run
+`20260831T191732Z-p39892` completed 308 exact epochs and 9,210 correlated draws
+across all 30 families, but found zero exact typed-writer register matches.
+This closes the generic title writer route. The next bounded slice observes the
+command processor's final shader-register writes instead, retaining exact
+packet and command-buffer lineage for current vertex-constant components. A
+fixed 4,096-source table aggregates source identity by family, packet header,
+packet offset, and nesting depth while retaining dynamic buffer length and
+physical-address variation as evidence. Strict component/source accounting
+selects the semantic command-buffer producer before player identity,
+publication, or suppression can advance.
+
+Command-stream qualification `20260831T200117Z-p31000` is bounded and
+repeatable: 255 exact epochs, 7,650 correlated draws, and all 30 families were
+observed. Final register state matched 114,750 of 122,400 shader-used vectors
+(15 of 16 per draw), with no missing or split-component vectors and zero-frame
+age. The structural packet table retained 1,620 sources without overflow.
+The draw-atomic follow-up `20260831T203519Z-p39592` identifies register 254 as
+the sole mismatch: all four components differ on every one of 14,505 matched
+draws, with no mask variation, while the other 15 vectors remain exact. This
+proves a special-register path rather than observer timing drift.
+
+First semantic constant-bridge checkpoint: all 14,505 matched draws now publish
+a private current-draw snapshot into the bounded 30-family table with zero
+rejections and zero register-layout variations. Each family carries the same
+16 shader-used registers, 15 exact packet-lineage vectors, and one explicitly
+unresolved register-254 vector. The bridge exports hashes and counts only,
+draws nothing, publishes nothing, and cannot suppress Xenos. It is sufficient
+to advance the retained player-vehicle harness without attributing register
+254 to a guessed title producer. The next C4 slice joins player identity and
+mesh/material roles to this snapshot, then uses per-item replay fallback for
+unresolved or exceptional work.
+
+Player/traffic semantic-ingress checkpoint: retail RTTI now locks distinct
+`player_local`, `ai`, `traffic`, and `player_remote` map-entity vtables. Shared
+slot 11 returns the exact vehicle ID at offset 12, while shared slot 3 returns
+the title-owned semantic type-name pointer at offset 16. A default-off passive
+hook on the getter admits only those exact vtables and retains bounded direct
+entity/source, entity/owner, and vehicle-ID/pose-slot correlations. The static
+proof and pending runtime gate are documented in
+[`VEHICLE_PLAYER_INGRESS.md`](VEHICLE_PLAYER_INGRESS.md). Runtime qualification
+is batched with the next meaningful C4 slice; until it proves one stable unique
+player-to-pose relationship, player attribution, mesh/material labels, native
+publication, and suppression remain closed.
+
+Resource-contribution checkpoint: the existing 30 retained prepared-signature
+families reduce exactly to 15 geometry-resource contributions, each with two
+distinct prepared variants and otherwise identical mechanical state. The
+offline fail-closed partition is documented in
+[`VEHICLE_RESOURCE_CONTRIBUTIONS.md`](VEHICLE_RESOURCE_CONTRIBUTIONS.md). C4
+role attribution now targets those 15 exact resources; prepared signatures
+alone cannot carry a semantic label because two resources reuse one signature
+pair. A default-off private capture now retains the two exact variants for one
+selected resource, releases after the second, and reads back only that bounded
+contribution while preserving both Xenos draws. The next batched gameplay run
+qualifies the first isolated resource result and joins it to an independent
+title-owned asset/material discriminator before
+assigning body, glass, wheel, light, livery, or exceptional-work labels.
+
+Asset/material discriminator checkpoint: retail construction now proves the
+exact title-owned tire/wheel shader-settings path builder and its root-plus-1056
+binding object. A passive bounded hook hashes only the model-owned asset key,
+retains Normal/SLOD and UI flags, and records exact title draw-argument joins.
+The static proof and pending runtime gate are documented in
+[`VEHICLE_ASSET_MATERIAL_BINDING.md`](VEHICLE_ASSET_MATERIAL_BINDING.md).
+This narrows one independent semantic family without guessing from shared
+shader topology; per-resource role labels remain closed until the next batched
+visual-contribution run agrees with this title-owned evidence.
+
+Runtime material-join checkpoint: a strict payload-free qualifier now maps
+the binding census's exact backend signatures onto the 15-resource partition.
+It produces a unique tire/wheel contribution candidate or one of two bounded
+negative results (no direct draw join or an ambiguous multi-resource join).
+Visual-role proof remains independently closed until isolated output agrees,
+so this tooling can be exercised in the combined Phase C session without
+weakening native admission or Xenos fallback.
 
 ### C5. Sky, atmosphere, and global lighting
 

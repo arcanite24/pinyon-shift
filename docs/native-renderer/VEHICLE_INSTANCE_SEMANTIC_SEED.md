@@ -311,6 +311,13 @@ vehicle identity bridge. Continue at the explicit `8240E7B0` matrix composition
 that writes the 64-byte payload passed to `82435E78`; do not widen heuristic
 object scans. Native vehicle drawing and suppression remain closed.
 
+Phase C1 follow-up RTTI work reclassifies this one dynamic profile more
+precisely: `820019CC` is the unified track render-model instance and `82001D74`
+is the unified track render model. That strengthens the original rejection as
+a vehicle identity bridge and makes the same exact-lifetime edge useful for the
+terrain/road ownership investigation. It does not retroactively establish a
+vehicle or terrain draw by itself.
+
 ## Object/reference composed matrix
 
 Static instruction flow now closes the next transform boundary inside
@@ -422,3 +429,128 @@ python .\tools\inventory-native-renderer-vehicle-vtables.py `
   --generated-root .local\generated\default `
   --output .local\qualification\native-renderer-vehicle-vtables.json
 ```
+
+## Capture-proven shadow geometry ingress
+
+The next C4 route deliberately leaves the exhausted title-object searches
+behind. The independently qualified shadow-depth batch already identifies one
+exact, consecutive 80-draw dynamic-vehicle atlas epoch: 64 primary draws,
+followed by 12 secondary and four tertiary draws in a fixed order. A new
+default-off observer stages only the bounded geometry resource identities of
+those draws. Nothing is promoted until the native backend reports the complete
+80-draw epoch recorded successfully; interruption or replay failure discards
+the entire staging set.
+
+After that boundary, the observer compares ordinary indexed color draws with
+the committed set. It records either an exact full geometry-resource match or
+an exact index-buffer identity plus at least one exact shared vertex resource.
+The resulting prepared signature, pipeline/template hashes, geometry hash, and
+texture hash form a bounded candidate table for the player-vehicle color
+bridge. This is a cross-pass resource correlation, not yet object identity:
+transform, wheel, livery, traffic, and complete material semantics remain open.
+
+Candidate aggregation is deliberately stable across animated constants. A
+family is partitioned by the exact shadow seed, prepared signature, draw
+arguments, geometry resources, texture resources, and prepared pipeline. The
+final report retains draw/frame coverage and first/last parameter hashes plus
+parameter-switch counts. This prevents different submeshes or liveries from
+collapsing together while exposing likely pose-bearing families without
+exporting the constant payload itself.
+
+The mode captures no guest payload, submits no native color draw, preserves all
+Xenos draws, and cannot suppress anything. Qualify it in a representative
+driving session with:
+
+```powershell
+.\tools\capture-native-renderer-census.ps1 `
+  -StateRoot $stateRoot `
+  -Scene open_world_day `
+  -ShadowDepthBatch `
+  -VehicleShadowGeometryCorrelation `
+  -CaptureVehicleShadowColor `
+  -IsolatedDrawDir .local\qualification\vehicle-shadow-geometry
+
+python .\tools\summarize-native-renderer-vehicle-shadow-geometry.py `
+  $eventLog `
+  --output .local\qualification\native-renderer-vehicle-shadow-geometry.json
+```
+
+The qualifier requires a backend-confirmed full epoch, exact seed and
+correlation accounting, zero table overflow, unchanged Xenos authority, and no
+native draw or suppression. A non-empty correlation set is only a working C4
+color-ingress candidate; it is not native admission.
+
+The optional capture switch avoids a second long gameplay session. After the
+backend-confirmed shadow epoch, the first correlated color draw that also
+passes the existing isolated-replay mechanical gate is replayed once into a
+private native target. Native and Xenos color readbacks are written beside the
+shadow-depth artifacts. The authoritative Xenos draw still executes, the
+private target is never published, and no suppression is permitted. A usable
+pair gives the first direct visual checkpoint for the C4 ingress; failure or
+absence remains a bounded diagnostic result.
+
+The first loaded-game qualification committed one exact epoch with 68 unique
+seeds and zero overflow. It observed 57,870 exact full-resource matches across
+1,929 frames and 30 bounded families. Every family exhibited per-frame
+parameter variation, which confirms that the bridge tracks animated vehicle
+geometry rather than a static title artifact. The private color request count
+remained zero: the correlation succeeded, but every matched draw failed at
+least one existing isolated-draw mechanical requirement.
+
+The observer therefore retains the gate and adds bounded rejection evidence.
+For each family it reports eligible and rejected draw counts, first and last
+rejection masks, their union and intersection, and mask switches. The session
+summary reports the count for every `isolated_draw_v1` rejection bit and proves
+that eligible plus rejected draws equals all correlated draws. This is still
+measurement-only: no guest payload is exported, no native color target is
+published, every Xenos draw executes, and suppression remains impossible.
+
+The follow-up AppData qualification observed 25,200 exact matches over 840
+animated frames. All 30 families retained the same `00000808` generic mask
+with no switches: multiple vertex streams and zero textures. Every other
+mechanical rejection counter was zero. The D3D12 private replay path restores
+the already-prepared guest state before duplicating the current indexed draw;
+it does not depend on the one-stream, textured payload snapshot serializer.
+
+`vehicle_color_private_replay_v1` consequently clears only those two generic
+rejection bits when vertex streams remain within the observation bound, no
+binding or texture overflow occurred, and at most four valid texture resources
+are present (including zero). All other `isolated_draw_v1` requirements remain
+mandatory. The generic gate is untouched, and this private exception is
+reachable only after the backend-confirmed 80-draw epoch and exact geometry
+correlation. It cannot publish or suppress, and the authoritative Xenos draw
+still executes.
+
+The first admitted session recorded family `436C58CA13690625` at frame 2,633,
+draw 4,358 into a private 2560x1024 color target. Native and authoritative
+Xenos readbacks both show the same rear body/bumper submesh and have the exact
+same full source hash, `F30FFA26CCF670DD`. The session accounted for 7,320
+private-eligible correlations, one successful capture request, zero target or
+unsupported failures, and a normal process exit. This is the first working C4
+rendering slice, but it is still a submesh-level bridge rather than player-car
+identity or full vehicle coverage.
+
+Following a successful one-shot pair, the exact captured prepared signature is
+eligible for a bounded private stability run. The backend duplicates at most
+one matching draw per frame, stops at 300 requests, performs no additional
+readback, and fails closed on the first target or unsupported result. The
+authoritative Xenos draw remains present on every request. This measures
+animation-time replay stability before any native vehicle target can be
+published or any Xenos draw can be considered for suppression.
+
+The bounded stability session completed all 300 requested private replays with
+300 recorded results, zero target failures, zero unsupported results, and zero
+same-frame quota yields. It then rejected 168 later matches at the hard limit.
+Across the session, 14,070 exact geometry correlations were private-eligible;
+the process exited normally with no error or crash evidence. This establishes
+animated backend stability for the captured submesh only. Object identity and
+complete vehicle material coverage remain open, so publication and suppression
+stay disabled.
+
+The next observer treats every exact color correlation as a member of a
+consecutive prepared-draw run. A run continues only on the same frame and the
+immediately following draw sequence. Final accounting records total run draws,
+maximum run length, multi-draw runs, runs whose length equals the complete
+bounded family table, and the ordered prepared-signature hash of those full
+runs. No native request is added. A stable full-family sequence is required
+before the 30 submesh families can share one retained private vehicle target.

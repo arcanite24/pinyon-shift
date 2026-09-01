@@ -1628,6 +1628,9 @@ def procedural_model_receiver_lifecycle(
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             "title_lod_capture_gate": "optional_exact_observation_startup_gate",
             "mechanical_admission_contract": "isolated_draw_v1",
             "guest_state_changed": False,
@@ -1862,6 +1865,12 @@ def procedural_model_receiver_lifecycle(
             "semantic_batch_admission_census_required": True,
             "semantic_batch_ordering": (
                 "exact_consecutive_prepared_draw_order"
+            ),
+            "semantic_batch_world_family_partition": (
+                "none_or_exact_track_or_exact_static_or_both"
+            ),
+            "semantic_batch_lod_partition": (
+                "exact_title_observation_or_missing"
             ),
             "semantic_batch_equivalence_ladder_required": True,
             "semantic_batch_pipeline_identity": (

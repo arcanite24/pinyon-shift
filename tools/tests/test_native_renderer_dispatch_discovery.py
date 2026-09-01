@@ -1423,6 +1423,10 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
             prepared_candidates["title_lod_lineage"],
         )
         self.assertEqual(
+            "exact_presentation_resource_mesh_transform_lineage",
+            prepared_candidates["static_world_lineage"],
+        )
+        self.assertEqual(
             "isolated_draw_v1",
             prepared_candidates["mechanical_admission_contract"],
         )
@@ -1521,6 +1525,14 @@ class NativeRendererDispatchDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             "resource_free_layout_and_prepared_state",
             draw_association["semantic_batch_pipeline_identity"],
+        )
+        self.assertEqual(
+            "none_or_exact_track_or_exact_static_or_both",
+            draw_association["semantic_batch_world_family_partition"],
+        )
+        self.assertEqual(
+            "exact_title_observation_or_missing",
+            draw_association["semantic_batch_lod_partition"],
         )
         self.assertFalse(
             draw_association["semantic_batch_execution_enabled"]

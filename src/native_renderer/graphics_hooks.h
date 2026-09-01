@@ -38,6 +38,18 @@ struct VehiclePoseObservation {
 };
 
 void ObserveVehiclePose(const VehiclePoseObservation& observation);
+void ObserveVehicleMapEntity(uint32_t generation, uint32_t entity,
+                             uint32_t vtable, uint32_t vehicle_id,
+                             uint32_t type_name_address);
+void ObserveVehicleMapEntityIdAssignment(uint32_t generation, uint32_t entity,
+                                         uint32_t vtable,
+                                         uint32_t assigned_vehicle_id,
+                                         uint32_t type_name_address);
+void ObserveVehiclePlayerPool(uint32_t generation, uint32_t entity,
+                              uint32_t vtable, uint32_t vehicle_id,
+                              uint32_t type_name_address,
+                              uint32_t pool_manager, uint32_t pool_root,
+                              uint32_t pool_context);
 void BeginVehicleOwnerMethod(uint32_t method_address, uint32_t owner_address);
 void EndVehicleOwnerMethod(uint32_t method_address);
 void ObserveVehicleOwnerIndirectCall(uint32_t method_address,

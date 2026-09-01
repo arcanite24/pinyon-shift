@@ -30,6 +30,8 @@
 #include <rex/system/xmemory.h>
 
 #include "native_renderer/graphics_hooks.h"
+#include "native_renderer/resolve_assembly_tracker.h"
+#include "native_renderer/resolve_frame_accumulator.h"
 #include "native_renderer/resource_identity.h"
 #include "pinyon_shift_diagnostics.h"
 
@@ -47,6 +49,17 @@ REXCVAR_DEFINE_BOOL(
     "Pinyon Shift",
     "Request the fail-closed sky/horizon suppression experiment")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_procedural_frame_accumulator, false,
+    "Pinyon Shift",
+    "Assemble exact procedural resolve tiles in a private native frame")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_scaled_accumulator_qualification, false,
+    "Pinyon Shift",
+    "Qualify the private procedural accumulator at exactly 2x while Xenos "
+    "remains authoritative")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DECLARE(std::string, pinyon_shift_native_renderer);
 
 namespace {
@@ -54,16 +67,57 @@ namespace {
 constexpr uint64_t kFrameSummaryInterval = 300;
 constexpr size_t kSignatureCapacity = 4096;
 
+bool NativePrototypeScaleSupported() {
+  return rex::cvar::GetFlagByName("draw_resolution_scale_x") == "1" &&
+         rex::cvar::GetFlagByName("draw_resolution_scale_y") == "1";
+}
+
+bool NativeScaledAccumulatorScaleSupported() {
+  return rex::cvar::GetFlagByName("draw_resolution_scale_x") == "2" &&
+         rex::cvar::GetFlagByName("draw_resolution_scale_y") == "2";
+}
+
 bool NativePrototypeSelected() {
+  const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
+  const bool requested =
+      mode == "native_prototype" || mode == "hybrid_prototype" ||
+      mode == "comparison_native" || mode == "comparison_xenos";
+  return requested && NativePrototypeScaleSupported();
+}
+
+bool NativePrototypeRequested() {
   const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
   return mode == "native_prototype" || mode == "hybrid_prototype" ||
          mode == "comparison_native" || mode == "comparison_xenos";
+}
+
+bool ProceduralFrameAccumulatorSelected(bool prototype_selected) {
+  bool selected =
+      prototype_selected ||
+      REXCVAR_GET(pinyon_shift_native_renderer_procedural_frame_accumulator);
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR") == 0 &&
+      value && length > 1) {
+    // Keep a restart-time emergency escape hatch for prototype regressions.
+    // Unknown values fail closed rather than silently arming native output.
+    selected = std::string(value) == "true";
+  }
+  std::free(value);
+  return selected;
 }
 
 constexpr size_t kSummaryLimit = 16;
 constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kCommandBufferLineageCapacity = 4096;
+constexpr size_t kProceduralColorTargetProfileCapacity = 1024;
+constexpr uint64_t kProceduralRuntimeDetailLimit = 64;
+constexpr uint32_t kProceduralFrameAccumulatorWidth = 1280;
+constexpr uint32_t kProceduralFrameAccumulatorLogicalHeight = 720;
+constexpr uint32_t kProceduralFrameAccumulatorStorageHeight = 736;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -86,6 +140,12 @@ constexpr uint64_t kSuppressionStateDetailLimit = 32;
 constexpr size_t kDispatchCallerCapacity = 256;
 constexpr size_t kTitlePacketProvenanceCapacity = 16384;
 constexpr size_t kTitleDrawProvenanceCapacity = 4096;
+constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
+constexpr size_t kTrackWorldPreparedLayoutCapacity = 1024;
+constexpr size_t kTrackWorldScopeSpatialCapacity = 1024;
+constexpr size_t kTrackWorldReferenceSpatialCapacity = 2048;
+constexpr size_t kTrackPresentationPreparedTargetCapacity = 256;
+constexpr size_t kTrackPresentationReceiverCapacity = 32;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -98,6 +158,10 @@ constexpr size_t kIndirectProducerStackCapacity = 32;
 constexpr size_t kIndirectContextStackCapacity = 32;
 constexpr size_t kSemanticReceiverLifecycleCapacity = 1024;
 constexpr size_t kSemanticReceiverStackCapacity = 32;
+constexpr size_t kStaticWorldRendererLifecycleCapacity = 256;
+constexpr size_t kStaticWorldResourceLifecycleCapacity = 4096;
+constexpr uint32_t kStaticWorldAssetKeyMaximumBytes = 512;
+constexpr uint32_t kStaticWorldReferenceCountMaximum = 4096;
 constexpr size_t kSemanticVisibilityCategoryCapacity = 32;
 constexpr size_t kSemanticVisibilityLodCapacity = 32;
 constexpr size_t kSemanticVisibilityResultValueCapacity = 256;
@@ -112,6 +176,13 @@ constexpr uint64_t kVisibilityShadowReplayMaximumDrawsPerFrame = 1;
 constexpr uint64_t kContinuousWorldWorksetMaximumDrawsPerFrame = 64;
 constexpr size_t kVehicleIdentityCapacity = 64;
 constexpr size_t kVehicleIdentitySummaryLimit = kVehicleIdentityCapacity;
+constexpr size_t kVehicleMapEntityCapacity = 128;
+constexpr size_t kVehicleMapPoseCorrelationCapacity = 256;
+constexpr uint32_t kVehicleMapEntityBaseVtable = 0x8201D338;
+constexpr uint32_t kVehicleMapEntityPlayerLocalVtable = 0x8201D380;
+constexpr uint32_t kVehicleMapEntityAiVtable = 0x8201D3C8;
+constexpr uint32_t kVehicleMapEntityFestivalTrafficVtable = 0x8201D430;
+constexpr uint32_t kVehicleMapEntityRemotePlayerVtable = 0x8201D4B0;
 constexpr size_t kVehicleOwnerVtableMethodCount = 32;
 constexpr size_t kVehicleOwnerMethodCandidateCount = 19;
 constexpr size_t kVehicleOwnerMethodStackCapacity = 32;
@@ -134,6 +205,25 @@ constexpr size_t kVehicleTypedDescriptorCorrelationCapacity = 512;
 constexpr uint32_t kVehicleComposedMatrixHook = 0x8240EB5C;
 constexpr uint32_t kVehicleComposedMatrixCallee = 0x82435E78;
 constexpr size_t kVehicleComposedMatrixCorrelationCapacity = 1024;
+constexpr uint32_t kVehicleConstantUploadHook = 0x82435E78;
+constexpr uint32_t kVehicleConstantUploadRegisterBias = 120;
+constexpr size_t kVehicleConstantUploadCapacity = 8192;
+constexpr uint64_t kVehicleConstantUploadMaximumAgeFrames = 1;
+constexpr uint32_t kVehicleVertexShaderConstantRegisterBase = 0x4000;
+constexpr size_t kVehicleVertexShaderConstantComponentCount = 256 * 4;
+constexpr size_t kVehicleShaderConstantSourceCapacity = 4096;
+constexpr size_t kVehicleShadowGeometrySeedCapacity = 256;
+constexpr size_t kVehicleShadowGeometryCorrelationCapacity = 1024;
+constexpr uint32_t kVehicleMaterialBindingHook = 0x82549670;
+constexpr uint32_t kVehicleMaterialBindingObjectOffset = 1056;
+constexpr uint32_t kVehicleMaterialAssetKeyOffset = 1712;
+constexpr uint32_t kVehicleMaterialAssetKeyMaximumBytes = 512;
+constexpr size_t kVehicleMaterialBindingCapacity = 128;
+constexpr size_t kVehicleMaterialBackendSignatureCapacity = 16;
+constexpr uint64_t kVehicleColorConstantMaximumIdentityAgeFrames = 1;
+constexpr uint64_t kVehicleShadowColorPrivateReplayLimit = 300;
+constexpr uint32_t kVehicleShadowColorRetainedFamilyCount = 30;
+constexpr uint64_t kVehicleShadowColorRetainedPassLimit = 120;
 constexpr size_t kShadowCasterProvenanceSampleCapacity = 4096;
 constexpr uint64_t kShadowCasterMaximumVehicleIdentityAgeFrames = 1;
 constexpr size_t kSemanticInstanceCapacity = 4096;
@@ -160,6 +250,69 @@ constexpr size_t kSemanticTransformWordCount = 192 / sizeof(uint32_t);
 constexpr uint64_t kSemanticObservationPayloadBytes = 380;
 constexpr uint64_t kSemanticSubmissionMaximumPayloadBytes = 64;
 constexpr uint32_t kResourceBindingKeyCacheAddress = 0x834AD4CC;
+constexpr uint32_t kTrackTextureUnifiedVtable = 0x82001708;
+constexpr uint32_t kTrackTexturePredicate24Method = 0x824107C8;
+constexpr uint32_t kTrackTexturePrimary36Method = 0x824108D0;
+constexpr uint32_t kTrackTextureFallback40Method = 0x82DF1300;
+constexpr uint32_t kTrackTexturePredicate44Method = 0x82DF0B40;
+constexpr uint32_t kTrackRenderModelInstanceUnifiedVtable = 0x820019CC;
+constexpr uint32_t kTrackRenderModelUnifiedVtable = 0x82001D74;
+constexpr uint32_t kTrackPresentationUnifiedVtable = 0x82243774;
+constexpr uint32_t kTrackPresentationRefCountedUnifiedVtable = 0x82003CCC;
+constexpr uint32_t kTrackRenderModelDescriptorType = 21;
+constexpr uint32_t kTrackRenderModelDescriptorFlag = 1;
+constexpr uint32_t kTrackRenderModelDescriptorBytes = 248;
+constexpr uint32_t kTrackRenderModelGraphBytes = 64;
+constexpr uint32_t kSimpleModelRendererVtable = 0x82001B64;
+constexpr uint32_t kSimpleModelRendererGraphOffset = 72;
+constexpr uint32_t kSimpleModelResourceVtable = 0x82229294;
+constexpr uint32_t kSimpleModelResourcePayloadOffset = 64;
+constexpr uint32_t kSimpleModelVtable = 0x82229208;
+constexpr uint32_t kSimpleSubModelVtable = 0x822291BC;
+constexpr uint32_t kSimpleMeshVtable = 0x822291A0;
+constexpr uint32_t kSimpleMeshPrimitiveTypeOffset = 36;
+constexpr uint32_t kSimpleMeshIndexBufferBindingOffset = 96;
+constexpr uint32_t kSimpleMeshSourceElementCountOffset = 100;
+constexpr uint32_t kSimpleMeshOptionalMaterialReferenceOffset = 128;
+constexpr uint32_t kSimpleSubModelStateObjectOffset = 32;
+constexpr uint32_t kSimpleSubModelStateSelectorOffset = 39;
+constexpr uint32_t kSimpleSubModelStateEnabledOffset = 112;
+constexpr uint32_t kSimpleModelResourceModelOffset = 112;
+constexpr uint32_t kSimpleModelResourceEffectRecordsOffset = 124;
+constexpr uint32_t kSimpleModelResourceEffectCountOffset = 128;
+constexpr uint32_t kSimpleModelResourceTextureVectorOffset = 288;
+constexpr uint32_t kModelPresentationVtable = 0x822432D4;
+constexpr uint32_t kRefCountedModelPresentationVtable = 0x82002464;
+constexpr uint32_t kModelPresentationNameOffset = 16;
+constexpr uint32_t kModelPresentationTransformOffset = 80;
+constexpr uint32_t kModelPresentationTransformWordCount = 16;
+constexpr uint32_t kModelPresentationStateOffset = 144;
+constexpr uint32_t kModelPresentationResourceOffset = 148;
+constexpr uint32_t kModelPresentationRendererOffset = 1608;
+constexpr uint32_t kDeferredSimpleModelRendererVtable = 0x82021334;
+constexpr uint32_t kDeferredSimpleModelTaskVtable = 0x820213B8;
+constexpr size_t kDeferredSimpleModelTaskCapacity = 1024;
+constexpr uint32_t kMsvcStringSizeOffset = 16;
+constexpr uint32_t kMsvcStringCapacityOffset = 20;
+constexpr uint32_t kMsvcStringInlineCapacity = 16;
+constexpr uint32_t kMsvcStringRecordBytes = 28;
+constexpr uint32_t kTrackModelVtable = 0x820016B4;
+constexpr uint32_t kTrackMeshVtable = 0x8200143C;
+constexpr uint32_t kTrackSubModelVtable = 0x82001474;
+constexpr uint32_t kTrackProceduralGeometryObjectVtable = 0x82144CF8;
+constexpr uint32_t kTrackProceduralGeometryResourceVtable = 0x82144D7C;
+constexpr uint32_t kTrackPvsZoneObjectVtable = 0x82144DE0;
+constexpr uint32_t kTrackPvsZoneResourceVtable = 0x82144E64;
+constexpr size_t kTrackWorldPointeeRootCapacity = 16;
+constexpr size_t kTrackWorldResourceReferenceCapacity = 64;
+constexpr size_t kTrackWorldResourceGraphCacheCapacity = 1024;
+constexpr size_t kTrackWorldPointeePrefixWords = 16;
+constexpr size_t kTrackWorldPointeeIdentityCount = 14;
+constexpr uint32_t kDirectIndexedDrawEmitter = 0x82416380;
+constexpr uint32_t kUnifiedTrackMeshDrawReturn = 0x82C5B038;
+constexpr size_t kDirectIndexedDrawProducerCount = 13;
+constexpr size_t kUnifiedTrackMeshTransformCapacity = 4096;
+constexpr uint64_t kUnifiedTrackMeshTransformClaimed = UINT64_MAX;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -187,6 +340,8 @@ constexpr const char *kMixedShadowCasterAtlasRegion = "1024,0,1024,1024";
 std::atomic<uint64_t> g_frame_sequence{};
 
 struct TrackRenderConfigurationState {
+  std::atomic<float> track_far_distance{};
+  std::atomic<float> source_track_far_distance{};
   std::atomic<uint32_t> fast_track_render{};
   std::atomic<uint32_t> source_fast_track_render{};
   std::atomic<uint32_t> road_detail_blur{};
@@ -210,7 +365,8 @@ std::string TrackRenderModeMarker() {
   }
   std::string marker(value);
   std::free(value);
-  if (marker != "baseline" && marker != "fasttrackrender" &&
+  if (marker != "baseline" && marker != "trackfardistance" &&
+      marker != "fasttrackrender" &&
       marker != "noroaddetailblur" && marker != "notrackcommandbuffers") {
     return "invalid";
   }
@@ -219,6 +375,7 @@ std::string TrackRenderModeMarker() {
 
 struct TrackRenderExpectedValues {
   bool valid = false;
+  float track_far_distance = 55.0f;
   uint32_t fast_track_render = 0;
   uint32_t road_detail_blur = 1;
   uint32_t track_command_buffers = 1;
@@ -231,6 +388,9 @@ TrackRenderExpectedValues ExpectedTrackRenderValues(const std::string &mode) {
   if (mode == "fasttrackrender") {
     return {.valid = true, .fast_track_render = 1};
   }
+  if (mode == "trackfardistance") {
+    return {.valid = true, .track_far_distance = 5.0f};
+  }
   if (mode == "noroaddetailblur") {
     return {.valid = true, .road_detail_blur = 0};
   }
@@ -238,6 +398,16 @@ TrackRenderExpectedValues ExpectedTrackRenderValues(const std::string &mode) {
     return {.valid = true, .track_command_buffers = 0};
   }
   return {};
+}
+
+void ObserveTrackFarDistanceConfiguration(float value, float source_value) {
+  if (TrackRenderModeMarker() == "unmarked") {
+    return;
+  }
+  g_track_render_configuration.track_far_distance.store(
+      value, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_far_distance.store(
+      source_value, std::memory_order_relaxed);
 }
 
 void ObserveFastTrackRenderConfiguration(uint32_t value,
@@ -293,6 +463,9 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
       g_track_render_configuration.road_detail_blur.load(
           std::memory_order_relaxed) != 0;
   const bool track_command_buffers = (enabled & 0xFF) != 0;
+  const float track_far_distance =
+      g_track_render_configuration.track_far_distance.load(
+          std::memory_order_relaxed);
   const TrackRenderExpectedValues expected = ExpectedTrackRenderValues(mode);
   const uint32_t observed_command_line_address =
       g_track_render_configuration.command_line_address.load(
@@ -306,12 +479,18 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.track_render_config",
       {{"status", expected.valid && address_consistent &&
+                          track_far_distance == expected.track_far_distance &&
                           fast_track_render == expected.fast_track_render &&
                           road_detail_blur == expected.road_detail_blur &&
                           track_command_buffers == expected.track_command_buffers
                       ? "complete"
                       : "mismatch_fail_closed"},
        {"mode", mode},
+       {"track_far_distance", fmt::format("{:.3f}", track_far_distance)},
+       {"source_track_far_distance",
+        fmt::format("{:.3f}",
+                    g_track_render_configuration.source_track_far_distance.load(
+                        std::memory_order_relaxed))},
        {"fast_track_render", fast_track_render ? "true" : "false"},
        {"source_fast_track_render",
         g_track_render_configuration.source_fast_track_render.load(
@@ -335,7 +514,8 @@ void ObserveTrackCommandBufferConfiguration(uint32_t enabled,
        {"command_line_address",
         fmt::format("{:08X}", command_line_address)},
        {"runtime_state_address", fmt::format("{:08X}", runtime_state_address)},
-       {"control", "exact_runtime_copy_overrides_8259C834_8259C89C_8259C8DC"},
+       {"control",
+        "exact_option_and_runtime_overrides_824F7DC0_8259C834_8259C89C_8259C8DC"},
        {"classification", "title_track_render_differential_control"},
        {"xenos_authority", "true"},
        {"native_draw", "false"},
@@ -361,6 +541,8 @@ enum class DispatchWrapper : uint32_t {
   kBinningScissorState = 9,
   kBinningStateReset = 10,
   kProceduralModelDrawIndexed = 11,
+  kStaticWorldDrawIndexed = 12,
+  kUnifiedTrackMeshDrawIndexed = 13,
 };
 
 struct DispatchCallerEntry {
@@ -408,7 +590,109 @@ struct SemanticDrawIdentity {
       SemanticVisibilityWorksetJoin::kMissing;
   bool secondary_resource_present = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
+  bool track_render_model_scope = false;
+  bool track_command_lineage = false;
+  uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
   bool valid = false;
+};
+
+struct StaticWorldDrawIdentity {
+  uint64_t asset_key_hash = 0;
+  uint64_t transform_hash = 0;
+  uint32_t model_presentation_address = 0;
+  uint32_t model_presentation_resource_address = 0;
+  uint32_t renderer_address = 0;
+  uint32_t renderer_generation = 0;
+  uint32_t render_context_address = 0;
+  uint32_t model_graph_address = 0;
+  uint32_t model_graph_generation = 0;
+  uint32_t model_resource_generation = 0;
+  uint32_t model_resource_payload_generation = 0;
+  uint32_t simple_model_address = 0;
+  uint32_t simple_submodel_address = 0;
+  uint32_t simple_mesh_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount>
+      transform_words{};
+  uint32_t mesh_primitive_type = 0;
+  uint32_t mesh_index_buffer_binding = 0;
+  uint32_t mesh_source_element_count = 0;
+  uint32_t submodel_state_object = 0;
+  uint32_t mesh_optional_material_reference = 0;
+  uint8_t submodel_state_selector = 0;
+  bool submodel_state_enabled = false;
+  bool mesh_semantics_valid = false;
+  bool transform_valid = false;
+  bool asset_metadata_valid = false;
+  bool valid = false;
+};
+
+struct DeferredSimpleModelTaskEntry {
+  uint64_t sequence = 0;
+  uint32_t task_address = 0;
+  uint32_t renderer_address = 0;
+  bool occupied = false;
+};
+
+struct DeferredSimpleModelTaskDispatch {
+  uint32_t renderer_address = 0;
+  uint32_t target_address = 0;
+  bool active = false;
+};
+
+struct DirectIndexedDrawProducerSpec {
+  uint32_t return_address;
+  uint32_t producer_function;
+  const char *classification;
+};
+
+constexpr std::array<DirectIndexedDrawProducerSpec,
+                     kDirectIndexedDrawProducerCount>
+    kDirectIndexedDrawProducers{{
+        {0x823F59C8, 0x823F5980, "d3d9_device"},
+        {0x8240F020, 0x8240EE98, "navigation_map_renderer"},
+        {0x82412D90, 0x82412A28, "vector_font"},
+        {0x824131F4, 0x824131B8, "d3d9_device"},
+        {0x8243C8FC, 0x8243C050, "title_graphics_helper"},
+        {0x82473BDC, 0x82473868, "mirror_renderer"},
+        {0x82C4DC58, 0x82C4CCC8, "simple_model_renderer"},
+        {kUnifiedTrackMeshDrawReturn, 0x82C5ADC0,
+         "unified_track_presentation_mesh"},
+        {0x82C8E79C, 0x82C8E610, "livery_renderer"},
+        {0x82D841DC, 0x82D83350, "title_graphics_helper"},
+        {0x82DA154C, 0x82DA1148, "title_graphics_helper"},
+        {0x82DA1678, 0x82DA1148, "title_graphics_helper"},
+        {0x82DA1754, 0x82DA1148, "title_graphics_helper"},
+    }};
+
+struct UnifiedTrackMeshTransformEntry {
+  std::atomic<uint64_t> key{};
+  std::atomic<uint64_t> observations{};
+  std::atomic<uint64_t> last_frame{};
+  uint64_t transform_hash = 0;
+  uint64_t first_frame = 0;
+  uint32_t mesh_address = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount> transform_words{};
+};
+
+struct UnifiedTrackMeshDrawIdentity {
+  uint64_t transform_hash = 0;
+  uint32_t mesh_address = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount>
+      transform_words{};
+  bool valid = false;
+};
+
+struct DirectIndexedDrawScope {
+  UnifiedTrackMeshDrawIdentity unified_track_mesh{};
+  uint32_t packet_origins = 0;
+  bool active = false;
+  bool exact = false;
 };
 
 struct TitleDrawOrigin {
@@ -416,6 +700,8 @@ struct TitleDrawOrigin {
   uint32_t caller = 0;
   std::array<uint32_t, 8> arguments{};
   SemanticDrawIdentity semantic_draw{};
+  StaticWorldDrawIdentity static_world_draw{};
+  UnifiedTrackMeshDrawIdentity unified_track_mesh{};
   uint32_t vehicle_owner_method = 0;
   uint32_t vehicle_owner = 0;
   uint32_t vehicle_owner_method_index = 0;
@@ -473,6 +759,204 @@ struct SemanticPreparedDrawContract {
   bool valid = false;
 };
 
+struct VehicleShadowGeometryIdentity {
+  uint64_t geometry_resource_hash = 0;
+  uint32_t index_buffer_address = 0;
+  uint32_t index_buffer_length = 0;
+  std::array<uint32_t, rex::system::kGraphicsVertexBindingObservationLimit>
+      vertex_addresses{};
+  std::array<uint32_t, rex::system::kGraphicsVertexBindingObservationLimit>
+      vertex_sizes{};
+  uint32_t vertex_binding_count = 0;
+  bool occupied = false;
+};
+
+struct VehicleShadowGeometryCorrelationEntry {
+  uint64_t prepared_signature = 0;
+  uint64_t template_key = 0;
+  uint64_t material_topology_key = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t render_state_hash = 0;
+  uint64_t texture_layout_hash = 0;
+  uint64_t first_material_parameter_hash = 0;
+  uint64_t last_material_parameter_hash = 0;
+  uint64_t material_parameter_switches = 0;
+  uint64_t draw_argument_hash = 0;
+  uint64_t geometry_resource_hash = 0;
+  uint64_t texture_resource_hash = 0;
+  uint64_t prepared_pipeline_hash = 0;
+  uint64_t first_parameter_hash = 0;
+  uint64_t last_parameter_hash = 0;
+  uint64_t draws = 0;
+  uint64_t parameter_switches = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t mechanically_eligible_draws = 0;
+  uint64_t mechanically_rejected_draws = 0;
+  uint64_t rejection_mask_switches = 0;
+  uint64_t private_capture_eligible_draws = 0;
+  uint64_t private_capture_rejected_draws = 0;
+  uint64_t private_capture_rejection_mask_switches = 0;
+  uint64_t constant_identity_scans = 0;
+  uint64_t constant_identity_missing_fresh_pose = 0;
+  uint64_t constant_position_unique_matches = 0;
+  uint64_t constant_position_ambiguous_matches = 0;
+  uint64_t constant_position_misses = 0;
+  uint64_t constant_position_identity_variations = 0;
+  uint64_t constant_position_register_variations = 0;
+  uint64_t constant_forward_unique_matches = 0;
+  uint64_t constant_forward_ambiguous_matches = 0;
+  uint64_t constant_forward_misses = 0;
+  uint64_t constant_forward_identity_variations = 0;
+  uint64_t constant_forward_register_variations = 0;
+  uint64_t typed_upload_scans = 0;
+  uint64_t typed_upload_fresh_candidates = 0;
+  uint64_t typed_upload_no_overlap_candidates = 0;
+  uint64_t typed_upload_hash_mismatch_candidates = 0;
+  uint64_t typed_upload_exact_candidates = 0;
+  uint64_t typed_upload_exact_matches = 0;
+  uint64_t typed_upload_misses = 0;
+  uint64_t typed_upload_exact_used_vectors = 0;
+  uint64_t typed_upload_start_register_variations = 0;
+  uint64_t typed_upload_vector_count_variations = 0;
+  uint64_t typed_upload_used_vector_count_variations = 0;
+  uint64_t typed_upload_source_address_variations = 0;
+  uint64_t typed_upload_buffer_address_variations = 0;
+  uint64_t typed_upload_caller_variations = 0;
+  uint64_t shader_constant_write_scans = 0;
+  uint64_t shader_constant_write_observed_vectors = 0;
+  uint64_t shader_constant_write_exact_vectors = 0;
+  uint64_t shader_constant_write_missing_vectors = 0;
+  uint64_t shader_constant_write_mismatched_vectors = 0;
+  uint64_t shader_constant_write_coherent_vectors = 0;
+  uint64_t shader_constant_write_split_vectors = 0;
+  uint64_t shader_constant_write_maximum_age_frames = 0;
+  double closest_position_delta_squared =
+      std::numeric_limits<double>::infinity();
+  double closest_forward_delta_squared =
+      std::numeric_limits<double>::infinity();
+  uint32_t seed_index = 0;
+  uint32_t first_rejection_mask = 0;
+  uint32_t last_rejection_mask = 0;
+  uint32_t rejection_mask_or = 0;
+  uint32_t rejection_mask_and = 0;
+  uint32_t first_private_capture_rejection_mask = 0;
+  uint32_t last_private_capture_rejection_mask = 0;
+  uint32_t private_capture_rejection_mask_or = 0;
+  uint32_t private_capture_rejection_mask_and = 0;
+  uint32_t constant_position_identity_generation = 0;
+  uint32_t constant_position_identity_owner = 0;
+  uint32_t constant_position_identity_slot = 0;
+  uint32_t constant_position_register = 0;
+  uint32_t constant_forward_identity_generation = 0;
+  uint32_t constant_forward_identity_owner = 0;
+  uint32_t constant_forward_identity_slot = 0;
+  uint32_t constant_forward_register = 0;
+  int32_t constant_forward_sign = 0;
+  uint32_t typed_upload_start_register = 0;
+  uint32_t typed_upload_vector_count = 0;
+  uint32_t typed_upload_used_vector_count = 0;
+  uint32_t typed_upload_source_address = 0;
+  uint32_t typed_upload_buffer_address = 0;
+  uint32_t typed_upload_caller_return_address = 0;
+  uint32_t typed_upload_observed_register_min = 0;
+  uint32_t typed_upload_observed_register_max = 0;
+  bool full_geometry_match = false;
+  bool constant_position_identity_valid = false;
+  bool constant_forward_identity_valid = false;
+  bool typed_upload_identity_valid = false;
+  bool typed_upload_observed_register_range_valid = false;
+  bool occupied = false;
+};
+
+struct VehicleConstantUploadEntry {
+  uint64_t frame = 0;
+  uint64_t sequence = 0;
+  uint32_t buffer_address = 0;
+  uint32_t source_address = 0;
+  uint32_t start_register = 0;
+  uint32_t vector_count = 0;
+  uint32_t caller_return_address = 0;
+  std::array<uint64_t,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      vector_hashes{};
+  bool occupied = false;
+};
+
+enum class VehicleConstantUploadSubsetResult : uint32_t {
+  kNoOverlap = 0,
+  kHashMismatch,
+  kExact,
+};
+
+struct VehicleShaderConstantComponentWrite {
+  uint64_t frame = 0;
+  uint64_t sequence = 0;
+  uint32_t packet_physical_address = UINT32_MAX;
+  uint32_t command_buffer_physical_address = UINT32_MAX;
+  uint32_t command_buffer_length_dwords = 0;
+  uint32_t command_buffer_parent_packet_physical_address = UINT32_MAX;
+  uint32_t command_buffer_root_physical_address = UINT32_MAX;
+  uint32_t command_buffer_depth = 0;
+  uint32_t packet = 0;
+  uint32_t value = 0;
+  bool occupied = false;
+};
+
+struct VehicleShaderConstantSourceEntry {
+  uint64_t key = 0;
+  uint64_t vectors = 0;
+  uint64_t draws = 0;
+  uint64_t last_draw_sequence = 0;
+  uint64_t maximum_age_frames = 0;
+  uint64_t packet_address_variations = 0;
+  uint64_t command_buffer_length_variations = 0;
+  uint64_t command_buffer_address_variations = 0;
+  uint64_t parent_packet_address_variations = 0;
+  uint64_t root_buffer_address_variations = 0;
+  uint32_t correlation_index = 0;
+  uint32_t packet = 0;
+  uint32_t packet_offset_dwords = UINT32_MAX;
+  uint32_t command_buffer_depth = 0;
+  uint32_t first_command_buffer_length_dwords = 0;
+  uint32_t last_command_buffer_length_dwords = 0;
+  uint32_t first_packet_physical_address = UINT32_MAX;
+  uint32_t last_packet_physical_address = UINT32_MAX;
+  uint32_t first_command_buffer_physical_address = UINT32_MAX;
+  uint32_t last_command_buffer_physical_address = UINT32_MAX;
+  uint32_t first_parent_packet_physical_address = UINT32_MAX;
+  uint32_t last_parent_packet_physical_address = UINT32_MAX;
+  uint32_t first_root_buffer_physical_address = UINT32_MAX;
+  uint32_t last_root_buffer_physical_address = UINT32_MAX;
+  bool occupied = false;
+};
+
+struct VehicleSemanticConstantBridgeEntry {
+  std::array<rex::system::GraphicsFloatConstantObservation,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      constants{};
+  uint64_t publications = 0;
+  uint64_t register_layout_hash = 0;
+  uint64_t value_hash = 0;
+  uint64_t register_layout_variations = 0;
+  uint64_t value_variations = 0;
+  uint64_t frame_sequence = 0;
+  uint64_t draw_sequence = 0;
+  uint32_t constant_count = 0;
+  uint32_t exact_packet_lineage_vectors = 0;
+  uint32_t unresolved_packet_lineage_vectors = 0;
+  bool occupied = false;
+};
+
+struct VehicleShadowColorRun {
+  uint64_t frame = 0;
+  uint64_t last_draw = 0;
+  uint64_t length = 0;
+  uint64_t sequence_hash = 0;
+  bool valid = false;
+};
+
 enum class SemanticBatchRejection : uint32_t {
   kNone = 0,
   kMissingTitleResource = 1,
@@ -507,9 +991,17 @@ struct SemanticBatchOpportunityEntry {
   uint64_t same_instance_continuations = 0;
   uint32_t primary_resource_key = 0;
   uint32_t secondary_resource_key = 0;
+  uint32_t world_family_mask = 0;
+  uint32_t title_lod_index = 0;
   SemanticBatchRejection rejection = SemanticBatchRejection::kNone;
   bool secondary_resource_present = false;
+  bool title_lod_valid = false;
 };
+
+constexpr uint32_t kSemanticWorldFamilyTrack = 1u << 0;
+constexpr uint32_t kSemanticWorldFamilyStatic = 1u << 1;
+constexpr uint32_t kSemanticWorldFamilyMask =
+    kSemanticWorldFamilyTrack | kSemanticWorldFamilyStatic;
 
 struct SemanticVisibilityPreparedCandidateEntry {
   uint64_t key = 0;
@@ -532,8 +1024,19 @@ struct SemanticVisibilityPreparedCandidateEntry {
   uint32_t visibility_result_mask = 0;
   uint32_t title_lod_index = 0;
   uint32_t mechanical_rejection_mask = 0;
+  uint32_t primary_resource_key = 0;
+  uint32_t secondary_resource_key = 0;
   bool mechanically_eligible = false;
+  bool secondary_resource_present = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
+  bool track_render_model_scope = false;
+  bool track_command_lineage = false;
+  uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
+  bool static_world_origin = false;
+  bool static_world_exact = false;
 };
 
 struct SemanticBatchRun {
@@ -640,6 +1143,104 @@ struct TitleDrawProvenanceEntry {
   bool prepared = false;
 };
 
+struct StaticWorldPreparedLayoutEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t parameter_hash = 0;
+  uint64_t parameter_variations = 0;
+  StaticWorldDrawIdentity identity{};
+  SemanticPreparedDrawContract contract{};
+  rex::system::GraphicsDrawObservation sample{};
+};
+
+struct TrackWorldPreparedLayoutEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t parameter_hash = 0;
+  uint64_t parameter_variations = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
+  uint32_t bound_render_target_bits = 0;
+  std::array<uint32_t, 5> bound_render_target_formats{};
+  uint32_t prepared_pipeline_flags = 0;
+  SemanticPreparedDrawContract contract{};
+  rex::system::GraphicsDrawObservation sample{};
+};
+
+struct TrackPresentationPreparedTargetEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint32_t pass_mask = 0;
+  uint32_t direct_scope_mask = 0;
+  uint32_t packet_lineage_mask = 0;
+  uint32_t bound_render_target_bits = 0;
+  std::array<uint32_t, 5> bound_render_target_formats{};
+  uint32_t prepared_pipeline_flags = 0;
+  uint32_t viewport_xscale = 0;
+  uint32_t viewport_xoffset = 0;
+  uint32_t viewport_yscale = 0;
+  uint32_t viewport_yoffset = 0;
+  uint32_t viewport_transform_control = 0;
+  uint32_t window_scissor_tl = 0;
+  uint32_t window_scissor_br = 0;
+  uint32_t surface_info = 0;
+  std::array<uint32_t, 4> color_info{};
+  uint32_t depth_info = 0;
+};
+
+struct TrackPresentationReceiverEntry {
+  uint64_t calls = 0;
+  uint32_t pass_index = 0;
+  uint32_t receiver_vtable = 0;
+};
+
+struct TrackWorldScopeSpatialEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t snapshot_hash = 0;
+  uint64_t snapshot_variations = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  std::array<uint32_t, kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+      child_words{};
+  std::array<uint32_t, kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+      descriptor_words{};
+};
+
+struct TrackWorldReferenceSpatialEntry {
+  uint64_t key = 0;
+  uint64_t scope_snapshot_hash = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  std::array<uint32_t, 16> object_matrix_words{};
+  std::array<uint32_t, 16> composed_matrix_words{};
+};
+
+struct PendingTrackWorldReferenceSpatial {
+  uint32_t object_matrix_address = 0;
+  uint32_t composed_matrix_address = 0;
+  std::array<uint32_t, 16> object_matrix_words{};
+  std::array<uint32_t, 16> composed_matrix_words{};
+  bool valid = false;
+};
+
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
@@ -661,12 +1262,20 @@ struct TitleIndirectPacketEntry {
   uint64_t semantic_visibility_epoch = 0;
   uint64_t semantic_render_state_epoch = 0;
   uint64_t semantic_render_state_visibility_epoch = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
+  uint32_t track_presentation_pass_mask = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
   bool semantic_receiver_known = false;
+  bool track_command_lineage = false;
   bool occupied = false;
 };
 
@@ -683,7 +1292,15 @@ struct IndirectConstructorOrigin {
         uint64_t semantic_visibility_epoch = 0;
         uint64_t semantic_render_state_epoch = 0;
         uint64_t semantic_render_state_visibility_epoch = 0;
+        uint32_t track_render_root_address = 0;
+        uint32_t track_render_child_address = 0;
+        uint32_t track_render_descriptor_address = 0;
+        uint32_t track_render_descriptor_payload = 0;
+        uint32_t track_world_resource_identity_mask = 0;
+        uint32_t track_world_resource_nested_identity_mask = 0;
+        uint32_t track_presentation_pass_mask = 0;
         bool semantic_receiver_known = false;
+        bool track_command_lineage = false;
         bool valid = false;
       } context{};
       uint32_t function_address = 0;
@@ -716,6 +1333,16 @@ std::array<TitlePacketProvenanceEntry, kTitlePacketProvenanceCapacity>
     g_title_packet_provenance{};
 std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
     g_title_draw_provenance{};
+std::array<StaticWorldPreparedLayoutEntry,
+           kStaticWorldPreparedLayoutCapacity>
+    g_static_world_prepared_layouts{};
+std::array<TrackWorldPreparedLayoutEntry, kTrackWorldPreparedLayoutCapacity>
+    g_track_world_prepared_layouts{};
+std::array<TrackWorldScopeSpatialEntry, kTrackWorldScopeSpatialCapacity>
+    g_track_world_scope_spatial_entries{};
+std::array<TrackWorldReferenceSpatialEntry,
+           kTrackWorldReferenceSpatialCapacity>
+    g_track_world_reference_spatial_entries{};
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
@@ -770,6 +1397,115 @@ struct VehicleIdentityEntry {
   std::array<uint32_t, kVehicleOwnerVtableMethodCount> owner_vtable_methods{};
   bool valid = false;
 };
+
+struct VehicleMapEntityEntry {
+  uint64_t observations = 0;
+  uint64_t assignment_observations = 0;
+  uint64_t pool_observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t vehicle_id_changes = 0;
+  uint64_t vtable_mismatches = 0;
+  uint64_t type_name_mismatches = 0;
+  uint64_t pool_manager_changes = 0;
+  uint64_t pool_root_changes = 0;
+  uint64_t pool_context_changes = 0;
+  uint64_t pose_comparisons = 0;
+  uint64_t pose_source_matches = 0;
+  uint64_t pose_owner_matches = 0;
+  uint64_t pose_slot_matches = 0;
+  uint32_t generation = 0;
+  uint32_t entity = 0;
+  uint32_t vtable = 0;
+  uint32_t vehicle_id = UINT32_MAX;
+  uint32_t type_name_address = 0;
+  uint32_t pool_manager = 0;
+  uint32_t pool_root = 0;
+  uint32_t pool_context = 0;
+  bool valid = false;
+};
+
+enum class VehicleMapPoseRelation : uint32_t {
+  kEntityIsPoseSource,
+  kEntityIsPoseOwner,
+  kVehicleIdIsPoseSlot,
+  kPoolManagerIsPoseSource,
+  kPoolManagerIsPoseOwner,
+  kPoolRootIsPoseSource,
+  kPoolRootIsPoseOwner,
+  kPoolContextIsPoseSource,
+  kPoolContextIsPoseOwner,
+};
+
+struct VehicleMapPoseCorrelationEntry {
+  uint64_t observations = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t entity = 0;
+  uint32_t entity_vtable = 0;
+  uint32_t vehicle_id = UINT32_MAX;
+  uint32_t identity_generation = 0;
+  uint32_t identity_source = 0;
+  uint32_t identity_owner = 0;
+  uint32_t identity_slot = 0;
+  VehicleMapPoseRelation relation =
+      VehicleMapPoseRelation::kEntityIsPoseSource;
+  bool valid = false;
+};
+
+const char *VehicleMapEntityClassName(uint32_t vtable) {
+  switch (vtable) {
+  case kVehicleMapEntityBaseVtable:
+    return "base";
+  case kVehicleMapEntityPlayerLocalVtable:
+    return "player_local";
+  case kVehicleMapEntityAiVtable:
+    return "ai";
+  case kVehicleMapEntityFestivalTrafficVtable:
+    return "festival_traffic";
+  case kVehicleMapEntityRemotePlayerVtable:
+    return "remote_player";
+  default:
+    return "unrecognized";
+  }
+}
+
+uint32_t VehicleMapEntityExpectedTypeNameAddress(uint32_t vtable) {
+  switch (vtable) {
+  case kVehicleMapEntityBaseVtable:
+  case kVehicleMapEntityPlayerLocalVtable:
+  case kVehicleMapEntityAiVtable:
+  case kVehicleMapEntityFestivalTrafficVtable:
+  case kVehicleMapEntityRemotePlayerVtable:
+    return vtable + 13 * sizeof(uint32_t);
+  default:
+    return 0;
+  }
+}
+
+const char *VehicleMapPoseRelationName(VehicleMapPoseRelation relation) {
+  switch (relation) {
+  case VehicleMapPoseRelation::kEntityIsPoseSource:
+    return "entity_is_pose_source";
+  case VehicleMapPoseRelation::kEntityIsPoseOwner:
+    return "entity_is_pose_owner";
+  case VehicleMapPoseRelation::kVehicleIdIsPoseSlot:
+    return "vehicle_id_is_pose_slot";
+  case VehicleMapPoseRelation::kPoolManagerIsPoseSource:
+    return "pool_manager_is_pose_source";
+  case VehicleMapPoseRelation::kPoolManagerIsPoseOwner:
+    return "pool_manager_is_pose_owner";
+  case VehicleMapPoseRelation::kPoolRootIsPoseSource:
+    return "pool_root_is_pose_source";
+  case VehicleMapPoseRelation::kPoolRootIsPoseOwner:
+    return "pool_root_is_pose_owner";
+  case VehicleMapPoseRelation::kPoolContextIsPoseSource:
+    return "pool_context_is_pose_source";
+  case VehicleMapPoseRelation::kPoolContextIsPoseOwner:
+    return "pool_context_is_pose_owner";
+  }
+  return "unknown";
+}
 
 struct VehicleOwnerMethodCandidate {
   uint32_t method_address = 0;
@@ -1113,11 +1849,32 @@ struct PendingVehicleDrawIdentityEvidence {
   bool valid = false;
 };
 
+struct VehicleMaterialBindingEntry {
+  uint32_t root_address = 0;
+  uint32_t binding_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t flags = 0;
+  uint64_t asset_key_hash = 0;
+  uint64_t observations = 0;
+  uint64_t root_draw_probe_matches = 0;
+  uint64_t binding_draw_probe_matches = 0;
+  std::array<uint64_t, kVehicleMaterialBackendSignatureCapacity>
+      backend_signatures{};
+  uint32_t backend_signature_count = 0;
+  uint64_t backend_signature_overflow = 0;
+  bool valid = false;
+};
+
 thread_local PendingVehicleDrawIdentityEvidence
     g_pending_vehicle_draw_identity_evidence;
 
 std::array<VehicleIdentityEntry, kVehicleIdentityCapacity>
     g_vehicle_identities{};
+std::array<VehicleMapEntityEntry, kVehicleMapEntityCapacity>
+    g_vehicle_map_entities{};
+std::array<VehicleMapPoseCorrelationEntry,
+           kVehicleMapPoseCorrelationCapacity>
+    g_vehicle_map_pose_correlations{};
 std::mutex g_vehicle_identity_mutex;
 std::atomic<bool> g_vehicle_discovery_installed{};
 std::atomic<rex::memory::Memory *> g_vehicle_discovery_memory{};
@@ -1126,6 +1883,31 @@ uint64_t g_vehicle_valid_observations = 0;
 uint64_t g_vehicle_invalid_observations = 0;
 uint64_t g_vehicle_identity_count = 0;
 uint64_t g_vehicle_identity_overflow = 0;
+uint64_t g_vehicle_map_entity_observations = 0;
+uint64_t g_vehicle_map_entity_valid_observations = 0;
+uint64_t g_vehicle_map_entity_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_valid_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_assignment_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_pool_observations = 0;
+uint64_t g_vehicle_map_entity_pool_valid_observations = 0;
+uint64_t g_vehicle_map_entity_pool_unrecognized_observations = 0;
+uint64_t g_vehicle_map_entity_pool_invalid_observations = 0;
+uint64_t g_vehicle_map_entity_count = 0;
+uint64_t g_vehicle_map_entity_overflow = 0;
+uint64_t g_vehicle_map_pose_correlation_count = 0;
+uint64_t g_vehicle_map_pose_correlation_overflow = 0;
+std::array<VehicleMaterialBindingEntry, kVehicleMaterialBindingCapacity>
+    g_vehicle_material_bindings{};
+std::mutex g_vehicle_material_binding_mutex;
+uint64_t g_vehicle_material_binding_observations = 0;
+uint64_t g_vehicle_material_binding_valid_observations = 0;
+uint64_t g_vehicle_material_binding_invalid_relation = 0;
+uint64_t g_vehicle_material_binding_asset_read_faults = 0;
+uint64_t g_vehicle_material_binding_count = 0;
+uint64_t g_vehicle_material_binding_overflow = 0;
 std::array<VehicleOwnerMethodStats, kVehicleOwnerMethodCandidateCount>
     g_vehicle_owner_method_stats{};
 std::atomic<uint64_t> g_vehicle_owner_method_stack_faults{};
@@ -1236,6 +2018,81 @@ uint64_t g_vehicle_composed_matrix_routes_without_identity = 0;
 uint64_t g_vehicle_composed_matrix_tight_matches = 0;
 uint64_t g_vehicle_composed_matrix_correlation_count = 0;
 uint64_t g_vehicle_composed_matrix_correlation_overflow = 0;
+std::array<VehicleShadowGeometryIdentity, kShadowDepthBatchDrawCount>
+    g_vehicle_shadow_geometry_staging{};
+std::array<VehicleShadowGeometryIdentity, kVehicleShadowGeometrySeedCapacity>
+    g_vehicle_shadow_geometry_seeds{};
+std::array<VehicleShadowGeometryCorrelationEntry,
+           kVehicleShadowGeometryCorrelationCapacity>
+    g_vehicle_shadow_geometry_correlations{};
+uint64_t g_vehicle_shadow_geometry_epochs_committed = 0;
+uint64_t g_vehicle_shadow_geometry_staged_draws = 0;
+uint64_t g_vehicle_shadow_geometry_seed_count = 0;
+uint64_t g_vehicle_shadow_geometry_seed_duplicates = 0;
+uint64_t g_vehicle_shadow_geometry_seed_overflow = 0;
+uint64_t g_vehicle_shadow_geometry_color_draws_examined = 0;
+uint64_t g_vehicle_shadow_geometry_color_draws_matched = 0;
+uint64_t g_vehicle_shadow_geometry_full_matches = 0;
+uint64_t g_vehicle_shadow_geometry_partial_matches = 0;
+uint64_t g_vehicle_shadow_geometry_correlation_count = 0;
+uint64_t g_vehicle_shadow_geometry_correlation_overflow = 0;
+uint64_t g_vehicle_color_constant_vectors_scanned = 0;
+uint64_t g_vehicle_color_constant_non_finite_vectors = 0;
+uint64_t g_vehicle_color_constant_identity_comparisons = 0;
+std::array<VehicleConstantUploadEntry, kVehicleConstantUploadCapacity>
+    g_vehicle_constant_uploads{};
+std::mutex g_vehicle_constant_upload_mutex;
+uint64_t g_vehicle_constant_upload_observations = 0;
+uint64_t g_vehicle_constant_upload_valid = 0;
+uint64_t g_vehicle_constant_upload_invalid_register_range = 0;
+uint64_t g_vehicle_constant_upload_invalid_source_range = 0;
+uint64_t g_vehicle_constant_upload_overwrites = 0;
+uint64_t g_vehicle_constant_upload_sequence = 0;
+size_t g_vehicle_constant_upload_cursor = 0;
+std::array<VehicleShaderConstantComponentWrite,
+           kVehicleVertexShaderConstantComponentCount>
+    g_vehicle_shader_constant_components{};
+std::array<VehicleShaderConstantSourceEntry,
+           kVehicleShaderConstantSourceCapacity>
+    g_vehicle_shader_constant_sources{};
+std::array<VehicleSemanticConstantBridgeEntry,
+           kVehicleShadowGeometryCorrelationCapacity>
+    g_vehicle_semantic_constant_bridges{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_exact_vectors{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_missing_vectors{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_mismatched_vectors{};
+std::array<uint32_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_first_mismatch_mask{};
+std::array<uint64_t, kVehicleVertexShaderConstantComponentCount / 4>
+    g_vehicle_shader_constant_register_mismatch_mask_variations{};
+std::mutex g_vehicle_shader_constant_mutex;
+uint64_t g_vehicle_shader_constant_write_observations = 0;
+uint64_t g_vehicle_vertex_shader_constant_write_observations = 0;
+uint64_t g_vehicle_pixel_shader_constant_write_observations = 0;
+uint64_t g_vehicle_shader_constant_write_invalid_register = 0;
+uint64_t g_vehicle_shader_constant_write_sequence = 0;
+uint64_t g_vehicle_shader_constant_source_count = 0;
+uint64_t g_vehicle_shader_constant_source_overflow = 0;
+uint64_t g_vehicle_shader_constant_invalid_observed_vectors = 0;
+uint64_t g_vehicle_semantic_constant_bridge_publications = 0;
+uint64_t g_vehicle_semantic_constant_bridge_rejections = 0;
+uint64_t g_vehicle_semantic_constant_bridge_complete_lineage_publications = 0;
+uint64_t g_vehicle_shadow_geometry_mechanically_eligible_draws = 0;
+uint64_t g_vehicle_shadow_geometry_mechanically_rejected_draws = 0;
+std::array<uint64_t, 15> g_vehicle_shadow_geometry_rejection_reason_counts{};
+uint64_t g_vehicle_shadow_color_private_capture_eligible_draws = 0;
+uint64_t g_vehicle_shadow_color_private_capture_rejected_draws = 0;
+VehicleShadowColorRun g_vehicle_shadow_color_run{};
+uint64_t g_vehicle_shadow_color_runs = 0;
+uint64_t g_vehicle_shadow_color_run_draws = 0;
+uint64_t g_vehicle_shadow_color_multi_draw_runs = 0;
+uint64_t g_vehicle_shadow_color_maximum_run_length = 0;
+uint64_t g_vehicle_shadow_color_full_family_runs = 0;
+uint64_t g_vehicle_shadow_color_first_full_family_sequence_hash = 0;
+uint64_t g_vehicle_shadow_color_full_family_sequence_variants = 0;
 bool g_vehicle_title_provenance_requested = false;
 uint64_t g_title_packets_recorded = 0;
 uint64_t g_title_packets_matched = 0;
@@ -1754,6 +2611,169 @@ struct PendingSemanticResourceResolution {
   bool secondary_resolution_result_seen = false;
 };
 
+enum TrackRenderSharedIdentity : uint32_t {
+  kTrackRenderSharedDescriptor = 1u << 0,
+  kTrackRenderSharedDescriptorPayloadBoundResource = 1u << 1,
+  kTrackRenderSharedDescriptorPayloadProvider = 1u << 2,
+  kTrackRenderSharedDescriptorPayloadRuntimeObject = 1u << 3,
+  kTrackRenderSharedRootReceiver = 1u << 4,
+  kTrackRenderSharedChildReceiver = 1u << 5,
+  kTrackRenderSharedRootRuntimeObject = 1u << 6,
+  kTrackRenderSharedChildRuntimeObject = 1u << 7,
+  kTrackRenderSharedCommandLineage = 1u << 8,
+};
+
+enum TrackWorldResourceIdentity : uint32_t {
+  kTrackWorldResourceTrackModel = 1u << 0,
+  kTrackWorldResourceTrackMesh = 1u << 1,
+  kTrackWorldResourceTrackSubModel = 1u << 2,
+  kTrackWorldResourceProceduralGeometryObject = 1u << 3,
+  kTrackWorldResourceProceduralGeometryResource = 1u << 4,
+  kTrackWorldResourcePvsZoneObject = 1u << 5,
+  kTrackWorldResourcePvsZoneResource = 1u << 6,
+};
+
+enum TrackWorldResourceProvenance : uint32_t {
+  kTrackWorldResourceDirectPointer = 1u << 0,
+  kTrackWorldResourceNestedPointer = 1u << 1,
+};
+
+struct TrackWorldResourceReference {
+  uint32_t address = 0;
+  uint32_t identity = 0;
+  uint32_t provenance = 0;
+};
+
+struct TrackWorldResourceGraphCacheEntry {
+  uint64_t fingerprint = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t identity_mask = 0;
+  uint32_t nested_identity_mask = 0;
+  uint32_t reference_count = 0;
+  std::array<TrackWorldResourceReference,
+             kTrackWorldResourceReferenceCapacity>
+      references{};
+};
+
+struct TrackRenderModelDispatchScope {
+  uint64_t submission_joins = 0;
+  uint64_t command_context_bridges = 0;
+  uint32_t root_address = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  uint32_t descriptor_payload = 0;
+  uint32_t shared_identity_mask = 0;
+  uint32_t world_resource_identity_mask = 0;
+  uint32_t world_resource_nested_identity_mask = 0;
+  uint32_t world_resource_shared_identity_mask = 0;
+  uint32_t world_resource_reference_count = 0;
+  std::array<TrackWorldResourceReference,
+             kTrackWorldResourceReferenceCapacity>
+      world_resource_references{};
+  bool active = false;
+  bool exact = false;
+};
+
+struct StaticWorldRendererDispatchScope {
+  uint64_t asset_key_hash = 0;
+  uint64_t transform_hash = 0;
+  uint64_t packet_origins = 0;
+  uint32_t renderer_address = 0;
+  uint32_t renderer_generation = 0;
+  uint32_t render_context_address = 0;
+  uint32_t model_graph_address = 0;
+  uint32_t model_graph_generation = 0;
+  uint32_t model_resource_generation = 0;
+  uint32_t model_resource_payload_generation = 0;
+  uint32_t model_presentation_address = 0;
+  uint32_t model_presentation_resource_address = 0;
+  uint64_t member_packet_origins = 0;
+  uint32_t simple_model_address = 0;
+  uint32_t simple_submodel_address = 0;
+  uint32_t simple_mesh_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount>
+      transform_words{};
+  uint32_t mesh_primitive_type = 0;
+  uint32_t mesh_index_buffer_binding = 0;
+  uint32_t mesh_source_element_count = 0;
+  uint32_t submodel_state_object = 0;
+  uint32_t mesh_optional_material_reference = 0;
+  uint8_t submodel_state_selector = 0;
+  bool submodel_state_enabled = false;
+  bool mesh_semantics_valid = false;
+  bool transform_valid = false;
+  bool asset_metadata_valid = false;
+  bool member_active = false;
+  bool member_exact = false;
+  bool active = false;
+  bool exact = false;
+};
+
+struct StaticWorldPresentationDispatchScope {
+  uint64_t renderer_dispatch_joins = 0;
+  uint64_t asset_key_hash = 0;
+  uint64_t transform_hash = 0;
+  uint32_t presentation_address = 0;
+  uint32_t resource_address = 0;
+  uint32_t asset_key_length = 0;
+  uint32_t effect_reference_count = 0;
+  uint32_t texture_reference_count = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount>
+      transform_words{};
+  bool transform_valid = false;
+  bool asset_metadata_valid = false;
+  bool active = false;
+  bool exact = false;
+};
+
+enum class StaticWorldRendererState : uint32_t {
+  kEmpty = 0,
+  kLive = 1,
+  kDestroying = 2,
+  kDestroyed = 3,
+};
+
+enum class StaticWorldResourceTransitionKind : uint32_t {
+  kDirectPayloadReset = 0,
+  kRefreshThenPayloadReset = 1,
+};
+
+struct StaticWorldResourceTransitionScope {
+  uint32_t address = 0;
+  uint32_t generation = 0;
+  uint32_t payload_before = 0;
+  StaticWorldResourceTransitionKind kind =
+      StaticWorldResourceTransitionKind::kDirectPayloadReset;
+  bool exact = false;
+};
+
+struct StaticWorldRendererLifecycleEntry {
+  std::atomic<uint32_t> address{};
+  std::atomic<uint32_t> generation{};
+  std::atomic<uint32_t> state{};
+  std::atomic<uint32_t> model_graph_address{};
+  std::atomic<uint32_t> model_graph_generation{};
+  std::atomic<uint32_t> model_resource_generation{};
+  std::atomic<uint32_t> model_resource_payload_generation{};
+  std::atomic<uint64_t> dispatches{};
+  std::atomic<uint64_t> graph_binds{};
+  std::atomic<uint64_t> graph_releases{};
+};
+
+struct StaticWorldResourceLifecycleEntry {
+  std::atomic<uint32_t> address{};
+  std::atomic<uint32_t> generation{};
+  std::atomic<uint32_t> state{};
+  std::atomic<bool> registered{};
+  std::atomic<uint32_t> payload_generation{};
+  std::atomic<uint64_t> registrations{};
+  std::atomic<uint64_t> renderer_joins{};
+};
+
 std::array<SemanticSubmissionEntry, kSemanticSubmissionCapacity>
     g_semantic_submissions{};
 std::mutex g_semantic_submission_mutex;
@@ -1811,6 +2831,314 @@ std::atomic<uint64_t> g_semantic_draw_packets_recorded{};
 std::atomic<uint64_t> g_semantic_draw_packet_matches{};
 std::atomic<uint64_t> g_semantic_draw_prepared_matches{};
 std::atomic<uint64_t> g_semantic_draw_unprepared_matches{};
+std::atomic<uint64_t> g_track_render_model_scope_entries{};
+std::atomic<uint64_t> g_track_render_model_scope_exits{};
+std::atomic<uint64_t> g_track_render_model_scope_overlaps{};
+std::atomic<uint64_t> g_track_render_model_scope_exit_without_entry{};
+std::atomic<uint64_t> g_track_render_model_scope_exact{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_root{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_child{};
+std::atomic<uint64_t> g_track_render_model_scope_invalid_descriptor{};
+std::atomic<uint64_t> g_track_render_model_scope_contract_mismatches{};
+std::atomic<uint64_t> g_track_render_model_scope_joined{};
+std::atomic<uint64_t> g_track_render_model_scope_unjoined{};
+std::atomic<uint64_t> g_track_render_model_submission_joins{};
+std::atomic<uint64_t> g_track_render_model_context_observations{};
+std::atomic<uint64_t> g_track_render_model_context_bridges{};
+std::atomic<uint64_t> g_track_render_model_packet_joins{};
+std::atomic<uint64_t> g_track_render_model_prepared_draw_joins{};
+std::atomic<uint64_t>
+    g_track_render_model_prepared_draw_joins_with_semantic_origin{};
+std::atomic<uint64_t>
+    g_track_render_model_prepared_draw_joins_without_semantic_origin{};
+std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
+std::array<std::atomic<uint64_t>, 9>
+    g_track_render_model_shared_identity_relations{};
+std::mutex g_track_world_scope_spatial_mutex;
+std::atomic<uint64_t> g_track_world_scope_spatial_observations{};
+std::atomic<uint64_t> g_track_world_scope_spatial_table_overflow{};
+size_t g_track_world_scope_spatial_count = 0;
+std::mutex g_track_world_reference_spatial_mutex;
+std::atomic<uint64_t> g_track_world_reference_spatial_observations{};
+std::atomic<uint64_t> g_track_world_reference_spatial_missing_stage{};
+std::atomic<uint64_t> g_track_world_reference_spatial_invalid_range{};
+std::atomic<uint64_t> g_track_world_reference_spatial_non_finite{};
+std::atomic<uint64_t> g_track_world_reference_spatial_table_overflow{};
+size_t g_track_world_reference_spatial_count = 0;
+thread_local PendingTrackWorldReferenceSpatial
+    g_pending_track_world_reference_spatial{};
+std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
+std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
+std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
+std::atomic<uint64_t> g_track_world_resource_graph_reference_high_watermark{};
+std::atomic<uint64_t> g_track_world_resource_graph_host_unmapped_rejections{};
+std::atomic<uint64_t> g_track_world_resource_graph_scopes{};
+std::atomic<uint64_t> g_track_world_resource_nested_graph_scopes{};
+std::atomic<uint64_t> g_track_world_resource_shared_identity_joins{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_identity_relations{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_nested_identity_relations{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_shared_identity_relations{};
+std::atomic<uint64_t> g_track_world_pointee_graph_samples{};
+std::atomic<uint64_t> g_track_world_pointee_direct_hits{};
+std::atomic<uint64_t> g_track_world_pointee_nested_hits{};
+std::atomic<uint64_t> g_track_world_pointee_host_unmapped_rejections{};
+std::array<std::atomic<uint64_t>, kTrackWorldPointeeIdentityCount>
+    g_track_world_pointee_direct_identity_relations{};
+std::array<std::atomic<uint64_t>, kTrackWorldPointeeIdentityCount>
+    g_track_world_pointee_nested_identity_relations{};
+std::atomic<uint64_t> g_static_world_scope_entries{};
+std::atomic<uint64_t> g_static_world_scope_exits{};
+std::atomic<uint64_t> g_static_world_scope_overlaps{};
+std::atomic<uint64_t> g_static_world_scope_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_scope_exact{};
+std::atomic<uint64_t> g_static_world_scope_invalid_root{};
+std::atomic<uint64_t> g_static_world_scope_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_scope_invalid_graph_field{};
+std::atomic<uint64_t> g_static_world_scope_unregistered_renderers{};
+std::atomic<uint64_t> g_static_world_scope_nonlive_renderers{};
+std::atomic<uint64_t> g_static_world_scope_unbound_graphs{};
+std::atomic<uint64_t> g_static_world_scope_graph_mismatches{};
+std::atomic<uint64_t> g_static_world_scopes_with_packets{};
+std::atomic<uint64_t> g_static_world_scopes_without_packets{};
+std::atomic<uint64_t> g_static_world_packets_recorded{};
+std::atomic<uint64_t> g_static_world_packet_matches{};
+std::atomic<uint64_t> g_static_world_prepared_matches{};
+std::atomic<uint64_t> g_static_world_unprepared_matches{};
+std::array<StaticWorldRendererLifecycleEntry,
+           kStaticWorldRendererLifecycleCapacity>
+    g_static_world_renderer_lifecycles{};
+std::atomic<uint64_t> g_static_world_instances_published{};
+std::atomic<uint64_t> g_static_world_instances_destroyed{};
+std::atomic<uint64_t> g_static_world_instance_address_reuses{};
+std::atomic<uint64_t> g_static_world_lifecycle_table_overflow{};
+std::atomic<uint64_t> g_static_world_lifecycle_faults{};
+std::atomic<uint64_t> g_static_world_destructor_entries{};
+std::atomic<uint64_t> g_static_world_destructor_exits{};
+std::atomic<uint64_t> g_static_world_destructors_open{};
+std::atomic<uint64_t> g_static_world_destructors_without_instance{};
+std::atomic<uint64_t> g_static_world_graph_bind_observations{};
+std::atomic<uint64_t> g_static_world_graph_bind_successes{};
+std::atomic<uint64_t> g_static_world_graph_bind_null{};
+std::atomic<uint64_t> g_static_world_graph_bind_unregistered{};
+std::atomic<uint64_t> g_static_world_graph_bind_faults{};
+std::atomic<uint64_t> g_static_world_graph_replacements{};
+std::atomic<uint64_t> g_static_world_graph_release_observations{};
+std::atomic<uint64_t> g_static_world_graph_release_successes{};
+std::atomic<uint64_t> g_static_world_graph_release_empty{};
+std::atomic<uint64_t> g_static_world_graph_release_unregistered{};
+std::atomic<uint64_t> g_static_world_graph_release_faults{};
+std::array<StaticWorldResourceLifecycleEntry,
+           kStaticWorldResourceLifecycleCapacity>
+    g_static_world_resource_lifecycles{};
+std::atomic<uint64_t> g_static_world_resource_instances_published{};
+std::atomic<uint64_t> g_static_world_resource_instances_destroyed{};
+std::atomic<uint64_t> g_static_world_resource_address_reuses{};
+std::atomic<uint64_t> g_static_world_resource_table_overflow{};
+std::atomic<uint64_t> g_static_world_resource_lifecycle_faults{};
+std::atomic<uint64_t> g_static_world_resource_destructor_entries{};
+std::atomic<uint64_t> g_static_world_resource_destructor_exits{};
+std::atomic<uint64_t> g_static_world_resource_destructors_open{};
+std::atomic<uint64_t> g_static_world_resource_destructors_without_instance{};
+std::atomic<uint64_t> g_static_world_resource_registration_observations{};
+std::atomic<uint64_t> g_static_world_resource_registration_successes{};
+std::atomic<uint64_t> g_static_world_resource_registration_null{};
+std::atomic<uint64_t> g_static_world_resource_registration_unregistered{};
+std::atomic<uint64_t> g_static_world_resource_registration_type_mismatches{};
+std::atomic<uint64_t> g_static_world_resource_registration_faults{};
+std::atomic<uint64_t> g_static_world_resource_graph_bind_joins{};
+std::atomic<uint64_t> g_static_world_resource_scope_joins{};
+std::atomic<uint64_t> g_static_world_resource_scope_mismatches{};
+std::atomic<uint64_t> g_static_world_resource_transition_entries{};
+std::atomic<uint64_t> g_static_world_resource_transition_exits{};
+std::atomic<uint64_t> g_static_world_resource_transitions_open{};
+std::atomic<uint64_t> g_static_world_resource_transition_overflow{};
+std::atomic<uint64_t> g_static_world_resource_transition_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_resource_transition_exact{};
+std::atomic<uint64_t> g_static_world_resource_direct_resets{};
+std::atomic<uint64_t> g_static_world_resource_refresh_resets{};
+std::atomic<uint64_t> g_static_world_resource_transition_invalid_root{};
+std::atomic<uint64_t> g_static_world_resource_transition_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_resource_transition_unregistered{};
+std::atomic<uint64_t> g_static_world_resource_transition_nonlive{};
+std::atomic<uint64_t> g_static_world_resource_transition_begin_read_faults{};
+std::atomic<uint64_t> g_static_world_resource_transition_completions{};
+std::atomic<uint64_t> g_static_world_resource_transition_completion_faults{};
+std::atomic<uint64_t> g_static_world_resource_payload_resets_with_reference{};
+std::atomic<uint64_t> g_static_world_resource_payload_resets_empty{};
+std::atomic<uint64_t> g_static_world_resource_payload_generation_invalidations{};
+std::atomic<uint64_t> g_static_world_member_entries{};
+std::atomic<uint64_t> g_static_world_member_exits{};
+std::atomic<uint64_t> g_static_world_member_exact{};
+std::atomic<uint64_t> g_static_world_member_scope_missing{};
+std::atomic<uint64_t> g_static_world_member_relation_mismatches{};
+std::atomic<uint64_t> g_static_world_member_vtable_read_faults{};
+std::atomic<uint64_t> g_static_world_member_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_member_overlaps{};
+std::atomic<uint64_t> g_static_world_member_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_member_draws_with_packets{};
+std::atomic<uint64_t> g_static_world_member_draws_without_packets{};
+std::atomic<uint64_t> g_static_world_member_packets_recorded{};
+std::atomic<uint64_t> g_static_world_member_packet_mismatches{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_observations{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_exact{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_read_faults{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_packet_origins{};
+std::atomic<uint64_t> g_static_world_mesh_semantic_missing_packet_origins{};
+std::atomic<uint64_t> g_static_world_prepared_layout_observations{};
+std::atomic<uint64_t> g_static_world_prepared_layout_exact{};
+std::atomic<uint64_t> g_static_world_prepared_layout_unbounded_geometry{};
+std::atomic<uint64_t> g_static_world_prepared_layout_parameter_overflows{};
+std::atomic<uint64_t> g_static_world_prepared_layout_table_overflow{};
+size_t g_static_world_prepared_layout_count = 0;
+std::atomic<uint64_t> g_track_world_prepared_layout_observations{};
+std::atomic<uint64_t> g_track_world_prepared_layout_exact{};
+std::atomic<uint64_t> g_track_world_prepared_layout_unbounded_geometry{};
+std::atomic<uint64_t> g_track_world_prepared_layout_parameter_overflows{};
+std::atomic<uint64_t> g_track_world_prepared_layout_table_overflow{};
+size_t g_track_world_prepared_layout_count = 0;
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_entries{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_exits{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_exact{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_invalid_root{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_overlaps{};
+std::array<std::atomic<uint64_t>, 4>
+    g_track_presentation_pass_exit_without_entry{};
+std::array<std::array<std::atomic<uint64_t>, 2>, 4>
+    g_track_presentation_dispatcher_routes{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_entries{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_enabled{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_eligible{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_dispatches{};
+std::array<std::atomic<uint64_t>, 4>
+    g_track_presentation_packet_constructions{};
+std::array<std::atomic<uint32_t>, 4>
+    g_track_presentation_adapter_first_targets{};
+std::array<std::atomic<uint32_t>, 4>
+    g_track_presentation_adapter_last_targets{};
+std::array<std::atomic<uint64_t>, 4>
+    g_track_presentation_adapter_target_changes{};
+thread_local std::array<bool, 4> g_track_presentation_pass_active{};
+thread_local std::array<bool, 4> g_track_presentation_pass_accepted{};
+std::mutex g_track_presentation_receiver_mutex;
+std::array<TrackPresentationReceiverEntry,
+           kTrackPresentationReceiverCapacity>
+    g_track_presentation_receivers{};
+std::atomic<uint64_t> g_track_presentation_receiver_observations{};
+std::atomic<uint64_t> g_track_presentation_receiver_read_faults{};
+std::atomic<uint64_t> g_track_presentation_receiver_overflow{};
+size_t g_track_presentation_receiver_count = 0;
+std::array<TrackPresentationPreparedTargetEntry,
+           kTrackPresentationPreparedTargetCapacity>
+    g_track_presentation_prepared_targets{};
+std::atomic<uint64_t> g_track_presentation_prepared_target_observations{};
+std::atomic<uint64_t> g_track_presentation_prepared_target_overflow{};
+size_t g_track_presentation_prepared_target_count = 0;
+std::atomic<uint64_t> g_static_world_presentation_entries{};
+std::atomic<uint64_t> g_static_world_presentation_exits{};
+std::atomic<uint64_t> g_static_world_presentation_exact{};
+std::atomic<uint64_t> g_static_world_presentation_invalid_root{};
+std::atomic<uint64_t> g_static_world_presentation_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_overlaps{};
+std::atomic<uint64_t> g_static_world_presentation_exit_without_entry{};
+std::atomic<uint64_t> g_static_world_presentation_scopes_with_renderer{};
+std::atomic<uint64_t> g_static_world_presentation_scopes_without_renderer{};
+std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
+std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_observations{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_observations{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_accepted{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_rejected{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_missing_scope{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_owner_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_null_resources{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_live_resources{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_null_renderers{};
+std::atomic<uint64_t> g_static_world_presentation_prepare_live_renderers{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_state{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_resource{};
+std::atomic<uint32_t> g_static_world_presentation_prepare_sample_renderer{};
+std::array<DeferredSimpleModelTaskEntry,
+           kDeferredSimpleModelTaskCapacity>
+    g_static_world_deferred_tasks{};
+std::mutex g_static_world_deferred_task_mutex;
+uint64_t g_static_world_deferred_task_sequence = 0;
+std::atomic<uint64_t> g_static_world_deferred_task_publish_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_published{};
+std::atomic<uint64_t> g_static_world_deferred_task_null{};
+std::atomic<uint64_t> g_static_world_deferred_task_read_faults{};
+std::atomic<uint64_t> g_static_world_deferred_task_renderer_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_overflow{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_matches{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_unmatched{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_exact{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_missing_callback{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_target_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_read_faults{};
+std::atomic<uint32_t> g_static_world_deferred_task_sample_target_vtable{};
+std::atomic<uint32_t> g_static_world_deferred_task_sample_dispatch_target{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_exact{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_missing_scope{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_owner_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_resource_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_base_targets{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_deferred_targets{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_unknown_targets{};
+std::atomic<uint32_t> g_static_world_presentation_handoff_sample_vtable{};
+std::atomic<uint32_t> g_static_world_presentation_handoff_sample_target{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_exact{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_resource_null{};
+std::atomic<uint32_t> g_static_world_presentation_resource_sample_vtable{};
+std::atomic<uint64_t> g_static_world_asset_metadata_observations{};
+std::atomic<uint64_t> g_static_world_asset_metadata_exact{};
+std::atomic<uint64_t> g_static_world_asset_metadata_empty_keys{};
+std::atomic<uint64_t> g_static_world_asset_metadata_missing_resources{};
+std::atomic<uint64_t> g_static_world_asset_metadata_read_faults{};
+std::atomic<uint64_t> g_static_world_asset_metadata_joins{};
+std::atomic<uint64_t> g_static_world_asset_metadata_missing_joins{};
+std::atomic<uint64_t> g_static_world_transform_observations{};
+std::atomic<uint64_t> g_static_world_transform_exact{};
+std::atomic<uint64_t> g_static_world_transform_read_faults{};
+std::atomic<uint64_t> g_static_world_transform_joins{};
+std::atomic<uint64_t> g_static_world_transform_missing_joins{};
+std::atomic<uint64_t> g_static_world_transform_packet_origins{};
+std::atomic<uint64_t> g_static_world_transform_missing_packet_origins{};
+std::array<std::atomic<uint64_t>, kDirectIndexedDrawProducerCount>
+    g_direct_indexed_draw_producer_observations{};
+std::atomic<bool> g_direct_indexed_draw_producer_census_armed{};
+std::atomic<uint64_t> g_direct_indexed_draw_observations{};
+std::atomic<uint64_t> g_direct_indexed_draw_unknown_callers{};
+std::array<UnifiedTrackMeshTransformEntry,
+           kUnifiedTrackMeshTransformCapacity>
+    g_unified_track_mesh_transforms{};
+std::atomic<uint64_t> g_unified_track_mesh_observations{};
+std::atomic<uint64_t> g_unified_track_mesh_exact{};
+std::atomic<uint64_t> g_unified_track_mesh_read_faults{};
+std::atomic<uint64_t> g_unified_track_mesh_vtable_mismatches{};
+std::atomic<uint64_t> g_unified_track_mesh_nonfinite_transforms{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_collisions{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_overflow{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_count{};
+std::atomic<uint64_t> g_direct_indexed_draw_scope_entries{};
+std::atomic<uint64_t> g_direct_indexed_draw_scope_exits{};
+std::atomic<uint64_t> g_direct_indexed_draw_scope_overlaps{};
+std::atomic<uint64_t> g_direct_indexed_draw_scope_exit_without_entry{};
+std::atomic<uint64_t> g_unified_track_mesh_scopes_exact{};
+std::atomic<uint64_t> g_unified_track_mesh_scopes_with_packets{};
+std::atomic<uint64_t> g_unified_track_mesh_scopes_without_packets{};
+std::atomic<uint64_t> g_unified_track_mesh_packet_origins{};
+std::atomic<uint64_t> g_unified_track_mesh_prepared_matches{};
+std::atomic<uint64_t> g_unified_track_mesh_unprepared_matches{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -1821,6 +3149,29 @@ thread_local std::array<SemanticDrawIdentity,
     g_semantic_render_item_stack{};
 thread_local size_t g_semantic_render_item_stack_depth = 0;
 thread_local size_t g_semantic_render_item_stack_overflow_depth = 0;
+thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
+thread_local StaticWorldRendererDispatchScope g_static_world_renderer_scope{};
+thread_local StaticWorldPresentationDispatchScope
+    g_static_world_presentation_scope{};
+thread_local DeferredSimpleModelTaskDispatch
+    g_static_world_deferred_task_dispatch{};
+thread_local DirectIndexedDrawScope g_direct_indexed_draw_scope{};
+thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
+    g_static_world_renderer_destructor_stack{};
+thread_local size_t g_static_world_renderer_destructor_stack_depth = 0;
+thread_local size_t g_static_world_renderer_destructor_overflow_depth = 0;
+thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
+    g_static_world_resource_destructor_stack{};
+thread_local size_t g_static_world_resource_destructor_stack_depth = 0;
+thread_local size_t g_static_world_resource_destructor_overflow_depth = 0;
+thread_local std::array<StaticWorldResourceTransitionScope,
+                        kSemanticReceiverStackCapacity>
+    g_static_world_resource_transition_stack{};
+thread_local size_t g_static_world_resource_transition_stack_depth = 0;
+thread_local size_t g_static_world_resource_transition_overflow_depth = 0;
+thread_local std::array<TrackWorldResourceGraphCacheEntry,
+                        kTrackWorldResourceGraphCacheCapacity>
+    g_track_world_resource_graph_cache{};
 thread_local TitleDrawOrigin g_pending_adapter_origin;
 thread_local std::array<TitleDrawOrigin, kTitleOriginStackCapacity>
     g_title_origin_stack;
@@ -2071,6 +3422,10 @@ const char *DispatchWrapperName(DispatchWrapper wrapper) {
     return "binning_state_reset";
   case DispatchWrapper::kProceduralModelDrawIndexed:
     return "procedural_model_draw_indexed";
+  case DispatchWrapper::kStaticWorldDrawIndexed:
+    return "static_world_draw_indexed";
+  case DispatchWrapper::kUnifiedTrackMeshDrawIndexed:
+    return "unified_track_mesh_draw_indexed";
   }
   return "unknown";
 }
@@ -2099,6 +3454,10 @@ const char *DispatchWrapperAddress(DispatchWrapper wrapper) {
     return "824736F0";
   case DispatchWrapper::kProceduralModelDrawIndexed:
     return "82415F68";
+  case DispatchWrapper::kStaticWorldDrawIndexed:
+    return "82C4CCC8";
+  case DispatchWrapper::kUnifiedTrackMeshDrawIndexed:
+    return "82C5ADC0";
   }
   return "00000000";
 }
@@ -2148,11 +3507,23 @@ const char *DrawOutcomeName(uint32_t outcome) {
 
 std::string CensusSceneMarker();
 uint64_t HashCombine(uint64_t hash, uint64_t value);
+uint32_t LoadSemanticGuestU32(rex::memory::Memory *memory,
+                              uint32_t address);
 template <size_t N>
 void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
                             std::array<uint32_t, N> &words);
 template <size_t N>
 uint64_t HashSemanticWords(const std::array<uint32_t, N> &words);
+void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
+                                     uint32_t composed_matrix_address);
+void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
+                                       uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words);
 
 const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
   switch (kind) {
@@ -2285,6 +3656,1972 @@ bool IsReadableVehicleGuestRange(rex::memory::Memory *memory,
   return heap &&
          heap->QueryRangeAccess(address, address + length - 1) !=
              rex::memory::PageAccess::kNoAccess;
+}
+
+uint32_t ClassifyTrackWorldResourceVtable(uint32_t vtable) {
+  switch (vtable) {
+  case kTrackModelVtable:
+    return kTrackWorldResourceTrackModel;
+  case kTrackMeshVtable:
+    return kTrackWorldResourceTrackMesh;
+  case kTrackSubModelVtable:
+    return kTrackWorldResourceTrackSubModel;
+  case kTrackProceduralGeometryObjectVtable:
+    return kTrackWorldResourceProceduralGeometryObject;
+  case kTrackProceduralGeometryResourceVtable:
+    return kTrackWorldResourceProceduralGeometryResource;
+  case kTrackPvsZoneObjectVtable:
+    return kTrackWorldResourcePvsZoneObject;
+  case kTrackPvsZoneResourceVtable:
+    return kTrackWorldResourcePvsZoneResource;
+  default:
+    return 0;
+  }
+}
+
+size_t ClassifyTrackWorldPointeeVtable(uint32_t vtable) {
+  switch (vtable) {
+  case kTrackModelVtable:
+    return 0;
+  case kTrackMeshVtable:
+    return 1;
+  case kTrackSubModelVtable:
+    return 2;
+  case kTrackProceduralGeometryObjectVtable:
+    return 3;
+  case kTrackProceduralGeometryResourceVtable:
+    return 4;
+  case kTrackPvsZoneObjectVtable:
+    return 5;
+  case kTrackPvsZoneResourceVtable:
+    return 6;
+  case kSimpleModelRendererVtable:
+    return 7;
+  case kSimpleModelResourceVtable:
+    return 8;
+  case kSimpleModelVtable:
+    return 9;
+  case kSimpleSubModelVtable:
+    return 10;
+  case kSimpleMeshVtable:
+    return 11;
+  case kDeferredSimpleModelRendererVtable:
+    return 12;
+  case kModelPresentationVtable:
+  case kRefCountedModelPresentationVtable:
+    return 13;
+  default:
+    return kTrackWorldPointeeIdentityCount;
+  }
+}
+
+bool TryReadTrackWorldPointeeVtable(rex::memory::Memory *memory,
+                                    uint32_t address, uint32_t &vtable) {
+  if (!address || (address & 3) ||
+      !IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    ++g_track_world_pointee_host_unmapped_rejections;
+    return false;
+  }
+  vtable = static_cast<uint32_t>(
+      *memory->TranslateVirtual<rex::be_u32 *>(address));
+  return true;
+}
+
+void AddTrackWorldResourceReference(
+    TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
+    uint32_t identity, uint32_t provenance);
+
+template <size_t N>
+void CensusTrackWorldPointees(rex::memory::Memory *memory,
+                              const std::array<uint32_t, N> &words,
+                              TrackWorldResourceGraphCacheEntry &entry) {
+  ++g_track_world_pointee_graph_samples;
+  std::array<uint32_t, kTrackWorldPointeeRootCapacity> roots{};
+  size_t root_count = 0;
+  for (uint32_t address : words) {
+    uint32_t vtable = 0;
+    if (!TryReadTrackWorldPointeeVtable(memory, address, vtable)) {
+      continue;
+    }
+    const size_t identity = ClassifyTrackWorldPointeeVtable(vtable);
+    if (identity != kTrackWorldPointeeIdentityCount) {
+      ++g_track_world_pointee_direct_hits;
+      ++g_track_world_pointee_direct_identity_relations[identity];
+    }
+    if (root_count >= roots.size() ||
+        std::find(roots.begin(), roots.begin() + root_count, address) !=
+            roots.begin() + root_count) {
+      continue;
+    }
+    roots[root_count++] = address;
+  }
+  for (size_t root_index = 0; root_index < root_count; ++root_index) {
+    const uint32_t root = roots[root_index];
+    if (root > UINT32_MAX -
+                   uint32_t((kTrackWorldPointeePrefixWords - 1) *
+                            sizeof(uint32_t))) {
+      continue;
+    }
+    for (size_t word_index = 0; word_index < kTrackWorldPointeePrefixWords;
+         ++word_index) {
+      const uint32_t field_address =
+          root + uint32_t(word_index * sizeof(uint32_t));
+      uint32_t nested_address = 0;
+      if (!TryReadTrackWorldPointeeVtable(memory, field_address,
+                                         nested_address)) {
+        continue;
+      }
+      uint32_t nested_vtable = 0;
+      if (!TryReadTrackWorldPointeeVtable(memory, nested_address,
+                                         nested_vtable)) {
+        continue;
+      }
+      const size_t identity = ClassifyTrackWorldPointeeVtable(nested_vtable);
+      if (identity == kTrackWorldPointeeIdentityCount) {
+        continue;
+      }
+      ++g_track_world_pointee_nested_hits;
+      ++g_track_world_pointee_nested_identity_relations[identity];
+      const uint32_t track_identity =
+          ClassifyTrackWorldResourceVtable(nested_vtable);
+      if (track_identity) {
+        entry.nested_identity_mask |= track_identity;
+        AddTrackWorldResourceReference(entry, nested_address, track_identity,
+                                       kTrackWorldResourceNestedPointer);
+      }
+    }
+  }
+}
+
+void AddTrackWorldResourceReference(
+    TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
+    uint32_t identity, uint32_t provenance) {
+  if (!address || !identity) {
+    return;
+  }
+  entry.identity_mask |= identity;
+  for (size_t index = 0; index < entry.reference_count; ++index) {
+    if (entry.references[index].address == address) {
+      entry.references[index].identity |= identity;
+      entry.references[index].provenance |= provenance;
+      return;
+    }
+  }
+  if (entry.reference_count >= entry.references.size()) {
+    ++g_track_world_resource_graph_reference_overflow;
+    return;
+  }
+  entry.references[entry.reference_count++] = {
+      .address = address,
+      .identity = identity,
+      .provenance = provenance,
+  };
+  uint64_t observed_high_watermark =
+      g_track_world_resource_graph_reference_high_watermark.load(
+          std::memory_order_relaxed);
+  while (observed_high_watermark < entry.reference_count &&
+         !g_track_world_resource_graph_reference_high_watermark
+              .compare_exchange_weak(observed_high_watermark,
+                                     entry.reference_count,
+                                     std::memory_order_relaxed)) {
+  }
+}
+
+template <size_t N>
+void ScanTrackWorldResourcePointers(
+    rex::memory::Memory *memory, const std::array<uint32_t, N> &words,
+    TrackWorldResourceGraphCacheEntry &entry) {
+  for (uint32_t address : words) {
+    if (!address || (address & 3) ||
+        !IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+      continue;
+    }
+    size_t host_region_length = 0;
+    rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+    void *host_address = memory->TranslateVirtual<void *>(address);
+    if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                   host_access) ||
+        host_access == rex::memory::PageAccess::kNoAccess) {
+      ++g_track_world_resource_graph_host_unmapped_rejections;
+      continue;
+    }
+    const uint32_t identity = ClassifyTrackWorldResourceVtable(
+        static_cast<uint32_t>(
+            *memory->TranslateVirtual<rex::be_u32 *>(address)));
+    AddTrackWorldResourceReference(entry, address, identity,
+                                   kTrackWorldResourceDirectPointer);
+  }
+}
+
+template <size_t ChildWords, size_t DescriptorWords>
+void PopulateTrackWorldResourceGraph(
+    rex::memory::Memory *memory, uint32_t child_address,
+    uint32_t descriptor_address,
+    const std::array<uint32_t, ChildWords> &child_words,
+    const std::array<uint32_t, DescriptorWords> &descriptor_words) {
+  uint64_t fingerprint = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t word : child_words) {
+    fingerprint = HashCombine(fingerprint, word);
+  }
+  for (uint32_t word : descriptor_words) {
+    fingerprint = HashCombine(fingerprint, word);
+  }
+  fingerprint = fingerprint ? fingerprint : 1;
+  const size_t index =
+      size_t(((child_address >> 4) ^ (descriptor_address >> 4)) &
+             (kTrackWorldResourceGraphCacheCapacity - 1));
+  static_assert((kTrackWorldResourceGraphCacheCapacity &
+                 (kTrackWorldResourceGraphCacheCapacity - 1)) == 0);
+  TrackWorldResourceGraphCacheEntry &entry =
+      g_track_world_resource_graph_cache[index];
+  if (entry.child_address == child_address &&
+      entry.descriptor_address == descriptor_address &&
+      entry.fingerprint == fingerprint) {
+    ++g_track_world_resource_graph_cache_hits;
+  } else {
+    ++g_track_world_resource_graph_cache_misses;
+    entry = {
+        .fingerprint = fingerprint,
+        .child_address = child_address,
+        .descriptor_address = descriptor_address,
+    };
+    ScanTrackWorldResourcePointers(memory, child_words, entry);
+    ScanTrackWorldResourcePointers(memory, descriptor_words, entry);
+    CensusTrackWorldPointees(memory, child_words, entry);
+    CensusTrackWorldPointees(memory, descriptor_words, entry);
+  }
+  TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+  scope.world_resource_identity_mask = entry.identity_mask;
+  scope.world_resource_nested_identity_mask = entry.nested_identity_mask;
+  scope.world_resource_reference_count = entry.reference_count;
+  scope.world_resource_references = entry.references;
+  if (entry.identity_mask) {
+    ++g_track_world_resource_graph_scopes;
+    for (size_t bit = 0;
+         bit < g_track_world_resource_identity_relations.size(); ++bit) {
+      if (entry.identity_mask & (1u << bit)) {
+        ++g_track_world_resource_identity_relations[bit];
+      }
+    }
+  }
+  if (entry.nested_identity_mask) {
+    ++g_track_world_resource_nested_graph_scopes;
+    for (size_t bit = 0;
+         bit < g_track_world_resource_nested_identity_relations.size(); ++bit) {
+      if (entry.nested_identity_mask & (1u << bit)) {
+        ++g_track_world_resource_nested_identity_relations[bit];
+      }
+    }
+  }
+}
+
+void RecordTrackWorldScopeSpatialSnapshot(
+    uint32_t child_address, uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words) {
+  g_track_world_scope_spatial_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
+  key = HashCombine(key, descriptor_address);
+  uint64_t snapshot_hash = HashSemanticWords(child_words);
+  snapshot_hash = HashCombine(snapshot_hash,
+                              HashSemanticWords(descriptor_words));
+  key = HashCombine(key, snapshot_hash);
+  key = key ? key : 1;
+  const uint64_t frame_sequence =
+      g_frame_sequence.load(std::memory_order_relaxed);
+
+  std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+  size_t index = size_t(key % kTrackWorldScopeSpatialCapacity);
+  for (size_t probe = 0; probe < kTrackWorldScopeSpatialCapacity; ++probe) {
+    TrackWorldScopeSpatialEntry &entry =
+        g_track_world_scope_spatial_entries[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = frame_sequence;
+      entry.last_frame = frame_sequence;
+      entry.snapshot_hash = snapshot_hash;
+      entry.child_address = child_address;
+      entry.descriptor_address = descriptor_address;
+      entry.child_words = child_words;
+      entry.descriptor_words = descriptor_words;
+      ++g_track_world_scope_spatial_count;
+      return;
+    }
+    if (entry.key == key && entry.child_address == child_address &&
+        entry.descriptor_address == descriptor_address &&
+        entry.snapshot_hash == snapshot_hash &&
+        entry.child_words == child_words &&
+        entry.descriptor_words == descriptor_words) {
+      ++entry.calls;
+      entry.last_frame = frame_sequence;
+      entry.snapshot_variations += entry.snapshot_hash != snapshot_hash ? 1 : 0;
+      return;
+    }
+    index = (index + 1) % kTrackWorldScopeSpatialCapacity;
+  }
+  g_track_world_scope_spatial_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void BeginTrackRenderModelDispatch(uint32_t root_address) {
+  ++g_track_render_model_scope_entries;
+  if (g_track_render_model_scope.active) {
+    ++g_track_render_model_scope_overlaps;
+    g_track_render_model_scope = {};
+  }
+  g_track_render_model_scope.active = true;
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !IsReadableVehicleGuestRange(memory, root_address, 8)) {
+    ++g_track_render_model_scope_invalid_root;
+    return;
+  }
+  std::array<uint32_t, 2> root_words{};
+  LoadSemanticGuestWords(memory, root_address, root_words);
+  if (root_words[0] != kTrackRenderModelInstanceUnifiedVtable) {
+    ++g_track_render_model_scope_invalid_root;
+    return;
+  }
+  const uint32_t child_address = root_words[1];
+  if (!IsReadableVehicleGuestRange(memory, child_address,
+                                   kTrackRenderModelGraphBytes)) {
+    ++g_track_render_model_scope_invalid_child;
+    return;
+  }
+  std::array<uint32_t, kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+      child_words{};
+  LoadSemanticGuestWords(memory, child_address, child_words);
+  if (child_words[0] != kTrackRenderModelUnifiedVtable) {
+    ++g_track_render_model_scope_invalid_child;
+    return;
+  }
+  const uint32_t descriptor_base = child_words[12];
+  if (!descriptor_base || descriptor_base > UINT32_MAX - 128) {
+    ++g_track_render_model_scope_invalid_descriptor;
+    return;
+  }
+  const uint32_t descriptor_address = descriptor_base + 128;
+  if (!IsReadableVehicleGuestRange(memory, descriptor_address,
+                                   kTrackRenderModelDescriptorBytes)) {
+    ++g_track_render_model_scope_invalid_descriptor;
+    return;
+  }
+  std::array<uint32_t, kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+      descriptor_words{};
+  LoadSemanticGuestWords(memory, descriptor_address, descriptor_words);
+  const uint32_t descriptor_type = descriptor_words[8] >> 16;
+  const uint32_t descriptor_flag = descriptor_words[61] >> 24;
+  if (descriptor_type != kTrackRenderModelDescriptorType ||
+      descriptor_flag != kTrackRenderModelDescriptorFlag) {
+    ++g_track_render_model_scope_contract_mismatches;
+    return;
+  }
+  RecordTrackWorldScopeSpatialSnapshot(child_address, descriptor_address,
+                                       child_words, descriptor_words);
+  ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address,
+                                    child_words, descriptor_words);
+  g_track_render_model_scope.root_address = root_address;
+  g_track_render_model_scope.child_address = child_address;
+  g_track_render_model_scope.descriptor_address = descriptor_address;
+  g_track_render_model_scope.descriptor_payload = descriptor_words[10];
+  g_track_render_model_scope.exact = true;
+  PopulateTrackWorldResourceGraph(memory, child_address, descriptor_address,
+                                  child_words, descriptor_words);
+  ++g_track_render_model_scope_exact;
+}
+
+void BeginTrackPresentationPass(size_t pass_index, uint32_t root_address) {
+  if (pass_index >= g_track_presentation_pass_active.size()) {
+    return;
+  }
+  ++g_track_presentation_pass_entries[pass_index];
+  if (g_track_presentation_pass_active[pass_index]) {
+    ++g_track_presentation_pass_overlaps[pass_index];
+  }
+  g_track_presentation_pass_active[pass_index] = true;
+  g_track_presentation_pass_accepted[pass_index] = false;
+  rex::memory::Memory *memory =
+      g_command_buffer_lineage_memory.load(std::memory_order_acquire);
+  if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
+      !IsReadableVehicleGuestRange(memory, root_address, sizeof(uint32_t))) {
+    ++g_track_presentation_receiver_read_faults;
+    ++g_track_presentation_pass_invalid_root[pass_index];
+    return;
+  }
+  std::array<uint32_t, 1> root_words{};
+  LoadSemanticGuestWords(memory, root_address, root_words);
+  ++g_track_presentation_receiver_observations;
+  {
+    std::scoped_lock lock(g_track_presentation_receiver_mutex);
+    TrackPresentationReceiverEntry *available = nullptr;
+    for (TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      if (entry.calls && entry.pass_index == pass_index &&
+          entry.receiver_vtable == root_words[0]) {
+        ++entry.calls;
+        available = &entry;
+        break;
+      }
+      if (!entry.calls && !available) {
+        available = &entry;
+      }
+    }
+    if (available && !available->calls) {
+      available->calls = 1;
+      available->pass_index = static_cast<uint32_t>(pass_index);
+      available->receiver_vtable = root_words[0];
+      ++g_track_presentation_receiver_count;
+    } else if (!available) {
+      ++g_track_presentation_receiver_overflow;
+    }
+  }
+  if (root_words[0] != kTrackPresentationRefCountedUnifiedVtable) {
+    ++g_track_presentation_pass_invalid_root[pass_index];
+    return;
+  }
+  ++g_track_presentation_pass_exact[pass_index];
+  g_track_presentation_pass_accepted[pass_index] = true;
+}
+
+void EndTrackPresentationPass(size_t pass_index) {
+  if (pass_index >= g_track_presentation_pass_active.size()) {
+    return;
+  }
+  ++g_track_presentation_pass_exits[pass_index];
+  if (!g_track_presentation_pass_active[pass_index]) {
+    ++g_track_presentation_pass_exit_without_entry[pass_index];
+    return;
+  }
+  g_track_presentation_pass_active[pass_index] = false;
+  g_track_presentation_pass_accepted[pass_index] = false;
+}
+
+void EndTrackRenderModelDispatch() {
+  ++g_track_render_model_scope_exits;
+  if (!g_track_render_model_scope.active) {
+    ++g_track_render_model_scope_exit_without_entry;
+    return;
+  }
+  if (g_track_render_model_scope.exact) {
+    if (g_track_render_model_scope.submission_joins ||
+        g_track_render_model_scope.command_context_bridges) {
+      ++g_track_render_model_scope_joined;
+    } else {
+      ++g_track_render_model_scope_unjoined;
+    }
+  }
+  g_track_render_model_scope = {};
+}
+
+bool LoadMappedGuestU32(rex::memory::Memory *memory, uint32_t address,
+                        uint32_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_region_length < sizeof(uint32_t) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = static_cast<uint32_t>(
+      *memory->TranslateVirtual<rex::be_u32 *>(address));
+  return true;
+}
+
+bool LoadMappedGuestU16(rex::memory::Memory *memory, uint32_t address,
+                        uint16_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint16_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_region_length < sizeof(uint16_t) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = static_cast<uint16_t>(
+      *memory->TranslateVirtual<rex::be_u16 *>(address));
+  return true;
+}
+
+bool LoadMappedGuestU8(rex::memory::Memory *memory, uint32_t address,
+                       uint8_t &value) {
+  if (!IsReadableVehicleGuestRange(memory, address, sizeof(uint8_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      !host_region_length ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  value = *memory->TranslateVirtual<uint8_t *>(address);
+  return true;
+}
+
+bool ReadVehicleMaterialAssetKey(rex::memory::Memory *memory,
+                                 uint32_t root_address,
+                                 uint64_t &asset_key_hash,
+                                 uint32_t &asset_key_length) {
+  if (!memory || !root_address ||
+      root_address > UINT32_MAX - kVehicleMaterialAssetKeyOffset -
+                         kMsvcStringCapacityOffset - sizeof(uint32_t)) {
+    return false;
+  }
+  const uint32_t string_address =
+      root_address + kVehicleMaterialAssetKeyOffset;
+  uint32_t string_capacity = 0;
+  if (!LoadMappedGuestU32(memory, string_address + kMsvcStringSizeOffset,
+                          asset_key_length) ||
+      !LoadMappedGuestU32(memory,
+                          string_address + kMsvcStringCapacityOffset,
+                          string_capacity) ||
+      !asset_key_length ||
+      asset_key_length > kVehicleMaterialAssetKeyMaximumBytes ||
+      string_capacity < asset_key_length) {
+    return false;
+  }
+  uint32_t data_address = string_address;
+  if (string_capacity >= kMsvcStringInlineCapacity &&
+      !LoadMappedGuestU32(memory, string_address, data_address)) {
+    return false;
+  }
+  if (!IsReadableVehicleGuestRange(memory, data_address, asset_key_length)) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  const uint8_t *data =
+      memory->TranslateVirtual<const uint8_t *>(data_address);
+  if (!rex::memory::QueryProtect(const_cast<uint8_t *>(data),
+                                 host_region_length, host_access) ||
+      host_region_length < asset_key_length ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t index = 0; index < asset_key_length; ++index) {
+    hash ^= data[index];
+    hash *= UINT64_C(0x100000001B3);
+  }
+  asset_key_hash = hash ? hash : 1;
+  return true;
+}
+
+void ObserveVehicleMaterialBinding(uint32_t root_address,
+                                   uint32_t binding_address,
+                                   uint32_t load_ui,
+                                   uint32_t slod) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_material_binding_mutex);
+  ++g_vehicle_material_binding_observations;
+  if (!root_address ||
+      root_address > UINT32_MAX - kVehicleMaterialBindingObjectOffset ||
+      binding_address !=
+          root_address + kVehicleMaterialBindingObjectOffset) {
+    ++g_vehicle_material_binding_invalid_relation;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  uint64_t asset_key_hash = 0;
+  uint32_t asset_key_length = 0;
+  if (!ReadVehicleMaterialAssetKey(memory, root_address, asset_key_hash,
+                                   asset_key_length)) {
+    ++g_vehicle_material_binding_asset_read_faults;
+    return;
+  }
+  ++g_vehicle_material_binding_valid_observations;
+  const uint32_t flags = (load_ui ? 1u : 0u) | (slod ? 2u : 0u);
+  VehicleMaterialBindingEntry *available = nullptr;
+  for (VehicleMaterialBindingEntry &entry : g_vehicle_material_bindings) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.root_address == root_address &&
+        entry.binding_address == binding_address &&
+        entry.asset_key_hash == asset_key_hash && entry.flags == flags) {
+      ++entry.observations;
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_material_binding_overflow;
+    return;
+  }
+  *available = {
+      .root_address = root_address,
+      .binding_address = binding_address,
+      .asset_key_length = asset_key_length,
+      .flags = flags,
+      .asset_key_hash = asset_key_hash,
+      .observations = 1,
+      .valid = true,
+  };
+  ++g_vehicle_material_binding_count;
+}
+
+enum class StaticWorldAssetMetadataResult {
+  kExact,
+  kEmptyKey,
+  kMissingResource,
+  kReadFault,
+};
+
+StaticWorldAssetMetadataResult ReadStaticWorldAssetMetadata(
+    rex::memory::Memory *memory, uint32_t presentation_address,
+    uint32_t resource_address, StaticWorldPresentationDispatchScope &scope) {
+  if (!memory || presentation_address >
+          UINT32_MAX - kModelPresentationNameOffset -
+              kMsvcStringCapacityOffset - sizeof(uint32_t)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!resource_address) {
+    return StaticWorldAssetMetadataResult::kMissingResource;
+  }
+  const uint32_t string_address =
+      presentation_address + kModelPresentationNameOffset;
+  uint32_t string_size = 0;
+  uint32_t string_capacity = 0;
+  if (!LoadMappedGuestU32(memory, string_address + kMsvcStringSizeOffset,
+                          string_size) ||
+      !LoadMappedGuestU32(memory,
+                          string_address + kMsvcStringCapacityOffset,
+                          string_capacity) ||
+      string_size > kStaticWorldAssetKeyMaximumBytes ||
+      string_capacity < string_size) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!string_size) {
+    return StaticWorldAssetMetadataResult::kEmptyKey;
+  }
+  uint32_t string_data_address = string_address;
+  if (string_capacity >= kMsvcStringInlineCapacity &&
+      !LoadMappedGuestU32(memory, string_address, string_data_address)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!IsReadableVehicleGuestRange(memory, string_data_address,
+                                   string_size)) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  const uint8_t *string_data =
+      memory->TranslateVirtual<const uint8_t *>(string_data_address);
+  if (!rex::memory::QueryProtect(const_cast<uint8_t *>(string_data),
+                                 host_region_length, host_access) ||
+      host_region_length < string_size ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+
+  uint16_t effect_count = 0;
+  uint32_t effect_records = 0;
+  uint32_t texture_begin = 0;
+  uint32_t texture_end = 0;
+  if (resource_address >
+          UINT32_MAX - kSimpleModelResourceTextureVectorOffset - 4 ||
+      !LoadMappedGuestU16(
+          memory, resource_address + kSimpleModelResourceEffectCountOffset,
+          effect_count) ||
+      !LoadMappedGuestU32(
+          memory, resource_address + kSimpleModelResourceEffectRecordsOffset,
+          effect_records) ||
+      !LoadMappedGuestU32(
+          memory, resource_address + kSimpleModelResourceTextureVectorOffset,
+          texture_begin) ||
+      !LoadMappedGuestU32(
+          memory,
+          resource_address + kSimpleModelResourceTextureVectorOffset + 4,
+          texture_end) ||
+      (effect_count && !effect_records) || texture_end < texture_begin) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  const uint32_t texture_bytes = texture_end - texture_begin;
+  if (texture_bytes % kMsvcStringRecordBytes) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  const uint32_t texture_count = texture_bytes / kMsvcStringRecordBytes;
+  if (effect_count > kStaticWorldReferenceCountMaximum ||
+      texture_count > kStaticWorldReferenceCountMaximum) {
+    return StaticWorldAssetMetadataResult::kReadFault;
+  }
+
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t index = 0; index < string_size; ++index) {
+    hash ^= string_data[index];
+    hash *= UINT64_C(0x100000001B3);
+  }
+  scope.asset_key_hash = hash ? hash : 1;
+  scope.asset_key_length = string_size;
+  scope.effect_reference_count = effect_count;
+  scope.texture_reference_count = texture_count;
+  scope.asset_metadata_valid = true;
+  return StaticWorldAssetMetadataResult::kExact;
+}
+
+bool ReadStaticWorldPresentationTransform(
+    rex::memory::Memory *memory, uint32_t presentation_address,
+    StaticWorldPresentationDispatchScope &scope) {
+  constexpr uint32_t kTransformBytes =
+      kModelPresentationTransformWordCount * sizeof(uint32_t);
+  if (!memory ||
+      presentation_address >
+          UINT32_MAX - kModelPresentationTransformOffset - kTransformBytes) {
+    return false;
+  }
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint32_t word = 0;
+       word < kModelPresentationTransformWordCount; ++word) {
+    uint32_t value = 0;
+    if (!LoadMappedGuestU32(
+            memory,
+            presentation_address + kModelPresentationTransformOffset +
+                word * sizeof(uint32_t),
+            value)) {
+      scope.transform_words = {};
+      scope.transform_hash = 0;
+      return false;
+    }
+    scope.transform_words[word] = value;
+    hash = HashCombine(hash, value);
+  }
+  scope.transform_hash = hash ? hash : 1;
+  scope.transform_valid = true;
+  return true;
+}
+
+size_t StaticWorldRendererLifecycleIndex(uint32_t address) {
+  return size_t((address >> 4) % kStaticWorldRendererLifecycleCapacity);
+}
+
+StaticWorldRendererLifecycleEntry *FindStaticWorldRendererLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldRendererLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldRendererLifecycleCapacity;
+       ++probe) {
+    StaticWorldRendererLifecycleEntry &entry =
+        g_static_world_renderer_lifecycles[index];
+    const uint32_t observed =
+        entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed) {
+      return nullptr;
+    }
+    index = (index + 1) % kStaticWorldRendererLifecycleCapacity;
+  }
+  return nullptr;
+}
+
+StaticWorldRendererLifecycleEntry *FindOrClaimStaticWorldRendererLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldRendererLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldRendererLifecycleCapacity;
+       ++probe) {
+    StaticWorldRendererLifecycleEntry &entry =
+        g_static_world_renderer_lifecycles[index];
+    uint32_t observed = entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed && entry.address.compare_exchange_strong(
+                         observed, address, std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      return &entry;
+    }
+    index = (index + 1) % kStaticWorldRendererLifecycleCapacity;
+  }
+  g_static_world_lifecycle_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+  return nullptr;
+}
+
+size_t StaticWorldResourceLifecycleIndex(uint32_t address) {
+  return size_t((address >> 4) % kStaticWorldResourceLifecycleCapacity);
+}
+
+StaticWorldResourceLifecycleEntry *FindStaticWorldResourceLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldResourceLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldResourceLifecycleCapacity;
+       ++probe) {
+    StaticWorldResourceLifecycleEntry &entry =
+        g_static_world_resource_lifecycles[index];
+    const uint32_t observed =
+        entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed) {
+      return nullptr;
+    }
+    index = (index + 1) % kStaticWorldResourceLifecycleCapacity;
+  }
+  return nullptr;
+}
+
+StaticWorldResourceLifecycleEntry *FindOrClaimStaticWorldResourceLifecycle(
+    uint32_t address) {
+  size_t index = StaticWorldResourceLifecycleIndex(address);
+  for (size_t probe = 0; probe < kStaticWorldResourceLifecycleCapacity;
+       ++probe) {
+    StaticWorldResourceLifecycleEntry &entry =
+        g_static_world_resource_lifecycles[index];
+    uint32_t observed = entry.address.load(std::memory_order_acquire);
+    if (observed == address) {
+      return &entry;
+    }
+    if (!observed && entry.address.compare_exchange_strong(
+                         observed, address, std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      return &entry;
+    }
+    index = (index + 1) % kStaticWorldResourceLifecycleCapacity;
+  }
+  g_static_world_resource_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+  return nullptr;
+}
+
+void PublishStaticWorldResource(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindOrClaimStaticWorldResourceLifecycle(address);
+  if (!entry) {
+    return;
+  }
+  const auto previous = static_cast<StaticWorldRendererState>(
+      entry->state.load(std::memory_order_acquire));
+  if (previous == StaticWorldRendererState::kLive ||
+      previous == StaticWorldRendererState::kDestroying) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t generation =
+      entry->generation.load(std::memory_order_relaxed) + 1;
+  if (!generation) {
+    generation = 1;
+  }
+  if (previous == StaticWorldRendererState::kDestroyed) {
+    g_static_world_resource_address_reuses.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  entry->registered.store(false, std::memory_order_relaxed);
+  entry->payload_generation.store(1, std::memory_order_relaxed);
+  entry->registrations.store(0, std::memory_order_relaxed);
+  entry->renderer_joins.store(0, std::memory_order_relaxed);
+  entry->generation.store(generation, std::memory_order_relaxed);
+  entry->state.store(uint32_t(StaticWorldRendererState::kLive),
+                     std::memory_order_release);
+  g_static_world_resource_instances_published.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldResourceRegistration(uint32_t output_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_registration_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t resource_address = 0;
+  if (!LoadMappedGuestU32(memory, output_address, resource_address)) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    g_static_world_resource_registration_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!resource_address) {
+    g_static_world_resource_registration_null.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t vtable = 0;
+  if (!LoadMappedGuestU32(memory, resource_address, vtable) ||
+      vtable != kSimpleModelResourceVtable) {
+    g_static_world_resource_registration_type_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(resource_address);
+  if (!entry || entry->state.load(std::memory_order_acquire) !=
+                    uint32_t(StaticWorldRendererState::kLive)) {
+    g_static_world_resource_registration_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  entry->registered.store(true, std::memory_order_release);
+  entry->registrations.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_resource_registration_successes.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void BeginStaticWorldResourceTransition(
+    uint32_t address, StaticWorldResourceTransitionKind kind) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_transition_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_transition_stack_depth ==
+      g_static_world_resource_transition_stack.size()) {
+    ++g_static_world_resource_transition_overflow_depth;
+    g_static_world_resource_transition_overflow.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceTransitionScope &scope =
+      g_static_world_resource_transition_stack
+          [g_static_world_resource_transition_stack_depth++];
+  scope = {};
+  scope.address = address;
+  scope.kind = kind;
+  g_static_world_resource_transitions_open.fetch_add(
+      1, std::memory_order_relaxed);
+
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t vtable = 0;
+  if (!LoadMappedGuestU32(memory, address, vtable)) {
+    g_static_world_resource_transition_invalid_root.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (vtable != kSimpleModelResourceVtable) {
+    g_static_world_resource_transition_vtable_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(address);
+  if (!entry) {
+    g_static_world_resource_transition_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (entry->state.load(std::memory_order_acquire) !=
+      uint32_t(StaticWorldRendererState::kLive)) {
+    g_static_world_resource_transition_nonlive.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t payload_before = 0;
+  if (address > UINT32_MAX - kSimpleModelResourcePayloadOffset ||
+      !LoadMappedGuestU32(
+          memory, address + kSimpleModelResourcePayloadOffset,
+          payload_before)) {
+    g_static_world_resource_transition_begin_read_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  scope.generation = entry->generation.load(std::memory_order_relaxed);
+  scope.payload_before = payload_before;
+  scope.exact = true;
+  g_static_world_resource_transition_exact.fetch_add(
+      1, std::memory_order_relaxed);
+  (kind == StaticWorldResourceTransitionKind::kDirectPayloadReset
+       ? g_static_world_resource_direct_resets
+       : g_static_world_resource_refresh_resets)
+      .fetch_add(1, std::memory_order_relaxed);
+}
+
+void EndStaticWorldResourceTransition(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_transition_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_transition_overflow_depth) {
+    --g_static_world_resource_transition_overflow_depth;
+    return;
+  }
+  if (!g_static_world_resource_transition_stack_depth) {
+    g_static_world_resource_transition_exit_without_entry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const StaticWorldResourceTransitionScope scope =
+      g_static_world_resource_transition_stack
+          [--g_static_world_resource_transition_stack_depth];
+  g_static_world_resource_transitions_open.fetch_sub(
+      1, std::memory_order_relaxed);
+  if (!scope.exact) {
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(scope.address);
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t payload_after = 0;
+  if (address != scope.address || !entry ||
+      entry->state.load(std::memory_order_acquire) !=
+          uint32_t(StaticWorldRendererState::kLive) ||
+      entry->generation.load(std::memory_order_relaxed) != scope.generation ||
+      scope.address > UINT32_MAX - kSimpleModelResourcePayloadOffset ||
+      !LoadMappedGuestU32(
+          memory, scope.address + kSimpleModelResourcePayloadOffset,
+          payload_after) ||
+      payload_after) {
+    g_static_world_resource_transition_completion_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint32_t payload_generation =
+      entry->payload_generation.load(std::memory_order_relaxed) + 1;
+  if (!payload_generation) {
+    payload_generation = 1;
+  }
+  entry->payload_generation.store(payload_generation,
+                                  std::memory_order_release);
+  g_static_world_resource_transition_completions.fetch_add(
+      1, std::memory_order_relaxed);
+  g_static_world_resource_payload_generation_invalidations.fetch_add(
+      1, std::memory_order_relaxed);
+  (scope.payload_before
+       ? g_static_world_resource_payload_resets_with_reference
+       : g_static_world_resource_payload_resets_empty)
+      .fetch_add(1, std::memory_order_relaxed);
+}
+
+void BeginStaticWorldResourceDestruction(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_destructor_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_destructor_stack_depth ==
+      g_static_world_resource_destructor_stack.size()) {
+    ++g_static_world_resource_destructor_overflow_depth;
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_resource_destructor_stack
+      [g_static_world_resource_destructor_stack_depth++] = address;
+  g_static_world_resource_destructors_open.fetch_add(
+      1, std::memory_order_relaxed);
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kLive);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(StaticWorldRendererState::kDestroying),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_static_world_resource_destructors_without_instance.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  entry->registered.store(false, std::memory_order_release);
+}
+
+void EndStaticWorldResourceDestruction() {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_resource_destructor_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_static_world_resource_destructor_overflow_depth) {
+    --g_static_world_resource_destructor_overflow_depth;
+    return;
+  }
+  if (!g_static_world_resource_destructor_stack_depth) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t address = g_static_world_resource_destructor_stack
+      [--g_static_world_resource_destructor_stack_depth];
+  g_static_world_resource_destructors_open.fetch_sub(
+      1, std::memory_order_relaxed);
+  StaticWorldResourceLifecycleEntry *entry =
+      FindStaticWorldResourceLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kDestroying);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(StaticWorldRendererState::kDestroyed),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_static_world_resource_lifecycle_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_resource_instances_destroyed.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void PublishStaticWorldRenderer(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  StaticWorldRendererLifecycleEntry *entry =
+      FindOrClaimStaticWorldRendererLifecycle(address);
+  if (!entry) {
+    return;
+  }
+  const auto previous = static_cast<StaticWorldRendererState>(
+      entry->state.load(std::memory_order_acquire));
+  if (previous == StaticWorldRendererState::kLive ||
+      previous == StaticWorldRendererState::kDestroying) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  uint32_t generation =
+      entry->generation.load(std::memory_order_relaxed) + 1;
+  if (!generation) {
+    generation = 1;
+  }
+  if (previous == StaticWorldRendererState::kDestroyed) {
+    g_static_world_instance_address_reuses.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  entry->model_graph_address.store(0, std::memory_order_relaxed);
+  entry->model_graph_generation.store(0, std::memory_order_relaxed);
+  entry->model_resource_generation.store(0, std::memory_order_relaxed);
+  entry->model_resource_payload_generation.store(
+      0, std::memory_order_relaxed);
+  entry->dispatches.store(0, std::memory_order_relaxed);
+  entry->graph_binds.store(0, std::memory_order_relaxed);
+  entry->graph_releases.store(0, std::memory_order_relaxed);
+  entry->generation.store(generation, std::memory_order_relaxed);
+  entry->state.store(uint32_t(StaticWorldRendererState::kLive),
+                     std::memory_order_release);
+  g_static_world_instances_published.fetch_add(1,
+                                                std::memory_order_relaxed);
+}
+
+void BeginStaticWorldRendererDestruction(uint32_t address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_destructor_entries.fetch_add(1,
+                                               std::memory_order_relaxed);
+  if (g_static_world_renderer_destructor_stack_depth ==
+      g_static_world_renderer_destructor_stack.size()) {
+    ++g_static_world_renderer_destructor_overflow_depth;
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_renderer_destructor_stack
+      [g_static_world_renderer_destructor_stack_depth++] = address;
+  g_static_world_destructors_open.fetch_add(1,
+                                             std::memory_order_relaxed);
+  StaticWorldRendererLifecycleEntry *entry =
+      FindStaticWorldRendererLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kLive);
+  if (!entry || !entry->state.compare_exchange_strong(
+                    expected_state,
+                    uint32_t(StaticWorldRendererState::kDestroying),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire)) {
+    g_static_world_destructors_without_instance.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
+void EndStaticWorldRendererDestruction() {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_destructor_exits.fetch_add(1,
+                                             std::memory_order_relaxed);
+  if (g_static_world_renderer_destructor_overflow_depth) {
+    --g_static_world_renderer_destructor_overflow_depth;
+    return;
+  }
+  if (!g_static_world_renderer_destructor_stack_depth) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t address = g_static_world_renderer_destructor_stack
+      [--g_static_world_renderer_destructor_stack_depth];
+  g_static_world_destructors_open.fetch_sub(1,
+                                             std::memory_order_relaxed);
+  StaticWorldRendererLifecycleEntry *entry =
+      FindStaticWorldRendererLifecycle(address);
+  uint32_t expected_state = uint32_t(StaticWorldRendererState::kDestroying);
+  if (!entry || entry->model_graph_address.load(std::memory_order_acquire) ||
+      !entry->state.compare_exchange_strong(
+          expected_state, uint32_t(StaticWorldRendererState::kDestroyed),
+          std::memory_order_acq_rel, std::memory_order_acquire)) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_instances_destroyed.fetch_add(1,
+                                                std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldRendererGraphBind(uint32_t renderer_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_graph_bind_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  StaticWorldRendererLifecycleEntry *entry =
+      FindStaticWorldRendererLifecycle(renderer_address);
+  if (!entry || entry->state.load(std::memory_order_acquire) !=
+                    uint32_t(StaticWorldRendererState::kLive)) {
+    g_static_world_graph_bind_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t model_graph_address = 0;
+  if (renderer_address > UINT32_MAX - kSimpleModelRendererGraphOffset ||
+      !LoadMappedGuestU32(memory,
+                          renderer_address +
+                              kSimpleModelRendererGraphOffset,
+                          model_graph_address)) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    g_static_world_graph_bind_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t previous =
+      entry->model_graph_address.load(std::memory_order_acquire);
+  if (!model_graph_address) {
+    entry->model_graph_address.store(0, std::memory_order_release);
+    entry->model_resource_generation.store(0,
+                                            std::memory_order_relaxed);
+    entry->model_resource_payload_generation.store(
+        0, std::memory_order_relaxed);
+    g_static_world_graph_bind_null.fetch_add(1,
+                                             std::memory_order_relaxed);
+    return;
+  }
+  uint32_t resource_vtable = 0;
+  if (!LoadMappedGuestU32(memory, model_graph_address, resource_vtable) ||
+      resource_vtable != kSimpleModelResourceVtable) {
+    g_static_world_graph_bind_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *resource =
+      FindStaticWorldResourceLifecycle(model_graph_address);
+  if (!resource || resource->state.load(std::memory_order_acquire) !=
+                       uint32_t(StaticWorldRendererState::kLive) ||
+      !resource->registered.load(std::memory_order_acquire)) {
+    g_static_world_graph_bind_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  if (previous && previous != model_graph_address) {
+    g_static_world_graph_replacements.fetch_add(1,
+                                                 std::memory_order_relaxed);
+  }
+  uint32_t graph_generation =
+      entry->model_graph_generation.load(std::memory_order_relaxed) + 1;
+  if (!graph_generation) {
+    graph_generation = 1;
+  }
+  entry->model_graph_generation.store(graph_generation,
+                                       std::memory_order_relaxed);
+  entry->model_resource_generation.store(
+      resource->generation.load(std::memory_order_relaxed),
+      std::memory_order_relaxed);
+  entry->model_resource_payload_generation.store(
+      resource->payload_generation.load(std::memory_order_relaxed),
+      std::memory_order_relaxed);
+  entry->model_graph_address.store(model_graph_address,
+                                   std::memory_order_release);
+  entry->graph_binds.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_graph_bind_successes.fetch_add(
+      1, std::memory_order_relaxed);
+  resource->renderer_joins.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_resource_graph_bind_joins.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldRendererGraphRelease(uint32_t renderer_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  g_static_world_graph_release_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  StaticWorldRendererLifecycleEntry *entry =
+      FindStaticWorldRendererLifecycle(renderer_address);
+  if (!entry) {
+    g_static_world_graph_release_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t state = entry->state.load(std::memory_order_acquire);
+  if (state != uint32_t(StaticWorldRendererState::kLive) &&
+      state != uint32_t(StaticWorldRendererState::kDestroying)) {
+    g_static_world_graph_release_unregistered.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t model_graph_address = 0;
+  if (renderer_address > UINT32_MAX - kSimpleModelRendererGraphOffset ||
+      !LoadMappedGuestU32(memory,
+                          renderer_address +
+                              kSimpleModelRendererGraphOffset,
+                          model_graph_address)) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    g_static_world_graph_release_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  const uint32_t registered_graph =
+      entry->model_graph_address.exchange(0, std::memory_order_acq_rel);
+  entry->model_resource_generation.store(0,
+                                          std::memory_order_relaxed);
+  entry->model_resource_payload_generation.store(
+      0, std::memory_order_relaxed);
+  if (!model_graph_address) {
+    if (registered_graph) {
+      g_static_world_lifecycle_faults.fetch_add(
+          1, std::memory_order_relaxed);
+      g_static_world_graph_release_faults.fetch_add(
+          1, std::memory_order_relaxed);
+      return;
+    }
+    g_static_world_graph_release_empty.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (registered_graph != model_graph_address) {
+    g_static_world_lifecycle_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    g_static_world_graph_release_faults.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  entry->graph_releases.fetch_add(1, std::memory_order_relaxed);
+  g_static_world_graph_release_successes.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
+  ++g_static_world_presentation_entries;
+  if (g_static_world_presentation_scope.active) {
+    ++g_static_world_presentation_overlaps;
+    g_static_world_presentation_scope = {};
+  }
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  scope.active = true;
+  scope.presentation_address = presentation_address;
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t vtable = 0;
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      !LoadMappedGuestU32(memory, presentation_address, vtable)) {
+    ++g_static_world_presentation_invalid_root;
+    return;
+  }
+  if (vtable != kModelPresentationVtable &&
+      vtable != kRefCountedModelPresentationVtable) {
+    ++g_static_world_presentation_vtable_mismatches;
+    return;
+  }
+  if (presentation_address >
+          UINT32_MAX - kModelPresentationResourceOffset ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationResourceOffset,
+          scope.resource_address)) {
+    ++g_static_world_presentation_resource_read_faults;
+    return;
+  }
+  uint32_t resource_vtable = 0;
+  if (!scope.resource_address) {
+    ++g_static_world_presentation_resource_null;
+  } else if (!LoadMappedGuestU32(memory, scope.resource_address,
+                                 resource_vtable)) {
+    ++g_static_world_presentation_resource_vtable_read_faults;
+  } else if (resource_vtable == kSimpleModelResourceVtable) {
+    ++g_static_world_presentation_resource_vtable_exact;
+  } else {
+    ++g_static_world_presentation_resource_vtable_mismatches;
+    g_static_world_presentation_resource_sample_vtable.store(
+        resource_vtable, std::memory_order_relaxed);
+  }
+  ++g_static_world_asset_metadata_observations;
+  switch (ReadStaticWorldAssetMetadata(
+      memory, presentation_address, scope.resource_address, scope)) {
+  case StaticWorldAssetMetadataResult::kExact:
+    ++g_static_world_asset_metadata_exact;
+    break;
+  case StaticWorldAssetMetadataResult::kEmptyKey:
+    ++g_static_world_asset_metadata_empty_keys;
+    break;
+  case StaticWorldAssetMetadataResult::kMissingResource:
+    ++g_static_world_asset_metadata_missing_resources;
+    break;
+  case StaticWorldAssetMetadataResult::kReadFault:
+    ++g_static_world_asset_metadata_read_faults;
+    break;
+  }
+  ++g_static_world_transform_observations;
+  (ReadStaticWorldPresentationTransform(memory, presentation_address, scope)
+       ? g_static_world_transform_exact
+       : g_static_world_transform_read_faults)
+      .fetch_add(1, std::memory_order_relaxed);
+  scope.exact = true;
+  ++g_static_world_presentation_exact;
+}
+
+void ObserveStaticWorldPresentationRendererHandoff(
+    uint32_t renderer_address, uint32_t dispatch_target) {
+  ++g_static_world_presentation_handoff_observations;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active || !scope.exact) {
+    ++g_static_world_presentation_handoff_missing_scope;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t owned_renderer = 0;
+  uint32_t owned_resource = 0;
+  uint32_t renderer_resource = 0;
+  uint32_t renderer_vtable = 0;
+  const bool owner_matches =
+      renderer_address &&
+      scope.presentation_address <=
+          UINT32_MAX - kModelPresentationRendererOffset &&
+      renderer_address <= UINT32_MAX - kSimpleModelRendererGraphOffset &&
+      LoadMappedGuestU32(
+          memory, scope.presentation_address +
+                      kModelPresentationRendererOffset,
+          owned_renderer) &&
+      owned_renderer == renderer_address &&
+      LoadMappedGuestU32(memory, renderer_address, renderer_vtable);
+  if (!owner_matches) {
+    ++g_static_world_presentation_handoff_owner_mismatches;
+    return;
+  }
+  const bool resource_matches =
+      LoadMappedGuestU32(
+          memory, scope.presentation_address +
+                      kModelPresentationResourceOffset,
+          owned_resource) &&
+      LoadMappedGuestU32(memory,
+                         renderer_address +
+                             kSimpleModelRendererGraphOffset,
+                         renderer_resource) &&
+      owned_resource == scope.resource_address &&
+      owned_resource == renderer_resource;
+  if (!resource_matches) {
+    ++g_static_world_presentation_handoff_resource_mismatches;
+    return;
+  }
+  g_static_world_presentation_handoff_sample_vtable.store(
+      renderer_vtable, std::memory_order_relaxed);
+  g_static_world_presentation_handoff_sample_target.store(
+      dispatch_target, std::memory_order_relaxed);
+  if (renderer_vtable == kSimpleModelRendererVtable &&
+      dispatch_target == 0x82C4CCC8) {
+    ++g_static_world_presentation_handoff_base_targets;
+  } else if (renderer_vtable == kDeferredSimpleModelRendererVtable) {
+    ++g_static_world_presentation_handoff_deferred_targets;
+  } else {
+    ++g_static_world_presentation_handoff_unknown_targets;
+  }
+  ++g_static_world_presentation_handoff_exact;
+}
+
+void ObserveStaticWorldPresentationPrepareOutcome(
+    uint32_t result, uint32_t presentation_address) {
+  ++g_static_world_presentation_prepare_observations;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active || !scope.exact) {
+    ++g_static_world_presentation_prepare_missing_scope;
+    return;
+  }
+  if (presentation_address != scope.presentation_address) {
+    ++g_static_world_presentation_prepare_owner_mismatches;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t state = 0;
+  uint32_t resource = 0;
+  uint32_t renderer = 0;
+  if (presentation_address >
+          UINT32_MAX - kModelPresentationRendererOffset ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationStateOffset,
+          state) ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationResourceOffset,
+          resource) ||
+      !LoadMappedGuestU32(
+          memory, presentation_address + kModelPresentationRendererOffset,
+          renderer)) {
+    ++g_static_world_presentation_prepare_read_faults;
+    return;
+  }
+  g_static_world_presentation_prepare_sample_state.store(
+      state, std::memory_order_relaxed);
+  g_static_world_presentation_prepare_sample_resource.store(
+      resource, std::memory_order_relaxed);
+  g_static_world_presentation_prepare_sample_renderer.store(
+      renderer, std::memory_order_relaxed);
+  (resource ? g_static_world_presentation_prepare_live_resources
+            : g_static_world_presentation_prepare_null_resources)
+      .fetch_add(1, std::memory_order_relaxed);
+  (renderer ? g_static_world_presentation_prepare_live_renderers
+            : g_static_world_presentation_prepare_null_renderers)
+      .fetch_add(1, std::memory_order_relaxed);
+  ((result & 0xFF) ? g_static_world_presentation_prepare_accepted
+                   : g_static_world_presentation_prepare_rejected)
+      .fetch_add(1, std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldDeferredTaskPublish(
+    uint32_t task_address, uint32_t renderer_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_publish_observations;
+  if (!task_address || !renderer_address) {
+    ++g_static_world_deferred_task_null;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t task_vtable = 0;
+  uint32_t renderer_vtable = 0;
+  if (!LoadMappedGuestU32(memory, task_address, task_vtable) ||
+      !LoadMappedGuestU32(memory, renderer_address, renderer_vtable)) {
+    ++g_static_world_deferred_task_read_faults;
+    return;
+  }
+  if (renderer_vtable != kDeferredSimpleModelRendererVtable) {
+    ++g_static_world_deferred_task_renderer_mismatches;
+    return;
+  }
+  if (task_vtable != kDeferredSimpleModelTaskVtable) {
+    ++g_static_world_deferred_task_vtable_mismatches;
+    return;
+  }
+  std::scoped_lock lock(g_static_world_deferred_task_mutex);
+  size_t index =
+      (task_address >> 2) % kDeferredSimpleModelTaskCapacity;
+  for (size_t probe = 0; probe < kDeferredSimpleModelTaskCapacity; ++probe) {
+    DeferredSimpleModelTaskEntry &entry =
+        g_static_world_deferred_tasks[index];
+    if (!entry.occupied || entry.task_address == task_address) {
+      entry.sequence = ++g_static_world_deferred_task_sequence;
+      entry.task_address = task_address;
+      entry.renderer_address = renderer_address;
+      entry.occupied = true;
+      ++g_static_world_deferred_task_published;
+      return;
+    }
+    index = (index + 1) % kDeferredSimpleModelTaskCapacity;
+  }
+  ++g_static_world_deferred_task_overflow;
+}
+
+void ObserveStaticWorldDeferredTaskCallback(
+    uint32_t target_address, uint32_t task_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_callback_observations;
+  g_static_world_deferred_task_dispatch = {};
+  if (!task_address || !target_address) {
+    ++g_static_world_deferred_task_callback_unmatched;
+    return;
+  }
+  std::scoped_lock lock(g_static_world_deferred_task_mutex);
+  size_t index =
+      (task_address >> 2) % kDeferredSimpleModelTaskCapacity;
+  for (size_t probe = 0; probe < kDeferredSimpleModelTaskCapacity; ++probe) {
+    DeferredSimpleModelTaskEntry &entry =
+        g_static_world_deferred_tasks[index];
+    if (entry.occupied && entry.task_address == task_address) {
+      g_static_world_deferred_task_dispatch = {
+          .renderer_address = entry.renderer_address,
+          .target_address = target_address,
+          .active = true,
+      };
+      entry.occupied = false;
+      ++g_static_world_deferred_task_callback_matches;
+      return;
+    }
+    index = (index + 1) % kDeferredSimpleModelTaskCapacity;
+  }
+  ++g_static_world_deferred_task_callback_unmatched;
+}
+
+void ObserveStaticWorldDeferredTaskHandoff(
+    uint32_t target_address, uint32_t dispatch_target) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_handoff_observations;
+  const DeferredSimpleModelTaskDispatch dispatch =
+      g_static_world_deferred_task_dispatch;
+  g_static_world_deferred_task_dispatch = {};
+  if (!dispatch.active) {
+    ++g_static_world_deferred_task_handoff_missing_callback;
+    return;
+  }
+  if (dispatch.target_address != target_address) {
+    ++g_static_world_deferred_task_handoff_target_mismatches;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t target_vtable = 0;
+  if (!LoadMappedGuestU32(memory, target_address, target_vtable)) {
+    ++g_static_world_deferred_task_handoff_read_faults;
+    return;
+  }
+  g_static_world_deferred_task_sample_target_vtable.store(
+      target_vtable, std::memory_order_relaxed);
+  g_static_world_deferred_task_sample_dispatch_target.store(
+      dispatch_target, std::memory_order_relaxed);
+  ++g_static_world_deferred_task_handoff_exact;
+}
+
+void EndStaticWorldPresentationDispatch() {
+  ++g_static_world_presentation_exits;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active) {
+    ++g_static_world_presentation_exit_without_entry;
+    return;
+  }
+  if (scope.exact) {
+    (scope.renderer_dispatch_joins
+         ? g_static_world_presentation_scopes_with_renderer
+         : g_static_world_presentation_scopes_without_renderer)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  scope = {};
+}
+
+void BeginStaticWorldRendererDispatch(uint32_t renderer_address,
+                                      uint32_t render_context_address) {
+  ++g_static_world_scope_entries;
+  if (g_static_world_renderer_scope.active) {
+    ++g_static_world_scope_overlaps;
+    g_static_world_renderer_scope = {};
+  }
+  StaticWorldRendererDispatchScope &scope = g_static_world_renderer_scope;
+  scope.active = true;
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t vtable = 0;
+  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
+      !LoadMappedGuestU32(memory, renderer_address, vtable)) {
+    ++g_static_world_scope_invalid_root;
+    return;
+  }
+  if (vtable != kSimpleModelRendererVtable) {
+    ++g_static_world_scope_vtable_mismatches;
+    return;
+  }
+  if (renderer_address >
+      UINT32_MAX - kSimpleModelRendererGraphOffset) {
+    ++g_static_world_scope_invalid_graph_field;
+    return;
+  }
+  uint32_t model_graph_address = 0;
+  if (!LoadMappedGuestU32(memory,
+                          renderer_address +
+                              kSimpleModelRendererGraphOffset,
+                          model_graph_address)) {
+    ++g_static_world_scope_invalid_graph_field;
+    return;
+  }
+  StaticWorldRendererLifecycleEntry *lifecycle =
+      FindStaticWorldRendererLifecycle(renderer_address);
+  if (!lifecycle) {
+    ++g_static_world_scope_unregistered_renderers;
+    return;
+  }
+  if (lifecycle->state.load(std::memory_order_acquire) !=
+      uint32_t(StaticWorldRendererState::kLive)) {
+    ++g_static_world_scope_nonlive_renderers;
+    return;
+  }
+  if (!model_graph_address) {
+    ++g_static_world_scope_unbound_graphs;
+    return;
+  }
+  if (lifecycle->model_graph_address.load(std::memory_order_acquire) !=
+      model_graph_address) {
+    ++g_static_world_scope_graph_mismatches;
+    return;
+  }
+  StaticWorldResourceLifecycleEntry *resource =
+      FindStaticWorldResourceLifecycle(model_graph_address);
+  const uint32_t resource_generation =
+      lifecycle->model_resource_generation.load(std::memory_order_relaxed);
+  const uint32_t resource_payload_generation =
+      lifecycle->model_resource_payload_generation.load(
+          std::memory_order_relaxed);
+  if (!resource || resource->state.load(std::memory_order_acquire) !=
+                       uint32_t(StaticWorldRendererState::kLive) ||
+      !resource->registered.load(std::memory_order_acquire) ||
+      resource->generation.load(std::memory_order_relaxed) !=
+          resource_generation ||
+      resource->payload_generation.load(std::memory_order_acquire) !=
+          resource_payload_generation) {
+    ++g_static_world_scope_graph_mismatches;
+    ++g_static_world_resource_scope_mismatches;
+    return;
+  }
+  scope.renderer_address = renderer_address;
+  scope.renderer_generation =
+      lifecycle->generation.load(std::memory_order_relaxed);
+  scope.render_context_address = render_context_address;
+  scope.model_graph_address = model_graph_address;
+  scope.model_graph_generation =
+      lifecycle->model_graph_generation.load(std::memory_order_relaxed);
+  scope.model_resource_generation = resource_generation;
+  scope.model_resource_payload_generation = resource_payload_generation;
+  StaticWorldPresentationDispatchScope &presentation_scope =
+      g_static_world_presentation_scope;
+  if (presentation_scope.active && presentation_scope.exact) {
+    uint32_t owned_renderer = 0;
+    uint32_t owned_resource = 0;
+    const bool fields_in_range =
+        presentation_scope.presentation_address <=
+        UINT32_MAX - kModelPresentationRendererOffset;
+    const bool renderer_matches =
+        fields_in_range &&
+        LoadMappedGuestU32(
+            memory,
+            presentation_scope.presentation_address +
+                kModelPresentationRendererOffset,
+            owned_renderer) &&
+        owned_renderer == renderer_address;
+    const bool resource_matches =
+        fields_in_range &&
+        LoadMappedGuestU32(
+            memory,
+            presentation_scope.presentation_address +
+                kModelPresentationResourceOffset,
+            owned_resource) &&
+        owned_resource == presentation_scope.resource_address &&
+        owned_resource == model_graph_address;
+    if (renderer_matches && resource_matches) {
+      scope.model_presentation_address =
+          presentation_scope.presentation_address;
+      scope.model_presentation_resource_address =
+          presentation_scope.resource_address;
+      scope.asset_key_hash = presentation_scope.asset_key_hash;
+      scope.transform_hash = presentation_scope.transform_hash;
+      scope.asset_key_length = presentation_scope.asset_key_length;
+      scope.effect_reference_count =
+          presentation_scope.effect_reference_count;
+      scope.texture_reference_count =
+          presentation_scope.texture_reference_count;
+      scope.transform_words = presentation_scope.transform_words;
+      scope.asset_metadata_valid =
+          presentation_scope.asset_metadata_valid;
+      scope.transform_valid = presentation_scope.transform_valid;
+      ++presentation_scope.renderer_dispatch_joins;
+      ++g_static_world_presentation_renderer_joins;
+      (scope.asset_metadata_valid
+           ? g_static_world_asset_metadata_joins
+           : g_static_world_asset_metadata_missing_joins)
+          .fetch_add(1, std::memory_order_relaxed);
+      (scope.transform_valid ? g_static_world_transform_joins
+                             : g_static_world_transform_missing_joins)
+          .fetch_add(1, std::memory_order_relaxed);
+    } else if (!renderer_matches) {
+      ++g_static_world_presentation_renderer_mismatches;
+    } else {
+      ++g_static_world_presentation_resource_mismatches;
+    }
+  }
+  scope.exact = true;
+  lifecycle->dispatches.fetch_add(1, std::memory_order_relaxed);
+  ++g_static_world_scope_exact;
+  resource->renderer_joins.fetch_add(1, std::memory_order_relaxed);
+  ++g_static_world_resource_scope_joins;
+}
+
+void BeginStaticWorldMemberDraw(uint32_t model_address,
+                                uint32_t submodel_address,
+                                uint32_t mesh_address) {
+  ++g_static_world_member_entries;
+  StaticWorldRendererDispatchScope &scope = g_static_world_renderer_scope;
+  if (scope.member_active) {
+    ++g_static_world_member_overlaps;
+    scope.member_active = false;
+    scope.member_exact = false;
+  }
+  scope.member_active = true;
+  scope.member_packet_origins = 0;
+  scope.simple_model_address = 0;
+  scope.simple_submodel_address = 0;
+  scope.simple_mesh_address = 0;
+  scope.mesh_primitive_type = 0;
+  scope.mesh_index_buffer_binding = 0;
+  scope.mesh_source_element_count = 0;
+  scope.submodel_state_object = 0;
+  scope.mesh_optional_material_reference = 0;
+  scope.submodel_state_selector = 0;
+  scope.submodel_state_enabled = false;
+  scope.mesh_semantics_valid = false;
+  if (!scope.active || !scope.exact) {
+    ++g_static_world_member_scope_missing;
+    return;
+  }
+  if (scope.model_graph_address >
+          UINT32_MAX - kSimpleModelResourceModelOffset ||
+      scope.model_graph_address + kSimpleModelResourceModelOffset !=
+          model_address) {
+    ++g_static_world_member_relation_mismatches;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t model_vtable = 0;
+  uint32_t submodel_vtable = 0;
+  uint32_t mesh_vtable = 0;
+  if (!LoadMappedGuestU32(memory, model_address, model_vtable) ||
+      !LoadMappedGuestU32(memory, submodel_address, submodel_vtable) ||
+      !LoadMappedGuestU32(memory, mesh_address, mesh_vtable)) {
+    ++g_static_world_member_vtable_read_faults;
+    return;
+  }
+  if (model_vtable != kSimpleModelVtable ||
+      submodel_vtable != kSimpleSubModelVtable ||
+      mesh_vtable != kSimpleMeshVtable) {
+    ++g_static_world_member_vtable_mismatches;
+    return;
+  }
+  scope.simple_model_address = model_address;
+  scope.simple_submodel_address = submodel_address;
+  scope.simple_mesh_address = mesh_address;
+  scope.member_exact = true;
+  ++g_static_world_member_exact;
+  ++g_static_world_mesh_semantic_observations;
+  uint8_t state_enabled = 0;
+  if (submodel_address >
+          UINT32_MAX - kSimpleSubModelStateEnabledOffset ||
+      mesh_address >
+          UINT32_MAX - kSimpleMeshOptionalMaterialReferenceOffset ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshPrimitiveTypeOffset,
+          scope.mesh_primitive_type) ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshIndexBufferBindingOffset,
+          scope.mesh_index_buffer_binding) ||
+      !LoadMappedGuestU32(
+          memory, mesh_address + kSimpleMeshSourceElementCountOffset,
+          scope.mesh_source_element_count) ||
+      !LoadMappedGuestU32(
+          memory, submodel_address + kSimpleSubModelStateObjectOffset,
+          scope.submodel_state_object) ||
+      !LoadMappedGuestU8(
+          memory, submodel_address + kSimpleSubModelStateSelectorOffset,
+          scope.submodel_state_selector) ||
+      !LoadMappedGuestU8(
+          memory, submodel_address + kSimpleSubModelStateEnabledOffset,
+          state_enabled) ||
+      !LoadMappedGuestU32(
+          memory,
+          mesh_address + kSimpleMeshOptionalMaterialReferenceOffset,
+          scope.mesh_optional_material_reference)) {
+    ++g_static_world_mesh_semantic_read_faults;
+    return;
+  }
+  scope.submodel_state_enabled = state_enabled != 0;
+  scope.mesh_semantics_valid = true;
+  ++g_static_world_mesh_semantic_exact;
+}
+
+void EndStaticWorldMemberDraw() {
+  ++g_static_world_member_exits;
+  StaticWorldRendererDispatchScope &scope = g_static_world_renderer_scope;
+  if (!scope.member_active) {
+    ++g_static_world_member_exit_without_entry;
+    return;
+  }
+  if (scope.member_exact) {
+    (scope.member_packet_origins
+         ? g_static_world_member_draws_with_packets
+         : g_static_world_member_draws_without_packets)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  scope.member_active = false;
+  scope.member_exact = false;
+  scope.member_packet_origins = 0;
+  scope.simple_model_address = 0;
+  scope.simple_submodel_address = 0;
+  scope.simple_mesh_address = 0;
+  scope.mesh_primitive_type = 0;
+  scope.mesh_index_buffer_binding = 0;
+  scope.mesh_source_element_count = 0;
+  scope.submodel_state_object = 0;
+  scope.mesh_optional_material_reference = 0;
+  scope.submodel_state_selector = 0;
+  scope.submodel_state_enabled = false;
+  scope.mesh_semantics_valid = false;
+}
+
+void EndStaticWorldRendererDispatch() {
+  ++g_static_world_scope_exits;
+  if (!g_static_world_renderer_scope.active) {
+    ++g_static_world_scope_exit_without_entry;
+    return;
+  }
+  if (g_static_world_renderer_scope.exact) {
+    (g_static_world_renderer_scope.packet_origins
+         ? g_static_world_scopes_with_packets
+         : g_static_world_scopes_without_packets)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  g_static_world_renderer_scope = {};
 }
 
 const char *VehicleMatrixLayoutName(VehicleMatrixLayout layout) {
@@ -2823,10 +6160,56 @@ void ObserveVehicleTypedRenderItem(uint32_t root_address,
   }
 }
 
+uint32_t CurrentTrackPresentationPassMask();
+
+void RecordTrackPresentationDispatcherRoute(bool context_path) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < g_track_presentation_dispatcher_routes.size();
+       ++index) {
+    if (pass_mask & (uint32_t(1) << index)) {
+      g_track_presentation_dispatcher_routes[index][context_path ? 1 : 0]
+          .fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
+void RecordTrackPresentationAdapterStage(
+    std::array<std::atomic<uint64_t>, 4> &counters) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < counters.size(); ++index) {
+    if (pass_mask & (uint32_t(1) << index)) {
+      counters[index].fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
+void RecordTrackPresentationAdapterDispatch(uint32_t target_address) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < g_track_presentation_adapter_dispatches.size();
+       ++index) {
+    if (!(pass_mask & (uint32_t(1) << index))) {
+      continue;
+    }
+    g_track_presentation_adapter_dispatches[index].fetch_add(
+        1, std::memory_order_relaxed);
+    uint32_t expected = 0;
+    g_track_presentation_adapter_first_targets[index].compare_exchange_strong(
+        expected, target_address, std::memory_order_relaxed);
+    const uint32_t previous =
+        g_track_presentation_adapter_last_targets[index].exchange(
+            target_address, std::memory_order_relaxed);
+    if (previous && previous != target_address) {
+      g_track_presentation_adapter_target_changes[index].fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
+}
+
 void ObserveVehicleRenderContextDispatcher(uint32_t return_address,
-                                           uint32_t root_address,
-                                           uint32_t vector_address,
-                                           bool context_path) {
+                                            uint32_t root_address,
+                                            uint32_t vector_address,
+                                            bool context_path) {
+  RecordTrackPresentationDispatcherRoute(context_path);
   g_pending_vehicle_render_context_dispatcher = {};
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
@@ -3198,6 +6581,37 @@ void ObserveVehicleDrawArgumentCorrelations(
     if (!probe.value) {
       continue;
     }
+    {
+      std::scoped_lock material_lock(g_vehicle_material_binding_mutex);
+      for (VehicleMaterialBindingEntry &entry :
+           g_vehicle_material_bindings) {
+        if (!entry.valid ||
+            (probe.value != entry.root_address &&
+             probe.value != entry.binding_address)) {
+          continue;
+        }
+        entry.root_draw_probe_matches +=
+            probe.value == entry.root_address ? 1 : 0;
+        entry.binding_draw_probe_matches +=
+            probe.value == entry.binding_address ? 1 : 0;
+        bool known_signature = false;
+        for (size_t signature_index = 0;
+             signature_index < entry.backend_signature_count;
+             ++signature_index) {
+          known_signature |=
+              entry.backend_signatures[signature_index] == backend_signature;
+        }
+        if (!known_signature) {
+          if (entry.backend_signature_count <
+              entry.backend_signatures.size()) {
+            entry.backend_signatures[entry.backend_signature_count++] =
+                backend_signature;
+          } else {
+            ++entry.backend_signature_overflow;
+          }
+        }
+      }
+    }
     size_t address_index =
         (probe.value >> 4) % kVehicleIdentityAddressCapacity;
     for (size_t address_probe = 0;
@@ -3368,11 +6782,41 @@ TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
 }
 
 void ResetTitleDrawProvenance() {
+  g_direct_indexed_draw_producer_census_armed.store(
+      false, std::memory_order_release);
   std::scoped_lock lock(g_title_packet_provenance_mutex);
   for (TitlePacketProvenanceEntry &entry : g_title_packet_provenance) {
     entry = {};
   }
   for (TitleDrawProvenanceEntry &entry : g_title_draw_provenance) {
+    entry = {};
+  }
+  for (StaticWorldPreparedLayoutEntry &entry :
+       g_static_world_prepared_layouts) {
+    entry = {};
+  }
+  for (TrackWorldPreparedLayoutEntry &entry :
+       g_track_world_prepared_layouts) {
+    entry = {};
+  }
+  for (TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    entry = {};
+  }
+  {
+    std::scoped_lock receiver_lock(g_track_presentation_receiver_mutex);
+    for (TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      entry = {};
+    }
+    g_track_presentation_receiver_count = 0;
+  }
+  for (TrackWorldScopeSpatialEntry &entry :
+       g_track_world_scope_spatial_entries) {
+    entry = {};
+  }
+  for (TrackWorldReferenceSpatialEntry &entry :
+       g_track_world_reference_spatial_entries) {
     entry = {};
   }
   for (SemanticBatchOpportunityEntry &entry :
@@ -3417,6 +6861,12 @@ void ResetTitleDrawProvenance() {
   g_title_packets_without_origin.store(0, std::memory_order_relaxed);
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
+  g_static_world_prepared_layout_count = 0;
+  g_track_world_prepared_layout_count = 0;
+  g_track_presentation_prepared_target_count = 0;
+  g_track_world_scope_spatial_count = 0;
+  g_track_world_reference_spatial_count = 0;
+  g_pending_track_world_reference_spatial = {};
   g_semantic_batch_observations = 0;
   g_semantic_visibility_prepared_observations = 0;
   g_semantic_visibility_prepared_selected_joins = 0;
@@ -3551,6 +7001,247 @@ void ResetTitleDrawProvenance() {
       0, std::memory_order_relaxed);
   g_semantic_receiver_destructors_without_instance.store(
       0, std::memory_order_relaxed);
+  for (StaticWorldRendererLifecycleEntry &entry :
+       g_static_world_renderer_lifecycles) {
+    entry.address.store(0, std::memory_order_relaxed);
+    entry.generation.store(0, std::memory_order_relaxed);
+    entry.state.store(0, std::memory_order_relaxed);
+    entry.model_graph_address.store(0, std::memory_order_relaxed);
+    entry.model_graph_generation.store(0, std::memory_order_relaxed);
+    entry.model_resource_generation.store(0, std::memory_order_relaxed);
+    entry.model_resource_payload_generation.store(
+        0, std::memory_order_relaxed);
+    entry.dispatches.store(0, std::memory_order_relaxed);
+    entry.graph_binds.store(0, std::memory_order_relaxed);
+    entry.graph_releases.store(0, std::memory_order_relaxed);
+  }
+  for (StaticWorldResourceLifecycleEntry &entry :
+       g_static_world_resource_lifecycles) {
+    entry.address.store(0, std::memory_order_relaxed);
+    entry.generation.store(0, std::memory_order_relaxed);
+    entry.state.store(0, std::memory_order_relaxed);
+    entry.registered.store(false, std::memory_order_relaxed);
+    entry.payload_generation.store(0, std::memory_order_relaxed);
+    entry.registrations.store(0, std::memory_order_relaxed);
+    entry.renderer_joins.store(0, std::memory_order_relaxed);
+  }
+  for (std::atomic<uint64_t> &observations :
+       g_direct_indexed_draw_producer_observations) {
+    observations.store(0, std::memory_order_relaxed);
+  }
+  for (auto *counters : {&g_track_presentation_pass_entries,
+                         &g_track_presentation_pass_exits,
+                         &g_track_presentation_pass_exact,
+                         &g_track_presentation_pass_invalid_root,
+                         &g_track_presentation_pass_overlaps,
+                         &g_track_presentation_pass_exit_without_entry}) {
+    for (std::atomic<uint64_t> &counter : *counters) {
+      counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto &routes : g_track_presentation_dispatcher_routes) {
+    for (std::atomic<uint64_t> &counter : routes) {
+      counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto *counters : {&g_track_presentation_adapter_entries,
+                         &g_track_presentation_adapter_enabled,
+                         &g_track_presentation_adapter_eligible,
+                         &g_track_presentation_adapter_dispatches,
+                         &g_track_presentation_adapter_target_changes,
+                         &g_track_presentation_packet_constructions}) {
+    for (std::atomic<uint64_t> &counter : *counters) {
+      counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto *targets : {&g_track_presentation_adapter_first_targets,
+                        &g_track_presentation_adapter_last_targets}) {
+    for (std::atomic<uint32_t> &target : *targets) {
+      target.store(0, std::memory_order_relaxed);
+    }
+  }
+  g_track_presentation_pass_active = {};
+  g_track_presentation_pass_accepted = {};
+  for (UnifiedTrackMeshTransformEntry &entry :
+       g_unified_track_mesh_transforms) {
+    entry.key.store(0, std::memory_order_relaxed);
+    entry.observations.store(0, std::memory_order_relaxed);
+    entry.last_frame.store(0, std::memory_order_relaxed);
+    entry.transform_hash = 0;
+    entry.first_frame = 0;
+    entry.mesh_address = 0;
+    entry.transform_words = {};
+  }
+  g_direct_indexed_draw_scope = {};
+  for (std::atomic<uint64_t> *counter : {
+           &g_static_world_scope_entries,
+           &g_static_world_scope_exits,
+           &g_static_world_scope_overlaps,
+           &g_static_world_scope_exit_without_entry,
+           &g_static_world_scope_exact,
+           &g_static_world_scope_invalid_root,
+           &g_static_world_scope_vtable_mismatches,
+           &g_static_world_scope_invalid_graph_field,
+           &g_static_world_scope_unregistered_renderers,
+           &g_static_world_scope_nonlive_renderers,
+           &g_static_world_scope_unbound_graphs,
+           &g_static_world_scope_graph_mismatches,
+           &g_static_world_scopes_with_packets,
+           &g_static_world_scopes_without_packets,
+           &g_static_world_packets_recorded,
+           &g_static_world_packet_matches,
+           &g_static_world_prepared_matches,
+           &g_static_world_unprepared_matches,
+           &g_static_world_instances_published,
+           &g_static_world_instances_destroyed,
+           &g_static_world_instance_address_reuses,
+           &g_static_world_lifecycle_table_overflow,
+           &g_static_world_lifecycle_faults,
+           &g_static_world_destructor_entries,
+           &g_static_world_destructor_exits,
+           &g_static_world_destructors_open,
+           &g_static_world_destructors_without_instance,
+           &g_static_world_graph_bind_observations,
+           &g_static_world_graph_bind_successes,
+           &g_static_world_graph_bind_null,
+           &g_static_world_graph_bind_unregistered,
+           &g_static_world_graph_bind_faults,
+           &g_static_world_graph_replacements,
+           &g_static_world_graph_release_observations,
+           &g_static_world_graph_release_successes,
+           &g_static_world_graph_release_empty,
+           &g_static_world_graph_release_unregistered,
+           &g_static_world_graph_release_faults,
+           &g_static_world_resource_instances_published,
+           &g_static_world_resource_instances_destroyed,
+           &g_static_world_resource_address_reuses,
+           &g_static_world_resource_table_overflow,
+           &g_static_world_resource_lifecycle_faults,
+           &g_static_world_resource_destructor_entries,
+           &g_static_world_resource_destructor_exits,
+           &g_static_world_resource_destructors_open,
+           &g_static_world_resource_destructors_without_instance,
+           &g_static_world_resource_registration_observations,
+           &g_static_world_resource_registration_successes,
+           &g_static_world_resource_registration_null,
+           &g_static_world_resource_registration_unregistered,
+           &g_static_world_resource_registration_type_mismatches,
+           &g_static_world_resource_registration_faults,
+           &g_static_world_resource_graph_bind_joins,
+           &g_static_world_resource_scope_joins,
+           &g_static_world_resource_scope_mismatches,
+           &g_static_world_resource_transition_entries,
+           &g_static_world_resource_transition_exits,
+           &g_static_world_resource_transitions_open,
+           &g_static_world_resource_transition_overflow,
+           &g_static_world_resource_transition_exit_without_entry,
+           &g_static_world_resource_transition_exact,
+           &g_static_world_resource_direct_resets,
+           &g_static_world_resource_refresh_resets,
+           &g_static_world_resource_transition_invalid_root,
+           &g_static_world_resource_transition_vtable_mismatches,
+           &g_static_world_resource_transition_unregistered,
+           &g_static_world_resource_transition_nonlive,
+           &g_static_world_resource_transition_begin_read_faults,
+           &g_static_world_resource_transition_completions,
+           &g_static_world_resource_transition_completion_faults,
+           &g_static_world_resource_payload_resets_with_reference,
+           &g_static_world_resource_payload_resets_empty,
+           &g_static_world_resource_payload_generation_invalidations,
+           &g_static_world_member_entries,
+           &g_static_world_member_exits,
+           &g_static_world_member_exact,
+           &g_static_world_member_scope_missing,
+           &g_static_world_member_relation_mismatches,
+           &g_static_world_member_vtable_read_faults,
+           &g_static_world_member_vtable_mismatches,
+           &g_static_world_member_overlaps,
+           &g_static_world_member_exit_without_entry,
+           &g_static_world_member_draws_with_packets,
+           &g_static_world_member_draws_without_packets,
+           &g_static_world_member_packets_recorded,
+           &g_static_world_member_packet_mismatches,
+           &g_static_world_mesh_semantic_observations,
+           &g_static_world_mesh_semantic_exact,
+           &g_static_world_mesh_semantic_read_faults,
+           &g_static_world_mesh_semantic_packet_origins,
+           &g_static_world_mesh_semantic_missing_packet_origins,
+           &g_static_world_prepared_layout_observations,
+           &g_static_world_prepared_layout_exact,
+           &g_static_world_prepared_layout_unbounded_geometry,
+           &g_static_world_prepared_layout_parameter_overflows,
+           &g_static_world_prepared_layout_table_overflow,
+           &g_track_world_prepared_layout_observations,
+           &g_track_world_prepared_layout_exact,
+           &g_track_world_prepared_layout_unbounded_geometry,
+           &g_track_world_prepared_layout_parameter_overflows,
+           &g_track_world_prepared_layout_table_overflow,
+           &g_track_presentation_prepared_target_observations,
+           &g_track_presentation_prepared_target_overflow,
+           &g_track_presentation_receiver_observations,
+           &g_track_presentation_receiver_read_faults,
+           &g_track_presentation_receiver_overflow,
+           &g_track_world_scope_spatial_observations,
+           &g_track_world_scope_spatial_table_overflow,
+           &g_track_world_reference_spatial_observations,
+           &g_track_world_reference_spatial_missing_stage,
+           &g_track_world_reference_spatial_invalid_range,
+           &g_track_world_reference_spatial_non_finite,
+           &g_track_world_reference_spatial_table_overflow,
+           &g_static_world_presentation_entries,
+           &g_static_world_presentation_exits,
+           &g_static_world_presentation_exact,
+           &g_static_world_presentation_invalid_root,
+           &g_static_world_presentation_vtable_mismatches,
+           &g_static_world_presentation_resource_read_faults,
+           &g_static_world_presentation_overlaps,
+           &g_static_world_presentation_exit_without_entry,
+           &g_static_world_presentation_scopes_with_renderer,
+           &g_static_world_presentation_scopes_without_renderer,
+           &g_static_world_presentation_renderer_joins,
+           &g_static_world_presentation_renderer_mismatches,
+           &g_static_world_presentation_resource_mismatches,
+           &g_static_world_presentation_resource_vtable_exact,
+           &g_static_world_presentation_resource_vtable_mismatches,
+           &g_static_world_presentation_resource_vtable_read_faults,
+           &g_static_world_presentation_resource_null,
+           &g_static_world_asset_metadata_observations,
+           &g_static_world_asset_metadata_exact,
+           &g_static_world_asset_metadata_empty_keys,
+           &g_static_world_asset_metadata_missing_resources,
+           &g_static_world_asset_metadata_read_faults,
+           &g_static_world_asset_metadata_joins,
+           &g_static_world_asset_metadata_missing_joins,
+           &g_static_world_transform_observations,
+           &g_static_world_transform_exact,
+           &g_static_world_transform_read_faults,
+           &g_static_world_transform_joins,
+           &g_static_world_transform_missing_joins,
+           &g_static_world_transform_packet_origins,
+           &g_static_world_transform_missing_packet_origins,
+           &g_direct_indexed_draw_observations,
+           &g_direct_indexed_draw_unknown_callers,
+           &g_unified_track_mesh_observations,
+           &g_unified_track_mesh_exact,
+           &g_unified_track_mesh_read_faults,
+           &g_unified_track_mesh_vtable_mismatches,
+           &g_unified_track_mesh_nonfinite_transforms,
+           &g_unified_track_mesh_transform_collisions,
+           &g_unified_track_mesh_transform_overflow,
+           &g_unified_track_mesh_transform_count,
+           &g_direct_indexed_draw_scope_entries,
+           &g_direct_indexed_draw_scope_exits,
+           &g_direct_indexed_draw_scope_overlaps,
+           &g_direct_indexed_draw_scope_exit_without_entry,
+           &g_unified_track_mesh_scopes_exact,
+           &g_unified_track_mesh_scopes_with_packets,
+           &g_unified_track_mesh_scopes_without_packets,
+           &g_unified_track_mesh_packet_origins,
+           &g_unified_track_mesh_prepared_matches,
+           &g_unified_track_mesh_unprepared_matches,
+       }) {
+    counter->store(0, std::memory_order_relaxed);
+  }
   g_semantic_visibility_entries.store(0, std::memory_order_relaxed);
   g_semantic_visibility_exits.store(0, std::memory_order_relaxed);
   g_semantic_visibility_open.store(0, std::memory_order_relaxed);
@@ -3776,6 +7467,17 @@ void ResetTitleDrawProvenance() {
   g_semantic_receiver_destructor_stack = {};
   g_semantic_receiver_destructor_stack_depth = 0;
   g_semantic_receiver_destructor_overflow_depth = 0;
+  g_static_world_renderer_scope = {};
+  g_static_world_presentation_scope = {};
+  g_static_world_renderer_destructor_stack = {};
+  g_static_world_renderer_destructor_stack_depth = 0;
+  g_static_world_renderer_destructor_overflow_depth = 0;
+  g_static_world_resource_destructor_stack = {};
+  g_static_world_resource_destructor_stack_depth = 0;
+  g_static_world_resource_destructor_overflow_depth = 0;
+  g_static_world_resource_transition_stack = {};
+  g_static_world_resource_transition_stack_depth = 0;
+  g_static_world_resource_transition_overflow_depth = 0;
   g_semantic_visibility_stack = {};
   g_semantic_visibility_stack_depth = 0;
   g_semantic_visibility_overflow_depth = 0;
@@ -3829,6 +7531,10 @@ void ConfigureTitleDrawProvenance(bool requested,
         "texture_resource,title_resource_keys"},
        {"semantic_batch_planner",
         "exact_consecutive_opaque_prepared_draw_order"},
+       {"semantic_batch_world_family_partition",
+        "none_or_exact_track_or_exact_static_or_both"},
+       {"semantic_batch_lod_partition",
+        "exact_title_observation_or_missing"},
        {"semantic_batch_equivalence_ladder",
         "mesh_material,material,pipeline"},
        {"semantic_batch_pipeline_identity",
@@ -3953,6 +7659,29 @@ void RecordTitleDrawPacketOrigin(uint32_t packet_guest_address,
     g_semantic_draw_packets_recorded.fetch_add(1,
                                                 std::memory_order_relaxed);
   }
+  if (origin.static_world_draw.valid) {
+    ++g_static_world_renderer_scope.packet_origins;
+    g_static_world_packets_recorded.fetch_add(1,
+                                               std::memory_order_relaxed);
+    if (origin.static_world_draw.simple_model_address &&
+        origin.static_world_draw.simple_submodel_address &&
+        origin.static_world_draw.simple_mesh_address) {
+      ++g_static_world_renderer_scope.member_packet_origins;
+      g_static_world_member_packets_recorded.fetch_add(
+          1, std::memory_order_relaxed);
+      (origin.static_world_draw.mesh_semantics_valid
+           ? g_static_world_mesh_semantic_packet_origins
+           : g_static_world_mesh_semantic_missing_packet_origins)
+          .fetch_add(1, std::memory_order_relaxed);
+      (origin.static_world_draw.transform_valid
+           ? g_static_world_transform_packet_origins
+           : g_static_world_transform_missing_packet_origins)
+          .fetch_add(1, std::memory_order_relaxed);
+    } else {
+      g_static_world_member_packet_mismatches.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   ++g_title_packets_recorded;
 }
 
@@ -3976,26 +7705,92 @@ void RecordTitleDrawPacket(uint32_t packet_guest_address) {
 void RecordProceduralModelSemanticDrawPacket(
     uint32_t packet_guest_address, uint32_t constructor_store_address,
     std::array<uint32_t, 8> arguments) {
-  if (!g_title_provenance_installed.load(std::memory_order_acquire) ||
-      !g_semantic_render_item_stack_depth) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
     return;
   }
-  SemanticDrawIdentity &semantic_draw =
-      g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
-  if (!semantic_draw.valid) {
-    g_semantic_draw_scope_mismatches.fetch_add(1,
-                                                std::memory_order_relaxed);
+  SemanticDrawIdentity *semantic_draw = nullptr;
+  if (g_semantic_render_item_stack_depth) {
+    SemanticDrawIdentity &candidate =
+        g_semantic_render_item_stack[g_semantic_render_item_stack_depth - 1];
+    if (candidate.valid) {
+      semantic_draw = &candidate;
+    } else {
+      g_semantic_draw_scope_mismatches.fetch_add(1,
+                                                  std::memory_order_relaxed);
+    }
+  }
+  const bool static_world_draw = g_static_world_renderer_scope.active &&
+                                 g_static_world_renderer_scope.exact;
+  const bool unified_track_mesh_draw =
+      g_direct_indexed_draw_scope.active &&
+      g_direct_indexed_draw_scope.exact &&
+      g_direct_indexed_draw_scope.unified_track_mesh.valid;
+  if (!semantic_draw && !static_world_draw && !unified_track_mesh_draw) {
     return;
   }
   TitleDrawOrigin origin{};
-  origin.wrapper = DispatchWrapper::kProceduralModelDrawIndexed;
+  origin.wrapper = semantic_draw
+                       ? DispatchWrapper::kProceduralModelDrawIndexed
+                   : static_world_draw
+                       ? DispatchWrapper::kStaticWorldDrawIndexed
+                       : DispatchWrapper::kUnifiedTrackMeshDrawIndexed;
   origin.caller = constructor_store_address;
   origin.arguments = arguments;
-  origin.semantic_draw = semantic_draw;
+  if (semantic_draw) {
+    origin.semantic_draw = *semantic_draw;
+    ++semantic_draw->direct_title_origins;
+    g_semantic_draw_origins_captured.fetch_add(1,
+                                                std::memory_order_relaxed);
+  }
+  if (static_world_draw) {
+    const StaticWorldRendererDispatchScope &scope =
+        g_static_world_renderer_scope;
+    origin.static_world_draw = {
+        .asset_key_hash = scope.asset_key_hash,
+        .transform_hash = scope.transform_hash,
+        .model_presentation_address = scope.model_presentation_address,
+        .model_presentation_resource_address =
+            scope.model_presentation_resource_address,
+        .renderer_address = scope.renderer_address,
+        .renderer_generation = scope.renderer_generation,
+        .render_context_address = scope.render_context_address,
+        .model_graph_address = scope.model_graph_address,
+        .model_graph_generation = scope.model_graph_generation,
+        .model_resource_generation = scope.model_resource_generation,
+        .model_resource_payload_generation =
+            scope.model_resource_payload_generation,
+        .simple_model_address =
+            scope.member_exact ? scope.simple_model_address : 0,
+        .simple_submodel_address =
+            scope.member_exact ? scope.simple_submodel_address : 0,
+        .simple_mesh_address =
+            scope.member_exact ? scope.simple_mesh_address : 0,
+        .asset_key_length = scope.asset_key_length,
+        .effect_reference_count = scope.effect_reference_count,
+        .texture_reference_count = scope.texture_reference_count,
+        .transform_words = scope.transform_words,
+        .mesh_primitive_type = scope.mesh_primitive_type,
+        .mesh_index_buffer_binding = scope.mesh_index_buffer_binding,
+        .mesh_source_element_count = scope.mesh_source_element_count,
+        .submodel_state_object = scope.submodel_state_object,
+        .mesh_optional_material_reference =
+            scope.mesh_optional_material_reference,
+        .submodel_state_selector = scope.submodel_state_selector,
+        .submodel_state_enabled = scope.submodel_state_enabled,
+        .mesh_semantics_valid = scope.mesh_semantics_valid,
+        .transform_valid = scope.transform_valid,
+        .asset_metadata_valid = scope.asset_metadata_valid,
+        .valid = true,
+    };
+  }
+  if (unified_track_mesh_draw) {
+    origin.unified_track_mesh =
+        g_direct_indexed_draw_scope.unified_track_mesh;
+    ++g_direct_indexed_draw_scope.packet_origins;
+    g_unified_track_mesh_packet_origins.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   origin.valid = true;
-  ++semantic_draw.direct_title_origins;
-  g_semantic_draw_origins_captured.fetch_add(1,
-                                              std::memory_order_relaxed);
   RecordTitleDrawPacketOrigin(packet_guest_address, origin);
 }
 
@@ -5210,6 +9005,18 @@ bool ResolveSemanticReceiver(uint32_t address, uint32_t *generation,
   return *generation != 0;
 }
 
+uint32_t CurrentTrackPresentationPassMask() {
+  uint32_t mask = 0;
+  for (size_t index = 0; index < g_track_presentation_pass_accepted.size();
+       ++index) {
+    if (g_track_presentation_pass_active[index] &&
+        g_track_presentation_pass_accepted[index]) {
+      mask |= uint32_t(1) << index;
+    }
+  }
+  return mask;
+}
+
 void PushIndirectContextOrigin(uint32_t function_address,
                                uint32_t return_address, uint32_t r3,
                                uint32_t r4, uint32_t r5, uint32_t r6,
@@ -5233,6 +9040,30 @@ void PushIndirectContextOrigin(uint32_t function_address,
   context.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
   context.root_address =
       DeriveIndirectContextRoot(function_address, context.arguments);
+  if (function_address == 0x824365B0) {
+    context.track_presentation_pass_mask =
+        CurrentTrackPresentationPassMask();
+    g_track_render_model_context_observations.fetch_add(
+        1, std::memory_order_relaxed);
+    TrackRenderModelDispatchScope &track_scope =
+        g_track_render_model_scope;
+    if (track_scope.active && track_scope.exact) {
+      context.track_render_root_address = track_scope.root_address;
+      context.track_render_child_address = track_scope.child_address;
+      context.track_render_descriptor_address =
+          track_scope.descriptor_address;
+      context.track_render_descriptor_payload =
+          track_scope.descriptor_payload;
+      context.track_world_resource_identity_mask =
+          track_scope.world_resource_identity_mask;
+      context.track_world_resource_nested_identity_mask =
+          track_scope.world_resource_nested_identity_mask;
+      context.track_command_lineage = true;
+      ++track_scope.command_context_bridges;
+      g_track_render_model_context_bridges.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   if (function_address == 0x82417BC0) {
     context.semantic_receiver_address = r3;
     context.semantic_receiver_known = ResolveSemanticReceiver(
@@ -5596,6 +9427,33 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
       origin.owner.producer.context.semantic_render_state_epoch;
   entry.semantic_render_state_visibility_epoch =
       origin.owner.producer.context.semantic_render_state_visibility_epoch;
+  entry.track_render_root_address =
+      origin.owner.producer.context.track_render_root_address;
+  entry.track_render_child_address =
+      origin.owner.producer.context.track_render_child_address;
+  entry.track_render_descriptor_address =
+      origin.owner.producer.context.track_render_descriptor_address;
+  entry.track_render_descriptor_payload =
+      origin.owner.producer.context.track_render_descriptor_payload;
+  entry.track_world_resource_identity_mask =
+      origin.owner.producer.context.track_world_resource_identity_mask;
+  entry.track_world_resource_nested_identity_mask =
+      origin.owner.producer.context.track_world_resource_nested_identity_mask;
+  const uint32_t presentation_construction_mask =
+      CurrentTrackPresentationPassMask();
+  // The title may defer consuming an indirect packet until after its exact
+  // presentation call returns. Preserve that synchronous construction scope
+  // on the packet so the later prepared draw retains its slot provenance.
+  entry.track_presentation_pass_mask =
+      origin.owner.producer.context.track_presentation_pass_mask |
+      presentation_construction_mask;
+  for (size_t index = 0;
+       index < g_track_presentation_packet_constructions.size(); ++index) {
+    if (presentation_construction_mask & (uint32_t(1) << index)) {
+      g_track_presentation_packet_constructions[index].fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
@@ -5603,6 +9461,12 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
   entry.context_origin_known = origin.owner.producer.context.valid;
   entry.semantic_receiver_known =
       origin.owner.producer.context.semantic_receiver_known;
+  entry.track_command_lineage =
+      origin.owner.producer.context.track_command_lineage;
+  if (entry.track_command_lineage) {
+    g_track_render_model_packet_joins.fetch_add(1,
+                                                 std::memory_order_relaxed);
+  }
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
@@ -5699,8 +9563,28 @@ void ObserveIndirectBuffer(
     active.constructor_origin.owner.producer.context
         .semantic_render_state_visibility_epoch =
         matched.semantic_render_state_visibility_epoch;
+    active.constructor_origin.owner.producer.context
+        .track_render_root_address = matched.track_render_root_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_child_address = matched.track_render_child_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_descriptor_address =
+        matched.track_render_descriptor_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_descriptor_payload =
+        matched.track_render_descriptor_payload;
+    active.constructor_origin.owner.producer.context
+        .track_world_resource_identity_mask =
+        matched.track_world_resource_identity_mask;
+    active.constructor_origin.owner.producer.context
+        .track_world_resource_nested_identity_mask =
+        matched.track_world_resource_nested_identity_mask;
+    active.constructor_origin.owner.producer.context
+        .track_presentation_pass_mask = matched.track_presentation_pass_mask;
     active.constructor_origin.owner.producer.context.semantic_receiver_known =
         matched.semantic_receiver_known;
+    active.constructor_origin.owner.producer.context.track_command_lineage =
+        matched.track_command_lineage;
     active.constructor_origin.owner.producer.context.valid =
         matched.context_origin_known;
     active.depth = observation.depth;
@@ -5794,6 +9678,10 @@ bool ConsumeTitleDrawPacket(uint32_t packet_physical_address,
     if (origin.semantic_draw.valid) {
       g_semantic_draw_packet_matches.fetch_add(1,
                                                 std::memory_order_relaxed);
+    }
+    if (origin.static_world_draw.valid) {
+      g_static_world_packet_matches.fetch_add(1,
+                                               std::memory_order_relaxed);
     }
     ++g_title_packets_matched;
     return true;
@@ -6010,7 +9898,9 @@ struct IsolatedDrawState {
   uint64_t shadow_replay_unsupported = 0;
   uint64_t shadow_replay_gate_rejections = 0;
   uint32_t prepared_title_lod_index = 0;
+  uint32_t prepared_vehicle_shadow_color_family_index = UINT32_MAX;
   rex::system::GraphicsDrawObservation prepared_sample;
+  SemanticPreparedDrawContract prepared_semantic_contract{};
   std::filesystem::path output_root;
   std::jthread artifact_writer;
   std::jthread reference_artifact_writer;
@@ -6018,12 +9908,15 @@ struct IsolatedDrawState {
   std::jthread reference_depth_artifact_writer;
   std::jthread seed_depth_artifact_writer;
   std::jthread reference_seed_depth_artifact_writer;
+  std::jthread vehicle_retained_artifact_writer;
+  std::jthread vehicle_contribution_artifact_writer;
   bool requested = false;
   bool readback_requested = false;
   bool completed = false;
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  bool prepared_color_only_target = false;
   uint32_t prepared_candidate_rejection_mask = 0;
   bool prepared_shadow_depth_seed_eligible = false;
   bool prepared_shadow_depth_batch_member = false;
@@ -6031,6 +9924,13 @@ struct IsolatedDrawState {
       ShadowDepthBatchFamily::kNone;
   bool prepared_visibility_candidate_fresh = false;
   bool prepared_title_lod_valid = false;
+  bool prepared_track_texture_provider = false;
+  bool prepared_track_render_model_scope = false;
+  bool prepared_track_command_lineage = false;
+  uint32_t prepared_track_world_resource_shared_identity_mask = 0;
+  bool prepared_procedural_color_producer = false;
+  bool prepared_static_world_origin = false;
+  bool prepared_static_world_exact = false;
   bool require_fresh_visibility_candidate = false;
   bool require_title_lod_candidate = false;
   bool auto_select_fresh_visibility_candidate = false;
@@ -6038,6 +9938,18 @@ struct IsolatedDrawState {
   bool shadow_depth_mode = false;
   bool shadow_depth_prototype_mode = false;
   bool shadow_depth_batch_mode = false;
+  bool vehicle_shadow_geometry_correlation_mode = false;
+  bool vehicle_shadow_color_capture_mode = false;
+  bool vehicle_shadow_color_retained_pass_mode = false;
+  bool vehicle_resource_contribution_capture_mode = false;
+  bool prepared_vehicle_shadow_color_replay_eligible = false;
+  bool vehicle_shadow_color_capture_pending = false;
+  bool vehicle_shadow_color_capture_completed = false;
+  bool vehicle_shadow_color_private_replay_failed_closed = false;
+  bool vehicle_shadow_color_retained_pass_failed_closed = false;
+  bool vehicle_shadow_color_retained_capture_completed = false;
+  bool vehicle_resource_contribution_failed_closed = false;
+  bool vehicle_resource_contribution_capture_completed = false;
   bool shadow_depth_publication_mode = false;
   bool shadow_depth_continuous_mode = false;
   bool shadow_depth_continuous_failed_closed = false;
@@ -6063,11 +9975,52 @@ struct IsolatedDrawState {
   uint64_t shadow_depth_publication_attempts = 0;
   uint64_t shadow_depth_publications = 0;
   uint64_t shadow_depth_publication_failures = 0;
+  uint64_t vehicle_shadow_color_capture_requests = 0;
+  uint64_t vehicle_shadow_color_capture_recorded = 0;
+  uint64_t vehicle_shadow_color_capture_target_failures = 0;
+  uint64_t vehicle_shadow_color_capture_unsupported = 0;
+  uint64_t vehicle_shadow_color_private_replay_requests = 0;
+  uint64_t vehicle_shadow_color_private_replay_recorded = 0;
+  uint64_t vehicle_shadow_color_private_replay_target_failures = 0;
+  uint64_t vehicle_shadow_color_private_replay_unsupported = 0;
+  uint64_t vehicle_shadow_color_private_replay_frame_quota_yields = 0;
+  uint64_t vehicle_shadow_color_private_replay_limit_yields = 0;
+  uint64_t vehicle_shadow_color_private_replay_last_frame = UINT64_MAX;
+  uint64_t vehicle_shadow_color_retained_current_frame = UINT64_MAX;
+  uint64_t vehicle_shadow_color_retained_skip_frame = UINT64_MAX;
+  uint64_t vehicle_shadow_color_retained_last_draw = 0;
+  uint64_t vehicle_shadow_color_retained_requests = 0;
+  uint64_t vehicle_shadow_color_retained_recorded = 0;
+  uint64_t vehicle_shadow_color_retained_target_failures = 0;
+  uint64_t vehicle_shadow_color_retained_unsupported = 0;
+  uint64_t vehicle_shadow_color_retained_reused_target_requests = 0;
+  uint64_t vehicle_shadow_color_retained_frames_started = 0;
+  uint64_t vehicle_shadow_color_retained_frames_completed = 0;
+  uint64_t vehicle_shadow_color_retained_frames_failed = 0;
+  uint64_t vehicle_shadow_color_retained_limit_yields = 0;
+  uint64_t vehicle_resource_contribution_hash = 0;
+  uint64_t vehicle_resource_contribution_frame = UINT64_MAX;
+  uint64_t vehicle_resource_contribution_last_draw = 0;
+  uint64_t vehicle_resource_contribution_requests = 0;
+  uint64_t vehicle_resource_contribution_recorded = 0;
+  uint64_t vehicle_resource_contribution_target_failures = 0;
+  uint64_t vehicle_resource_contribution_unsupported = 0;
+  uint32_t vehicle_resource_contribution_current_requests = 0;
+  uint32_t vehicle_resource_contribution_current_outcomes = 0;
+  uint32_t vehicle_resource_contribution_current_recorded = 0;
+  uint32_t vehicle_resource_contribution_family_mask = 0;
+  uint32_t vehicle_shadow_color_retained_current_requests = 0;
+  uint32_t vehicle_shadow_color_retained_current_outcomes = 0;
+  uint32_t vehicle_shadow_color_retained_current_recorded = 0;
+  uint32_t vehicle_shadow_color_retained_current_family_mask = 0;
+  bool vehicle_shadow_color_retained_current_failed = false;
+  bool vehicle_shadow_color_retained_current_accounted = false;
   uint64_t shadow_depth_continuous_last_publication_frame = UINT64_MAX;
   uint64_t shadow_depth_continuous_publication_epochs = 0;
   uint64_t shadow_depth_continuous_max_publication_epochs = 0;
   uint64_t shadow_depth_continuous_epoch_limit = 0;
   uint32_t shadow_depth_batch_draws = 0;
+  uint32_t vehicle_shadow_geometry_staging_count = 0;
   bool shadow_depth_batch_active = false;
   bool shadow_depth_batch_backend_ready = false;
   bool shadow_depth_batch_capture_completed = false;
@@ -6128,18 +10081,44 @@ struct ContinuousWorldWorksetState {
   uint64_t unsupported = 0;
   uint64_t mechanical_rejections = 0;
   uint64_t stale_or_unselected_rejections = 0;
+  uint64_t non_track_provider_rejections = 0;
+  uint64_t track_world_identity_exclusions = 0;
+  uint64_t track_world_candidates = 0;
+  uint64_t track_world_mechanically_eligible = 0;
+  uint64_t track_world_mechanically_rejected = 0;
+  std::array<uint64_t, 15> track_world_mechanical_rejection_reasons{};
+  uint64_t track_world_requests = 0;
+  uint64_t procedural_color_producer_candidates = 0;
+  uint64_t procedural_color_producer_requests = 0;
+  uint64_t procedural_color_producer_target_failures = 0;
+  std::array<uint64_t, 13> target_failure_reasons{};
+  std::array<uint64_t, 13> procedural_color_target_failure_reasons{};
+  uint64_t static_world_lineage_rejections = 0;
+  uint64_t static_world_requests = 0;
   uint64_t per_frame_quota_yields = 0;
   uint64_t fail_closed_yields = 0;
   uint64_t qualified_retained_family_requests = 0;
   uint64_t reused_target_requests = 0;
+  uint64_t target_reseed_requests = 0;
+  uint64_t procedural_color_target_reseed_requests = 0;
+  uint64_t procedural_source_geometry_frame = UINT64_MAX;
+  uint32_t procedural_source_logical_width = 0;
+  uint32_t procedural_source_logical_height = 0;
+  uint32_t procedural_source_target_width = 0;
+  uint32_t procedural_source_target_height = 0;
+  uint32_t procedural_source_draw_scale_x = 0;
+  uint32_t procedural_source_draw_scale_y = 0;
   uint64_t frames_started = 0;
   uint64_t frames_completed = 0;
   uint64_t frames_failed = 0;
   uint64_t current_frame = UINT64_MAX;
   uint64_t current_frame_requests = 0;
   uint64_t current_frame_recorded = 0;
+  uint64_t current_retained_target_identity = 0;
   bool current_frame_failed = false;
   bool requested = false;
+  bool track_world_requested = false;
+  bool static_world_requested = false;
   bool valid = true;
 };
 
@@ -6589,6 +10568,71 @@ void ConfigureIsolatedDraw() {
   if (g_isolated_draw.shadow_depth_prototype_mode) {
     g_isolated_draw.shadow_depth_batch_mode = true;
   }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_GEOMETRY_CORRELATION") ==
+          0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.vehicle_shadow_geometry_correlation_mode =
+        setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode &&
+      !g_isolated_draw.shadow_depth_batch_mode) {
+    g_isolated_draw.valid = false;
+  }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_CAPTURE") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.vehicle_shadow_color_capture_mode = setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
+      !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    g_isolated_draw.valid = false;
+  }
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_SHADOW_COLOR_RETAINED_PASS") ==
+          0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    g_isolated_draw.vehicle_shadow_color_retained_pass_mode =
+        setting == "true";
+    if (setting != "true" && setting != "false") {
+      g_isolated_draw.valid = false;
+    }
+  }
+  std::free(value);
+  if (g_isolated_draw.vehicle_shadow_color_retained_pass_mode &&
+      !g_isolated_draw.vehicle_shadow_color_capture_mode) {
+    g_isolated_draw.valid = false;
+  }
+  ConfigureSignatureScan(
+      "PINYON_SHIFT_NATIVE_RENDERER_VEHICLE_RESOURCE_CONTRIBUTION",
+      g_isolated_draw.vehicle_resource_contribution_hash,
+      g_isolated_draw.vehicle_resource_contribution_capture_mode,
+      g_isolated_draw.valid);
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode &&
+      (!g_isolated_draw.vehicle_shadow_color_capture_mode ||
+       g_isolated_draw.vehicle_shadow_color_retained_pass_mode)) {
+    g_isolated_draw.valid = false;
+  }
   if (g_isolated_draw.shadow_depth_mode) {
     g_isolated_draw.requested = true;
     if (signature_requested || g_isolated_draw.shadow_depth_batch_mode) {
@@ -6771,6 +10815,79 @@ void ConfigureIsolatedDraw() {
     }
   }
   std::free(value);
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_geometry_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"shadow_depth_batch_required", "true"},
+         {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
+         {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
+         {"color_match", "exact_full_or_index_plus_vertex_resource"},
+         {"typed_constant_upload_hook", "82435E78:r3,r4,r5,r6,lr"},
+         {"typed_constant_upload_contract",
+          "exact_shader_used_vertex_register_hash"},
+         {"typed_constant_upload_capacity",
+          std::to_string(kVehicleConstantUploadCapacity)},
+         {"typed_constant_upload_maximum_age_frames",
+          std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
+         {"shader_constant_write_observer",
+          "command_processor_final_shader_register_write"},
+         {"shader_constant_write_contract",
+          "exact_current_vertex_register_components_and_packet_lineage"},
+         {"shader_constant_source_capacity",
+          std::to_string(kVehicleShaderConstantSourceCapacity)},
+         {"guest_payload_capture", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_color_capture_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_color_capture_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"selection", "first_mechanically_replayable_correlated_color_draw"},
+         {"activation_boundary", "backend_recorded_full_80_draw_epoch"},
+         {"readback", "native_and_xenos_color"},
+         {"native_draw", "private_capture_only"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_color_retained_pass_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_color_retained_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"selection", "all_30_exact_correlated_families_in_guest_order"},
+         {"activation_boundary", "single_family_private_capture_recorded"},
+         {"frame_contract", "exactly_one_draw_per_family_per_frame"},
+         {"target_lifecycle", "retain_first_reuse_middle_release_last"},
+         {"pass_limit",
+          std::to_string(kVehicleShadowColorRetainedPassLimit)},
+         {"readback", "first_complete_native_retained_pass"},
+         {"native_draw", "private_retained_pass_only"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_resource_contribution_config",
+        {{"status", g_isolated_draw.valid ? "armed"
+                                           : "blocked_invalid_configuration"},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}",
+                      g_isolated_draw.vehicle_resource_contribution_hash)},
+         {"selection", "two_exact_prepared_variants_for_one_geometry_resource"},
+         {"target_lifecycle", "retain_first_release_second"},
+         {"readback", "complete_private_resource_contribution"},
+         {"native_draw", "private_resource_contribution_only"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
 }
 
 void ConfigureVisibilityShadowReplay() {
@@ -6807,15 +10924,60 @@ void ConfigureContinuousWorldWorkset() {
     std::free(value);
     g_continuous_world_workset.requested = prototype_selected;
     g_continuous_world_workset.valid = true;
-    return;
+  } else {
+    const std::string setting(value);
+    std::free(value);
+    if (setting != "false") {
+      g_continuous_world_workset.requested = true;
+      g_continuous_world_workset.valid = setting == "true";
+    }
   }
-  const std::string setting(value);
+
+  value = nullptr;
+  length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_STATIC_WORLD") == 0 &&
+      value && length > 1) {
+    const std::string setting(value);
+    if (setting != "false") {
+      g_continuous_world_workset.static_world_requested = true;
+      if (setting != "true") {
+        g_continuous_world_workset.valid = false;
+      }
+    }
+  }
   std::free(value);
-  if (setting == "false") {
-    return;
+
+  value = nullptr;
+  length = 0;
+  const errno_t track_world_environment = _dupenv_s(
+      &value, &length,
+      "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD");
+  if (track_world_environment == 0 && value && length > 1) {
+    const std::string setting(value);
+    if (setting != "false") {
+      g_continuous_world_workset.track_world_requested = true;
+      if (setting != "true") {
+        g_continuous_world_workset.valid = false;
+      }
+    }
+  } else if (track_world_environment == 0 && prototype_selected) {
+    // The exact indirect track lineage is the only runtime-proved terrain and
+    // road family. Include it in the visible prototype by default while
+    // preserving an explicit false environment override and every existing
+    // mechanical, publication, and Xenos-authority gate.
+    g_continuous_world_workset.track_world_requested = true;
   }
-  g_continuous_world_workset.requested = true;
-  g_continuous_world_workset.valid = setting == "true";
+  std::free(value);
+  if (g_continuous_world_workset.track_world_requested &&
+      !g_continuous_world_workset.requested) {
+    g_continuous_world_workset.valid = false;
+  }
+  if (g_continuous_world_workset.static_world_requested &&
+      !g_continuous_world_workset.requested) {
+    g_continuous_world_workset.valid = false;
+  }
 }
 
 void ValidateAndEmitVisibilityShadowReplayConfiguration() {
@@ -6884,11 +11046,20 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
        {"selection",
-        "fresh_visibility_or_qualified_sky_horizon_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical"},
+       {"track_world_selection",
+        g_continuous_world_workset.track_world_requested
+            ? "exact_track_render_model_scope_and_shared_world_resource_identity"
+            : "disabled"},
+       {"static_world_selection",
+        g_continuous_world_workset.static_world_requested
+            ? "exact_presentation_resource_mesh_transform_lineage"
+            : "disabled"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
-       {"target_lifetime", "one_guest_frame"},
-       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"target_lifetime", "one_guest_frame"},
+        {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"preview_publication", "disabled_pending_complete_scene_compositor"},
        {"semantic_lineage",
         semantic_lineage_armed ? "armed" : "unavailable"},
        {"readback", "disabled"},
@@ -6897,7 +11068,7 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
                            ? "continuous_world_workset"
                            : "false"},
        {"xenos_draw", "preserved"},
-       {"output_authority", "renderer_selector"},
+        {"output_authority", "xenos_until_complete_scene_compositor"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
 }
@@ -7020,7 +11191,16 @@ uint64_t g_candidate_prepared_without_observation_count = 0;
 
 struct CommandBufferLineageEntry {
   uint64_t sample_prepared_signature = 0;
+  uint64_t sample_color_prepared_signature = 0;
   uint64_t calls = 0;
+  uint64_t depth_only_draws = 0;
+  uint64_t color_only_draws = 0;
+  uint64_t color_depth_draws = 0;
+  uint64_t other_target_draws = 0;
+  uint64_t other_color_draws = 0;
+  uint64_t opaque_color_draws = 0;
+  uint64_t bounded_color_draws = 0;
+  uint64_t resolved_input_color_draws = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
   uint64_t first_draw = 0;
@@ -7060,14 +11240,66 @@ struct CommandBufferLineageEntry {
   uint64_t semantic_visibility_epoch = 0;
   uint64_t semantic_render_state_epoch = 0;
   uint64_t semantic_render_state_visibility_epoch = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
+  uint32_t track_presentation_pass_mask = 0;
+  uint64_t sample_color_vertex_shader = 0;
+  uint64_t sample_color_pixel_shader = 0;
+  uint32_t sample_color_bound_render_target_bits = 0;
+  std::array<uint32_t, 5> sample_color_bound_render_target_formats{};
+  uint32_t sample_color_prepared_pipeline_flags = 0;
+  uint32_t sample_color_surface_info = 0;
+  std::array<uint32_t, 4> sample_color_info{};
+  uint32_t sample_color_depth_info = 0;
+  uint32_t sample_color_window_scissor_tl = 0;
+  uint32_t sample_color_window_scissor_br = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
   bool semantic_receiver_known = false;
+  bool track_command_lineage = false;
   bool semantic_preparation_epoch_varied = false;
   bool prepared_signature_varied = false;
+  bool sample_color_known = false;
+  bool color_sample_varied = false;
+};
+
+struct ProceduralColorTargetProfileEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t prepared_signature = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t bin_select = 0;
+  uint64_t bin_mask = 0;
+  uint64_t opaque_calls = 0;
+  uint64_t bounded_calls = 0;
+  uint64_t resolved_input_calls = 0;
+  uint32_t sample_semantic_receiver_address = 0;
+  uint32_t sample_semantic_receiver_generation = 0;
+  uint32_t bound_render_target_bits = 0;
+  std::array<uint32_t, 5> bound_render_target_formats{};
+  uint32_t prepared_pipeline_flags = 0;
+  uint32_t viewport_xscale = 0;
+  uint32_t viewport_xoffset = 0;
+  uint32_t viewport_yscale = 0;
+  uint32_t viewport_yoffset = 0;
+  uint32_t viewport_transform_control = 0;
+  uint32_t window_scissor_tl = 0;
+  uint32_t window_scissor_br = 0;
+  uint32_t surface_info = 0;
+  std::array<uint32_t, 4> color_info{};
+  uint32_t depth_info = 0;
+  bool predicated = false;
+  bool semantic_receiver_varied = false;
 };
 
 std::array<CommandBufferLineageEntry, kCommandBufferLineageCapacity>
@@ -7079,9 +11311,151 @@ uint64_t g_command_buffer_lineage_invalid = 0;
 uint64_t g_command_buffer_lineage_prepared_draws = 0;
 uint64_t g_command_buffer_lineage_entry_count = 0;
 uint64_t g_command_buffer_lineage_overflow = 0;
+std::array<ProceduralColorTargetProfileEntry,
+           kProceduralColorTargetProfileCapacity>
+    g_procedural_color_target_profiles{};
+uint64_t g_procedural_color_target_profile_observations = 0;
+uint64_t g_procedural_color_target_profile_entry_count = 0;
+uint64_t g_procedural_color_target_profile_overflow = 0;
+uint64_t g_procedural_resolve_assembly_count = 0;
+uint64_t g_procedural_resolve_assembly_detail_count = 0;
+uint64_t g_procedural_resolve_assembly_detail_overflow = 0;
+pinyon_shift::native_renderer::ProceduralResolveAssemblyTracker
+    g_procedural_resolve_assembly_tracker;
+pinyon_shift::native_renderer::ProceduralFrameAccumulatorPlanner
+    g_procedural_frame_accumulator_planner;
+uint64_t g_procedural_frame_accumulator_begins = 0;
+uint64_t g_procedural_frame_accumulator_appends = 0;
+uint64_t g_procedural_frame_accumulator_commits = 0;
+uint64_t g_procedural_frame_accumulator_cancels = 0;
+uint64_t g_procedural_frame_accumulator_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_detail_overflow = 0;
+uint64_t g_procedural_frame_accumulator_qualified_resolve_arms = 0;
+std::array<uint64_t, 2>
+    g_procedural_frame_accumulator_qualified_resolve_source_modes{};
+bool g_procedural_frame_accumulator_backend_armed = false;
+std::array<uint64_t, 7> g_procedural_frame_accumulator_backend_statuses{};
+uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
+uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
+uint64_t g_procedural_frame_accumulator_same_frame_yields = 0;
+uint64_t g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+uint64_t g_procedural_frame_accumulator_source_gate_yields = 0;
+std::array<uint64_t, 8> g_procedural_frame_accumulator_layout_statuses{};
+uint64_t g_procedural_frame_accumulator_layout_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_layout_detail_overflow = 0;
 bool g_graphics_census_installed = false;
+bool g_graphics_full_census_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
+
+void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
+                                     uint32_t composed_matrix_address) {
+  g_pending_track_world_reference_spatial = {};
+  if (!g_graphics_census_installed || !g_graphics_census_memory) {
+    return;
+  }
+  if (!IsReadableVehicleGuestRange(g_graphics_census_memory,
+                                   object_matrix_address, 64) ||
+      !IsReadableVehicleGuestRange(g_graphics_census_memory,
+                                   composed_matrix_address, 64)) {
+    g_track_world_reference_spatial_invalid_range.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  LoadSemanticGuestWords(
+      g_graphics_census_memory, object_matrix_address,
+      g_pending_track_world_reference_spatial.object_matrix_words);
+  LoadSemanticGuestWords(
+      g_graphics_census_memory, composed_matrix_address,
+      g_pending_track_world_reference_spatial.composed_matrix_words);
+  for (uint32_t word :
+       g_pending_track_world_reference_spatial.object_matrix_words) {
+    if (!std::isfinite(std::bit_cast<float>(word))) {
+      g_track_world_reference_spatial_non_finite.fetch_add(
+          1, std::memory_order_relaxed);
+      g_pending_track_world_reference_spatial = {};
+      return;
+    }
+  }
+  for (uint32_t word :
+       g_pending_track_world_reference_spatial.composed_matrix_words) {
+    if (!std::isfinite(std::bit_cast<float>(word))) {
+      g_track_world_reference_spatial_non_finite.fetch_add(
+          1, std::memory_order_relaxed);
+      g_pending_track_world_reference_spatial = {};
+      return;
+    }
+  }
+  g_pending_track_world_reference_spatial.object_matrix_address =
+      object_matrix_address;
+  g_pending_track_world_reference_spatial.composed_matrix_address =
+      composed_matrix_address;
+  g_pending_track_world_reference_spatial.valid = true;
+}
+
+void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
+                                       uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words) {
+  g_track_world_reference_spatial_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  PendingTrackWorldReferenceSpatial snapshot =
+      g_pending_track_world_reference_spatial;
+  if (!snapshot.valid) {
+    g_track_world_reference_spatial_missing_stage.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
+  key = HashCombine(key, descriptor_address);
+  uint64_t scope_snapshot_hash = HashSemanticWords(child_words);
+  scope_snapshot_hash =
+      HashCombine(scope_snapshot_hash, HashSemanticWords(descriptor_words));
+  key = HashCombine(key, scope_snapshot_hash);
+  key = HashCombine(key, HashSemanticWords(snapshot.object_matrix_words));
+  key = HashCombine(key, HashSemanticWords(snapshot.composed_matrix_words));
+  key = key ? key : 1;
+  const uint64_t frame_sequence =
+      g_frame_sequence.load(std::memory_order_relaxed);
+
+  std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+  size_t index = size_t(key % kTrackWorldReferenceSpatialCapacity);
+  for (size_t probe = 0; probe < kTrackWorldReferenceSpatialCapacity;
+       ++probe) {
+    TrackWorldReferenceSpatialEntry &entry =
+        g_track_world_reference_spatial_entries[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.scope_snapshot_hash = scope_snapshot_hash;
+      entry.calls = 1;
+      entry.first_frame = frame_sequence;
+      entry.last_frame = frame_sequence;
+      entry.child_address = child_address;
+      entry.descriptor_address = descriptor_address;
+      entry.object_matrix_words = snapshot.object_matrix_words;
+      entry.composed_matrix_words = snapshot.composed_matrix_words;
+      ++g_track_world_reference_spatial_count;
+      return;
+    }
+    if (entry.key == key && entry.child_address == child_address &&
+        entry.descriptor_address == descriptor_address &&
+        entry.scope_snapshot_hash == scope_snapshot_hash &&
+        entry.object_matrix_words == snapshot.object_matrix_words &&
+        entry.composed_matrix_words == snapshot.composed_matrix_words) {
+      ++entry.calls;
+      entry.last_frame = frame_sequence;
+      return;
+    }
+    index = (index + 1) % kTrackWorldReferenceSpatialCapacity;
+  }
+  g_track_world_reference_spatial_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
 
 struct GuestCpuVisibilityTargetEntry {
   std::atomic<uint32_t> address{};
@@ -7244,6 +11618,34 @@ void ResetCommandBufferLineage() {
   g_command_buffer_lineage_prepared_draws = 0;
   g_command_buffer_lineage_entry_count = 0;
   g_command_buffer_lineage_overflow = 0;
+  std::memset(g_procedural_color_target_profiles.data(), 0,
+              sizeof(g_procedural_color_target_profiles));
+  g_procedural_color_target_profile_observations = 0;
+  g_procedural_color_target_profile_entry_count = 0;
+  g_procedural_color_target_profile_overflow = 0;
+  g_procedural_resolve_assembly_count = 0;
+  g_procedural_resolve_assembly_detail_count = 0;
+  g_procedural_resolve_assembly_detail_overflow = 0;
+  g_procedural_resolve_assembly_tracker = {};
+  g_procedural_frame_accumulator_planner = {};
+  g_procedural_frame_accumulator_begins = 0;
+  g_procedural_frame_accumulator_appends = 0;
+  g_procedural_frame_accumulator_commits = 0;
+  g_procedural_frame_accumulator_cancels = 0;
+  g_procedural_frame_accumulator_detail_count = 0;
+  g_procedural_frame_accumulator_detail_overflow = 0;
+  g_procedural_frame_accumulator_qualified_resolve_arms = 0;
+  g_procedural_frame_accumulator_qualified_resolve_source_modes.fill(0);
+  g_procedural_frame_accumulator_backend_statuses.fill(0);
+  g_procedural_frame_accumulator_backend_detail_count = 0;
+  g_procedural_frame_accumulator_backend_detail_overflow = 0;
+  g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
+  g_procedural_frame_accumulator_same_frame_yields = 0;
+  g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+  g_procedural_frame_accumulator_source_gate_yields = 0;
+  g_procedural_frame_accumulator_layout_statuses.fill(0);
+  g_procedural_frame_accumulator_layout_detail_count = 0;
+  g_procedural_frame_accumulator_layout_detail_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -7349,6 +11751,179 @@ void ArmGuestCpuVisibility(uint32_t address, uint32_t length) {
 uint64_t HashCombine(uint64_t hash, uint64_t value) {
   value += 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
   return hash ^ value;
+}
+
+size_t DirectIndexedDrawProducerIndex(uint32_t return_address) {
+  for (size_t index = 0; index < kDirectIndexedDrawProducers.size();
+       ++index) {
+    if (kDirectIndexedDrawProducers[index].return_address == return_address) {
+      return index;
+    }
+  }
+  return kDirectIndexedDrawProducers.size();
+}
+
+bool RecordUnifiedTrackMeshTransform(
+    uint32_t mesh_address, uint32_t transform_address,
+    UnifiedTrackMeshDrawIdentity &identity) {
+  g_unified_track_mesh_observations.fetch_add(1,
+                                               std::memory_order_relaxed);
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  if (!memory || !mesh_address || !transform_address ||
+      (mesh_address & 3) || (transform_address & 3) ||
+      transform_address >
+          UINT32_MAX - kModelPresentationTransformWordCount * 4) {
+    g_unified_track_mesh_read_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return false;
+  }
+
+  uint32_t vtable = 0;
+  if (!LoadMappedGuestU32(memory, mesh_address, vtable)) {
+    g_unified_track_mesh_read_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return false;
+  }
+  if (vtable != kTrackMeshVtable) {
+    g_unified_track_mesh_vtable_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return false;
+  }
+
+  std::array<uint32_t, kModelPresentationTransformWordCount> words{};
+  bool finite = true;
+  for (size_t index = 0; index < words.size(); ++index) {
+    if (!LoadMappedGuestU32(memory,
+                            transform_address + uint32_t(index * 4),
+                            words[index])) {
+      g_unified_track_mesh_read_faults.fetch_add(
+          1, std::memory_order_relaxed);
+      return false;
+    }
+    finite = finite && std::isfinite(std::bit_cast<float>(words[index]));
+  }
+  if (!finite) {
+    g_unified_track_mesh_nonfinite_transforms.fetch_add(
+        1, std::memory_order_relaxed);
+    return false;
+  }
+
+  uint64_t transform_hash = 0xCBF29CE484222325ull;
+  for (uint32_t word : words) {
+    transform_hash = HashCombine(transform_hash, word);
+  }
+  transform_hash = transform_hash ? transform_hash : 1;
+  identity.transform_hash = transform_hash;
+  identity.mesh_address = mesh_address;
+  identity.transform_words = words;
+  identity.valid = true;
+  uint64_t key = HashCombine(transform_hash, mesh_address);
+  if (!key || key == kUnifiedTrackMeshTransformClaimed) {
+    key ^= UINT64_C(0x9E3779B97F4A7C15);
+  }
+  const uint64_t frame =
+      g_frame_sequence.load(std::memory_order_relaxed);
+  size_t table_index = size_t(key % kUnifiedTrackMeshTransformCapacity);
+  for (size_t probe = 0; probe < kUnifiedTrackMeshTransformCapacity;
+       ++probe) {
+    UnifiedTrackMeshTransformEntry &entry =
+        g_unified_track_mesh_transforms[table_index];
+    uint64_t observed = entry.key.load(std::memory_order_acquire);
+    if (!observed && entry.key.compare_exchange_strong(
+                         observed, kUnifiedTrackMeshTransformClaimed,
+                         std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      entry.transform_hash = transform_hash;
+      entry.first_frame = frame;
+      entry.mesh_address = mesh_address;
+      entry.transform_words = words;
+      entry.observations.store(1, std::memory_order_relaxed);
+      entry.last_frame.store(frame, std::memory_order_relaxed);
+      entry.key.store(key, std::memory_order_release);
+      g_unified_track_mesh_transform_count.fetch_add(
+          1, std::memory_order_relaxed);
+      g_unified_track_mesh_exact.fetch_add(1,
+                                           std::memory_order_relaxed);
+      return true;
+    }
+    if (observed == key) {
+      if (entry.mesh_address == mesh_address &&
+          entry.transform_hash == transform_hash &&
+          entry.transform_words == words) {
+        entry.observations.fetch_add(1, std::memory_order_relaxed);
+        entry.last_frame.store(frame, std::memory_order_relaxed);
+        g_unified_track_mesh_exact.fetch_add(1,
+                                             std::memory_order_relaxed);
+        return true;
+      }
+      g_unified_track_mesh_transform_collisions.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    table_index = (table_index + 1) % kUnifiedTrackMeshTransformCapacity;
+  }
+  g_unified_track_mesh_transform_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+  identity = {};
+  return false;
+}
+
+void ObserveDirectIndexedDrawProducer(uint32_t mesh_address,
+                                      uint32_t transform_address,
+                                      uint32_t return_address) {
+  if (!g_direct_indexed_draw_producer_census_armed.load(
+          std::memory_order_acquire)) {
+    return;
+  }
+  if (g_direct_indexed_draw_scope.active) {
+    g_direct_indexed_draw_scope_overlaps.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  g_direct_indexed_draw_scope = {};
+  g_direct_indexed_draw_scope.active = true;
+  g_direct_indexed_draw_scope_entries.fetch_add(
+      1, std::memory_order_relaxed);
+  g_direct_indexed_draw_observations.fetch_add(1,
+                                               std::memory_order_relaxed);
+  const size_t producer_index =
+      DirectIndexedDrawProducerIndex(return_address);
+  if (producer_index == kDirectIndexedDrawProducers.size()) {
+    g_direct_indexed_draw_unknown_callers.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_direct_indexed_draw_producer_observations[producer_index].fetch_add(
+      1, std::memory_order_relaxed);
+  if (return_address == kUnifiedTrackMeshDrawReturn) {
+    g_direct_indexed_draw_scope.exact = RecordUnifiedTrackMeshTransform(
+        mesh_address, transform_address,
+        g_direct_indexed_draw_scope.unified_track_mesh);
+    if (g_direct_indexed_draw_scope.exact) {
+      g_unified_track_mesh_scopes_exact.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
+}
+
+void ObserveDirectIndexedDrawProducerExit() {
+  if (!g_direct_indexed_draw_producer_census_armed.load(
+          std::memory_order_acquire)) {
+    return;
+  }
+  if (!g_direct_indexed_draw_scope.active) {
+    g_direct_indexed_draw_scope_exit_without_entry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_direct_indexed_draw_scope_exits.fetch_add(
+      1, std::memory_order_relaxed);
+  if (g_direct_indexed_draw_scope.exact) {
+    (g_direct_indexed_draw_scope.packet_origins
+         ? g_unified_track_mesh_scopes_with_packets
+         : g_unified_track_mesh_scopes_without_packets)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  g_direct_indexed_draw_scope = {};
 }
 
 uint32_t LoadSemanticGuestU32(rex::memory::Memory *memory,
@@ -7847,6 +12422,15 @@ bool IsResolvedSemanticResourceProviderProvenance(
          provider.predicate_24_method && provider.primary_36_method &&
          provider.fallback_40_method && provider.predicate_44_method &&
          selected_provider_path && produced_object;
+}
+
+bool IsUnifiedTrackTextureProvider(
+    const SemanticResourceProviderProvenance &provider) {
+  return provider.provider_vtable == kTrackTextureUnifiedVtable &&
+         provider.predicate_24_method == kTrackTexturePredicate24Method &&
+         provider.primary_36_method == kTrackTexturePrimary36Method &&
+         provider.fallback_40_method == kTrackTextureFallback40Method &&
+         provider.predicate_44_method == kTrackTexturePredicate44Method;
 }
 
 void PublishProceduralModelResourceBinding(
@@ -8426,7 +13010,13 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
                                      uint32_t helper_state,
                                      uint32_t primary_resource_key,
                                      uint32_t secondary_resource_key,
-                                     bool secondary_resource_present) {
+                                     bool secondary_resource_present,
+                                     bool track_texture_provider,
+                                     bool track_render_model_scope,
+                                     uint32_t track_render_shared_identity_mask,
+                                     uint32_t track_world_resource_identity_mask,
+                                     uint32_t
+                                         track_world_resource_shared_identity_mask) {
   if (!g_semantic_render_item_stack_depth) {
     g_semantic_draw_scope_mismatches.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -8450,6 +13040,14 @@ void JoinProceduralModelSemanticDraw(uint64_t submission_key,
   semantic_draw.primary_resource_key = primary_resource_key;
   semantic_draw.secondary_resource_key = secondary_resource_key;
   semantic_draw.secondary_resource_present = secondary_resource_present;
+  semantic_draw.track_texture_provider = track_texture_provider;
+  semantic_draw.track_render_model_scope = track_render_model_scope;
+  semantic_draw.track_render_shared_identity_mask =
+      track_render_shared_identity_mask;
+  semantic_draw.track_world_resource_identity_mask =
+      track_world_resource_identity_mask;
+  semantic_draw.track_world_resource_shared_identity_mask =
+      track_world_resource_shared_identity_mask;
   semantic_draw.valid = true;
   g_semantic_draw_scope_joins.fetch_add(1, std::memory_order_relaxed);
 }
@@ -8669,11 +13267,98 @@ void RecordProceduralModelGeometrySubmission(
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
+  const bool track_texture_provider =
+      IsUnifiedTrackTextureProvider(pending.primary_provider);
+  const bool track_render_model_scope =
+      g_track_render_model_scope.active && g_track_render_model_scope.exact;
+  uint32_t track_render_shared_identity_mask = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
+  if (track_render_model_scope) {
+    const TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
+    track_render_shared_identity_mask |=
+        scope.descriptor_address == descriptor_address
+            ? kTrackRenderSharedDescriptor
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == pending.primary_bound_resource_object
+            ? kTrackRenderSharedDescriptorPayloadBoundResource
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == pending.primary_provider.provider_object
+            ? kTrackRenderSharedDescriptorPayloadProvider
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.descriptor_payload == runtime_submission_object
+            ? kTrackRenderSharedDescriptorPayloadRuntimeObject
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.root_address == receiver_address ? kTrackRenderSharedRootReceiver
+                                               : 0;
+    track_render_shared_identity_mask |=
+        scope.child_address == receiver_address
+            ? kTrackRenderSharedChildReceiver
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.root_address == runtime_submission_object
+            ? kTrackRenderSharedRootRuntimeObject
+            : 0;
+    track_render_shared_identity_mask |=
+        scope.child_address == runtime_submission_object
+            ? kTrackRenderSharedChildRuntimeObject
+            : 0;
+    track_world_resource_identity_mask =
+        scope.world_resource_identity_mask;
+    for (size_t index = 0; index < scope.world_resource_reference_count;
+         ++index) {
+      const TrackWorldResourceReference &reference =
+          scope.world_resource_references[index];
+      if (reference.address == receiver_address ||
+          reference.address == runtime_submission_object ||
+          reference.address == pending.primary_bound_resource_object ||
+          reference.address == pending.primary_provider.provider_object ||
+          (secondary_resource_present &&
+           (reference.address == pending.secondary_bound_resource_object ||
+            reference.address ==
+                pending.secondary_provider.provider_object))) {
+        track_world_resource_shared_identity_mask |= reference.identity;
+      }
+    }
+    ++g_track_render_model_scope.submission_joins;
+    g_track_render_model_scope.shared_identity_mask |=
+        track_render_shared_identity_mask;
+    ++g_track_render_model_submission_joins;
+    if (track_render_shared_identity_mask) {
+      ++g_track_render_model_shared_identity_joins;
+      for (size_t bit = 0;
+           bit < g_track_render_model_shared_identity_relations.size();
+           ++bit) {
+        if (track_render_shared_identity_mask & (1u << bit)) {
+          ++g_track_render_model_shared_identity_relations[bit];
+        }
+      }
+    }
+    g_track_render_model_scope.world_resource_shared_identity_mask |=
+        track_world_resource_shared_identity_mask;
+    if (track_world_resource_shared_identity_mask) {
+      ++g_track_world_resource_shared_identity_joins;
+      for (size_t bit = 0;
+           bit < g_track_world_resource_shared_identity_relations.size();
+           ++bit) {
+        if (track_world_resource_shared_identity_mask & (1u << bit)) {
+          ++g_track_world_resource_shared_identity_relations[bit];
+        }
+      }
+    }
+  }
   JoinProceduralModelSemanticDraw(
       key, receiver_address, receiver_generation, record_index,
       descriptor_address, runtime_address, descriptor_kind, helper_state,
       primary_resource_key, secondary_resource_key,
-      secondary_resource_present);
+      secondary_resource_present, track_texture_provider,
+      track_render_model_scope, track_render_shared_identity_mask,
+      track_world_resource_identity_mask,
+      track_world_resource_shared_identity_mask);
 
   size_t index = size_t(key % kSemanticSubmissionCapacity);
   for (size_t probe = 0; probe < kSemanticSubmissionCapacity; ++probe) {
@@ -8991,6 +13676,1785 @@ void EmitProceduralModelSemanticSubmissions() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+}
+
+void EmitTrackWorldScopeSpatialEntries();
+void EmitTrackWorldReferenceSpatialEntries();
+void EmitTrackWorldPreparedLayoutEntries();
+void EmitTrackPresentationPreparedTargetEntries();
+void EmitTrackPresentationReceiverEntries();
+
+void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
+                                          bool final_summary,
+                                          uint64_t frame_sequence) {
+  const uint64_t entries =
+      g_track_render_model_scope_entries.load(std::memory_order_relaxed);
+  const uint64_t exits =
+      g_track_render_model_scope_exits.load(std::memory_order_relaxed);
+  const uint64_t exact =
+      g_track_render_model_scope_exact.load(std::memory_order_relaxed);
+  const uint64_t invalid_root =
+      g_track_render_model_scope_invalid_root.load(std::memory_order_relaxed);
+  const uint64_t invalid_child =
+      g_track_render_model_scope_invalid_child.load(std::memory_order_relaxed);
+  const uint64_t invalid_descriptor =
+      g_track_render_model_scope_invalid_descriptor.load(
+          std::memory_order_relaxed);
+  const uint64_t contract_mismatches =
+      g_track_render_model_scope_contract_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t joined =
+      g_track_render_model_scope_joined.load(std::memory_order_relaxed);
+  const uint64_t unjoined =
+      g_track_render_model_scope_unjoined.load(std::memory_order_relaxed);
+  const uint64_t overlaps =
+      g_track_render_model_scope_overlaps.load(std::memory_order_relaxed);
+  const uint64_t exit_without_entry =
+      g_track_render_model_scope_exit_without_entry.load(
+          std::memory_order_relaxed);
+  const bool accounting_complete =
+      entries == exact + invalid_root + invalid_child + invalid_descriptor +
+                     contract_mismatches &&
+      exact == joined + unjoined && entries == exits && !overlaps &&
+      !exit_without_entry;
+  const bool qualification_complete =
+      accounting_complete && exact && joined &&
+      g_track_render_model_context_bridges.load(std::memory_order_relaxed) &&
+      g_track_render_model_packet_joins.load(std::memory_order_relaxed) &&
+      g_track_render_model_prepared_draw_joins.load(
+          std::memory_order_relaxed) &&
+      !invalid_child && !invalid_descriptor &&
+      !contract_mismatches &&
+      !g_track_world_resource_graph_reference_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_observations =
+      g_track_world_prepared_layout_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_exact =
+      g_track_world_prepared_layout_exact.load(std::memory_order_relaxed);
+  const uint64_t prepared_layout_unbounded_geometry =
+      g_track_world_prepared_layout_unbounded_geometry.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_parameter_overflows =
+      g_track_world_prepared_layout_parameter_overflows.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_table_overflow =
+      g_track_world_prepared_layout_table_overflow.load(
+          std::memory_order_relaxed);
+  const bool prepared_layout_accounting_complete =
+      prepared_layout_observations ==
+          prepared_layout_exact + prepared_layout_unbounded_geometry +
+              prepared_layout_parameter_overflows &&
+      !prepared_layout_table_overflow;
+  const uint64_t scope_spatial_observations =
+      g_track_world_scope_spatial_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t scope_spatial_table_overflow =
+      g_track_world_scope_spatial_table_overflow.load(
+          std::memory_order_relaxed);
+  uint64_t scope_spatial_accounted = 0;
+  size_t scope_spatial_entries = 0;
+  {
+    std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+    scope_spatial_entries = g_track_world_scope_spatial_count;
+    for (const TrackWorldScopeSpatialEntry &entry :
+         g_track_world_scope_spatial_entries) {
+      scope_spatial_accounted += entry.calls;
+    }
+  }
+  const bool scope_spatial_accounting_complete =
+      scope_spatial_observations ==
+          scope_spatial_accounted + scope_spatial_table_overflow &&
+      !scope_spatial_table_overflow;
+  const uint64_t reference_spatial_observations =
+      g_track_world_reference_spatial_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_missing_stage =
+      g_track_world_reference_spatial_missing_stage.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_invalid_range =
+      g_track_world_reference_spatial_invalid_range.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_non_finite =
+      g_track_world_reference_spatial_non_finite.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_table_overflow =
+      g_track_world_reference_spatial_table_overflow.load(
+          std::memory_order_relaxed);
+  uint64_t reference_spatial_accounted = 0;
+  size_t reference_spatial_entries = 0;
+  {
+    std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+    reference_spatial_entries = g_track_world_reference_spatial_count;
+    for (const TrackWorldReferenceSpatialEntry &entry :
+         g_track_world_reference_spatial_entries) {
+      reference_spatial_accounted += entry.calls;
+    }
+  }
+  const bool reference_spatial_accounting_complete =
+      reference_spatial_observations ==
+          reference_spatial_accounted + reference_spatial_missing_stage +
+              reference_spatial_table_overflow &&
+      !reference_spatial_missing_stage && !reference_spatial_table_overflow;
+  pinyon_shift::diagnostics::RecordEvent(
+      event_name,
+      {{"status", !entries
+                      ? (final_summary ? "not_observed"
+                                       : "checkpoint_not_observed")
+                      : (qualification_complete
+                             ? (final_summary ? "complete"
+                                              : "checkpoint_complete")
+                             : (final_summary ? "incomplete"
+                                              : "checkpoint_incomplete"))},
+       {"checkpoint_kind", final_summary ? "final" : "periodic"},
+       {"frame_sequence", std::to_string(frame_sequence)},
+       {"scope_entries", std::to_string(entries)},
+       {"scope_exits", std::to_string(exits)},
+       {"exact_scopes", std::to_string(exact)},
+       {"invalid_root", std::to_string(invalid_root)},
+       {"non_track_root_exclusions", std::to_string(invalid_root)},
+       {"invalid_child", std::to_string(invalid_child)},
+       {"invalid_descriptor", std::to_string(invalid_descriptor)},
+       {"contract_mismatches", std::to_string(contract_mismatches)},
+       {"joined_scopes", std::to_string(joined)},
+       {"unjoined_scopes", std::to_string(unjoined)},
+       {"submission_joins",
+        std::to_string(g_track_render_model_submission_joins.load(
+            std::memory_order_relaxed))},
+       {"command_context_observations",
+        std::to_string(g_track_render_model_context_observations.load(
+            std::memory_order_relaxed))},
+       {"command_context_bridges",
+        std::to_string(g_track_render_model_context_bridges.load(
+            std::memory_order_relaxed))},
+       {"command_packet_joins",
+        std::to_string(g_track_render_model_packet_joins.load(
+            std::memory_order_relaxed))},
+       {"command_prepared_draw_joins",
+        std::to_string(g_track_render_model_prepared_draw_joins.load(
+            std::memory_order_relaxed))},
+       {"command_prepared_draw_joins_with_semantic_origin",
+        std::to_string(
+            g_track_render_model_prepared_draw_joins_with_semantic_origin.load(
+                std::memory_order_relaxed))},
+       {"command_prepared_draw_joins_without_semantic_origin",
+        std::to_string(
+            g_track_render_model_prepared_draw_joins_without_semantic_origin
+                .load(std::memory_order_relaxed))},
+       {"prepared_layout_observations",
+         std::to_string(prepared_layout_observations)},
+       {"prepared_layout_exact", std::to_string(prepared_layout_exact)},
+       {"prepared_layout_entries",
+         std::to_string(g_track_world_prepared_layout_count)},
+       {"prepared_layout_unbounded_geometry",
+         std::to_string(prepared_layout_unbounded_geometry)},
+       {"prepared_layout_parameter_overflows",
+         std::to_string(prepared_layout_parameter_overflows)},
+       {"prepared_layout_table_overflow",
+         std::to_string(prepared_layout_table_overflow)},
+       {"prepared_layout_accounting_complete",
+         prepared_layout_accounting_complete ? "true" : "false"},
+       {"scope_spatial_observations",
+        std::to_string(scope_spatial_observations)},
+       {"scope_spatial_entries",
+        std::to_string(scope_spatial_entries)},
+       {"scope_spatial_table_overflow",
+        std::to_string(scope_spatial_table_overflow)},
+       {"scope_spatial_accounting_complete",
+        scope_spatial_accounting_complete ? "true" : "false"},
+       {"reference_spatial_observations",
+        std::to_string(reference_spatial_observations)},
+       {"reference_spatial_entries",
+        std::to_string(reference_spatial_entries)},
+       {"reference_spatial_missing_stage",
+        std::to_string(reference_spatial_missing_stage)},
+       {"reference_spatial_invalid_range",
+        std::to_string(reference_spatial_invalid_range)},
+       {"reference_spatial_non_finite",
+        std::to_string(reference_spatial_non_finite)},
+       {"reference_spatial_table_overflow",
+        std::to_string(reference_spatial_table_overflow)},
+       {"reference_spatial_accounting_complete",
+        reference_spatial_accounting_complete ? "true" : "false"},
+       {"shared_identity_joins",
+        std::to_string(g_track_render_model_shared_identity_joins.load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor",
+        std::to_string(g_track_render_model_shared_identity_relations[0].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_bound_resource",
+        std::to_string(g_track_render_model_shared_identity_relations[1].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_provider",
+        std::to_string(g_track_render_model_shared_identity_relations[2].load(
+            std::memory_order_relaxed))},
+       {"shared_descriptor_payload_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[3].load(
+            std::memory_order_relaxed))},
+       {"shared_root_receiver",
+        std::to_string(g_track_render_model_shared_identity_relations[4].load(
+            std::memory_order_relaxed))},
+       {"shared_child_receiver",
+        std::to_string(g_track_render_model_shared_identity_relations[5].load(
+            std::memory_order_relaxed))},
+       {"shared_root_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[6].load(
+            std::memory_order_relaxed))},
+       {"shared_child_runtime_object",
+        std::to_string(g_track_render_model_shared_identity_relations[7].load(
+            std::memory_order_relaxed))},
+       {"shared_command_lineage",
+        std::to_string(g_track_render_model_shared_identity_relations[8].load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_scopes",
+        std::to_string(g_track_world_resource_graph_scopes.load(
+            std::memory_order_relaxed))},
+       {"world_resource_nested_graph_scopes",
+        std::to_string(g_track_world_resource_nested_graph_scopes.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_cache_hits",
+        std::to_string(g_track_world_resource_graph_cache_hits.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_cache_misses",
+        std::to_string(g_track_world_resource_graph_cache_misses.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_reference_overflow",
+        std::to_string(g_track_world_resource_graph_reference_overflow.load(
+            std::memory_order_relaxed))},
+       {"world_resource_graph_reference_high_watermark",
+        std::to_string(
+            g_track_world_resource_graph_reference_high_watermark.load(
+                std::memory_order_relaxed))},
+       {"world_resource_graph_host_unmapped_rejections",
+        std::to_string(
+            g_track_world_resource_graph_host_unmapped_rejections.load(
+                std::memory_order_relaxed))},
+       {"world_pointee_graph_samples",
+        std::to_string(g_track_world_pointee_graph_samples.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_direct_hits",
+        std::to_string(g_track_world_pointee_direct_hits.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_nested_hits",
+        std::to_string(g_track_world_pointee_nested_hits.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_host_unmapped_rejections",
+        std::to_string(
+            g_track_world_pointee_host_unmapped_rejections.load(
+                std::memory_order_relaxed))},
+       {"world_pointee_direct_relations",
+        fmt::format(
+            "track_model={};track_mesh={};track_submodel={};"
+            "procedural_object={};procedural_resource={};pvs_object={};"
+            "pvs_resource={};simple_renderer={};simple_resource={};"
+            "simple_model={};simple_submodel={};simple_mesh={};"
+            "deferred_renderer={};model_presentation={}",
+            g_track_world_pointee_direct_identity_relations[0].load(),
+            g_track_world_pointee_direct_identity_relations[1].load(),
+            g_track_world_pointee_direct_identity_relations[2].load(),
+            g_track_world_pointee_direct_identity_relations[3].load(),
+            g_track_world_pointee_direct_identity_relations[4].load(),
+            g_track_world_pointee_direct_identity_relations[5].load(),
+            g_track_world_pointee_direct_identity_relations[6].load(),
+            g_track_world_pointee_direct_identity_relations[7].load(),
+            g_track_world_pointee_direct_identity_relations[8].load(),
+            g_track_world_pointee_direct_identity_relations[9].load(),
+            g_track_world_pointee_direct_identity_relations[10].load(),
+            g_track_world_pointee_direct_identity_relations[11].load(),
+            g_track_world_pointee_direct_identity_relations[12].load(),
+            g_track_world_pointee_direct_identity_relations[13].load())},
+       {"world_pointee_nested_relations",
+        fmt::format(
+            "track_model={};track_mesh={};track_submodel={};"
+            "procedural_object={};procedural_resource={};pvs_object={};"
+            "pvs_resource={};simple_renderer={};simple_resource={};"
+            "simple_model={};simple_submodel={};simple_mesh={};"
+            "deferred_renderer={};model_presentation={}",
+            g_track_world_pointee_nested_identity_relations[0].load(),
+            g_track_world_pointee_nested_identity_relations[1].load(),
+            g_track_world_pointee_nested_identity_relations[2].load(),
+            g_track_world_pointee_nested_identity_relations[3].load(),
+            g_track_world_pointee_nested_identity_relations[4].load(),
+            g_track_world_pointee_nested_identity_relations[5].load(),
+            g_track_world_pointee_nested_identity_relations[6].load(),
+            g_track_world_pointee_nested_identity_relations[7].load(),
+            g_track_world_pointee_nested_identity_relations[8].load(),
+            g_track_world_pointee_nested_identity_relations[9].load(),
+            g_track_world_pointee_nested_identity_relations[10].load(),
+            g_track_world_pointee_nested_identity_relations[11].load(),
+            g_track_world_pointee_nested_identity_relations[12].load(),
+            g_track_world_pointee_nested_identity_relations[13].load())},
+       {"world_resource_shared_identity_joins",
+        std::to_string(g_track_world_resource_shared_identity_joins.load(
+            std::memory_order_relaxed))},
+       {"world_track_model",
+        std::to_string(g_track_world_resource_identity_relations[0].load(
+            std::memory_order_relaxed))},
+       {"world_track_mesh",
+        std::to_string(g_track_world_resource_identity_relations[1].load(
+            std::memory_order_relaxed))},
+       {"world_track_submodel",
+        std::to_string(g_track_world_resource_identity_relations[2].load(
+            std::memory_order_relaxed))},
+       {"world_procedural_geometry_object",
+        std::to_string(g_track_world_resource_identity_relations[3].load(
+            std::memory_order_relaxed))},
+       {"world_procedural_geometry_resource",
+        std::to_string(g_track_world_resource_identity_relations[4].load(
+            std::memory_order_relaxed))},
+       {"world_pvs_zone_object",
+        std::to_string(g_track_world_resource_identity_relations[5].load(
+            std::memory_order_relaxed))},
+       {"world_pvs_zone_resource",
+        std::to_string(g_track_world_resource_identity_relations[6].load(
+            std::memory_order_relaxed))},
+       {"nested_world_track_model",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[0].load(
+                std::memory_order_relaxed))},
+       {"nested_world_track_mesh",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[1].load(
+                std::memory_order_relaxed))},
+       {"nested_world_track_submodel",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[2].load(
+                std::memory_order_relaxed))},
+       {"nested_world_procedural_geometry_object",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[3].load(
+                std::memory_order_relaxed))},
+       {"nested_world_procedural_geometry_resource",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[4].load(
+                std::memory_order_relaxed))},
+       {"nested_world_pvs_zone_object",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[5].load(
+                std::memory_order_relaxed))},
+       {"nested_world_pvs_zone_resource",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[6].load(
+                std::memory_order_relaxed))},
+       {"shared_world_track_model",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[0].load(
+                std::memory_order_relaxed))},
+       {"shared_world_track_mesh",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[1].load(
+                std::memory_order_relaxed))},
+       {"shared_world_track_submodel",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[2].load(
+                std::memory_order_relaxed))},
+       {"shared_world_procedural_geometry_object",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[3].load(
+                std::memory_order_relaxed))},
+       {"shared_world_procedural_geometry_resource",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[4].load(
+                std::memory_order_relaxed))},
+       {"shared_world_pvs_zone_object",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[5].load(
+                std::memory_order_relaxed))},
+       {"shared_world_pvs_zone_resource",
+        std::to_string(
+            g_track_world_resource_shared_identity_relations[6].load(
+                std::memory_order_relaxed))},
+       {"scope_overlaps", std::to_string(overlaps)},
+       {"exit_without_entry", std::to_string(exit_without_entry)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"qualification_complete",
+        qualification_complete ? "true" : "false"},
+       {"classification",
+        "exact_track_scope_to_indirect_command_packet_to_prepared_draw"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitTrackPresentationPassSummary() {
+  std::array<uint64_t, 4> entries{};
+  std::array<uint64_t, 4> exits{};
+  std::array<uint64_t, 4> exact{};
+  std::array<uint64_t, 4> invalid_root{};
+  std::array<uint64_t, 4> overlaps{};
+  std::array<uint64_t, 4> exit_without_entry{};
+  uint64_t total_entries = 0;
+  uint64_t prepared_target_accounted = 0;
+  for (const TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    prepared_target_accounted += entry.calls;
+  }
+  const uint64_t prepared_target_observations =
+      g_track_presentation_prepared_target_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_target_overflow =
+      g_track_presentation_prepared_target_overflow.load(
+          std::memory_order_relaxed);
+  const bool prepared_target_accounting_complete =
+      prepared_target_observations ==
+          prepared_target_accounted + prepared_target_overflow &&
+      !prepared_target_overflow;
+  uint64_t receiver_accounted = 0;
+  size_t receiver_entry_count = 0;
+  {
+    std::scoped_lock lock(g_track_presentation_receiver_mutex);
+    for (const TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      receiver_accounted += entry.calls;
+    }
+    receiver_entry_count = g_track_presentation_receiver_count;
+  }
+  const uint64_t receiver_observations =
+      g_track_presentation_receiver_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_read_faults =
+      g_track_presentation_receiver_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_overflow =
+      g_track_presentation_receiver_overflow.load(std::memory_order_relaxed);
+  const bool receiver_accounting_complete =
+      receiver_observations == receiver_accounted + receiver_overflow &&
+      !receiver_overflow;
+  bool accounting_complete = true;
+  for (size_t index = 0; index < entries.size(); ++index) {
+    entries[index] = g_track_presentation_pass_entries[index].load(
+        std::memory_order_relaxed);
+    exits[index] =
+        g_track_presentation_pass_exits[index].load(std::memory_order_relaxed);
+    exact[index] =
+        g_track_presentation_pass_exact[index].load(std::memory_order_relaxed);
+    invalid_root[index] = g_track_presentation_pass_invalid_root[index].load(
+        std::memory_order_relaxed);
+    overlaps[index] = g_track_presentation_pass_overlaps[index].load(
+        std::memory_order_relaxed);
+    exit_without_entry[index] =
+        g_track_presentation_pass_exit_without_entry[index].load(
+            std::memory_order_relaxed);
+    total_entries += entries[index];
+    accounting_complete =
+        accounting_complete && entries[index] == exits[index] &&
+        entries[index] == exact[index] + invalid_root[index] &&
+        !overlaps[index] && !exit_without_entry[index];
+  }
+  accounting_complete = accounting_complete &&
+                        prepared_target_accounting_complete &&
+                        receiver_accounting_complete;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.track_presentation_pass_summary",
+      {{"status", !total_entries
+                      ? "not_observed"
+                      : (accounting_complete ? "complete" : "incomplete")},
+       {"presentation_vtable",
+        fmt::format("{:08X}", kTrackPresentationUnifiedVtable)},
+       {"runtime_receiver_vtable",
+        fmt::format("{:08X}", kTrackPresentationRefCountedUnifiedVtable)},
+       {"slot_78_function", "82DEEEE0"},
+       {"slot_78_entries", std::to_string(entries[0])},
+       {"slot_78_exits", std::to_string(exits[0])},
+       {"slot_78_exact", std::to_string(exact[0])},
+       {"slot_78_invalid_root", std::to_string(invalid_root[0])},
+       {"slot_78_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[0][0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[0][1].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[0]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_78_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[0].load(
+                                  std::memory_order_relaxed))},
+       {"slot_78_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[0].load(
+            std::memory_order_relaxed))},
+       {"slot_79_function", "8240E7B0"},
+       {"slot_79_entries", std::to_string(entries[1])},
+       {"slot_79_exits", std::to_string(exits[1])},
+       {"slot_79_exact", std::to_string(exact[1])},
+       {"slot_79_invalid_root", std::to_string(invalid_root[1])},
+       {"slot_79_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[1][0].load(
+            std::memory_order_relaxed))},
+       {"slot_79_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[1][1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[1]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_79_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[1].load(
+                                  std::memory_order_relaxed))},
+       {"slot_79_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[1].load(
+            std::memory_order_relaxed))},
+       {"slot_80_function", "82DEF2B0"},
+       {"slot_80_entries", std::to_string(entries[2])},
+       {"slot_80_exits", std::to_string(exits[2])},
+       {"slot_80_exact", std::to_string(exact[2])},
+       {"slot_80_invalid_root", std::to_string(invalid_root[2])},
+       {"slot_80_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[2][0].load(
+            std::memory_order_relaxed))},
+       {"slot_80_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[2][1].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[2]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_80_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[2].load(
+                                  std::memory_order_relaxed))},
+       {"slot_80_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[2].load(
+            std::memory_order_relaxed))},
+       {"slot_81_function", "82DEADE0"},
+       {"slot_81_entries", std::to_string(entries[3])},
+       {"slot_81_exits", std::to_string(exits[3])},
+       {"slot_81_exact", std::to_string(exact[3])},
+       {"slot_81_invalid_root", std::to_string(invalid_root[3])},
+       {"slot_81_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[3][0].load(
+            std::memory_order_relaxed))},
+       {"slot_81_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[3][1].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[3]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_81_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[3].load(
+                                  std::memory_order_relaxed))},
+       {"slot_81_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[3].load(
+            std::memory_order_relaxed))},
+       {"overlaps",
+        std::to_string(overlaps[0] + overlaps[1] + overlaps[2] + overlaps[3])},
+       {"exit_without_entry",
+        std::to_string(exit_without_entry[0] + exit_without_entry[1] +
+                       exit_without_entry[2] + exit_without_entry[3])},
+       {"prepared_target_observations",
+        std::to_string(prepared_target_observations)},
+       {"prepared_target_entries",
+        std::to_string(g_track_presentation_prepared_target_count)},
+       {"prepared_target_overflow", std::to_string(prepared_target_overflow)},
+       {"prepared_target_accounting_complete",
+        prepared_target_accounting_complete ? "true" : "false"},
+       {"receiver_observations", std::to_string(receiver_observations)},
+       {"receiver_entries", std::to_string(receiver_entry_count)},
+       {"receiver_read_faults", std::to_string(receiver_read_faults)},
+       {"receiver_overflow", std::to_string(receiver_overflow)},
+       {"receiver_accounting_complete",
+        receiver_accounting_complete ? "true" : "false"},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"classification", "unified_track_presentation_adjacent_pass_census"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitTrackRenderModelRuntimeJoinSummary() {
+  EmitTrackPresentationPassSummary();
+  EmitTrackPresentationReceiverEntries();
+  EmitTrackPresentationPreparedTargetEntries();
+  EmitTrackWorldScopeSpatialEntries();
+  EmitTrackWorldReferenceSpatialEntries();
+  EmitTrackWorldPreparedLayoutEntries();
+  EmitTrackRenderModelRuntimeJoinEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_summary",
+      true, g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitTrackRenderModelRuntimeJoinCheckpoint(uint64_t frame_sequence) {
+  EmitTrackRenderModelRuntimeJoinEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_checkpoint",
+      false, frame_sequence);
+}
+
+void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
+                                     bool final_summary,
+                                     uint64_t frame_sequence) {
+  const uint64_t entries =
+      g_static_world_scope_entries.load(std::memory_order_relaxed);
+  const uint64_t exits =
+      g_static_world_scope_exits.load(std::memory_order_relaxed);
+  const uint64_t exact =
+      g_static_world_scope_exact.load(std::memory_order_relaxed);
+  const uint64_t invalid_root =
+      g_static_world_scope_invalid_root.load(std::memory_order_relaxed);
+  const uint64_t vtable_mismatches =
+      g_static_world_scope_vtable_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t invalid_graph_field =
+      g_static_world_scope_invalid_graph_field.load(
+          std::memory_order_relaxed);
+  const uint64_t unregistered_renderers =
+      g_static_world_scope_unregistered_renderers.load(
+          std::memory_order_relaxed);
+  const uint64_t nonlive_renderers =
+      g_static_world_scope_nonlive_renderers.load(
+          std::memory_order_relaxed);
+  const uint64_t unbound_graphs =
+      g_static_world_scope_unbound_graphs.load(std::memory_order_relaxed);
+  const uint64_t graph_mismatches =
+      g_static_world_scope_graph_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t scopes_with_packets =
+      g_static_world_scopes_with_packets.load(std::memory_order_relaxed);
+  const uint64_t scopes_without_packets =
+      g_static_world_scopes_without_packets.load(std::memory_order_relaxed);
+  const uint64_t packets_recorded =
+      g_static_world_packets_recorded.load(std::memory_order_relaxed);
+  const uint64_t packet_matches =
+      g_static_world_packet_matches.load(std::memory_order_relaxed);
+  const uint64_t prepared_matches =
+      g_static_world_prepared_matches.load(std::memory_order_relaxed);
+  const uint64_t unprepared_matches =
+      g_static_world_unprepared_matches.load(std::memory_order_relaxed);
+  const uint64_t overlaps =
+      g_static_world_scope_overlaps.load(std::memory_order_relaxed);
+  const uint64_t exit_without_entry =
+      g_static_world_scope_exit_without_entry.load(
+          std::memory_order_relaxed);
+  const uint64_t instances_published =
+      g_static_world_instances_published.load(std::memory_order_relaxed);
+  const uint64_t instances_destroyed =
+      g_static_world_instances_destroyed.load(std::memory_order_relaxed);
+  const uint64_t destructor_entries =
+      g_static_world_destructor_entries.load(std::memory_order_relaxed);
+  const uint64_t destructor_exits =
+      g_static_world_destructor_exits.load(std::memory_order_relaxed);
+  const uint64_t destructors_open =
+      g_static_world_destructors_open.load(std::memory_order_relaxed);
+  const uint64_t lifecycle_faults =
+      g_static_world_lifecycle_faults.load(std::memory_order_relaxed);
+  const uint64_t lifecycle_overflow =
+      g_static_world_lifecycle_table_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_bind_observations =
+      g_static_world_graph_bind_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_bind_successes =
+      g_static_world_graph_bind_successes.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_bind_null =
+      g_static_world_graph_bind_null.load(std::memory_order_relaxed);
+  const uint64_t graph_bind_unregistered =
+      g_static_world_graph_bind_unregistered.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_bind_faults =
+      g_static_world_graph_bind_faults.load(std::memory_order_relaxed);
+  const uint64_t graph_release_observations =
+      g_static_world_graph_release_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_release_successes =
+      g_static_world_graph_release_successes.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_release_empty =
+      g_static_world_graph_release_empty.load(std::memory_order_relaxed);
+  const uint64_t graph_release_unregistered =
+      g_static_world_graph_release_unregistered.load(
+          std::memory_order_relaxed);
+  const uint64_t graph_release_faults =
+      g_static_world_graph_release_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_instances_published =
+      g_static_world_resource_instances_published.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_instances_destroyed =
+      g_static_world_resource_instances_destroyed.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructor_entries =
+      g_static_world_resource_destructor_entries.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructor_exits =
+      g_static_world_resource_destructor_exits.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_destructors_open =
+      g_static_world_resource_destructors_open.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_observations =
+      g_static_world_resource_registration_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_successes =
+      g_static_world_resource_registration_successes.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_null =
+      g_static_world_resource_registration_null.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_unregistered =
+      g_static_world_resource_registration_unregistered.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_type_mismatches =
+      g_static_world_resource_registration_type_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_registration_faults =
+      g_static_world_resource_registration_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_graph_bind_joins =
+      g_static_world_resource_graph_bind_joins.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_scope_joins =
+      g_static_world_resource_scope_joins.load(std::memory_order_relaxed);
+  const uint64_t resource_scope_mismatches =
+      g_static_world_resource_scope_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transition_entries =
+      g_static_world_resource_transition_entries.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transition_exits =
+      g_static_world_resource_transition_exits.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transitions_open =
+      g_static_world_resource_transitions_open.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transition_exact =
+      g_static_world_resource_transition_exact.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transition_completions =
+      g_static_world_resource_transition_completions.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_transition_completion_faults =
+      g_static_world_resource_transition_completion_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_payload_resets_with_reference =
+      g_static_world_resource_payload_resets_with_reference.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_payload_resets_empty =
+      g_static_world_resource_payload_resets_empty.load(
+          std::memory_order_relaxed);
+  const uint64_t resource_payload_generation_invalidations =
+      g_static_world_resource_payload_generation_invalidations.load(
+          std::memory_order_relaxed);
+  const uint64_t member_entries =
+      g_static_world_member_entries.load(std::memory_order_relaxed);
+  const uint64_t member_exits =
+      g_static_world_member_exits.load(std::memory_order_relaxed);
+  const uint64_t member_exact =
+      g_static_world_member_exact.load(std::memory_order_relaxed);
+  const uint64_t member_draws_with_packets =
+      g_static_world_member_draws_with_packets.load(
+          std::memory_order_relaxed);
+  const uint64_t member_draws_without_packets =
+      g_static_world_member_draws_without_packets.load(
+          std::memory_order_relaxed);
+  const uint64_t member_packets_recorded =
+      g_static_world_member_packets_recorded.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_observations =
+      g_static_world_mesh_semantic_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_exact =
+      g_static_world_mesh_semantic_exact.load(std::memory_order_relaxed);
+  const uint64_t mesh_semantic_read_faults =
+      g_static_world_mesh_semantic_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_packet_origins =
+      g_static_world_mesh_semantic_packet_origins.load(
+          std::memory_order_relaxed);
+  const uint64_t mesh_semantic_missing_packet_origins =
+      g_static_world_mesh_semantic_missing_packet_origins.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_observations =
+      g_static_world_prepared_layout_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_exact =
+      g_static_world_prepared_layout_exact.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_unbounded_geometry =
+      g_static_world_prepared_layout_unbounded_geometry.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_parameter_overflows =
+      g_static_world_prepared_layout_parameter_overflows.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_table_overflow =
+      g_static_world_prepared_layout_table_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_entries =
+      g_static_world_presentation_entries.load(std::memory_order_relaxed);
+  const uint64_t presentation_exits =
+      g_static_world_presentation_exits.load(std::memory_order_relaxed);
+  const uint64_t presentation_exact =
+      g_static_world_presentation_exact.load(std::memory_order_relaxed);
+  const uint64_t presentation_scopes_with_renderer =
+      g_static_world_presentation_scopes_with_renderer.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_scopes_without_renderer =
+      g_static_world_presentation_scopes_without_renderer.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_renderer_joins =
+      g_static_world_presentation_renderer_joins.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_observations =
+      g_static_world_presentation_prepare_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_accepted =
+      g_static_world_presentation_prepare_accepted.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_rejected =
+      g_static_world_presentation_prepare_rejected.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_missing_scope =
+      g_static_world_presentation_prepare_missing_scope.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_owner_mismatches =
+      g_static_world_presentation_prepare_owner_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_read_faults =
+      g_static_world_presentation_prepare_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_null_resources =
+      g_static_world_presentation_prepare_null_resources.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_live_resources =
+      g_static_world_presentation_prepare_live_resources.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_null_renderers =
+      g_static_world_presentation_prepare_null_renderers.load(
+          std::memory_order_relaxed);
+  const uint64_t presentation_prepare_live_renderers =
+      g_static_world_presentation_prepare_live_renderers.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_publish_observations =
+      g_static_world_deferred_task_publish_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_published =
+      g_static_world_deferred_task_published.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_observations =
+      g_static_world_deferred_task_callback_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_matches =
+      g_static_world_deferred_task_callback_matches.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_unmatched =
+      g_static_world_deferred_task_callback_unmatched.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_handoff_observations =
+      g_static_world_deferred_task_handoff_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_handoff_exact =
+      g_static_world_deferred_task_handoff_exact.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_observations =
+      g_static_world_asset_metadata_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_exact =
+      g_static_world_asset_metadata_exact.load(std::memory_order_relaxed);
+  const uint64_t asset_metadata_empty_keys =
+      g_static_world_asset_metadata_empty_keys.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_missing_resources =
+      g_static_world_asset_metadata_missing_resources.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_read_faults =
+      g_static_world_asset_metadata_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t asset_metadata_joins =
+      g_static_world_asset_metadata_joins.load(std::memory_order_relaxed);
+  const uint64_t asset_metadata_missing_joins =
+      g_static_world_asset_metadata_missing_joins.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_observations =
+      g_static_world_transform_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_exact =
+      g_static_world_transform_exact.load(std::memory_order_relaxed);
+  const uint64_t transform_read_faults =
+      g_static_world_transform_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_joins =
+      g_static_world_transform_joins.load(std::memory_order_relaxed);
+  const uint64_t transform_missing_joins =
+      g_static_world_transform_missing_joins.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_packet_origins =
+      g_static_world_transform_packet_origins.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_missing_packet_origins =
+      g_static_world_transform_missing_packet_origins.load(
+          std::memory_order_relaxed);
+  const bool accounting_complete =
+      entries == exact + invalid_root + vtable_mismatches +
+                           invalid_graph_field + unregistered_renderers +
+                           nonlive_renderers + unbound_graphs +
+                           graph_mismatches &&
+      entries == exits &&
+      exact == scopes_with_packets + scopes_without_packets &&
+      packet_matches == prepared_matches + unprepared_matches &&
+      packet_matches <= packets_recorded &&
+      destructor_entries == destructor_exits + destructors_open &&
+      instances_destroyed <= instances_published &&
+      graph_bind_observations ==
+          graph_bind_successes + graph_bind_null +
+              graph_bind_unregistered + graph_bind_faults &&
+      graph_release_observations ==
+          graph_release_successes + graph_release_empty +
+              graph_release_unregistered + graph_release_faults &&
+      resource_destructor_entries ==
+          resource_destructor_exits + resource_destructors_open &&
+      resource_instances_destroyed <= resource_instances_published &&
+      resource_registration_observations ==
+          resource_registration_successes + resource_registration_null +
+              resource_registration_unregistered +
+              resource_registration_type_mismatches +
+              resource_registration_faults &&
+      resource_graph_bind_joins == graph_bind_successes &&
+      resource_scope_joins == exact &&
+      resource_transition_entries ==
+          resource_transition_exact +
+              g_static_world_resource_transition_invalid_root.load(
+                  std::memory_order_relaxed) +
+              g_static_world_resource_transition_vtable_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_resource_transition_unregistered.load(
+                  std::memory_order_relaxed) +
+              g_static_world_resource_transition_nonlive.load(
+                  std::memory_order_relaxed) +
+              g_static_world_resource_transition_begin_read_faults.load(
+                  std::memory_order_relaxed) +
+              g_static_world_resource_transition_overflow.load(
+                  std::memory_order_relaxed) &&
+      resource_transition_entries == resource_transition_exits &&
+      resource_transition_exact ==
+          g_static_world_resource_direct_resets.load(
+              std::memory_order_relaxed) +
+              g_static_world_resource_refresh_resets.load(
+                  std::memory_order_relaxed) &&
+      resource_transition_exact ==
+          resource_transition_completions +
+              resource_transition_completion_faults &&
+      resource_transition_completions ==
+          resource_payload_resets_with_reference +
+              resource_payload_resets_empty &&
+      resource_payload_generation_invalidations ==
+          resource_transition_completions &&
+      member_entries ==
+          member_exact +
+              g_static_world_member_scope_missing.load(
+                  std::memory_order_relaxed) +
+              g_static_world_member_relation_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_member_vtable_read_faults.load(
+                  std::memory_order_relaxed) +
+              g_static_world_member_vtable_mismatches.load(
+                  std::memory_order_relaxed) &&
+      member_entries == member_exits &&
+      member_exact ==
+          member_draws_with_packets + member_draws_without_packets &&
+      member_packets_recorded == packets_recorded &&
+      mesh_semantic_observations == member_exact &&
+      mesh_semantic_observations ==
+          mesh_semantic_exact + mesh_semantic_read_faults &&
+      member_packets_recorded ==
+          mesh_semantic_packet_origins +
+              mesh_semantic_missing_packet_origins &&
+      prepared_layout_observations == prepared_matches &&
+      prepared_layout_observations ==
+          prepared_layout_exact + prepared_layout_unbounded_geometry +
+              prepared_layout_parameter_overflows &&
+      presentation_entries ==
+          presentation_exact +
+              g_static_world_presentation_invalid_root.load(
+                  std::memory_order_relaxed) +
+              g_static_world_presentation_vtable_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_presentation_resource_read_faults.load(
+                  std::memory_order_relaxed) &&
+      presentation_entries == presentation_exits &&
+      presentation_exact ==
+          presentation_scopes_with_renderer +
+              presentation_scopes_without_renderer &&
+      presentation_scopes_with_renderer <= presentation_renderer_joins &&
+      presentation_prepare_observations ==
+          presentation_prepare_accepted + presentation_prepare_rejected +
+              presentation_prepare_missing_scope +
+              presentation_prepare_owner_mismatches +
+              presentation_prepare_read_faults &&
+      presentation_prepare_accepted + presentation_prepare_rejected ==
+          presentation_prepare_null_resources +
+              presentation_prepare_live_resources &&
+      presentation_prepare_accepted + presentation_prepare_rejected ==
+          presentation_prepare_null_renderers +
+              presentation_prepare_live_renderers &&
+      deferred_task_publish_observations ==
+          deferred_task_published +
+              g_static_world_deferred_task_null.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_read_faults.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_renderer_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_vtable_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_overflow.load(
+                  std::memory_order_relaxed) &&
+      deferred_task_callback_observations ==
+          deferred_task_callback_matches +
+              deferred_task_callback_unmatched &&
+      deferred_task_callback_matches <= deferred_task_published &&
+      deferred_task_handoff_observations ==
+          deferred_task_handoff_exact +
+              g_static_world_deferred_task_handoff_missing_callback.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_handoff_target_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_handoff_read_faults.load(
+                  std::memory_order_relaxed) &&
+      deferred_task_handoff_exact <= deferred_task_callback_matches &&
+      asset_metadata_observations == presentation_exact &&
+      asset_metadata_observations ==
+          asset_metadata_exact + asset_metadata_empty_keys +
+              asset_metadata_missing_resources + asset_metadata_read_faults &&
+      presentation_renderer_joins ==
+          asset_metadata_joins + asset_metadata_missing_joins &&
+      transform_observations == presentation_exact &&
+      transform_observations == transform_exact + transform_read_faults &&
+      presentation_renderer_joins ==
+          transform_joins + transform_missing_joins &&
+      member_packets_recorded ==
+          transform_packet_origins + transform_missing_packet_origins &&
+      !overlaps && !exit_without_entry;
+  const bool qualification_complete =
+      accounting_complete && exact && packets_recorded && packet_matches &&
+      prepared_matches && instances_published && graph_bind_successes &&
+      !unprepared_matches && !invalid_root && !vtable_mismatches &&
+      !invalid_graph_field && !unregistered_renderers &&
+      !nonlive_renderers && !graph_mismatches && !lifecycle_faults &&
+      !lifecycle_overflow && !destructors_open &&
+      !graph_bind_unregistered && !graph_bind_faults &&
+      !g_static_world_destructors_without_instance.load(
+          std::memory_order_relaxed) &&
+      !graph_release_unregistered && !graph_release_faults &&
+      resource_instances_published && resource_registration_successes &&
+      resource_graph_bind_joins && resource_scope_joins &&
+      !resource_destructors_open &&
+      !g_static_world_resource_table_overflow.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_lifecycle_faults.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_destructors_without_instance.load(
+          std::memory_order_relaxed) &&
+      !resource_registration_unregistered &&
+      !resource_registration_type_mismatches &&
+      !resource_registration_faults && !resource_scope_mismatches &&
+      resource_transition_exact && resource_transition_completions &&
+      !resource_transitions_open &&
+      !g_static_world_resource_transition_overflow.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_transition_exit_without_entry.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_transition_invalid_root.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_transition_unregistered.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_transition_nonlive.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_resource_transition_begin_read_faults.load(
+          std::memory_order_relaxed) &&
+      !resource_transition_completion_faults && member_exact &&
+      member_draws_with_packets && member_packets_recorded &&
+      !member_draws_without_packets &&
+      !g_static_world_member_scope_missing.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_member_relation_mismatches.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_member_vtable_read_faults.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_member_vtable_mismatches.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_member_overlaps.load(std::memory_order_relaxed) &&
+      !g_static_world_member_exit_without_entry.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_member_packet_mismatches.load(
+          std::memory_order_relaxed) &&
+      mesh_semantic_exact && mesh_semantic_packet_origins &&
+      !mesh_semantic_read_faults &&
+      !mesh_semantic_missing_packet_origins &&
+      prepared_layout_exact && g_static_world_prepared_layout_count &&
+      !prepared_layout_unbounded_geometry &&
+      !prepared_layout_parameter_overflows &&
+      !prepared_layout_table_overflow &&
+      presentation_exact && presentation_renderer_joins &&
+      asset_metadata_exact && asset_metadata_joins &&
+      presentation_scopes_with_renderer &&
+      !g_static_world_presentation_invalid_root.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_resource_read_faults.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_overlaps.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_exit_without_entry.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_renderer_mismatches.load(
+          std::memory_order_relaxed) &&
+      !g_static_world_presentation_resource_mismatches.load(
+          std::memory_order_relaxed) &&
+      !asset_metadata_read_faults && !asset_metadata_missing_joins &&
+      transform_exact && transform_joins && transform_packet_origins &&
+      !transform_read_faults && !transform_missing_joins &&
+      !transform_missing_packet_origins;
+  const uint64_t pending_packets =
+      packets_recorded >= packet_matches ? packets_recorded - packet_matches
+                                          : 0;
+  pinyon_shift::diagnostics::RecordEvent(
+      event_name,
+      {{"status", !entries
+                      ? (final_summary ? "not_observed"
+                                       : "checkpoint_not_observed")
+                      : (qualification_complete
+                             ? (final_summary ? "complete"
+                                              : "checkpoint_complete")
+                             : (final_summary ? "incomplete"
+                                              : "checkpoint_incomplete"))},
+       {"checkpoint_kind", final_summary ? "final" : "periodic"},
+       {"frame_sequence", std::to_string(frame_sequence)},
+       {"scope_entries", std::to_string(entries)},
+       {"scope_exits", std::to_string(exits)},
+       {"exact_scopes", std::to_string(exact)},
+       {"invalid_root", std::to_string(invalid_root)},
+       {"vtable_mismatches", std::to_string(vtable_mismatches)},
+       {"invalid_graph_field", std::to_string(invalid_graph_field)},
+       {"unregistered_renderers", std::to_string(unregistered_renderers)},
+       {"nonlive_renderers", std::to_string(nonlive_renderers)},
+       {"unbound_graphs", std::to_string(unbound_graphs)},
+       {"graph_mismatches", std::to_string(graph_mismatches)},
+       {"scopes_with_packets", std::to_string(scopes_with_packets)},
+       {"scopes_without_packets", std::to_string(scopes_without_packets)},
+       {"packets_recorded", std::to_string(packets_recorded)},
+       {"packet_matches", std::to_string(packet_matches)},
+       {"pending_packets", std::to_string(pending_packets)},
+       {"prepared_matches", std::to_string(prepared_matches)},
+       {"unprepared_matches", std::to_string(unprepared_matches)},
+       {"scope_overlaps", std::to_string(overlaps)},
+       {"exit_without_entry", std::to_string(exit_without_entry)},
+       {"instances_published", std::to_string(instances_published)},
+       {"instances_destroyed", std::to_string(instances_destroyed)},
+       {"instance_address_reuses",
+        std::to_string(g_static_world_instance_address_reuses.load(
+            std::memory_order_relaxed))},
+       {"lifecycle_table_overflow", std::to_string(lifecycle_overflow)},
+       {"lifecycle_faults", std::to_string(lifecycle_faults)},
+       {"destructor_entries", std::to_string(destructor_entries)},
+       {"destructor_exits", std::to_string(destructor_exits)},
+       {"destructors_open", std::to_string(destructors_open)},
+       {"destructors_without_instance",
+        std::to_string(g_static_world_destructors_without_instance.load(
+            std::memory_order_relaxed))},
+       {"graph_bind_observations",
+        std::to_string(graph_bind_observations)},
+       {"graph_bind_successes", std::to_string(graph_bind_successes)},
+       {"graph_bind_null", std::to_string(graph_bind_null)},
+       {"graph_bind_unregistered",
+        std::to_string(graph_bind_unregistered)},
+       {"graph_bind_faults", std::to_string(graph_bind_faults)},
+       {"graph_replacements",
+        std::to_string(g_static_world_graph_replacements.load(
+            std::memory_order_relaxed))},
+       {"graph_release_observations",
+        std::to_string(graph_release_observations)},
+       {"graph_release_successes", std::to_string(graph_release_successes)},
+       {"graph_release_empty", std::to_string(graph_release_empty)},
+       {"graph_release_unregistered",
+        std::to_string(graph_release_unregistered)},
+       {"graph_release_faults", std::to_string(graph_release_faults)},
+       {"resource_instances_published",
+        std::to_string(resource_instances_published)},
+       {"resource_instances_destroyed",
+        std::to_string(resource_instances_destroyed)},
+       {"resource_address_reuses",
+        std::to_string(g_static_world_resource_address_reuses.load(
+            std::memory_order_relaxed))},
+       {"resource_table_overflow",
+        std::to_string(g_static_world_resource_table_overflow.load(
+            std::memory_order_relaxed))},
+       {"resource_lifecycle_faults",
+        std::to_string(g_static_world_resource_lifecycle_faults.load(
+            std::memory_order_relaxed))},
+       {"resource_destructor_entries",
+        std::to_string(resource_destructor_entries)},
+       {"resource_destructor_exits",
+        std::to_string(resource_destructor_exits)},
+       {"resource_destructors_open",
+        std::to_string(resource_destructors_open)},
+       {"resource_destructors_without_instance",
+        std::to_string(
+            g_static_world_resource_destructors_without_instance.load(
+                std::memory_order_relaxed))},
+       {"resource_registration_observations",
+        std::to_string(resource_registration_observations)},
+       {"resource_registration_successes",
+        std::to_string(resource_registration_successes)},
+       {"resource_registration_null",
+        std::to_string(resource_registration_null)},
+       {"resource_registration_unregistered",
+        std::to_string(resource_registration_unregistered)},
+       {"resource_registration_type_mismatches",
+        std::to_string(resource_registration_type_mismatches)},
+       {"resource_registration_faults",
+        std::to_string(resource_registration_faults)},
+       {"resource_graph_bind_joins",
+        std::to_string(resource_graph_bind_joins)},
+       {"resource_scope_joins", std::to_string(resource_scope_joins)},
+       {"resource_scope_mismatches",
+        std::to_string(resource_scope_mismatches)},
+       {"resource_transition_entries",
+        std::to_string(resource_transition_entries)},
+       {"resource_transition_exits",
+        std::to_string(resource_transition_exits)},
+       {"resource_transitions_open",
+        std::to_string(resource_transitions_open)},
+       {"resource_transition_overflow",
+        std::to_string(g_static_world_resource_transition_overflow.load(
+            std::memory_order_relaxed))},
+       {"resource_transition_exit_without_entry",
+        std::to_string(
+            g_static_world_resource_transition_exit_without_entry.load(
+                std::memory_order_relaxed))},
+       {"resource_transition_exact",
+        std::to_string(resource_transition_exact)},
+       {"resource_direct_resets",
+        std::to_string(g_static_world_resource_direct_resets.load(
+            std::memory_order_relaxed))},
+       {"resource_refresh_resets",
+        std::to_string(g_static_world_resource_refresh_resets.load(
+            std::memory_order_relaxed))},
+       {"resource_transition_invalid_root",
+        std::to_string(
+            g_static_world_resource_transition_invalid_root.load(
+                std::memory_order_relaxed))},
+       {"resource_transition_vtable_mismatches",
+        std::to_string(
+            g_static_world_resource_transition_vtable_mismatches.load(
+                std::memory_order_relaxed))},
+       {"resource_transition_unregistered",
+        std::to_string(
+            g_static_world_resource_transition_unregistered.load(
+                std::memory_order_relaxed))},
+       {"resource_transition_nonlive",
+        std::to_string(g_static_world_resource_transition_nonlive.load(
+            std::memory_order_relaxed))},
+       {"resource_transition_begin_read_faults",
+        std::to_string(
+            g_static_world_resource_transition_begin_read_faults.load(
+                std::memory_order_relaxed))},
+       {"resource_transition_completions",
+        std::to_string(resource_transition_completions)},
+       {"resource_transition_completion_faults",
+        std::to_string(resource_transition_completion_faults)},
+       {"resource_payload_resets_with_reference",
+        std::to_string(resource_payload_resets_with_reference)},
+       {"resource_payload_resets_empty",
+        std::to_string(resource_payload_resets_empty)},
+       {"resource_payload_generation_invalidations",
+        std::to_string(resource_payload_generation_invalidations)},
+       {"member_entries", std::to_string(member_entries)},
+       {"member_exits", std::to_string(member_exits)},
+       {"member_exact", std::to_string(member_exact)},
+       {"member_scope_missing",
+        std::to_string(g_static_world_member_scope_missing.load(
+            std::memory_order_relaxed))},
+       {"member_relation_mismatches",
+        std::to_string(g_static_world_member_relation_mismatches.load(
+            std::memory_order_relaxed))},
+       {"member_vtable_read_faults",
+        std::to_string(g_static_world_member_vtable_read_faults.load(
+            std::memory_order_relaxed))},
+       {"member_vtable_mismatches",
+        std::to_string(g_static_world_member_vtable_mismatches.load(
+            std::memory_order_relaxed))},
+       {"member_overlaps",
+        std::to_string(g_static_world_member_overlaps.load(
+            std::memory_order_relaxed))},
+       {"member_exit_without_entry",
+        std::to_string(g_static_world_member_exit_without_entry.load(
+            std::memory_order_relaxed))},
+       {"member_draws_with_packets",
+        std::to_string(member_draws_with_packets)},
+       {"member_draws_without_packets",
+        std::to_string(member_draws_without_packets)},
+       {"member_packets_recorded",
+        std::to_string(member_packets_recorded)},
+       {"member_packet_mismatches",
+        std::to_string(g_static_world_member_packet_mismatches.load(
+            std::memory_order_relaxed))},
+       {"mesh_semantic_observations",
+        std::to_string(mesh_semantic_observations)},
+       {"mesh_semantic_exact", std::to_string(mesh_semantic_exact)},
+       {"mesh_semantic_read_faults",
+        std::to_string(mesh_semantic_read_faults)},
+       {"mesh_semantic_packet_origins",
+        std::to_string(mesh_semantic_packet_origins)},
+       {"mesh_semantic_missing_packet_origins",
+        std::to_string(mesh_semantic_missing_packet_origins)},
+       {"prepared_layout_observations",
+        std::to_string(prepared_layout_observations)},
+       {"prepared_layout_exact", std::to_string(prepared_layout_exact)},
+       {"prepared_layout_unbounded_geometry",
+        std::to_string(prepared_layout_unbounded_geometry)},
+       {"prepared_layout_parameter_overflows",
+        std::to_string(prepared_layout_parameter_overflows)},
+       {"prepared_layout_entries",
+        std::to_string(g_static_world_prepared_layout_count)},
+       {"prepared_layout_table_overflow",
+        std::to_string(prepared_layout_table_overflow)},
+       {"presentation_entries", std::to_string(presentation_entries)},
+       {"presentation_exits", std::to_string(presentation_exits)},
+       {"presentation_exact", std::to_string(presentation_exact)},
+       {"presentation_invalid_root",
+        std::to_string(g_static_world_presentation_invalid_root.load(
+            std::memory_order_relaxed))},
+       {"presentation_vtable_mismatches",
+        std::to_string(
+            g_static_world_presentation_vtable_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_read_faults",
+        std::to_string(
+            g_static_world_presentation_resource_read_faults.load(
+                std::memory_order_relaxed))},
+       {"presentation_overlaps",
+        std::to_string(g_static_world_presentation_overlaps.load(
+            std::memory_order_relaxed))},
+       {"presentation_exit_without_entry",
+        std::to_string(
+            g_static_world_presentation_exit_without_entry.load(
+                std::memory_order_relaxed))},
+       {"presentation_scopes_with_renderer",
+        std::to_string(presentation_scopes_with_renderer)},
+       {"presentation_scopes_without_renderer",
+        std::to_string(presentation_scopes_without_renderer)},
+       {"presentation_renderer_joins",
+        std::to_string(presentation_renderer_joins)},
+       {"presentation_renderer_mismatches",
+        std::to_string(
+            g_static_world_presentation_renderer_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_mismatches",
+        std::to_string(
+            g_static_world_presentation_resource_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_prepare_observations",
+        std::to_string(presentation_prepare_observations)},
+       {"presentation_prepare_accepted",
+        std::to_string(presentation_prepare_accepted)},
+       {"presentation_prepare_rejected",
+        std::to_string(presentation_prepare_rejected)},
+       {"presentation_prepare_missing_scope",
+        std::to_string(presentation_prepare_missing_scope)},
+       {"presentation_prepare_owner_mismatches",
+        std::to_string(presentation_prepare_owner_mismatches)},
+       {"presentation_prepare_read_faults",
+        std::to_string(presentation_prepare_read_faults)},
+       {"presentation_prepare_null_resources",
+        std::to_string(presentation_prepare_null_resources)},
+       {"presentation_prepare_live_resources",
+        std::to_string(presentation_prepare_live_resources)},
+       {"presentation_prepare_null_renderers",
+        std::to_string(presentation_prepare_null_renderers)},
+       {"presentation_prepare_live_renderers",
+        std::to_string(presentation_prepare_live_renderers)},
+       {"presentation_prepare_sample_state",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_state.load(
+                        std::memory_order_relaxed))},
+       {"presentation_prepare_sample_resource",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_resource.load(
+                        std::memory_order_relaxed))},
+       {"presentation_prepare_sample_renderer",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_prepare_sample_renderer.load(
+                        std::memory_order_relaxed))},
+       {"deferred_task_publish_observations",
+        std::to_string(deferred_task_publish_observations)},
+       {"deferred_task_published",
+        std::to_string(deferred_task_published)},
+       {"deferred_task_null",
+        std::to_string(g_static_world_deferred_task_null.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_read_faults",
+        std::to_string(g_static_world_deferred_task_read_faults.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_renderer_mismatches",
+        std::to_string(g_static_world_deferred_task_renderer_mismatches.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_vtable_mismatches",
+        std::to_string(g_static_world_deferred_task_vtable_mismatches.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_overflow",
+        std::to_string(g_static_world_deferred_task_overflow.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_callback_observations",
+        std::to_string(deferred_task_callback_observations)},
+       {"deferred_task_callback_matches",
+        std::to_string(deferred_task_callback_matches)},
+       {"deferred_task_callback_unmatched",
+        std::to_string(deferred_task_callback_unmatched)},
+       {"deferred_task_handoff_observations",
+        std::to_string(deferred_task_handoff_observations)},
+       {"deferred_task_handoff_exact",
+        std::to_string(deferred_task_handoff_exact)},
+       {"deferred_task_handoff_missing_callback",
+        std::to_string(
+            g_static_world_deferred_task_handoff_missing_callback.load(
+                std::memory_order_relaxed))},
+       {"deferred_task_handoff_target_mismatches",
+        std::to_string(
+            g_static_world_deferred_task_handoff_target_mismatches.load(
+                std::memory_order_relaxed))},
+       {"deferred_task_handoff_read_faults",
+        std::to_string(g_static_world_deferred_task_handoff_read_faults.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_sample_target_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_deferred_task_sample_target_vtable.load(
+                        std::memory_order_relaxed))},
+       {"deferred_task_sample_dispatch_target",
+        fmt::format("{:08X}",
+                    g_static_world_deferred_task_sample_dispatch_target.load(
+                        std::memory_order_relaxed))},
+       {"presentation_handoff_observations",
+        std::to_string(g_static_world_presentation_handoff_observations.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_exact",
+        std::to_string(g_static_world_presentation_handoff_exact.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_missing_scope",
+        std::to_string(g_static_world_presentation_handoff_missing_scope.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_owner_mismatches",
+        std::to_string(g_static_world_presentation_handoff_owner_mismatches.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_resource_mismatches",
+        std::to_string(g_static_world_presentation_handoff_resource_mismatches.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_base_targets",
+        std::to_string(g_static_world_presentation_handoff_base_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_deferred_targets",
+        std::to_string(g_static_world_presentation_handoff_deferred_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_unknown_targets",
+        std::to_string(g_static_world_presentation_handoff_unknown_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_sample_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_handoff_sample_vtable.load(
+                        std::memory_order_relaxed))},
+       {"presentation_handoff_sample_target",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_handoff_sample_target.load(
+                        std::memory_order_relaxed))},
+       {"presentation_resource_vtable_exact",
+        std::to_string(g_static_world_presentation_resource_vtable_exact.load(
+            std::memory_order_relaxed))},
+       {"presentation_resource_vtable_mismatches",
+        std::to_string(
+            g_static_world_presentation_resource_vtable_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_vtable_read_faults",
+        std::to_string(
+            g_static_world_presentation_resource_vtable_read_faults.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_null",
+        std::to_string(g_static_world_presentation_resource_null.load(
+            std::memory_order_relaxed))},
+       {"presentation_resource_sample_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_resource_sample_vtable.load(
+                        std::memory_order_relaxed))},
+       {"asset_metadata_observations",
+        std::to_string(asset_metadata_observations)},
+       {"asset_metadata_exact", std::to_string(asset_metadata_exact)},
+       {"asset_metadata_empty_keys",
+        std::to_string(asset_metadata_empty_keys)},
+       {"asset_metadata_missing_resources",
+        std::to_string(asset_metadata_missing_resources)},
+       {"asset_metadata_read_faults",
+        std::to_string(asset_metadata_read_faults)},
+       {"asset_metadata_joins", std::to_string(asset_metadata_joins)},
+       {"asset_metadata_missing_joins",
+        std::to_string(asset_metadata_missing_joins)},
+       {"transform_observations", std::to_string(transform_observations)},
+       {"transform_exact", std::to_string(transform_exact)},
+       {"transform_read_faults", std::to_string(transform_read_faults)},
+       {"transform_joins", std::to_string(transform_joins)},
+       {"transform_missing_joins",
+        std::to_string(transform_missing_joins)},
+       {"transform_packet_origins",
+        std::to_string(transform_packet_origins)},
+       {"transform_missing_packet_origins",
+        std::to_string(transform_missing_packet_origins)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"qualification_complete",
+        qualification_complete ? "true" : "false"},
+       {"classification",
+        "live_model_presentation_simple_model_mesh_to_prepared_draw"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitDirectIndexedDrawProducerSummary() {
+  uint64_t classified = 0;
+  for (size_t index = 0; index < kDirectIndexedDrawProducers.size();
+       ++index) {
+    const DirectIndexedDrawProducerSpec &producer =
+        kDirectIndexedDrawProducers[index];
+    const uint64_t observations =
+        g_direct_indexed_draw_producer_observations[index].load(
+            std::memory_order_relaxed);
+    classified += observations;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.direct_indexed_draw_producer_entry",
+        {{"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+         {"return_address", fmt::format("{:08X}", producer.return_address)},
+         {"producer_function",
+          fmt::format("{:08X}", producer.producer_function)},
+         {"classification", producer.classification},
+         {"observations", std::to_string(observations)},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  uint64_t emitted_transforms = 0;
+  for (const UnifiedTrackMeshTransformEntry &entry :
+       g_unified_track_mesh_transforms) {
+    const uint64_t key = entry.key.load(std::memory_order_acquire);
+    if (!key || key == kUnifiedTrackMeshTransformClaimed) {
+      continue;
+    }
+    ++emitted_transforms;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.unified_track_mesh_transform_entry",
+        {{"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+         {"return_address",
+          fmt::format("{:08X}", kUnifiedTrackMeshDrawReturn)},
+         {"producer_function", "82C5ADC0"},
+         {"mesh_vtable", fmt::format("{:08X}", kTrackMeshVtable)},
+         {"mesh_address", fmt::format("{:08X}", entry.mesh_address)},
+         {"transform_hash", fmt::format("{:016X}", entry.transform_hash)},
+         {"transform_words", FormatSemanticWords(entry.transform_words)},
+         {"observations",
+          std::to_string(entry.observations.load(
+              std::memory_order_relaxed))},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame",
+          std::to_string(entry.last_frame.load(std::memory_order_relaxed))},
+         {"classification", "exact_unified_track_mesh_draw_transform"},
+         {"guest_payload_read", "bounded_64_byte_live_transform"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  const uint64_t observations =
+      g_direct_indexed_draw_observations.load(std::memory_order_relaxed);
+  const uint64_t unknown =
+      g_direct_indexed_draw_unknown_callers.load(std::memory_order_relaxed);
+  const uint64_t track_observations =
+      g_unified_track_mesh_observations.load(std::memory_order_relaxed);
+  const uint64_t track_exact =
+      g_unified_track_mesh_exact.load(std::memory_order_relaxed);
+  const uint64_t read_faults =
+      g_unified_track_mesh_read_faults.load(std::memory_order_relaxed);
+  const uint64_t vtable_mismatches =
+      g_unified_track_mesh_vtable_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t nonfinite =
+      g_unified_track_mesh_nonfinite_transforms.load(
+          std::memory_order_relaxed);
+  const uint64_t overflow =
+      g_unified_track_mesh_transform_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_count =
+      g_unified_track_mesh_transform_count.load(std::memory_order_relaxed);
+  const uint64_t scope_entries =
+      g_direct_indexed_draw_scope_entries.load(std::memory_order_relaxed);
+  const uint64_t scope_exits =
+      g_direct_indexed_draw_scope_exits.load(std::memory_order_relaxed);
+  const uint64_t scope_overlaps =
+      g_direct_indexed_draw_scope_overlaps.load(std::memory_order_relaxed);
+  const uint64_t scope_exit_without_entry =
+      g_direct_indexed_draw_scope_exit_without_entry.load(
+          std::memory_order_relaxed);
+  const uint64_t track_scopes_exact =
+      g_unified_track_mesh_scopes_exact.load(std::memory_order_relaxed);
+  const uint64_t track_scopes_with_packets =
+      g_unified_track_mesh_scopes_with_packets.load(
+          std::memory_order_relaxed);
+  const uint64_t track_scopes_without_packets =
+      g_unified_track_mesh_scopes_without_packets.load(
+          std::memory_order_relaxed);
+  const uint64_t track_packet_origins =
+      g_unified_track_mesh_packet_origins.load(std::memory_order_relaxed);
+  const uint64_t track_prepared_matches =
+      g_unified_track_mesh_prepared_matches.load(
+          std::memory_order_relaxed);
+  const uint64_t track_unprepared_matches =
+      g_unified_track_mesh_unprepared_matches.load(
+          std::memory_order_relaxed);
+  const bool scope_accounting_complete =
+      scope_entries == scope_exits && !scope_overlaps &&
+      !scope_exit_without_entry &&
+      track_scopes_exact ==
+          track_scopes_with_packets + track_scopes_without_packets;
+  const bool prepared_join_accounting_complete =
+      track_packet_origins ==
+      track_prepared_matches + track_unprepared_matches;
+  const bool accounting_complete =
+      observations == classified + unknown &&
+      track_observations ==
+          track_exact + read_faults + vtable_mismatches + nonfinite +
+              overflow &&
+      transform_count == emitted_transforms;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.direct_indexed_draw_producer_summary",
+      {{"status", accounting_complete ? "complete" : "incomplete"},
+       {"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+       {"observations", std::to_string(observations)},
+       {"classified_observations", std::to_string(classified)},
+       {"unknown_callers", std::to_string(unknown)},
+       {"producer_count", std::to_string(kDirectIndexedDrawProducerCount)},
+       {"unified_track_mesh_observations",
+        std::to_string(track_observations)},
+       {"unified_track_mesh_exact", std::to_string(track_exact)},
+       {"unified_track_mesh_read_faults", std::to_string(read_faults)},
+       {"unified_track_mesh_vtable_mismatches",
+        std::to_string(vtable_mismatches)},
+       {"unified_track_mesh_nonfinite_transforms",
+        std::to_string(nonfinite)},
+       {"unified_track_mesh_transform_entries",
+        std::to_string(transform_count)},
+       {"unified_track_mesh_transform_collisions",
+        std::to_string(g_unified_track_mesh_transform_collisions.load(
+            std::memory_order_relaxed))},
+       {"unified_track_mesh_transform_overflow", std::to_string(overflow)},
+       {"direct_indexed_draw_scope_entries", std::to_string(scope_entries)},
+       {"direct_indexed_draw_scope_exits", std::to_string(scope_exits)},
+       {"direct_indexed_draw_scope_overlaps", std::to_string(scope_overlaps)},
+       {"direct_indexed_draw_scope_exit_without_entry",
+        std::to_string(scope_exit_without_entry)},
+       {"unified_track_mesh_scopes_exact",
+        std::to_string(track_scopes_exact)},
+       {"unified_track_mesh_scopes_with_packets",
+        std::to_string(track_scopes_with_packets)},
+       {"unified_track_mesh_scopes_without_packets",
+        std::to_string(track_scopes_without_packets)},
+       {"unified_track_mesh_packet_origins",
+        std::to_string(track_packet_origins)},
+       {"unified_track_mesh_prepared_matches",
+        std::to_string(track_prepared_matches)},
+       {"unified_track_mesh_unprepared_matches",
+        std::to_string(track_unprepared_matches)},
+       {"scope_accounting_complete",
+        scope_accounting_complete ? "true" : "false"},
+       {"prepared_join_accounting_complete",
+        prepared_join_accounting_complete ? "true" : "false"},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"classification",
+        "bounded_exact_direct_draw_producer_and_track_mesh_transform_census"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitStaticWorldRuntimeJoinSummary() {
+  EmitDirectIndexedDrawProducerSummary();
+  EmitStaticWorldRuntimeJoinEvent(
+      "native_renderer.discovery.static_world_runtime_join_summary", true,
+      g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitStaticWorldRuntimeJoinCheckpoint(uint64_t frame_sequence) {
+  EmitStaticWorldRuntimeJoinEvent(
+      "native_renderer.discovery.static_world_runtime_join_checkpoint",
+      false, frame_sequence);
 }
 
 uint64_t PreparedPipelineHash(
@@ -10137,6 +16601,327 @@ std::string SerializeTextureStates(
   return result;
 }
 
+std::string SerializeVertexBindings(
+    const rex::system::GraphicsDrawObservation &observation) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      observation.vertex_binding_count,
+      rex::system::kGraphicsVertexBindingObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    const auto &binding = observation.vertex_bindings[i];
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format("{}:{:08X}:{}:{}:{}", binding.fetch_constant,
+                          binding.address, binding.size,
+                          binding.stride_words, binding.endianness);
+  }
+  return result;
+}
+
+std::string SerializeVertexAttributes(
+    const rex::system::GraphicsDrawObservation &observation) {
+  std::string result;
+  const uint32_t bounded_count = std::min(
+      observation.vertex_attribute_count,
+      rex::system::kGraphicsVertexAttributeObservationLimit);
+  for (uint32_t i = 0; i < bounded_count; ++i) {
+    const auto &attribute = observation.vertex_attributes[i];
+    if (!result.empty()) {
+      result += ";";
+    }
+    result += fmt::format(
+        "{}:{}:{}:{}:{}:{:X}:{}:{}:{}:{}:{:X}:{:X}:{:X}",
+        attribute.binding_index, attribute.fetch_constant,
+        attribute.offset_words, attribute.stride_words,
+        attribute.data_format, attribute.fetch_word_mask,
+        attribute.exp_adjust, attribute.signed_rf_mode,
+        attribute.result_storage_target, attribute.result_storage_index,
+        attribute.result_write_mask, attribute.result_components,
+        attribute.flags);
+  }
+  return result;
+}
+
+template <size_t N>
+std::string SerializeHexWords(const std::array<uint32_t, N> &words) {
+  std::string result;
+  for (uint32_t word : words) {
+    if (!result.empty()) {
+      result += ":";
+    }
+    result += fmt::format("{:08X}", word);
+  }
+  return result;
+}
+
+void EmitTrackPresentationPreparedTargetEntries() {
+  for (const TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    if (!entry.calls) {
+      continue;
+    }
+    const std::string bound_render_target_formats = fmt::format(
+        "{}:{}:{}:{}:{}", entry.bound_render_target_formats[0],
+        entry.bound_render_target_formats[1],
+        entry.bound_render_target_formats[2],
+        entry.bound_render_target_formats[3],
+        entry.bound_render_target_formats[4]);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_presentation_prepared_target_entry",
+        {{"entry_key", fmt::format("{:016X}", entry.key)},
+         {"pass_mask", fmt::format("{:08X}", entry.pass_mask)},
+         {"direct_scope_mask",
+          fmt::format("{:08X}", entry.direct_scope_mask)},
+         {"packet_lineage_mask",
+          fmt::format("{:08X}", entry.packet_lineage_mask)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"vertex_shader",
+          fmt::format("{:016X}", entry.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", entry.bound_render_target_bits)},
+         {"bound_render_target_formats", bound_render_target_formats},
+         {"prepared_pipeline_flags",
+          fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"viewport",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.viewport_xscale, entry.viewport_xoffset,
+                      entry.viewport_yscale, entry.viewport_yoffset)},
+         {"viewport_transform_control",
+          fmt::format("{:08X}", entry.viewport_transform_control)},
+         {"scissor",
+          fmt::format("{:08X}:{:08X}", entry.window_scissor_tl,
+                      entry.window_scissor_br)},
+         {"target_state",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.surface_info, entry.color_info[0],
+                      entry.color_info[1], entry.color_info[2],
+                      entry.color_info[3], entry.depth_info)},
+         {"classification",
+          "exact_unified_track_presentation_pass_to_prepared_target"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackPresentationReceiverEntries() {
+  std::scoped_lock lock(g_track_presentation_receiver_mutex);
+  for (const TrackPresentationReceiverEntry &entry :
+       g_track_presentation_receivers) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_presentation_receiver_entry",
+        {{"pass_mask", fmt::format("{:08X}",
+                                    uint32_t(1) << entry.pass_index)},
+         {"receiver_vtable", fmt::format("{:08X}", entry.receiver_vtable)},
+         {"calls", std::to_string(entry.calls)},
+         {"classification", "track_presentation_runtime_receiver_signature"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackWorldScopeSpatialEntries() {
+  std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+  for (const TrackWorldScopeSpatialEntry &entry :
+       g_track_world_scope_spatial_entries) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_scope_spatial_entry",
+        {{"snapshot_key", fmt::format("{:016X}", entry.key)},
+         {"child_address", fmt::format("{:08X}", entry.child_address)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"snapshot_hash", fmt::format("{:016X}", entry.snapshot_hash)},
+         {"snapshot_variations",
+          std::to_string(entry.snapshot_variations)},
+         {"child_word_count", std::to_string(entry.child_words.size())},
+         {"child_words", SerializeHexWords(entry.child_words)},
+         {"descriptor_word_count",
+          std::to_string(entry.descriptor_words.size())},
+         {"descriptor_words", SerializeHexWords(entry.descriptor_words)},
+         {"classification", "exact_track_scope_numeric_spatial_candidate"},
+         {"guest_payload_read",
+          "bounded_validated_track_child_and_descriptor_words_only"},
+         {"plaintext_identity_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackWorldReferenceSpatialEntries() {
+  std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+  for (const TrackWorldReferenceSpatialEntry &entry :
+       g_track_world_reference_spatial_entries) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_reference_spatial_entry",
+        {{"snapshot_key", fmt::format("{:016X}", entry.key)},
+         {"scope_snapshot_hash",
+          fmt::format("{:016X}", entry.scope_snapshot_hash)},
+         {"child_address", fmt::format("{:08X}", entry.child_address)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"object_matrix_word_count",
+          std::to_string(entry.object_matrix_words.size())},
+         {"object_matrix_words",
+          SerializeHexWords(entry.object_matrix_words)},
+         {"composed_matrix_word_count",
+          std::to_string(entry.composed_matrix_words.size())},
+         {"composed_matrix_words",
+          SerializeHexWords(entry.composed_matrix_words)},
+         {"classification",
+          "exact_track_scope_reference_composition_candidate"},
+         {"guest_payload_read",
+          "two_title_proved_live_64_byte_matrix_ranges"},
+         {"plaintext_identity_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackWorldPreparedLayoutEntries() {
+  for (const TrackWorldPreparedLayoutEntry &entry :
+       g_track_world_prepared_layouts) {
+    if (!entry.calls) {
+      continue;
+    }
+    const auto &sample = entry.sample;
+    const auto &contract = entry.contract;
+    const std::string bound_render_target_formats = fmt::format(
+        "{}:{}:{}:{}:{}", entry.bound_render_target_formats[0],
+        entry.bound_render_target_formats[1],
+        entry.bound_render_target_formats[2],
+        entry.bound_render_target_formats[3],
+        entry.bound_render_target_formats[4]);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_prepared_layout_entry",
+        {{"layout_key", fmt::format("{:016X}", entry.key)},
+         {"track_render_root",
+          fmt::format("{:08X}", entry.track_render_root_address)},
+         {"track_render_child",
+          fmt::format("{:08X}", entry.track_render_child_address)},
+         {"track_render_descriptor",
+          fmt::format("{:08X}", entry.track_render_descriptor_address)},
+         {"track_render_descriptor_payload",
+          fmt::format("{:08X}", entry.track_render_descriptor_payload)},
+         {"track_world_resource_identity_mask",
+          fmt::format("{:08X}", entry.track_world_resource_identity_mask)},
+         {"track_world_resource_nested_identity_mask",
+          fmt::format("{:08X}",
+                      entry.track_world_resource_nested_identity_mask)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"parameter_hash", fmt::format("{:016X}", entry.parameter_hash)},
+         {"parameter_variations",
+          std::to_string(entry.parameter_variations)},
+         {"prepared_pipeline_hash",
+          fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+         {"geometry_layout_hash",
+          fmt::format("{:016X}", contract.geometry_layout_hash)},
+         {"texture_layout_hash",
+          fmt::format("{:016X}", contract.texture_layout_hash)},
+         {"render_state_hash",
+          fmt::format("{:016X}", contract.render_state_hash)},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", entry.bound_render_target_bits)},
+         {"bound_render_target_formats", bound_render_target_formats},
+         {"prepared_pipeline_flags",
+          fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"vertex_shader",
+          fmt::format("{:016X}", contract.vertex_shader_hash)},
+         {"pixel_shader",
+          fmt::format("{:016X}", contract.pixel_shader_hash)},
+         {"primitive_type", std::to_string(sample.primitive_type)},
+         {"index_count", std::to_string(sample.index_count)},
+         {"index_buffer_address",
+          fmt::format("{:08X}", sample.index_buffer_address)},
+         {"index_buffer_length",
+          std::to_string(sample.index_buffer_length)},
+         {"index_format", std::to_string(sample.index_format)},
+         {"index_endianness", std::to_string(sample.index_endianness)},
+         {"vertex_binding_count",
+          std::to_string(sample.vertex_binding_count)},
+         {"vertex_bindings", SerializeVertexBindings(sample)},
+         {"vertex_attribute_count",
+          std::to_string(sample.vertex_attribute_count)},
+         {"vertex_attributes", SerializeVertexAttributes(sample)},
+         {"vertex_float_constant_count",
+          std::to_string(sample.vertex_float_constant_count)},
+         {"vertex_float_constants",
+          SerializeFloatConstants(sample.vertex_float_constants,
+                                  sample.vertex_float_constant_count)},
+         {"pixel_float_constant_count",
+          std::to_string(sample.pixel_float_constant_count)},
+         {"pixel_float_constants",
+          SerializeFloatConstants(sample.pixel_float_constants,
+                                  sample.pixel_float_constant_count)},
+         {"bool_constants",
+          SerializeWordConstants(sample.bool_constant_bitmap,
+                                 sample.bool_constant_values,
+                                 std::size(sample.bool_constant_bitmap))},
+         {"loop_constants",
+          SerializeLoopConstants(sample.loop_constant_bitmap,
+                                 sample.loop_constant_values)},
+         {"texture_state_count",
+          std::to_string(sample.texture_state_count)},
+         {"texture_states", SerializeTextureStates(sample)},
+         {"guest_payload_read", "bounded_prepared_draw_metadata_only"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+std::string SerializeStaticWorldTransform(
+    const std::array<uint32_t, kModelPresentationTransformWordCount>
+        &transform_words) {
+  std::string result;
+  for (uint32_t word : transform_words) {
+    if (!result.empty()) {
+      result += ":";
+    }
+    result += fmt::format("{:08X}", word);
+  }
+  return result;
+}
+
 size_t ResolveTargetIndex(uint32_t address) {
   size_t index = size_t(HashCombine(0xCBF29CE484222325ull, address) %
                         kResolveTargetCapacity);
@@ -10292,6 +17077,10 @@ void EmitDependencyCensusWindow() {
       break;
     }
     const bool sampled = target.sampled_draw_count != 0;
+    const uint32_t copy_source = target.sample.rb_copy_control & 7;
+    const uint32_t copy_source_info =
+        copy_source < 4 ? target.sample.color_info[copy_source]
+                        : target.sample.depth_info;
     const std::string query_relation =
         target.conditional_sample_draw_count ||
                 target.query_state_sample_draw_count
@@ -10324,6 +17113,61 @@ void EmitDependencyCensusWindow() {
                                     target.sample.rb_copy_dest_info,
                                     target.sample.rb_copy_dest_pitch,
                                     target.sample.surface_info)},
+         {"copy_source", number(copy_source)},
+         {"copy_source_state",
+          fmt::format("{:08X}:{:08X}", target.sample.surface_info,
+                      copy_source_info)},
+         {"copy_source_targets",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      target.sample.color_info[0], target.sample.color_info[1],
+                      target.sample.color_info[2], target.sample.color_info[3],
+                      target.sample.depth_info)},
+         {"source_target_available",
+          target.sample.source_target_available ? "true" : "false"},
+         {"source_resource_extent",
+          fmt::format("{}x{}", target.sample.source_resource_width,
+                      target.sample.source_resource_height)},
+         {"source_resource_format",
+          number(target.sample.source_resource_format)},
+         {"source_samples", number(target.sample.source_sample_count)},
+         {"source_sample_quality",
+          number(target.sample.source_sample_quality)},
+         {"source_guest_msaa",
+          number(target.sample.source_guest_msaa_samples)},
+         {"draw_scale",
+          fmt::format("{}x{}", target.sample.draw_resolution_scale_x,
+                      target.sample.draw_resolution_scale_y)},
+         {"native_2x_msaa",
+          target.sample.native_2x_msaa ? "true" : "false"},
+         {"source_target_key",
+          fmt::format("{}:{}", target.sample.source_target_base_tiles,
+                      target.sample.source_target_pitch_tiles_at_32bpp)},
+         {"resolve_info_valid",
+          target.sample.resolve_info_valid ? "true" : "false"},
+         {"resolve_source_key",
+          fmt::format("{}:{}:{}:{}",
+                      target.sample.resolve_source_base_tiles,
+                      target.sample.resolve_source_pitch_tiles,
+                      target.sample.resolve_source_format,
+                      target.sample.resolve_source_guest_msaa_samples)},
+         {"resolve_guest_rect",
+          fmt::format("{},{} {}x{}", target.sample.resolve_guest_offset_x,
+                      target.sample.resolve_guest_offset_y,
+                      target.sample.resolve_guest_width,
+                      target.sample.resolve_guest_height)},
+         {"resolve_physical_rect",
+          fmt::format("{},{} {}x{}",
+                      target.sample.resolve_physical_offset_x,
+                      target.sample.resolve_physical_offset_y,
+                      target.sample.resolve_physical_width,
+                      target.sample.resolve_physical_height)},
+         {"resolve_destination",
+          fmt::format("{},{} {}x{}", target.sample.resolve_dest_offset_x,
+                      target.sample.resolve_dest_offset_y,
+                      target.sample.resolve_dest_pitch,
+                      target.sample.resolve_dest_height)},
+         {"resolve_sample_select",
+          number(target.sample.resolve_sample_select)},
          {"presentation_only", "unknown_uninstrumented"},
          {"guest_cpu_read", "unknown_uninstrumented"},
          {"query_dependency", query_relation},
@@ -10504,9 +17348,577 @@ void ObserveCommandBufferLineage(
   }
 }
 
+bool IsOpaqueColorState(
+    const rex::system::GraphicsDrawObservation &observation);
+
+void AccumulateCommandBufferTargetShape(
+    CommandBufferLineageEntry &entry, uint64_t prepared_signature,
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  switch (prepared.bound_render_target_bits) {
+  case 1:
+    ++entry.depth_only_draws;
+    break;
+  case 2:
+    ++entry.color_only_draws;
+    break;
+  case 3:
+    ++entry.color_depth_draws;
+    break;
+  default:
+    ++entry.other_target_draws;
+    entry.other_color_draws +=
+        (prepared.bound_render_target_bits & 2) ? 1 : 0;
+    break;
+  }
+  if (!(prepared.bound_render_target_bits & 2)) {
+    return;
+  }
+  entry.opaque_color_draws += IsOpaqueColorState(observation) ? 1 : 0;
+  entry.resolved_input_color_draws += samples_resolved_target ? 1 : 0;
+  const bool bounded =
+      !observation.vertex_binding_overflow &&
+      !observation.vertex_attribute_overflow &&
+      !observation.vertex_float_constant_overflow &&
+      !observation.pixel_float_constant_overflow &&
+      !observation.texture_state_overflow && (prepared.flags & 3) == 3;
+  entry.bounded_color_draws += bounded ? 1 : 0;
+  if (entry.sample_color_known) {
+    entry.color_sample_varied |=
+        entry.sample_color_prepared_signature != prepared_signature;
+    return;
+  }
+  entry.sample_color_known = true;
+  entry.sample_color_prepared_signature = prepared_signature;
+  entry.sample_color_vertex_shader = observation.vertex_shader_hash;
+  entry.sample_color_pixel_shader = observation.pixel_shader_hash;
+  entry.sample_color_bound_render_target_bits =
+      prepared.bound_render_target_bits;
+  std::copy(std::begin(prepared.bound_render_target_formats),
+            std::end(prepared.bound_render_target_formats),
+            entry.sample_color_bound_render_target_formats.begin());
+  entry.sample_color_prepared_pipeline_flags = prepared.flags;
+  entry.sample_color_surface_info = observation.surface_info;
+  std::copy(std::begin(observation.color_info),
+            std::end(observation.color_info),
+            entry.sample_color_info.begin());
+  entry.sample_color_depth_info = observation.depth_info;
+  entry.sample_color_window_scissor_tl = observation.window_scissor_tl;
+  entry.sample_color_window_scissor_br = observation.window_scissor_br;
+}
+
+void EmitProceduralResolveAssembly(
+    const std::optional<
+        pinyon_shift::native_renderer::ProceduralResolveAssembly> &result) {
+  if (!result || !result->exact_contiguous_full_frame) {
+    return;
+  }
+  ++g_procedural_resolve_assembly_count;
+  if (g_procedural_resolve_assembly_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_resolve_assembly_detail_overflow;
+    return;
+  }
+  ++g_procedural_resolve_assembly_detail_count;
+  const auto &assembly = *result;
+  std::string addresses;
+  std::string lengths;
+  for (uint32_t index = 0; index < assembly.chunk_count; ++index) {
+    if (index) {
+      addresses += ':';
+      lengths += ':';
+    }
+    addresses += fmt::format("{:08X}", assembly.addresses[index]);
+    lengths += std::to_string(assembly.lengths[index]);
+  }
+  const uint32_t padding_rows =
+      assembly.padded_height >= assembly.logical_height
+          ? assembly.padded_height - assembly.logical_height
+          : 0;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_resolve_assembly",
+      {{"frame", std::to_string(assembly.frame_sequence)},
+       {"copy_source", std::to_string(assembly.source)},
+       {"copy_source_state",
+        fmt::format("{:08X}:{:08X}", assembly.source_surface_info,
+                    assembly.source_info)},
+       {"base_address", fmt::format("{:08X}", assembly.base_address)},
+       {"chunk_count", std::to_string(assembly.chunk_count)},
+       {"addresses", addresses},
+       {"lengths", lengths},
+       {"destination_info",
+        fmt::format("{:08X}", assembly.destination_info)},
+       {"destination_pitch",
+        fmt::format("{:08X}", assembly.destination_pitch)},
+       {"logical_extent",
+        fmt::format("{}x{}", assembly.logical_width,
+                    assembly.logical_height)},
+       {"padded_height", std::to_string(assembly.padded_height)},
+       {"padding_rows", std::to_string(padding_rows)},
+       {"bytes_per_pixel", std::to_string(assembly.bytes_per_pixel)},
+       {"total_bytes", std::to_string(assembly.total_bytes)},
+       {"copy_overflow", assembly.copy_overflow ? "true" : "false"},
+       {"status", "exact_contiguous_full_frame"},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+void EmitProceduralFrameAccumulatorTransition(
+    const pinyon_shift::native_renderer::
+        ProceduralFrameAccumulatorTransition &transition) {
+  if (!transition.actionable()) {
+    return;
+  }
+  g_procedural_frame_accumulator_begins += transition.begin ? 1 : 0;
+  g_procedural_frame_accumulator_appends += transition.append ? 1 : 0;
+  g_procedural_frame_accumulator_commits += transition.commit ? 1 : 0;
+  g_procedural_frame_accumulator_cancels += transition.cancel ? 1 : 0;
+  if (g_procedural_frame_accumulator_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_detail_overflow;
+    return;
+  }
+  ++g_procedural_frame_accumulator_detail_count;
+  const char *operation =
+      transition.cancel
+          ? "cancel"
+          : (transition.commit
+                 ? "append_and_commit"
+                 : (transition.begin ? "begin_and_append" : "append"));
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_frame_accumulator_plan",
+      {{"frame", std::to_string(transition.frame_sequence)},
+       {"operation", operation},
+       {"cancel_reason",
+        pinyon_shift::native_renderer::
+            ProceduralFrameAccumulatorCancelReasonName(
+                transition.cancel_reason)},
+       {"source_state",
+        fmt::format("{:08X}:{:08X}", transition.source_surface_info,
+                    transition.source_info)},
+       {"destination_state",
+        fmt::format("{:08X}:{:08X}", transition.destination_info,
+                    transition.destination_pitch)},
+       {"base_address", fmt::format("{:08X}", transition.base_address)},
+       {"copy_address", fmt::format("{:08X}", transition.copy_address)},
+       {"copy_length", std::to_string(transition.copy_length)},
+       {"destination_row", std::to_string(transition.destination_row)},
+       {"storage_row_count",
+        std::to_string(transition.storage_row_count)},
+       {"logical_row_count",
+        std::to_string(transition.logical_row_count)},
+       {"logical_extent",
+        fmt::format("{}x{}", transition.logical_width,
+                    transition.logical_height)},
+       {"padded_height", std::to_string(transition.padded_height)},
+       {"bytes_per_pixel", std::to_string(transition.bytes_per_pixel)},
+       {"chunk_count", std::to_string(transition.chunk_count)},
+       {"backend_resource_action",
+        g_procedural_frame_accumulator_backend_armed ? "private_only"
+                                                     : "false"},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
+const char *ProceduralFrameAccumulatorBackendStatusName(
+    rex::system::GraphicsNativeFrameAccumulatorStatus status) {
+  using Status = rex::system::GraphicsNativeFrameAccumulatorStatus;
+  switch (status) {
+    case Status::kRecorded:
+      return "recorded";
+    case Status::kCancelled:
+      return "cancelled";
+    case Status::kInvalidRequest:
+      return "invalid_request";
+    case Status::kUnavailable:
+      return "unavailable";
+    case Status::kUnsupportedTarget:
+      return "unsupported_target";
+    case Status::kAllocationFailed:
+      return "allocation_failed";
+    case Status::kUnqualifiedSource:
+      return "unqualified_source";
+  }
+  return "unknown";
+}
+
+void CompleteProceduralFrameAccumulatorBackend(
+    const rex::system::GraphicsNativeFrameAccumulatorResult &result) {
+  const uint32_t status = static_cast<uint32_t>(result.status);
+  if (result.status ==
+          rex::system::GraphicsNativeFrameAccumulatorStatus::kUnavailable ||
+      result.status == rex::system::GraphicsNativeFrameAccumulatorStatus::
+                           kUnqualifiedSource) {
+    g_procedural_frame_accumulator_backend_unavailable_frame =
+        result.frame_sequence;
+  }
+  if (status >= 1 &&
+      status <= g_procedural_frame_accumulator_backend_statuses.size()) {
+    ++g_procedural_frame_accumulator_backend_statuses[status - 1];
+  }
+  if (g_procedural_frame_accumulator_backend_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_backend_detail_overflow;
+    return;
+  }
+  ++g_procedural_frame_accumulator_backend_detail_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.result",
+      {{"frame", std::to_string(result.frame_sequence)},
+       {"status",
+        ProceduralFrameAccumulatorBackendStatusName(result.status)},
+       {"resource_extent",
+        fmt::format("{}x{}", result.resource_width,
+                    result.resource_height)},
+       {"logical_extent",
+        fmt::format("{}x{}", result.logical_width,
+                    result.logical_height)},
+       {"source_resource_extent",
+        fmt::format("{}x{}", result.source_resource_width,
+                    result.source_resource_height)},
+       {"source_samples", std::to_string(result.source_sample_count)},
+       {"source_sample_quality",
+        std::to_string(result.source_sample_quality)},
+       {"source_guest_msaa",
+        std::to_string(result.source_guest_msaa_samples)},
+       {"draw_scale",
+        fmt::format("{}x{}", result.draw_resolution_scale_x,
+                    result.draw_resolution_scale_y)},
+       {"requested_source_rect",
+        fmt::format("{},{} {}x{}", result.requested_source_x,
+                    result.requested_source_y,
+                    result.requested_source_width,
+                    result.requested_source_height)},
+       {"requested_rows",
+        fmt::format("copy={};padding={}", result.requested_copy_row_count,
+                    result.requested_padding_row_count)},
+       {"requested_sample_select",
+        std::to_string(result.requested_sample_select)},
+       {"native_2x_msaa", result.native_2x_msaa ? "true" : "false"},
+       {"appended_row_end", std::to_string(result.appended_row_end)},
+       {"committed", result.committed ? "true" : "false"},
+       {"resource_scope", "private_d3d12"},
+       {"guest_memory_publication", "false"},
+       {"xenos_resolve", "preserved_and_completed_first"},
+       {"draw_suppression", "false"}});
+}
+
+pinyon_shift::native_renderer::ProceduralResolveCopy
+ProceduralResolveCopyFromObservation(
+    const rex::system::GraphicsCopyObservation &observation) {
+  const uint32_t copy_source = observation.rb_copy_control & 7;
+  const uint32_t copy_source_info =
+      copy_source < 4 ? observation.color_info[copy_source]
+                      : observation.depth_info;
+  return {.frame_sequence = observation.frame_sequence,
+          .source = copy_source,
+          .source_surface_info = observation.surface_info,
+          .source_info = copy_source_info,
+          .destination_info = observation.rb_copy_dest_info,
+          .destination_pitch = observation.rb_copy_dest_pitch,
+          .written_address = observation.written_address,
+          .written_length = observation.written_length};
+}
+
+pinyon_shift::native_renderer::ProceduralFrameAccumulatorPhysicalLayout
+ObserveProceduralFrameAccumulatorPhysicalLayout(
+    const pinyon_shift::native_renderer::
+        ProceduralFrameAccumulatorTransition &transition,
+    const rex::system::GraphicsCopyObservation &observation) {
+  if (!transition.append || transition.cancel) {
+    return {};
+  }
+  const pinyon_shift::native_renderer::
+      ProceduralFrameAccumulatorSourceTopology topology{
+          .resource_width = observation.source_resource_width,
+          .resource_height = observation.source_resource_height,
+          .host_sample_count = observation.source_sample_count,
+          .guest_msaa_samples = observation.source_guest_msaa_samples,
+          .draw_scale_x = observation.draw_resolution_scale_x,
+          .draw_scale_y = observation.draw_resolution_scale_y,
+          .target_base_tiles = observation.source_target_base_tiles,
+          .target_pitch_tiles =
+              observation.source_target_pitch_tiles_at_32bpp,
+          .resolve_base_tiles = observation.resolve_source_base_tiles,
+          .resolve_pitch_tiles = observation.resolve_source_pitch_tiles,
+          .resolve_guest_msaa_samples =
+              observation.resolve_source_guest_msaa_samples,
+          .source_guest_x = observation.resolve_guest_offset_x,
+          .source_guest_y = observation.resolve_guest_offset_y,
+          .source_guest_width = observation.resolve_guest_width,
+          .source_guest_height = observation.resolve_guest_height,
+          .source_physical_x = observation.resolve_physical_offset_x,
+          .source_physical_y = observation.resolve_physical_offset_y,
+          .source_physical_width = observation.resolve_physical_width,
+          .source_physical_height = observation.resolve_physical_height,
+          .destination_x = observation.resolve_dest_offset_x,
+          .destination_y = observation.resolve_dest_offset_y,
+          .destination_pitch = observation.resolve_dest_pitch,
+          .destination_height = observation.resolve_dest_height,
+          .sample_select = observation.resolve_sample_select,
+          .source_available = observation.source_target_available,
+          .resolve_info_valid = observation.resolve_info_valid,
+          .native_2x_msaa = observation.native_2x_msaa};
+  const auto layout = pinyon_shift::native_renderer::
+      BuildProceduralFrameAccumulatorPhysicalLayout(transition, topology);
+  const size_t status_index = size_t(layout.status);
+  if (status_index < g_procedural_frame_accumulator_layout_statuses.size()) {
+    ++g_procedural_frame_accumulator_layout_statuses[status_index];
+  }
+  if (g_procedural_frame_accumulator_layout_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_layout_detail_overflow;
+    return layout;
+  }
+  ++g_procedural_frame_accumulator_layout_detail_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.layout",
+      {{"frame", std::to_string(transition.frame_sequence)},
+       {"chunk", std::to_string(transition.chunk_count)},
+       {"status",
+        pinyon_shift::native_renderer::
+            ProceduralFrameAccumulatorLayoutStatusName(layout.status)},
+       {"output_extent",
+        fmt::format("{}x{}", layout.output_width,
+                    layout.output_logical_height)},
+       {"output_storage_height",
+        std::to_string(layout.output_storage_height)},
+       {"destination_rows",
+        fmt::format("{}+{}/{}", layout.destination_row,
+                    layout.destination_copy_rows,
+                    layout.destination_storage_rows)},
+       {"source_rect",
+        fmt::format("{},{} {}x{}", layout.source_x, layout.source_y,
+                    layout.source_width, layout.source_height)},
+       {"padding_rows", std::to_string(layout.padding_rows)},
+       {"samples",
+        fmt::format("host={};guest={};select={}", layout.host_sample_count,
+                    layout.guest_msaa_samples, layout.sample_select)},
+       {"backend_copy", "not_yet_admitted"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  return layout;
+}
+
+bool PlanProceduralFrameAccumulatorBackend(
+    const rex::system::GraphicsCopyObservation &observation,
+    rex::system::GraphicsNativeFrameAccumulatorRequest &request_out) {
+  request_out = {};
+  if (!g_procedural_frame_accumulator_backend_armed ||
+      !observation.succeeded) {
+    return false;
+  }
+  if (observation.frame_sequence !=
+      g_procedural_frame_accumulator_exact_source_frame) {
+    ++g_procedural_frame_accumulator_source_gate_yields;
+    return false;
+  }
+  if (observation.frame_sequence ==
+      g_procedural_frame_accumulator_backend_unavailable_frame) {
+    ++g_procedural_frame_accumulator_same_frame_yields;
+    return false;
+  }
+  const auto transition = g_procedural_frame_accumulator_planner.Observe(
+      ProceduralResolveCopyFromObservation(observation));
+  EmitProceduralFrameAccumulatorTransition(transition);
+  const auto physical_layout =
+      ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
+  if (!transition.actionable()) {
+    return false;
+  }
+  if (!transition.cancel && !physical_layout.ready()) {
+    return false;
+  }
+  if (!transition.cancel &&
+      (transition.logical_width != kProceduralFrameAccumulatorWidth ||
+       transition.logical_height !=
+           kProceduralFrameAccumulatorLogicalHeight ||
+       transition.padded_height >
+           kProceduralFrameAccumulatorStorageHeight)) {
+    return false;
+  }
+  request_out.logical_width = physical_layout.output_width;
+  request_out.logical_height = physical_layout.output_logical_height;
+  request_out.storage_height = physical_layout.output_storage_height;
+  request_out.destination_row = physical_layout.destination_row;
+  request_out.storage_row_count = physical_layout.destination_storage_rows;
+  request_out.source_x = physical_layout.source_x;
+  request_out.source_y = physical_layout.source_y;
+  request_out.source_width = physical_layout.source_width;
+  request_out.source_height = physical_layout.source_height;
+  request_out.copy_row_count = physical_layout.destination_copy_rows;
+  request_out.padding_row_count = physical_layout.padding_rows;
+  request_out.sample_select = physical_layout.sample_select;
+  request_out.begin = transition.begin;
+  request_out.append = transition.append;
+  request_out.commit = transition.commit;
+  request_out.cancel = transition.cancel;
+  request_out.completion = &CompleteProceduralFrameAccumulatorBackend;
+  return true;
+}
+
+void RecordProceduralColorTargetProfile(
+    uint64_t prepared_signature,
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const ActiveTitleIndirectBuffer *active) {
+  if (!active || !(prepared.bound_render_target_bits & 2)) {
+    return;
+  }
+  const auto &context = active->constructor_origin.owner.producer.context;
+  if (!context.valid || context.function_address != 0x82417BC0 ||
+      !context.semantic_receiver_address ||
+      !context.semantic_receiver_generation) {
+    return;
+  }
+  g_isolated_draw.prepared_procedural_color_producer = true;
+  const pinyon_shift::native_renderer::ProceduralResolveTarget target{
+      .frame_sequence = observation.frame_sequence,
+      .surface_info = observation.surface_info,
+      .color_info = observation.color_info[0],
+      .logical_width = 1280,
+      .logical_height = 720};
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Arm(target));
+  EmitProceduralFrameAccumulatorTransition(
+      g_procedural_frame_accumulator_planner.Arm(target));
+  ++g_procedural_color_target_profile_observations;
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {prepared_signature, observation.vertex_shader_hash,
+        observation.pixel_shader_hash,
+        uint64_t(prepared.bound_render_target_bits), uint64_t(prepared.flags),
+        uint64_t(observation.viewport_xscale),
+        uint64_t(observation.viewport_xoffset),
+        uint64_t(observation.viewport_yscale),
+        uint64_t(observation.viewport_yoffset),
+        uint64_t(observation.viewport_transform_control),
+        uint64_t(observation.window_scissor_tl),
+        uint64_t(observation.window_scissor_br),
+        observation.bin_select, observation.bin_mask,
+        uint64_t(observation.packet & 1),
+        uint64_t(observation.surface_info), uint64_t(observation.color_info[0]),
+        uint64_t(observation.color_info[1]), uint64_t(observation.color_info[2]),
+        uint64_t(observation.color_info[3]), uint64_t(observation.depth_info)}) {
+    key = HashCombine(key, value);
+  }
+  for (uint32_t format : prepared.bound_render_target_formats) {
+    key = HashCombine(key, format);
+  }
+  key = key ? key : 1;
+  size_t index = size_t(key % kProceduralColorTargetProfileCapacity);
+  for (size_t probe = 0; probe < kProceduralColorTargetProfileCapacity;
+       ++probe) {
+    ProceduralColorTargetProfileEntry &entry =
+        g_procedural_color_target_profiles[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.prepared_signature = prepared_signature;
+      entry.vertex_shader_hash = observation.vertex_shader_hash;
+      entry.pixel_shader_hash = observation.pixel_shader_hash;
+      entry.bin_select = observation.bin_select;
+      entry.bin_mask = observation.bin_mask;
+      entry.opaque_calls = IsOpaqueColorState(observation) ? 1 : 0;
+      entry.bounded_calls =
+          !observation.vertex_binding_overflow &&
+                  !observation.vertex_attribute_overflow &&
+                  !observation.vertex_float_constant_overflow &&
+                  !observation.pixel_float_constant_overflow &&
+                  !observation.texture_state_overflow &&
+                  (prepared.flags & 3) == 3
+              ? 1
+              : 0;
+      entry.resolved_input_calls = samples_resolved_target ? 1 : 0;
+      entry.sample_semantic_receiver_address =
+          context.semantic_receiver_address;
+      entry.sample_semantic_receiver_generation =
+          context.semantic_receiver_generation;
+      entry.bound_render_target_bits = prepared.bound_render_target_bits;
+      std::copy(std::begin(prepared.bound_render_target_formats),
+                std::end(prepared.bound_render_target_formats),
+                entry.bound_render_target_formats.begin());
+      entry.prepared_pipeline_flags = prepared.flags;
+      entry.viewport_xscale = observation.viewport_xscale;
+      entry.viewport_xoffset = observation.viewport_xoffset;
+      entry.viewport_yscale = observation.viewport_yscale;
+      entry.viewport_yoffset = observation.viewport_yoffset;
+      entry.viewport_transform_control =
+          observation.viewport_transform_control;
+      entry.window_scissor_tl = observation.window_scissor_tl;
+      entry.window_scissor_br = observation.window_scissor_br;
+      entry.surface_info = observation.surface_info;
+      std::copy(std::begin(observation.color_info),
+                std::end(observation.color_info), entry.color_info.begin());
+      entry.depth_info = observation.depth_info;
+      entry.predicated = (observation.packet & 1) != 0;
+      ++g_procedural_color_target_profile_entry_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.prepared_signature == prepared_signature &&
+        entry.vertex_shader_hash == observation.vertex_shader_hash &&
+        entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        entry.bin_select == observation.bin_select &&
+        entry.bin_mask == observation.bin_mask &&
+        entry.predicated == ((observation.packet & 1) != 0) &&
+        entry.bound_render_target_bits == prepared.bound_render_target_bits &&
+        entry.prepared_pipeline_flags == prepared.flags &&
+        entry.viewport_xscale == observation.viewport_xscale &&
+        entry.viewport_xoffset == observation.viewport_xoffset &&
+        entry.viewport_yscale == observation.viewport_yscale &&
+        entry.viewport_yoffset == observation.viewport_yoffset &&
+        entry.viewport_transform_control ==
+            observation.viewport_transform_control &&
+        entry.window_scissor_tl == observation.window_scissor_tl &&
+        entry.window_scissor_br == observation.window_scissor_br &&
+        entry.surface_info == observation.surface_info &&
+        entry.depth_info == observation.depth_info &&
+        std::equal(entry.color_info.begin(), entry.color_info.end(),
+                   std::begin(observation.color_info)) &&
+        std::equal(entry.bound_render_target_formats.begin(),
+                   entry.bound_render_target_formats.end(),
+                   std::begin(prepared.bound_render_target_formats))) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.opaque_calls += IsOpaqueColorState(observation) ? 1 : 0;
+      entry.bounded_calls +=
+          !observation.vertex_binding_overflow &&
+                  !observation.vertex_attribute_overflow &&
+                  !observation.vertex_float_constant_overflow &&
+                  !observation.pixel_float_constant_overflow &&
+                  !observation.texture_state_overflow &&
+                  (prepared.flags & 3) == 3
+              ? 1
+              : 0;
+      entry.resolved_input_calls += samples_resolved_target ? 1 : 0;
+      entry.semantic_receiver_varied |=
+          entry.sample_semantic_receiver_address !=
+              context.semantic_receiver_address ||
+          entry.sample_semantic_receiver_generation !=
+              context.semantic_receiver_generation;
+      return;
+    }
+    index = (index + 1) % kProceduralColorTargetProfileCapacity;
+  }
+  ++g_procedural_color_target_profile_overflow;
+}
+
 void RecordPreparedCommandBufferLineage(
     uint64_t prepared_signature,
-    const rex::system::GraphicsDrawObservation &observation) {
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
   if (!HasValidCommandBufferLineage(observation)) {
     return;
   }
@@ -10521,6 +17933,9 @@ void RecordPreparedCommandBufferLineage(
           : UINT32_MAX;
   const ActiveTitleIndirectBuffer *active =
       CurrentTitleIndirectBuffer(observation);
+  RecordProceduralColorTargetProfile(prepared_signature, observation,
+                                     samples_resolved_target, prepared,
+                                     active);
   const uint32_t constructor_store_address =
       active ? active->constructor_store_address : 0;
   const IndirectConstructorOrigin constructor_origin =
@@ -10539,6 +17954,14 @@ void RecordPreparedCommandBufferLineage(
             constructor_origin.owner.producer.context.semantic_receiver_address),
         uint64_t(constructor_origin.owner.producer.context
                      .semantic_receiver_generation),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_command_lineage),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_render_root_address),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_world_resource_identity_mask),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_world_resource_nested_identity_mask),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -10611,7 +18034,31 @@ void RecordPreparedCommandBufferLineage(
               .semantic_render_state_visibility_epoch;
       entry.semantic_receiver_known = constructor_origin.owner.producer.context
                                           .semantic_receiver_known;
+      entry.track_render_root_address = constructor_origin.owner.producer
+                                            .context.track_render_root_address;
+      entry.track_render_child_address = constructor_origin.owner.producer
+                                             .context.track_render_child_address;
+      entry.track_render_descriptor_address =
+          constructor_origin.owner.producer.context
+              .track_render_descriptor_address;
+      entry.track_render_descriptor_payload =
+          constructor_origin.owner.producer.context
+              .track_render_descriptor_payload;
+      entry.track_world_resource_identity_mask =
+          constructor_origin.owner.producer.context
+              .track_world_resource_identity_mask;
+      entry.track_world_resource_nested_identity_mask =
+          constructor_origin.owner.producer.context
+              .track_world_resource_nested_identity_mask;
+      entry.track_presentation_pass_mask =
+          constructor_origin.owner.producer.context
+              .track_presentation_pass_mask;
+      entry.track_command_lineage = constructor_origin.owner.producer.context
+                                        .track_command_lineage;
       entry.depth = observation.command_buffer_depth;
+      AccumulateCommandBufferTargetShape(
+          entry, prepared_signature, observation, samples_resolved_target,
+          prepared);
       ++g_command_buffer_lineage_entry_count;
       return;
     }
@@ -10634,6 +18081,21 @@ void RecordPreparedCommandBufferLineage(
         entry.semantic_receiver_generation ==
             constructor_origin.owner.producer.context
                 .semantic_receiver_generation &&
+        entry.track_command_lineage ==
+            constructor_origin.owner.producer.context
+                .track_command_lineage &&
+        entry.track_render_root_address ==
+            constructor_origin.owner.producer.context
+                .track_render_root_address &&
+        entry.track_world_resource_identity_mask ==
+            constructor_origin.owner.producer.context
+                .track_world_resource_identity_mask &&
+        entry.track_world_resource_nested_identity_mask ==
+            constructor_origin.owner.producer.context
+                .track_world_resource_nested_identity_mask &&
+        entry.track_presentation_pass_mask ==
+            constructor_origin.owner.producer.context
+                .track_presentation_pass_mask &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.semantic_preparation_epoch_varied |=
@@ -10666,6 +18128,9 @@ void RecordPreparedCommandBufferLineage(
                    parent_root_offset_bytes);
       entry.prepared_signature_varied |=
           entry.sample_prepared_signature != prepared_signature;
+      AccumulateCommandBufferTargetShape(
+          entry, prepared_signature, observation, samples_resolved_target,
+          prepared);
       if (entry.constructor_origin_known && constructor_origin.valid) {
         for (size_t argument = 0;
              argument < entry.sample_constructor_arguments.size(); ++argument) {
@@ -10714,10 +18179,266 @@ void RecordPreparedCommandBufferLineage(
   ++g_command_buffer_lineage_overflow;
 }
 
+void EmitProceduralColorTargetProfiles() {
+  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Flush());
+  EmitProceduralFrameAccumulatorTransition(
+      g_procedural_frame_accumulator_planner.Flush());
+  const auto &latest_assembly =
+      g_procedural_resolve_assembly_tracker.latest_qualified();
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_resolve_assembly_summary",
+      {{"status", latest_assembly ? "exact_qualified" : "no_exact_assembly"},
+       {"exact_assemblies",
+        std::to_string(g_procedural_resolve_assembly_count)},
+       {"detail_events",
+        std::to_string(g_procedural_resolve_assembly_detail_count)},
+       {"detail_overflow",
+        std::to_string(g_procedural_resolve_assembly_detail_overflow)},
+       {"detail_limit",
+        std::to_string(kProceduralRuntimeDetailLimit)},
+       {"latest_frame",
+        std::to_string(latest_assembly ? latest_assembly->frame_sequence : 0)},
+       {"latest_base_address",
+        latest_assembly ? fmt::format("{:08X}", latest_assembly->base_address)
+                        : "00000000"},
+       {"latest_chunk_count",
+        std::to_string(latest_assembly ? latest_assembly->chunk_count : 0)},
+       {"latest_logical_extent",
+        latest_assembly
+            ? fmt::format("{}x{}", latest_assembly->logical_width,
+                          latest_assembly->logical_height)
+            : "0x0"},
+       {"latest_padded_height",
+        std::to_string(latest_assembly ? latest_assembly->padded_height : 0)},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  uint64_t accounted = 0;
+  uint64_t full_preview_extent_calls = 0;
+  uint64_t reduced_preview_width_calls = 0;
+  uint64_t predicated_edram_tile_calls = 0;
+  for (const ProceduralColorTargetProfileEntry &entry :
+       g_procedural_color_target_profiles) {
+    if (!entry.calls) {
+      continue;
+    }
+    accounted += entry.calls;
+    const uint32_t scissor_left = entry.window_scissor_tl & 0x7FFF;
+    const uint32_t scissor_top =
+        (entry.window_scissor_tl >> 16) & 0x7FFF;
+    const uint32_t scissor_right = entry.window_scissor_br & 0x7FFF;
+    const uint32_t scissor_bottom =
+        (entry.window_scissor_br >> 16) & 0x7FFF;
+    const bool full_preview_extent =
+        !scissor_left && !scissor_top && scissor_right == 1280 &&
+        scissor_bottom == 720;
+    const bool reduced_preview_width =
+        !scissor_left && !scissor_top && scissor_right == 1280 &&
+        scissor_bottom && scissor_bottom < 720;
+    const bool predicated_edram_tile =
+        reduced_preview_width && entry.predicated;
+    full_preview_extent_calls += full_preview_extent ? entry.calls : 0;
+    reduced_preview_width_calls += reduced_preview_width ? entry.calls : 0;
+    predicated_edram_tile_calls += predicated_edram_tile ? entry.calls : 0;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.procedural_color_target_profile_entry",
+        {{"entry_key", fmt::format("{:016X}", entry.key)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"prepared_signature",
+          fmt::format("{:016X}", entry.prepared_signature)},
+         {"vertex_shader",
+          fmt::format("{:016X}", entry.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"bin_select", fmt::format("{:016X}", entry.bin_select)},
+         {"bin_mask", fmt::format("{:016X}", entry.bin_mask)},
+         {"bin_intersection",
+          fmt::format("{:016X}", entry.bin_select & entry.bin_mask)},
+         {"predicated", entry.predicated ? "true" : "false"},
+         {"opaque_calls", std::to_string(entry.opaque_calls)},
+         {"bounded_calls", std::to_string(entry.bounded_calls)},
+         {"resolved_input_calls",
+          std::to_string(entry.resolved_input_calls)},
+         {"sample_semantic_receiver_address",
+          fmt::format("{:08X}", entry.sample_semantic_receiver_address)},
+         {"sample_semantic_receiver_generation",
+          std::to_string(entry.sample_semantic_receiver_generation)},
+         {"semantic_receiver_varied",
+          entry.semantic_receiver_varied ? "true" : "false"},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", entry.bound_render_target_bits)},
+         {"bound_render_target_formats",
+          fmt::format("{}:{}:{}:{}:{}",
+                      entry.bound_render_target_formats[0],
+                      entry.bound_render_target_formats[1],
+                      entry.bound_render_target_formats[2],
+                      entry.bound_render_target_formats[3],
+                      entry.bound_render_target_formats[4])},
+         {"prepared_pipeline_flags",
+          fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"viewport",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.viewport_xscale, entry.viewport_xoffset,
+                      entry.viewport_yscale, entry.viewport_yoffset)},
+         {"viewport_transform_control",
+          fmt::format("{:08X}", entry.viewport_transform_control)},
+         {"scissor",
+          fmt::format("{:08X}:{:08X}", entry.window_scissor_tl,
+                      entry.window_scissor_br)},
+         {"scissor_extent",
+          fmt::format("{}:{}:{}:{}", scissor_left, scissor_top,
+                      scissor_right, scissor_bottom)},
+         {"preview_extent_role",
+          full_preview_extent
+              ? "full_1280x720"
+              : (predicated_edram_tile
+                     ? "predicated_edram_tile"
+                     : (reduced_preview_width ? "reduced_1280_width"
+                                              : "other"))},
+         {"target_state",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.surface_info, entry.color_info[0],
+                      entry.color_info[1], entry.color_info[2],
+                      entry.color_info[3], entry.depth_info)},
+         {"semantic_receiver_class",
+          "proceduralGeometry::CProceduralModels"},
+         {"semantic_dispatch", "82417BC0"},
+         {"classification",
+          "exact_procedural_color_signature_target_profile"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_color_target_profile_summary",
+      {{"observations",
+        std::to_string(g_procedural_color_target_profile_observations)},
+       {"accounted", std::to_string(accounted)},
+       {"entries",
+        std::to_string(g_procedural_color_target_profile_entry_count)},
+       {"overflow",
+        std::to_string(g_procedural_color_target_profile_overflow)},
+       {"full_preview_extent_calls",
+        std::to_string(full_preview_extent_calls)},
+       {"reduced_preview_width_calls",
+        std::to_string(reduced_preview_width_calls)},
+       {"predicated_edram_tile_calls",
+        std::to_string(predicated_edram_tile_calls)},
+       {"accounting_complete",
+        g_procedural_color_target_profile_observations ==
+                    accounted + g_procedural_color_target_profile_overflow &&
+                !g_procedural_color_target_profile_overflow
+            ? "true"
+            : "false"},
+       {"preview_extent", "1280x720"},
+       {"classification", "exact_procedural_color_target_role_census"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_frame_accumulator_plan_summary",
+      {{"begins", std::to_string(g_procedural_frame_accumulator_begins)},
+       {"appends", std::to_string(g_procedural_frame_accumulator_appends)},
+       {"commits", std::to_string(g_procedural_frame_accumulator_commits)},
+       {"cancels", std::to_string(g_procedural_frame_accumulator_cancels)},
+       {"detail_events",
+        std::to_string(g_procedural_frame_accumulator_detail_count)},
+       {"detail_overflow",
+        std::to_string(g_procedural_frame_accumulator_detail_overflow)},
+       {"qualified_resolve_ingress_arms",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_arms)},
+       {"qualified_resolve_source_mode_3",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_source_modes[0])},
+       {"qualified_resolve_source_mode_12",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_source_modes[1])},
+       {"detail_limit",
+        std::to_string(kProceduralRuntimeDetailLimit)},
+       {"physical_layout_ready",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[0])},
+       {"physical_layout_no_append",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[1])},
+       {"physical_layout_missing_topology",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[2])},
+       {"physical_layout_invalid_scale",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[3])},
+       {"physical_layout_target_mismatch",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[4])},
+       {"physical_layout_region_mismatch",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[5])},
+       {"physical_layout_unsupported_samples",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[6])},
+       {"physical_layout_overflow",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[7])},
+       {"physical_layout_detail_events",
+        std::to_string(g_procedural_frame_accumulator_layout_detail_count)},
+       {"physical_layout_detail_overflow",
+        std::to_string(g_procedural_frame_accumulator_layout_detail_overflow)},
+       {"backend_resource_action",
+        g_procedural_frame_accumulator_backend_armed ? "private_only"
+                                                     : "false"},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.result_summary",
+      {{"status",
+        g_procedural_frame_accumulator_backend_armed ? "armed" : "disabled"},
+       {"recorded",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[0])},
+       {"cancelled",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[1])},
+       {"invalid_request",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[2])},
+       {"unavailable",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[3])},
+       {"same_frame_yields_after_unavailable",
+        std::to_string(g_procedural_frame_accumulator_same_frame_yields)},
+       {"source_gate_yields",
+        std::to_string(g_procedural_frame_accumulator_source_gate_yields)},
+       {"source_gate", "same_frame_recorded_exact_procedural_replay"},
+       {"retry_policy", "next_frame"},
+       {"unsupported_target",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[4])},
+       {"allocation_failed",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[5])},
+       {"unqualified_source",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[6])},
+       {"detail_events",
+        std::to_string(
+            g_procedural_frame_accumulator_backend_detail_count)},
+       {"detail_overflow",
+        std::to_string(
+            g_procedural_frame_accumulator_backend_detail_overflow)},
+       {"detail_limit", std::to_string(kProceduralRuntimeDetailLimit)},
+       {"resource_scope", "private_d3d12"},
+       {"guest_memory_publication", "false"},
+       {"xenos_resolve", "preserved_and_completed_first"},
+       {"draw_suppression", "false"}});
+}
+
 void EmitCommandBufferLineageSummary() {
   EmitSemanticVisibilityWorkset();
   EmitProceduralModelSemanticInstances();
   EmitProceduralModelSemanticSubmissions();
+  EmitTrackRenderModelRuntimeJoinSummary();
+  EmitStaticWorldRuntimeJoinSummary();
+  EmitProceduralColorTargetProfiles();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -10728,6 +18449,66 @@ void EmitCommandBufferLineageSummary() {
           fmt::format("{:016X}", entry.sample_prepared_signature)},
          {"prepared_signature_varied",
           entry.prepared_signature_varied ? "true" : "false"},
+         {"depth_only_draws", std::to_string(entry.depth_only_draws)},
+         {"color_only_draws", std::to_string(entry.color_only_draws)},
+         {"color_depth_draws", std::to_string(entry.color_depth_draws)},
+         {"other_target_draws", std::to_string(entry.other_target_draws)},
+         {"other_color_draws", std::to_string(entry.other_color_draws)},
+         {"opaque_color_draws", std::to_string(entry.opaque_color_draws)},
+         {"bounded_color_draws", std::to_string(entry.bounded_color_draws)},
+         {"resolved_input_color_draws",
+          std::to_string(entry.resolved_input_color_draws)},
+         {"sample_color_prepared_signature",
+          entry.sample_color_known
+              ? fmt::format("{:016X}",
+                            entry.sample_color_prepared_signature)
+              : "none"},
+         {"color_sample_varied",
+          entry.color_sample_varied ? "true" : "false"},
+         {"sample_color_vertex_shader",
+          entry.sample_color_known
+              ? fmt::format("{:016X}", entry.sample_color_vertex_shader)
+              : "none"},
+         {"sample_color_pixel_shader",
+          entry.sample_color_known
+              ? fmt::format("{:016X}", entry.sample_color_pixel_shader)
+              : "none"},
+         {"sample_color_bound_render_target_bits",
+          entry.sample_color_known
+              ? fmt::format(
+                    "{:08X}", entry.sample_color_bound_render_target_bits)
+              : "none"},
+         {"sample_color_bound_render_target_formats",
+          entry.sample_color_known
+              ? fmt::format(
+                    "{}:{}:{}:{}:{}",
+                    entry.sample_color_bound_render_target_formats[0],
+                    entry.sample_color_bound_render_target_formats[1],
+                    entry.sample_color_bound_render_target_formats[2],
+                    entry.sample_color_bound_render_target_formats[3],
+                    entry.sample_color_bound_render_target_formats[4])
+              : "none"},
+         {"sample_color_prepared_pipeline_flags",
+          entry.sample_color_known
+              ? fmt::format("{:08X}",
+                            entry.sample_color_prepared_pipeline_flags)
+              : "none"},
+         {"sample_color_target_state",
+          entry.sample_color_known
+              ? fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                            entry.sample_color_surface_info,
+                            entry.sample_color_info[0],
+                            entry.sample_color_info[1],
+                            entry.sample_color_info[2],
+                            entry.sample_color_info[3],
+                            entry.sample_color_depth_info)
+              : "none"},
+         {"sample_color_scissor",
+          entry.sample_color_known
+              ? fmt::format("{:08X}:{:08X}",
+                            entry.sample_color_window_scissor_tl,
+                            entry.sample_color_window_scissor_br)
+              : "none"},
          {"calls", std::to_string(entry.calls)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -10875,6 +18656,40 @@ void EmitCommandBufferLineageSummary() {
               : "unknown"},
          {"semantic_preparation_epoch_varied",
           entry.semantic_preparation_epoch_varied ? "true" : "false"},
+         {"track_command_lineage",
+          entry.track_command_lineage ? "true" : "false"},
+         {"track_presentation_pass_mask",
+          fmt::format("{:08X}", entry.track_presentation_pass_mask)},
+         {"track_render_root_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_root_address)
+              : "unknown"},
+         {"track_render_child_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_child_address)
+              : "unknown"},
+         {"track_render_descriptor_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_descriptor_address)
+              : "unknown"},
+         {"track_render_descriptor_payload",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_descriptor_payload)
+              : "unknown"},
+         {"track_world_resource_identity_mask",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}",
+                            entry.track_world_resource_identity_mask)
+              : "unknown"},
+         {"track_world_resource_nested_identity_mask",
+          entry.track_command_lineage
+              ? fmt::format(
+                    "{:08X}", entry.track_world_resource_nested_identity_mask)
+              : "unknown"},
+         {"track_command_lineage_classification",
+          entry.track_command_lineage
+              ? "exact_track_scope_to_context_to_packet_to_prepared_draw"
+              : "not_track_owned"},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
@@ -11594,6 +19409,1399 @@ SemanticPreparedDrawContract BuildSemanticPreparedDrawContract(
   return contract;
 }
 
+VehicleShadowGeometryIdentity BuildVehicleShadowGeometryIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    const SemanticPreparedDrawContract &contract) {
+  VehicleShadowGeometryIdentity identity{
+      .geometry_resource_hash = contract.geometry_resource_hash,
+      .index_buffer_address = observation.index_buffer_address,
+      .index_buffer_length = observation.index_buffer_length,
+      .vertex_binding_count = std::min(
+          observation.vertex_binding_count,
+          rex::system::kGraphicsVertexBindingObservationLimit),
+      .occupied = contract.geometry_bounded,
+  };
+  for (uint32_t i = 0; i < identity.vertex_binding_count; ++i) {
+    identity.vertex_addresses[i] = observation.vertex_bindings[i].address;
+    identity.vertex_sizes[i] = observation.vertex_bindings[i].size;
+  }
+  return identity;
+}
+
+void ResetVehicleShadowGeometryStaging() {
+  g_vehicle_shadow_geometry_staging = {};
+  g_isolated_draw.vehicle_shadow_geometry_staging_count = 0;
+}
+
+void StageVehicleShadowGeometry(
+    const rex::system::GraphicsDrawObservation &observation,
+    const SemanticPreparedDrawContract &contract) {
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      g_isolated_draw.vehicle_shadow_geometry_staging_count >=
+          g_vehicle_shadow_geometry_staging.size()) {
+    return;
+  }
+  g_vehicle_shadow_geometry_staging
+      [g_isolated_draw.vehicle_shadow_geometry_staging_count++] =
+          BuildVehicleShadowGeometryIdentity(observation, contract);
+  ++g_vehicle_shadow_geometry_staged_draws;
+}
+
+bool SameVehicleShadowGeometryIdentity(
+    const VehicleShadowGeometryIdentity &left,
+    const VehicleShadowGeometryIdentity &right) {
+  if (!left.occupied || !right.occupied ||
+      left.geometry_resource_hash != right.geometry_resource_hash ||
+      left.index_buffer_address != right.index_buffer_address ||
+      left.index_buffer_length != right.index_buffer_length ||
+      left.vertex_binding_count != right.vertex_binding_count) {
+    return false;
+  }
+  for (uint32_t i = 0; i < left.vertex_binding_count; ++i) {
+    if (left.vertex_addresses[i] != right.vertex_addresses[i] ||
+        left.vertex_sizes[i] != right.vertex_sizes[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void CommitVehicleShadowGeometryEpoch() {
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      g_isolated_draw.vehicle_shadow_geometry_staging_count !=
+          kShadowDepthBatchDrawCount) {
+    ResetVehicleShadowGeometryStaging();
+    return;
+  }
+  ++g_vehicle_shadow_geometry_epochs_committed;
+  for (const VehicleShadowGeometryIdentity &candidate :
+       g_vehicle_shadow_geometry_staging) {
+    if (!candidate.occupied) {
+      continue;
+    }
+    bool duplicate = false;
+    for (size_t i = 0; i < g_vehicle_shadow_geometry_seed_count; ++i) {
+      if (SameVehicleShadowGeometryIdentity(
+              candidate, g_vehicle_shadow_geometry_seeds[i])) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) {
+      ++g_vehicle_shadow_geometry_seed_duplicates;
+      continue;
+    }
+    if (g_vehicle_shadow_geometry_seed_count >=
+        g_vehicle_shadow_geometry_seeds.size()) {
+      ++g_vehicle_shadow_geometry_seed_overflow;
+      continue;
+    }
+    g_vehicle_shadow_geometry_seeds[g_vehicle_shadow_geometry_seed_count++] =
+        candidate;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_geometry_epoch",
+      {{"frame", std::to_string(g_isolated_draw.shadow_depth_batch_frame)},
+       {"draw_count", std::to_string(kShadowDepthBatchDrawCount)},
+       {"unique_geometry_seeds",
+        std::to_string(g_vehicle_shadow_geometry_seed_count)},
+       {"seed_duplicates",
+        std::to_string(g_vehicle_shadow_geometry_seed_duplicates)},
+       {"seed_overflow",
+        std::to_string(g_vehicle_shadow_geometry_seed_overflow)},
+       {"classification", "capture_proven_dynamic_vehicle_epoch"},
+       {"promotion_boundary", "backend_recorded_full_80_draw_epoch"},
+       {"guest_payload_capture", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  ResetVehicleShadowGeometryStaging();
+}
+
+bool VehicleShadowGeometrySharesVertexResource(
+    const VehicleShadowGeometryIdentity &seed,
+    const VehicleShadowGeometryIdentity &candidate) {
+  for (uint32_t i = 0; i < seed.vertex_binding_count; ++i) {
+    for (uint32_t j = 0; j < candidate.vertex_binding_count; ++j) {
+      if (seed.vertex_addresses[i] &&
+          seed.vertex_addresses[i] == candidate.vertex_addresses[j] &&
+          seed.vertex_sizes[i] == candidate.vertex_sizes[j]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+uint64_t VehicleColorMaterialTopologyKey(
+    const SemanticPreparedDrawContract &contract) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {contract.render_state_hash, contract.batch_texture_layout_hash,
+        contract.vertex_shader_hash, contract.pixel_shader_hash,
+        contract.vertex_specialization_mask,
+        contract.pixel_specialization_mask,
+        uint64_t(contract.texture_fetch_mask),
+        uint64_t(contract.texture_layout_valid_mask),
+        uint64_t(contract.texture_state_count)}) {
+    hash = HashCombine(hash, value);
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t VehicleColorMaterialParameterHash(
+    const rex::system::GraphicsDrawObservation &observation) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  const uint32_t count = std::min(
+      observation.pixel_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t i = 0; i < count; ++i) {
+    const auto &constant = observation.pixel_float_constants[i];
+    hash = HashCombine(hash, constant.index);
+    for (uint32_t value : constant.values) {
+      hash = HashCombine(hash, value);
+    }
+  }
+  return hash ? hash : 1;
+}
+
+uint64_t VehicleConstantPayloadHash(uint32_t start_register,
+                                    uint32_t vector_count,
+                                    std::span<const uint32_t> words) {
+  uint64_t hash = UINT64_C(0xCBF29CE484222325);
+  hash = HashCombine(hash, start_register);
+  hash = HashCombine(hash, vector_count);
+  for (uint32_t word : words) {
+    hash = HashCombine(hash, word);
+  }
+  return hash ? hash : 1;
+}
+
+void ObserveVehicleTypedConstantUpload(uint32_t buffer_address,
+                                       uint32_t register_offset,
+                                       uint32_t source_address,
+                                       uint32_t vector_count,
+                                       uint32_t caller_return_address) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
+      !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+  ++g_vehicle_constant_upload_observations;
+  const uint64_t start_register_64 =
+      uint64_t(register_offset) + kVehicleConstantUploadRegisterBias;
+  if (!vector_count ||
+      vector_count > rex::system::kGraphicsFloatConstantObservationLimit ||
+      start_register_64 > UINT32_MAX ||
+      start_register_64 + vector_count > 256) {
+    ++g_vehicle_constant_upload_invalid_register_range;
+    return;
+  }
+  const uint64_t byte_count = uint64_t(vector_count) * 4 * sizeof(uint32_t);
+  rex::memory::Memory *memory =
+      g_vehicle_discovery_memory.load(std::memory_order_acquire);
+  if (byte_count > UINT32_MAX ||
+      !IsReadableVehicleGuestRange(memory, source_address,
+                                   uint32_t(byte_count))) {
+    ++g_vehicle_constant_upload_invalid_source_range;
+    return;
+  }
+  std::array<uint32_t,
+             rex::system::kGraphicsFloatConstantObservationLimit * 4>
+      words{};
+  const uint32_t word_count = vector_count * 4;
+  for (uint32_t i = 0; i < word_count; ++i) {
+    words[i] = LoadSemanticGuestU32(memory,
+                                    source_address + i * sizeof(uint32_t));
+  }
+  std::array<uint64_t,
+             rex::system::kGraphicsFloatConstantObservationLimit>
+      vector_hashes{};
+  for (uint32_t vector_offset = 0; vector_offset < vector_count;
+       ++vector_offset) {
+    vector_hashes[vector_offset] = VehicleConstantPayloadHash(
+        uint32_t(start_register_64) + vector_offset, 1,
+        std::span(words.data() + vector_offset * 4, 4));
+  }
+  VehicleConstantUploadEntry &entry =
+      g_vehicle_constant_uploads[g_vehicle_constant_upload_cursor];
+  g_vehicle_constant_upload_overwrites += entry.occupied ? 1u : 0u;
+  entry = {
+      .frame = g_frame_sequence.load(std::memory_order_relaxed),
+      .sequence = ++g_vehicle_constant_upload_sequence,
+      .buffer_address = buffer_address,
+      .source_address = source_address,
+      .start_register = uint32_t(start_register_64),
+      .vector_count = vector_count,
+      .caller_return_address = caller_return_address,
+      .vector_hashes = vector_hashes,
+      .occupied = true,
+  };
+  g_vehicle_constant_upload_cursor =
+      (g_vehicle_constant_upload_cursor + 1) %
+      g_vehicle_constant_uploads.size();
+  ++g_vehicle_constant_upload_valid;
+}
+
+void ObserveVehicleShaderConstantWrite(
+    const rex::system::GraphicsShaderConstantWriteObservation &observation) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire) ||
+      !g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    return;
+  }
+  std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+  ++g_vehicle_shader_constant_write_observations;
+  if (observation.register_index <
+      kVehicleVertexShaderConstantRegisterBase) {
+    ++g_vehicle_shader_constant_write_invalid_register;
+    return;
+  }
+  const uint32_t component_index =
+      observation.register_index - kVehicleVertexShaderConstantRegisterBase;
+  if (component_index >= 512 * 4) {
+    ++g_vehicle_shader_constant_write_invalid_register;
+    return;
+  }
+  if (component_index >= kVehicleVertexShaderConstantComponentCount) {
+    ++g_vehicle_pixel_shader_constant_write_observations;
+    return;
+  }
+  ++g_vehicle_vertex_shader_constant_write_observations;
+  g_vehicle_shader_constant_components[component_index] = {
+      .frame = observation.frame_sequence,
+      .sequence = ++g_vehicle_shader_constant_write_sequence,
+      .packet_physical_address = observation.packet_physical_address,
+      .command_buffer_physical_address =
+          observation.command_buffer_physical_address,
+      .command_buffer_length_dwords =
+          observation.command_buffer_length_dwords,
+      .command_buffer_parent_packet_physical_address =
+          observation.command_buffer_parent_packet_physical_address,
+      .command_buffer_root_physical_address =
+          observation.command_buffer_root_physical_address,
+      .command_buffer_depth = observation.command_buffer_depth,
+      .packet = observation.packet,
+      .value = observation.value,
+      .occupied = true,
+  };
+}
+
+bool SameVehicleShaderConstantSource(
+    const VehicleShaderConstantComponentWrite &left,
+    const VehicleShaderConstantComponentWrite &right) {
+  return left.packet_physical_address == right.packet_physical_address &&
+         left.command_buffer_physical_address ==
+             right.command_buffer_physical_address &&
+         left.command_buffer_length_dwords ==
+             right.command_buffer_length_dwords &&
+         left.command_buffer_parent_packet_physical_address ==
+             right.command_buffer_parent_packet_physical_address &&
+         left.command_buffer_root_physical_address ==
+             right.command_buffer_root_physical_address &&
+         left.command_buffer_depth == right.command_buffer_depth &&
+         left.packet == right.packet;
+}
+
+void RecordVehicleShaderConstantSource(
+    size_t correlation_index,
+    const rex::system::GraphicsDrawObservation &observation,
+    const VehicleShaderConstantComponentWrite &write,
+    uint64_t age_frames) {
+  uint32_t packet_offset_dwords = UINT32_MAX;
+  if (write.packet_physical_address != UINT32_MAX &&
+      write.command_buffer_physical_address != UINT32_MAX &&
+      write.packet_physical_address >=
+          write.command_buffer_physical_address &&
+      !((write.packet_physical_address -
+         write.command_buffer_physical_address) & 3)) {
+    packet_offset_dwords =
+        (write.packet_physical_address -
+         write.command_buffer_physical_address) /
+        sizeof(uint32_t);
+  }
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(correlation_index), uint64_t(write.packet),
+        uint64_t(packet_offset_dwords),
+        uint64_t(write.command_buffer_depth)}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  for (size_t probe = 0; probe < g_vehicle_shader_constant_sources.size();
+       ++probe) {
+    VehicleShaderConstantSourceEntry &source =
+        g_vehicle_shader_constant_sources[
+            (key + probe) % g_vehicle_shader_constant_sources.size()];
+    if (!source.occupied) {
+      source = {
+          .key = key,
+          .vectors = 1,
+          .draws = 1,
+          .last_draw_sequence = observation.draw_sequence,
+          .maximum_age_frames = age_frames,
+          .correlation_index = uint32_t(correlation_index),
+          .packet = write.packet,
+          .packet_offset_dwords = packet_offset_dwords,
+          .command_buffer_depth = write.command_buffer_depth,
+          .first_command_buffer_length_dwords =
+              write.command_buffer_length_dwords,
+          .last_command_buffer_length_dwords =
+              write.command_buffer_length_dwords,
+          .first_packet_physical_address = write.packet_physical_address,
+          .last_packet_physical_address = write.packet_physical_address,
+          .first_command_buffer_physical_address =
+              write.command_buffer_physical_address,
+          .last_command_buffer_physical_address =
+              write.command_buffer_physical_address,
+          .first_parent_packet_physical_address =
+              write.command_buffer_parent_packet_physical_address,
+          .last_parent_packet_physical_address =
+              write.command_buffer_parent_packet_physical_address,
+          .first_root_buffer_physical_address =
+              write.command_buffer_root_physical_address,
+          .last_root_buffer_physical_address =
+              write.command_buffer_root_physical_address,
+          .occupied = true,
+      };
+      ++g_vehicle_shader_constant_source_count;
+      return;
+    }
+    if (source.key != key ||
+        source.correlation_index != correlation_index ||
+        source.packet != write.packet ||
+        source.packet_offset_dwords != packet_offset_dwords ||
+        source.command_buffer_depth != write.command_buffer_depth) {
+      continue;
+    }
+    ++source.vectors;
+    if (source.last_draw_sequence != observation.draw_sequence) {
+      ++source.draws;
+      source.last_draw_sequence = observation.draw_sequence;
+    }
+    source.maximum_age_frames =
+        std::max(source.maximum_age_frames, age_frames);
+    source.packet_address_variations +=
+        source.last_packet_physical_address !=
+        write.packet_physical_address;
+    source.command_buffer_length_variations +=
+        source.last_command_buffer_length_dwords !=
+        write.command_buffer_length_dwords;
+    source.command_buffer_address_variations +=
+        source.last_command_buffer_physical_address !=
+        write.command_buffer_physical_address;
+    source.parent_packet_address_variations +=
+        source.last_parent_packet_physical_address !=
+        write.command_buffer_parent_packet_physical_address;
+    source.root_buffer_address_variations +=
+        source.last_root_buffer_physical_address !=
+        write.command_buffer_root_physical_address;
+    source.last_packet_physical_address = write.packet_physical_address;
+    source.last_command_buffer_length_dwords =
+        write.command_buffer_length_dwords;
+    source.last_command_buffer_physical_address =
+        write.command_buffer_physical_address;
+    source.last_parent_packet_physical_address =
+        write.command_buffer_parent_packet_physical_address;
+    source.last_root_buffer_physical_address =
+        write.command_buffer_root_physical_address;
+    return;
+  }
+  ++g_vehicle_shader_constant_source_overflow;
+}
+
+void ObserveVehicleColorShaderConstantWrites(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry,
+    size_t correlation_index) {
+  ++entry.shader_constant_write_scans;
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  entry.shader_constant_write_observed_vectors += observed_count;
+  std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[observed_offset];
+    const uint32_t component_base = constant.index * 4;
+    if (component_base + 4 >
+        g_vehicle_shader_constant_components.size()) {
+      ++entry.shader_constant_write_missing_vectors;
+      ++g_vehicle_shader_constant_invalid_observed_vectors;
+      continue;
+    }
+    const VehicleShaderConstantComponentWrite *components =
+        g_vehicle_shader_constant_components.data() + component_base;
+    bool observer_provenance_valid = true;
+    bool observer_provenance_split = false;
+    for (uint32_t component = 0; component < 4; ++component) {
+      observer_provenance_valid &= components[component].occupied;
+      observer_provenance_split |=
+          component != 0 &&
+          !SameVehicleShaderConstantSource(components[0],
+                                           components[component]);
+    }
+    const bool missing = !constant.write_provenance_valid ||
+                         !observer_provenance_valid;
+    const bool mismatch = constant.write_value_mismatch_mask != 0;
+    const bool coherent = !constant.write_provenance_split &&
+                          !observer_provenance_split;
+    const uint64_t maximum_age_frames =
+        constant.write_maximum_age_frames;
+    if (missing) {
+      ++entry.shader_constant_write_missing_vectors;
+      ++g_vehicle_shader_constant_register_missing_vectors[constant.index];
+      continue;
+    }
+    if (mismatch) {
+      ++entry.shader_constant_write_mismatched_vectors;
+      ++g_vehicle_shader_constant_register_mismatched_vectors[constant.index];
+      uint32_t &first_mismatch_mask =
+          g_vehicle_shader_constant_register_first_mismatch_mask[constant.index];
+      if (!first_mismatch_mask) {
+        first_mismatch_mask = constant.write_value_mismatch_mask;
+      } else if (first_mismatch_mask !=
+                 constant.write_value_mismatch_mask) {
+        ++g_vehicle_shader_constant_register_mismatch_mask_variations
+              [constant.index];
+      }
+      continue;
+    }
+    ++entry.shader_constant_write_exact_vectors;
+    ++g_vehicle_shader_constant_register_exact_vectors[constant.index];
+    entry.shader_constant_write_maximum_age_frames =
+        std::max(entry.shader_constant_write_maximum_age_frames,
+                 maximum_age_frames);
+    if (!coherent) {
+      ++entry.shader_constant_write_split_vectors;
+      continue;
+    }
+    ++entry.shader_constant_write_coherent_vectors;
+    RecordVehicleShaderConstantSource(correlation_index, observation,
+                                      components[0], maximum_age_frames);
+  }
+}
+
+void PublishVehicleSemanticConstantBridge(
+    const rex::system::GraphicsDrawObservation &observation,
+    size_t correlation_index) {
+  if (correlation_index >= g_vehicle_semantic_constant_bridges.size() ||
+      observation.vertex_float_constant_overflow ||
+      !observation.vertex_float_constant_count ||
+      observation.vertex_float_constant_count >
+          rex::system::kGraphicsFloatConstantObservationLimit) {
+    ++g_vehicle_semantic_constant_bridge_rejections;
+    return;
+  }
+
+  const uint32_t constant_count = observation.vertex_float_constant_count;
+  uint64_t register_layout_hash = 0xCBF29CE484222325ull;
+  uint64_t value_hash = 0xCBF29CE484222325ull;
+  uint32_t exact_packet_lineage_vectors = 0;
+  for (uint32_t i = 0; i < constant_count; ++i) {
+    const auto &constant = observation.vertex_float_constants[i];
+    register_layout_hash = HashCombine(register_layout_hash, constant.index);
+    value_hash = HashCombine(value_hash, constant.index);
+    for (uint32_t value : constant.values) {
+      value_hash = HashCombine(value_hash, value);
+    }
+    exact_packet_lineage_vectors +=
+        constant.write_provenance_valid &&
+                !constant.write_provenance_split &&
+                !constant.write_value_mismatch_mask
+            ? 1u
+            : 0u;
+  }
+
+  VehicleSemanticConstantBridgeEntry &bridge =
+      g_vehicle_semantic_constant_bridges[correlation_index];
+  if (bridge.occupied) {
+    bridge.register_layout_variations +=
+        bridge.register_layout_hash != register_layout_hash;
+    bridge.value_variations += bridge.value_hash != value_hash;
+  }
+  std::copy_n(observation.vertex_float_constants, constant_count,
+              bridge.constants.begin());
+  bridge.publications += 1;
+  bridge.register_layout_hash = register_layout_hash;
+  bridge.value_hash = value_hash;
+  bridge.frame_sequence = observation.frame_sequence;
+  bridge.draw_sequence = observation.draw_sequence;
+  bridge.constant_count = constant_count;
+  bridge.exact_packet_lineage_vectors = exact_packet_lineage_vectors;
+  bridge.unresolved_packet_lineage_vectors =
+      constant_count - exact_packet_lineage_vectors;
+  bridge.occupied = true;
+  ++g_vehicle_semantic_constant_bridge_publications;
+  g_vehicle_semantic_constant_bridge_complete_lineage_publications +=
+      exact_packet_lineage_vectors == constant_count ? 1u : 0u;
+}
+
+VehicleConstantUploadSubsetResult MatchObservedVertexConstantSubset(
+    const rex::system::GraphicsDrawObservation &observation,
+    const VehicleConstantUploadEntry &upload,
+    uint32_t *matched_vector_count) {
+  if (!matched_vector_count) {
+    return VehicleConstantUploadSubsetResult::kNoOverlap;
+  }
+  *matched_vector_count = 0;
+  uint32_t mismatched_vector_count = 0;
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[observed_offset];
+    if (constant.index < upload.start_register ||
+        constant.index >= upload.start_register + upload.vector_count) {
+      continue;
+    }
+    const uint32_t vector_offset = constant.index - upload.start_register;
+    const uint64_t observed_hash = VehicleConstantPayloadHash(
+        constant.index, 1,
+        std::span(constant.values, std::size(constant.values)));
+    if (observed_hash != upload.vector_hashes[vector_offset]) {
+      ++mismatched_vector_count;
+      continue;
+    }
+    ++*matched_vector_count;
+  }
+  return *matched_vector_count
+             ? VehicleConstantUploadSubsetResult::kExact
+             : (mismatched_vector_count
+                    ? VehicleConstantUploadSubsetResult::kHashMismatch
+                    : VehicleConstantUploadSubsetResult::kNoOverlap);
+}
+
+void ObserveVehicleColorTypedConstantUpload(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry) {
+  ++entry.typed_upload_scans;
+  const uint32_t observed_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t observed_offset = 0; observed_offset < observed_count;
+       ++observed_offset) {
+    const uint32_t observed_register =
+        observation.vertex_float_constants[observed_offset].index;
+    if (!entry.typed_upload_observed_register_range_valid) {
+      entry.typed_upload_observed_register_min = observed_register;
+      entry.typed_upload_observed_register_max = observed_register;
+      entry.typed_upload_observed_register_range_valid = true;
+    } else {
+      entry.typed_upload_observed_register_min = std::min(
+          entry.typed_upload_observed_register_min, observed_register);
+      entry.typed_upload_observed_register_max = std::max(
+          entry.typed_upload_observed_register_max, observed_register);
+    }
+  }
+  VehicleConstantUploadEntry best{};
+  uint32_t best_matched_vector_count = 0;
+  {
+    std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+    for (const VehicleConstantUploadEntry &upload :
+         g_vehicle_constant_uploads) {
+      if (!upload.occupied || observation.frame_sequence < upload.frame ||
+          observation.frame_sequence - upload.frame >
+              kVehicleConstantUploadMaximumAgeFrames) {
+        continue;
+      }
+      ++entry.typed_upload_fresh_candidates;
+      uint32_t matched_vector_count = 0;
+      const VehicleConstantUploadSubsetResult subset_result =
+          MatchObservedVertexConstantSubset(
+              observation, upload, &matched_vector_count);
+      if (subset_result == VehicleConstantUploadSubsetResult::kNoOverlap) {
+        ++entry.typed_upload_no_overlap_candidates;
+        continue;
+      }
+      if (subset_result == VehicleConstantUploadSubsetResult::kHashMismatch) {
+        ++entry.typed_upload_hash_mismatch_candidates;
+        continue;
+      }
+      ++entry.typed_upload_exact_candidates;
+      if (!best.occupied ||
+          matched_vector_count > best_matched_vector_count ||
+          (matched_vector_count == best_matched_vector_count &&
+           upload.sequence > best.sequence)) {
+        best = upload;
+        best_matched_vector_count = matched_vector_count;
+      }
+    }
+  }
+  if (!best.occupied) {
+    ++entry.typed_upload_misses;
+    return;
+  }
+  ++entry.typed_upload_exact_matches;
+  entry.typed_upload_exact_used_vectors += best_matched_vector_count;
+  if (entry.typed_upload_identity_valid) {
+    entry.typed_upload_start_register_variations +=
+        entry.typed_upload_start_register != best.start_register;
+    entry.typed_upload_vector_count_variations +=
+        entry.typed_upload_vector_count != best.vector_count;
+    entry.typed_upload_used_vector_count_variations +=
+        entry.typed_upload_used_vector_count != best_matched_vector_count;
+    entry.typed_upload_source_address_variations +=
+        entry.typed_upload_source_address != best.source_address;
+    entry.typed_upload_buffer_address_variations +=
+        entry.typed_upload_buffer_address != best.buffer_address;
+    entry.typed_upload_caller_variations +=
+        entry.typed_upload_caller_return_address !=
+        best.caller_return_address;
+  }
+  entry.typed_upload_start_register = best.start_register;
+  entry.typed_upload_vector_count = best.vector_count;
+  entry.typed_upload_used_vector_count = best_matched_vector_count;
+  entry.typed_upload_source_address = best.source_address;
+  entry.typed_upload_buffer_address = best.buffer_address;
+  entry.typed_upload_caller_return_address = best.caller_return_address;
+  entry.typed_upload_identity_valid = true;
+}
+
+void ObserveVehicleColorConstantIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    VehicleShadowGeometryCorrelationEntry &entry) {
+  struct PoseCandidate {
+    uint64_t last_frame = 0;
+    uint32_t generation = 0;
+    uint32_t owner = 0;
+    uint32_t slot = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float forward_x = 0.0f;
+    float forward_y = 0.0f;
+    float forward_z = 0.0f;
+  };
+  struct Match {
+    double delta_squared = std::numeric_limits<double>::infinity();
+    uint32_t generation = 0;
+    uint32_t owner = 0;
+    uint32_t slot = 0;
+    uint32_t constant_register = 0;
+    int32_t forward_sign = 0;
+  };
+
+  std::array<PoseCandidate, kVehicleIdentityCapacity> poses{};
+  size_t pose_count = 0;
+  {
+    std::scoped_lock lock(g_vehicle_identity_mutex);
+    for (const VehicleIdentityEntry &identity : g_vehicle_identities) {
+      if (!identity.valid || observation.frame_sequence < identity.last_frame ||
+          observation.frame_sequence - identity.last_frame >
+              kVehicleColorConstantMaximumIdentityAgeFrames) {
+        continue;
+      }
+      poses[pose_count++] = {
+          .last_frame = identity.last_frame,
+          .generation = identity.generation,
+          .owner = identity.owner,
+          .slot = identity.slot,
+          .x = identity.last_x,
+          .y = identity.last_y,
+          .z = identity.last_z,
+          .forward_x = identity.last_forward_x,
+          .forward_y = identity.last_forward_y,
+          .forward_z = identity.last_forward_z,
+      };
+    }
+  }
+
+  ++entry.constant_identity_scans;
+  if (!pose_count) {
+    ++entry.constant_identity_missing_fresh_pose;
+    ++entry.constant_position_misses;
+    ++entry.constant_forward_misses;
+    return;
+  }
+
+  Match best_position{};
+  Match best_forward{};
+  uint64_t tight_position_matches = 0;
+  uint64_t tight_forward_matches = 0;
+  const uint32_t constant_count = std::min(
+      observation.vertex_float_constant_count,
+      rex::system::kGraphicsFloatConstantObservationLimit);
+  for (uint32_t constant_offset = 0; constant_offset < constant_count;
+       ++constant_offset) {
+    const auto &constant =
+        observation.vertex_float_constants[constant_offset];
+    const float x = std::bit_cast<float>(constant.values[0]);
+    const float y = std::bit_cast<float>(constant.values[1]);
+    const float z = std::bit_cast<float>(constant.values[2]);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+      ++g_vehicle_color_constant_non_finite_vectors;
+      continue;
+    }
+    ++g_vehicle_color_constant_vectors_scanned;
+    for (const PoseCandidate &pose : std::span(poses.data(), pose_count)) {
+      const double position_dx = double(x) - pose.x;
+      const double position_dy = double(y) - pose.y;
+      const double position_dz = double(z) - pose.z;
+      const double position_delta_squared =
+          position_dx * position_dx + position_dy * position_dy +
+          position_dz * position_dz;
+      ++g_vehicle_color_constant_identity_comparisons;
+      if (position_delta_squared < best_position.delta_squared) {
+        best_position = {
+            .delta_squared = position_delta_squared,
+            .generation = pose.generation,
+            .owner = pose.owner,
+            .slot = pose.slot,
+            .constant_register = constant.index,
+        };
+      }
+      tight_position_matches +=
+          position_delta_squared <=
+          kVehicleMatrixPositionDeltaSquaredThreshold;
+
+      for (int32_t sign : {1, -1}) {
+        const double forward_dx = double(x) - sign * pose.forward_x;
+        const double forward_dy = double(y) - sign * pose.forward_y;
+        const double forward_dz = double(z) - sign * pose.forward_z;
+        const double forward_delta_squared =
+            forward_dx * forward_dx + forward_dy * forward_dy +
+            forward_dz * forward_dz;
+        ++g_vehicle_color_constant_identity_comparisons;
+        if (forward_delta_squared < best_forward.delta_squared) {
+          best_forward = {
+              .delta_squared = forward_delta_squared,
+              .generation = pose.generation,
+              .owner = pose.owner,
+              .slot = pose.slot,
+              .constant_register = constant.index,
+              .forward_sign = sign,
+          };
+        }
+        tight_forward_matches +=
+            forward_delta_squared <=
+            kVehicleMatrixForwardDeltaSquaredThreshold;
+      }
+    }
+  }
+
+  entry.closest_position_delta_squared = std::min(
+      entry.closest_position_delta_squared, best_position.delta_squared);
+  entry.closest_forward_delta_squared = std::min(
+      entry.closest_forward_delta_squared, best_forward.delta_squared);
+  if (tight_position_matches == 1) {
+    ++entry.constant_position_unique_matches;
+    if (entry.constant_position_identity_valid) {
+      entry.constant_position_identity_variations +=
+          entry.constant_position_identity_generation !=
+              best_position.generation ||
+          entry.constant_position_identity_owner != best_position.owner ||
+          entry.constant_position_identity_slot != best_position.slot;
+      entry.constant_position_register_variations +=
+          entry.constant_position_register !=
+          best_position.constant_register;
+    }
+    entry.constant_position_identity_generation = best_position.generation;
+    entry.constant_position_identity_owner = best_position.owner;
+    entry.constant_position_identity_slot = best_position.slot;
+    entry.constant_position_register = best_position.constant_register;
+    entry.constant_position_identity_valid = true;
+  } else if (tight_position_matches) {
+    ++entry.constant_position_ambiguous_matches;
+  } else {
+    ++entry.constant_position_misses;
+  }
+
+  if (tight_forward_matches == 1) {
+    ++entry.constant_forward_unique_matches;
+    if (entry.constant_forward_identity_valid) {
+      entry.constant_forward_identity_variations +=
+          entry.constant_forward_identity_generation !=
+              best_forward.generation ||
+          entry.constant_forward_identity_owner != best_forward.owner ||
+          entry.constant_forward_identity_slot != best_forward.slot;
+      entry.constant_forward_register_variations +=
+          entry.constant_forward_register != best_forward.constant_register ||
+          entry.constant_forward_sign != best_forward.forward_sign;
+    }
+    entry.constant_forward_identity_generation = best_forward.generation;
+    entry.constant_forward_identity_owner = best_forward.owner;
+    entry.constant_forward_identity_slot = best_forward.slot;
+    entry.constant_forward_register = best_forward.constant_register;
+    entry.constant_forward_sign = best_forward.forward_sign;
+    entry.constant_forward_identity_valid = true;
+  } else if (tight_forward_matches) {
+    ++entry.constant_forward_ambiguous_matches;
+  } else {
+    ++entry.constant_forward_misses;
+  }
+}
+
+bool ObserveVehicleShadowGeometryColorCorrelation(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint64_t prepared_signature,
+    const SemanticPreparedDrawContract &contract,
+    uint32_t mechanical_rejection_mask,
+    uint32_t private_capture_rejection_mask,
+    size_t *matched_correlation_index) {
+  if (matched_correlation_index) {
+    *matched_correlation_index = kVehicleShadowGeometryCorrelationCapacity;
+  }
+  if (!g_isolated_draw.vehicle_shadow_geometry_correlation_mode ||
+      !g_vehicle_shadow_geometry_seed_count || samples_resolved_target ||
+      !contract.geometry_bounded || !observation.indexed ||
+      !observation.rb_color_mask || !prepared.normalized_color_mask ||
+      !prepared.pixel_shader_hash || observation.viz_query_condition ||
+      (observation.pa_sc_viz_query & 1) || observation.vertex_memexport) {
+    return false;
+  }
+  ++g_vehicle_shadow_geometry_color_draws_examined;
+  const VehicleShadowGeometryIdentity candidate =
+      BuildVehicleShadowGeometryIdentity(observation, contract);
+  size_t matched_seed = g_vehicle_shadow_geometry_seed_count;
+  bool full_geometry_match = false;
+  for (size_t i = 0; i < g_vehicle_shadow_geometry_seed_count; ++i) {
+    const VehicleShadowGeometryIdentity &seed =
+        g_vehicle_shadow_geometry_seeds[i];
+    if (SameVehicleShadowGeometryIdentity(seed, candidate)) {
+      matched_seed = i;
+      full_geometry_match = true;
+      break;
+    }
+    if (matched_seed == g_vehicle_shadow_geometry_seed_count &&
+        seed.index_buffer_address == candidate.index_buffer_address &&
+        seed.index_buffer_length == candidate.index_buffer_length &&
+        VehicleShadowGeometrySharesVertexResource(seed, candidate)) {
+      matched_seed = i;
+    }
+  }
+  if (matched_seed == g_vehicle_shadow_geometry_seed_count) {
+    return false;
+  }
+  ++g_vehicle_shadow_geometry_color_draws_matched;
+  if (full_geometry_match) {
+    ++g_vehicle_shadow_geometry_full_matches;
+  } else {
+    ++g_vehicle_shadow_geometry_partial_matches;
+  }
+  if (mechanical_rejection_mask) {
+    ++g_vehicle_shadow_geometry_mechanically_rejected_draws;
+  } else {
+    ++g_vehicle_shadow_geometry_mechanically_eligible_draws;
+  }
+  for (size_t bit = 0;
+       bit < g_vehicle_shadow_geometry_rejection_reason_counts.size(); ++bit) {
+    if (mechanical_rejection_mask & (uint32_t(1) << bit)) {
+      ++g_vehicle_shadow_geometry_rejection_reason_counts[bit];
+    }
+  }
+  if (private_capture_rejection_mask) {
+    ++g_vehicle_shadow_color_private_capture_rejected_draws;
+  } else {
+    ++g_vehicle_shadow_color_private_capture_eligible_draws;
+  }
+  const uint64_t material_topology_key =
+      VehicleColorMaterialTopologyKey(contract);
+  const uint64_t material_parameter_hash =
+      VehicleColorMaterialParameterHash(observation);
+  VehicleShadowGeometryCorrelationEntry *available = nullptr;
+  size_t available_index = kVehicleShadowGeometryCorrelationCapacity;
+  for (size_t correlation_index = 0;
+       correlation_index < g_vehicle_shadow_geometry_correlations.size();
+       ++correlation_index) {
+    VehicleShadowGeometryCorrelationEntry &entry =
+        g_vehicle_shadow_geometry_correlations[correlation_index];
+    if (!entry.occupied) {
+      available = &entry;
+      available_index = correlation_index;
+      break;
+    }
+    if (entry.prepared_signature == prepared_signature &&
+        entry.seed_index == matched_seed &&
+        entry.full_geometry_match == full_geometry_match &&
+        entry.material_topology_key == material_topology_key &&
+        entry.draw_argument_hash == contract.draw_argument_hash &&
+        entry.geometry_resource_hash == contract.geometry_resource_hash &&
+        entry.texture_resource_hash == contract.texture_resource_hash &&
+        entry.prepared_pipeline_hash == contract.prepared_pipeline_hash) {
+      const uint64_t parameter_hash =
+          SemanticInstanceParameterHash(observation);
+      if (entry.last_parameter_hash != parameter_hash) {
+        ++entry.parameter_switches;
+        entry.last_parameter_hash = parameter_hash;
+      }
+      if (entry.last_material_parameter_hash != material_parameter_hash) {
+        ++entry.material_parameter_switches;
+        entry.last_material_parameter_hash = material_parameter_hash;
+      }
+      if (entry.last_rejection_mask != mechanical_rejection_mask) {
+        ++entry.rejection_mask_switches;
+        entry.last_rejection_mask = mechanical_rejection_mask;
+      }
+      entry.rejection_mask_or |= mechanical_rejection_mask;
+      entry.rejection_mask_and &= mechanical_rejection_mask;
+      if (mechanical_rejection_mask) {
+        ++entry.mechanically_rejected_draws;
+      } else {
+        ++entry.mechanically_eligible_draws;
+      }
+      if (entry.last_private_capture_rejection_mask !=
+          private_capture_rejection_mask) {
+        ++entry.private_capture_rejection_mask_switches;
+        entry.last_private_capture_rejection_mask =
+            private_capture_rejection_mask;
+      }
+      entry.private_capture_rejection_mask_or |=
+          private_capture_rejection_mask;
+      entry.private_capture_rejection_mask_and &=
+          private_capture_rejection_mask;
+      if (private_capture_rejection_mask) {
+        ++entry.private_capture_rejected_draws;
+      } else {
+        ++entry.private_capture_eligible_draws;
+      }
+      ++entry.draws;
+      entry.last_frame = observation.frame_sequence;
+      ObserveVehicleColorConstantIdentity(observation, entry);
+      ObserveVehicleColorTypedConstantUpload(observation, entry);
+      ObserveVehicleColorShaderConstantWrites(observation, entry,
+                                              correlation_index);
+      PublishVehicleSemanticConstantBridge(observation, correlation_index);
+      if (matched_correlation_index) {
+        *matched_correlation_index = correlation_index;
+      }
+      return true;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_shadow_geometry_correlation_overflow;
+    return true;
+  }
+  *available = {
+      .prepared_signature = prepared_signature,
+      .template_key = contract.template_key,
+      .material_topology_key = material_topology_key,
+      .vertex_shader_hash = contract.vertex_shader_hash,
+      .pixel_shader_hash = contract.pixel_shader_hash,
+      .render_state_hash = contract.render_state_hash,
+      .texture_layout_hash = contract.texture_layout_hash,
+      .first_material_parameter_hash = material_parameter_hash,
+      .last_material_parameter_hash = material_parameter_hash,
+      .draw_argument_hash = contract.draw_argument_hash,
+      .geometry_resource_hash = contract.geometry_resource_hash,
+      .texture_resource_hash = contract.texture_resource_hash,
+      .prepared_pipeline_hash = contract.prepared_pipeline_hash,
+      .first_parameter_hash = SemanticInstanceParameterHash(observation),
+      .last_parameter_hash = SemanticInstanceParameterHash(observation),
+      .draws = 1,
+      .first_frame = observation.frame_sequence,
+      .last_frame = observation.frame_sequence,
+      .mechanically_eligible_draws = mechanical_rejection_mask ? 0u : 1u,
+      .mechanically_rejected_draws = mechanical_rejection_mask ? 1u : 0u,
+      .private_capture_eligible_draws =
+          private_capture_rejection_mask ? 0u : 1u,
+      .private_capture_rejected_draws =
+          private_capture_rejection_mask ? 1u : 0u,
+      .seed_index = uint32_t(matched_seed),
+      .first_rejection_mask = mechanical_rejection_mask,
+      .last_rejection_mask = mechanical_rejection_mask,
+      .rejection_mask_or = mechanical_rejection_mask,
+      .rejection_mask_and = mechanical_rejection_mask,
+      .first_private_capture_rejection_mask =
+          private_capture_rejection_mask,
+      .last_private_capture_rejection_mask =
+          private_capture_rejection_mask,
+      .private_capture_rejection_mask_or =
+          private_capture_rejection_mask,
+      .private_capture_rejection_mask_and =
+          private_capture_rejection_mask,
+      .full_geometry_match = full_geometry_match,
+      .occupied = true,
+  };
+  ObserveVehicleColorConstantIdentity(observation, *available);
+  ObserveVehicleColorTypedConstantUpload(observation, *available);
+  ObserveVehicleColorShaderConstantWrites(observation, *available,
+                                          available_index);
+  PublishVehicleSemanticConstantBridge(observation, available_index);
+  if (matched_correlation_index) {
+    *matched_correlation_index = available_index;
+  }
+  ++g_vehicle_shadow_geometry_correlation_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_geometry_correlation",
+      {{"prepared_signature", fmt::format("{:016X}", prepared_signature)},
+      {"template_key", fmt::format("{:016X}", contract.template_key)},
+       {"material_topology_key",
+        fmt::format("{:016X}", material_topology_key)},
+       {"vertex_shader", fmt::format("{:016X}", contract.vertex_shader_hash)},
+       {"pixel_shader", fmt::format("{:016X}", contract.pixel_shader_hash)},
+       {"render_state_hash",
+        fmt::format("{:016X}", contract.render_state_hash)},
+       {"texture_layout_hash",
+        fmt::format("{:016X}", contract.texture_layout_hash)},
+       {"draw_argument_hash",
+        fmt::format("{:016X}", contract.draw_argument_hash)},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}", contract.geometry_resource_hash)},
+       {"texture_resource_hash",
+        fmt::format("{:016X}", contract.texture_resource_hash)},
+       {"prepared_pipeline_hash",
+        fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+       {"mechanical_rejection_mask",
+        fmt::format("{:08X}", mechanical_rejection_mask)},
+       {"mechanically_eligible",
+        mechanical_rejection_mask ? "false" : "true"},
+       {"private_capture_rejection_mask",
+        fmt::format("{:08X}", private_capture_rejection_mask)},
+       {"private_capture_eligible",
+        private_capture_rejection_mask ? "false" : "true"},
+       {"seed_index", std::to_string(matched_seed)},
+       {"match", full_geometry_match
+                     ? "exact_geometry_resource_set"
+                     : "exact_index_and_shared_vertex_resource"},
+       {"classification", "vehicle_color_geometry_correlation_candidate"},
+       {"guest_payload_capture", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  return true;
+}
+
+void FinalizeVehicleShadowColorRun() {
+  if (!g_vehicle_shadow_color_run.valid) {
+    return;
+  }
+  ++g_vehicle_shadow_color_runs;
+  g_vehicle_shadow_color_run_draws +=
+      g_vehicle_shadow_color_run.length;
+  g_vehicle_shadow_color_maximum_run_length =
+      std::max(g_vehicle_shadow_color_maximum_run_length,
+               g_vehicle_shadow_color_run.length);
+  if (g_vehicle_shadow_color_run.length > 1) {
+    ++g_vehicle_shadow_color_multi_draw_runs;
+  }
+  if (g_vehicle_shadow_geometry_correlation_count ==
+          kVehicleShadowColorRetainedFamilyCount &&
+      g_vehicle_shadow_color_run.length ==
+          g_vehicle_shadow_geometry_correlation_count) {
+    ++g_vehicle_shadow_color_full_family_runs;
+    if (!g_vehicle_shadow_color_first_full_family_sequence_hash) {
+      g_vehicle_shadow_color_first_full_family_sequence_hash =
+          g_vehicle_shadow_color_run.sequence_hash;
+    } else if (g_vehicle_shadow_color_first_full_family_sequence_hash !=
+               g_vehicle_shadow_color_run.sequence_hash) {
+      ++g_vehicle_shadow_color_full_family_sequence_variants;
+    }
+  }
+  g_vehicle_shadow_color_run = {};
+}
+
+void ObserveVehicleShadowColorRun(bool matched, uint64_t frame,
+                                  uint64_t draw,
+                                  uint64_t prepared_signature) {
+  if (!matched) {
+    FinalizeVehicleShadowColorRun();
+    return;
+  }
+  if (g_vehicle_shadow_color_run.valid &&
+      g_vehicle_shadow_color_run.frame == frame &&
+      draw == g_vehicle_shadow_color_run.last_draw + 1) {
+    ++g_vehicle_shadow_color_run.length;
+    g_vehicle_shadow_color_run.last_draw = draw;
+    g_vehicle_shadow_color_run.sequence_hash = HashCombine(
+        g_vehicle_shadow_color_run.sequence_hash, prepared_signature);
+    return;
+  }
+  FinalizeVehicleShadowColorRun();
+  g_vehicle_shadow_color_run = {
+      .frame = frame,
+      .last_draw = draw,
+      .length = 1,
+      .sequence_hash =
+          HashCombine(UINT64_C(0xCBF29CE484222325), prepared_signature),
+      .valid = true,
+  };
+}
+
+void RecordStaticWorldPreparedLayout(
+    const rex::system::GraphicsDrawObservation &observation,
+    const StaticWorldDrawIdentity &identity,
+    const SemanticPreparedDrawContract &contract) {
+  g_static_world_prepared_layout_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  if (!contract.geometry_bounded) {
+    g_static_world_prepared_layout_unbounded_geometry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!contract.texture_layout_bounded ||
+      observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow ||
+      observation.texture_state_overflow) {
+    g_static_world_prepared_layout_parameter_overflows.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_static_world_prepared_layout_exact.fetch_add(
+      1, std::memory_order_relaxed);
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  key = HashCombine(key, identity.asset_key_hash);
+  key = HashCombine(key, identity.simple_mesh_address);
+  key = HashCombine(key, identity.model_resource_generation);
+  key = HashCombine(key, identity.model_resource_payload_generation);
+  key = HashCombine(key, contract.prepared_pipeline_hash);
+  key = HashCombine(key, contract.geometry_layout_hash);
+  key = HashCombine(key, contract.texture_layout_hash);
+  key = HashCombine(key, contract.render_state_hash);
+  key = key ? key : 1;
+  const uint64_t parameter_hash = SemanticInstanceParameterHash(observation);
+  size_t index = size_t(key % kStaticWorldPreparedLayoutCapacity);
+  for (size_t probe = 0; probe < kStaticWorldPreparedLayoutCapacity;
+       ++probe) {
+    StaticWorldPreparedLayoutEntry &entry =
+        g_static_world_prepared_layouts[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_hash = parameter_hash;
+      entry.identity = identity;
+      entry.contract = contract;
+      entry.sample = observation;
+      ++g_static_world_prepared_layout_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.identity.asset_key_hash == identity.asset_key_hash &&
+        entry.identity.simple_mesh_address == identity.simple_mesh_address &&
+        entry.identity.model_resource_generation ==
+            identity.model_resource_generation &&
+        entry.identity.model_resource_payload_generation ==
+            identity.model_resource_payload_generation &&
+        entry.contract.prepared_pipeline_hash ==
+            contract.prepared_pipeline_hash &&
+        entry.contract.geometry_layout_hash ==
+            contract.geometry_layout_hash &&
+        entry.contract.texture_layout_hash == contract.texture_layout_hash &&
+        entry.contract.render_state_hash == contract.render_state_hash) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_variations +=
+          entry.parameter_hash != parameter_hash ? 1 : 0;
+      entry.parameter_hash = parameter_hash;
+      return;
+    }
+    index = (index + 1) % kStaticWorldPreparedLayoutCapacity;
+  }
+  g_static_world_prepared_layout_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void RecordTrackWorldPreparedLayout(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const IndirectConstructorOrigin::Owner::Producer::Context &context,
+    const SemanticPreparedDrawContract &contract) {
+  g_track_world_prepared_layout_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  if (!contract.geometry_bounded) {
+    g_track_world_prepared_layout_unbounded_geometry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!contract.texture_layout_bounded ||
+      observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow ||
+      observation.texture_state_overflow) {
+    g_track_world_prepared_layout_parameter_overflows.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_track_world_prepared_layout_exact.fetch_add(1, std::memory_order_relaxed);
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(context.track_render_root_address),
+        uint64_t(context.track_render_child_address),
+        uint64_t(context.track_render_descriptor_address),
+        uint64_t(context.track_render_descriptor_payload),
+        uint64_t(context.track_world_resource_identity_mask),
+        uint64_t(context.track_world_resource_nested_identity_mask),
+        contract.prepared_pipeline_hash, contract.geometry_layout_hash,
+        contract.texture_layout_hash, contract.render_state_hash}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  const uint64_t parameter_hash = SemanticInstanceParameterHash(observation);
+  size_t index = size_t(key % kTrackWorldPreparedLayoutCapacity);
+  for (size_t probe = 0; probe < kTrackWorldPreparedLayoutCapacity; ++probe) {
+    TrackWorldPreparedLayoutEntry &entry =
+        g_track_world_prepared_layouts[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_hash = parameter_hash;
+      entry.track_render_root_address = context.track_render_root_address;
+      entry.track_render_child_address = context.track_render_child_address;
+      entry.track_render_descriptor_address =
+          context.track_render_descriptor_address;
+      entry.track_render_descriptor_payload =
+          context.track_render_descriptor_payload;
+      entry.track_world_resource_identity_mask =
+          context.track_world_resource_identity_mask;
+      entry.track_world_resource_nested_identity_mask =
+          context.track_world_resource_nested_identity_mask;
+      entry.bound_render_target_bits = prepared.bound_render_target_bits;
+      std::copy(std::begin(prepared.bound_render_target_formats),
+                std::end(prepared.bound_render_target_formats),
+                entry.bound_render_target_formats.begin());
+      entry.prepared_pipeline_flags = prepared.flags;
+      entry.contract = contract;
+      entry.sample = observation;
+      ++g_track_world_prepared_layout_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.track_render_root_address == context.track_render_root_address &&
+        entry.track_render_child_address ==
+            context.track_render_child_address &&
+        entry.track_render_descriptor_address ==
+            context.track_render_descriptor_address &&
+        entry.track_render_descriptor_payload ==
+            context.track_render_descriptor_payload &&
+        entry.track_world_resource_identity_mask ==
+            context.track_world_resource_identity_mask &&
+        entry.track_world_resource_nested_identity_mask ==
+            context.track_world_resource_nested_identity_mask &&
+        entry.bound_render_target_bits == prepared.bound_render_target_bits &&
+        std::equal(entry.bound_render_target_formats.begin(),
+                   entry.bound_render_target_formats.end(),
+                   std::begin(prepared.bound_render_target_formats)) &&
+        entry.prepared_pipeline_flags == prepared.flags &&
+        entry.contract.prepared_pipeline_hash ==
+            contract.prepared_pipeline_hash &&
+        entry.contract.geometry_layout_hash == contract.geometry_layout_hash &&
+        entry.contract.texture_layout_hash == contract.texture_layout_hash &&
+        entry.contract.render_state_hash == contract.render_state_hash) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_variations +=
+          entry.parameter_hash != parameter_hash ? 1 : 0;
+      entry.parameter_hash = parameter_hash;
+      return;
+    }
+    index = (index + 1) % kTrackWorldPreparedLayoutCapacity;
+  }
+  g_track_world_prepared_layout_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void RecordTrackPresentationPreparedTarget(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint32_t direct_scope_mask, uint32_t packet_lineage_mask) {
+  const uint32_t pass_mask = direct_scope_mask | packet_lineage_mask;
+  if (!pass_mask) {
+    return;
+  }
+  g_track_presentation_prepared_target_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(pass_mask), uint64_t(direct_scope_mask),
+        uint64_t(packet_lineage_mask),
+        uint64_t(prepared.bound_render_target_bits),
+        uint64_t(prepared.flags), observation.vertex_shader_hash,
+        observation.pixel_shader_hash, uint64_t(observation.viewport_xscale),
+        uint64_t(observation.viewport_xoffset),
+        uint64_t(observation.viewport_yscale),
+        uint64_t(observation.viewport_yoffset),
+         uint64_t(observation.viewport_transform_control),
+         uint64_t(observation.window_scissor_tl),
+         uint64_t(observation.window_scissor_br),
+         uint64_t(observation.surface_info),
+         uint64_t(observation.color_info[0]),
+         uint64_t(observation.color_info[1]),
+         uint64_t(observation.color_info[2]),
+         uint64_t(observation.color_info[3]),
+         uint64_t(observation.depth_info)}) {
+    key = HashCombine(key, value);
+  }
+  for (uint32_t format : prepared.bound_render_target_formats) {
+    key = HashCombine(key, format);
+  }
+  key = key ? key : 1;
+  size_t index =
+      size_t(key % kTrackPresentationPreparedTargetCapacity);
+  for (size_t probe = 0; probe < kTrackPresentationPreparedTargetCapacity;
+       ++probe) {
+    TrackPresentationPreparedTargetEntry &entry =
+        g_track_presentation_prepared_targets[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.vertex_shader_hash = observation.vertex_shader_hash;
+      entry.pixel_shader_hash = observation.pixel_shader_hash;
+      entry.pass_mask = pass_mask;
+      entry.direct_scope_mask = direct_scope_mask;
+      entry.packet_lineage_mask = packet_lineage_mask;
+      entry.bound_render_target_bits = prepared.bound_render_target_bits;
+      std::copy(std::begin(prepared.bound_render_target_formats),
+                std::end(prepared.bound_render_target_formats),
+                entry.bound_render_target_formats.begin());
+      entry.prepared_pipeline_flags = prepared.flags;
+      entry.viewport_xscale = observation.viewport_xscale;
+      entry.viewport_xoffset = observation.viewport_xoffset;
+      entry.viewport_yscale = observation.viewport_yscale;
+      entry.viewport_yoffset = observation.viewport_yoffset;
+      entry.viewport_transform_control =
+          observation.viewport_transform_control;
+      entry.window_scissor_tl = observation.window_scissor_tl;
+      entry.window_scissor_br = observation.window_scissor_br;
+      entry.surface_info = observation.surface_info;
+      std::copy(std::begin(observation.color_info),
+                std::end(observation.color_info), entry.color_info.begin());
+      entry.depth_info = observation.depth_info;
+      ++g_track_presentation_prepared_target_count;
+      return;
+    }
+    if (entry.key == key && entry.pass_mask == pass_mask &&
+        entry.direct_scope_mask == direct_scope_mask &&
+        entry.packet_lineage_mask == packet_lineage_mask &&
+        entry.bound_render_target_bits == prepared.bound_render_target_bits &&
+        entry.prepared_pipeline_flags == prepared.flags &&
+        entry.viewport_xscale == observation.viewport_xscale &&
+        entry.viewport_xoffset == observation.viewport_xoffset &&
+        entry.viewport_yscale == observation.viewport_yscale &&
+        entry.viewport_yoffset == observation.viewport_yoffset &&
+        entry.viewport_transform_control ==
+            observation.viewport_transform_control &&
+        entry.window_scissor_tl == observation.window_scissor_tl &&
+        entry.window_scissor_br == observation.window_scissor_br &&
+        entry.surface_info == observation.surface_info &&
+        entry.depth_info == observation.depth_info &&
+        entry.vertex_shader_hash == observation.vertex_shader_hash &&
+        entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        std::equal(entry.color_info.begin(), entry.color_info.end(),
+                   std::begin(observation.color_info)) &&
+        std::equal(entry.bound_render_target_formats.begin(),
+                   entry.bound_render_target_formats.end(),
+                   std::begin(prepared.bound_render_target_formats))) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      return;
+    }
+    index = (index + 1) % kTrackPresentationPreparedTargetCapacity;
+  }
+  g_track_presentation_prepared_target_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 void UpdateSemanticPreparedDrawContract(
     SemanticPreparedDrawContract &contract,
     const rex::system::GraphicsDrawObservation &observation,
@@ -11645,16 +20853,65 @@ void RecordTitleDrawProvenance(
               : g_semantic_draw_unprepared_matches)
         .fetch_add(1, std::memory_order_relaxed);
   }
+  if (origin.static_world_draw.valid) {
+    (prepared ? g_static_world_prepared_matches
+              : g_static_world_unprepared_matches)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  if (origin.unified_track_mesh.valid) {
+    (prepared ? g_unified_track_mesh_prepared_matches
+              : g_unified_track_mesh_unprepared_matches)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
+  const bool prepared_contract_requested =
+      (origin.semantic_draw.valid || origin.static_world_draw.valid ||
+       origin.unified_track_mesh.valid) &&
+      prepared_observation;
   const SemanticPreparedDrawContract current_semantic_contract =
-      origin.semantic_draw.valid && prepared_observation
+      prepared_contract_requested
           ? BuildSemanticPreparedDrawContract(observation,
                                               *prepared_observation)
           : SemanticPreparedDrawContract{};
+  if (origin.static_world_draw.valid && prepared &&
+      current_semantic_contract.valid) {
+    RecordStaticWorldPreparedLayout(observation, origin.static_world_draw,
+                                    current_semantic_contract);
+  }
   uint64_t key = backend_signature ^ (uint64_t(origin.caller) << 17) ^
                  (uint64_t(origin.wrapper) << 57) ^
                  (uint64_t(backend_outcome) << 41) ^
                  (prepared ? uint64_t(1) << 63 : 0);
   key = HashCombine(key, origin.semantic_draw.submission_key);
+  key = HashCombine(key, origin.static_world_draw.asset_key_hash);
+  key = HashCombine(key, origin.static_world_draw.transform_hash);
+  key = HashCombine(
+      key, origin.static_world_draw.model_presentation_address);
+  key = HashCombine(
+      key, origin.static_world_draw.model_presentation_resource_address);
+  key = HashCombine(key, origin.static_world_draw.renderer_address);
+  key = HashCombine(key, origin.static_world_draw.renderer_generation);
+  key = HashCombine(key, origin.static_world_draw.render_context_address);
+  key = HashCombine(key, origin.static_world_draw.model_graph_address);
+  key = HashCombine(key, origin.static_world_draw.model_graph_generation);
+  key = HashCombine(key,
+                    origin.static_world_draw.model_resource_generation);
+  key = HashCombine(
+      key, origin.static_world_draw.model_resource_payload_generation);
+  key = HashCombine(key, origin.static_world_draw.simple_model_address);
+  key = HashCombine(key, origin.static_world_draw.simple_submodel_address);
+  key = HashCombine(key, origin.static_world_draw.simple_mesh_address);
+  key = HashCombine(key, origin.static_world_draw.mesh_primitive_type);
+  key = HashCombine(key,
+                    origin.static_world_draw.mesh_index_buffer_binding);
+  key = HashCombine(key, origin.static_world_draw.mesh_source_element_count);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_object);
+  key = HashCombine(
+      key, origin.static_world_draw.mesh_optional_material_reference);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_selector);
+  key = HashCombine(key, origin.static_world_draw.submodel_state_enabled);
+  key = HashCombine(key, origin.static_world_draw.mesh_semantics_valid);
+  key = HashCombine(key, origin.unified_track_mesh.mesh_address);
+  key = HashCombine(key, origin.unified_track_mesh.transform_hash);
   key = HashCombine(key, current_semantic_contract.template_key);
   size_t index = size_t(key % kTitleDrawProvenanceCapacity);
   for (size_t probe = 0; probe < kTitleDrawProvenanceCapacity; ++probe) {
@@ -11692,6 +20949,70 @@ void RecordTitleDrawProvenance(
             origin.semantic_draw.receiver_generation &&
         entry.origin.semantic_draw.record_index ==
             origin.semantic_draw.record_index &&
+        entry.origin.static_world_draw.renderer_address ==
+            origin.static_world_draw.renderer_address &&
+        entry.origin.static_world_draw.asset_key_hash ==
+            origin.static_world_draw.asset_key_hash &&
+        entry.origin.static_world_draw.transform_hash ==
+            origin.static_world_draw.transform_hash &&
+        entry.origin.static_world_draw.transform_words ==
+            origin.static_world_draw.transform_words &&
+        entry.origin.static_world_draw.transform_valid ==
+            origin.static_world_draw.transform_valid &&
+        entry.origin.static_world_draw.asset_key_length ==
+            origin.static_world_draw.asset_key_length &&
+        entry.origin.static_world_draw.effect_reference_count ==
+            origin.static_world_draw.effect_reference_count &&
+        entry.origin.static_world_draw.texture_reference_count ==
+            origin.static_world_draw.texture_reference_count &&
+        entry.origin.static_world_draw.asset_metadata_valid ==
+            origin.static_world_draw.asset_metadata_valid &&
+        entry.origin.static_world_draw.model_presentation_address ==
+            origin.static_world_draw.model_presentation_address &&
+        entry.origin.static_world_draw.model_presentation_resource_address ==
+            origin.static_world_draw.model_presentation_resource_address &&
+        entry.origin.static_world_draw.renderer_generation ==
+            origin.static_world_draw.renderer_generation &&
+        entry.origin.static_world_draw.render_context_address ==
+            origin.static_world_draw.render_context_address &&
+        entry.origin.static_world_draw.model_graph_address ==
+            origin.static_world_draw.model_graph_address &&
+        entry.origin.static_world_draw.model_graph_generation ==
+            origin.static_world_draw.model_graph_generation &&
+        entry.origin.static_world_draw.model_resource_generation ==
+            origin.static_world_draw.model_resource_generation &&
+        entry.origin.static_world_draw.model_resource_payload_generation ==
+            origin.static_world_draw.model_resource_payload_generation &&
+        entry.origin.static_world_draw.simple_model_address ==
+            origin.static_world_draw.simple_model_address &&
+        entry.origin.static_world_draw.simple_submodel_address ==
+            origin.static_world_draw.simple_submodel_address &&
+        entry.origin.static_world_draw.simple_mesh_address ==
+            origin.static_world_draw.simple_mesh_address &&
+        entry.origin.static_world_draw.mesh_primitive_type ==
+            origin.static_world_draw.mesh_primitive_type &&
+        entry.origin.static_world_draw.mesh_index_buffer_binding ==
+            origin.static_world_draw.mesh_index_buffer_binding &&
+        entry.origin.static_world_draw.mesh_source_element_count ==
+            origin.static_world_draw.mesh_source_element_count &&
+        entry.origin.static_world_draw.submodel_state_object ==
+            origin.static_world_draw.submodel_state_object &&
+        entry.origin.static_world_draw.mesh_optional_material_reference ==
+            origin.static_world_draw.mesh_optional_material_reference &&
+        entry.origin.static_world_draw.submodel_state_selector ==
+            origin.static_world_draw.submodel_state_selector &&
+        entry.origin.static_world_draw.submodel_state_enabled ==
+            origin.static_world_draw.submodel_state_enabled &&
+        entry.origin.static_world_draw.mesh_semantics_valid ==
+            origin.static_world_draw.mesh_semantics_valid &&
+        entry.origin.unified_track_mesh.mesh_address ==
+            origin.unified_track_mesh.mesh_address &&
+        entry.origin.unified_track_mesh.transform_hash ==
+            origin.unified_track_mesh.transform_hash &&
+        entry.origin.unified_track_mesh.transform_words ==
+            origin.unified_track_mesh.transform_words &&
+        entry.origin.unified_track_mesh.valid ==
+            origin.unified_track_mesh.valid &&
         entry.semantic_contract.template_key ==
             current_semantic_contract.template_key) {
       ++entry.calls;
@@ -11706,7 +21027,9 @@ void RecordTitleDrawProvenance(
         entry.maximum_arguments[i] =
             std::max(entry.maximum_arguments[i], origin.arguments[i]);
       }
-      if (origin.semantic_draw.valid && prepared_observation) {
+      if ((origin.semantic_draw.valid || origin.static_world_draw.valid ||
+           origin.unified_track_mesh.valid) &&
+          prepared_observation) {
         UpdateSemanticPreparedDrawContract(entry.semantic_contract,
                                            observation,
                                            *prepared_observation);
@@ -11769,6 +21092,173 @@ void EmitTitleDrawProvenanceSummary() {
          {"origin_wrapper_address",
           DispatchWrapperAddress(entry.origin.wrapper)},
          {"origin_caller", fmt::format("{:08X}", entry.origin.caller)},
+         {"unified_track_mesh_origin",
+          entry.origin.unified_track_mesh.valid ? "true" : "false"},
+         {"unified_track_mesh_address",
+          entry.origin.unified_track_mesh.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.unified_track_mesh.mesh_address)
+              : ""},
+         {"unified_track_mesh_transform_hash",
+          entry.origin.unified_track_mesh.valid
+              ? fmt::format(
+                    "{:016X}",
+                    entry.origin.unified_track_mesh.transform_hash)
+              : ""},
+         {"unified_track_mesh_transform_words",
+          entry.origin.unified_track_mesh.valid
+              ? FormatSemanticWords(
+                    entry.origin.unified_track_mesh.transform_words)
+              : ""},
+         {"static_world_origin",
+          entry.origin.static_world_draw.valid ? "true" : "false"},
+         {"static_world_asset_metadata_valid",
+          entry.origin.static_world_draw.valid
+              ? (entry.origin.static_world_draw.asset_metadata_valid
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_asset_key_hash",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? fmt::format("{:016X}",
+                            entry.origin.static_world_draw.asset_key_hash)
+              : ""},
+         {"static_world_asset_key_length",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.asset_key_length)
+              : ""},
+         {"static_world_transform_valid",
+          entry.origin.static_world_draw.valid
+              ? (entry.origin.static_world_draw.transform_valid ? "true"
+                                                                : "false")
+              : ""},
+         {"static_world_transform_hash",
+          entry.origin.static_world_draw.transform_valid
+              ? fmt::format("{:016X}",
+                            entry.origin.static_world_draw.transform_hash)
+              : ""},
+         {"static_world_transform_words",
+          entry.origin.static_world_draw.transform_valid
+              ? SerializeStaticWorldTransform(
+                    entry.origin.static_world_draw.transform_words)
+              : ""},
+         {"static_world_effect_reference_count",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.effect_reference_count)
+              : ""},
+         {"static_world_texture_reference_count",
+          entry.origin.static_world_draw.asset_metadata_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.texture_reference_count)
+              : ""},
+         {"static_world_model_presentation",
+          entry.origin.static_world_draw.valid &&
+                  entry.origin.static_world_draw.model_presentation_address
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .model_presentation_address)
+              : ""},
+         {"static_world_model_presentation_resource",
+          entry.origin.static_world_draw.valid &&
+                  entry.origin.static_world_draw
+                      .model_presentation_resource_address
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .model_presentation_resource_address)
+              : ""},
+         {"static_world_renderer",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.static_world_draw.renderer_address)
+              : ""},
+         {"static_world_renderer_generation",
+          entry.origin.static_world_draw.valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.renderer_generation)
+              : ""},
+         {"static_world_render_context",
+          entry.origin.static_world_draw.valid
+              ? fmt::format(
+                    "{:08X}",
+                    entry.origin.static_world_draw.render_context_address)
+              : ""},
+         {"static_world_model_graph",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}",
+                            entry.origin.static_world_draw.model_graph_address)
+              : ""},
+         {"static_world_model_graph_generation",
+          entry.origin.static_world_draw.valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.model_graph_generation)
+              : ""},
+         {"static_world_model_resource_generation",
+          entry.origin.static_world_draw.valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.model_resource_generation)
+              : ""},
+         {"static_world_model_resource_payload_generation",
+          entry.origin.static_world_draw.valid
+              ? std::to_string(entry.origin.static_world_draw
+                                   .model_resource_payload_generation)
+              : ""},
+         {"static_world_simple_model",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .simple_model_address)
+              : ""},
+         {"static_world_simple_submodel",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .simple_submodel_address)
+              : ""},
+         {"static_world_simple_mesh",
+          entry.origin.static_world_draw.valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                           .simple_mesh_address)
+              : ""},
+         {"static_world_mesh_semantics_valid",
+          entry.origin.static_world_draw.valid
+              ? (entry.origin.static_world_draw.mesh_semantics_valid
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_mesh_primitive_type",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(
+                    entry.origin.static_world_draw.mesh_primitive_type)
+              : ""},
+         {"static_world_mesh_index_buffer_binding",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .mesh_index_buffer_binding)
+              : ""},
+         {"static_world_mesh_source_element_count",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(entry.origin.static_world_draw
+                                   .mesh_source_element_count)
+              : ""},
+         {"static_world_submodel_state_object",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .submodel_state_object)
+              : ""},
+         {"static_world_submodel_state_selector",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? std::to_string(entry.origin.static_world_draw
+                                   .submodel_state_selector)
+              : ""},
+         {"static_world_submodel_state_enabled",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? (entry.origin.static_world_draw.submodel_state_enabled
+                     ? "true"
+                     : "false")
+              : ""},
+         {"static_world_mesh_optional_material_reference",
+          entry.origin.static_world_draw.mesh_semantics_valid
+              ? fmt::format("{:08X}", entry.origin.static_world_draw
+                                         .mesh_optional_material_reference)
+              : ""},
          {"outcome", entry.prepared ? "prepared" : "not_prepared"},
          {"backend_outcome",
           entry.prepared ? "prepared_callback"
@@ -12100,6 +21590,86 @@ void EmitTitleDrawProvenanceSummary() {
           semantic_prepared_matches + semantic_unprepared_matches &&
       semantic_render_item_entries ==
           semantic_render_item_exits + semantic_render_items_open;
+  for (const StaticWorldPreparedLayoutEntry &entry :
+       g_static_world_prepared_layouts) {
+    if (!entry.calls) {
+      continue;
+    }
+    const auto &sample = entry.sample;
+    const auto &contract = entry.contract;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.static_world_prepared_layout_entry",
+        {{"layout_key", fmt::format("{:016X}", entry.key)},
+         {"asset_key_hash",
+          entry.identity.asset_metadata_valid
+              ? fmt::format("{:016X}", entry.identity.asset_key_hash)
+              : ""},
+         {"simple_mesh",
+          fmt::format("{:08X}", entry.identity.simple_mesh_address)},
+         {"model_resource_generation",
+          std::to_string(entry.identity.model_resource_generation)},
+         {"model_resource_payload_generation",
+          std::to_string(
+              entry.identity.model_resource_payload_generation)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"parameter_hash", fmt::format("{:016X}", entry.parameter_hash)},
+         {"parameter_variations",
+          std::to_string(entry.parameter_variations)},
+         {"prepared_pipeline_hash",
+          fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+         {"geometry_layout_hash",
+          fmt::format("{:016X}", contract.geometry_layout_hash)},
+         {"texture_layout_hash",
+          fmt::format("{:016X}", contract.texture_layout_hash)},
+         {"render_state_hash",
+          fmt::format("{:016X}", contract.render_state_hash)},
+         {"vertex_shader",
+          fmt::format("{:016X}", contract.vertex_shader_hash)},
+         {"pixel_shader",
+          fmt::format("{:016X}", contract.pixel_shader_hash)},
+         {"primitive_type", std::to_string(sample.primitive_type)},
+         {"index_count", std::to_string(sample.index_count)},
+         {"index_buffer_address",
+          fmt::format("{:08X}", sample.index_buffer_address)},
+         {"index_buffer_length",
+          std::to_string(sample.index_buffer_length)},
+         {"index_format", std::to_string(sample.index_format)},
+         {"index_endianness", std::to_string(sample.index_endianness)},
+         {"vertex_binding_count",
+          std::to_string(sample.vertex_binding_count)},
+         {"vertex_bindings", SerializeVertexBindings(sample)},
+         {"vertex_attribute_count",
+          std::to_string(sample.vertex_attribute_count)},
+         {"vertex_attributes", SerializeVertexAttributes(sample)},
+         {"vertex_float_constant_count",
+          std::to_string(sample.vertex_float_constant_count)},
+         {"vertex_float_constants",
+          SerializeFloatConstants(sample.vertex_float_constants,
+                                  sample.vertex_float_constant_count)},
+         {"pixel_float_constant_count",
+          std::to_string(sample.pixel_float_constant_count)},
+         {"pixel_float_constants",
+          SerializeFloatConstants(sample.pixel_float_constants,
+                                  sample.pixel_float_constant_count)},
+         {"bool_constants",
+          SerializeWordConstants(sample.bool_constant_bitmap,
+                                 sample.bool_constant_values,
+                                 std::size(sample.bool_constant_bitmap))},
+         {"loop_constants",
+          SerializeLoopConstants(sample.loop_constant_bitmap,
+                                 sample.loop_constant_values)},
+         {"texture_state_count",
+          std::to_string(sample.texture_state_count)},
+         {"texture_states", SerializeTextureStates(sample)},
+         {"guest_payload_read", "bounded_prepared_draw_metadata_only"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   uint64_t title_backend_outcomes = 0;
   for (size_t outcome = 1; outcome < g_backend_draw_outcome_counts.size();
        ++outcome) {
@@ -12355,6 +21925,29 @@ bool IsIsolatedDrawEligible(
     const rex::system::GraphicsPreparedDrawObservation &prepared) {
   return !IsolatedDrawMechanicalRejectionMask(
       observation, samples_resolved_target, prepared);
+}
+
+uint32_t VehicleShadowColorPrivateCaptureRejectionMask(
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  uint32_t mask = IsolatedDrawMechanicalRejectionMask(
+      observation, samples_resolved_target, prepared);
+  // The generic isolated-draw gate is also used by payload snapshots, which
+  // currently serialize one vertex stream and at least one texture. Vehicle
+  // color capture duplicates the already-prepared backend draw directly, so
+  // it can retain bounded multi-stream input and a shader with no textures.
+  if (observation.vertex_binding_count >= 1 &&
+      observation.vertex_binding_count <=
+          rex::system::kGraphicsVertexBindingObservationLimit &&
+      !observation.vertex_binding_overflow) {
+    mask &= ~kIsolatedRejectVertexBindingCount;
+  }
+  if (std::popcount(observation.texture_fetch_mask) <= 4 &&
+      !observation.texture_state_overflow) {
+    mask &= ~kIsolatedRejectTextureCount;
+  }
+  return mask;
 }
 
 bool IsShadowDepthBatchMechanicalDraw(
@@ -13231,7 +22824,8 @@ void FinalizeSemanticBatchRun() {
 
 size_t FindOrCreateSemanticBatchOpportunity(
     uint64_t key, const SemanticPreparedDrawContract &contract,
-    const SemanticDrawIdentity &identity, SemanticBatchRejection rejection) {
+    const SemanticDrawIdentity &identity, SemanticBatchRejection rejection,
+    uint32_t world_family_mask) {
   size_t index = size_t(key % kSemanticBatchOpportunityCapacity);
   for (size_t probe = 0; probe < kSemanticBatchOpportunityCapacity; ++probe) {
     SemanticBatchOpportunityEntry &entry =
@@ -13243,7 +22837,11 @@ size_t FindOrCreateSemanticBatchOpportunity(
       entry.texture_resource_hash = contract.texture_resource_hash;
       entry.primary_resource_key = identity.primary_resource_key;
       entry.secondary_resource_key = identity.secondary_resource_key;
+      entry.world_family_mask = world_family_mask;
+      entry.title_lod_index =
+          identity.title_lod_valid ? identity.title_lod_index : 0;
       entry.secondary_resource_present = identity.secondary_resource_present;
+      entry.title_lod_valid = identity.title_lod_valid;
       entry.rejection = rejection;
       ++g_semantic_batch_opportunity_count;
       return index;
@@ -13255,6 +22853,10 @@ size_t FindOrCreateSemanticBatchOpportunity(
         entry.secondary_resource_key == identity.secondary_resource_key &&
         entry.secondary_resource_present ==
             identity.secondary_resource_present &&
+        entry.world_family_mask == world_family_mask &&
+        entry.title_lod_index ==
+            (identity.title_lod_valid ? identity.title_lod_index : 0) &&
+        entry.title_lod_valid == identity.title_lod_valid &&
         entry.rejection == rejection) {
       return index;
     }
@@ -13581,7 +23183,8 @@ bool RecordSemanticVisibilityPreparedCandidate(
     const rex::system::GraphicsDrawObservation &observation,
     const SemanticDrawIdentity &identity,
     const SemanticPreparedDrawContract &contract,
-    uint64_t prepared_signature, uint32_t mechanical_rejection_mask) {
+    uint64_t prepared_signature, uint32_t mechanical_rejection_mask,
+    bool static_world_origin, bool static_world_exact) {
   ++g_semantic_visibility_prepared_observations;
   if (identity.visibility_workset_join ==
       SemanticVisibilityWorksetJoin::kMissing) {
@@ -13617,7 +23220,17 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.visibility_category),
         uint64_t(identity.visibility_result_mask),
         uint64_t(identity.title_lod_valid),
-        uint64_t(identity.title_lod_index),
+        uint64_t(identity.title_lod_valid ? identity.title_lod_index : 0),
+        uint64_t(identity.primary_resource_key),
+        uint64_t(identity.secondary_resource_present),
+        uint64_t(identity.secondary_resource_key),
+        uint64_t(identity.track_texture_provider),
+        uint64_t(identity.track_render_model_scope),
+        uint64_t(identity.track_command_lineage),
+        uint64_t(identity.track_render_shared_identity_mask),
+        uint64_t(identity.track_world_resource_identity_mask),
+        uint64_t(identity.track_world_resource_shared_identity_mask),
+        uint64_t(static_world_origin), uint64_t(static_world_exact),
         uint64_t(mechanical_rejection_mask)}) {
     key = HashCombine(key, value);
   }
@@ -13651,8 +23264,22 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .visibility_result_mask = identity.visibility_result_mask,
           .title_lod_index = identity.title_lod_index,
           .mechanical_rejection_mask = mechanical_rejection_mask,
+          .primary_resource_key = identity.primary_resource_key,
+          .secondary_resource_key = identity.secondary_resource_key,
           .mechanically_eligible = !mechanical_rejection_mask,
+          .secondary_resource_present = identity.secondary_resource_present,
           .title_lod_valid = identity.title_lod_valid,
+          .track_texture_provider = identity.track_texture_provider,
+          .track_render_model_scope = identity.track_render_model_scope,
+          .track_command_lineage = identity.track_command_lineage,
+          .track_render_shared_identity_mask =
+              identity.track_render_shared_identity_mask,
+          .track_world_resource_identity_mask =
+              identity.track_world_resource_identity_mask,
+          .track_world_resource_shared_identity_mask =
+              identity.track_world_resource_shared_identity_mask,
+          .static_world_origin = static_world_origin,
+          .static_world_exact = static_world_exact,
       };
       ++g_semantic_visibility_prepared_candidate_count;
       return true;
@@ -13675,7 +23302,22 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.visibility_category == identity.visibility_category &&
         entry.visibility_result_mask == identity.visibility_result_mask &&
         entry.title_lod_index == identity.title_lod_index &&
-        entry.title_lod_valid == identity.title_lod_valid) {
+        entry.title_lod_valid == identity.title_lod_valid &&
+        entry.primary_resource_key == identity.primary_resource_key &&
+        entry.secondary_resource_present ==
+            identity.secondary_resource_present &&
+        entry.secondary_resource_key == identity.secondary_resource_key &&
+        entry.track_texture_provider == identity.track_texture_provider &&
+        entry.track_render_model_scope == identity.track_render_model_scope &&
+        entry.track_command_lineage == identity.track_command_lineage &&
+        entry.track_render_shared_identity_mask ==
+            identity.track_render_shared_identity_mask &&
+        entry.track_world_resource_identity_mask ==
+            identity.track_world_resource_identity_mask &&
+        entry.track_world_resource_shared_identity_mask ==
+            identity.track_world_resource_shared_identity_mask &&
+        entry.static_world_origin == static_world_origin &&
+        entry.static_world_exact == static_world_exact) {
       ++entry.draws;
       entry.last_frame = observation.frame_sequence;
       entry.maximum_policy_age_frames =
@@ -13692,36 +23334,111 @@ bool RecordSemanticVisibilityPreparedCandidate(
 struct SemanticVisibilityPreparedAdmission {
   bool fresh = false;
   bool title_lod_valid = false;
+  bool track_texture_provider = false;
+  bool track_render_model_scope = false;
+  bool track_command_lineage = false;
+  bool static_world_origin = false;
+  bool static_world_exact = false;
   uint32_t title_lod_index = 0;
+  uint32_t track_world_resource_shared_identity_mask = 0;
 };
 
 SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
-    const TitleDrawOrigin &origin, uint64_t prepared_signature) {
-  if (!origin.semantic_draw.valid) {
-    return {};
+    const TitleDrawOrigin &origin, uint64_t prepared_signature,
+    const SemanticPreparedDrawContract &contract,
+    uint32_t mechanical_rejection_mask) {
+  const bool static_world_origin = origin.static_world_draw.valid;
+  const bool static_world_exact =
+      static_world_origin &&
+      origin.static_world_draw.asset_metadata_valid &&
+      origin.static_world_draw.transform_valid &&
+      origin.static_world_draw.mesh_semantics_valid;
+  const ActiveTitleIndirectBuffer *active =
+      CurrentTitleIndirectBuffer(observation);
+  const bool exact_track_command =
+      active && active->constructor_origin.owner.producer.context
+                    .track_command_lineage;
+  const uint32_t track_presentation_packet_lineage_mask =
+      active ? active->constructor_origin.owner.producer.context
+                   .track_presentation_pass_mask
+             : 0;
+  const uint32_t track_presentation_direct_scope_mask =
+      CurrentTrackPresentationPassMask();
+  RecordTrackPresentationPreparedTarget(
+      observation, prepared, track_presentation_direct_scope_mask,
+      track_presentation_packet_lineage_mask);
+  if (exact_track_command) {
+    g_track_render_model_prepared_draw_joins.fetch_add(
+        1, std::memory_order_relaxed);
+    (origin.semantic_draw.valid
+         ? g_track_render_model_prepared_draw_joins_with_semantic_origin
+         : g_track_render_model_prepared_draw_joins_without_semantic_origin)
+        .fetch_add(1, std::memory_order_relaxed);
+    g_track_render_model_shared_identity_relations[8].fetch_add(
+        1, std::memory_order_relaxed);
+    if (contract.valid) {
+      RecordTrackWorldPreparedLayout(
+          observation, prepared,
+          active->constructor_origin.owner.producer.context,
+          contract);
+    }
   }
-  const SemanticDrawIdentity &identity = origin.semantic_draw;
-  const SemanticPreparedDrawContract contract =
-      BuildSemanticPreparedDrawContract(observation, prepared);
-  const uint32_t mechanical_rejection_mask =
-      IsolatedDrawMechanicalRejectionMask(
-      observation, samples_resolved_target, prepared);
+  if (!origin.semantic_draw.valid) {
+    return {
+        .track_render_model_scope = exact_track_command,
+        .track_command_lineage = exact_track_command,
+        .static_world_origin = static_world_origin,
+        .static_world_exact = static_world_exact,
+    };
+  }
+  SemanticDrawIdentity identity = origin.semantic_draw;
+  if (exact_track_command) {
+    const auto &track_context =
+        active->constructor_origin.owner.producer.context;
+    identity.track_render_model_scope = true;
+    identity.track_command_lineage = true;
+    identity.track_render_shared_identity_mask |=
+        kTrackRenderSharedCommandLineage;
+    identity.track_world_resource_identity_mask |=
+        track_context.track_world_resource_identity_mask;
+  }
   const bool fresh_visibility_candidate =
       RecordSemanticVisibilityPreparedCandidate(observation, identity,
                                                 contract, prepared_signature,
-                                                 mechanical_rejection_mask);
+                                                mechanical_rejection_mask,
+                                                static_world_origin,
+                                                static_world_exact);
   const SemanticVisibilityPreparedAdmission visibility_admission = {
       .fresh = fresh_visibility_candidate,
       .title_lod_valid = fresh_visibility_candidate && identity.title_lod_valid,
+      .track_texture_provider =
+          fresh_visibility_candidate && identity.track_texture_provider,
+      .track_render_model_scope =
+          fresh_visibility_candidate && identity.track_render_model_scope,
+      .track_command_lineage =
+          fresh_visibility_candidate && identity.track_command_lineage,
+      .static_world_origin = static_world_origin,
+      .static_world_exact = static_world_exact,
       .title_lod_index = identity.title_lod_index,
+      .track_world_resource_shared_identity_mask =
+          fresh_visibility_candidate
+              ? identity.track_world_resource_shared_identity_mask
+              : 0,
   };
   const SemanticBatchRejection rejection =
       ClassifySemanticBatchRejection(observation, samples_resolved_target,
                                      prepared, identity, contract);
   const bool eligible = rejection == SemanticBatchRejection::kNone;
+  const uint32_t world_family_mask =
+      (identity.track_render_model_scope &&
+               (identity.track_world_resource_shared_identity_mask ||
+                identity.track_command_lineage)
+           ? kSemanticWorldFamilyTrack
+           : 0) |
+      (static_world_exact ? kSemanticWorldFamilyStatic : 0);
   ++g_semantic_batch_observations;
   if (g_semantic_batch_current_frame != observation.frame_sequence) {
     FinalizeSemanticBatchFrame();
@@ -13734,12 +23451,15 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
        {contract.template_key, contract.geometry_resource_hash,
         contract.texture_resource_hash, uint64_t(identity.primary_resource_key),
         uint64_t(identity.secondary_resource_present),
-        uint64_t(identity.secondary_resource_key), uint64_t(rejection)}) {
+        uint64_t(identity.secondary_resource_key), uint64_t(world_family_mask),
+        uint64_t(identity.title_lod_valid),
+        uint64_t(identity.title_lod_index),
+        uint64_t(rejection)}) {
     key = HashCombine(key, value);
   }
   key = key ? key : 1;
   const size_t opportunity_index = FindOrCreateSemanticBatchOpportunity(
-      key, contract, identity, rejection);
+      key, contract, identity, rejection, world_family_mask);
   if (opportunity_index == kSemanticBatchOpportunityCapacity) {
     FinalizeSemanticBatchRun();
     FinalizeSemanticBatchEquivalenceRuns();
@@ -15171,6 +24891,22 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t mechanically_ineligible_entries = 0;
   uint64_t title_lod_draws = 0;
   uint64_t title_lod_entries = 0;
+  uint64_t track_texture_provider_draws = 0;
+  uint64_t track_texture_provider_entries = 0;
+  uint64_t track_render_model_scope_draws = 0;
+  uint64_t track_render_model_scope_entries = 0;
+  uint64_t track_command_lineage_draws = 0;
+  uint64_t track_command_lineage_entries = 0;
+  uint64_t track_render_shared_identity_draws = 0;
+  uint64_t track_render_shared_identity_entries = 0;
+  uint64_t track_world_resource_identity_draws = 0;
+  uint64_t track_world_resource_identity_entries = 0;
+  uint64_t track_world_resource_shared_identity_draws = 0;
+  uint64_t track_world_resource_shared_identity_entries = 0;
+  uint64_t static_world_origin_draws = 0;
+  uint64_t static_world_origin_entries = 0;
+  uint64_t static_world_exact_draws = 0;
+  uint64_t static_world_exact_entries = 0;
   for (const SemanticVisibilityPreparedCandidateEntry &entry :
        g_semantic_visibility_prepared_candidates) {
     if (!entry.key) {
@@ -15188,6 +24924,38 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.title_lod_valid) {
       title_lod_draws += entry.draws;
       ++title_lod_entries;
+    }
+    if (entry.track_texture_provider) {
+      track_texture_provider_draws += entry.draws;
+      ++track_texture_provider_entries;
+    }
+    if (entry.track_render_model_scope) {
+      track_render_model_scope_draws += entry.draws;
+      ++track_render_model_scope_entries;
+    }
+    if (entry.track_command_lineage) {
+      track_command_lineage_draws += entry.draws;
+      ++track_command_lineage_entries;
+    }
+    if (entry.track_render_shared_identity_mask) {
+      track_render_shared_identity_draws += entry.draws;
+      ++track_render_shared_identity_entries;
+    }
+    if (entry.track_world_resource_identity_mask) {
+      track_world_resource_identity_draws += entry.draws;
+      ++track_world_resource_identity_entries;
+    }
+    if (entry.track_world_resource_shared_identity_mask) {
+      track_world_resource_shared_identity_draws += entry.draws;
+      ++track_world_resource_shared_identity_entries;
+    }
+    if (entry.static_world_origin) {
+      static_world_origin_draws += entry.draws;
+      ++static_world_origin_entries;
+    }
+    if (entry.static_world_exact) {
+      static_world_exact_draws += entry.draws;
+      ++static_world_exact_entries;
     }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_visibility_prepared_candidate_entry",
@@ -15216,9 +24984,42 @@ void EmitSemanticVisibilityPreparedCandidates() {
           std::to_string(entry.visibility_category)},
          {"visibility_result_mask",
           std::to_string(entry.visibility_result_mask)},
+         {"primary_resource_key",
+          fmt::format("{:08X}", entry.primary_resource_key)},
+         {"secondary_resource_present",
+          entry.secondary_resource_present ? "true" : "false"},
+         {"secondary_resource_key",
+          fmt::format("{:08X}", entry.secondary_resource_key)},
          {"title_lod_index", std::to_string(entry.title_lod_index)},
          {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
          {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+         {"track_texture_provider",
+          entry.track_texture_provider ? "true" : "false"},
+         {"track_texture_provider_lineage",
+          "exact_primary_provider_vtable_and_four_methods"},
+         {"track_render_model_scope",
+          entry.track_render_model_scope ? "true" : "false"},
+         {"track_command_lineage",
+          entry.track_command_lineage ? "true" : "false"},
+         {"track_render_shared_identity_mask",
+          fmt::format("{:08X}", entry.track_render_shared_identity_mask)},
+         {"track_render_model_lineage",
+          entry.track_command_lineage
+              ? "exact_track_scope_to_context_to_packet_to_prepared_draw"
+              : "exact_unified_instance_model_nested_dispatch_scope"},
+         {"track_world_resource_identity_mask",
+          fmt::format("{:08X}", entry.track_world_resource_identity_mask)},
+         {"track_world_resource_shared_identity_mask",
+          fmt::format("{:08X}",
+                      entry.track_world_resource_shared_identity_mask)},
+         {"track_world_resource_lineage",
+          "host_mapped_direct_vtable_identity_from_exact_model_graph"},
+         {"static_world_origin",
+          entry.static_world_origin ? "true" : "false"},
+         {"static_world_exact",
+          entry.static_world_exact ? "true" : "false"},
+         {"static_world_lineage",
+          "exact_presentation_resource_mesh_transform_lineage"},
          {"draws", std::to_string(entry.draws)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -15256,7 +25057,28 @@ void EmitSemanticVisibilityPreparedCandidates() {
           entry_draws &&
       mechanically_eligible_entries + mechanically_ineligible_entries ==
           entry_count &&
-      title_lod_draws <= entry_draws && title_lod_entries <= entry_count;
+      title_lod_draws <= entry_draws && title_lod_entries <= entry_count &&
+      track_texture_provider_draws <= entry_draws &&
+      track_texture_provider_entries <= entry_count &&
+      track_render_model_scope_draws <= entry_draws &&
+      track_render_model_scope_entries <= entry_count &&
+      track_command_lineage_draws <= track_render_model_scope_draws &&
+      track_command_lineage_entries <= track_render_model_scope_entries &&
+      track_render_shared_identity_draws <= track_render_model_scope_draws &&
+      track_render_shared_identity_entries <=
+          track_render_model_scope_entries &&
+      track_world_resource_identity_draws <=
+          track_render_model_scope_draws &&
+      track_world_resource_identity_entries <=
+          track_render_model_scope_entries &&
+      track_world_resource_shared_identity_draws <=
+          track_world_resource_identity_draws &&
+      track_world_resource_shared_identity_entries <=
+          track_world_resource_identity_entries &&
+      static_world_origin_draws <= entry_draws &&
+      static_world_origin_entries <= entry_count &&
+      static_world_exact_draws <= static_world_origin_draws &&
+      static_world_exact_entries <= static_world_origin_entries;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_visibility_prepared_candidate_summary",
       {{"status", !g_semantic_visibility_prepared_observations
@@ -15290,6 +25112,38 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"mechanical_admission_contract", "isolated_draw_v1"},
        {"title_lod_entries", std::to_string(title_lod_entries)},
        {"title_lod_draws", std::to_string(title_lod_draws)},
+       {"track_texture_provider_entries",
+        std::to_string(track_texture_provider_entries)},
+       {"track_texture_provider_draws",
+        std::to_string(track_texture_provider_draws)},
+       {"track_render_model_scope_entries",
+        std::to_string(track_render_model_scope_entries)},
+       {"track_render_model_scope_draws",
+        std::to_string(track_render_model_scope_draws)},
+       {"track_command_lineage_entries",
+        std::to_string(track_command_lineage_entries)},
+       {"track_command_lineage_draws",
+        std::to_string(track_command_lineage_draws)},
+       {"track_render_shared_identity_entries",
+        std::to_string(track_render_shared_identity_entries)},
+       {"track_render_shared_identity_draws",
+        std::to_string(track_render_shared_identity_draws)},
+       {"track_world_resource_identity_entries",
+        std::to_string(track_world_resource_identity_entries)},
+       {"track_world_resource_identity_draws",
+        std::to_string(track_world_resource_identity_draws)},
+       {"track_world_resource_shared_identity_entries",
+        std::to_string(track_world_resource_shared_identity_entries)},
+       {"track_world_resource_shared_identity_draws",
+        std::to_string(track_world_resource_shared_identity_draws)},
+       {"static_world_origin_entries",
+        std::to_string(static_world_origin_entries)},
+       {"static_world_origin_draws",
+        std::to_string(static_world_origin_draws)},
+       {"static_world_exact_entries",
+        std::to_string(static_world_exact_entries)},
+       {"static_world_exact_draws",
+        std::to_string(static_world_exact_draws)},
        {"capacity",
         std::to_string(kSemanticVisibilityPreparedCandidateCapacity)},
        {"overflow",
@@ -15301,6 +25155,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"selection", "independent_visibility_selected_and_fresh"},
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+       {"track_texture_provider_lineage",
+        "exact_primary_provider_vtable_and_four_methods"},
+       {"track_render_model_lineage",
+        "exact_unified_instance_model_nested_dispatch_scope"},
+       {"track_world_resource_lineage",
+        "host_mapped_direct_vtable_identity_from_exact_model_graph"},
+       {"static_world_lineage",
+        "exact_presentation_resource_mesh_transform_lineage"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
@@ -15322,6 +25184,15 @@ void EmitSemanticBatchOpportunitySummary() {
   uint64_t entry_multi_draw_runs = 0;
   uint64_t entry_multi_draw_draws = 0;
   uint64_t rejection_total = 0;
+  uint64_t track_world_entries = 0;
+  uint64_t track_world_draws = 0;
+  uint64_t track_world_multi_draw_runs = 0;
+  uint64_t static_world_entries = 0;
+  uint64_t static_world_draws = 0;
+  uint64_t static_world_multi_draw_runs = 0;
+  uint64_t title_lod_entries = 0;
+  uint64_t title_lod_draws = 0;
+  uint64_t title_lod_multi_draw_runs = 0;
   for (uint64_t count : g_semantic_batch_rejections) {
     rejection_total += count;
   }
@@ -15339,6 +25210,21 @@ void EmitSemanticBatchOpportunitySummary() {
     entry_runs += entry.consecutive_runs;
     entry_multi_draw_runs += entry.multi_draw_runs;
     entry_multi_draw_draws += entry.multi_draw_draws;
+    if (entry.world_family_mask & kSemanticWorldFamilyTrack) {
+      ++track_world_entries;
+      track_world_draws += entry.draws;
+      track_world_multi_draw_runs += entry.multi_draw_runs;
+    }
+    if (entry.world_family_mask & kSemanticWorldFamilyStatic) {
+      ++static_world_entries;
+      static_world_draws += entry.draws;
+      static_world_multi_draw_runs += entry.multi_draw_runs;
+    }
+    if (entry.title_lod_valid) {
+      ++title_lod_entries;
+      title_lod_draws += entry.draws;
+      title_lod_multi_draw_runs += entry.multi_draw_runs;
+    }
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.semantic_batch_entry",
         {{"opportunity_key", fmt::format("{:016X}", entry.key)},
@@ -15353,6 +25239,13 @@ void EmitSemanticBatchOpportunitySummary() {
           entry.secondary_resource_present ? "true" : "false"},
          {"secondary_resource_key",
           fmt::format("{:08X}", entry.secondary_resource_key)},
+         {"world_family_mask",
+          fmt::format("{:08X}", entry.world_family_mask)},
+         {"world_family_partition",
+          "none_or_exact_track_or_exact_static_or_both"},
+         {"title_lod_valid", entry.title_lod_valid ? "true" : "false"},
+         {"title_lod_index", std::to_string(entry.title_lod_index)},
+         {"title_lod_partition", "exact_title_observation_or_missing"},
          {"draws", std::to_string(entry.draws)},
          {"frames", std::to_string(entry.frames)},
          {"first_frame", std::to_string(entry.first_frame)},
@@ -15387,7 +25280,13 @@ void EmitSemanticBatchOpportunitySummary() {
       g_semantic_batch_rejected_draws == rejection_total &&
       g_semantic_batch_consecutive_runs == entry_runs &&
       g_semantic_batch_multi_draw_runs == entry_multi_draw_runs &&
-      g_semantic_batch_multi_draw_draws == entry_multi_draw_draws;
+      g_semantic_batch_multi_draw_draws == entry_multi_draw_draws &&
+      track_world_entries <= g_semantic_batch_opportunity_count &&
+      track_world_draws <= g_semantic_batch_observations &&
+      static_world_entries <= g_semantic_batch_opportunity_count &&
+      static_world_draws <= g_semantic_batch_observations &&
+      title_lod_entries <= g_semantic_batch_opportunity_count &&
+      title_lod_draws <= g_semantic_batch_observations;
   const uint64_t projected_commands =
       g_semantic_batch_consecutive_runs + g_semantic_batch_rejected_draws;
   const uint64_t potential_command_reduction =
@@ -15446,6 +25345,21 @@ void EmitSemanticBatchOpportunitySummary() {
         std::to_string(potential_command_reduction)},
        {"potential_command_reduction_percent",
         fmt::format("{:.3f}", reduction_percent)},
+       {"track_world_entries", std::to_string(track_world_entries)},
+       {"track_world_draws", std::to_string(track_world_draws)},
+       {"track_world_multi_draw_runs",
+        std::to_string(track_world_multi_draw_runs)},
+       {"static_world_entries", std::to_string(static_world_entries)},
+       {"static_world_draws", std::to_string(static_world_draws)},
+       {"static_world_multi_draw_runs",
+        std::to_string(static_world_multi_draw_runs)},
+       {"world_family_partition",
+        "none_or_exact_track_or_exact_static_or_both"},
+       {"title_lod_entries", std::to_string(title_lod_entries)},
+       {"title_lod_draws", std::to_string(title_lod_draws)},
+       {"title_lod_multi_draw_runs",
+        std::to_string(title_lod_multi_draw_runs)},
+       {"title_lod_partition", "exact_title_observation_or_missing"},
        {"reject_missing_title_resource",
         std::to_string(g_semantic_batch_rejections[size_t(
             SemanticBatchRejection::kMissingTitleResource)])},
@@ -15504,23 +25418,36 @@ void CommitPassConsumer(
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
+  g_isolated_draw.prepared_color_only_target = false;
+  g_isolated_draw.prepared_procedural_color_producer = false;
   g_isolated_draw.prepared_shadow_depth_seed_eligible = false;
   g_isolated_draw.prepared_shadow_depth_batch_member = false;
   g_isolated_draw.prepared_shadow_depth_batch_family =
       ShadowDepthBatchFamily::kNone;
+  g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible = false;
+  g_isolated_draw.prepared_vehicle_shadow_color_family_index = UINT32_MAX;
   g_consumer_family_marker.current_match = false;
   if (!g_pending_candidate.valid) {
     ++g_candidate_prepared_without_observation_count;
   } else {
     const uint64_t source_draw_signature =
-        DrawSignature(g_pending_candidate.sample);
+        g_shadow_caster_provenance.requested
+            ? DrawSignature(g_pending_candidate.sample)
+            : 0;
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
     CommitPassConsumer(sample, observation, g_pending_candidate);
     const uint64_t prepared_signature = CandidateSignature(
         sample, g_pending_candidate.samples_resolved_target, observation);
-    RecordPreparedCommandBufferLineage(prepared_signature, sample);
+    const SemanticPreparedDrawContract prepared_semantic_contract =
+        BuildSemanticPreparedDrawContract(sample, observation);
+    const uint32_t mechanical_rejection_mask =
+        IsolatedDrawMechanicalRejectionMask(
+            sample, g_pending_candidate.samples_resolved_target, observation);
+    RecordPreparedCommandBufferLineage(
+        prepared_signature, sample,
+        g_pending_candidate.samples_resolved_target, observation);
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
@@ -15531,11 +25458,13 @@ void ObservePreparedDraw(
     const SemanticVisibilityPreparedAdmission visibility_admission =
         RecordSemanticBatchOpportunity(
             sample, g_pending_candidate.samples_resolved_target, observation,
-            g_pending_candidate.title_origin, prepared_signature);
+            g_pending_candidate.title_origin, prepared_signature,
+            prepared_semantic_contract, mechanical_rejection_mask);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
     g_isolated_draw.prepared_sample = sample;
+    g_isolated_draw.prepared_semantic_contract = prepared_semantic_contract;
     g_isolated_draw.prepared_shadow_depth_seed_eligible =
         IsExactShadowDepthIsolatedDraw(
             sample, g_pending_candidate.samples_resolved_target,
@@ -15545,11 +25474,17 @@ void ObservePreparedDraw(
          g_isolated_draw.shadow_depth_batch_mode) &&
         !g_isolated_draw.shadow_depth_prototype_mode;
     g_isolated_draw.prepared_candidate_rejection_mask =
-        dedicated_shadow_mode
-            ? 0
-            : IsolatedDrawMechanicalRejectionMask(
-                  sample, g_pending_candidate.samples_resolved_target,
-                  observation);
+        dedicated_shadow_mode ? 0 : mechanical_rejection_mask;
+    const bool exact_track_color_only =
+        visibility_admission.track_render_model_scope &&
+        (visibility_admission.track_world_resource_shared_identity_mask ||
+         visibility_admission.track_command_lineage) &&
+        observation.bound_render_target_bits == 2;
+    if (exact_track_color_only) {
+      g_isolated_draw.prepared_candidate_rejection_mask &=
+          ~kIsolatedRejectRenderTargets;
+      g_isolated_draw.prepared_color_only_target = true;
+    }
     g_isolated_draw.prepared_candidate_eligible =
         dedicated_shadow_mode
             ? g_isolated_draw.prepared_shadow_depth_seed_eligible
@@ -15668,6 +25603,36 @@ void ObservePreparedDraw(
         }
       }
     }
+    size_t vehicle_shadow_color_family_index =
+        kVehicleShadowGeometryCorrelationCapacity;
+    bool vehicle_shadow_geometry_color_match = false;
+    uint32_t vehicle_shadow_color_private_capture_rejection_mask = 0;
+    if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+      vehicle_shadow_color_private_capture_rejection_mask =
+          VehicleShadowColorPrivateCaptureRejectionMask(
+              sample, g_pending_candidate.samples_resolved_target,
+              observation);
+      vehicle_shadow_geometry_color_match =
+          ObserveVehicleShadowGeometryColorCorrelation(
+              sample, g_pending_candidate.samples_resolved_target,
+              observation, prepared_signature, prepared_semantic_contract,
+              mechanical_rejection_mask,
+              vehicle_shadow_color_private_capture_rejection_mask,
+              &vehicle_shadow_color_family_index);
+      ObserveVehicleShadowColorRun(vehicle_shadow_geometry_color_match,
+                                   sample.frame_sequence,
+                                   sample.draw_sequence, prepared_signature);
+    }
+    if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        vehicle_shadow_geometry_color_match &&
+        !vehicle_shadow_color_private_capture_rejection_mask) {
+      g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible = true;
+      g_isolated_draw.prepared_vehicle_shadow_color_family_index =
+          uint32_t(vehicle_shadow_color_family_index);
+      if (!g_isolated_draw.vehicle_shadow_color_capture_completed) {
+        g_isolated_draw.vehicle_shadow_color_capture_pending = true;
+      }
+    }
     if (g_isolated_draw.shadow_depth_mode ||
         g_isolated_draw.shadow_depth_batch_mode) {
       if (g_isolated_draw.prepared_shadow_depth_seed_eligible) {
@@ -15680,6 +25645,18 @@ void ObservePreparedDraw(
         visibility_admission.fresh;
     g_isolated_draw.prepared_title_lod_valid =
         visibility_admission.title_lod_valid;
+    g_isolated_draw.prepared_track_texture_provider =
+        visibility_admission.track_texture_provider;
+    g_isolated_draw.prepared_track_render_model_scope =
+        visibility_admission.track_render_model_scope;
+    g_isolated_draw.prepared_track_command_lineage =
+        visibility_admission.track_command_lineage;
+    g_isolated_draw.prepared_track_world_resource_shared_identity_mask =
+        visibility_admission.track_world_resource_shared_identity_mask;
+    g_isolated_draw.prepared_static_world_origin =
+        visibility_admission.static_world_origin;
+    g_isolated_draw.prepared_static_world_exact =
+        visibility_admission.static_world_exact;
     g_isolated_draw.prepared_title_lod_index =
         visibility_admission.title_lod_index;
     g_isolated_draw.prepared_candidate_valid = true;
@@ -15769,9 +25746,14 @@ void ObservePreparedDraw(
         g_pass_follower.awaiting_follower = true;
       }
     }
-    RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
-                    observation);
+    if (g_graphics_full_census_armed) {
+      RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
+                      observation);
+    }
     g_pending_candidate.valid = false;
+  }
+  if (!g_graphics_full_census_armed) {
+    return;
   }
   uint64_t identity = 0xCBF29CE484222325ull;
   for (uint64_t value :
@@ -16489,6 +26471,27 @@ void CompleteIsolatedReferenceReadback(
       g_isolated_draw.reference_artifact_writer);
 }
 
+void CompleteVehicleShadowColorRetainedReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path retained_root = g_isolated_draw.output_root;
+  retained_root += L".vehicle.retained.native";
+  CompleteIsolatedReadbackArtifact(
+      readback, "native_vehicle_retained", retained_root,
+      g_isolated_draw.vehicle_retained_artifact_writer);
+}
+
+void CompleteVehicleResourceContributionReadback(
+    const rex::system::GraphicsIsolatedDrawReadback &readback) {
+  std::filesystem::path contribution_root = g_isolated_draw.output_root;
+  contribution_root += L".vehicle.contribution.";
+  contribution_root += fmt::format(
+      "{:016X}", g_isolated_draw.vehicle_resource_contribution_hash);
+  contribution_root += L".native";
+  CompleteIsolatedReadbackArtifact(
+      readback, "native_vehicle_resource_contribution", contribution_root,
+      g_isolated_draw.vehicle_contribution_artifact_writer);
+}
+
 void CompleteIsolatedDepthReadbackArtifact(
     const rex::system::GraphicsIsolatedDrawReadback &readback,
     const char *capture_role, const std::filesystem::path &artifact_root,
@@ -16734,8 +26737,13 @@ void CompleteIsolatedDraw(
        {"status", status},
        {"frame", std::to_string(g_isolated_draw.captured_frame)},
        {"draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"logical_extent",
+        fmt::format("{}x{}", result.logical_width, result.logical_height)},
        {"target_width", std::to_string(result.target_width)},
        {"target_height", std::to_string(result.target_height)},
+       {"draw_scale",
+        fmt::format("{}x{}", result.draw_resolution_scale_x,
+                    result.draw_resolution_scale_y)},
        {"native_draw", result.status ==
                                    rex::system::GraphicsIsolatedDrawStatus::kRecorded
                                ? "isolated_only"
@@ -16743,6 +26751,252 @@ void CompleteIsolatedDraw(
        {"xenos_draw", "preserved"},
        {"output_authority", "xenos"},
        {"suppression_eligible", "false"}});
+}
+
+void CompleteVehicleShadowColorCapture(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  CompleteIsolatedDraw(result);
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  if (recorded) {
+    ++g_isolated_draw.vehicle_shadow_color_capture_recorded;
+  } else if (result.status == rex::system::
+                                  GraphicsIsolatedDrawStatus::
+                                      kTargetCreationFailed) {
+    ++g_isolated_draw.vehicle_shadow_color_capture_target_failures;
+  } else {
+    ++g_isolated_draw.vehicle_shadow_color_capture_unsupported;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_color_capture_result",
+      {{"status", recorded ? "recorded_private_color_candidate"
+                              : "failed_closed"},
+       {"signature",
+        fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+       {"frame", std::to_string(g_isolated_draw.captured_frame)},
+       {"draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"readback", "native_and_xenos_color"},
+       {"native_draw", recorded ? "private_capture_only" : "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void CompleteVehicleShadowColorPrivateReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded) {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_recorded;
+    return;
+  }
+  g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed = true;
+  if (result.status ==
+      rex::system::GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_target_failures;
+  } else {
+    ++g_isolated_draw.vehicle_shadow_color_private_replay_unsupported;
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_color_private_replay_failure",
+      {{"status", "failed_closed"},
+       {"signature",
+        fmt::format("{:016X}", g_isolated_draw.captured_signature)},
+       {"frame", std::to_string(g_isolated_draw.frame)},
+       {"draw", std::to_string(g_isolated_draw.draw)},
+       {"fallback", "authoritative_xenos_draw"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void FailClosedVehicleResourceContribution(const char *reason) {
+  if (g_isolated_draw.vehicle_resource_contribution_failed_closed) {
+    return;
+  }
+  g_isolated_draw.vehicle_resource_contribution_failed_closed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_resource_contribution_failure",
+      {{"status", "failed_closed"},
+       {"reason", reason},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}",
+                    g_isolated_draw.vehicle_resource_contribution_hash)},
+       {"frame",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_frame)},
+       {"last_draw",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_last_draw)},
+       {"requests",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_requests)},
+       {"outcomes",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_outcomes)},
+       {"recorded",
+        std::to_string(
+            g_isolated_draw.vehicle_resource_contribution_current_recorded)},
+       {"family_mask",
+        fmt::format("{:08X}",
+                    g_isolated_draw.vehicle_resource_contribution_family_mask)},
+       {"fallback", "authoritative_xenos_draws"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void CompleteVehicleResourceContribution(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  ++g_isolated_draw.vehicle_resource_contribution_current_outcomes;
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  if (recorded) {
+    ++g_isolated_draw.vehicle_resource_contribution_recorded;
+    ++g_isolated_draw.vehicle_resource_contribution_current_recorded;
+  } else {
+    if (result.status == rex::system::
+                             GraphicsIsolatedDrawStatus::
+                                 kTargetCreationFailed) {
+      ++g_isolated_draw.vehicle_resource_contribution_target_failures;
+    } else {
+      ++g_isolated_draw.vehicle_resource_contribution_unsupported;
+    }
+    FailClosedVehicleResourceContribution("backend_replay_failure");
+    return;
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_current_requests != 2 ||
+      g_isolated_draw.vehicle_resource_contribution_current_outcomes != 2 ||
+      g_isolated_draw.vehicle_resource_contribution_capture_completed) {
+    return;
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_current_recorded != 2) {
+    FailClosedVehicleResourceContribution("incomplete_recording");
+    return;
+  }
+  g_isolated_draw.vehicle_resource_contribution_capture_completed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_resource_contribution_result",
+      {{"status", "recorded_complete_private_resource_contribution"},
+       {"geometry_resource_hash",
+        fmt::format("{:016X}",
+                    g_isolated_draw.vehicle_resource_contribution_hash)},
+       {"frame",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_frame)},
+       {"last_draw",
+        std::to_string(g_isolated_draw.vehicle_resource_contribution_last_draw)},
+       {"draw_count", "2"},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"readback", "native_resource_contribution"},
+       {"native_draw", "private_resource_contribution_only"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void FailClosedVehicleShadowColorRetainedPass(const char *reason) {
+  if (g_isolated_draw.vehicle_shadow_color_retained_pass_failed_closed) {
+    return;
+  }
+  g_isolated_draw.vehicle_shadow_color_retained_pass_failed_closed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_color_retained_failure",
+      {{"status", "failed_closed"},
+       {"reason", reason},
+       {"frame",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_current_frame)},
+       {"last_draw",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_last_draw)},
+       {"requests",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_current_requests)},
+       {"outcomes",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_current_outcomes)},
+       {"recorded",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_current_recorded)},
+       {"family_mask",
+        fmt::format(
+            "{:08X}",
+            g_isolated_draw.vehicle_shadow_color_retained_current_family_mask)},
+       {"expected_draws",
+        std::to_string(kVehicleShadowColorRetainedFamilyCount)},
+       {"fallback", "authoritative_xenos_draws"},
+       {"native_draw", "false"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
+}
+
+void CompleteVehicleShadowColorRetainedPass(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  ++g_isolated_draw.vehicle_shadow_color_retained_current_outcomes;
+  const bool recorded =
+      result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded;
+  if (recorded) {
+    ++g_isolated_draw.vehicle_shadow_color_retained_recorded;
+    ++g_isolated_draw.vehicle_shadow_color_retained_current_recorded;
+  } else {
+    g_isolated_draw.vehicle_shadow_color_retained_current_failed = true;
+    if (result.status == rex::system::
+                             GraphicsIsolatedDrawStatus::
+                                 kTargetCreationFailed) {
+      ++g_isolated_draw.vehicle_shadow_color_retained_target_failures;
+    } else {
+      ++g_isolated_draw.vehicle_shadow_color_retained_unsupported;
+    }
+  }
+  if (g_isolated_draw.vehicle_shadow_color_retained_current_failed) {
+    if (!g_isolated_draw.vehicle_shadow_color_retained_current_accounted) {
+      g_isolated_draw.vehicle_shadow_color_retained_current_accounted = true;
+      ++g_isolated_draw.vehicle_shadow_color_retained_frames_failed;
+    }
+    FailClosedVehicleShadowColorRetainedPass("backend_replay_failure");
+    return;
+  }
+  if (g_isolated_draw.vehicle_shadow_color_retained_current_requests !=
+          kVehicleShadowColorRetainedFamilyCount ||
+      g_isolated_draw.vehicle_shadow_color_retained_current_outcomes !=
+          kVehicleShadowColorRetainedFamilyCount ||
+      g_isolated_draw.vehicle_shadow_color_retained_current_accounted) {
+    return;
+  }
+  g_isolated_draw.vehicle_shadow_color_retained_current_accounted = true;
+  if (g_isolated_draw.vehicle_shadow_color_retained_current_recorded !=
+      kVehicleShadowColorRetainedFamilyCount) {
+    ++g_isolated_draw.vehicle_shadow_color_retained_frames_failed;
+    FailClosedVehicleShadowColorRetainedPass("incomplete_recording");
+    return;
+  }
+  ++g_isolated_draw.vehicle_shadow_color_retained_frames_completed;
+  if (g_isolated_draw.vehicle_shadow_color_retained_capture_completed) {
+    return;
+  }
+  g_isolated_draw.vehicle_shadow_color_retained_capture_completed = true;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_shadow_color_retained_result",
+      {{"status", "recorded_complete_private_vehicle_pass"},
+       {"frame",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_current_frame)},
+       {"last_draw",
+        std::to_string(
+            g_isolated_draw.vehicle_shadow_color_retained_last_draw)},
+       {"draw_count",
+        std::to_string(kVehicleShadowColorRetainedFamilyCount)},
+       {"target_width", std::to_string(result.target_width)},
+       {"target_height", std::to_string(result.target_height)},
+       {"readback", g_isolated_draw.readback_requested
+                        ? "native_retained_vehicle_color"
+                        : "disabled"},
+       {"native_draw", "private_retained_pass_only"},
+       {"xenos_draw", "preserved"},
+       {"output_authority", "xenos"},
+       {"suppression_allowed", "false"}});
 }
 
 void CompleteIsolatedShadowDepth(
@@ -16810,6 +27064,7 @@ void CompleteIsolatedShadowDepthBatch(
   if (!recorded) {
     g_isolated_draw.shadow_depth_batch_active = false;
     g_isolated_draw.shadow_depth_batch_backend_ready = false;
+    ResetVehicleShadowGeometryStaging();
     FailClosedContinuousShadowDepth("backend_replay_failure");
   }
   if (g_isolated_draw.shadow_depth_batch_draws !=
@@ -16821,6 +27076,9 @@ void CompleteIsolatedShadowDepthBatch(
     g_isolated_draw.shadow_depth_batch_last_completed_frame =
         g_isolated_draw.shadow_depth_batch_frame;
     g_isolated_draw.shadow_depth_batch_capture_completed = true;
+    CommitVehicleShadowGeometryEpoch();
+  } else {
+    ResetVehicleShadowGeometryStaging();
   }
   g_isolated_draw.shadow_depth_batch_active = false;
   pinyon_shift::diagnostics::RecordEvent(
@@ -17039,7 +27297,31 @@ void BeginContinuousWorldWorksetFrame(uint64_t frame) {
   g_continuous_world_workset.current_frame = frame;
   g_continuous_world_workset.current_frame_requests = 0;
   g_continuous_world_workset.current_frame_recorded = 0;
+  g_continuous_world_workset.current_retained_target_identity = 0;
   g_continuous_world_workset.current_frame_failed = false;
+}
+
+uint64_t ContinuousWorldRetainedTargetIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    bool color_only_target) {
+  uint64_t identity = UINT64_C(0xCBF29CE484222325);
+  identity = HashCombine(identity, prepared.bound_render_target_bits);
+  identity = HashCombine(identity, observation.surface_info);
+  identity = HashCombine(identity, color_only_target ? 1 : 0);
+  if (prepared.bound_render_target_bits & 1) {
+    identity = HashCombine(identity, observation.depth_info);
+    identity = HashCombine(identity, prepared.bound_render_target_formats[0]);
+  }
+  for (uint32_t color_index = 0; color_index < 4; ++color_index) {
+    if (!(prepared.bound_render_target_bits & (uint32_t(2) << color_index))) {
+      continue;
+    }
+    identity = HashCombine(identity, observation.color_info[color_index]);
+    identity = HashCombine(
+        identity, prepared.bound_render_target_formats[1 + color_index]);
+  }
+  return identity ? identity : 1;
 }
 
 void CompleteContinuousWorldWorksetReplay(
@@ -17053,16 +27335,61 @@ void CompleteContinuousWorldWorksetReplay(
   if (result.status == rex::system::
                            GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
     ++g_continuous_world_workset.target_creation_failures;
+    const size_t failure_index = size_t(result.target_failure);
+    if (failure_index <
+        g_continuous_world_workset.target_failure_reasons.size()) {
+      ++g_continuous_world_workset.target_failure_reasons[failure_index];
+      if (g_isolated_draw.prepared_procedural_color_producer) {
+        ++g_continuous_world_workset
+              .procedural_color_target_failure_reasons[failure_index];
+      }
+    }
+    if (g_isolated_draw.prepared_procedural_color_producer) {
+      ++g_continuous_world_workset
+            .procedural_color_producer_target_failures;
+    }
   } else {
     ++g_continuous_world_workset.unsupported;
   }
 }
 
-void EmitContinuousWorldWorksetSummary() {
+void CompleteContinuousWorldProceduralSourceReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  const uint64_t source_frame = result.frame_accumulator_source
+                                    ? result.frame_sequence
+                                    : UINT64_MAX;
+  CompleteContinuousWorldWorksetReplay(result);
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded &&
+      source_frame != UINT64_MAX) {
+    g_procedural_frame_accumulator_exact_source_frame = source_frame;
+    g_continuous_world_workset.procedural_source_geometry_frame = source_frame;
+    g_continuous_world_workset.procedural_source_logical_width =
+        result.logical_width;
+    g_continuous_world_workset.procedural_source_logical_height =
+        result.logical_height;
+    g_continuous_world_workset.procedural_source_target_width =
+        result.target_width;
+    g_continuous_world_workset.procedural_source_target_height =
+        result.target_height;
+    g_continuous_world_workset.procedural_source_draw_scale_x =
+        result.draw_resolution_scale_x;
+    g_continuous_world_workset.procedural_source_draw_scale_y =
+        result.draw_resolution_scale_y;
+  } else if (g_procedural_frame_accumulator_exact_source_frame ==
+             source_frame) {
+    g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+  }
+}
+
+void EmitContinuousWorldWorksetEvent(const char *event_name,
+                                     bool final_summary,
+                                     uint64_t frame_sequence) {
   if (!g_continuous_world_workset.requested) {
     return;
   }
-  FinalizeContinuousWorldWorksetFrame();
+  if (final_summary) {
+    FinalizeContinuousWorldWorksetFrame();
+  }
   const uint64_t outcomes = g_continuous_world_workset.recorded +
                             g_continuous_world_workset.target_creation_failures +
                             g_continuous_world_workset.unsupported;
@@ -17070,17 +27397,39 @@ void EmitContinuousWorldWorksetSummary() {
       g_continuous_world_workset.requests +
       g_continuous_world_workset.mechanical_rejections +
       g_continuous_world_workset.stale_or_unselected_rejections +
+      g_continuous_world_workset.non_track_provider_rejections +
+      g_continuous_world_workset.track_world_identity_exclusions +
+      g_continuous_world_workset.static_world_lineage_rejections +
       g_continuous_world_workset.per_frame_quota_yields +
       g_continuous_world_workset.fail_closed_yields;
+  uint64_t frames_completed = g_continuous_world_workset.frames_completed;
+  uint64_t frames_failed = g_continuous_world_workset.frames_failed;
+  if (!final_summary &&
+      g_continuous_world_workset.current_frame != UINT64_MAX &&
+      g_continuous_world_workset.current_frame_requests) {
+    if (g_continuous_world_workset.current_frame_failed) {
+      ++frames_failed;
+    } else if (g_continuous_world_workset.current_frame_recorded ==
+               g_continuous_world_workset.current_frame_requests) {
+      ++frames_completed;
+    }
+  }
   pinyon_shift::diagnostics::RecordEvent(
-      "native_renderer.continuous_world_workset.summary",
+      event_name,
       {{"status", !g_continuous_world_workset.valid
-                      ? "invalid_configuration"
-                      : (g_continuous_world_workset.frames_failed
-                             ? "fallback_observed"
-                             : (g_continuous_world_workset.frames_completed
-                                    ? "complete"
-                                    : "not_observed"))},
+                      ? (final_summary ? "invalid_configuration"
+                                       : "checkpoint_invalid_configuration")
+                      : (frames_failed
+                             ? (final_summary ? "fallback_observed"
+                                              : "checkpoint_fallback_observed")
+                             : (frames_completed
+                                    ? (final_summary ? "complete"
+                                                     : "checkpoint_complete")
+                                    : (final_summary
+                                           ? "not_observed"
+                                           : "checkpoint_not_observed")))},
+       {"final_summary", final_summary ? "true" : "false"},
+       {"frame_sequence", std::to_string(frame_sequence)},
        {"prepared_observations",
         std::to_string(g_continuous_world_workset.prepared_observations)},
        {"requests", std::to_string(g_continuous_world_workset.requests)},
@@ -17093,6 +27442,104 @@ void EmitContinuousWorldWorksetSummary() {
        {"stale_or_unselected_rejections",
         std::to_string(
             g_continuous_world_workset.stale_or_unselected_rejections)},
+       {"non_track_provider_rejections",
+        std::to_string(
+            g_continuous_world_workset.non_track_provider_rejections)},
+       {"track_world_identity_exclusions",
+        std::to_string(
+            g_continuous_world_workset.track_world_identity_exclusions)},
+       {"track_world_candidates",
+        std::to_string(g_continuous_world_workset.track_world_candidates)},
+       {"track_world_mechanically_eligible",
+        std::to_string(
+            g_continuous_world_workset.track_world_mechanically_eligible)},
+       {"track_world_mechanically_rejected",
+        std::to_string(
+            g_continuous_world_workset.track_world_mechanically_rejected)},
+       {"track_world_mechanical_rejection_reasons",
+        fmt::format(
+            "resolved_input={};unsupported_geometry={};empty_draw={};"
+            "vertex_binding_count={};vertex_binding_overflow={};"
+            "vertex_attribute_overflow={};vertex_constant_overflow={};"
+            "pixel_constant_overflow={};texture_state_overflow={};"
+            "memexport={};query={};texture_count={};texture_layout={};"
+            "prepared_pipeline={};render_targets={}",
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[0],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[1],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[2],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[3],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[4],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[5],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[6],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[7],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[8],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[9],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[10],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[11],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[12],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[13],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[14])},
+       {"track_world_requests",
+        std::to_string(g_continuous_world_workset.track_world_requests)},
+       {"procedural_color_producer_candidates",
+        std::to_string(
+            g_continuous_world_workset.procedural_color_producer_candidates)},
+       {"procedural_color_producer_requests",
+        std::to_string(
+            g_continuous_world_workset.procedural_color_producer_requests)},
+       {"procedural_color_producer_target_failures",
+        std::to_string(g_continuous_world_workset
+                           .procedural_color_producer_target_failures)},
+       {"target_failure_reasons",
+        fmt::format(
+            "none={};incompatible_modes={};unsupported_path={};missing_depth={};unexpected_depth={};missing_color={};additional_color={};depth_create={};color_create={};invalid_extent={};depth_format={};retained_unavailable={};retained_mismatch={}",
+            g_continuous_world_workset.target_failure_reasons[0],
+            g_continuous_world_workset.target_failure_reasons[1],
+            g_continuous_world_workset.target_failure_reasons[2],
+            g_continuous_world_workset.target_failure_reasons[3],
+            g_continuous_world_workset.target_failure_reasons[4],
+            g_continuous_world_workset.target_failure_reasons[5],
+            g_continuous_world_workset.target_failure_reasons[6],
+            g_continuous_world_workset.target_failure_reasons[7],
+            g_continuous_world_workset.target_failure_reasons[8],
+            g_continuous_world_workset.target_failure_reasons[9],
+            g_continuous_world_workset.target_failure_reasons[10],
+            g_continuous_world_workset.target_failure_reasons[11],
+            g_continuous_world_workset.target_failure_reasons[12])},
+       {"procedural_color_target_failure_reasons",
+        fmt::format(
+            "none={};incompatible_modes={};unsupported_path={};missing_depth={};unexpected_depth={};missing_color={};additional_color={};depth_create={};color_create={};invalid_extent={};depth_format={};retained_unavailable={};retained_mismatch={}",
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[0],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[1],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[2],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[3],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[4],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[5],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[6],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[7],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[8],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[9],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[10],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[11],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[12])},
+       {"static_world_lineage_rejections",
+        std::to_string(
+            g_continuous_world_workset.static_world_lineage_rejections)},
+       {"static_world_requests",
+        std::to_string(g_continuous_world_workset.static_world_requests)},
        {"per_frame_quota_yields",
         std::to_string(g_continuous_world_workset.per_frame_quota_yields)},
        {"fail_closed_yields",
@@ -17102,12 +27549,36 @@ void EmitContinuousWorldWorksetSummary() {
             g_continuous_world_workset.qualified_retained_family_requests)},
        {"reused_target_requests",
         std::to_string(g_continuous_world_workset.reused_target_requests)},
+       {"target_reseed_requests",
+        std::to_string(g_continuous_world_workset.target_reseed_requests)},
+       {"procedural_color_target_reseed_requests",
+        std::to_string(g_continuous_world_workset
+                           .procedural_color_target_reseed_requests)},
+       {"procedural_source_geometry_frame",
+        g_continuous_world_workset.procedural_source_geometry_frame ==
+                UINT64_MAX
+            ? "none"
+            : std::to_string(
+                  g_continuous_world_workset.procedural_source_geometry_frame)},
+       {"procedural_source_logical_extent",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_logical_width,
+            g_continuous_world_workset.procedural_source_logical_height)},
+       {"procedural_source_target_extent",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_target_width,
+            g_continuous_world_workset.procedural_source_target_height)},
+       {"procedural_source_draw_scale",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_draw_scale_x,
+            g_continuous_world_workset.procedural_source_draw_scale_y)},
        {"frames_started",
         std::to_string(g_continuous_world_workset.frames_started)},
-       {"frames_completed",
-        std::to_string(g_continuous_world_workset.frames_completed)},
-       {"frames_failed",
-        std::to_string(g_continuous_world_workset.frames_failed)},
+       {"frames_completed", std::to_string(frames_completed)},
+       {"frames_failed", std::to_string(frames_failed)},
        {"accounting_complete",
         outcomes == g_continuous_world_workset.requests ? "true" : "false"},
        {"selection_accounting_complete",
@@ -17116,13 +27587,36 @@ void EmitContinuousWorldWorksetSummary() {
             : "false"},
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
-       {"freshness_commit", "matching_swap_after_complete_accumulation"},
+       {"selection",
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical"},
+       {"track_world_selection",
+        g_continuous_world_workset.track_world_requested
+            ? "exact_track_render_model_scope_and_shared_world_resource_identity"
+            : "disabled"},
+       {"static_world_selection",
+        g_continuous_world_workset.static_world_requested
+            ? "exact_presentation_resource_mesh_transform_lineage"
+            : "disabled"},
+        {"freshness_commit", "matching_swap_after_complete_accumulation"},
+        {"preview_publication", "disabled_pending_complete_scene_compositor"},
        {"readback", "disabled"},
        {"native_draw", "continuous_world_workset"},
        {"xenos_draw", "preserved"},
-       {"output_authority", "renderer_selector"},
+        {"output_authority", "xenos_until_complete_scene_compositor"},
        {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
+}
+
+void EmitContinuousWorldWorksetSummary() {
+  EmitContinuousWorldWorksetEvent(
+      "native_renderer.continuous_world_workset.summary", true,
+      g_frame_sequence.load(std::memory_order_relaxed));
+}
+
+void EmitContinuousWorldWorksetCheckpoint(uint64_t frame_sequence) {
+  EmitContinuousWorldWorksetEvent(
+      "native_renderer.continuous_world_workset.checkpoint", false,
+      frame_sequence);
 }
 
 void EmitVisibilityShadowReplaySummary() {
@@ -17414,7 +27908,7 @@ void CompleteRetainedPassPublication(
 }
 
 void RequestIsolatedDraw(
-    const rex::system::GraphicsPreparedDrawObservation &,
+    const rex::system::GraphicsPreparedDrawObservation &observation,
     rex::system::GraphicsIsolatedDrawRequest &request) {
   if (g_consumer_family_marker.current_match) {
     request.consumer_reference_marker_requested = true;
@@ -17447,15 +27941,68 @@ void RequestIsolatedDraw(
       !g_isolated_draw.shadow_depth_batch_active) {
     BeginContinuousWorldWorksetFrame(g_isolated_draw.frame);
     ++g_continuous_world_workset.prepared_observations;
+    const bool qualified_retained_family =
+        g_isolated_draw.prepared_signature == kSkyHorizonFollowerSignature;
+    const bool exact_static_world =
+        g_continuous_world_workset.static_world_requested &&
+        g_isolated_draw.prepared_static_world_exact;
+    const bool exact_track_world =
+        g_continuous_world_workset.track_world_requested &&
+        g_isolated_draw.prepared_track_render_model_scope &&
+        (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
+         g_isolated_draw.prepared_track_command_lineage);
+    const bool exact_procedural_color_producer =
+        g_isolated_draw.prepared_procedural_color_producer;
+    if (exact_procedural_color_producer) {
+      ++g_continuous_world_workset.procedural_color_producer_candidates;
+    }
+    if (exact_track_world) {
+      ++g_continuous_world_workset.track_world_candidates;
+      const uint32_t rejection_mask =
+          g_isolated_draw.prepared_candidate_rejection_mask;
+      if (rejection_mask) {
+        ++g_continuous_world_workset.track_world_mechanically_rejected;
+        for (size_t bit = 0;
+             bit < g_continuous_world_workset
+                       .track_world_mechanical_rejection_reasons.size();
+             ++bit) {
+          if (rejection_mask & (uint32_t(1) << bit)) {
+            ++g_continuous_world_workset
+                  .track_world_mechanical_rejection_reasons[bit];
+          }
+        }
+      } else {
+        ++g_continuous_world_workset.track_world_mechanically_eligible;
+      }
+    }
     if (!g_isolated_draw.prepared_candidate_eligible) {
       ++g_continuous_world_workset.mechanical_rejections;
       return;
     }
-    const bool qualified_retained_family =
-        g_isolated_draw.prepared_signature == kSkyHorizonFollowerSignature;
+    if (g_continuous_world_workset.static_world_requested &&
+        g_isolated_draw.prepared_static_world_origin &&
+        !g_isolated_draw.prepared_static_world_exact) {
+      ++g_continuous_world_workset.static_world_lineage_rejections;
+      return;
+    }
     if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
-        !qualified_retained_family) {
+        !qualified_retained_family && !exact_static_world &&
+        !exact_track_world && !exact_procedural_color_producer) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
+      return;
+    }
+    if (!qualified_retained_family &&
+        !exact_static_world &&
+        !exact_track_world &&
+        !exact_procedural_color_producer &&
+        !g_isolated_draw.prepared_track_texture_provider) {
+      ++g_continuous_world_workset.non_track_provider_rejections;
+      return;
+    }
+    if (g_continuous_world_workset.track_world_requested &&
+        !qualified_retained_family && !exact_static_world &&
+        !exact_track_world && !exact_procedural_color_producer) {
+      ++g_continuous_world_workset.track_world_identity_exclusions;
       return;
     }
     if (g_continuous_world_workset.current_frame_failed) {
@@ -17467,25 +28014,63 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.per_frame_quota_yields;
       return;
     }
-    const bool reuse_target =
+    const bool color_only_target =
+        exact_track_world && g_isolated_draw.prepared_color_only_target;
+    const uint64_t retained_target_identity =
+        ContinuousWorldRetainedTargetIdentity(
+            g_isolated_draw.prepared_sample, observation,
+            color_only_target);
+    const bool has_retained_target =
         g_continuous_world_workset.current_frame_requests != 0;
+    const bool reuse_target =
+        has_retained_target &&
+        g_continuous_world_workset.current_retained_target_identity ==
+            retained_target_identity;
     if (!g_continuous_world_workset.current_frame_requests) {
       ++g_continuous_world_workset.frames_started;
-    } else {
+    } else if (reuse_target) {
       ++g_continuous_world_workset.reused_target_requests;
+    } else {
+      ++g_continuous_world_workset.target_reseed_requests;
+      if (exact_procedural_color_producer) {
+        ++g_continuous_world_workset
+              .procedural_color_target_reseed_requests;
+      }
     }
+    g_continuous_world_workset.current_retained_target_identity =
+        retained_target_identity;
     ++g_continuous_world_workset.current_frame_requests;
     ++g_continuous_world_workset.requests;
     if (qualified_retained_family) {
       ++g_continuous_world_workset.qualified_retained_family_requests;
     }
+    if (exact_track_world) {
+      ++g_continuous_world_workset.track_world_requests;
+    }
+    if (exact_procedural_color_producer) {
+      ++g_continuous_world_workset.procedural_color_producer_requests;
+    }
+    if (exact_static_world) {
+      ++g_continuous_world_workset.static_world_requests;
+    }
     request.requested = true;
+    request.color_only_target = color_only_target;
     request.retain_target = true;
     request.reuse_target = reuse_target;
-    request.defer_preview_publication_until_swap = true;
+    // A target-family transition currently reseeds the single retained target,
+    // so the last successful replay is not proof of a complete scene. Keep the
+    // workset private until a compositor can preserve and join every required
+    // camera-consistent family. Publishing the last isolated target produces
+    // the known wrong-view / missing-world prototype.
+    request.defer_preview_publication_until_swap = false;
+    request.frame_accumulator_source = exact_procedural_color_producer;
     request.frame_sequence = g_isolated_draw.frame;
     request.reference_marker_requested = true;
-    request.completion = &CompleteContinuousWorldWorksetReplay;
+    if (exact_procedural_color_producer) {
+      request.completion = &CompleteContinuousWorldProceduralSourceReplay;
+    } else {
+      request.completion = &CompleteContinuousWorldWorksetReplay;
+    }
     return;
   }
   if (g_visibility_shadow_replay.requested &&
@@ -17530,6 +28115,274 @@ void RequestIsolatedDraw(
     // Qualification mode is one-shot. Continuous mode admits later exact
     // epochs, but the first ordering, replay, or publication failure disables
     // every later native request for the process and leaves Xenos authoritative.
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_pending &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible &&
+        !g_isolated_draw.vehicle_shadow_color_capture_completed) {
+      g_isolated_draw.vehicle_shadow_color_capture_completed = true;
+      g_isolated_draw.vehicle_shadow_color_capture_pending = false;
+      ++g_isolated_draw.vehicle_shadow_color_capture_requests;
+      g_isolated_draw.captured_signature =
+          g_isolated_draw.prepared_signature;
+      g_isolated_draw.captured_frame = g_isolated_draw.frame;
+      g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      request.requested = true;
+      request.frame_sequence = g_isolated_draw.frame;
+      request.readback_requested = g_isolated_draw.readback_requested;
+      request.reference_readback_requested =
+          g_isolated_draw.readback_requested;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleShadowColorCapture;
+      request.readback_completion = g_isolated_draw.readback_requested
+                                        ? &CompleteIsolatedDrawReadback
+                                        : nullptr;
+      request.reference_readback_completion =
+          g_isolated_draw.readback_requested
+              ? &CompleteIsolatedReferenceReadback
+              : nullptr;
+      return;
+    }
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_recorded &&
+        g_isolated_draw.vehicle_resource_contribution_capture_mode &&
+        !g_isolated_draw.vehicle_resource_contribution_failed_closed &&
+        !g_isolated_draw.vehicle_resource_contribution_capture_completed &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible) {
+      if (g_vehicle_shadow_geometry_correlation_count !=
+          kVehicleShadowColorRetainedFamilyCount) {
+        return;
+      }
+      const uint32_t family_index =
+          g_isolated_draw.prepared_vehicle_shadow_color_family_index;
+      if (family_index >= kVehicleShadowColorRetainedFamilyCount) {
+        FailClosedVehicleResourceContribution("invalid_family_index");
+        return;
+      }
+      const VehicleShadowGeometryCorrelationEntry &family =
+          g_vehicle_shadow_geometry_correlations[family_index];
+      if (!family.occupied ||
+          family.geometry_resource_hash !=
+              g_isolated_draw.vehicle_resource_contribution_hash) {
+        return;
+      }
+      uint32_t resource_variant_count = 0;
+      for (const VehicleShadowGeometryCorrelationEntry &entry :
+           g_vehicle_shadow_geometry_correlations) {
+        resource_variant_count +=
+            entry.occupied &&
+            entry.geometry_resource_hash ==
+                g_isolated_draw.vehicle_resource_contribution_hash;
+      }
+      if (resource_variant_count != 2) {
+        FailClosedVehicleResourceContribution("unexpected_variant_count");
+        return;
+      }
+      const uint64_t frame = g_isolated_draw.frame;
+      if (g_isolated_draw.vehicle_resource_contribution_frame != frame) {
+        if (g_isolated_draw.vehicle_resource_contribution_frame != UINT64_MAX &&
+            g_isolated_draw.vehicle_resource_contribution_current_requests) {
+          FailClosedVehicleResourceContribution("incomplete_resource_frame");
+          return;
+        }
+        g_isolated_draw.vehicle_resource_contribution_frame = frame;
+        g_isolated_draw.vehicle_resource_contribution_last_draw = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_requests = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_outcomes = 0;
+        g_isolated_draw.vehicle_resource_contribution_current_recorded = 0;
+        g_isolated_draw.vehicle_resource_contribution_family_mask = 0;
+      }
+      if (g_isolated_draw.vehicle_resource_contribution_current_requests >= 2) {
+        FailClosedVehicleResourceContribution("extra_resource_variant");
+        return;
+      }
+      if (g_isolated_draw.vehicle_resource_contribution_last_draw &&
+          g_isolated_draw.draw <=
+              g_isolated_draw.vehicle_resource_contribution_last_draw) {
+        FailClosedVehicleResourceContribution("non_monotonic_draw_order");
+        return;
+      }
+      const uint32_t family_bit = uint32_t(1) << family_index;
+      if (g_isolated_draw.vehicle_resource_contribution_family_mask &
+          family_bit) {
+        FailClosedVehicleResourceContribution("duplicate_resource_variant");
+        return;
+      }
+      g_isolated_draw.vehicle_resource_contribution_family_mask |= family_bit;
+      ++g_isolated_draw.vehicle_resource_contribution_current_requests;
+      ++g_isolated_draw.vehicle_resource_contribution_requests;
+      g_isolated_draw.vehicle_resource_contribution_last_draw =
+          g_isolated_draw.draw;
+      const bool completing_contribution =
+          g_isolated_draw.vehicle_resource_contribution_current_requests == 2;
+      if (completing_contribution) {
+        g_isolated_draw.captured_signature =
+            g_isolated_draw.prepared_signature;
+        g_isolated_draw.captured_frame = frame;
+        g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      }
+      request.requested = true;
+      request.retain_target = !completing_contribution;
+      request.reuse_target = completing_contribution;
+      request.frame_sequence = frame;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleResourceContribution;
+      request.readback_requested =
+          completing_contribution && g_isolated_draw.readback_requested;
+      request.readback_completion =
+          request.readback_requested
+              ? &CompleteVehicleResourceContributionReadback
+              : nullptr;
+      return;
+    }
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_recorded &&
+        g_isolated_draw.vehicle_shadow_color_retained_pass_mode &&
+        !g_isolated_draw.vehicle_shadow_color_retained_pass_failed_closed &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible) {
+      const uint64_t frame = g_isolated_draw.frame;
+      if (frame <= g_isolated_draw.captured_frame) {
+        return;
+      }
+      if (g_vehicle_shadow_geometry_correlation_count !=
+          kVehicleShadowColorRetainedFamilyCount) {
+        FailClosedVehicleShadowColorRetainedPass(
+            "unexpected_correlation_family_count");
+        return;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_retained_skip_frame == frame) {
+        return;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_retained_current_frame !=
+          frame) {
+        if (g_isolated_draw.vehicle_shadow_color_retained_current_frame !=
+                UINT64_MAX &&
+            !g_isolated_draw
+                 .vehicle_shadow_color_retained_current_accounted) {
+          if (g_isolated_draw
+                  .vehicle_shadow_color_retained_current_requests !=
+              kVehicleShadowColorRetainedFamilyCount) {
+            ++g_isolated_draw.vehicle_shadow_color_retained_frames_failed;
+            g_isolated_draw
+                .vehicle_shadow_color_retained_current_accounted = true;
+            FailClosedVehicleShadowColorRetainedPass(
+                "incomplete_family_frame");
+          } else {
+            g_isolated_draw.vehicle_shadow_color_retained_skip_frame = frame;
+          }
+          return;
+        }
+        if (g_isolated_draw.vehicle_shadow_color_retained_frames_started >=
+            kVehicleShadowColorRetainedPassLimit) {
+          ++g_isolated_draw.vehicle_shadow_color_retained_limit_yields;
+          return;
+        }
+        g_isolated_draw.vehicle_shadow_color_retained_current_frame = frame;
+        g_isolated_draw.vehicle_shadow_color_retained_last_draw = 0;
+        g_isolated_draw.vehicle_shadow_color_retained_current_requests = 0;
+        g_isolated_draw.vehicle_shadow_color_retained_current_outcomes = 0;
+        g_isolated_draw.vehicle_shadow_color_retained_current_recorded = 0;
+        g_isolated_draw.vehicle_shadow_color_retained_current_family_mask = 0;
+        g_isolated_draw.vehicle_shadow_color_retained_current_failed = false;
+        g_isolated_draw.vehicle_shadow_color_retained_current_accounted =
+            false;
+        ++g_isolated_draw.vehicle_shadow_color_retained_frames_started;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_retained_current_requests >=
+          kVehicleShadowColorRetainedFamilyCount) {
+        FailClosedVehicleShadowColorRetainedPass("extra_family_draw");
+        return;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_retained_last_draw &&
+          g_isolated_draw.draw <=
+              g_isolated_draw.vehicle_shadow_color_retained_last_draw) {
+        FailClosedVehicleShadowColorRetainedPass("non_monotonic_draw_order");
+        return;
+      }
+      const uint32_t family_index =
+          g_isolated_draw.prepared_vehicle_shadow_color_family_index;
+      if (family_index >= kVehicleShadowColorRetainedFamilyCount) {
+        FailClosedVehicleShadowColorRetainedPass("invalid_family_index");
+        return;
+      }
+      const uint32_t family_bit = uint32_t(1) << family_index;
+      if (g_isolated_draw.vehicle_shadow_color_retained_current_family_mask &
+          family_bit) {
+        FailClosedVehicleShadowColorRetainedPass("duplicate_family_draw");
+        return;
+      }
+      g_isolated_draw.vehicle_shadow_color_retained_current_family_mask |=
+          family_bit;
+      ++g_isolated_draw.vehicle_shadow_color_retained_current_requests;
+      ++g_isolated_draw.vehicle_shadow_color_retained_requests;
+      g_isolated_draw.vehicle_shadow_color_retained_last_draw =
+          g_isolated_draw.draw;
+      const bool first_draw =
+          g_isolated_draw.vehicle_shadow_color_retained_current_requests == 1;
+      const bool completing_pass =
+          g_isolated_draw.vehicle_shadow_color_retained_current_requests ==
+          kVehicleShadowColorRetainedFamilyCount;
+      if (completing_pass &&
+          g_isolated_draw.vehicle_shadow_color_retained_current_family_mask !=
+              ((uint32_t(1) << kVehicleShadowColorRetainedFamilyCount) - 1)) {
+        FailClosedVehicleShadowColorRetainedPass("incomplete_family_set");
+        return;
+      }
+      if (!first_draw) {
+        ++g_isolated_draw
+              .vehicle_shadow_color_retained_reused_target_requests;
+      }
+      if (completing_pass) {
+        g_isolated_draw.captured_signature =
+            g_isolated_draw.prepared_signature;
+        g_isolated_draw.captured_frame = frame;
+        g_isolated_draw.captured_draw = g_isolated_draw.draw;
+      }
+      request.requested = true;
+      request.retain_target = !completing_pass;
+      request.reuse_target = !first_draw;
+      request.frame_sequence = frame;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleShadowColorRetainedPass;
+      const bool capture_pass =
+          completing_pass && g_isolated_draw.readback_requested &&
+          !g_isolated_draw.vehicle_shadow_color_retained_capture_completed;
+      request.readback_requested = capture_pass;
+      request.readback_completion =
+          capture_pass ? &CompleteVehicleShadowColorRetainedReadback
+                       : nullptr;
+      return;
+    }
+    if (g_isolated_draw.shadow_depth_batch_capture_completed &&
+        g_isolated_draw.vehicle_shadow_color_capture_mode &&
+        g_isolated_draw.vehicle_shadow_color_capture_recorded &&
+        !g_isolated_draw.vehicle_shadow_color_retained_pass_mode &&
+        !g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed &&
+        g_isolated_draw.prepared_vehicle_shadow_color_replay_eligible &&
+        g_isolated_draw.prepared_signature ==
+            g_isolated_draw.captured_signature) {
+      if (g_isolated_draw.vehicle_shadow_color_private_replay_requests >=
+          kVehicleShadowColorPrivateReplayLimit) {
+        ++g_isolated_draw.vehicle_shadow_color_private_replay_limit_yields;
+        return;
+      }
+      if (g_isolated_draw.vehicle_shadow_color_private_replay_last_frame ==
+          g_isolated_draw.frame) {
+        ++g_isolated_draw
+              .vehicle_shadow_color_private_replay_frame_quota_yields;
+        return;
+      }
+      g_isolated_draw.vehicle_shadow_color_private_replay_last_frame =
+          g_isolated_draw.frame;
+      ++g_isolated_draw.vehicle_shadow_color_private_replay_requests;
+      request.requested = true;
+      request.frame_sequence = g_isolated_draw.frame;
+      request.reference_marker_requested = true;
+      request.completion = &CompleteVehicleShadowColorPrivateReplay;
+      return;
+    }
     if ((g_isolated_draw.shadow_depth_batch_capture_completed &&
          !g_isolated_draw.shadow_depth_continuous_mode) ||
         g_isolated_draw.shadow_depth_continuous_failed_closed ||
@@ -17564,6 +28417,7 @@ void RequestIsolatedDraw(
         g_isolated_draw.shadow_depth_batch_active = false;
         g_isolated_draw.shadow_depth_batch_backend_ready = false;
         g_isolated_draw.shadow_depth_batch_draws = 0;
+        ResetVehicleShadowGeometryStaging();
         FailClosedContinuousShadowDepth("non_contiguous_epoch");
         if (g_isolated_draw.shadow_depth_continuous_failed_closed) {
           return;
@@ -17592,9 +28446,12 @@ void RequestIsolatedDraw(
       g_isolated_draw.shadow_depth_batch_backend_ready = false;
       g_isolated_draw.shadow_depth_batch_frame = g_isolated_draw.frame;
       g_isolated_draw.shadow_depth_batch_draws = 0;
+      ResetVehicleShadowGeometryStaging();
       ++g_isolated_draw.shadow_depth_batches_started;
     }
     ++g_isolated_draw.shadow_depth_batch_draws;
+    StageVehicleShadowGeometry(g_isolated_draw.prepared_sample,
+                               g_isolated_draw.prepared_semantic_contract);
     ++g_isolated_draw.shadow_depth_batch_requests;
     g_isolated_draw.shadow_depth_batch_last_draw = g_isolated_draw.draw;
     const bool completing_batch =
@@ -18239,6 +29096,34 @@ void ObserveDrawOutcome(
   g_pending_candidate.valid = false;
 }
 
+void ObserveQualifiedResolveIngress(
+    const pinyon_shift::native_renderer::ProceduralResolveCopy &copy) {
+  pinyon_shift::native_renderer::ProceduralResolveTarget qualified_target;
+  if (g_procedural_frame_accumulator_backend_armed &&
+      pinyon_shift::native_renderer::
+          QualifiedProceduralResolveTargetFromFirstCopy(copy,
+                                                        qualified_target)) {
+    ++g_procedural_frame_accumulator_qualified_resolve_arms;
+    ++g_procedural_frame_accumulator_qualified_resolve_source_modes[
+        copy.source_info == 0x00030000 ? 0 : 1];
+    EmitProceduralResolveAssembly(
+        g_procedural_resolve_assembly_tracker.Arm(qualified_target));
+    EmitProceduralFrameAccumulatorTransition(
+        g_procedural_frame_accumulator_planner.Arm(qualified_target));
+  }
+}
+
+void ObservePrototypeResolveCopy(
+    const rex::system::GraphicsCopyObservation &observation) {
+  if (!observation.succeeded || !observation.written_length) {
+    return;
+  }
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Observe(copy));
+}
+
 void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   AdvanceDependencyWindow(observation.frame_sequence);
   if (!observation.succeeded) {
@@ -18248,6 +29133,17 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   if (!observation.written_length) {
     ++g_dependency_census.window_zero_length_copy_count;
     return;
+  }
+
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Observe(copy));
+  if (!g_procedural_frame_accumulator_backend_armed) {
+    const auto transition =
+        g_procedural_frame_accumulator_planner.Observe(copy);
+    EmitProceduralFrameAccumulatorTransition(transition);
+    ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
   }
 
   ++g_dependency_census.window_resolve_count;
@@ -18470,14 +29366,20 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.sample = observation;
   ConsumeTitleDrawPacket(observation.packet_physical_address,
                          candidate.title_origin);
-  const uint64_t signature = DrawSignature(observation);
-  const ActiveTitleIndirectBuffer *vehicle_indirect_origin =
-      observation.command_buffer_depth
-          ? CurrentTitleIndirectBuffer(observation)
-          : nullptr;
-  ObserveVehicleDrawArgumentCorrelations(
-      signature, observation.frame_sequence, candidate.title_origin,
-      vehicle_indirect_origin);
+  uint64_t signature = 0;
+  if (g_graphics_full_census_armed ||
+      g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    signature = DrawSignature(observation);
+  }
+  if (g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    const ActiveTitleIndirectBuffer *vehicle_indirect_origin =
+        observation.command_buffer_depth
+            ? CurrentTitleIndirectBuffer(observation)
+            : nullptr;
+    ObserveVehicleDrawArgumentCorrelations(
+        signature, observation.frame_sequence, candidate.title_origin,
+        vehicle_indirect_origin);
+  }
   for (uint32_t fetch_index = 0; fetch_index < 32; ++fetch_index) {
     if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch_index))) {
       continue;
@@ -18523,6 +29425,9 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.samples_resolved_target = samples_resolved_target;
   g_pending_candidate = candidate;
   g_pending_candidate.valid = true;
+  if (!g_graphics_full_census_armed) {
+    return;
+  }
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_draw_census.entries[index];
@@ -18561,6 +29466,24 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_identity_addresses = {};
     g_vehicle_identity_address_count = 0;
     g_vehicle_identity_address_overflow = 0;
+    g_vehicle_map_entities = {};
+    g_vehicle_map_entity_observations = 0;
+    g_vehicle_map_entity_valid_observations = 0;
+    g_vehicle_map_entity_unrecognized_observations = 0;
+    g_vehicle_map_entity_invalid_observations = 0;
+    g_vehicle_map_entity_assignment_observations = 0;
+    g_vehicle_map_entity_assignment_valid_observations = 0;
+    g_vehicle_map_entity_assignment_unrecognized_observations = 0;
+    g_vehicle_map_entity_assignment_invalid_observations = 0;
+    g_vehicle_map_entity_pool_observations = 0;
+    g_vehicle_map_entity_pool_valid_observations = 0;
+    g_vehicle_map_entity_pool_unrecognized_observations = 0;
+    g_vehicle_map_entity_pool_invalid_observations = 0;
+    g_vehicle_map_entity_count = 0;
+    g_vehicle_map_entity_overflow = 0;
+    g_vehicle_map_pose_correlations = {};
+    g_vehicle_map_pose_correlation_count = 0;
+    g_vehicle_map_pose_correlation_overflow = 0;
     g_vehicle_matrix_correlations = {};
     g_vehicle_matrix_caller_observations = 0;
     g_vehicle_matrix_caller_valid_observations = 0;
@@ -18598,6 +29521,57 @@ void ConfigureVehicleDiscovery(bool census_requested,
     g_vehicle_composed_matrix_tight_matches = 0;
     g_vehicle_composed_matrix_correlation_count = 0;
     g_vehicle_composed_matrix_correlation_overflow = 0;
+  }
+  {
+    std::scoped_lock lock(g_vehicle_material_binding_mutex);
+    g_vehicle_material_bindings = {};
+    g_vehicle_material_binding_observations = 0;
+    g_vehicle_material_binding_valid_observations = 0;
+    g_vehicle_material_binding_invalid_relation = 0;
+    g_vehicle_material_binding_asset_read_faults = 0;
+    g_vehicle_material_binding_count = 0;
+    g_vehicle_material_binding_overflow = 0;
+  }
+  {
+    std::scoped_lock lock(g_vehicle_constant_upload_mutex);
+    std::fill(g_vehicle_constant_uploads.begin(),
+              g_vehicle_constant_uploads.end(),
+              VehicleConstantUploadEntry{});
+    g_vehicle_constant_upload_observations = 0;
+    g_vehicle_constant_upload_valid = 0;
+    g_vehicle_constant_upload_invalid_register_range = 0;
+    g_vehicle_constant_upload_invalid_source_range = 0;
+    g_vehicle_constant_upload_overwrites = 0;
+    g_vehicle_constant_upload_sequence = 0;
+    g_vehicle_constant_upload_cursor = 0;
+  }
+  {
+    std::scoped_lock lock(g_vehicle_shader_constant_mutex);
+    std::fill(g_vehicle_shader_constant_components.begin(),
+              g_vehicle_shader_constant_components.end(),
+              VehicleShaderConstantComponentWrite{});
+    std::fill(g_vehicle_shader_constant_sources.begin(),
+              g_vehicle_shader_constant_sources.end(),
+              VehicleShaderConstantSourceEntry{});
+    std::fill(g_vehicle_semantic_constant_bridges.begin(),
+              g_vehicle_semantic_constant_bridges.end(),
+              VehicleSemanticConstantBridgeEntry{});
+    g_vehicle_shader_constant_register_exact_vectors.fill(0);
+    g_vehicle_shader_constant_register_missing_vectors.fill(0);
+    g_vehicle_shader_constant_register_mismatched_vectors.fill(0);
+    g_vehicle_shader_constant_register_first_mismatch_mask.fill(0);
+    g_vehicle_shader_constant_register_mismatch_mask_variations.fill(0);
+    g_vehicle_shader_constant_write_observations = 0;
+    g_vehicle_vertex_shader_constant_write_observations = 0;
+    g_vehicle_pixel_shader_constant_write_observations = 0;
+    g_vehicle_shader_constant_write_invalid_register = 0;
+    g_vehicle_shader_constant_write_sequence = 0;
+    g_vehicle_shader_constant_source_count = 0;
+    g_vehicle_shader_constant_source_overflow = 0;
+    g_vehicle_shader_constant_invalid_observed_vectors = 0;
+    g_vehicle_semantic_constant_bridge_publications = 0;
+    g_vehicle_semantic_constant_bridge_rejections = 0;
+    g_vehicle_semantic_constant_bridge_complete_lineage_publications = 0;
   }
   for (VehicleOwnerMethodStats &stats : g_vehicle_owner_method_stats) {
     stats.calls.store(0, std::memory_order_relaxed);
@@ -18677,6 +29651,24 @@ void ConfigureVehicleDiscovery(bool census_requested,
         std::to_string(kVehicleIdentitySummaryLimit)},
        {"classification", "unclassified_vehicle_pose_stream"},
        {"player_priority_admitted", "false"},
+       {"map_entity_hook", "82BBA010"},
+       {"map_entity_assignment_hook", "82CCF228"},
+       {"player_pool_hook", "826291A8"},
+       {"map_entity_contract",
+        "rtti_locked_main_vtable,vehicle_id_at_12,type_name_pointer_at_16"},
+       {"map_entity_capacity",
+        std::to_string(kVehicleMapEntityCapacity)},
+       {"map_entity_vtables",
+        "8201D338:base,8201D380:player_local,8201D3C8:ai,"
+        "8201D430:festival_traffic,8201D4B0:remote_player"},
+       {"map_entity_pose_join",
+        "exact_entity_to_source,entity_to_owner,vehicle_id_to_active_slot"},
+       {"material_binding_hook",
+        fmt::format("{:08X}", kVehicleMaterialBindingHook)},
+       {"material_binding_contract",
+        "entry_r3_root,entry_r4_root_plus_1056,asset_key_at_root_plus_1712"},
+       {"material_binding_capacity",
+        std::to_string(kVehicleMaterialBindingCapacity)},
        {"owner_vtable_method_count",
         std::to_string(kVehicleOwnerVtableMethodCount)},
        {"owner_method_candidates",
@@ -18762,7 +29754,8 @@ void EmitVehicleDiscoverySummary() {
   }
   std::scoped_lock lock(g_vehicle_identity_mutex,
                         g_vehicle_owner_indirect_mutex,
-                        g_vehicle_draw_correlation_mutex);
+                        g_vehicle_draw_correlation_mutex,
+                        g_vehicle_material_binding_mutex);
   const bool accounting_complete =
       g_vehicle_valid_observations + g_vehicle_invalid_observations ==
       g_vehicle_observations;
@@ -18792,6 +29785,44 @@ void EmitVehicleDiscoverySummary() {
       g_vehicle_composed_matrix_candidate_observations +
           g_vehicle_composed_matrix_routes_without_identity ==
       g_vehicle_composed_matrix_valid_pairs * 8;
+  const bool vehicle_map_entity_accounting_complete =
+      g_vehicle_map_entity_valid_observations +
+          g_vehicle_map_entity_unrecognized_observations +
+          g_vehicle_map_entity_invalid_observations ==
+      g_vehicle_map_entity_observations;
+  const bool vehicle_map_entity_assignment_accounting_complete =
+      g_vehicle_map_entity_assignment_valid_observations +
+          g_vehicle_map_entity_assignment_unrecognized_observations +
+          g_vehicle_map_entity_assignment_invalid_observations ==
+      g_vehicle_map_entity_assignment_observations;
+  const bool vehicle_map_entity_pool_accounting_complete =
+      g_vehicle_map_entity_pool_valid_observations +
+          g_vehicle_map_entity_pool_unrecognized_observations +
+          g_vehicle_map_entity_pool_invalid_observations ==
+      g_vehicle_map_entity_pool_observations;
+  const bool vehicle_material_binding_accounting_complete =
+      g_vehicle_material_binding_valid_observations +
+          g_vehicle_material_binding_invalid_relation +
+          g_vehicle_material_binding_asset_read_faults ==
+      g_vehicle_material_binding_observations;
+  uint64_t player_entity_count = 0;
+  uint64_t player_entity_observations = 0;
+  uint64_t player_pose_comparisons = 0;
+  uint64_t player_pose_source_matches = 0;
+  uint64_t player_pose_owner_matches = 0;
+  uint64_t player_pose_slot_matches = 0;
+  for (const VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid ||
+        entry.vtable != kVehicleMapEntityPlayerLocalVtable) {
+      continue;
+    }
+    ++player_entity_count;
+    player_entity_observations += entry.observations;
+    player_pose_comparisons += entry.pose_comparisons;
+    player_pose_source_matches += entry.pose_source_matches;
+    player_pose_owner_matches += entry.pose_owner_matches;
+    player_pose_slot_matches += entry.pose_slot_matches;
+  }
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.vehicle_pose_summary",
       {{"status", !g_vehicle_observations
@@ -19026,6 +30057,227 @@ void EmitVehicleDiscoverySummary() {
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_material_binding_summary",
+      {{"status", !g_vehicle_material_binding_observations
+                      ? "not_observed"
+                      : (vehicle_material_binding_accounting_complete
+                             ? "complete"
+                             : "incomplete")},
+       {"hook", fmt::format("{:08X}", kVehicleMaterialBindingHook)},
+       {"observations",
+        std::to_string(g_vehicle_material_binding_observations)},
+       {"valid_observations",
+        std::to_string(g_vehicle_material_binding_valid_observations)},
+       {"invalid_relation",
+        std::to_string(g_vehicle_material_binding_invalid_relation)},
+       {"asset_read_faults",
+        std::to_string(g_vehicle_material_binding_asset_read_faults)},
+       {"bindings", std::to_string(g_vehicle_material_binding_count)},
+       {"capacity", std::to_string(kVehicleMaterialBindingCapacity)},
+       {"overflow", std::to_string(g_vehicle_material_binding_overflow)},
+       {"accounting_complete",
+        vehicle_material_binding_accounting_complete ? "true" : "false"},
+       {"title_semantic", "tire_wheel_shader_settings"},
+       {"binding_contract", "root_plus_1056"},
+       {"asset_key_contract", "root_plus_1712_msvc_string_hash"},
+       {"draw_join", "exact_title_draw_argument_address"},
+       {"semantic_mesh_material_roles_proved", "false"},
+       {"guest_payload_exported", "false"},
+       {"guest_state_changed", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  for (const VehicleMaterialBindingEntry &entry :
+       g_vehicle_material_bindings) {
+    if (!entry.valid) {
+      continue;
+    }
+    std::string backend_signatures;
+    for (size_t index = 0; index < entry.backend_signature_count; ++index) {
+      if (!backend_signatures.empty()) {
+        backend_signatures += ',';
+      }
+      backend_signatures +=
+          fmt::format("{:016X}", entry.backend_signatures[index]);
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_material_binding",
+        {{"root_address", fmt::format("{:08X}", entry.root_address)},
+         {"binding_address",
+          fmt::format("{:08X}", entry.binding_address)},
+         {"asset_key_hash",
+          fmt::format("{:016X}", entry.asset_key_hash)},
+         {"asset_key_length", std::to_string(entry.asset_key_length)},
+         {"load_ui", entry.flags & 1 ? "true" : "false"},
+         {"slod", entry.flags & 2 ? "true" : "false"},
+         {"observations", std::to_string(entry.observations)},
+         {"root_draw_probe_matches",
+          std::to_string(entry.root_draw_probe_matches)},
+         {"binding_draw_probe_matches",
+          std::to_string(entry.binding_draw_probe_matches)},
+         {"backend_signatures", backend_signatures},
+         {"backend_signature_count",
+          std::to_string(entry.backend_signature_count)},
+         {"backend_signature_capacity",
+          std::to_string(kVehicleMaterialBackendSignatureCapacity)},
+         {"backend_signature_overflow",
+          std::to_string(entry.backend_signature_overflow)},
+         {"classification", "exact_tire_wheel_material_binding_seed"},
+         {"semantic_mesh_material_roles_proved", "false"},
+         {"guest_payload_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.vehicle_map_entity_summary",
+      {{"status", !g_vehicle_map_entity_observations
+                      ? "not_observed"
+                      : (vehicle_map_entity_accounting_complete
+                             ? "complete"
+                             : "incomplete")},
+       {"hook", "82BBA010"},
+       {"assignment_hook", "82CCF228"},
+       {"observations", std::to_string(g_vehicle_map_entity_observations)},
+       {"valid_observations",
+        std::to_string(g_vehicle_map_entity_valid_observations)},
+       {"unrecognized_observations",
+        std::to_string(g_vehicle_map_entity_unrecognized_observations)},
+       {"invalid_observations",
+        std::to_string(g_vehicle_map_entity_invalid_observations)},
+       {"entities", std::to_string(g_vehicle_map_entity_count)},
+       {"capacity", std::to_string(kVehicleMapEntityCapacity)},
+       {"overflow", std::to_string(g_vehicle_map_entity_overflow)},
+       {"pose_correlations",
+        std::to_string(g_vehicle_map_pose_correlation_count)},
+       {"pose_correlation_capacity",
+        std::to_string(kVehicleMapPoseCorrelationCapacity)},
+       {"pose_correlation_overflow",
+        std::to_string(g_vehicle_map_pose_correlation_overflow)},
+       {"accounting_complete",
+        vehicle_map_entity_accounting_complete ? "true" : "false"},
+       {"assignment_observations",
+        std::to_string(g_vehicle_map_entity_assignment_observations)},
+       {"assignment_valid_observations",
+        std::to_string(g_vehicle_map_entity_assignment_valid_observations)},
+       {"assignment_unrecognized_observations",
+        std::to_string(
+            g_vehicle_map_entity_assignment_unrecognized_observations)},
+       {"assignment_invalid_observations",
+        std::to_string(g_vehicle_map_entity_assignment_invalid_observations)},
+       {"assignment_accounting_complete",
+        vehicle_map_entity_assignment_accounting_complete ? "true" : "false"},
+       {"pool_hook", "826291A8"},
+       {"pool_observations",
+        std::to_string(g_vehicle_map_entity_pool_observations)},
+       {"pool_valid_observations",
+        std::to_string(g_vehicle_map_entity_pool_valid_observations)},
+       {"pool_unrecognized_observations",
+        std::to_string(g_vehicle_map_entity_pool_unrecognized_observations)},
+       {"pool_invalid_observations",
+        std::to_string(g_vehicle_map_entity_pool_invalid_observations)},
+       {"pool_accounting_complete",
+        vehicle_map_entity_pool_accounting_complete ? "true" : "false"},
+       {"player_local_entities", std::to_string(player_entity_count)},
+       {"player_local_observations",
+        std::to_string(player_entity_observations)},
+       {"player_pose_comparisons",
+        std::to_string(player_pose_comparisons)},
+       {"player_pose_source_matches",
+        std::to_string(player_pose_source_matches)},
+       {"player_pose_owner_matches",
+        std::to_string(player_pose_owner_matches)},
+       {"player_pose_slot_matches",
+        std::to_string(player_pose_slot_matches)},
+       {"classification", "rtti_locked_vehicle_map_entity_census"},
+       {"player_pose_relation_candidate",
+        player_pose_comparisons &&
+                (player_pose_source_matches || player_pose_owner_matches ||
+                 player_pose_slot_matches)
+            ? "true"
+            : "false"},
+       {"player_vehicle_identity_proved", "false"},
+       {"guest_payload_read", "main_vtable,id,type_name_pointer"},
+       {"guest_state_changed", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  for (const VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid) {
+      continue;
+    }
+    const uint32_t expected_type_name =
+        VehicleMapEntityExpectedTypeNameAddress(entry.vtable);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_map_entity",
+        {{"generation", fmt::format("{:08X}", entry.generation)},
+         {"entity", fmt::format("{:08X}", entry.entity)},
+         {"class", VehicleMapEntityClassName(entry.vtable)},
+         {"vtable", fmt::format("{:08X}", entry.vtable)},
+         {"vehicle_id", fmt::format("{:08X}", entry.vehicle_id)},
+         {"type_name_address",
+          fmt::format("{:08X}", entry.type_name_address)},
+         {"expected_type_name_address",
+          fmt::format("{:08X}", expected_type_name)},
+         {"observations", std::to_string(entry.observations)},
+         {"assignment_observations",
+          std::to_string(entry.assignment_observations)},
+         {"pool_observations", std::to_string(entry.pool_observations)},
+         {"pool_manager", fmt::format("{:08X}", entry.pool_manager)},
+         {"pool_root", fmt::format("{:08X}", entry.pool_root)},
+         {"pool_context", fmt::format("{:08X}", entry.pool_context)},
+         {"pool_manager_changes",
+          std::to_string(entry.pool_manager_changes)},
+         {"pool_root_changes", std::to_string(entry.pool_root_changes)},
+         {"pool_context_changes",
+          std::to_string(entry.pool_context_changes)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"vehicle_id_changes", std::to_string(entry.vehicle_id_changes)},
+         {"vtable_mismatches", std::to_string(entry.vtable_mismatches)},
+         {"type_name_mismatches",
+          std::to_string(entry.type_name_mismatches)},
+         {"pose_comparisons", std::to_string(entry.pose_comparisons)},
+         {"pose_source_matches",
+          std::to_string(entry.pose_source_matches)},
+         {"pose_owner_matches", std::to_string(entry.pose_owner_matches)},
+         {"pose_slot_matches", std::to_string(entry.pose_slot_matches)},
+         {"classification", "exact_vehicle_map_entity_identity"},
+         {"player_vehicle_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  for (const VehicleMapPoseCorrelationEntry &entry :
+       g_vehicle_map_pose_correlations) {
+    if (!entry.valid) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_map_pose_correlation",
+        {{"entity", fmt::format("{:08X}", entry.entity)},
+         {"entity_class", VehicleMapEntityClassName(entry.entity_vtable)},
+         {"entity_vtable", fmt::format("{:08X}", entry.entity_vtable)},
+         {"vehicle_id", fmt::format("{:08X}", entry.vehicle_id)},
+         {"relation", VehicleMapPoseRelationName(entry.relation)},
+         {"identity_generation",
+          fmt::format("{:08X}", entry.identity_generation)},
+         {"identity_source", fmt::format("{:08X}", entry.identity_source)},
+         {"identity_owner", fmt::format("{:08X}", entry.identity_owner)},
+         {"identity_slot", std::to_string(entry.identity_slot)},
+         {"observations", std::to_string(entry.observations)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"classification", "exact_map_entity_to_pose_relation_candidate"},
+         {"player_vehicle_identity_proved", "false"},
+         {"guest_state_changed", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
   for (const VehicleRenderContextCalleeProfileEntry &entry :
        g_vehicle_render_context_callee_profiles) {
     if (!entry.valid) {
@@ -19544,6 +30796,197 @@ void ObserveVehicleOwnerIndirectCall(uint32_t method_address,
   ++g_vehicle_owner_indirect_target_count;
 }
 
+enum class VehicleMapObservationKind : uint32_t {
+  kGetter,
+  kIdAssignment,
+  kPlayerPool,
+};
+
+void ObserveVehicleMapEntityInternal(
+    uint32_t generation, uint32_t entity, uint32_t vtable,
+    uint32_t vehicle_id, uint32_t type_name_address,
+    VehicleMapObservationKind kind, uint32_t pool_manager = 0,
+    uint32_t pool_root = 0, uint32_t pool_context = 0) {
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  const uint32_t expected_type_name =
+      VehicleMapEntityExpectedTypeNameAddress(vtable);
+  std::scoped_lock lock(g_vehicle_identity_mutex);
+  if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  uint64_t *observations = &g_vehicle_map_entity_observations;
+  uint64_t *valid_observations = &g_vehicle_map_entity_valid_observations;
+  uint64_t *unrecognized_observations =
+      &g_vehicle_map_entity_unrecognized_observations;
+  uint64_t *invalid_observations =
+      &g_vehicle_map_entity_invalid_observations;
+  if (kind == VehicleMapObservationKind::kIdAssignment) {
+    observations = &g_vehicle_map_entity_assignment_observations;
+    valid_observations = &g_vehicle_map_entity_assignment_valid_observations;
+    unrecognized_observations =
+        &g_vehicle_map_entity_assignment_unrecognized_observations;
+    invalid_observations =
+        &g_vehicle_map_entity_assignment_invalid_observations;
+  } else if (kind == VehicleMapObservationKind::kPlayerPool) {
+    observations = &g_vehicle_map_entity_pool_observations;
+    valid_observations = &g_vehicle_map_entity_pool_valid_observations;
+    unrecognized_observations =
+        &g_vehicle_map_entity_pool_unrecognized_observations;
+    invalid_observations = &g_vehicle_map_entity_pool_invalid_observations;
+  }
+  ++*observations;
+  if (!generation || !entity || (entity & 3) || !vtable || (vtable & 3)) {
+    ++*invalid_observations;
+    return;
+  }
+  if (!expected_type_name) {
+    ++*unrecognized_observations;
+    return;
+  }
+  ++*valid_observations;
+  VehicleMapEntityEntry *available = nullptr;
+  VehicleMapEntityEntry *matched = nullptr;
+  for (VehicleMapEntityEntry &entry : g_vehicle_map_entities) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.generation == generation && entry.entity == entity) {
+      matched = &entry;
+      break;
+    }
+  }
+  if (!matched) {
+    if (!available) {
+      ++g_vehicle_map_entity_overflow;
+      return;
+    }
+    matched = available;
+    matched->valid = true;
+    matched->generation = generation;
+    matched->entity = entity;
+    matched->vtable = vtable;
+    matched->vehicle_id = vehicle_id;
+    matched->type_name_address = type_name_address;
+    matched->first_frame = g_frame_sequence.load(std::memory_order_relaxed);
+    ++g_vehicle_map_entity_count;
+  } else {
+    if (matched->vehicle_id != vehicle_id) {
+      ++matched->vehicle_id_changes;
+    }
+    if (matched->vtable != vtable) {
+      ++matched->vtable_mismatches;
+    }
+    matched->vtable = vtable;
+    matched->vehicle_id = vehicle_id;
+    matched->type_name_address = type_name_address;
+  }
+  if (kind == VehicleMapObservationKind::kIdAssignment) {
+    ++matched->assignment_observations;
+  } else if (kind == VehicleMapObservationKind::kPlayerPool) {
+    if (matched->pool_observations) {
+      if (matched->pool_manager != pool_manager) {
+        ++matched->pool_manager_changes;
+      }
+      if (matched->pool_root != pool_root) {
+        ++matched->pool_root_changes;
+      }
+      if (matched->pool_context != pool_context) {
+        ++matched->pool_context_changes;
+      }
+    }
+    ++matched->pool_observations;
+    matched->pool_manager = pool_manager;
+    matched->pool_root = pool_root;
+    matched->pool_context = pool_context;
+  }
+  if (type_name_address != expected_type_name) {
+    ++matched->type_name_mismatches;
+  }
+  ++matched->observations;
+  matched->last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+}
+
+void ObserveVehicleMapEntity(uint32_t generation, uint32_t entity,
+                             uint32_t vtable, uint32_t vehicle_id,
+                             uint32_t type_name_address) {
+  ObserveVehicleMapEntityInternal(generation, entity, vtable, vehicle_id,
+                                  type_name_address,
+                                  VehicleMapObservationKind::kGetter);
+}
+
+void ObserveVehicleMapEntityIdAssignment(uint32_t generation, uint32_t entity,
+                                         uint32_t vtable,
+                                         uint32_t assigned_vehicle_id,
+                                         uint32_t type_name_address) {
+  ObserveVehicleMapEntityInternal(generation, entity, vtable,
+                                  assigned_vehicle_id, type_name_address,
+                                  VehicleMapObservationKind::kIdAssignment);
+}
+
+void ObserveVehiclePlayerPool(uint32_t generation, uint32_t entity,
+                              uint32_t vtable, uint32_t vehicle_id,
+                              uint32_t type_name_address,
+                              uint32_t pool_manager, uint32_t pool_root,
+                              uint32_t pool_context) {
+  ObserveVehicleMapEntityInternal(
+      generation, entity, vtable, vehicle_id, type_name_address,
+      VehicleMapObservationKind::kPlayerPool, pool_manager, pool_root,
+      pool_context);
+}
+
+void RecordVehicleMapPoseCorrelationLocked(
+    const VehicleMapEntityEntry &entity,
+    const VehiclePoseObservation &observation,
+    VehicleMapPoseRelation relation) {
+  VehicleMapPoseCorrelationEntry *available = nullptr;
+  for (VehicleMapPoseCorrelationEntry &entry :
+       g_vehicle_map_pose_correlations) {
+    if (!entry.valid) {
+      if (!available) {
+        available = &entry;
+      }
+      continue;
+    }
+    if (entry.entity == entity.entity &&
+        entry.entity_vtable == entity.vtable &&
+        entry.vehicle_id == entity.vehicle_id &&
+        entry.identity_generation == observation.generation &&
+        entry.identity_source == observation.source &&
+        entry.identity_owner == observation.owner &&
+        entry.identity_slot == observation.slot &&
+        entry.relation == relation) {
+      ++entry.observations;
+      entry.last_frame = g_frame_sequence.load(std::memory_order_relaxed);
+      return;
+    }
+  }
+  if (!available) {
+    ++g_vehicle_map_pose_correlation_overflow;
+    return;
+  }
+  const uint64_t frame = g_frame_sequence.load(std::memory_order_relaxed);
+  *available = {
+      .observations = 1,
+      .first_frame = frame,
+      .last_frame = frame,
+      .entity = entity.entity,
+      .entity_vtable = entity.vtable,
+      .vehicle_id = entity.vehicle_id,
+      .identity_generation = observation.generation,
+      .identity_source = observation.source,
+      .identity_owner = observation.owner,
+      .identity_slot = observation.slot,
+      .relation = relation,
+      .valid = true,
+  };
+  ++g_vehicle_map_pose_correlation_count;
+}
+
 void ObserveVehiclePose(const VehiclePoseObservation &observation) {
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
@@ -19573,6 +31016,55 @@ void ObserveVehiclePose(const VehiclePoseObservation &observation) {
     return;
   }
   ++g_vehicle_valid_observations;
+  for (VehicleMapEntityEntry &entity : g_vehicle_map_entities) {
+    if (!entity.valid || entity.generation != observation.generation) {
+      continue;
+    }
+    ++entity.pose_comparisons;
+    if (entity.entity == observation.source) {
+      ++entity.pose_source_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kEntityIsPoseSource);
+    }
+    if (entity.entity == observation.owner) {
+      ++entity.pose_owner_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kEntityIsPoseOwner);
+    }
+    if (entity.vehicle_id != UINT32_MAX &&
+        entity.vehicle_id == observation.slot) {
+      ++entity.pose_slot_matches;
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation,
+          VehicleMapPoseRelation::kVehicleIdIsPoseSlot);
+    }
+    if (entity.pool_observations &&
+        entity.pool_manager == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation,
+          VehicleMapPoseRelation::kPoolManagerIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_manager == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolManagerIsPoseOwner);
+    }
+    if (entity.pool_observations && entity.pool_root == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolRootIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_root == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolRootIsPoseOwner);
+    }
+    if (entity.pool_observations && entity.pool_context == observation.source) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolContextIsPoseSource);
+    }
+    if (entity.pool_observations && entity.pool_context == observation.owner) {
+      RecordVehicleMapPoseCorrelationLocked(
+          entity, observation, VehicleMapPoseRelation::kPoolContextIsPoseOwner);
+    }
+  }
   VehicleIdentityEntry *available = nullptr;
   VehicleIdentityEntry *matched = nullptr;
   for (VehicleIdentityEntry &entry : g_vehicle_identities) {
@@ -19676,6 +31168,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   if (!graphics_system || !memory) {
     return;
   }
+  g_track_render_configuration.track_far_distance.store(
+      0.0f, std::memory_order_relaxed);
+  g_track_render_configuration.source_track_far_distance.store(
+      0.0f, std::memory_order_relaxed);
   g_track_render_configuration.fast_track_render.store(
       0, std::memory_order_relaxed);
   g_track_render_configuration.source_fast_track_render.store(
@@ -19698,14 +31194,75 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
+  g_graphics_full_census_armed = census_requested;
+  const bool prototype_requested = NativePrototypeRequested();
   const bool prototype_selected = NativePrototypeSelected();
-  const bool observation_requested = census_requested || prototype_selected;
+  const bool scaled_accumulator_qualification_requested = REXCVAR_GET(
+      pinyon_shift_native_renderer_scaled_accumulator_qualification);
+  const bool scaled_accumulator_qualification_supported =
+      scaled_accumulator_qualification_requested && census_requested &&
+      NativeScaledAccumulatorScaleSupported() &&
+      REXCVAR_GET(pinyon_shift_native_renderer) == "xenos";
+  if (prototype_requested) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.prototype.compatibility",
+        {{"status", prototype_selected ? "supported" : "fallback_xenos"},
+         {"reason", prototype_selected ? "qualified" :
+                                          "unsupported_draw_resolution_scale"},
+         {"draw_resolution_scale_x",
+          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y",
+          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"qualified_scale", "1x1"},
+         {"prototype_observers", prototype_selected ? "armed" : "disabled"},
+         {"fallback", "xenos"},
+         {"xenos_draw", "preserved"},
+         {"suppression", "disabled"}});
+  }
+  const bool procedural_frame_accumulator_selected =
+      ProceduralFrameAccumulatorSelected(prototype_selected);
+  const bool procedural_frame_accumulator_requested =
+      procedural_frame_accumulator_selected &&
+      (NativePrototypeScaleSupported() ||
+       scaled_accumulator_qualification_supported);
+  if (scaled_accumulator_qualification_requested) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.scaled_accumulator_qualification.config",
+        {{"status", scaled_accumulator_qualification_supported &&
+                            procedural_frame_accumulator_selected
+                        ? "armed_private_2x"
+                        : "blocked_invalid_configuration"},
+         {"requires_census", "true"},
+         {"census", census_requested ? "armed" : "disabled"},
+         {"accumulator",
+          procedural_frame_accumulator_selected ? "requested" : "disabled"},
+         {"renderer", REXCVAR_GET(pinyon_shift_native_renderer)},
+         {"draw_resolution_scale_x",
+          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y",
+          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"qualified_scale", "2x2"},
+         {"publication", "disabled"},
+         {"output_authority", "xenos"},
+         {"fallback", "xenos"},
+         {"draw_suppression", "false"}});
+  }
+  const bool minimal_producer_graph_requested =
+      prototype_selected && !census_requested &&
+      procedural_frame_accumulator_requested;
+  const bool observation_requested = census_requested || prototype_selected ||
+                                     procedural_frame_accumulator_requested;
   const bool title_provenance_requested =
-      prototype_selected ||
+      prototype_selected || procedural_frame_accumulator_requested ||
       (census_requested &&
        REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery));
   ConfigureVehicleDiscovery(census_requested, memory);
   ConfigureTitleDrawProvenance(title_provenance_requested, memory);
+  g_direct_indexed_draw_producer_census_armed.store(
+      census_requested &&
+          REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery) &&
+          memory,
+      std::memory_order_release);
   ConfigureShadowCasterProvenance(census_requested);
   const bool lineage_armed = observation_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
@@ -19715,6 +31272,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   g_native_shadow_fail_closed.store(false, std::memory_order_release);
   g_native_shadow_publication_frame.store(UINT64_MAX,
                                            std::memory_order_release);
+  g_procedural_frame_accumulator_backend_armed =
+      procedural_frame_accumulator_requested;
   if (!observation_requested && !g_sky_horizon_suppression.requested) {
     EmitSkyHorizonSuppressionControl();
     return;
@@ -19754,11 +31313,46 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   }
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
+  const bool vehicle_shader_constant_observer_requested =
+      g_vehicle_discovery_installed.load(std::memory_order_acquire) &&
+      g_isolated_draw.vehicle_shadow_geometry_correlation_mode;
+  graphics_system->SetShaderConstantWriteObserver(
+      vehicle_shader_constant_observer_requested
+          ? &ObserveVehicleShaderConstantWrite
+          : nullptr);
   graphics_system->SetIndirectBufferObserver(&ObserveIndirectBuffer);
-  graphics_system->SetCopyObserver(&ObserveCopy);
+  if (minimal_producer_graph_requested) {
+    graphics_system->SetCopyObserver(&ObservePrototypeResolveCopy);
+  } else {
+    graphics_system->SetCopyObserver(&ObserveCopy);
+  }
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
   graphics_system->SetDrawOutcomeObserver(&ObserveDrawOutcome);
   graphics_system->SetIsolatedDrawRequestObserver(&RequestIsolatedDraw);
+  graphics_system->SetNativeFrameAccumulatorPlanner(
+      g_procedural_frame_accumulator_backend_armed
+          ? &PlanProceduralFrameAccumulatorBackend
+          : nullptr);
+  diagnostics::RecordEvent(
+      "native_renderer.prototype_producer_graph.config",
+      {{"status", minimal_producer_graph_requested ? "armed" : "disabled"},
+       {"copy_observer", minimal_producer_graph_requested
+                             ? "exact_resolve_ingress"
+                             : "full_dependency_census"},
+       {"draw_observer", "retained"},
+       {"prepared_draw_observer", "retained"},
+       {"indirect_buffer_observer", "retained"},
+       {"draw_outcome_observer", "retained"},
+       {"isolated_draw_request_observer", "retained"},
+       {"native_replay_producer", "retained"},
+       {"vehicle_shader_constant_observer",
+        vehicle_shader_constant_observer_requested ? "armed" : "disabled"},
+       {"draw_signature_scope",
+        g_graphics_full_census_armed ? "full_census"
+                                    : "producer_required_only"},
+       {"xenos_draw", "preserved"},
+       {"guest_memory_publication", "false"},
+       {"draw_suppression", "false"}});
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
@@ -19786,8 +31380,23 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "producer_return,producer_r3-r10,context_function,context_return,"
         "context_r3-r10,context_root,semantic_receiver_generation,"
         "semantic_visibility_epoch,semantic_render_state_epoch,"
-        "backend_packet,"
-        "current_buffer,parent_packet,root_buffer,depth"},
+        "backend_packet,prepared_target_shape,"
+       "current_buffer,parent_packet,root_buffer,depth"},
+       {"prepared_target_shape_census", "bounded_aggregate_v1"},
+       {"procedural_color_target_profile_census", "bounded_exact_v2"},
+       {"procedural_color_target_profile_capacity",
+        std::to_string(kProceduralColorTargetProfileCapacity)},
+       {"procedural_color_target_profile_dispatch", "82417BC0"},
+       {"procedural_color_target_profile_preview_extent", "1280x720"},
+       {"procedural_color_target_profile_bin_state", "exact_backend_v1"},
+       {"procedural_color_resolve_source_state", "exact_backend_v1"},
+       {"procedural_color_resolve_runtime_tracker",
+        "exact_contiguous_full_frame_v1"},
+       {"procedural_color_frame_accumulator_plan", "exact_padded_rows_v1"},
+       {"procedural_color_frame_accumulator_backend",
+        g_procedural_frame_accumulator_backend_armed
+            ? "armed_private_d3d12_v1"
+            : "disabled"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -20038,12 +31647,176 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"selection", "independent_visibility_selected_and_fresh"},
        {"prepared_lineage", "exact_semantic_pm4_prepared_draw"},
        {"title_lod_lineage", "exact_visibility_identity_to_prepared_draw"},
+       {"static_world_lineage",
+        "exact_presentation_resource_mesh_transform_lineage"},
        {"mechanical_admission_contract", "isolated_draw_v1"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_upload", "false"},
        {"native_draw", "false"},
        {"xenos_draw", "preserved"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.track_render_model_runtime_join_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"entry_hook", "8240EC80"},
+       {"exit_hook", "8240ECAC"},
+       {"nested_dispatch", "82436468"},
+       {"command_context_entry", "824365B4"},
+       {"instance_vtable", "820019CC"},
+       {"model_vtable", "82001D74"},
+       {"instance_to_model", "root_plus_4"},
+       {"model_to_descriptor", "child_plus_48_then_plus_128"},
+       {"descriptor_type", "21"},
+       {"descriptor_flag", "1"},
+       {"join",
+        "exact_track_scope_to_indirect_command_packet_to_prepared_draw"},
+       {"shared_identity",
+        "descriptor_payload_or_object_address_exact_equality"},
+       {"world_resource_vtables",
+        "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,82144E64"},
+       {"world_resource_graph",
+        "host_mapped_direct_or_one_level_nested_child_or_descriptor_pointer_"
+        "with_exact_track_rtti_vtable"},
+       {"world_resource_shared_identity",
+        "exact_address_equality_to_submission_objects_or_resources"},
+       {"world_resource_graph_cache_capacity", "1024"},
+       {"world_resource_reference_capacity",
+        std::to_string(kTrackWorldResourceReferenceCapacity)},
+       {"world_pointee_root_capacity",
+        std::to_string(kTrackWorldPointeeRootCapacity)},
+       {"scope_spatial_capacity",
+        std::to_string(kTrackWorldScopeSpatialCapacity)},
+       {"scope_spatial_words", "child_16_descriptor_62"},
+       {"scope_spatial_export", "numeric_words_hash_variation_only"},
+       {"reference_spatial_hook",
+        "8240EB5C:r22_object_matrix,r5_composed_matrix"},
+       {"reference_spatial_capacity",
+        std::to_string(kTrackWorldReferenceSpatialCapacity)},
+       {"reference_spatial_join",
+        "staged_same_thread_then_exact_8240EC80_scope"},
+       {"reference_spatial_export", "two_numeric_16_word_matrices_only"},
+       {"guest_payload_read",
+        "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
+        "cache_miss"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  diagnostics::RecordEvent(
+      "native_renderer.discovery.static_world_runtime_join_config",
+      {{"status", lineage_armed ? "armed" : "disabled"},
+       {"class", "CSimpleModelRenderer"},
+       {"vtable", "82001B64"},
+       {"object_bytes", "368"},
+       {"constructor", "82C4DF78"},
+       {"constructor_publish_hook", "82C4E094"},
+       {"deleting_destructor_slot", "16"},
+       {"deleting_destructor", "82C4E420"},
+       {"destructor_entry_hook", "82C4E1F8"},
+       {"destructor_exit_hook", "82C4E264"},
+       {"vtable_slot", "12"},
+       {"dispatch", "82C4CCC8"},
+       {"entry_hook", "82C4CCC8"},
+       {"exit_hook", "82C4DEA0"},
+       {"model_graph_field", "renderer_plus_72"},
+       {"model_graph_bind_slot", "1"},
+       {"model_graph_bind_hook", "82C4CCB0"},
+       {"model_graph_release_slot", "15"},
+       {"model_graph_release_hook", "82C4C6A8,82C4E0A0"},
+       {"model_resource_class", "CSimpleModelResource"},
+       {"model_resource_vtable", "82229294"},
+       {"model_resource_bytes", "320"},
+       {"model_resource_factory", "82C47F10"},
+       {"model_resource_publish_hook", "82C47FBC"},
+       {"model_resource_registration_hook", "82C4802C"},
+       {"model_resource_destructor_entry_hook", "82C47DF8"},
+       {"model_resource_destructor_exit_hook", "82C47E44"},
+       {"model_resource_payload_reference", "resource_plus_64"},
+       {"model_resource_refresh_slot", "15"},
+       {"model_resource_refresh", "82C46410"},
+       {"model_resource_direct_reset_slot", "16"},
+       {"model_resource_direct_reset_hooks", "82C46440,82C46480"},
+       {"model_resource_refresh_reset_slot", "22"},
+       {"model_resource_refresh_reset_hooks", "82C222C8,82C2231C"},
+       {"simple_model_offset", "resource_plus_112"},
+       {"simple_model_vtable", "82229208"},
+       {"simple_submodel_vtable", "822291BC"},
+       {"simple_mesh_vtable", "822291A0"},
+       {"simple_member_draw_hooks", "82C4DC54,82C4DC58"},
+       {"presentation_class", "Presentation_Unified::CModelPresentation"},
+       {"presentation_vtable", "822432D4"},
+       {"presentation_refcounted_vtable", "82002464"},
+       {"presentation_draw_slot", "12"},
+       {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
+       {"presentation_prepare_outcome_hook", "823F8DE0"},
+       {"presentation_prepare_outcome",
+        "result_owner_state_resource_renderer_diagnostic"},
+       {"presentation_renderer_handoff_hook", "823F8F1C"},
+       {"presentation_renderer_handoff",
+        "owner_resource_vtable_and_virtual_target_diagnostic"},
+       {"deferred_renderer_vtable", "82021334"},
+       {"deferred_task_vtable", "820213B8"},
+       {"deferred_task_publish_hook", "82585F84"},
+       {"deferred_task_callback_hook", "82BA61D0"},
+       {"deferred_task_handoff_hook", "82BA61DC"},
+       {"deferred_task_join",
+        "exact_deferred_renderer_to_task_to_callback_target"},
+       {"direct_indexed_draw_emitter", "82416380"},
+       {"direct_indexed_draw_producer_count",
+        std::to_string(kDirectIndexedDrawProducerCount)},
+       {"direct_indexed_draw_producer_hook", "82416380:r26,r31,lr"},
+       {"direct_indexed_draw_producer_exit_hook", "824167EC"},
+       {"direct_indexed_draw_producer_census",
+        g_direct_indexed_draw_producer_census_armed.load(
+            std::memory_order_acquire)
+            ? "armed"
+            : "disabled"},
+       {"unified_track_mesh_draw_return", "82C5B038"},
+       {"unified_track_mesh_draw_producer", "82C5ADC0"},
+       {"unified_track_mesh_vtable", "8200143C"},
+       {"unified_track_mesh_transform",
+        "live_r31_16_be_u32_at_exact_draw_entry"},
+       {"unified_track_mesh_transform_capacity",
+        std::to_string(kUnifiedTrackMeshTransformCapacity)},
+       {"presentation_resource_field", "presentation_plus_148"},
+       {"presentation_renderer_field", "presentation_plus_1608"},
+       {"presentation_resource_join",
+        "presentation_plus_148_equals_renderer_plus_72"},
+       {"presentation_transform_field", "presentation_plus_80_16_be_u32"},
+       {"presentation_transform_dispatch",
+        "renderer_slot_6_82C4C568_to_renderer_plus_128"},
+       {"transform_export", "hash_and_16_numeric_words_only"},
+       {"asset_key_field", "presentation_plus_16_msvc_string"},
+       {"asset_key_export", "fnv1a64_hash_and_length_only"},
+       {"effect_reference_fields", "resource_plus_124_pointer_plus_128_u16"},
+       {"texture_reference_vector", "resource_plus_288_stride_28"},
+       {"asset_metadata_limits", "key_bytes_512_reference_count_4096"},
+       {"mesh_primitive_type_field", "mesh_plus_36_u32"},
+       {"mesh_index_buffer_binding_field", "mesh_plus_96_u32"},
+       {"mesh_source_element_count_field", "mesh_plus_100_u32"},
+       {"submodel_state_fields", "submodel_plus_32_u32_39_u8_112_u8"},
+       {"mesh_optional_material_reference_field", "mesh_plus_128_u32"},
+       {"mesh_semantics_export", "bounded_numeric_identity_fields_only"},
+       {"prepared_layout_boundary",
+        "xenos_decoded_draw_observation_joined_by_physical_pm4_origin"},
+       {"prepared_layout_capacity",
+        std::to_string(kStaticWorldPreparedLayoutCapacity)},
+       {"prepared_layout_export",
+        "complete_bounded_vertex_fetch_attribute_constant_and_texture_metadata"},
+       {"draw_emitter", "82416380"},
+       {"packet_hooks", "82416260,824162F4"},
+       {"join", "synchronous_scope_to_physical_pm4_prepared_draw"},
+       {"guest_payload_read",
+        "bounded_host_mapped_identity_asset_metadata_and_mesh_semantic_fields"},
+       {"plaintext_asset_names_exported", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
   diagnostics::RecordEvent(
       "native_renderer.discovery.semantic_instance_config",
@@ -20366,11 +32139,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   if (graphics_system) {
     graphics_system->SetDrawObserver(nullptr);
+    graphics_system->SetShaderConstantWriteObserver(nullptr);
     graphics_system->SetIndirectBufferObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
     graphics_system->SetPreparedDrawObserver(nullptr);
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
+    graphics_system->SetNativeFrameAccumulatorPlanner(nullptr);
   }
   EmitShadowCasterProvenanceSummary();
   EmitVehicleDiscoverySummary();
@@ -20378,6 +32153,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
   EmitDispatchDiscoverySummary();
   if (!g_graphics_census_installed) {
+    g_procedural_frame_accumulator_backend_armed = false;
+    g_graphics_full_census_armed = false;
     return;
   }
   const bool guest_cpu_observer_installed =
@@ -20763,6 +32540,8 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"xenos_fallback",
         "mandatory_on_state_yield_replay_or_publication_failure"}});
   g_graphics_census_installed = false;
+  g_graphics_full_census_armed = false;
+  g_procedural_frame_accumulator_backend_armed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);
@@ -20899,6 +32678,1000 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
          {"output_authority", "xenos"},
          {"draw_suppression", "false"},
        {"suppression_eligible", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+    FinalizeVehicleShadowColorRun();
+    uint64_t constant_identity_scans = 0;
+    uint64_t constant_identity_missing_fresh_pose = 0;
+    uint64_t constant_position_unique_matches = 0;
+    uint64_t constant_position_ambiguous_matches = 0;
+    uint64_t constant_position_misses = 0;
+    uint64_t constant_forward_unique_matches = 0;
+    uint64_t constant_forward_ambiguous_matches = 0;
+    uint64_t constant_forward_misses = 0;
+    uint64_t typed_upload_scans = 0;
+    uint64_t typed_upload_fresh_candidates = 0;
+    uint64_t typed_upload_no_overlap_candidates = 0;
+    uint64_t typed_upload_hash_mismatch_candidates = 0;
+    uint64_t typed_upload_exact_candidates = 0;
+    uint64_t typed_upload_exact_matches = 0;
+    uint64_t typed_upload_misses = 0;
+    uint64_t typed_upload_exact_used_vectors = 0;
+    uint64_t shader_constant_write_scans = 0;
+    uint64_t shader_constant_write_observed_vectors = 0;
+    uint64_t shader_constant_write_exact_vectors = 0;
+    uint64_t shader_constant_write_missing_vectors = 0;
+    uint64_t shader_constant_write_mismatched_vectors = 0;
+    uint64_t shader_constant_write_coherent_vectors = 0;
+    uint64_t shader_constant_write_split_vectors = 0;
+    uint64_t shader_constant_write_maximum_age_frames = 0;
+    std::array<uint64_t, kVehicleShadowGeometryCorrelationCapacity>
+        material_topology_keys{};
+    size_t material_topology_group_count = 0;
+    for (const VehicleShadowGeometryCorrelationEntry &entry :
+         g_vehicle_shadow_geometry_correlations) {
+      if (!entry.occupied) {
+        continue;
+      }
+      constant_identity_scans += entry.constant_identity_scans;
+      constant_identity_missing_fresh_pose +=
+          entry.constant_identity_missing_fresh_pose;
+      constant_position_unique_matches +=
+          entry.constant_position_unique_matches;
+      constant_position_ambiguous_matches +=
+          entry.constant_position_ambiguous_matches;
+      constant_position_misses += entry.constant_position_misses;
+      constant_forward_unique_matches +=
+          entry.constant_forward_unique_matches;
+      constant_forward_ambiguous_matches +=
+          entry.constant_forward_ambiguous_matches;
+      constant_forward_misses += entry.constant_forward_misses;
+      typed_upload_scans += entry.typed_upload_scans;
+      typed_upload_fresh_candidates += entry.typed_upload_fresh_candidates;
+      typed_upload_no_overlap_candidates +=
+          entry.typed_upload_no_overlap_candidates;
+      typed_upload_hash_mismatch_candidates +=
+          entry.typed_upload_hash_mismatch_candidates;
+      typed_upload_exact_candidates += entry.typed_upload_exact_candidates;
+      typed_upload_exact_matches += entry.typed_upload_exact_matches;
+      typed_upload_misses += entry.typed_upload_misses;
+      typed_upload_exact_used_vectors +=
+          entry.typed_upload_exact_used_vectors;
+      shader_constant_write_scans += entry.shader_constant_write_scans;
+      shader_constant_write_observed_vectors +=
+          entry.shader_constant_write_observed_vectors;
+      shader_constant_write_exact_vectors +=
+          entry.shader_constant_write_exact_vectors;
+      shader_constant_write_missing_vectors +=
+          entry.shader_constant_write_missing_vectors;
+      shader_constant_write_mismatched_vectors +=
+          entry.shader_constant_write_mismatched_vectors;
+      shader_constant_write_coherent_vectors +=
+          entry.shader_constant_write_coherent_vectors;
+      shader_constant_write_split_vectors +=
+          entry.shader_constant_write_split_vectors;
+      shader_constant_write_maximum_age_frames = std::max(
+          shader_constant_write_maximum_age_frames,
+          entry.shader_constant_write_maximum_age_frames);
+      bool material_topology_seen = false;
+      for (size_t material_index = 0;
+           material_index < material_topology_group_count;
+           ++material_index) {
+        if (material_topology_keys[material_index] ==
+            entry.material_topology_key) {
+          material_topology_seen = true;
+          break;
+        }
+      }
+      if (!material_topology_seen) {
+        material_topology_keys[material_topology_group_count++] =
+            entry.material_topology_key;
+      }
+      uint64_t shader_constant_source_count_for_family = 0;
+      const size_t correlation_index = size_t(
+          &entry - g_vehicle_shadow_geometry_correlations.data());
+      const VehicleSemanticConstantBridgeEntry &constant_bridge =
+          g_vehicle_semantic_constant_bridges[correlation_index];
+      for (const VehicleShaderConstantSourceEntry &source :
+           g_vehicle_shader_constant_sources) {
+        shader_constant_source_count_for_family +=
+            source.occupied &&
+            source.correlation_index == correlation_index;
+      }
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shadow_geometry_candidate",
+          {{"prepared_signature",
+            fmt::format("{:016X}", entry.prepared_signature)},
+           {"template_key", fmt::format("{:016X}", entry.template_key)},
+           {"material_topology_key",
+            fmt::format("{:016X}", entry.material_topology_key)},
+           {"vertex_shader",
+            fmt::format("{:016X}", entry.vertex_shader_hash)},
+           {"pixel_shader",
+            fmt::format("{:016X}", entry.pixel_shader_hash)},
+           {"render_state_hash",
+            fmt::format("{:016X}", entry.render_state_hash)},
+           {"texture_layout_hash",
+            fmt::format("{:016X}", entry.texture_layout_hash)},
+           {"first_material_parameter_hash",
+            fmt::format("{:016X}", entry.first_material_parameter_hash)},
+           {"last_material_parameter_hash",
+            fmt::format("{:016X}", entry.last_material_parameter_hash)},
+           {"material_parameter_switches",
+            std::to_string(entry.material_parameter_switches)},
+           {"draw_argument_hash",
+            fmt::format("{:016X}", entry.draw_argument_hash)},
+           {"geometry_resource_hash",
+            fmt::format("{:016X}", entry.geometry_resource_hash)},
+           {"texture_resource_hash",
+            fmt::format("{:016X}", entry.texture_resource_hash)},
+           {"prepared_pipeline_hash",
+            fmt::format("{:016X}", entry.prepared_pipeline_hash)},
+           {"first_parameter_hash",
+            fmt::format("{:016X}", entry.first_parameter_hash)},
+           {"last_parameter_hash",
+            fmt::format("{:016X}", entry.last_parameter_hash)},
+           {"draws", std::to_string(entry.draws)},
+           {"parameter_switches",
+            std::to_string(entry.parameter_switches)},
+           {"first_frame", std::to_string(entry.first_frame)},
+           {"last_frame", std::to_string(entry.last_frame)},
+           {"seed_index", std::to_string(entry.seed_index)},
+           {"match", entry.full_geometry_match
+                         ? "exact_geometry_resource_set"
+                         : "exact_index_and_shared_vertex_resource"},
+           {"classification",
+            "bounded_vehicle_color_geometry_candidate_family"},
+           {"pose_variation_observed",
+            entry.parameter_switches ? "true" : "false"},
+           {"mechanically_eligible_draws",
+            std::to_string(entry.mechanically_eligible_draws)},
+           {"mechanically_rejected_draws",
+            std::to_string(entry.mechanically_rejected_draws)},
+           {"first_rejection_mask",
+            fmt::format("{:08X}", entry.first_rejection_mask)},
+           {"last_rejection_mask",
+            fmt::format("{:08X}", entry.last_rejection_mask)},
+           {"rejection_mask_or",
+            fmt::format("{:08X}", entry.rejection_mask_or)},
+           {"rejection_mask_and",
+            fmt::format("{:08X}", entry.rejection_mask_and)},
+           {"rejection_mask_switches",
+            std::to_string(entry.rejection_mask_switches)},
+           {"mechanical_admission_contract", "isolated_draw_v1"},
+           {"private_capture_eligible_draws",
+            std::to_string(entry.private_capture_eligible_draws)},
+           {"private_capture_rejected_draws",
+            std::to_string(entry.private_capture_rejected_draws)},
+           {"first_private_capture_rejection_mask",
+            fmt::format("{:08X}",
+                        entry.first_private_capture_rejection_mask)},
+           {"last_private_capture_rejection_mask",
+            fmt::format("{:08X}",
+                        entry.last_private_capture_rejection_mask)},
+           {"private_capture_rejection_mask_or",
+            fmt::format("{:08X}",
+                        entry.private_capture_rejection_mask_or)},
+           {"private_capture_rejection_mask_and",
+            fmt::format("{:08X}",
+                        entry.private_capture_rejection_mask_and)},
+           {"private_capture_rejection_mask_switches",
+            std::to_string(
+                entry.private_capture_rejection_mask_switches)},
+           {"private_capture_admission_contract",
+            "vehicle_color_private_replay_v1"},
+           {"constant_identity_scans",
+            std::to_string(entry.constant_identity_scans)},
+           {"constant_identity_missing_fresh_pose",
+            std::to_string(entry.constant_identity_missing_fresh_pose)},
+           {"constant_position_unique_matches",
+            std::to_string(entry.constant_position_unique_matches)},
+           {"constant_position_ambiguous_matches",
+            std::to_string(entry.constant_position_ambiguous_matches)},
+           {"constant_position_misses",
+            std::to_string(entry.constant_position_misses)},
+           {"constant_position_identity_variations",
+            std::to_string(entry.constant_position_identity_variations)},
+           {"constant_position_register_variations",
+            std::to_string(entry.constant_position_register_variations)},
+           {"constant_position_identity_generation",
+            entry.constant_position_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_position_identity_generation)
+                : "unknown"},
+           {"constant_position_identity_owner",
+            entry.constant_position_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_position_identity_owner)
+                : "unknown"},
+           {"constant_position_identity_slot",
+            entry.constant_position_identity_valid
+                ? std::to_string(entry.constant_position_identity_slot)
+                : "unknown"},
+           {"constant_position_register",
+            entry.constant_position_identity_valid
+                ? std::to_string(entry.constant_position_register)
+                : "unknown"},
+           {"closest_position_delta_squared",
+            std::isfinite(entry.closest_position_delta_squared)
+                ? fmt::format("{:.9g}",
+                              entry.closest_position_delta_squared)
+                : "unknown"},
+           {"constant_forward_unique_matches",
+            std::to_string(entry.constant_forward_unique_matches)},
+           {"constant_forward_ambiguous_matches",
+            std::to_string(entry.constant_forward_ambiguous_matches)},
+           {"constant_forward_misses",
+            std::to_string(entry.constant_forward_misses)},
+           {"constant_forward_identity_variations",
+            std::to_string(entry.constant_forward_identity_variations)},
+           {"constant_forward_register_variations",
+            std::to_string(entry.constant_forward_register_variations)},
+           {"constant_forward_identity_generation",
+            entry.constant_forward_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_forward_identity_generation)
+                : "unknown"},
+           {"constant_forward_identity_owner",
+            entry.constant_forward_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.constant_forward_identity_owner)
+                : "unknown"},
+           {"constant_forward_identity_slot",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_identity_slot)
+                : "unknown"},
+           {"constant_forward_register",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_register)
+                : "unknown"},
+           {"constant_forward_sign",
+            entry.constant_forward_identity_valid
+                ? std::to_string(entry.constant_forward_sign)
+                : "unknown"},
+           {"closest_forward_delta_squared",
+            std::isfinite(entry.closest_forward_delta_squared)
+                ? fmt::format("{:.9g}",
+                              entry.closest_forward_delta_squared)
+                : "unknown"},
+           {"constant_identity_classification",
+            entry.constant_position_unique_matches == entry.draws &&
+                    !entry.constant_position_ambiguous_matches &&
+                    !entry.constant_position_misses &&
+                    !entry.constant_position_identity_variations &&
+                    !entry.constant_position_register_variations
+                ? "stable_tight_position_candidate"
+                : "unresolved"},
+           {"typed_upload_scans",
+            std::to_string(entry.typed_upload_scans)},
+           {"typed_upload_fresh_candidates",
+            std::to_string(entry.typed_upload_fresh_candidates)},
+           {"typed_upload_no_overlap_candidates",
+            std::to_string(entry.typed_upload_no_overlap_candidates)},
+           {"typed_upload_hash_mismatch_candidates",
+            std::to_string(entry.typed_upload_hash_mismatch_candidates)},
+           {"typed_upload_exact_candidates",
+            std::to_string(entry.typed_upload_exact_candidates)},
+           {"typed_upload_exact_matches",
+            std::to_string(entry.typed_upload_exact_matches)},
+           {"typed_upload_misses",
+            std::to_string(entry.typed_upload_misses)},
+           {"typed_upload_exact_used_vectors",
+            std::to_string(entry.typed_upload_exact_used_vectors)},
+           {"typed_upload_start_register_variations",
+            std::to_string(
+                entry.typed_upload_start_register_variations)},
+           {"typed_upload_vector_count_variations",
+            std::to_string(entry.typed_upload_vector_count_variations)},
+           {"typed_upload_used_vector_count_variations",
+            std::to_string(
+                entry.typed_upload_used_vector_count_variations)},
+           {"typed_upload_source_address_variations",
+            std::to_string(
+                entry.typed_upload_source_address_variations)},
+           {"typed_upload_buffer_address_variations",
+            std::to_string(
+                entry.typed_upload_buffer_address_variations)},
+           {"typed_upload_caller_variations",
+            std::to_string(entry.typed_upload_caller_variations)},
+           {"typed_upload_start_register",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_start_register)
+                : "unknown"},
+           {"typed_upload_vector_count",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_vector_count)
+                : "unknown"},
+           {"typed_upload_used_vector_count",
+            entry.typed_upload_identity_valid
+                ? std::to_string(entry.typed_upload_used_vector_count)
+                : "unknown"},
+           {"typed_upload_source_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}", entry.typed_upload_source_address)
+                : "unknown"},
+           {"typed_upload_buffer_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}", entry.typed_upload_buffer_address)
+                : "unknown"},
+           {"typed_upload_caller_return_address",
+            entry.typed_upload_identity_valid
+                ? fmt::format("{:08X}",
+                              entry.typed_upload_caller_return_address)
+                : "unknown"},
+           {"typed_upload_observed_register_min",
+            entry.typed_upload_observed_register_range_valid
+                ? std::to_string(entry.typed_upload_observed_register_min)
+                : "unknown"},
+           {"typed_upload_observed_register_max",
+            entry.typed_upload_observed_register_range_valid
+                ? std::to_string(entry.typed_upload_observed_register_max)
+                : "unknown"},
+           {"typed_upload_classification",
+            entry.typed_upload_exact_matches == entry.draws &&
+                    !entry.typed_upload_misses &&
+                    !entry.typed_upload_start_register_variations &&
+                    !entry.typed_upload_vector_count_variations &&
+                    !entry.typed_upload_used_vector_count_variations &&
+                    !entry.typed_upload_caller_variations
+                ? "stable_exact_vertex_register_candidate"
+                : "unresolved"},
+           {"shader_constant_write_scans",
+            std::to_string(entry.shader_constant_write_scans)},
+           {"shader_constant_write_observed_vectors",
+            std::to_string(
+                entry.shader_constant_write_observed_vectors)},
+           {"shader_constant_write_exact_vectors",
+            std::to_string(entry.shader_constant_write_exact_vectors)},
+           {"shader_constant_write_missing_vectors",
+            std::to_string(
+                entry.shader_constant_write_missing_vectors)},
+           {"shader_constant_write_mismatched_vectors",
+            std::to_string(
+                entry.shader_constant_write_mismatched_vectors)},
+           {"shader_constant_write_coherent_vectors",
+            std::to_string(
+                entry.shader_constant_write_coherent_vectors)},
+           {"shader_constant_write_split_vectors",
+            std::to_string(entry.shader_constant_write_split_vectors)},
+           {"shader_constant_write_maximum_age_frames",
+            std::to_string(
+                entry.shader_constant_write_maximum_age_frames)},
+           {"shader_constant_source_count",
+            std::to_string(shader_constant_source_count_for_family)},
+           {"shader_constant_write_classification",
+            entry.shader_constant_write_exact_vectors ==
+                        entry.shader_constant_write_observed_vectors &&
+                    !entry.shader_constant_write_missing_vectors &&
+                    !entry.shader_constant_write_mismatched_vectors &&
+                    !entry.shader_constant_write_split_vectors &&
+                    shader_constant_source_count_for_family
+                 ? "complete_exact_packet_lineage"
+                 : "unresolved"},
+           {"semantic_constant_bridge_publications",
+            std::to_string(constant_bridge.publications)},
+           {"semantic_constant_bridge_constant_count",
+            std::to_string(constant_bridge.constant_count)},
+           {"semantic_constant_bridge_exact_packet_lineage_vectors",
+            std::to_string(
+                constant_bridge.exact_packet_lineage_vectors)},
+           {"semantic_constant_bridge_unresolved_packet_lineage_vectors",
+            std::to_string(
+                constant_bridge.unresolved_packet_lineage_vectors)},
+           {"semantic_constant_bridge_register_layout_hash",
+            fmt::format("{:016X}",
+                        constant_bridge.register_layout_hash)},
+           {"semantic_constant_bridge_register_layout_variations",
+            std::to_string(
+                constant_bridge.register_layout_variations)},
+           {"semantic_constant_bridge_value_variations",
+            std::to_string(constant_bridge.value_variations)},
+           {"semantic_constant_bridge_classification",
+            constant_bridge.occupied &&
+                    constant_bridge.publications == entry.draws &&
+                    !constant_bridge.register_layout_variations &&
+                    !constant_bridge.unresolved_packet_lineage_vectors
+                ? "complete_private_draw_atomic_snapshot"
+                : constant_bridge.occupied &&
+                          constant_bridge.publications == entry.draws &&
+                          !constant_bridge.register_layout_variations
+                      ? "private_draw_atomic_snapshot_with_unresolved_lineage"
+                      : "unresolved"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    uint64_t shader_constant_register_count = 0;
+    for (size_t register_index = 0;
+         register_index <
+         g_vehicle_shader_constant_register_exact_vectors.size();
+         ++register_index) {
+      const uint64_t exact_vectors =
+          g_vehicle_shader_constant_register_exact_vectors[register_index];
+      const uint64_t missing_vectors =
+          g_vehicle_shader_constant_register_missing_vectors[register_index];
+      const uint64_t mismatched_vectors =
+          g_vehicle_shader_constant_register_mismatched_vectors[register_index];
+      const uint64_t observed_vectors =
+          exact_vectors + missing_vectors + mismatched_vectors;
+      if (!observed_vectors) {
+        continue;
+      }
+      ++shader_constant_register_count;
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shader_constant_register",
+          {{"register_index", std::to_string(register_index)},
+           {"observed_vectors", std::to_string(observed_vectors)},
+           {"exact_vectors", std::to_string(exact_vectors)},
+           {"missing_vectors", std::to_string(missing_vectors)},
+           {"mismatched_vectors", std::to_string(mismatched_vectors)},
+           {"first_mismatch_component_mask",
+            fmt::format("{:X}",
+                        g_vehicle_shader_constant_register_first_mismatch_mask
+                            [register_index])},
+           {"mismatch_component_mask_variations",
+            std::to_string(
+                g_vehicle_shader_constant_register_mismatch_mask_variations
+                    [register_index])},
+           {"classification",
+            mismatched_vectors
+                ? "current_register_value_mismatch"
+                : missing_vectors ? "current_register_value_missing"
+                                  : "exact_current_register_value"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    for (const VehicleShaderConstantSourceEntry &source :
+         g_vehicle_shader_constant_sources) {
+      if (!source.occupied ||
+          source.correlation_index >=
+              g_vehicle_shadow_geometry_correlations.size() ||
+          !g_vehicle_shadow_geometry_correlations[source.correlation_index]
+               .occupied) {
+        continue;
+      }
+      const VehicleShadowGeometryCorrelationEntry &family =
+          g_vehicle_shadow_geometry_correlations[source.correlation_index];
+      diagnostics::RecordEvent(
+          "native_renderer.discovery.vehicle_shader_constant_source",
+          {{"prepared_signature",
+            fmt::format("{:016X}", family.prepared_signature)},
+           {"packet", fmt::format("{:08X}", source.packet)},
+           {"opcode", std::to_string((source.packet >> 8) & 0x7F)},
+           {"packet_offset_dwords",
+            source.packet_offset_dwords == UINT32_MAX
+                ? "unknown"
+                : std::to_string(source.packet_offset_dwords)},
+           {"first_command_buffer_length_dwords",
+            std::to_string(source.first_command_buffer_length_dwords)},
+           {"last_command_buffer_length_dwords",
+            std::to_string(source.last_command_buffer_length_dwords)},
+           {"command_buffer_length_variations",
+            std::to_string(source.command_buffer_length_variations)},
+           {"command_buffer_depth",
+            std::to_string(source.command_buffer_depth)},
+           {"vectors", std::to_string(source.vectors)},
+           {"draws", std::to_string(source.draws)},
+           {"maximum_age_frames",
+            std::to_string(source.maximum_age_frames)},
+           {"first_packet_physical_address",
+            fmt::format("{:08X}", source.first_packet_physical_address)},
+           {"last_packet_physical_address",
+            fmt::format("{:08X}", source.last_packet_physical_address)},
+           {"packet_address_variations",
+            std::to_string(source.packet_address_variations)},
+           {"first_command_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.first_command_buffer_physical_address)},
+           {"last_command_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.last_command_buffer_physical_address)},
+           {"command_buffer_address_variations",
+            std::to_string(source.command_buffer_address_variations)},
+           {"first_parent_packet_physical_address",
+            fmt::format("{:08X}",
+                        source.first_parent_packet_physical_address)},
+           {"last_parent_packet_physical_address",
+            fmt::format("{:08X}",
+                        source.last_parent_packet_physical_address)},
+           {"parent_packet_address_variations",
+            std::to_string(source.parent_packet_address_variations)},
+           {"first_root_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.first_root_buffer_physical_address)},
+           {"last_root_buffer_physical_address",
+            fmt::format("{:08X}",
+                        source.last_root_buffer_physical_address)},
+           {"root_buffer_address_variations",
+            std::to_string(source.root_buffer_address_variations)},
+           {"classification", "exact_current_vertex_register_source"},
+           {"guest_payload_capture", "false"},
+           {"native_draw", "false"},
+           {"xenos_authority", "true"},
+           {"suppression_allowed", "false"}});
+    }
+    const bool seed_accounting_complete =
+        g_vehicle_shadow_geometry_seed_count +
+                g_vehicle_shadow_geometry_seed_duplicates +
+                g_vehicle_shadow_geometry_seed_overflow ==
+            g_vehicle_shadow_geometry_epochs_committed *
+                kShadowDepthBatchDrawCount;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_geometry_summary",
+        {{"status", g_vehicle_shadow_geometry_epochs_committed
+                        ? "qualified_epoch_observed"
+                        : "no_qualified_epoch"},
+         {"epochs_committed",
+          std::to_string(g_vehicle_shadow_geometry_epochs_committed)},
+         {"staged_draws",
+          std::to_string(g_vehicle_shadow_geometry_staged_draws)},
+         {"unique_geometry_seeds",
+          std::to_string(g_vehicle_shadow_geometry_seed_count)},
+         {"seed_duplicates",
+          std::to_string(g_vehicle_shadow_geometry_seed_duplicates)},
+         {"seed_overflow",
+          std::to_string(g_vehicle_shadow_geometry_seed_overflow)},
+         {"seed_capacity",
+          std::to_string(kVehicleShadowGeometrySeedCapacity)},
+         {"color_draws_examined",
+          std::to_string(g_vehicle_shadow_geometry_color_draws_examined)},
+         {"color_draws_matched",
+          std::to_string(g_vehicle_shadow_geometry_color_draws_matched)},
+         {"full_geometry_matches",
+          std::to_string(g_vehicle_shadow_geometry_full_matches)},
+         {"index_vertex_matches",
+          std::to_string(g_vehicle_shadow_geometry_partial_matches)},
+         {"correlations",
+          std::to_string(g_vehicle_shadow_geometry_correlation_count)},
+         {"correlation_overflow",
+          std::to_string(g_vehicle_shadow_geometry_correlation_overflow)},
+         {"correlation_capacity",
+          std::to_string(kVehicleShadowGeometryCorrelationCapacity)},
+         {"mechanically_eligible_draws",
+          std::to_string(
+              g_vehicle_shadow_geometry_mechanically_eligible_draws)},
+         {"mechanically_rejected_draws",
+          std::to_string(
+              g_vehicle_shadow_geometry_mechanically_rejected_draws)},
+         {"reject_resolved_input",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[0])},
+         {"reject_unsupported_geometry",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[1])},
+         {"reject_empty_draw",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[2])},
+         {"reject_vertex_binding_count",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[3])},
+         {"reject_vertex_binding_overflow",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[4])},
+         {"reject_vertex_attribute_overflow",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[5])},
+         {"reject_vertex_constant_overflow",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[6])},
+         {"reject_pixel_constant_overflow",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[7])},
+         {"reject_texture_state_overflow",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[8])},
+         {"reject_memexport",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[9])},
+         {"reject_query",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[10])},
+         {"reject_texture_count",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[11])},
+         {"reject_texture_layout",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[12])},
+         {"reject_prepared_pipeline",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[13])},
+         {"reject_render_targets",
+          std::to_string(g_vehicle_shadow_geometry_rejection_reason_counts[14])},
+         {"mechanical_rejection_accounting_complete",
+          g_vehicle_shadow_geometry_mechanically_eligible_draws +
+                      g_vehicle_shadow_geometry_mechanically_rejected_draws ==
+                  g_vehicle_shadow_geometry_color_draws_matched
+              ? "true"
+              : "false"},
+         {"private_capture_eligible_draws",
+          std::to_string(
+              g_vehicle_shadow_color_private_capture_eligible_draws)},
+         {"private_capture_rejected_draws",
+          std::to_string(
+              g_vehicle_shadow_color_private_capture_rejected_draws)},
+         {"private_capture_rejection_accounting_complete",
+          g_vehicle_shadow_color_private_capture_eligible_draws +
+                      g_vehicle_shadow_color_private_capture_rejected_draws ==
+                  g_vehicle_shadow_geometry_color_draws_matched
+              ? "true"
+              : "false"},
+         {"private_capture_admission_contract",
+          "vehicle_color_private_replay_v1"},
+         {"color_runs", std::to_string(g_vehicle_shadow_color_runs)},
+         {"color_run_draws",
+          std::to_string(g_vehicle_shadow_color_run_draws)},
+         {"multi_draw_color_runs",
+          std::to_string(g_vehicle_shadow_color_multi_draw_runs)},
+         {"maximum_color_run_length",
+          std::to_string(g_vehicle_shadow_color_maximum_run_length)},
+         {"full_family_color_runs",
+          std::to_string(g_vehicle_shadow_color_full_family_runs)},
+         {"first_full_family_sequence_hash",
+          fmt::format("{:016X}",
+                      g_vehicle_shadow_color_first_full_family_sequence_hash)},
+         {"full_family_sequence_variants",
+          std::to_string(
+              g_vehicle_shadow_color_full_family_sequence_variants)},
+         {"color_run_accounting_complete",
+          g_vehicle_shadow_color_run_draws ==
+                  g_vehicle_shadow_geometry_color_draws_matched
+              ? "true"
+              : "false"},
+         {"constant_identity_scans", std::to_string(constant_identity_scans)},
+         {"constant_identity_missing_fresh_pose",
+          std::to_string(constant_identity_missing_fresh_pose)},
+         {"constant_vectors_scanned",
+          std::to_string(g_vehicle_color_constant_vectors_scanned)},
+         {"constant_non_finite_vectors",
+          std::to_string(g_vehicle_color_constant_non_finite_vectors)},
+         {"constant_identity_comparisons",
+          std::to_string(g_vehicle_color_constant_identity_comparisons)},
+         {"constant_position_unique_matches",
+          std::to_string(constant_position_unique_matches)},
+         {"constant_position_ambiguous_matches",
+          std::to_string(constant_position_ambiguous_matches)},
+         {"constant_position_misses",
+          std::to_string(constant_position_misses)},
+         {"constant_position_accounting_complete",
+          constant_position_unique_matches +
+                      constant_position_ambiguous_matches +
+                      constant_position_misses ==
+                  constant_identity_scans
+              ? "true"
+              : "false"},
+         {"constant_forward_unique_matches",
+          std::to_string(constant_forward_unique_matches)},
+         {"constant_forward_ambiguous_matches",
+          std::to_string(constant_forward_ambiguous_matches)},
+         {"constant_forward_misses",
+          std::to_string(constant_forward_misses)},
+         {"constant_forward_accounting_complete",
+          constant_forward_unique_matches +
+                      constant_forward_ambiguous_matches +
+                      constant_forward_misses ==
+                  constant_identity_scans
+              ? "true"
+              : "false"},
+         {"constant_identity_maximum_pose_age_frames",
+          std::to_string(kVehicleColorConstantMaximumIdentityAgeFrames)},
+         {"typed_upload_observations",
+          std::to_string(g_vehicle_constant_upload_observations)},
+         {"typed_upload_valid",
+          std::to_string(g_vehicle_constant_upload_valid)},
+         {"typed_upload_invalid_register_range",
+          std::to_string(
+              g_vehicle_constant_upload_invalid_register_range)},
+         {"typed_upload_invalid_source_range",
+          std::to_string(g_vehicle_constant_upload_invalid_source_range)},
+         {"typed_upload_overwrites",
+          std::to_string(g_vehicle_constant_upload_overwrites)},
+         {"typed_upload_capacity",
+          std::to_string(kVehicleConstantUploadCapacity)},
+         {"typed_upload_scans", std::to_string(typed_upload_scans)},
+         {"typed_upload_fresh_candidates",
+          std::to_string(typed_upload_fresh_candidates)},
+         {"typed_upload_no_overlap_candidates",
+          std::to_string(typed_upload_no_overlap_candidates)},
+         {"typed_upload_hash_mismatch_candidates",
+          std::to_string(typed_upload_hash_mismatch_candidates)},
+         {"typed_upload_exact_candidates",
+          std::to_string(typed_upload_exact_candidates)},
+         {"typed_upload_candidate_accounting_complete",
+          typed_upload_no_overlap_candidates +
+                      typed_upload_hash_mismatch_candidates +
+                      typed_upload_exact_candidates ==
+                  typed_upload_fresh_candidates
+              ? "true"
+              : "false"},
+         {"typed_upload_exact_matches",
+          std::to_string(typed_upload_exact_matches)},
+         {"typed_upload_misses", std::to_string(typed_upload_misses)},
+         {"typed_upload_exact_used_vectors",
+          std::to_string(typed_upload_exact_used_vectors)},
+         {"typed_upload_outcome_accounting_complete",
+          typed_upload_exact_matches + typed_upload_misses ==
+                  typed_upload_scans
+              ? "true"
+              : "false"},
+         {"typed_upload_maximum_age_frames",
+          std::to_string(kVehicleConstantUploadMaximumAgeFrames)},
+         {"typed_upload_contract",
+          "82435E78_exact_shader_used_vertex_register_hash"},
+         {"shader_constant_write_observations",
+          std::to_string(g_vehicle_shader_constant_write_observations)},
+         {"vertex_shader_constant_write_observations",
+          std::to_string(
+              g_vehicle_vertex_shader_constant_write_observations)},
+         {"pixel_shader_constant_write_observations",
+          std::to_string(
+              g_vehicle_pixel_shader_constant_write_observations)},
+         {"shader_constant_write_invalid_register",
+          std::to_string(
+              g_vehicle_shader_constant_write_invalid_register)},
+         {"shader_constant_write_observation_accounting_complete",
+          g_vehicle_vertex_shader_constant_write_observations +
+                      g_vehicle_pixel_shader_constant_write_observations +
+                      g_vehicle_shader_constant_write_invalid_register ==
+                  g_vehicle_shader_constant_write_observations
+              ? "true"
+              : "false"},
+         {"shader_constant_write_scans",
+          std::to_string(shader_constant_write_scans)},
+         {"shader_constant_write_observed_vectors",
+          std::to_string(shader_constant_write_observed_vectors)},
+         {"shader_constant_write_exact_vectors",
+          std::to_string(shader_constant_write_exact_vectors)},
+         {"shader_constant_write_missing_vectors",
+          std::to_string(shader_constant_write_missing_vectors)},
+         {"shader_constant_write_mismatched_vectors",
+          std::to_string(shader_constant_write_mismatched_vectors)},
+         {"shader_constant_write_vector_accounting_complete",
+          shader_constant_write_exact_vectors +
+                      shader_constant_write_missing_vectors +
+                      shader_constant_write_mismatched_vectors ==
+                  shader_constant_write_observed_vectors
+              ? "true"
+              : "false"},
+         {"shader_constant_write_coherent_vectors",
+          std::to_string(shader_constant_write_coherent_vectors)},
+         {"shader_constant_write_split_vectors",
+          std::to_string(shader_constant_write_split_vectors)},
+         {"shader_constant_write_source_accounting_complete",
+          shader_constant_write_coherent_vectors +
+                      shader_constant_write_split_vectors ==
+                  shader_constant_write_exact_vectors
+              ? "true"
+              : "false"},
+         {"shader_constant_write_maximum_age_frames",
+          std::to_string(shader_constant_write_maximum_age_frames)},
+         {"shader_constant_sources",
+          std::to_string(g_vehicle_shader_constant_source_count)},
+         {"shader_constant_source_overflow",
+          std::to_string(g_vehicle_shader_constant_source_overflow)},
+         {"shader_constant_source_capacity",
+          std::to_string(kVehicleShaderConstantSourceCapacity)},
+         {"shader_constant_registers_observed",
+          std::to_string(shader_constant_register_count)},
+         {"shader_constant_invalid_observed_vectors",
+          std::to_string(g_vehicle_shader_constant_invalid_observed_vectors)},
+         {"shader_constant_write_contract",
+           "draw_atomic_current_vertex_register_components_and_packet_lineage"},
+          {"semantic_constant_bridge_publications",
+           std::to_string(g_vehicle_semantic_constant_bridge_publications)},
+          {"semantic_constant_bridge_rejections",
+           std::to_string(g_vehicle_semantic_constant_bridge_rejections)},
+          {"semantic_constant_bridge_complete_lineage_publications",
+           std::to_string(
+               g_vehicle_semantic_constant_bridge_complete_lineage_publications)},
+          {"semantic_constant_bridge_contract",
+           "private_draw_atomic_vertex_constant_snapshot"},
+         {"material_topology_groups",
+          std::to_string(material_topology_group_count)},
+         {"material_topology_group_accounting_complete",
+          material_topology_group_count > 0 &&
+                  material_topology_group_count <=
+                      g_vehicle_shadow_geometry_correlation_count
+              ? "true"
+              : "false"},
+         {"material_topology_contract",
+          "shader_specialization_render_state_texture_layout"},
+         {"seed_accounting_complete",
+          seed_accounting_complete ? "true" : "false"},
+         {"epoch_contract", "exact_consecutive_64_primary_12_secondary_4_tertiary"},
+         {"classification", "measurement_only_candidate"},
+         {"object_identity_proven", "false"},
+         {"mesh_material_contract_proven", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_color_capture_mode) {
+    const uint64_t capture_outcomes =
+        g_isolated_draw.vehicle_shadow_color_capture_recorded +
+        g_isolated_draw.vehicle_shadow_color_capture_target_failures +
+        g_isolated_draw.vehicle_shadow_color_capture_unsupported;
+    const uint64_t private_replay_outcomes =
+        g_isolated_draw.vehicle_shadow_color_private_replay_recorded +
+        g_isolated_draw
+            .vehicle_shadow_color_private_replay_target_failures +
+        g_isolated_draw.vehicle_shadow_color_private_replay_unsupported;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_color_capture_summary",
+        {{"status", g_isolated_draw.vehicle_shadow_color_capture_recorded
+                        ? "recorded_private_color_candidate"
+                        : (g_isolated_draw.vehicle_shadow_color_capture_requests
+                               ? "failed_closed"
+                               : "not_observed")},
+         {"requests",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_capture_requests)},
+         {"recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_capture_recorded)},
+         {"target_creation_failures",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_capture_target_failures)},
+         {"unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_capture_unsupported)},
+         {"request_accounting_complete",
+          capture_outcomes ==
+                  g_isolated_draw.vehicle_shadow_color_capture_requests
+              ? "true"
+              : "false"},
+         {"private_replay_status",
+          g_isolated_draw.vehicle_shadow_color_private_replay_failed_closed
+              ? "failed_closed"
+              : (g_isolated_draw
+                             .vehicle_shadow_color_private_replay_requests
+                         ? "bounded_stability_observed"
+                         : "not_observed")},
+         {"private_replay_requests",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_requests)},
+         {"private_replay_recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_recorded)},
+         {"private_replay_target_creation_failures",
+          std::to_string(g_isolated_draw
+                             .vehicle_shadow_color_private_replay_target_failures)},
+         {"private_replay_unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_unsupported)},
+         {"private_replay_frame_quota_yields",
+          std::to_string(g_isolated_draw
+                             .vehicle_shadow_color_private_replay_frame_quota_yields)},
+         {"private_replay_limit_yields",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_private_replay_limit_yields)},
+         {"private_replay_limit",
+          std::to_string(kVehicleShadowColorPrivateReplayLimit)},
+         {"private_replay_accounting_complete",
+          private_replay_outcomes ==
+                  g_isolated_draw.vehicle_shadow_color_private_replay_requests
+              ? "true"
+              : "false"},
+         {"private_replay_selection",
+          "exact_first_captured_signature_one_draw_per_frame"},
+         {"selection", "first_mechanically_replayable_correlated_color_draw"},
+         {"readback", "native_and_xenos_color"},
+         {"native_draw",
+          g_isolated_draw.vehicle_shadow_color_capture_recorded
+              ? "private_capture_only"
+              : "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_resource_contribution_capture_mode) {
+    const uint64_t contribution_outcomes =
+        g_isolated_draw.vehicle_resource_contribution_recorded +
+        g_isolated_draw.vehicle_resource_contribution_target_failures +
+        g_isolated_draw.vehicle_resource_contribution_unsupported;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_resource_contribution_summary",
+        {{"status",
+          g_isolated_draw.vehicle_resource_contribution_failed_closed
+              ? "failed_closed"
+              : (g_isolated_draw
+                         .vehicle_resource_contribution_capture_completed
+                     ? "bounded_resource_contribution_recorded"
+                     : "not_observed")},
+         {"geometry_resource_hash",
+          fmt::format("{:016X}",
+                      g_isolated_draw.vehicle_resource_contribution_hash)},
+         {"requests",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_requests)},
+         {"recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_recorded)},
+         {"target_creation_failures",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_target_failures)},
+         {"unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_resource_contribution_unsupported)},
+         {"request_accounting_complete",
+          contribution_outcomes ==
+                  g_isolated_draw.vehicle_resource_contribution_requests
+              ? "true"
+              : "false"},
+         {"expected_variants", "2"},
+         {"capture_recorded",
+          g_isolated_draw.vehicle_resource_contribution_capture_completed
+              ? "true"
+              : "false"},
+         {"selection", "two_exact_prepared_variants_for_one_geometry_resource"},
+         {"target_lifecycle", "retain_first_release_second"},
+         {"readback", "complete_private_resource_contribution"},
+         {"native_draw",
+          g_isolated_draw.vehicle_resource_contribution_capture_completed
+              ? "private_resource_contribution_only"
+              : "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
+  }
+  if (g_isolated_draw.vehicle_shadow_color_retained_pass_mode) {
+    const uint64_t retained_outcomes =
+        g_isolated_draw.vehicle_shadow_color_retained_recorded +
+        g_isolated_draw.vehicle_shadow_color_retained_target_failures +
+        g_isolated_draw.vehicle_shadow_color_retained_unsupported;
+    diagnostics::RecordEvent(
+        "native_renderer.discovery.vehicle_shadow_color_retained_summary",
+        {{"status",
+          g_isolated_draw.vehicle_shadow_color_retained_pass_failed_closed
+              ? "failed_closed"
+              : (g_isolated_draw
+                             .vehicle_shadow_color_retained_frames_completed
+                         ? "bounded_retained_pass_stable"
+                         : "not_observed")},
+         {"requests",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_requests)},
+         {"recorded",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_recorded)},
+         {"target_creation_failures",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_target_failures)},
+         {"unsupported",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_unsupported)},
+         {"request_accounting_complete",
+          retained_outcomes ==
+                  g_isolated_draw.vehicle_shadow_color_retained_requests
+              ? "true"
+              : "false"},
+         {"reused_target_requests",
+          std::to_string(g_isolated_draw
+                             .vehicle_shadow_color_retained_reused_target_requests)},
+         {"frames_started",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_frames_started)},
+         {"frames_completed",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_frames_completed)},
+         {"frames_failed",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_frames_failed)},
+         {"frame_accounting_complete",
+          g_isolated_draw.vehicle_shadow_color_retained_frames_completed +
+                      g_isolated_draw.vehicle_shadow_color_retained_frames_failed ==
+                  g_isolated_draw.vehicle_shadow_color_retained_frames_started
+              ? "true"
+              : "false"},
+         {"draws_per_frame",
+          std::to_string(kVehicleShadowColorRetainedFamilyCount)},
+         {"pass_limit",
+          std::to_string(kVehicleShadowColorRetainedPassLimit)},
+         {"limit_yields",
+          std::to_string(
+              g_isolated_draw.vehicle_shadow_color_retained_limit_yields)},
+         {"capture_recorded",
+          g_isolated_draw.vehicle_shadow_color_retained_capture_completed
+              ? "true"
+              : "false"},
+         {"selection", "all_30_exact_correlated_families_in_guest_order"},
+         {"target_lifecycle", "retain_first_reuse_middle_release_last"},
+         {"readback", "first_complete_native_retained_pass"},
+         {"native_draw",
+          g_isolated_draw.vehicle_shadow_color_retained_frames_completed
+              ? "private_retained_pass_only"
+              : "false"},
+         {"xenos_draw", "preserved"},
+         {"output_authority", "xenos"},
+         {"suppression_allowed", "false"}});
   }
   if (g_isolated_draw.shadow_depth_batch_mode) {
     const uint64_t request_outcomes =
@@ -21115,6 +33888,13 @@ void PinyonShiftObserveGraphicsFrame() {
                                            {{"frame_sequence", frame},
                                             {"guest_address", "829EFEB8"},
                                             {"mode", "pass_through"}});
+    if (frame_sequence % kFrameSummaryInterval == 0) {
+      EmitTrackRenderModelRuntimeJoinCheckpoint(frame_sequence);
+      EmitStaticWorldRuntimeJoinCheckpoint(frame_sequence);
+    }
+  }
+  if (frame_sequence % kFrameSummaryInterval == 0) {
+    EmitContinuousWorldWorksetCheckpoint(frame_sequence);
   }
   if (dispatch_requested) {
     pinyon_shift::diagnostics::RecordEvent(
@@ -21255,9 +34035,196 @@ void PinyonShiftObserveVehicleTypedRenderItem(PPCRegister &r11,
   ObserveVehicleTypedRenderItem(r31.u32, r11.u32);
 }
 
+void PinyonShiftObserveTrackRenderModelDispatchEntry(PPCRegister &r31) {
+  BeginTrackRenderModelDispatch(r31.u32);
+}
+
+void PinyonShiftObserveTrackRenderModelDispatchExit() {
+  EndTrackRenderModelDispatch();
+}
+
+void PinyonShiftObserveTrackPresentationSlot78Entry(PPCRegister &r3) {
+  BeginTrackPresentationPass(0, r3.u32);
+}
+
+void PinyonShiftObserveTrackPresentationSlot78Exit() {
+  EndTrackPresentationPass(0);
+}
+
+void PinyonShiftObserveTrackPresentationSlot79Entry(PPCRegister &r3) {
+  BeginTrackPresentationPass(1, r3.u32);
+}
+
+void PinyonShiftObserveTrackPresentationSlot79Exit() {
+  EndTrackPresentationPass(1);
+}
+
+void PinyonShiftObserveTrackPresentationSlot80Entry(PPCRegister &r3) {
+  BeginTrackPresentationPass(2, r3.u32);
+}
+
+void PinyonShiftObserveTrackPresentationSlot80Exit() {
+  EndTrackPresentationPass(2);
+}
+
+void PinyonShiftObserveTrackPresentationSlot81Entry(PPCRegister &r3) {
+  BeginTrackPresentationPass(3, r3.u32);
+}
+
+void PinyonShiftObserveTrackPresentationSlot81Exit() {
+  EndTrackPresentationPass(3);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEntry() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_entries);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEnabled() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_enabled);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEligible() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_eligible);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterDispatch(PPCRegister &ctr) {
+  RecordTrackPresentationAdapterDispatch(ctr.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,
+                                                         PPCRegister &r4) {
+  BeginStaticWorldRendererDispatch(r3.u32, r4.u32);
+}
+
+void PinyonShiftObserveStaticWorldPresentationDispatchEntry(
+    PPCRegister &r3) {
+  BeginStaticWorldPresentationDispatch(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldPresentationDispatchExit() {
+  EndStaticWorldPresentationDispatch();
+}
+
+void PinyonShiftObserveStaticWorldPresentationPrepareOutcome(
+    PPCRegister &r3, PPCRegister &r31) {
+  ObserveStaticWorldPresentationPrepareOutcome(r3.u32, r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskPublish(
+    PPCRegister &r7, PPCRegister &r31) {
+  ObserveStaticWorldDeferredTaskPublish(r7.u32, r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskCallback(
+    PPCRegister &r3, PPCRegister &r4) {
+  ObserveStaticWorldDeferredTaskCallback(r3.u32, r4.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskHandoff(
+    PPCRegister &r3, PPCRegister &r11) {
+  ObserveStaticWorldDeferredTaskHandoff(r3.u32, r11.u32);
+}
+
+void PinyonShiftObserveDirectIndexedDrawProducer(
+    PPCRegister &r26, PPCRegister &r31, uint64_t &lr) {
+  ObserveDirectIndexedDrawProducer(r26.u32, r31.u32, uint32_t(lr));
+}
+
+void PinyonShiftObserveDirectIndexedDrawProducerExit() {
+  ObserveDirectIndexedDrawProducerExit();
+}
+
+void PinyonShiftObserveStaticWorldPresentationRendererHandoff(
+    PPCRegister &r3, PPCRegister &r11) {
+  ObserveStaticWorldPresentationRendererHandoff(r3.u32, r11.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererDispatchExit() {
+  EndStaticWorldRendererDispatch();
+}
+
+void PinyonShiftObserveStaticWorldMemberDrawEntry(
+    PPCRegister &r26, PPCRegister &r29, PPCRegister &r28) {
+  BeginStaticWorldMemberDraw(r26.u32, r29.u32, r28.u32);
+}
+
+void PinyonShiftObserveStaticWorldMemberDrawExit() {
+  EndStaticWorldMemberDraw();
+}
+
+void PinyonShiftObserveStaticWorldRendererConstructed(PPCRegister &r31) {
+  PublishStaticWorldRenderer(r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererDestructorEntry(PPCRegister &r3) {
+  BeginStaticWorldRendererDestruction(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererDestructorExit() {
+  EndStaticWorldRendererDestruction();
+}
+
+void PinyonShiftObserveStaticWorldRendererGraphBind(PPCRegister &r30) {
+  ObserveStaticWorldRendererGraphBind(r30.u32);
+}
+
+void PinyonShiftObserveStaticWorldRendererGraphRelease(PPCRegister &r3) {
+  ObserveStaticWorldRendererGraphRelease(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceConstructed(PPCRegister &r29) {
+  PublishStaticWorldResource(r29.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceRegistration(PPCRegister &r31) {
+  ObserveStaticWorldResourceRegistration(r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceDestructorEntry(PPCRegister &r3) {
+  BeginStaticWorldResourceDestruction(r3.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceDestructorExit() {
+  EndStaticWorldResourceDestruction();
+}
+
+void PinyonShiftObserveStaticWorldResourceDirectResetEntry(PPCRegister &r3) {
+  BeginStaticWorldResourceTransition(
+      r3.u32, StaticWorldResourceTransitionKind::kDirectPayloadReset);
+}
+
+void PinyonShiftObserveStaticWorldResourceDirectResetExit(PPCRegister &r31) {
+  EndStaticWorldResourceTransition(r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldResourceRefreshResetEntry(
+    PPCRegister &r3) {
+  BeginStaticWorldResourceTransition(
+      r3.u32,
+      StaticWorldResourceTransitionKind::kRefreshThenPayloadReset);
+}
+
+void PinyonShiftObserveStaticWorldResourceRefreshResetExit(
+    PPCRegister &r30) {
+  EndStaticWorldResourceTransition(r30.u32);
+}
+
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
                                              PPCRegister &r22) {
+  StageTrackWorldReferenceSpatial(r22.u32, r5.u32);
   ObserveVehicleComposedMatrix(r22.u32, r5.u32);
+}
+
+void PinyonShiftObserveVehicleMaterialBinding(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6) {
+  ObserveVehicleMaterialBinding(r3.u32, r4.u32, r5.u32, r6.u32);
+}
+
+void PinyonShiftObserveVehicleTypedConstantUpload(
+    PPCRegister &r3, PPCRegister &r4, PPCRegister &r5, PPCRegister &r6,
+    uint64_t &lr) {
+  ObserveVehicleTypedConstantUpload(r3.u32, r4.u32, r5.u32, r6.u32,
+                                    uint32_t(lr));
 }
 
 void PinyonShiftObserveVehicleRenderContextDispatcherEntry(
@@ -21310,6 +34277,17 @@ void PinyonShiftObserveFastTrackRenderConfiguration(
   }
   ObserveFastTrackRenderConfiguration(r11.u32, source_value, r30.u32,
                                       r31.u32);
+}
+
+void PinyonShiftObserveTrackFarDistanceConfiguration(PPCRegister &f0) {
+  const float source_value = static_cast<float>(f0.f64);
+  const TrackRenderExpectedValues expected =
+      ExpectedTrackRenderValues(TrackRenderModeMarker());
+  if (expected.valid) {
+    f0.f64 = expected.track_far_distance;
+  }
+  ObserveTrackFarDistanceConfiguration(static_cast<float>(f0.f64),
+                                       source_value);
 }
 
 void PinyonShiftObserveRoadDetailBlurConfiguration(

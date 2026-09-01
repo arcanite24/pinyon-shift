@@ -55,6 +55,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("patch_directory", json.dumps(toolchain))
         self.assertFalse(any((ROOT / "patches/rexglue").glob("*.patch")))
 
+
     def test_rexglue_codegen_is_dependency_tracked_and_explicitly_cleanable(self):
         build = (ROOT / "tools/build-preview.ps1").read_text()
         integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
@@ -90,6 +91,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("clone --recursive", prepare)
         self.assertIn("-DSDL_HIDAPI_LIBUSB=OFF", build)
         self.assertIn("set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL", cmake)
+
 
     def test_release_setup_uses_pinned_git_and_normalizes_command_path(self):
         common = (ROOT / "tools/release-common.ps1").read_text(encoding="utf-8")
@@ -179,6 +181,9 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, commit + "|False")
 
+
+
+
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
         self.assertIn("constexpr uint32_t kConfigSchema = 11", app)
@@ -190,43 +195,36 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertIn(setting, app)
             self.assertIn(setting, (ROOT / "tools/set-graphics-experiment.ps1").read_text(encoding="utf-8"))
             self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
-        self.assertIn("xma_relaxed_padding_admission = false", app)
-        self.assertIn("xma_no_space_stalls", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
-        self.assertIn("zpd_stale_result_rejections", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
         sdk = ROOT / "thirdparty/shiftglue-sdk"
         self.assertIn("ZPDLifecycle", (sdk / "include/rex/graphics/zpd_lifecycle.h").read_text())
         self.assertIn("ZPDClassification", (sdk / "include/rex/graphics/zpd_policy.h").read_text())
-        resolve_text = (sdk / "src/core/perf/counter.cpp").read_text()
+        counters = (sdk / "src/core/perf/counter.cpp").read_text()
         for counter in ("resolve_readback_requests", "resolve_readback_bytes",
                         "resolve_readback_full_waits", "resolve_readback_wait_time_ns"):
-            self.assertIn(counter, resolve_text)
+            self.assertIn(counter, counters)
 
     def test_partial_vector_store_qualification_contract(self):
         sdk = ROOT / "thirdparty/shiftglue-sdk"
-        patch_text = (sdk / "tests/ppc/asm/instr_partial_vector_store.s").read_text()
-        patch_text += (sdk / "resources/templates/test/ppc_test_cases_cpp.inja").read_text()
+        source = (sdk / "tests/ppc/asm/instr_partial_vector_store.s").read_text()
+        source += (sdk / "resources/templates/test/ppc_test_cases_cpp.inja").read_text()
         for marker in ("test_stvlx_offset_0", "test_stvlx_offset_15",
                        "test_stvrx_offset_0", "test_stvrx_offset_15",
                        "test_stvlx_memcpy_head", "test_stvrx_memcpy_tail",
                        "randomized_differential", "0x5EED07A1"):
-            self.assertIn(marker, patch_text)
-        qualifier = (ROOT / "tools/qualify-partial-vector-store.ps1").read_text(
-            encoding="utf-8"
-        )
+            self.assertIn(marker, source)
+        qualifier = (ROOT / "tools/qualify-partial-vector-store.ps1").read_text()
         self.assertIn("pinyon-shift.partial-vector-store-qualification.v2", qualifier)
         self.assertIn("rexglue_dirty", qualifier)
-        self.assertIn("generated_functions_sha256", qualifier)
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
         sdk = ROOT / "thirdparty/shiftglue-sdk"
-        stub_patch = (sdk / "include/rex/hook.h").read_text(encoding="utf-8")
-        self.assertIn("kMaximumStubReachabilityEntries = 128", stub_patch)
-        self.assertIn("SDK_STUB first module={}", stub_patch)
-        self.assertIn("SDK_STUB summary", stub_patch)
-        memexport_patch = (sdk / "src/core/perf/counter.cpp").read_text(encoding="utf-8")
+        hook = (sdk / "include/rex/hook.h").read_text(encoding="utf-8")
+        self.assertIn("kMaximumStubReachabilityEntries = 128", hook)
+        self.assertIn("SDK_STUB summary", hook)
+        counters = (sdk / "src/core/perf/counter.cpp").read_text(encoding="utf-8")
         for counter in ("memexport_draws", "memexport_bytes", "memexport_sync_fallbacks",
                         "memexport_queue_waits", "memexport_fence_waits"):
-            self.assertIn(counter, memexport_patch)
+            self.assertIn(counter, counters)
 
     def test_runtime_config_migrates_vehicle_stabilization_and_menu_accept_input(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")

@@ -6,6 +6,38 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererHybridPrototypeTests(unittest.TestCase):
+    def test_minimal_producer_graph_retains_native_replay_observers(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("minimal_producer_graph_requested", source)
+        self.assertIn("SetCopyObserver(&ObservePrototypeResolveCopy)", source)
+        for observer in (
+            "SetDrawObserver(&ObserveDraw)",
+            "SetPreparedDrawObserver(&ObservePreparedDraw)",
+            "SetIndirectBufferObserver(&ObserveIndirectBuffer)",
+            "SetDrawOutcomeObserver(&ObserveDrawOutcome)",
+            "SetIsolatedDrawRequestObserver(&RequestIsolatedDraw)",
+        ):
+            self.assertIn(observer, source)
+        self.assertIn('"native_replay_producer", "retained"', source)
+        self.assertIn('"xenos_draw", "preserved"', source)
+        self.assertNotIn("PublishIsolatedReplayTarget", source)
+
+    def test_prototype_skips_discovery_only_hotpath_work(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("vehicle_shader_constant_observer_requested", source)
+        self.assertIn(
+            "g_vehicle_discovery_installed.load(std::memory_order_acquire) &&",
+            source,
+        )
+        self.assertIn('"draw_signature_scope"', source)
+        self.assertIn('"producer_required_only"', source)
+        self.assertIn("g_graphics_full_census_armed ||", source)
+        self.assertIn("g_shadow_caster_provenance.requested", source)
+
     def test_hybrid_selector_arms_workset_and_reports_safe_authority(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

@@ -25,6 +25,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
                     "selection": "independent_visibility_selected_and_fresh",
                     "prepared_lineage": "exact_semantic_pm4_prepared_draw",
                     "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+                    "static_world_lineage": (
+                        "exact_presentation_resource_mesh_transform_lineage"
+                    ),
                     "mechanical_admission_contract": "isolated_draw_v1",
                     "guest_state_changed": False,
                     "control_flow_changed": False,
@@ -61,6 +64,9 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "selection": "independent_visibility_selected_and_fresh",
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             "mechanical_admission_contract": "isolated_draw_v1",
             **self.safety(),
         }
@@ -82,9 +88,31 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "record_index": "4",
             "visibility_category": "9",
             "visibility_result_mask": "6",
+            "primary_resource_key": "10002000",
+            "secondary_resource_present": "true",
+            "secondary_resource_key": "10003000",
             "title_lod_index": "2",
             "title_lod_valid": "true",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "track_texture_provider": "true",
+            "track_texture_provider_lineage": (
+                "exact_primary_provider_vtable_and_four_methods"
+            ),
+            "track_render_model_scope": "true",
+            "track_render_shared_identity_mask": "00000002",
+            "track_render_model_lineage": (
+                "exact_unified_instance_model_nested_dispatch_scope"
+            ),
+            "track_world_resource_identity_mask": "00000012",
+            "track_world_resource_shared_identity_mask": "00000002",
+            "track_world_resource_lineage": (
+                "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            ),
+            "static_world_origin": "true",
+            "static_world_exact": "true",
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             "draws": "7",
             "first_frame": "10",
             "last_frame": "12",
@@ -116,6 +144,20 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "mechanical_admission_contract": "isolated_draw_v1",
             "title_lod_entries": "1",
             "title_lod_draws": "7",
+            "track_texture_provider_entries": "1",
+            "track_texture_provider_draws": "7",
+            "track_render_model_scope_entries": "1",
+            "track_render_model_scope_draws": "7",
+            "track_render_shared_identity_entries": "1",
+            "track_render_shared_identity_draws": "7",
+            "track_world_resource_identity_entries": "1",
+            "track_world_resource_identity_draws": "7",
+            "track_world_resource_shared_identity_entries": "1",
+            "track_world_resource_shared_identity_draws": "7",
+            "static_world_origin_entries": "1",
+            "static_world_origin_draws": "7",
+            "static_world_exact_entries": "1",
+            "static_world_exact_draws": "7",
             "capacity": "4096",
             "overflow": "0",
             "policy_age_limit_frames": "1",
@@ -124,6 +166,18 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             "prepared_lineage": "exact_semantic_pm4_prepared_draw",
             "selection": "independent_visibility_selected_and_fresh",
             "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+            "track_texture_provider_lineage": (
+                "exact_primary_provider_vtable_and_four_methods"
+            ),
+            "track_render_model_lineage": (
+                "exact_unified_instance_model_nested_dispatch_scope"
+            ),
+            "track_world_resource_lineage": (
+                "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            ),
+            "static_world_lineage": (
+                "exact_presentation_resource_mesh_transform_lineage"
+            ),
             **self.safety(),
         }
         workset = {
@@ -146,6 +200,36 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             document["qualification"]["isolated_native_candidate_proved"]
         )
         self.assertTrue(document["qualification"]["title_lod_lineage_proved"])
+        self.assertTrue(
+            document["qualification"][
+                "track_texture_provider_lineage_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "track_render_model_scope_lineage_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"]["track_render_shared_identity_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["track_world_resource_identity_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "track_world_resource_shared_identity_proved"
+            ]
+        )
+        self.assertTrue(
+            document["qualification"]["track_world_exact_lineage_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["static_world_origin_lineage_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["static_world_exact_lineage_proved"]
+        )
 
     def test_build_accepts_candidate_without_title_lod(self):
         events = copy.deepcopy(self.events())
@@ -179,6 +263,65 @@ class VisibilityPreparedCandidateReportTests(unittest.TestCase):
             7,
             document["mechanical_rejection_draw_counts"]["prepared_pipeline"],
         )
+
+    def test_build_accepts_non_track_provider_partition(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["track_texture_provider"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["track_texture_provider_entries"] = "0"
+        summary["track_texture_provider_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"][
+                "track_texture_provider_lineage_proved"
+            ]
+        )
+
+    def test_build_accepts_track_scope_without_shared_identity(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["track_render_shared_identity_mask"] = "00000000"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["track_render_shared_identity_entries"] = "0"
+        summary["track_render_shared_identity_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertTrue(
+            document["qualification"][
+                "track_render_model_scope_lineage_proved"
+            ]
+        )
+        self.assertFalse(
+            document["qualification"]["track_render_shared_identity_proved"]
+        )
+
+    def test_build_accepts_non_static_world_partition(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["static_world_origin"] = "false"
+        entry["static_world_exact"] = "false"
+        summary = next(event for event in events if event["event"] == MODULE.SUMMARY)
+        summary["static_world_origin_entries"] = "0"
+        summary["static_world_origin_draws"] = "0"
+        summary["static_world_exact_entries"] = "0"
+        summary["static_world_exact_draws"] = "0"
+        document = MODULE.build(events, self.static())
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(
+            document["qualification"]["static_world_origin_lineage_proved"]
+        )
+        self.assertFalse(
+            document["qualification"]["static_world_exact_lineage_proved"]
+        )
+
+    def test_build_rejects_exact_static_world_without_origin(self):
+        events = copy.deepcopy(self.events())
+        entry = next(event for event in events if event["event"] == MODULE.ENTRY)
+        entry["static_world_origin"] = "false"
+        with self.assertRaisesRegex(ValueError, "entry evidence drifted"):
+            MODULE.build(events, self.static())
 
     def test_build_rejects_eligibility_mask_drift(self):
         events = copy.deepcopy(self.events())

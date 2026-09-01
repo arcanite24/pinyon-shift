@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v4"
+SCHEMA = "pinyon-shift.native-renderer-visibility-prepared-candidates.v10"
 STATIC_SCHEMA = "pinyon-shift.native-renderer-dispatch-static.v3"
 CONFIG = (
     "native_renderer.discovery."
@@ -112,6 +112,9 @@ def static_contract(document):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "static_world_lineage": (
+            "exact_presentation_resource_mesh_transform_lineage"
+        ),
         "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": False,
         "control_flow_changed": False,
@@ -157,6 +160,9 @@ def build(events, static, requested_session=None):
         "selection": "independent_visibility_selected_and_fresh",
         "prepared_lineage": "exact_semantic_pm4_prepared_draw",
         "title_lod_lineage": "exact_visibility_identity_to_prepared_draw",
+        "static_world_lineage": (
+            "exact_presentation_resource_mesh_transform_lineage"
+        ),
         "mechanical_admission_contract": "isolated_draw_v1",
         "guest_state_changed": "false",
         "control_flow_changed": "false",
@@ -178,6 +184,14 @@ def build(events, static, requested_session=None):
         != "independent_visibility_selected_and_fresh"
         or summary.get("title_lod_lineage")
         != "exact_visibility_identity_to_prepared_draw"
+        or summary.get("track_texture_provider_lineage")
+        != "exact_primary_provider_vtable_and_four_methods"
+        or summary.get("track_render_model_lineage")
+        != "exact_unified_instance_model_nested_dispatch_scope"
+        or summary.get("track_world_resource_lineage")
+        != "host_mapped_direct_vtable_identity_from_exact_model_graph"
+        or summary.get("static_world_lineage")
+        != "exact_presentation_resource_mesh_transform_lineage"
         or summary.get("mechanical_admission_contract") != "isolated_draw_v1"
     ):
         raise ValueError("prepared-candidate summary is incomplete")
@@ -198,6 +212,20 @@ def build(events, static, requested_session=None):
         "mechanically_ineligible_draws",
         "title_lod_entries",
         "title_lod_draws",
+        "track_texture_provider_entries",
+        "track_texture_provider_draws",
+        "track_render_model_scope_entries",
+        "track_render_model_scope_draws",
+        "track_render_shared_identity_entries",
+        "track_render_shared_identity_draws",
+        "track_world_resource_identity_entries",
+        "track_world_resource_identity_draws",
+        "track_world_resource_shared_identity_entries",
+        "track_world_resource_shared_identity_draws",
+        "static_world_origin_entries",
+        "static_world_origin_draws",
+        "static_world_exact_entries",
+        "static_world_exact_draws",
         "capacity",
         "overflow",
         "policy_age_limit_frames",
@@ -236,8 +264,20 @@ def build(events, static, requested_session=None):
             "record_index": integer(event, "record_index"),
             "visibility_category": integer(event, "visibility_category"),
             "visibility_result_mask": integer(event, "visibility_result_mask"),
+            "primary_resource_key": hexadecimal(
+                event, "primary_resource_key", 8
+            ),
+            "secondary_resource_present": (
+                event.get("secondary_resource_present") == "true"
+            ),
+            "secondary_resource_key": hexadecimal(
+                event, "secondary_resource_key", 8
+            ),
             "title_lod_index": integer(event, "title_lod_index"),
             "title_lod_valid": event.get("title_lod_valid") == "true",
+            "track_texture_provider": (
+                event.get("track_texture_provider") == "true"
+            ),
             "draws": integer(event, "draws"),
             "first_frame": integer(event, "first_frame"),
             "last_frame": integer(event, "last_frame"),
@@ -248,6 +288,23 @@ def build(events, static, requested_session=None):
         }
         rejection_mask = int(hexadecimal(event, "mechanical_rejection_mask", 8), 16)
         item["mechanical_rejection_mask"] = rejection_mask
+        item["track_render_model_scope"] = (
+            event.get("track_render_model_scope") == "true"
+        )
+        item["track_render_shared_identity_mask"] = int(
+            hexadecimal(event, "track_render_shared_identity_mask", 8), 16
+        )
+        item["track_world_resource_identity_mask"] = int(
+            hexadecimal(event, "track_world_resource_identity_mask", 8), 16
+        )
+        item["track_world_resource_shared_identity_mask"] = int(
+            hexadecimal(
+                event, "track_world_resource_shared_identity_mask", 8
+            ),
+            16,
+        )
+        item["static_world_origin"] = event.get("static_world_origin") == "true"
+        item["static_world_exact"] = event.get("static_world_exact") == "true"
         item["mechanical_rejections"] = [
             name
             for bit, name in MECHANICAL_REJECTIONS.items()
@@ -268,8 +325,40 @@ def build(events, static, requested_session=None):
             or rejection_mask & ~MECHANICAL_REJECTION_MASK
             or item["mechanically_eligible"] != (rejection_mask == 0)
             or event.get("title_lod_valid") not in ("true", "false")
+            or event.get("secondary_resource_present") not in ("true", "false")
+            or (
+                not item["secondary_resource_present"]
+                and item["secondary_resource_key"] != "00000000"
+            )
             or event.get("title_lod_lineage")
             != "exact_visibility_identity_to_prepared_draw"
+            or event.get("track_texture_provider") not in ("true", "false")
+            or event.get("track_texture_provider_lineage")
+            != "exact_primary_provider_vtable_and_four_methods"
+            or event.get("track_render_model_scope") not in ("true", "false")
+            or event.get("track_render_model_lineage")
+            != "exact_unified_instance_model_nested_dispatch_scope"
+            or event.get("track_world_resource_lineage")
+            != "host_mapped_direct_vtable_identity_from_exact_model_graph"
+            or event.get("static_world_origin") not in ("true", "false")
+            or event.get("static_world_exact") not in ("true", "false")
+            or event.get("static_world_lineage")
+            != "exact_presentation_resource_mesh_transform_lineage"
+            or (item["static_world_exact"] and not item["static_world_origin"])
+            or (
+                item["track_render_shared_identity_mask"]
+                and not item["track_render_model_scope"]
+            )
+            or item["track_render_shared_identity_mask"] & ~0xFF
+            or (
+                item["track_world_resource_identity_mask"]
+                and not item["track_render_model_scope"]
+            )
+            or item["track_world_resource_identity_mask"] & ~0x7F
+            or (
+                item["track_world_resource_shared_identity_mask"]
+                & ~item["track_world_resource_identity_mask"]
+            )
             or (item["title_lod_valid"] and item["title_lod_index"] >= 32)
             or integer(event, "policy_age_limit_frames")
             != totals["policy_age_limit_frames"]
@@ -332,6 +421,84 @@ def build(events, static, requested_session=None):
         != sum(entry["draws"] for entry in lod_entries)
     ):
         failures.append("title LOD candidate totals drifted")
+    track_provider_entries = [
+        entry for entry in entries if entry["track_texture_provider"]
+    ]
+    if (
+        totals["track_texture_provider_entries"] != len(track_provider_entries)
+        or totals["track_texture_provider_draws"]
+        != sum(entry["draws"] for entry in track_provider_entries)
+    ):
+        failures.append("track texture provider candidate totals drifted")
+    track_model_entries = [
+        entry for entry in entries if entry["track_render_model_scope"]
+    ]
+    if (
+        totals["track_render_model_scope_entries"] != len(track_model_entries)
+        or totals["track_render_model_scope_draws"]
+        != sum(entry["draws"] for entry in track_model_entries)
+    ):
+        failures.append("track render-model scope candidate totals drifted")
+    shared_identity_entries = [
+        entry
+        for entry in entries
+        if entry["track_render_shared_identity_mask"]
+    ]
+    if (
+        totals["track_render_shared_identity_entries"]
+        != len(shared_identity_entries)
+        or totals["track_render_shared_identity_draws"]
+        != sum(entry["draws"] for entry in shared_identity_entries)
+    ):
+        failures.append("track render shared-identity totals drifted")
+    world_resource_entries = [
+        entry
+        for entry in entries
+        if entry["track_world_resource_identity_mask"]
+    ]
+    if (
+        totals["track_world_resource_identity_entries"]
+        != len(world_resource_entries)
+        or totals["track_world_resource_identity_draws"]
+        != sum(entry["draws"] for entry in world_resource_entries)
+    ):
+        failures.append("track world-resource identity totals drifted")
+    shared_world_resource_entries = [
+        entry
+        for entry in entries
+        if entry["track_world_resource_shared_identity_mask"]
+    ]
+    if (
+        totals["track_world_resource_shared_identity_entries"]
+        != len(shared_world_resource_entries)
+        or totals["track_world_resource_shared_identity_draws"]
+        != sum(entry["draws"] for entry in shared_world_resource_entries)
+    ):
+        failures.append("track world-resource shared-identity totals drifted")
+    exact_track_world_entries = [
+        entry
+        for entry in entries
+        if entry["track_render_model_scope"]
+        and entry["track_world_resource_shared_identity_mask"]
+    ]
+    static_world_origin_entries = [
+        entry for entry in entries if entry["static_world_origin"]
+    ]
+    if (
+        totals["static_world_origin_entries"] != len(static_world_origin_entries)
+        or totals["static_world_origin_draws"]
+        != sum(entry["draws"] for entry in static_world_origin_entries)
+    ):
+        failures.append("static-world origin totals drifted")
+    static_world_exact_entries = [
+        entry for entry in entries if entry["static_world_exact"]
+    ]
+    if (
+        totals["static_world_exact_entries"] != len(static_world_exact_entries)
+        or totals["static_world_exact_draws"]
+        != sum(entry["draws"] for entry in static_world_exact_entries)
+    ):
+        failures.append("exact static-world totals drifted")
     if totals["capacity"] != 4096 or totals["policy_age_limit_frames"] != 1:
         failures.append("prepared-candidate bounds drifted")
     if totals["selected_joins"] > integer(workset, "selected_joins"):
@@ -355,6 +522,30 @@ def build(events, static, requested_session=None):
             "isolated_native_candidate_proved": not failures
             and bool(eligible_entries),
             "title_lod_lineage_proved": not failures and bool(lod_entries),
+            "track_texture_provider_lineage_proved": (
+                not failures and bool(track_provider_entries)
+            ),
+            "track_render_model_scope_lineage_proved": (
+                not failures and bool(track_model_entries)
+            ),
+            "track_render_shared_identity_proved": (
+                not failures and bool(shared_identity_entries)
+            ),
+            "track_world_resource_identity_proved": (
+                not failures and bool(world_resource_entries)
+            ),
+            "track_world_resource_shared_identity_proved": (
+                not failures and bool(shared_world_resource_entries)
+            ),
+            "track_world_exact_lineage_proved": (
+                not failures and bool(exact_track_world_entries)
+            ),
+            "static_world_origin_lineage_proved": (
+                not failures and bool(static_world_origin_entries)
+            ),
+            "static_world_exact_lineage_proved": (
+                not failures and bool(static_world_exact_entries)
+            ),
             "native_draw_enabled": False,
             "suppression_allowed": False,
         },

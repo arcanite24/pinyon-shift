@@ -563,6 +563,43 @@ void PinyonShiftTraceVehiclePose(PPCRegister& r1, PPCRegister& r30,
        {"forward_z", fmt::format("{}", effective.forward_z)}});
 }
 
+void PinyonShiftObserveVehicleMapEntity(PPCRegister& r3) {
+  if (!r3.u32) {
+    return;
+  }
+  pinyon_shift::native_renderer::ObserveVehicleMapEntity(
+      g_title_generation.load(std::memory_order_acquire), r3.u32,
+      LoadGuestU32(r3.u32), LoadGuestU32(r3.u32 + 12),
+      LoadGuestU32(r3.u32 + 16));
+}
+
+void PinyonShiftObserveVehicleMapEntityIdAssignment(PPCRegister& r3,
+                                                    PPCRegister& r4) {
+  if (!r3.u32) {
+    return;
+  }
+  pinyon_shift::native_renderer::ObserveVehicleMapEntityIdAssignment(
+      g_title_generation.load(std::memory_order_acquire), r3.u32,
+      LoadGuestU32(r3.u32), r4.u32, LoadGuestU32(r3.u32 + 16));
+}
+
+void PinyonShiftObserveVehiclePlayerPool(PPCRegister& r3, PPCRegister& r31) {
+  constexpr uint32_t kPlayerEntityOffset = 32;
+  constexpr uint32_t kPlayerTypeNameOffset = 16;
+  constexpr uint32_t kPoolContextOffset = 4;
+  if (!r3.u32 || !r31.u32 || (r3.u32 & 3) || (r31.u32 & 3) ||
+      r3.u32 > UINT32_MAX - kPlayerEntityOffset - kPlayerTypeNameOffset ||
+      r31.u32 > UINT32_MAX - kPoolContextOffset) {
+    return;
+  }
+  const uint32_t entity = r3.u32 + kPlayerEntityOffset;
+  pinyon_shift::native_renderer::ObserveVehiclePlayerPool(
+      g_title_generation.load(std::memory_order_acquire), entity,
+      LoadGuestU32(entity), LoadGuestU32(entity + 12),
+      LoadGuestU32(entity + kPlayerTypeNameOffset), r3.u32, r31.u32,
+      r31.u32 + kPoolContextOffset);
+}
+
 void PinyonShiftTraceBdz82AD8138(PPCRegister& ctr) {
   if (ctr.u32 == 1) {
     pinyon_shift::diagnostics::RecordEvent(

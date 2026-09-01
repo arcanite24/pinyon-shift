@@ -1,0 +1,99 @@
+import pathlib
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+class TrackPresentationPassTests(unittest.TestCase):
+    def test_adjacent_unified_passes_have_balanced_hooks(self):
+        analysis = (
+            ROOT / "config/rexglue/analysis/main-xex.toml"
+        ).read_text(encoding="utf-8")
+        hooks = {
+            78: ("0x82DEEEE0", "0x82DEF2A4"),
+            79: ("0x8240E7B0", "0x8240ED40"),
+            80: ("0x82DEF2B0", "0x82DEFE78"),
+            81: ("0x82DEADE0", "0x82DEAEE8"),
+        }
+        for slot, (entry, exit_) in hooks.items():
+            self.assertIn(f"address = {entry}", analysis)
+            self.assertIn(
+                f'name = "PinyonShiftObserveTrackPresentationSlot{slot}Entry"',
+                analysis,
+            )
+            self.assertIn(f"address = {exit_}", analysis)
+            self.assertIn(
+                f'name = "PinyonShiftObserveTrackPresentationSlot{slot}Exit"',
+                analysis,
+            )
+
+    def test_pass_census_is_observation_only_and_shutdown_bounded(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "kTrackPresentationUnifiedVtable = 0x82243774", source
+        )
+        self.assertIn("BeginTrackPresentationPass", source)
+        self.assertIn("EndTrackPresentationPass", source)
+        self.assertIn(
+            '"native_renderer.discovery.track_presentation_pass_summary"',
+            source,
+        )
+        self.assertIn("track_presentation_pass_mask", source)
+        self.assertIn(
+            "kTrackPresentationRefCountedUnifiedVtable = 0x82003CCC", source
+        )
+        self.assertIn(
+            '"native_renderer.discovery.track_presentation_prepared_target_entry"',
+            source,
+        )
+        self.assertIn('{"target_state",', source)
+        self.assertIn('{"direct_scope_mask",', source)
+        self.assertIn('{"packet_lineage_mask",', source)
+        self.assertIn("g_track_presentation_dispatcher_routes", source)
+        self.assertIn(
+            '"native_renderer.discovery.track_presentation_receiver_entry"',
+            source,
+        )
+        self.assertIn('"native_admission", "false"', source)
+        self.assertIn('"xenos_authority", "true"', source)
+        self.assertIn('"suppression_allowed", "false"', source)
+
+    def test_slot_80_adapter_route_has_exact_passive_stages(self):
+        analysis = (
+            ROOT / "config/rexglue/analysis/main-xex.toml"
+        ).read_text(encoding="utf-8")
+        for address, name in (
+            ("0x8243BD40", "PinyonShiftObserveTrackPresentationAdapterEntry"),
+            ("0x8243BD78", "PinyonShiftObserveTrackPresentationAdapterEnabled"),
+            ("0x8243BDA8", "PinyonShiftObserveTrackPresentationAdapterEligible"),
+            ("0x8243BEB4", "PinyonShiftObserveTrackPresentationAdapterDispatch"),
+        ):
+            self.assertIn(f"address = {address}", analysis)
+            self.assertIn(f'name = "{name}"', analysis)
+
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("g_track_presentation_adapter_entries", source)
+        self.assertIn("g_track_presentation_adapter_first_targets", source)
+        self.assertIn('"slot_80_adapter_dispatches"', source)
+        self.assertIn("presentation_construction_mask", source)
+        self.assertIn('"slot_80_packet_constructions"', source)
+
+    def test_prepared_layout_exports_exact_target_shape(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        prepared = source.split(
+            "void EmitTrackWorldPreparedLayoutEntries()", 1
+        )[1].split("std::string SerializeStaticWorldTransform", 1)[0]
+        self.assertIn('"bound_render_target_bits"', prepared)
+        self.assertIn('"bound_render_target_formats"', prepared)
+        self.assertIn('"prepared_pipeline_flags"', prepared)
+
+
+if __name__ == "__main__":
+    unittest.main()

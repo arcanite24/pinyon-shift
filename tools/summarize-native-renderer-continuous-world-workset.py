@@ -7,9 +7,19 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v2"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v8"
+SELECTION = (
+    "fresh_track_texture_provider_visibility_or_qualified_"
+    "sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_"
+    "static_world_and_mechanical"
+)
+TRACK_WORLD_SELECTION = (
+    "exact_track_render_model_scope_and_shared_world_resource_identity"
+)
+STATIC_WORLD_SELECTION = "exact_presentation_resource_mesh_transform_lineage"
 CONFIG = "native_renderer.continuous_world_workset.config"
 SUMMARY = "native_renderer.continuous_world_workset.summary"
+CHECKPOINT = "native_renderer.continuous_world_workset.checkpoint"
 OUTPUT_FRAME = "native_renderer.output.frame"
 OUTPUT_WAITING = "native_renderer.output.waiting"
 
@@ -67,20 +77,41 @@ def require_safety(event):
         raise ValueError("workset evidence violates safety boundary")
 
 
-def build(events, requested_session=None):
+def select_runtime_event(events, allow_checkpoint):
+    summaries = [event for event in events if event.get("event") == SUMMARY]
+    if len(summaries) > 1:
+        raise ValueError("expected at most one continuous workset summary")
+    if summaries:
+        return summaries[0], True
+    if not allow_checkpoint:
+        raise ValueError("expected exactly one continuous workset summary")
+    checkpoints = [
+        event for event in events if event.get("event") == CHECKPOINT
+    ]
+    if not checkpoints:
+        raise ValueError("no continuous workset summary or checkpoint")
+    return max(checkpoints, key=lambda event: integer(event, "frame_sequence")), False
+
+
+def build(events, requested_session=None, allow_checkpoint=False):
     session = select_session(events, requested_session)
     selected = [event for event in events if event.get("session") == session]
     config = exact_event(selected, CONFIG)
-    summary = exact_event(selected, SUMMARY)
+    summary, final_summary = select_runtime_event(selected, allow_checkpoint)
+    evidence_frame = integer(summary, "frame_sequence")
+    if summary.get("final_summary") != ("true" if final_summary else "false"):
+        raise ValueError("workset evidence finality drifted")
     expected_config = {
         "status": "armed_deferred_private_composition",
         "activation": "startup_environment_only",
         "default_enabled": "false",
-        "selection": "fresh_visibility_or_qualified_sky_horizon_and_mechanical",
+        "selection": SELECTION,
         "maximum_draws_per_frame": "64",
         "target_lifetime": "one_guest_frame",
         "freshness_commit": "matching_swap_after_complete_accumulation",
         "semantic_lineage": "armed",
+        "track_world_selection": config.get("track_world_selection"),
+        "static_world_selection": config.get("static_world_selection"),
         "readback": "disabled",
         "native_draw": "continuous_world_workset",
         "xenos_draw": "preserved",
@@ -90,6 +121,22 @@ def build(events, requested_session=None):
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
         raise ValueError("workset runtime configuration drifted")
+    static_world_requested = (
+        config.get("static_world_selection") == STATIC_WORLD_SELECTION
+    )
+    track_world_requested = (
+        config.get("track_world_selection") == TRACK_WORLD_SELECTION
+    )
+    if config.get("track_world_selection") not in (
+        "disabled",
+        TRACK_WORLD_SELECTION,
+    ):
+        raise ValueError("workset track-world configuration drifted")
+    if config.get("static_world_selection") not in (
+        "disabled",
+        STATIC_WORLD_SELECTION,
+    ):
+        raise ValueError("workset static-world configuration drifted")
     require_safety(summary)
     if (
         summary.get("accounting_complete") != "true"
@@ -97,6 +144,11 @@ def build(events, requested_session=None):
         or summary.get("freshness_commit")
         != "matching_swap_after_complete_accumulation"
         or summary.get("maximum_draws_per_frame") != "64"
+        or summary.get("selection") != SELECTION
+        or summary.get("track_world_selection")
+        != config.get("track_world_selection")
+        or summary.get("static_world_selection")
+        != config.get("static_world_selection")
     ):
         raise ValueError("workset summary is incomplete")
 
@@ -108,6 +160,13 @@ def build(events, requested_session=None):
         "unsupported",
         "mechanical_rejections",
         "stale_or_unselected_rejections",
+        "non_track_provider_rejections",
+        "track_world_identity_exclusions",
+        "track_world_requests",
+        "procedural_color_producer_candidates",
+        "procedural_color_producer_requests",
+        "static_world_lineage_rejections",
+        "static_world_requests",
         "per_frame_quota_yields",
         "fail_closed_yields",
         "qualified_retained_family_requests",
@@ -118,9 +177,26 @@ def build(events, requested_session=None):
         "maximum_draws_per_frame",
     )
     totals = {key: integer(summary, key) for key in keys}
+    track_eligibility_present = "track_world_candidates" in summary
+    if track_eligibility_present:
+        for key in (
+            "track_world_candidates",
+            "track_world_mechanically_eligible",
+            "track_world_mechanically_rejected",
+        ):
+            totals[key] = integer(summary, key)
+        totals["track_world_mechanical_rejection_reasons"] = summary.get(
+            "track_world_mechanical_rejection_reasons", ""
+        )
     output_frames = [
         event for event in selected if event.get("event") == OUTPUT_FRAME
     ]
+    if not final_summary:
+        output_frames = [
+            event
+            for event in output_frames
+            if integer(event, "callback") <= evidence_frame
+        ]
     output_waiting = [
         event for event in selected if event.get("event") == OUTPUT_WAITING
     ]
@@ -129,6 +205,9 @@ def build(events, requested_session=None):
         totals["requests"]
         + totals["mechanical_rejections"]
         + totals["stale_or_unselected_rejections"]
+        + totals["non_track_provider_rejections"]
+        + totals["track_world_identity_exclusions"]
+        + totals["static_world_lineage_rejections"]
         + totals["per_frame_quota_yields"]
         + totals["fail_closed_yields"]
     )
@@ -153,13 +232,63 @@ def build(events, requested_session=None):
         failures.append("failed frames do not reconcile with replay fallbacks")
     if not totals["qualified_retained_family_requests"]:
         failures.append("qualified retained-family seed was not observed")
+    track_provider_requests = (
+        totals["requests"]
+        - totals["qualified_retained_family_requests"]
+        - totals["procedural_color_producer_requests"]
+        - totals["static_world_requests"]
+    )
+    if track_provider_requests <= 0:
+        failures.append("no track-provider visibility request was observed")
+    if track_world_requested and not totals["track_world_requests"]:
+        failures.append("no exact track-world request was observed")
+    if track_eligibility_present and totals["track_world_candidates"] != (
+        totals["track_world_mechanically_eligible"]
+        + totals["track_world_mechanically_rejected"]
+    ):
+        failures.append("track-world mechanical eligibility accounting drifted")
+    if (
+        track_eligibility_present
+        and totals["track_world_requests"]
+        > totals["track_world_mechanically_eligible"]
+    ):
+        failures.append("track-world requests exceed mechanically eligible candidates")
+    if not track_world_requested and (
+        totals["track_world_requests"]
+        or totals["track_world_identity_exclusions"]
+    ):
+        failures.append("track-world selection occurred while disabled")
+    if totals["track_world_requests"] > track_provider_requests:
+        failures.append("track-world requests exceed track-provider requests")
+    if not totals["procedural_color_producer_candidates"]:
+        failures.append("no exact procedural color producer was observed")
+    if not totals["procedural_color_producer_requests"]:
+        failures.append("no exact procedural color producer was replayed")
+    if (
+        totals["procedural_color_producer_requests"]
+        > totals["procedural_color_producer_candidates"]
+    ):
+        failures.append("procedural color requests exceed exact candidates")
+    if static_world_requested and not totals["static_world_requests"]:
+        failures.append("no exact static-world request was observed")
+    if not static_world_requested and totals["static_world_requests"]:
+        failures.append("static-world request occurred while disabled")
+    if totals["static_world_lineage_rejections"]:
+        failures.append("static-world lineage rejection was observed")
     if not totals["reused_target_requests"]:
         failures.append("no frame accumulated multiple native draws")
     if totals["maximum_draws_per_frame"] != 64:
         failures.append("per-frame workset bound drifted")
-    expected_summary_status = (
-        "fallback_observed" if totals["frames_failed"] else "complete"
-    )
+    if final_summary:
+        expected_summary_status = (
+            "fallback_observed" if totals["frames_failed"] else "complete"
+        )
+    else:
+        expected_summary_status = (
+            "checkpoint_fallback_observed"
+            if totals["frames_failed"]
+            else "checkpoint_complete"
+        )
     if summary.get("status") != expected_summary_status:
         failures.append("runtime workset status does not match its outcomes")
 
@@ -232,17 +361,88 @@ def build(events, requested_session=None):
             "native output callbacks are not strictly increasing",
         )
     )
+    track_provider_selection_proved = (
+        not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no track-provider visibility request was observed",
+            )
+        )
+        and track_provider_requests > 0
+    )
+    track_world_selection_proved = (
+        track_world_requested
+        and totals["track_world_requests"] > 0
+        and totals["track_world_requests"] <= track_provider_requests
+        and not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no exact track-world request was observed",
+                "track-world requests exceed track-provider requests",
+            )
+        )
+    )
+    static_world_selection_proved = (
+        static_world_requested
+        and totals["static_world_requests"] > 0
+        and not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no exact static-world request was observed",
+                "static-world lineage rejection was observed",
+            )
+        )
+    )
+    procedural_color_producer_selection_proved = (
+        totals["procedural_color_producer_requests"] > 0
+        and totals["procedural_color_producer_requests"]
+        <= totals["procedural_color_producer_candidates"]
+        and not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no exact procedural color producer was replayed",
+                "procedural color requests exceed exact candidates",
+            )
+        )
+    )
 
     return {
         "schema": SCHEMA,
         "session": session,
-        "status": "complete" if not failures else "incomplete",
+        "status": (
+            ("complete" if final_summary else "checkpoint_complete")
+            if not failures
+            else ("incomplete" if final_summary else "checkpoint_incomplete")
+        ),
+        "evidence": {
+            "kind": "final_summary" if final_summary else "checkpoint",
+            "frame_sequence": evidence_frame,
+            "session_exit_proved": final_summary,
+        },
         "failures": failures,
         "totals": totals,
         "qualification": {
             "continuous_multi_draw_workset_proved": accumulation_proved,
             "swap_committed_freshness_proved": freshness_proved,
             "clean_xenos_fallback_proved": clean_fallback_proved,
+            "track_provider_selection_proved": track_provider_selection_proved,
+            "track_world_selection_proved": track_world_selection_proved,
+            "procedural_color_producer_selection_proved": (
+                procedural_color_producer_selection_proved
+            ),
+            "static_world_selection_proved": static_world_selection_proved,
             "native_output_markers": len(exact_output_frames),
             "xenos_fallback_markers": len(output_waiting),
             "suppression_allowed": False,
@@ -260,16 +460,23 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("events", nargs="+", type=pathlib.Path)
     parser.add_argument("--session")
+    parser.add_argument(
+        "--allow-checkpoint",
+        action="store_true",
+        help="use the latest checkpoint only when the final summary is absent",
+    )
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args(argv)
     try:
-        document = build(read_events(args.events), args.session)
+        document = build(
+            read_events(args.events), args.session, args.allow_checkpoint
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        if document["status"] != "complete":
+        if document["status"] not in ("complete", "checkpoint_complete"):
             raise ValueError("; ".join(document["failures"]))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
