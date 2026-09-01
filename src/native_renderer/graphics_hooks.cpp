@@ -11321,7 +11321,6 @@ uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
 uint64_t g_procedural_frame_accumulator_same_frame_yields = 0;
 uint64_t g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
-uint64_t g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
 uint64_t g_procedural_frame_accumulator_source_gate_yields = 0;
 bool g_graphics_census_installed = false;
 bool g_graphics_full_census_armed = false;
@@ -11621,7 +11620,6 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
   g_procedural_frame_accumulator_same_frame_yields = 0;
   g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
-  g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
   g_procedural_frame_accumulator_source_gate_yields = 0;
 }
 
@@ -27147,8 +27145,9 @@ void CompleteContinuousWorldWorksetReplay(
 
 void CompleteContinuousWorldProceduralSourceReplay(
     const rex::system::GraphicsIsolatedDrawResult &result) {
-  const uint64_t source_frame =
-      g_procedural_frame_accumulator_pending_source_frame;
+  const uint64_t source_frame = result.frame_accumulator_source
+                                    ? result.frame_sequence
+                                    : UINT64_MAX;
   CompleteContinuousWorldWorksetReplay(result);
   if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded &&
       source_frame != UINT64_MAX) {
@@ -27157,7 +27156,6 @@ void CompleteContinuousWorldProceduralSourceReplay(
              source_frame) {
     g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
   }
-  g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
 }
 
 void EmitContinuousWorldWorksetEvent(const char *event_name,
@@ -27819,8 +27817,6 @@ void RequestIsolatedDraw(
     request.frame_sequence = g_isolated_draw.frame;
     request.reference_marker_requested = true;
     if (exact_procedural_color_producer) {
-      g_procedural_frame_accumulator_pending_source_frame =
-          g_isolated_draw.frame;
       request.completion = &CompleteContinuousWorldProceduralSourceReplay;
     } else {
       request.completion = &CompleteContinuousWorldWorksetReplay;

@@ -209,6 +209,10 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             ROOT
             / "patches/rexglue/0113-d3d12-procedural-accumulator-source-ownership.patch"
         ).read_text(encoding="utf-8")
+        result_patch = (
+            ROOT
+            / "patches/rexglue/0114-isolated-replay-result-source-identity.patch"
+        ).read_text(encoding="utf-8")
         self.assertIn("frame_accumulator_source", patch)
         self.assertIn("kUnqualifiedSource", patch)
         self.assertIn(
@@ -224,6 +228,13 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn(
             '"source_gate", "same_frame_recorded_exact_procedural_replay"',
             source,
+        )
+        self.assertIn("isolated_result.frame_sequence", result_patch)
+        self.assertIn("isolated_result.frame_accumulator_source", result_patch)
+        self.assertIn("result.frame_sequence", source)
+        self.assertIn("result.frame_accumulator_source", source)
+        self.assertNotIn(
+            "g_procedural_frame_accumulator_pending_source_frame", source
         )
 
     def test_exact_track_color_only_replay_is_private_and_bounded(self):

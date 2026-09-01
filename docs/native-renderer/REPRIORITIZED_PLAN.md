@@ -918,6 +918,14 @@ at any other scale. Scaled native replay remains required work: it must prove
 render-target extent, emulated-MSAA sample mapping, logical presentation, and
 performance independently before the compatibility gate can widen.
 
+Replay-completion ownership checkpoint: exact-source qualification no longer
+depends on one mutable title-side pending frame shared by all replay requests.
+The backend completion result now returns the request's frame sequence and
+accumulator-source role on both indexed and auto-indexed paths. The title marks
+an accumulator source only when that exact request records successfully. This
+keeps frame ownership correct if title submission and graphics completion are
+decoupled, and is required before scaled replay can safely widen.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
