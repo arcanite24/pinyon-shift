@@ -47,11 +47,35 @@ bitmask, five numeric formats, and prepared-pipeline flags already present in
 the observer. This distinguishes depth-only, color-only, paired, and unusual
 target shapes without copying a guest or GPU payload.
 
-The next batched AppData run must first identify which adjacent slots are live
-and reconcile slot 79's exact target shapes with its 732 render-target-only
-rejections. Packet/prepared lineage will then be extended only through the
-live color-producing slot. A depth-only slot may feed the native shadow slice,
-but it cannot satisfy C1 opaque world coverage.
+## Packet-to-prepared correlation
+
+An accepted presentation slot is now attached to the existing exact
+`824365B0` command-context bridge while that balanced title scope is active.
+The four-bit slot mask follows the already-proved context, producer, owner,
+constructor, indirect packet, and prepared-draw lineage. Final shutdown emits
+one bounded entry per slot-mask, shader pair, attachment shape, and pipeline-
+flag tuple. The 256-entry table has independent observation, entry, and
+overflow accounting.
+
+Build the payload-free report after the next batched run:
+
+```powershell
+python tools/summarize-native-renderer-track-presentation-passes.py `
+  <session.jsonl> `
+  --output .local/qualification/native-renderer-track-presentation-passes.json
+```
+
+The report reconciles process lifecycle, every balanced slot, and every
+prepared target entry. It lists live slots plus depth-only, color-only, paired,
+and unusual target calls per slot. A color-producing slot is still a candidate,
+not an opaque-world proof; private replay and visual comparison remain the
+next gate.
+
+The next batched AppData run will identify which adjacent slots are live and
+which exact prepared target shapes each produces. Lineage will be promoted
+only through a live color-producing slot after visual proof. A depth-only slot
+may feed the native shadow slice, but it cannot satisfy C1 opaque world
+coverage.
 
 ## Safety
 

@@ -557,6 +557,13 @@ packet lineage; depth-only activity may feed shadows but cannot satisfy C1.
 See
 [`TRACK_PRESENTATION_PASS_CENSUS.md`](TRACK_PRESENTATION_PASS_CENSUS.md).
 
+Pass-lineage batching checkpoint: exact slot identity now follows the existing
+`824365B0` context/producer/owner/constructor/packet chain into prepared draws.
+A bounded final report partitions shader and attachment shapes per slot with
+complete overflow accounting. The next AppData run can therefore identify a
+live color-producing pass directly; no intermediate call-count-only run is
+needed, and no candidate gains admission before private visual proof.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
