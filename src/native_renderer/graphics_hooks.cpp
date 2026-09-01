@@ -11289,6 +11289,9 @@ uint64_t g_procedural_frame_accumulator_commits = 0;
 uint64_t g_procedural_frame_accumulator_cancels = 0;
 uint64_t g_procedural_frame_accumulator_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_detail_overflow = 0;
+uint64_t g_procedural_frame_accumulator_qualified_resolve_arms = 0;
+std::array<uint64_t, 2>
+    g_procedural_frame_accumulator_qualified_resolve_source_modes{};
 bool g_procedural_frame_accumulator_backend_armed = false;
 std::array<uint64_t, 6> g_procedural_frame_accumulator_backend_statuses{};
 uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
@@ -11583,6 +11586,8 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_cancels = 0;
   g_procedural_frame_accumulator_detail_count = 0;
   g_procedural_frame_accumulator_detail_overflow = 0;
+  g_procedural_frame_accumulator_qualified_resolve_arms = 0;
+  g_procedural_frame_accumulator_qualified_resolve_source_modes.fill(0);
   g_procedural_frame_accumulator_backend_statuses.fill(0);
   g_procedural_frame_accumulator_backend_detail_count = 0;
   g_procedural_frame_accumulator_backend_detail_overflow = 0;
@@ -18116,6 +18121,15 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(g_procedural_frame_accumulator_detail_count)},
        {"detail_overflow",
         std::to_string(g_procedural_frame_accumulator_detail_overflow)},
+       {"qualified_resolve_ingress_arms",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_arms)},
+       {"qualified_resolve_source_mode_3",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_source_modes[0])},
+       {"qualified_resolve_source_mode_12",
+        std::to_string(
+            g_procedural_frame_accumulator_qualified_resolve_source_modes[1])},
        {"detail_limit",
         std::to_string(kProceduralRuntimeDetailLimit)},
        {"backend_resource_action",
@@ -28645,6 +28659,19 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   }
 
   const auto copy = ProceduralResolveCopyFromObservation(observation);
+  pinyon_shift::native_renderer::ProceduralResolveTarget qualified_target;
+  if (g_procedural_frame_accumulator_backend_armed &&
+      pinyon_shift::native_renderer::
+          QualifiedProceduralResolveTargetFromFirstCopy(copy,
+                                                        qualified_target)) {
+    ++g_procedural_frame_accumulator_qualified_resolve_arms;
+    ++g_procedural_frame_accumulator_qualified_resolve_source_modes[
+        copy.source_info == 0x00030000 ? 0 : 1];
+    EmitProceduralResolveAssembly(
+        g_procedural_resolve_assembly_tracker.Arm(qualified_target));
+    EmitProceduralFrameAccumulatorTransition(
+        g_procedural_frame_accumulator_planner.Arm(qualified_target));
+  }
   EmitProceduralResolveAssembly(
       g_procedural_resolve_assembly_tracker.Observe(copy));
   if (!g_procedural_frame_accumulator_backend_armed) {

@@ -806,6 +806,17 @@ retaining the exact observers used by provenance, replay, and accumulation.
 This is the first focused response to the observed prototype CPU overhead; a
 batched AppData comparison remains required before claiming a measured gain.
 
+Open-world coverage checkpoint: the first launcher-visible prototype run
+showed the qualified three-chunk 1280x736 resolve family continuing every
+frame, but using Xenos color mode 12 (`2_10_10_10_FLOAT_AS_16_16_16_16`)
+instead of mode 3. Both modes map to the same R16G16B16A16_FLOAT D3D12
+resource. A fail-closed resolve ingress now arms the private accumulator only
+from the exact proved first chunk: source surface, either of those two modes,
+destination format/pitch, address, length, and 1280x720 logical extent must all
+match. Source-mode and arm accounting is emitted for the next batched run.
+This widens producer coverage without guest publication, draw suppression, or
+relaxing any later chunk/commit check.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

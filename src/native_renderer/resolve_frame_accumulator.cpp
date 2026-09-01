@@ -204,4 +204,32 @@ const char *ProceduralFrameAccumulatorCancelReasonName(
   return "unknown";
 }
 
+bool QualifiedProceduralResolveTargetFromFirstCopy(
+    const ProceduralResolveCopy &copy, ProceduralResolveTarget &target_out) {
+  target_out = {};
+  constexpr uint32_t kSurfaceInfo = 0x14020500;
+  constexpr uint32_t kFloatColorInfo = 0x00030000;
+  constexpr uint32_t kFloatAs16ColorInfo = 0x000C0000;
+  constexpr uint32_t kDestinationInfo = 0x003E0382;
+  constexpr uint32_t kDestinationPitch = 0x02D00500;
+  constexpr uint32_t kFirstAddress = 0x1C4E1000;
+  constexpr uint32_t kFirstLength = 1280 * 4 * 256;
+  const bool qualified_source =
+      copy.source == 0 && copy.source_surface_info == kSurfaceInfo &&
+      (copy.source_info == kFloatColorInfo ||
+       copy.source_info == kFloatAs16ColorInfo);
+  if (!qualified_source || copy.destination_info != kDestinationInfo ||
+      copy.destination_pitch != kDestinationPitch ||
+      copy.written_address != kFirstAddress ||
+      copy.written_length != kFirstLength) {
+    return false;
+  }
+  target_out = {.frame_sequence = copy.frame_sequence,
+                .surface_info = copy.source_surface_info,
+                .color_info = copy.source_info,
+                .logical_width = 1280,
+                .logical_height = 720};
+  return true;
+}
+
 }  // namespace pinyon_shift::native_renderer
