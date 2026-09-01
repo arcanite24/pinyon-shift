@@ -2941,6 +2941,8 @@ std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_entries{};
 std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_enabled{};
 std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_eligible{};
 std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_dispatches{};
+std::array<std::atomic<uint64_t>, 4>
+    g_track_presentation_packet_constructions{};
 std::array<std::atomic<uint32_t>, 4>
     g_track_presentation_adapter_first_targets{};
 std::array<std::atomic<uint32_t>, 4>
@@ -6941,7 +6943,8 @@ void ResetTitleDrawProvenance() {
                          &g_track_presentation_adapter_enabled,
                          &g_track_presentation_adapter_eligible,
                          &g_track_presentation_adapter_dispatches,
-                         &g_track_presentation_adapter_target_changes}) {
+                         &g_track_presentation_adapter_target_changes,
+                         &g_track_presentation_packet_constructions}) {
     for (std::atomic<uint64_t> &counter : *counters) {
       counter.store(0, std::memory_order_relaxed);
     }
@@ -9327,8 +9330,21 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
       origin.owner.producer.context.track_render_descriptor_payload;
   entry.track_world_resource_identity_mask =
       origin.owner.producer.context.track_world_resource_identity_mask;
+  const uint32_t presentation_construction_mask =
+      CurrentTrackPresentationPassMask();
+  // The title may defer consuming an indirect packet until after its exact
+  // presentation call returns. Preserve that synchronous construction scope
+  // on the packet so the later prepared draw retains its slot provenance.
   entry.track_presentation_pass_mask =
-      origin.owner.producer.context.track_presentation_pass_mask;
+      origin.owner.producer.context.track_presentation_pass_mask |
+      presentation_construction_mask;
+  for (size_t index = 0;
+       index < g_track_presentation_packet_constructions.size(); ++index) {
+    if (presentation_construction_mask & (uint32_t(1) << index)) {
+      g_track_presentation_packet_constructions[index].fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
@@ -13890,6 +13906,9 @@ void EmitTrackPresentationPassSummary() {
        {"slot_78_adapter_target_changes",
         std::to_string(g_track_presentation_adapter_target_changes[0].load(
             std::memory_order_relaxed))},
+       {"slot_78_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[0].load(
+            std::memory_order_relaxed))},
        {"slot_79_function", "8240E7B0"},
        {"slot_79_entries", std::to_string(entries[1])},
        {"slot_79_exits", std::to_string(exits[1])},
@@ -13921,6 +13940,9 @@ void EmitTrackPresentationPassSummary() {
                                   std::memory_order_relaxed))},
        {"slot_79_adapter_target_changes",
         std::to_string(g_track_presentation_adapter_target_changes[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[1].load(
             std::memory_order_relaxed))},
        {"slot_80_function", "82DEF2B0"},
        {"slot_80_entries", std::to_string(entries[2])},
@@ -13954,6 +13976,9 @@ void EmitTrackPresentationPassSummary() {
        {"slot_80_adapter_target_changes",
         std::to_string(g_track_presentation_adapter_target_changes[2].load(
             std::memory_order_relaxed))},
+       {"slot_80_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[2].load(
+            std::memory_order_relaxed))},
        {"slot_81_function", "82DEADE0"},
        {"slot_81_entries", std::to_string(entries[3])},
        {"slot_81_exits", std::to_string(exits[3])},
@@ -13985,6 +14010,9 @@ void EmitTrackPresentationPassSummary() {
                                   std::memory_order_relaxed))},
        {"slot_81_adapter_target_changes",
         std::to_string(g_track_presentation_adapter_target_changes[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_packet_constructions",
+        std::to_string(g_track_presentation_packet_constructions[3].load(
             std::memory_order_relaxed))},
        {"overlaps",
         std::to_string(overlaps[0] + overlaps[1] + overlaps[2] + overlaps[3])},

@@ -142,6 +142,9 @@ def build(events, requested_session=None):
                     summary, f"slot_{slot}_adapter_target_changes"
                 ),
             },
+            "packet_constructions": integer(
+                summary, f"slot_{slot}_packet_constructions"
+            ),
         }
         slot_totals[str(slot)] = row
         total_slot_entries += row["entries"]

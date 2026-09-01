@@ -615,6 +615,26 @@ closes a gated adapter and pivots to semantic world ingress. Neither outcome
 is treated as opaque-world color proof, keeping promotion fail closed while
 making the expensive combined run decisive.
 
+Combined runtime result: clean AppData session `20260901T054234Z-p276`
+reached the saved festival and exited normally. Slot 80 crossed the alternate
+adapter's final gate 135 times and held one stable target, `823FDE50`, with no
+target changes. Static AOT flow shows that target enumerates presentation
+records through `82414A00`, which reaches the already-proved procedural model
+resource/submission path. Slot 79 remained the known depth-only shadow route.
+The corrected C2 census classified all 8,576 null generic-presentation
+resources as missing resources with zero guest-memory read faults; no exact
+static-world renderer/resource/PM4 join was present in this scene.
+
+Deferred-packet lineage checkpoint: exact presentation provenance is now
+captured when a title indirect packet is constructed, then retained until its
+later prepared draw is consumed. Per-slot packet-construction counters keep
+this construction-time source distinct from both synchronous prepared-draw
+scope and the older context-specific packet lineage. The next batched run can
+therefore determine whether slot 80 produces the main-view color target through
+`823FDE50` without widening hooks below its 50 indirect dispatch sites. This is
+passive evidence only; Xenos remains authoritative and native admission stays
+disabled.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
