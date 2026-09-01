@@ -121,6 +121,10 @@ def build(events, requested_session=None):
             "exits": integer(summary, f"slot_{slot}_exits"),
             "exact": integer(summary, f"slot_{slot}_exact"),
             "invalid_root": integer(summary, f"slot_{slot}_invalid_root"),
+            "dispatcher_routes": {
+                "direct": integer(summary, f"slot_{slot}_dispatcher_direct"),
+                "context": integer(summary, f"slot_{slot}_dispatcher_context"),
+            },
         }
         slot_totals[str(slot)] = row
         total_slot_entries += row["entries"]

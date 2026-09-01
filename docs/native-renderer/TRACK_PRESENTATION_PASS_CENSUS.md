@@ -145,6 +145,11 @@ direct presentation scope and inherited packet lineage. Direct scope remains
 diagnostic temporal attribution only; it cannot by itself prove semantic
 ownership or native admission.
 
+The same batch counts `82436468` calls per accepted slot and separates its
+direct and context routes. These bounded counters establish whether a live
+slot submits work, chooses the context branch, or only prepares state even
+when neither draw-attribution source observes a prepared draw.
+
 ## Safety
 
 - The hooks read only the exact refcounted presentation-wrapper vtable already
