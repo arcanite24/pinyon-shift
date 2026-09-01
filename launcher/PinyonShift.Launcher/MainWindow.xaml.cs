@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private string? _repositoryRoot;
     private string? _stateRoot;
     private string? _gameExecutable;
+    private StreamWriter? _sessionLog;
     private CrashReport? _pendingReport;
     private bool _busy;
     private bool _applyingGraphicsResult;
@@ -43,7 +44,11 @@ public partial class MainWindow : Window
         BuildLocationText.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyonShift");
         Loaded += MainWindow_Loaded;
-        Closing += (_, _) => _cancellation?.Cancel();
+        Closing += (_, _) =>
+        {
+            _cancellation?.Cancel();
+            _sessionLog?.Dispose();
+        };
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -52,6 +57,7 @@ public partial class MainWindow : Window
         {
             _repositoryRoot = await ResolveRepositoryRootAsync();
             _stateRoot = ResolveStateRoot(_repositoryRoot);
+            StartSessionLog(_repositoryRoot);
             GraphicsSettingsButton.Visibility = Visibility.Visible;
             BuildLocationText.Text = _stateRoot;
             AppendLog($"Release source: {_repositoryRoot}");
@@ -515,7 +521,17 @@ public partial class MainWindow : Window
 
     private void AppendLog(string line)
     {
-        LogTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {line}{Environment.NewLine}");
+        var entry = $"[{DateTime.Now:HH:mm:ss}] {line}";
+        LogTextBox.AppendText(entry + Environment.NewLine);
+        try
+        {
+            _sessionLog?.WriteLine(entry);
+        }
+        catch (IOException)
+        {
+            _sessionLog?.Dispose();
+            _sessionLog = null;
+        }
         const int maximumLogCharacters = 120_000;
         if (LogTextBox.Text.Length > maximumLogCharacters)
             LogTextBox.Text = LogTextBox.Text[^maximumLogCharacters..];
@@ -524,7 +540,7 @@ public partial class MainWindow : Window
 
     private void OpenLogsButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_stateRoot is null) return;
+        if (_repositoryRoot is null || _stateRoot is null) return;
         if (_pendingReport is not null)
         {
             Process.Start(new ProcessStartInfo
@@ -535,9 +551,30 @@ public partial class MainWindow : Window
             });
             return;
         }
-        var logs = Path.Combine(_stateRoot, "logs");
+        var logs = Path.Combine(_repositoryRoot, ".local", "logs");
         Directory.CreateDirectory(logs);
         Process.Start(new ProcessStartInfo("explorer.exe", logs) { UseShellExecute = true });
+    }
+
+    private void StartSessionLog(string repositoryRoot)
+    {
+        try
+        {
+            var logs = Path.Combine(repositoryRoot, ".local", "logs");
+            Directory.CreateDirectory(logs);
+            _sessionLog = new StreamWriter(Path.Combine(logs, "launcher.log"), append: false)
+            {
+                AutoFlush = true
+            };
+        }
+        catch (IOException)
+        {
+            _sessionLog = null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _sessionLog = null;
+        }
     }
 
     private void ReportProblemButton_Click(object sender, RoutedEventArgs e) =>

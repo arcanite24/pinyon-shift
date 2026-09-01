@@ -7,16 +7,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 class SoakEpicContractTests(unittest.TestCase):
     def test_release_builds_suppress_per_frame_viz_query_logging(self):
-        patch = (
-            ROOT / "patches/rexglue/0035-suppress-high-volume-viz-query-logging.patch"
-        ).read_text(encoding="utf-8")
-        self.assertIn('-    REXGPU_INFO("Begin viz query ID {:02X}", id);', patch)
-        self.assertIn('-    REXGPU_INFO("End viz query ID {:02X}", id);', patch)
+        source = (ROOT / "thirdparty/shiftglue-sdk/src/graphics/command_processor.cpp").read_text()
+        self.assertNotIn('REXGPU_INFO("Begin viz query ID', source)
+        self.assertNotIn('REXGPU_INFO("End viz query ID', source)
 
     def test_release_reentry_tracing_is_explicitly_opt_in(self):
-        patch = (ROOT / "patches/rexglue/0034-gate-high-volume-reentry-tracing.patch").read_text(
-            encoding="utf-8"
-        )
+        patch = (ROOT / "thirdparty/shiftglue-sdk/src/system/xthread.cpp").read_text()
         self.assertIn("PINYON_SHIFT_REENTRY_TRACE", patch)
         self.assertIn("M4_TRACE reentry.tracing enabled=1", patch)
         self.assertIn("if (IsReentryTraceEnabled())", patch)
@@ -49,8 +45,7 @@ class SoakEpicContractTests(unittest.TestCase):
             "pinyon_shift_dirty",
             "pinyon_shift_source_payload_sha256",
             "rexglue_commit",
-            "rexglue_patch_set_sha256",
-            "rexglue_patch_count",
+            "rexglue_dirty",
             "executable_sha256",
         ):
             self.assertIn(field, build)

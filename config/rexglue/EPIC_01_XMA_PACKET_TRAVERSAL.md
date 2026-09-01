@@ -1,7 +1,8 @@
 # ReXGlue XMA cross-buffer packet traversal
 
 EPIC-01 is delivered by
-`patches/rexglue/0036-m4-xma-cross-buffer-packet-handles.patch`.
+`thirdparty/shiftglue-sdk/src/audio/xma_context.cpp` at migration commit
+`079c10ef1fbe3ef418a1c535ac025ab39dda7a2d`.
 
 ## Derivation and scope
 

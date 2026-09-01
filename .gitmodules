@@ -1,0 +1,4 @@
+[submodule "thirdparty/shiftglue-sdk"]
+	path = thirdparty/shiftglue-sdk
+	url = https://github.com/arcanite24/shiftglue-sdk
+	branch = development

@@ -14,16 +14,17 @@ def fingerprint(executable: Path | None = None) -> dict:
     def git(*args: str) -> str:
         result = subprocess.run(["git", *args], cwd=ROOT, text=True, capture_output=True, check=True)
         return result.stdout.strip()
-    patch_hasher = hashlib.sha256()
-    for patch in sorted((ROOT / "patches" / "rexglue").glob("*.patch")):
-        patch_hasher.update(patch.name.encode()); patch_hasher.update(b"\0"); patch_hasher.update(patch.read_bytes())
     guest_patch = ROOT / "config/rexglue/analysis/fh1-post-processing.toml"
+    rexglue = ROOT / "thirdparty" / "shiftglue-sdk"
+    if not rexglue.exists(): rexglue = ROOT / ".local" / "rexglue"
     data = {"repository_commit": git("rev-parse", "HEAD"),
-            "rexglue_patch_set_sha256": patch_hasher.hexdigest(),
             "guest_codegen_patch_profile": "fh1-retail-base-post-processing-v1",
             "guest_codegen_patch_set_sha256": hashlib.sha256(guest_patch.read_bytes()).hexdigest()}
-    try: data["rexglue_commit"] = git("-C", str(ROOT / ".local" / "rexglue"), "rev-parse", "HEAD")
-    except (subprocess.CalledProcessError, FileNotFoundError): data["rexglue_commit"] = None
+    try:
+        data["rexglue_commit"] = git("-C", str(rexglue), "rev-parse", "HEAD")
+        data["rexglue_dirty"] = bool(git("-C", str(rexglue), "status", "--porcelain", "--ignore-submodules=dirty"))
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        data["rexglue_commit"], data["rexglue_dirty"] = None, None
     if executable and executable.is_file():
         data["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
     else: data["executable_sha256"] = None

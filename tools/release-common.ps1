@@ -38,6 +38,15 @@ function Resolve-PinyonLocalPath {
     $full
 }
 
+function Resolve-PinyonRexGlueRoot {
+    $root = Get-PinyonRepoRoot
+    $config = Get-PinyonReleaseToolchain
+    if (Test-Path -LiteralPath (Join-Path $root '.git')) {
+        return [IO.Path]::GetFullPath((Join-Path $root $config.rexglue.submodule_path))
+    }
+    Resolve-PinyonLocalPath -RelativePath $config.rexglue.fallback_path
+}
+
 function Invoke-PinyonDownload {
     param(
         [Parameter(Mandatory)] [string]$Uri,

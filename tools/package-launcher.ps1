@@ -61,7 +61,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Launcher publish failed.' }
 $include = @(
     'CMakeLists.txt', 'CMakePresets.json', 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md',
     'cmake', 'config/gamecontrollerdb.txt', 'config/release.json', 'config/release-toolchain.json', 'config/supported-dumps.json',
-    'config/rexglue', 'patches/rexglue', 'src',
+    'config/rexglue', 'src',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
     'tools/native-shader-pack.py',

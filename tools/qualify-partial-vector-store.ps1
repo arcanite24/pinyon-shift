@@ -14,12 +14,11 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 $root = Get-PinyonRepoRoot
 $config = Get-PinyonReleaseToolchain
 $git = Get-PinyonGit
-$sdkRoot = Resolve-PinyonLocalPath -RelativePath $config.rexglue.path
+$sdkRoot = Resolve-PinyonRexGlueRoot
 $testExe = Join-Path $sdkRoot 'out/win-amd64/Release/ppc_tests.exe'
 $generatedRoot = Join-Path $sdkRoot 'out/build/win-amd64/tests/ppc/generated'
-$patchMarkerPath = Join-Path $sdkRoot '.pinyon-patches.json'
 
-foreach ($required in @($testExe, $patchMarkerPath,
+foreach ($required in @($testExe,
         (Join-Path $generatedRoot 'ppc_test_functions.cpp'),
         (Join-Path $generatedRoot 'ppc_test_cases.cpp'))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -38,10 +37,10 @@ $summaryMatch = [regex]::Match($testOutput,
     'All tests passed \((?<assertions>[0-9]+) assertions in (?<cases>[0-9]+) test cases\)')
 $passed = $testExitCode -eq 0 -and $summaryMatch.Success
 
-$patchMarker = Get-Content -LiteralPath $patchMarkerPath -Raw | ConvertFrom-Json
 $sourceCommit = (& $git -C $root rev-parse HEAD).Trim().ToLowerInvariant()
 $sourceDirty = @(& $git -C $root status --porcelain).Count -ne 0
 $rexglueCommit = (& $git -C $sdkRoot rev-parse HEAD).Trim().ToLowerInvariant()
+$rexglueDirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty).Count -ne 0
 $compilerPath = Join-Path (Join-Path $root $config.llvm.install_path) 'bin/clang++.exe'
 $compilerVersion = (& $compilerPath --version | Select-Object -First 1)
 $generatedFunctionsPath = Join-Path $generatedRoot 'ppc_test_functions.cpp'
@@ -58,7 +57,7 @@ if ([string]::IsNullOrWhiteSpace($ReportPath)) {
 }
 
 $report = [ordered]@{
-    schema = 'pinyon-shift.partial-vector-store-qualification.v1'
+    schema = 'pinyon-shift.partial-vector-store-qualification.v2'
     created_utc = [DateTime]::UtcNow.ToString('o')
     passed = $passed
     suite = [ordered]@{
@@ -73,11 +72,8 @@ $report = [ordered]@{
     provenance = [ordered]@{
         pinyon_shift_commit = $sourceCommit
         pinyon_shift_dirty = $sourceDirty
-        rexglue_base_commit = $rexglueCommit
-        rexglue_patch_set_sha256 = (Get-FileHash -LiteralPath $patchMarkerPath -Algorithm SHA256).Hash
-        ordered_patches = @($patchMarker.patches | ForEach-Object {
-            [ordered]@{ name = $_.name; sha256 = $_.sha256 }
-        })
+        rexglue_commit = $rexglueCommit
+        rexglue_dirty = $rexglueDirty
         generated_functions_sha256 = (Get-FileHash -LiteralPath $generatedFunctionsPath -Algorithm SHA256).Hash
         generated_tests_sha256 = (Get-FileHash -LiteralPath $generatedTestsPath -Algorithm SHA256).Hash
         test_executable_sha256 = (Get-FileHash -LiteralPath $testExe -Algorithm SHA256).Hash

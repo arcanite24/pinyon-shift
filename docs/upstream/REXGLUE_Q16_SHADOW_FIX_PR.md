@@ -103,7 +103,7 @@ textures whose complete backing range originated from a depth/stencil resolve.
 The proposed source change is contained in:
 
 ```text
-patches/rexglue/0048-round-normalized-point-samples-to-xenos-q16.patch
+thirdparty/shiftglue-sdk/include/rex/graphics/pipeline/texture/cache.h
 ```
 
 ### Visual evidence

@@ -15,7 +15,7 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 $root = Get-PinyonRepoRoot
 $config = Get-PinyonReleaseToolchain
 $environment = Enter-PinyonBuildEnvironment
-$sdkRoot = Resolve-PinyonLocalPath -RelativePath $config.rexglue.path
+$sdkRoot = Resolve-PinyonRexGlueRoot
 $generatedRoot = Resolve-PinyonLocalPath -RelativePath '.local/generated'
 $rexglueExe = Join-Path $sdkRoot 'out/win-amd64/Release/rexglue.exe'
 $manifest = Join-Path $root 'config/rexglue/pinyon_shift_manifest.toml'
@@ -106,7 +106,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $generatedRoot 'default/codegen.buil
 Write-PinyonEvent build 82 'Compiling the playable preview. This is the longest step.' -JsonEvents:$JsonEvents
 Push-Location $root
 try {
-    & $environment.CMake --preset win-amd64-release
+    & $environment.CMake --preset win-amd64-release "-DREXSDK_DIR=$sdkRoot"
     if ($LASTEXITCODE -ne 0) { throw 'Preview configuration failed.' }
     & $environment.CMake --build --preset win-amd64-release --parallel $Parallel
     if ($LASTEXITCODE -ne 0) { throw 'Preview compilation failed.' }
@@ -123,27 +123,20 @@ $sourceProvenance = Get-PinyonSourceProvenance -Root $root -Git $git
 $sourceCommit = $sourceProvenance.Commit
 $sourceDirty = $sourceProvenance.Dirty
 
-$patchMarkerPath = Join-Path $sdkRoot '.pinyon-patches.json'
-if (-not (Test-Path -LiteralPath $patchMarkerPath -PathType Leaf)) {
-    throw 'Build provenance requires the applied ReXGlue patch marker.'
-}
-$patchMarker = Get-Content -LiteralPath $patchMarkerPath -Raw | ConvertFrom-Json
 $rexglueCommit = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
 if ($rexglueCommit.Count -ne 1 -or
-    $rexglueCommit[0] -notmatch '^[0-9a-fA-F]{40}$' -or
-    $rexglueCommit[0] -ne $config.rexglue.base_commit -or
-    $patchMarker.base_commit -ne $config.rexglue.base_commit) {
-    throw 'The prepared ReXGlue revision does not match the pinned build configuration.'
+    $rexglueCommit[0] -notmatch '^[0-9a-fA-F]{40}$') {
+    throw 'Build provenance requires an exact ShiftGlue commit.'
 }
 $rexglueCommit = $rexglueCommit[0].ToLowerInvariant()
+$rexglueDirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty).Count -ne 0
 $payloadMarkerPath = Join-Path $root '.pinyon-source-sha256'
 $payloadSha256 = if (Test-Path -LiteralPath $payloadMarkerPath -PathType Leaf) {
     (Get-Content -LiteralPath $payloadMarkerPath -Raw).Trim().ToUpperInvariant()
 } else { '' }
 $executableSha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
-$patchSetSha256 = (Get-FileHash -LiteralPath $patchMarkerPath -Algorithm SHA256).Hash
 $result = [ordered]@{
-    schema_version = 2
+    schema_version = 3
     created_utc = [DateTime]::UtcNow.ToString('o')
     executable = 'out/build/win-amd64-release/pinyon_shift.exe'
     executable_sha256 = $executableSha256
@@ -152,8 +145,7 @@ $result = [ordered]@{
     pinyon_shift_dirty = $sourceDirty.ToString().ToLowerInvariant()
     pinyon_shift_source_payload_sha256 = $payloadSha256
     rexglue_commit = $rexglueCommit
-    rexglue_patch_set_sha256 = $patchSetSha256
-    rexglue_patch_count = @($patchMarker.patches).Count.ToString()
+    rexglue_dirty = $rexglueDirty.ToString().ToLowerInvariant()
     guest_executable_sha256 = $gameXexSha256
     guest_codegen_patch_profile = 'fh1-retail-base-post-processing-v1'
     guest_codegen_patch_set_sha256 = $guestPatchSetSha256

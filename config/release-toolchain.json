@@ -37,10 +37,9 @@
     "executable": "artifacts/extract-xiso.exe"
   },
   "rexglue": {
-    "repository": "https://github.com/rexglue/rexglue-sdk.git",
-    "tag": "v0.10.0",
-    "base_commit": "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
-    "path": ".local/rexglue",
-    "patch_directory": "patches/rexglue"
+    "repository": "https://github.com/arcanite24/shiftglue-sdk",
+    "revision": "079c10ef1fbe3ef418a1c535ac025ab39dda7a2d",
+    "submodule_path": "thirdparty/shiftglue-sdk",
+    "fallback_path": ".local/rexglue"
   }
 }

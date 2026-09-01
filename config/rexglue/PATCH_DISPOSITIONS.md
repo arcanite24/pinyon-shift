@@ -1,4 +1,8 @@
-# ReXGlue 0.10.0 project patch dispositions
+# Historical ReXGlue 0.10.0 patch dispositions
+
+The resulting source is now materialized in ShiftGlue migration commit
+`079c10ef1fbe3ef418a1c535ac025ab39dda7a2d`; these numbers are retained only as
+historical migration evidence and are no longer replayed during setup.
 
 This record covers every patch in the ReXGlue 0.9.0 series that was present at
 project revision `b00fcfe40b544d09cec034fc432fa05cf418d286`. The replacement

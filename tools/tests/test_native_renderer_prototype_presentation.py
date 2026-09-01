@@ -22,27 +22,7 @@ class NativeRendererPrototypePresentationTests(unittest.TestCase):
             '"logical_scene_scale_then_title_gamma_then_title_upscale"', output
         )
 
-    def test_rexglue_patch_preserves_legacy_preview_and_adds_passthrough(self):
-        patch = (
-            ROOT
-            / "patches/rexglue/0095-d3d12-native-prototype-presentation.patch"
-        ).read_text(encoding="utf-8")
-        self.assertIn("kPrototypeNative = 3", patch)
-        self.assertIn("uint presentation_mode", patch)
-        self.assertIn("if (presentation_mode == 1)", patch)
-        self.assertIn("output_position * source_size / output_size", patch)
-        self.assertIn("preview_size = min(output_size.x, output_size.y)", patch)
-        self.assertNotIn("SetDrawSuppression", patch)
 
-    def test_hybrid_patch_corrects_padded_allocation_mapping(self):
-        patch = (
-            ROOT
-            / "patches/rexglue/0096-d3d12-conservative-hybrid-composition.patch"
-        ).read_text(encoding="utf-8")
-        self.assertIn("kLogicalSceneWidth = 512", patch)
-        self.assertIn("kLogicalSceneHeight = 288", patch)
-        self.assertIn("output_position * crop_size / output_size", patch)
-        self.assertIn("native_guest_output_linear_target_", patch)
 
     def test_launcher_and_settings_expose_explicit_prototype_and_comparison(self):
         settings = (ROOT / "tools/set-graphics-experiment.ps1").read_text(

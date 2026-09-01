@@ -29,6 +29,10 @@ if ($windowsBuild -lt [int]$config.minimum_windows_build) {
 }
 
 try {
+    $runningPreview = @(Get-Process -Name 'pinyon_shift' -ErrorAction SilentlyContinue)
+    if ($runningPreview.Count -gt 0) {
+        throw 'Close every running Pinyon Shift preview before building. Windows locks the runtime files while the game is open.'
+    }
     Write-PinyonEvent verify 2 'Reading the disc image. Nothing is uploaded.' -JsonEvents:$JsonEvents
     $verification = & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso -Json |
         ConvertFrom-Json

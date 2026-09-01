@@ -1,7 +1,8 @@
 # FH1 ZPD END policy and regression guard
 
 EPIC-05 is delivered by
-`patches/rexglue/0040-fh1-zpd-end-policy-and-telemetry.patch` plus host schema,
+`thirdparty/shiftglue-sdk/include/rex/graphics/zpd_policy.h` at migration commit
+`079c10ef1fbe3ef418a1c535ac025ab39dda7a2d` plus host schema,
 qualification-runner, performance-summary, and sanitized support-report
 integration in this project.
 

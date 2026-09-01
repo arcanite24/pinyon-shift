@@ -38,44 +38,22 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertTrue(item["url"].startswith("https://"))
             self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
         self.assertTrue(data["visual_studio"]["bootstrap_url"].startswith("https://"))
-        self.assertEqual(data["rexglue"]["tag"], "v0.10.0")
-        self.assertRegex(data["rexglue"]["base_commit"], r"^[0-9a-f]{40}$")
+        rexglue = data["rexglue"]
+        self.assertEqual(rexglue["repository"], "https://github.com/arcanite24/shiftglue-sdk")
+        self.assertRegex(rexglue["revision"], r"^[0-9a-f]{40}$")
 
-    def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
-        patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 102)
-        self.assertEqual(
-            patches[-1].name,
-            "0102-d3d12-track-retained-preview-logical-extent.patch",
-        )
-        self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
-        for path in patches:
-            text = path.read_text(encoding="utf-8", errors="strict")
-            self.assertIn("diff --git", text)
-            self.assertNotIn("GIT binary patch", text)
-
-    def test_rexglue_010_version_and_patch_migration_contract(self):
+    def test_shiftglue_submodule_matches_the_release_pin(self):
         toolchain = json.loads((ROOT / "config/release-toolchain.json").read_text())
-        self.assertEqual(toolchain["rexglue"]["tag"], "v0.10.0")
-        self.assertEqual(
-            toolchain["rexglue"]["base_commit"],
-            "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
-        )
-        manifest = (ROOT / "config/rexglue/pinyon_shift_manifest.toml").read_text()
-        integration = (ROOT / "cmake/PinyonShiftRexGlue.cmake").read_text()
-        self.assertIn('sdk_version = "0.10.0"', manifest)
-        self.assertIn("find_package(rexglue 0.10.0 EXACT", integration)
-        self.assertNotIn("ReXGlue SDK 0.9.0", integration)
-
-        dispositions = (ROOT / "config/rexglue/PATCH_DISPOSITIONS.md").read_text()
-        for number in range(27):
-            self.assertIn(f"`{number:04d}`", dispositions)
-        self.assertIn(
-            "`0000` Windows migration-test stabilization | Retire", dispositions
-        )
-        self.assertFalse(
-            (ROOT / "patches/rexglue/0000-v0.9-windows-migration-test-stabilization.patch").exists()
-        )
+        rexglue = toolchain["rexglue"]
+        modules = (ROOT / ".gitmodules").read_text(encoding="utf-8")
+        preset = (ROOT / "CMakePresets.json").read_text(encoding="utf-8")
+        prepare = (ROOT / "tools/prepare-rexglue.ps1").read_text(encoding="utf-8")
+        self.assertIn(rexglue["repository"], modules)
+        self.assertIn(rexglue["submodule_path"], modules)
+        self.assertIn(rexglue["submodule_path"], preset)
+        self.assertIn("Resolve-PinyonRexGlueRoot", prepare)
+        self.assertNotIn("patch_directory", json.dumps(toolchain))
+        self.assertFalse(any((ROOT / "patches/rexglue").glob("*.patch")))
 
     def test_rexglue_codegen_is_dependency_tracked_and_explicitly_cleanable(self):
         build = (ROOT / "tools/build-preview.ps1").read_text()
@@ -165,6 +143,19 @@ class ReleaseContractTests(unittest.TestCase):
         for shipped in ("set-graphics-experiment.ps1", "verify-codegen-log.ps1"):
             self.assertIn(shipped, package_script)
 
+    def test_launcher_persists_setup_output_in_the_setup_log_directory(self):
+        launcher = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('Path.Combine(logs, "launcher.log")', launcher)
+        self.assertIn('Path.Combine(_repositoryRoot, ".local", "logs")', launcher)
+        self.assertNotIn('var logs = Path.Combine(_stateRoot, "logs")', launcher)
+
+    def test_setup_rejects_a_running_preview_before_building(self):
+        setup = (ROOT / "tools/setup-preview.ps1").read_text(encoding="utf-8")
+        self.assertIn("Get-Process -Name 'pinyon_shift'", setup)
+        self.assertIn("Close every running Pinyon Shift preview", setup)
+
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_packaged_source_provenance_does_not_require_a_git_worktree(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-provenance-") as temporary:
@@ -202,23 +193,18 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("xma_relaxed_padding_admission = false", app)
         self.assertIn("xma_no_space_stalls", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
         self.assertIn("zpd_stale_result_rejections", (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
-        zpd_patch = ROOT / "patches/rexglue/0039-gpu-zpd-report-lifecycle-d3d12.patch"
-        self.assertTrue(zpd_patch.is_file())
-        self.assertIn("ZPDLifecycle", zpd_patch.read_text(encoding="utf-8"))
-        policy_patch = ROOT / "patches/rexglue/0040-fh1-zpd-end-policy-and-telemetry.patch"
-        self.assertTrue(policy_patch.is_file())
-        self.assertIn("ZPDClassification", policy_patch.read_text(encoding="utf-8"))
-        resolve_patch = ROOT / "patches/rexglue/0041-fh1-resolve-readback-counters.patch"
-        self.assertTrue(resolve_patch.is_file())
-        resolve_text = resolve_patch.read_text(encoding="utf-8")
+        sdk = ROOT / "thirdparty/shiftglue-sdk"
+        self.assertIn("ZPDLifecycle", (sdk / "include/rex/graphics/zpd_lifecycle.h").read_text())
+        self.assertIn("ZPDClassification", (sdk / "include/rex/graphics/zpd_policy.h").read_text())
+        resolve_text = (sdk / "src/core/perf/counter.cpp").read_text()
         for counter in ("resolve_readback_requests", "resolve_readback_bytes",
                         "resolve_readback_full_waits", "resolve_readback_wait_time_ns"):
             self.assertIn(counter, resolve_text)
 
     def test_partial_vector_store_qualification_contract(self):
-        patch = ROOT / "patches/rexglue/0042-ppc-partial-vector-store-regression-tests.patch"
-        self.assertTrue(patch.is_file())
-        patch_text = patch.read_text(encoding="utf-8")
+        sdk = ROOT / "thirdparty/shiftglue-sdk"
+        patch_text = (sdk / "tests/ppc/asm/instr_partial_vector_store.s").read_text()
+        patch_text += (sdk / "resources/templates/test/ppc_test_cases_cpp.inja").read_text()
         for marker in ("test_stvlx_offset_0", "test_stvlx_offset_15",
                        "test_stvrx_offset_0", "test_stvrx_offset_15",
                        "test_stvlx_memcpy_head", "test_stvrx_memcpy_tail",
@@ -227,16 +213,17 @@ class ReleaseContractTests(unittest.TestCase):
         qualifier = (ROOT / "tools/qualify-partial-vector-store.ps1").read_text(
             encoding="utf-8"
         )
-        self.assertIn("pinyon-shift.partial-vector-store-qualification.v1", qualifier)
-        self.assertIn("ordered_patches", qualifier)
+        self.assertIn("pinyon-shift.partial-vector-store-qualification.v2", qualifier)
+        self.assertIn("rexglue_dirty", qualifier)
         self.assertIn("generated_functions_sha256", qualifier)
 
     def test_renderer_and_stub_instrumentation_is_bounded(self):
-        stub_patch = (ROOT / "patches/rexglue/0031-sdk-stub-reachability-summary.patch").read_text(encoding="utf-8")
+        sdk = ROOT / "thirdparty/shiftglue-sdk"
+        stub_patch = (sdk / "include/rex/hook.h").read_text(encoding="utf-8")
         self.assertIn("kMaximumStubReachabilityEntries = 128", stub_patch)
         self.assertIn("SDK_STUB first module={}", stub_patch)
         self.assertIn("SDK_STUB summary", stub_patch)
-        memexport_patch = (ROOT / "patches/rexglue/0032-memexport-coherency-counters.patch").read_text(encoding="utf-8")
+        memexport_patch = (sdk / "src/core/perf/counter.cpp").read_text(encoding="utf-8")
         for counter in ("memexport_draws", "memexport_bytes", "memexport_sync_fallbacks",
                         "memexport_queue_waits", "memexport_fence_waits"):
             self.assertIn(counter, memexport_patch)

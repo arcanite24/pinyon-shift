@@ -176,6 +176,8 @@ def summarize_side(events, expected_mode, requested_session=None):
         "scene": installed[0].get("scene"),
         "identity": {
             "executable_sha256": starts[0].get("executable_sha256"),
+            "rexglue_commit": starts[0].get("rexglue_commit"),
+            "rexglue_dirty": starts[0].get("rexglue_dirty"),
             "patch_set_sha256": starts[0].get("rexglue_patch_set_sha256"),
             "patch_count": starts[0].get("rexglue_patch_count"),
         },

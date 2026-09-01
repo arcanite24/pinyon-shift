@@ -1,7 +1,8 @@
 # ReXGlue D3D12 ZPD report lifecycle
 
 EPIC-04 is delivered by
-`patches/rexglue/0039-gpu-zpd-report-lifecycle-d3d12.patch` plus host schema,
+`thirdparty/shiftglue-sdk/src/graphics/d3d12/command_processor.cpp` at migration
+commit `079c10ef1fbe3ef418a1c535ac025ab39dda7a2d` plus host schema,
 performance-summary, and sanitized support-report integration in this project.
 
 ## Derivation and scope

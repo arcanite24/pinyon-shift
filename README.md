@@ -5,7 +5,7 @@ the Xbox 360 release of *Forza Horizon*. The project is early, imperfect, and
 surprisingly drivable.
 
 This repository contains the launcher, build tools, host code, configuration,
-and patches needed to create the preview on your own computer. It does **not**
+and pinned ShiftGlue submodule needed to create the preview on your own computer. It does **not**
 contain the game, game assets, generated translations, or a prebuilt game
 executable.
 
@@ -62,8 +62,8 @@ From a PowerShell terminal in a repository checkout:
 .\tools\launch-preview.ps1
 ```
 
-The setup script provisions pinned dependencies under `.local/`, downloads and
-patches ReXGlue, verifies/extracts the disc, generates translated source, and
+The setup script provisions pinned dependencies, initializes ShiftGlue,
+verifies/extracts the disc, generates translated source, and
 builds Release. See [Building](docs/BUILDING.md) and
 [Troubleshooting](docs/TROUBLESHOOTING.md) for details.
 

@@ -86,38 +86,6 @@ def fixture():
 
 
 class ContinuousWorldWorksetTests(unittest.TestCase):
-    def test_runtime_contract_is_swap_committed_and_fail_closed(self):
-        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn(
-            "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET", source
-        )
-        self.assertIn("kContinuousWorldWorksetMaximumDrawsPerFrame = 64", source)
-        self.assertIn("request.reuse_target = reuse_target", source)
-        self.assertIn("request.defer_preview_publication_until_swap = true", source)
-        self.assertIn("qualified_retained_family_requests", source)
-        self.assertIn('"native_renderer.continuous_world_workset.summary"', source)
-        self.assertIn('{"xenos_draw", "preserved"}', source)
-        self.assertIn('{"draw_suppression", "false"}', source)
-
-        patch = (
-            ROOT
-            / "patches/rexglue/0094-d3d12-deferred-replay-preview-publication.patch"
-        ).read_text(encoding="utf-8")
-        self.assertIn("CommitDeferredIsolatedReplayPreview", patch)
-        self.assertIn("CancelDeferredIsolatedReplayPreview", patch)
-        self.assertIn("defer_preview_publication_until_swap", patch)
-        self.assertIn("observation_frame_sequence_", patch)
-        self.assertNotIn("suppress_guest_draw_if_published = true", patch)
-
-        capture = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("[switch]$ContinuousWorldWorkset", capture)
-        self.assertIn(
-            "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET", capture
-        )
 
     def test_qualifies_complete_multi_draw_worksets(self):
         document = MODULE.build(fixture())

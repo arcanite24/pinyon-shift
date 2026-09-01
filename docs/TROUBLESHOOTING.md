@@ -30,9 +30,19 @@ verified before use.
 ## The build fails
 
 Restart Windows after a Build Tools installation, make at least 25 GB free, and
-try again. If it still fails, open the build log from the launcher and include
-the last relevant lines in a bug report. Never attach game files or generated
-source.
+close every running Pinyon Shift preview before trying again. If it still
+fails, choose **Open logs** in the launcher and attach `launcher.log` to the bug
+report. This log contains build output and local paths, but no game data or
+generated source. Never attach game files or generated source.
+
+## Gameplay stutters
+
+Some one-time stutter while the preview encounters new effects is expected in
+this early release. If severe stutter continues after revisiting the same route,
+report whether it happens only on the first pass or every pass and include the
+latest performance CSV and runtime log from `.local/preview/logs`. Those two
+cases have different causes, and the measurements are needed for a targeted
+fix.
 
 ## The game does not start
 
@@ -75,3 +85,11 @@ arranges a private transfer for a specific investigation.
 Close the launcher and delete `.local` and `out` from the repository or the
 launcher source folder under `%LOCALAPPDATA%\PinyonShift`. Your original ISO is
 outside those folders and is never deleted by project scripts.
+
+## Uninstall completely
+
+Close the launcher and preview, then delete the extracted launcher folder and
+`%LOCALAPPDATA%\PinyonShift`. The preview does not install a Windows service or
+registry startup entry. Microsoft Visual Studio Build Tools are shared system
+tools and should be removed separately from **Installed apps** only if no other
+development work uses them. The original ISO remains wherever you stored it.

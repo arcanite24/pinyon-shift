@@ -110,8 +110,7 @@ struct BuildProvenance {
   std::string pinyon_shift_dirty = "unknown";
   std::string source_payload_sha256 = "unknown";
   std::string rexglue_commit = "unknown";
-  std::string rexglue_patch_set_sha256 = "unknown";
-  std::string rexglue_patch_count = "unknown";
+  std::string rexglue_dirty = "unknown";
   std::string executable_sha256 = "unknown";
 };
 
@@ -136,18 +135,18 @@ BuildProvenance LoadBuildProvenance() {
   result.schema = JsonStringField(json, "schema_version");
   // schema_version is numeric in the manifest; retain a useful value without
   // introducing a general JSON parser solely for trusted flat build metadata.
+  std::smatch schema_match;
   if (result.schema == "unknown" &&
-      std::regex_search(json, std::regex(R"("schema_version"\s*:\s*2)"))) {
-    result.schema = "2";
+      std::regex_search(json, schema_match,
+                        std::regex(R"("schema_version"\s*:\s*([23]))"))) {
+    result.schema = schema_match[1].str();
   }
   result.pinyon_shift_commit = JsonStringField(json, "pinyon_shift_commit");
   result.pinyon_shift_dirty = JsonStringField(json, "pinyon_shift_dirty");
   result.source_payload_sha256 =
       JsonStringField(json, "pinyon_shift_source_payload_sha256");
   result.rexglue_commit = JsonStringField(json, "rexglue_commit");
-  result.rexglue_patch_set_sha256 =
-      JsonStringField(json, "rexglue_patch_set_sha256");
-  result.rexglue_patch_count = JsonStringField(json, "rexglue_patch_count");
+  result.rexglue_dirty = JsonStringField(json, "rexglue_dirty");
   result.executable_sha256 = JsonStringField(json, "executable_sha256");
   return result;
 }
@@ -439,8 +438,7 @@ bool InitializeEarly() {
                {"pinyon_shift_dirty", build.pinyon_shift_dirty},
                {"pinyon_shift_source_payload_sha256", build.source_payload_sha256},
                {"rexglue_commit", build.rexglue_commit},
-               {"rexglue_patch_set_sha256", build.rexglue_patch_set_sha256},
-               {"rexglue_patch_count", build.rexglue_patch_count},
+               {"rexglue_dirty", build.rexglue_dirty},
                {"executable_sha256", build.executable_sha256},
                {"cpu_baseline", PINYON_SHIFT_CPU_BASELINE},
                {"cpu_features", features},

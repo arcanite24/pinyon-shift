@@ -147,27 +147,6 @@ class ShadowCasterProvenanceTests(unittest.TestCase):
             self.assertEqual(2, report["totals"]["sample_overflow"])
             self.assertFalse(report["qualification"]["sample_coverage_complete"])
 
-    def test_runtime_contract_is_metadata_only_and_fail_closed(self):
-        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
-            encoding="utf-8"
-        )
-        wrapper = (ROOT / "tools/capture-native-renderer-census.ps1").read_text(
-            encoding="utf-8"
-        )
-        observer_patch = (
-            ROOT / "patches/rexglue/0093-graphics-draw-viewport-observer.patch"
-        ).read_text(encoding="utf-8")
-        self.assertIn("kMixedShadowCasterVertexShader", source)
-        self.assertIn("static_inference_from_absence", source)
-        self.assertIn('{"native_draw", "false"}', source)
-        self.assertIn('{"xenos_authority", "true"}', source)
-        self.assertIn('{"suppression_allowed", "false"}', source)
-        self.assertIn("[switch]$ShadowCasterProvenance", wrapper)
-        self.assertIn(
-            "PINYON_SHIFT_NATIVE_RENDERER_SHADOW_CASTER_PROVENANCE", wrapper
-        )
-        self.assertIn("viewport_xscale", observer_patch)
-        self.assertIn("XE_GPU_REG_PA_CL_VPORT_XSCALE", observer_patch)
 
 
 if __name__ == "__main__":

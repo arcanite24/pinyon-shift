@@ -15,7 +15,7 @@ The script performs five reproducible stages:
 1. verifies the exact ISO size and SHA-256 against `config/supported-dumps.json`;
 2. installs Visual Studio Build Tools when missing and downloads pinned portable
    tools whose hashes are recorded in `config/release-toolchain.json`;
-3. clones the pinned ReXGlue revision and applies `patches/rexglue` in order;
+3. initializes the pinned ShiftGlue submodule, or clones the same revision for a packaged launcher;
 4. extracts the disc and generates translated source under `.local/`; and
 5. configures and compiles `out/build/win-amd64-release/pinyon_shift.exe`.
 
@@ -29,7 +29,7 @@ To verify only the image:
 .\tools\setup-preview.ps1 -IsoPath C:\path\to\your-disc.iso -VerifyOnly
 ```
 
-To rebuild after changing host code or patches:
+To rebuild after changing host or ShiftGlue code:
 
 ```powershell
 .\tools\build-preview.ps1

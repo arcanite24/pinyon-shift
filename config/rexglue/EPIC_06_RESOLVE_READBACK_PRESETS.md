@@ -2,7 +2,8 @@
 
 EPIC-06 combines ReXGlue's existing resolve-readback modes with schema-8 host
 presets, launcher controls, renderer A/B evidence, and the bounded D3D12
-telemetry in `patches/rexglue/0041-fh1-resolve-readback-counters.patch`.
+telemetry in `thirdparty/shiftglue-sdk/src/core/perf/counter.cpp` at migration
+commit `079c10ef1fbe3ef418a1c535ac025ab39dda7a2d`.
 
 ## Evidence and scope
 

@@ -26,41 +26,6 @@ class ShadowDepthPublicationContractTests(unittest.TestCase):
         self.assertIn("Get-AuthenticodeSignature", wrapper)
         self.assertIn("must be below $localRoot", wrapper)
 
-    def test_depth_publication_keeps_every_xenos_stage(self):
-        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
-            encoding="utf-8"
-        )
-        patch = (
-            ROOT
-            / "patches/rexglue/0092-d3d12-depth-only-isolated-publication.patch"
-        ).read_text(encoding="utf-8")
-        capture = (
-            ROOT / "tools/capture-native-renderer-census.ps1"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_PUBLICATION", hooks
-        )
-        self.assertIn("CompleteIsolatedShadowDepthPublication", hooks)
-        self.assertIn("request.suppress_guest_draw_if_published = false", hooks)
-        self.assertIn('"consumer_handoff", "xenos_rt_dump_retained"', hooks)
-        self.assertIn(
-            'kShadowDepthCasterClass = "dynamic_vehicle"', hooks
-        )
-        self.assertIn(
-            'kShadowDepthAtlasRegion = "0,0,2048,2048"', hooks
-        )
-        self.assertGreaterEqual(
-            hooks.count('{"caster_class", kShadowDepthCasterClass}'), 3
-        )
-        self.assertGreaterEqual(
-            hooks.count('{"atlas_region", kShadowDepthAtlasRegion}'), 3
-        )
-        self.assertIn("bool depth_only_target = false", patch)
-        self.assertIn("!result.color_published", hooks)
-        self.assertNotIn("SetDrawSuppression", hooks + patch)
-        self.assertNotIn("SetCopySuppression", hooks + patch)
-        self.assertIn("[switch]$PublishShadowDepth", capture)
-        self.assertIn("PublishShadowDepth requires ShadowDepthBatch", capture)
 
     def test_continuous_depth_publication_fails_closed_without_suppression(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

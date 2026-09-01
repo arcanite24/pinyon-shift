@@ -8,5 +8,5 @@ Only the latest tagged launcher release is supported. Portable dependency
 archives are pinned and SHA-256 verified; the Microsoft installer must carry a
 valid Microsoft Authenticode signature. A local native build necessarily
 executes compilers and source obtained from the listed upstream projects. Review
-`config/release-toolchain.json` and `patches/rexglue` before running setup if
+`config/release-toolchain.json` and the pinned `thirdparty/shiftglue-sdk` revision before running setup if
 your threat model requires it.
