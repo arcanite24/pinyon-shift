@@ -63,6 +63,22 @@ def fixture():
     for slot in MODULE.SLOTS:
         summary[f"slot_{slot}_dispatcher_direct"] = "3" if slot == 79 else "0"
         summary[f"slot_{slot}_dispatcher_context"] = "8" if slot == 79 else "0"
+        adapter_dispatches = 4 if slot == 80 else 0
+        summary[f"slot_{slot}_adapter_entries"] = (
+            "6" if slot == 80 else "0"
+        )
+        summary[f"slot_{slot}_adapter_enabled"] = (
+            "5" if slot == 80 else "0"
+        )
+        summary[f"slot_{slot}_adapter_eligible"] = str(adapter_dispatches)
+        summary[f"slot_{slot}_adapter_dispatches"] = str(adapter_dispatches)
+        summary[f"slot_{slot}_adapter_first_target"] = (
+            "8240F000" if slot == 80 else "00000000"
+        )
+        summary[f"slot_{slot}_adapter_last_target"] = (
+            "8240F000" if slot == 80 else "00000000"
+        )
+        summary[f"slot_{slot}_adapter_target_changes"] = "0"
     depth = event(
         MODULE.ENTRY,
         entry_key="1111222233334444",
@@ -139,6 +155,18 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
         self.assertEqual(
             {"direct": 3, "context": 8},
             document["slot_totals"]["79"]["dispatcher_routes"],
+        )
+        self.assertEqual(
+            {
+                "entries": 6,
+                "enabled": 5,
+                "eligible": 4,
+                "dispatches": 4,
+                "first_target": "8240F000",
+                "last_target": "8240F000",
+                "target_changes": 0,
+            },
+            document["slot_totals"]["80"]["adapter_route"],
         )
         self.assertEqual([78], document["qualification"]["color_target_slots"])
         self.assertEqual(
