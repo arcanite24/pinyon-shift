@@ -166,6 +166,27 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET", capture
         )
 
+    def test_exact_track_color_only_replay_is_private_and_bounded(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("const bool exact_track_color_only", source)
+        self.assertIn("observation.bound_render_target_bits == 2", source)
+        self.assertIn("~kIsolatedRejectRenderTargets", source)
+        self.assertIn("request.color_only_target", source)
+        self.assertIn("exact_track_world &&", source)
+
+        patch = (
+            ROOT
+            / "patches/rexglue/0106-d3d12-color-only-isolated-replay.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bool color_only_target = false", patch)
+        self.assertIn("depth_only_target && color_only_target", patch)
+        self.assertIn("color_only_target && guest_targets[0]", patch)
+        self.assertIn("color_only_target\n+          ? nullptr", patch)
+        self.assertIn("guest_targets[1]", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+
     def test_qualifies_complete_multi_draw_worksets(self):
         document = MODULE.build(fixture())
         self.assertEqual("complete", document["status"])

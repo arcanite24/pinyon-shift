@@ -426,6 +426,25 @@ native selection, or suppression. The next combined run can therefore tell us
 whether C2's live static objects sit behind the already-live command graph
 without widening either renderer contract or doing another broad draw census.
 
+Combined eligibility result: clean AppData session
+`20260901T011508Z-p39720` reached 1,744 balanced exact track scopes and 2,570
+prepared-draw joins. All 2,570 candidates failed only the render-target gate;
+every other mechanical replay requirement passed. The same live graph census
+found 1,189 nested `CTrackMesh` and 1,875 nested `CTrackSubModel` identities,
+with zero direct or nested SimpleModel-family identities. C1 therefore advances
+through the observed color-only target shape, while C2 leaves this graph and
+continues toward a separate live construction or draw-producing ingress.
+
+Color-only replay implementation checkpoint: the exact track selector may
+clear only the generic paired-target rejection when the prepared backend draw
+proves first-color-only binding (`bound_render_target_bits == 2`). The D3D12
+private replay path validates that depth/stencil and later color targets are
+absent, copies and binds a private clone of the authoritative first color
+target, and retains the existing swap-committed, fail-closed lifecycle. This
+does not widen generic isolated replay, publish into guest targets, suppress a
+draw, or change Xenos authority. Runtime visual qualification remains batched
+with the next meaningful Phase C slice.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
