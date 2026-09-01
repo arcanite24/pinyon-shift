@@ -398,8 +398,10 @@ RTTI-backed track, procedural-geometry, and PVS-zone classes accepted by the
 direct world-resource classifier may enter the graph. `CSimpleModelRenderer`,
 `CSimpleModelResource`, model-presentation, and the remaining SimpleModel
 family continue to be counted for investigation but cannot establish C1 track
-ownership. References are still deduplicated inside the existing 16-entry
-cache record, with overflow and host-mapping failures visible in the report.
+ownership. References are deduplicated inside the independently bounded
+64-entry cache record, while the guest-memory census remains limited to 16
+roots and 16 words per root. Overflow and host-mapping failures stay visible
+in the report.
 
 Track-model report schema v5 separates nested graph scopes and per-class
 relations from direct graph evidence. This proves where the identity came from
@@ -435,3 +437,36 @@ mark proves actual demand, and any remaining overflow makes the runtime event
 itself incomplete instead of leaving that mismatch solely to the offline
 qualifier. This capacity correction does not expand the guest-memory scan or
 change rendering behavior.
+
+## Complete track-presentation callgraph inventory
+
+`tools/discover-native-renderer-track-presentation-callgraph.py` now traces all
+135 exact runtime wrapper-vtable slots through the generated AOT direct-call
+graph. The analysis is payload-free and bounded to six call edges. It ranks
+shortest paths to the known track dispatcher, command context, unified track
+mesh helper, procedural/simple-model helpers, and indexed-draw emitter, while
+reporting reachable indirect-call boundaries separately. It makes no runtime
+activity or color-target claim.
+
+Against the locked retail image and generated corpus, only slots 75, 78, 79,
+and 80 have a direct path to the track dispatcher and unified track-mesh draw.
+The earlier complete runtime presentation census observed only slots 79 and 80
+in the saved festival. Their packet, prepared-draw, and target lineage is
+already closed as 1024x1024 depth-only shadow work. Slots 75 and 78 were
+inactive in that census, so static reachability cannot promote them.
+
+This closes the exact unified track-presentation surface as the missing opaque
+terrain/road color ingress for the representative scene. The remaining 61
+static candidates reach only indirect dispatch boundaries and have neither a
+known graphics sink nor runtime activity. They remain investigation leads, not
+admission candidates. C1 therefore stays focused on a separate live color-world
+producer instead of adding another hook beneath the known shadow family.
+
+The inventory can be reproduced without launching the game:
+
+```powershell
+python tools/discover-native-renderer-track-presentation-callgraph.py `
+  .local/generated/default `
+  --image .local/analysis/default-image.bin `
+  --output .local/qualification/native-renderer-track-presentation-callgraph.json
+```
