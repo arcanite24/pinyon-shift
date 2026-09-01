@@ -83,3 +83,9 @@ provenance, and the spatial classifier can evaluate that origin with
 live route before investing further in the dormant SimpleModel construction
 path. This changes evidence priority only; the combined promotion gate and its
 Xenos-authority requirements remain unchanged.
+
+The dormant SimpleModel population is now classified precisely: a null
+presentation resource is an expected missing-resource outcome, not a mapped
+read fault. It remains ineligible for C2 because exact metadata and renderer
+joins are still mandatory, but it no longer obscures genuine memory-safety
+failures in the combined report.

@@ -3024,10 +3024,12 @@ std::atomic<uint32_t> g_static_world_presentation_handoff_sample_target{};
 std::atomic<uint64_t> g_static_world_presentation_resource_vtable_exact{};
 std::atomic<uint64_t> g_static_world_presentation_resource_vtable_mismatches{};
 std::atomic<uint64_t> g_static_world_presentation_resource_vtable_read_faults{};
+std::atomic<uint64_t> g_static_world_presentation_resource_null{};
 std::atomic<uint32_t> g_static_world_presentation_resource_sample_vtable{};
 std::atomic<uint64_t> g_static_world_asset_metadata_observations{};
 std::atomic<uint64_t> g_static_world_asset_metadata_exact{};
 std::atomic<uint64_t> g_static_world_asset_metadata_empty_keys{};
+std::atomic<uint64_t> g_static_world_asset_metadata_missing_resources{};
 std::atomic<uint64_t> g_static_world_asset_metadata_read_faults{};
 std::atomic<uint64_t> g_static_world_asset_metadata_joins{};
 std::atomic<uint64_t> g_static_world_asset_metadata_missing_joins{};
@@ -4185,17 +4187,20 @@ void ObserveVehicleMaterialBinding(uint32_t root_address,
 enum class StaticWorldAssetMetadataResult {
   kExact,
   kEmptyKey,
+  kMissingResource,
   kReadFault,
 };
 
 StaticWorldAssetMetadataResult ReadStaticWorldAssetMetadata(
     rex::memory::Memory *memory, uint32_t presentation_address,
     uint32_t resource_address, StaticWorldPresentationDispatchScope &scope) {
-  if (!memory || !resource_address ||
-      presentation_address >
+  if (!memory || presentation_address >
           UINT32_MAX - kModelPresentationNameOffset -
               kMsvcStringCapacityOffset - sizeof(uint32_t)) {
     return StaticWorldAssetMetadataResult::kReadFault;
+  }
+  if (!resource_address) {
+    return StaticWorldAssetMetadataResult::kMissingResource;
   }
   const uint32_t string_address =
       presentation_address + kModelPresentationNameOffset;
@@ -4960,8 +4965,10 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
     return;
   }
   uint32_t resource_vtable = 0;
-  if (!LoadMappedGuestU32(memory, scope.resource_address,
-                          resource_vtable)) {
+  if (!scope.resource_address) {
+    ++g_static_world_presentation_resource_null;
+  } else if (!LoadMappedGuestU32(memory, scope.resource_address,
+                                 resource_vtable)) {
     ++g_static_world_presentation_resource_vtable_read_faults;
   } else if (resource_vtable == kSimpleModelResourceVtable) {
     ++g_static_world_presentation_resource_vtable_exact;
@@ -4978,6 +4985,9 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
     break;
   case StaticWorldAssetMetadataResult::kEmptyKey:
     ++g_static_world_asset_metadata_empty_keys;
+    break;
+  case StaticWorldAssetMetadataResult::kMissingResource:
+    ++g_static_world_asset_metadata_missing_resources;
     break;
   case StaticWorldAssetMetadataResult::kReadFault:
     ++g_static_world_asset_metadata_read_faults;
@@ -7083,9 +7093,14 @@ void ResetTitleDrawProvenance() {
            &g_static_world_presentation_renderer_joins,
            &g_static_world_presentation_renderer_mismatches,
            &g_static_world_presentation_resource_mismatches,
+           &g_static_world_presentation_resource_vtable_exact,
+           &g_static_world_presentation_resource_vtable_mismatches,
+           &g_static_world_presentation_resource_vtable_read_faults,
+           &g_static_world_presentation_resource_null,
            &g_static_world_asset_metadata_observations,
            &g_static_world_asset_metadata_exact,
            &g_static_world_asset_metadata_empty_keys,
+           &g_static_world_asset_metadata_missing_resources,
            &g_static_world_asset_metadata_read_faults,
            &g_static_world_asset_metadata_joins,
            &g_static_world_asset_metadata_missing_joins,
@@ -14290,6 +14305,9 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t asset_metadata_empty_keys =
       g_static_world_asset_metadata_empty_keys.load(
           std::memory_order_relaxed);
+  const uint64_t asset_metadata_missing_resources =
+      g_static_world_asset_metadata_missing_resources.load(
+          std::memory_order_relaxed);
   const uint64_t asset_metadata_read_faults =
       g_static_world_asset_metadata_read_faults.load(
           std::memory_order_relaxed);
@@ -14448,7 +14466,7 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       asset_metadata_observations == presentation_exact &&
       asset_metadata_observations ==
           asset_metadata_exact + asset_metadata_empty_keys +
-              asset_metadata_read_faults &&
+              asset_metadata_missing_resources + asset_metadata_read_faults &&
       presentation_renderer_joins ==
           asset_metadata_joins + asset_metadata_missing_joins &&
       transform_observations == presentation_exact &&
@@ -14899,6 +14917,9 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_static_world_presentation_resource_vtable_read_faults.load(
                 std::memory_order_relaxed))},
+       {"presentation_resource_null",
+        std::to_string(g_static_world_presentation_resource_null.load(
+            std::memory_order_relaxed))},
        {"presentation_resource_sample_vtable",
         fmt::format("{:08X}",
                     g_static_world_presentation_resource_sample_vtable.load(
@@ -14908,6 +14929,8 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"asset_metadata_exact", std::to_string(asset_metadata_exact)},
        {"asset_metadata_empty_keys",
         std::to_string(asset_metadata_empty_keys)},
+       {"asset_metadata_missing_resources",
+        std::to_string(asset_metadata_missing_resources)},
        {"asset_metadata_read_faults",
         std::to_string(asset_metadata_read_faults)},
        {"asset_metadata_joins", std::to_string(asset_metadata_joins)},

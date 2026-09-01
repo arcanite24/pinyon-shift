@@ -812,6 +812,14 @@ runtime-receiver correction plus a scene that exercises its renderer before
 C2 admission resumes. C1 color-pass lineage remains ahead of this route; final
 C2 scope is unchanged.
 
+Null-resource classification correction: all 6,016 exact presentation scopes
+in that session carried a null offset-148 resource, so their metadata outcome
+was absence rather than a guest-memory read fault. Runtime accounting now
+reports null presentation resources and metadata-missing-resource outcomes
+separately from genuine mapped-read failures. Broad generic presentation
+scopes may be null without poisoning safety accounting, while C2 qualification
+still requires exact resource metadata and renderer joins.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
