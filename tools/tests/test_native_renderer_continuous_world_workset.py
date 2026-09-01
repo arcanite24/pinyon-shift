@@ -273,6 +273,22 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn('"source_resource_extent"', source)
         self.assertIn('"draw_scale"', source)
 
+    def test_resolve_census_reports_derived_source_region(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0117-d3d12-resolve-region-topology-observation.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("copy_observation_resolve_info_", patch)
+        self.assertIn("resolve_info.coordinate_info.width_div_8", patch)
+        self.assertIn("resolve_info.height_div_8", patch)
+        self.assertIn("copy_sample_select", patch)
+        self.assertIn('"resolve_guest_rect"', source)
+        self.assertIn('"resolve_physical_rect"', source)
+        self.assertIn('"resolve_destination"', source)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

@@ -942,6 +942,16 @@ the unstable scaled prototype. Comparing this safe source contract with the
 private replay result isolates target-selection errors from accumulator sample
 expansion and presentation errors.
 
+The first safe 2x AppData census (`20260901T143210Z-p35268`) reached the saved
+scene with Xenos authority and exited normally. It proved that the procedural
+three-chunk family (`1280x256`, `1280x256`, `1280x224` guest destinations) is
+sourced from a `2560x1024` RGBA16F target with genuine guest and host 4x MSAA,
+while native 2x MSAA support is available. The next observation checkpoint now
+records the resolve-derived guest and physical source rectangles, destination
+offset and extent, sample selection, and render-target key agreement. This
+closes the ambiguity between a wrong source target and a wrong crop before any
+scaled replay is enabled.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
