@@ -249,7 +249,8 @@ constexpr uint32_t kTrackProceduralGeometryObjectVtable = 0x82144CF8;
 constexpr uint32_t kTrackProceduralGeometryResourceVtable = 0x82144D7C;
 constexpr uint32_t kTrackPvsZoneObjectVtable = 0x82144DE0;
 constexpr uint32_t kTrackPvsZoneResourceVtable = 0x82144E64;
-constexpr size_t kTrackWorldResourceIdentityCapacity = 16;
+constexpr size_t kTrackWorldPointeeRootCapacity = 16;
+constexpr size_t kTrackWorldResourceReferenceCapacity = 64;
 constexpr size_t kTrackWorldResourceGraphCacheCapacity = 1024;
 constexpr size_t kTrackWorldPointeePrefixWords = 16;
 constexpr size_t kTrackWorldPointeeIdentityCount = 14;
@@ -2597,7 +2598,7 @@ struct TrackWorldResourceGraphCacheEntry {
   uint32_t nested_identity_mask = 0;
   uint32_t reference_count = 0;
   std::array<TrackWorldResourceReference,
-             kTrackWorldResourceIdentityCapacity>
+             kTrackWorldResourceReferenceCapacity>
       references{};
 };
 
@@ -2614,7 +2615,7 @@ struct TrackRenderModelDispatchScope {
   uint32_t world_resource_shared_identity_mask = 0;
   uint32_t world_resource_reference_count = 0;
   std::array<TrackWorldResourceReference,
-             kTrackWorldResourceIdentityCapacity>
+             kTrackWorldResourceReferenceCapacity>
       world_resource_references{};
   bool active = false;
   bool exact = false;
@@ -2815,6 +2816,7 @@ thread_local PendingTrackWorldReferenceSpatial
 std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
 std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
+std::atomic<uint64_t> g_track_world_resource_graph_reference_high_watermark{};
 std::atomic<uint64_t> g_track_world_resource_graph_host_unmapped_rejections{};
 std::atomic<uint64_t> g_track_world_resource_graph_scopes{};
 std::atomic<uint64_t> g_track_world_resource_nested_graph_scopes{};
@@ -3688,7 +3690,7 @@ void CensusTrackWorldPointees(rex::memory::Memory *memory,
                               const std::array<uint32_t, N> &words,
                               TrackWorldResourceGraphCacheEntry &entry) {
   ++g_track_world_pointee_graph_samples;
-  std::array<uint32_t, kTrackWorldResourceIdentityCapacity> roots{};
+  std::array<uint32_t, kTrackWorldPointeeRootCapacity> roots{};
   size_t root_count = 0;
   for (uint32_t address : words) {
     uint32_t vtable = 0;
@@ -3768,6 +3770,15 @@ void AddTrackWorldResourceReference(
       .identity = identity,
       .provenance = provenance,
   };
+  uint64_t observed_high_watermark =
+      g_track_world_resource_graph_reference_high_watermark.load(
+          std::memory_order_relaxed);
+  while (observed_high_watermark < entry.reference_count &&
+         !g_track_world_resource_graph_reference_high_watermark
+              .compare_exchange_weak(observed_high_watermark,
+                                     entry.reference_count,
+                                     std::memory_order_relaxed)) {
+  }
 }
 
 template <size_t N>
@@ -13527,7 +13538,9 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
       g_track_render_model_prepared_draw_joins.load(
           std::memory_order_relaxed) &&
       !invalid_child && !invalid_descriptor &&
-      !contract_mismatches;
+      !contract_mismatches &&
+      !g_track_world_resource_graph_reference_overflow.load(
+          std::memory_order_relaxed);
   const uint64_t prepared_layout_observations =
       g_track_world_prepared_layout_observations.load(
           std::memory_order_relaxed);
@@ -13722,6 +13735,10 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"world_resource_graph_reference_overflow",
         std::to_string(g_track_world_resource_graph_reference_overflow.load(
             std::memory_order_relaxed))},
+       {"world_resource_graph_reference_high_watermark",
+        std::to_string(
+            g_track_world_resource_graph_reference_high_watermark.load(
+                std::memory_order_relaxed))},
        {"world_resource_graph_host_unmapped_rejections",
         std::to_string(
             g_track_world_resource_graph_host_unmapped_rejections.load(
@@ -30181,7 +30198,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"world_resource_shared_identity",
         "exact_address_equality_to_submission_objects_or_resources"},
        {"world_resource_graph_cache_capacity", "1024"},
-       {"world_resource_reference_capacity", "16"},
+       {"world_resource_reference_capacity",
+        std::to_string(kTrackWorldResourceReferenceCapacity)},
+       {"world_pointee_root_capacity",
+        std::to_string(kTrackWorldPointeeRootCapacity)},
        {"scope_spatial_capacity",
         std::to_string(kTrackWorldScopeSpatialCapacity)},
        {"scope_spatial_words", "child_16_descriptor_62"},

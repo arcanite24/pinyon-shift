@@ -127,6 +127,15 @@ class TrackPreparedLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nested track identity exceeds"):
             MODULE.build(events)
 
+    def test_pivots_nested_depth_only_family_from_color_ingress(self):
+        events = fixture()
+        events[1]["bound_render_target_bits"] = "00000001"
+        document = MODULE.build(events)
+        self.assertFalse(
+            document["qualification"]["color_target_layout_observed"]
+        )
+        self.assertIn("pivot away", document["next_step"])
+
     def test_runtime_census_is_shutdown_only_and_observation_only(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

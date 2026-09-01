@@ -378,8 +378,13 @@ def build(events, requested_session=None):
             "suppression_allowed": False,
         },
         "next_step": (
-            "correlate exact target shapes with the adjacent unified track "
-            "presentation pass census before extending opaque-pass lineage"
+            "pivot away from this exact depth-only family and locate the "
+            "semantic color-world ingress"
+            if nested_identity_calls
+            and not any(bits & 2 for bits, _ in target_shape_frequency)
+            else "correlate exact target shapes with the adjacent unified "
+            "track presentation pass census before extending opaque-pass "
+            "lineage"
         ),
         "safety": {
             "guest_state_changed": False,
