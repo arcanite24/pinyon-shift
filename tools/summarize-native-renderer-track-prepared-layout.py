@@ -151,10 +151,14 @@ def build(events, requested_session=None):
     entry_calls = 0
     vertex_frequency = {}
     pixel_frequency = {}
+    vertex_shader_frequency = {}
     candidate_runs = []
     for event in entries:
         require_safety(event)
         key = hexadecimal(event.get("layout_key", ""), 16, "layout key")
+        vertex_shader = hexadecimal(
+            event.get("vertex_shader", ""), 16, "vertex shader"
+        )
         if key in seen:
             raise ValueError("duplicate track prepared layout key")
         seen.add(key)
@@ -171,6 +175,11 @@ def build(events, requested_session=None):
         if not calls or first_frame > last_frame:
             raise ValueError("invalid track prepared layout lifetime")
         entry_calls += calls
+        shader_item = vertex_shader_frequency.setdefault(
+            vertex_shader, {"layouts": 0, "calls": 0}
+        )
+        shader_item["layouts"] += 1
+        shader_item["calls"] += calls
         vertex = parse_float_constants(event, "vertex_float_constants")
         pixel = parse_float_constants(event, "pixel_float_constants")
         if integer(event, "vertex_float_constant_count") != len(vertex):
@@ -189,6 +198,7 @@ def build(events, requested_session=None):
             candidate_runs.append(
                 {
                     "layout_key": key,
+                    "vertex_shader": vertex_shader,
                     "calls": calls,
                     "start_register": run[0],
                     "end_register": run[-1],
@@ -251,6 +261,10 @@ def build(events, requested_session=None):
             "vertex": frequency_rows(vertex_frequency),
             "pixel": frequency_rows(pixel_frequency),
         },
+        "vertex_shader_layout_frequency": [
+            {"vertex_shader": shader, **vertex_shader_frequency[shader]}
+            for shader in sorted(vertex_shader_frequency)
+        ],
         "vertex_consecutive_register_runs": candidate_runs,
         "qualification": {
             "exact_track_prepared_layouts_proved": not failures,

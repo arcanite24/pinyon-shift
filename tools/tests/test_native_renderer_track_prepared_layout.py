@@ -33,6 +33,7 @@ def fixture():
     entry = event(
         MODULE.ENTRY,
         layout_key="0123456789ABCDEF",
+        vertex_shader="1111222233334444",
         track_render_root="10000000",
         track_render_child="10000010",
         track_render_descriptor="10000020",

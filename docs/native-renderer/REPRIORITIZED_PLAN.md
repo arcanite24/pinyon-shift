@@ -480,6 +480,16 @@ run is deliberately batched until this census and its offline analyzer can
 answer that concrete transform-layout question. See
 [`TRACK_WORLD_PREPARED_LAYOUT.md`](TRACK_WORLD_PREPARED_LAYOUT.md).
 
+Catalog-correlation checkpoint: a second payload-free classifier now tests
+every four-register vertex-constant window against the existing 24,025-entry
+title-authored spatial catalog under both plausible matrix conventions. It
+groups evidence by exact vertex shader and starting register, requires at least
+eight distinct unambiguous positions including a collision prop, rejects any
+unmatched layout in the group, and requires exactly one qualifying mapping.
+This is ready before the batched capture, so that run can either prove one
+concrete transform contract or close the constant-window lead without another
+instrumentation cycle.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

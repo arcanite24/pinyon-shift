@@ -48,6 +48,23 @@ accounting, boundedness, table capacity, and per-entry call totals. It also
 lists vertex/pixel float-constant register frequency and maximal runs of at
 least four consecutive finite vertex registers.
 
+The checked-in catalog classifier then evaluates every four-register window
+under both plausible title matrix conventions:
+
+```powershell
+python tools/classify-native-renderer-track-prepared-transforms.py `
+  --prepared .local/qualification/native-renderer-track-prepared-layout.json `
+  --catalog .local/qualification/native-renderer-static-world-instance-catalog.json `
+  --output .local/qualification/native-renderer-track-prepared-transforms.json
+```
+
+Candidates are grouped by exact vertex shader, starting constant register, and
+matrix convention. A group passes only when every observed layout maps to one
+unambiguous catalog position, at least eight distinct catalog instances match,
+at least one is a collision prop, and exactly one group satisfies the whole
+contract. Shader similarity, frequency, near misses, and duplicate catalog
+positions cannot qualify it.
+
 These runs are candidates, not transforms. C1 advances only after recurring
 runs are compared across changed camera/vehicle poses and matched to the static
 world transform catalog without ambiguity. Until then, terrain/road identity,
