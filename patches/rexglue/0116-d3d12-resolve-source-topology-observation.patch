@@ -1,0 +1,86 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index 1169a00..f6a5b9f 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -154,6 +154,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+   ApplyIsolatedReplayFrameAccumulator(
+       uint64_t frame_sequence,
+       const system::GraphicsNativeFrameAccumulatorRequest& request);
++  void PopulateCopySourceTopology(
++      system::GraphicsCopyObservation& observation) const;
+ 
+   struct IsolatedReplayPreviewSource {
+     ID3D12Resource* resource = nullptr;
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 1efdd87..82ccea8 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -354,6 +354,16 @@ struct GraphicsCopyObservation {
+   uint32_t surface_info = 0;
+   uint32_t color_info[4] = {};
+   uint32_t depth_info = 0;
++  uint32_t source_resource_width = 0;
++  uint32_t source_resource_height = 0;
++  uint32_t source_resource_format = 0;
++  uint32_t source_sample_count = 0;
++  uint32_t source_sample_quality = 0;
++  uint32_t source_guest_msaa_samples = 0;
++  uint32_t draw_resolution_scale_x = 0;
++  uint32_t draw_resolution_scale_y = 0;
++  bool source_target_available = false;
++  bool native_2x_msaa = false;
+   bool succeeded = false;
+ };
+ 
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 1bd6b34..e7a5b76 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -4496,6 +4496,7 @@ bool D3D12CommandProcessor::IssueCopy() {
+           (*register_file_)[reg::RB_COLOR_INFO::rt_register_indices[i]];
+     }
+     observation.depth_info = register_file_->Get<reg::RB_DEPTH_INFO>().value;
++    render_target_cache_->PopulateCopySourceTopology(observation);
+     observation.succeeded = copy_succeeded;
+     if (copy_observer) {
+       copy_observer(observation);
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 4383dd6..6618e9a 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -2929,6 +2929,35 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+   return result;
+ }
+ 
++void D3D12RenderTargetCache::PopulateCopySourceTopology(
++    system::GraphicsCopyObservation& observation) const {
++  observation.draw_resolution_scale_x = draw_resolution_scale_x();
++  observation.draw_resolution_scale_y = draw_resolution_scale_y();
++  observation.native_2x_msaa = msaa_2x_supported();
++  if (GetPath() != Path::kHostRenderTargets) {
++    return;
++  }
++  const uint32_t copy_source = observation.rb_copy_control & 7;
++  RenderTarget* const* guest_targets =
++      last_update_accumulated_render_targets();
++  RenderTarget* source_target =
++      copy_source < 4 ? guest_targets[1 + copy_source] : guest_targets[0];
++  if (!source_target) {
++    return;
++  }
++  const auto* d3d12_source =
++      static_cast<const D3D12RenderTarget*>(source_target);
++  const D3D12_RESOURCE_DESC source_desc = d3d12_source->resource()->GetDesc();
++  observation.source_resource_width = uint32_t(source_desc.Width);
++  observation.source_resource_height = source_desc.Height;
++  observation.source_resource_format = uint32_t(source_desc.Format);
++  observation.source_sample_count = source_desc.SampleDesc.Count;
++  observation.source_sample_quality = source_desc.SampleDesc.Quality;
++  observation.source_guest_msaa_samples =
++      uint32_t(1) << uint32_t(source_target->key().msaa_samples);
++  observation.source_target_available = true;
++}
++
+ void D3D12RenderTargetCache::EndIsolatedReplayTarget(
+     uint64_t frame_sequence, bool defer_preview_publication_until_swap,
+     bool depth_only_target, bool frame_accumulator_source) {
