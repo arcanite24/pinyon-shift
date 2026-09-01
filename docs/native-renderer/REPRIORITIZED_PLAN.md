@@ -967,6 +967,17 @@ procedural workset retains this contract in its bounded summary. This creates a
 direct replay-versus-resolve comparison before any 2x replay or output gate is
 widened; Xenos remains authoritative and suppression remains disabled.
 
+Scaled-layout implementation checkpoint: a backend-neutral, checked-arithmetic
+contract now reconciles each logical accumulator transition with the exact live
+resolve target, guest and physical source rectangles, draw scale, destination
+mapping, and sample selection. At 2x the three proved chunks map to destination
+rows `0`, `512`, and `1024`; the final chunk copies 416 physical source rows
+from source origin and preserves 32 separate padding rows in the 1472-row
+storage allocation. A destination-row source crop, target mismatch, missing
+topology, non-averaging sample selection, or arithmetic overflow fails closed.
+The bounded census reports the resulting physical plan, but backend copying is
+not admitted yet and the prototype compatibility gate remains 1x1.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

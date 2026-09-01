@@ -34,6 +34,37 @@ nr::ProceduralResolveCopy Copy(uint32_t address, uint32_t length,
           .written_length = length};
 }
 
+nr::ProceduralFrameAccumulatorSourceTopology Topology(
+    uint32_t guest_height, uint32_t scale = 2) {
+  return {.resource_width = 1280 * scale,
+          .resource_height = 512 * scale,
+          .host_sample_count = 4,
+          .guest_msaa_samples = 4,
+          .draw_scale_x = scale,
+          .draw_scale_y = scale,
+          .target_base_tiles = 0,
+          .target_pitch_tiles = 32,
+          .resolve_base_tiles = 0,
+          .resolve_pitch_tiles = 32,
+          .resolve_guest_msaa_samples = 4,
+          .source_guest_x = 0,
+          .source_guest_y = 0,
+          .source_guest_width = 1280,
+          .source_guest_height = guest_height,
+          .source_physical_x = 0,
+          .source_physical_y = 0,
+          .source_physical_width = 1280 * scale,
+          .source_physical_height = guest_height * scale,
+          .destination_x = 0,
+          .destination_y = 0,
+          .destination_pitch = 1280,
+          .destination_height = 736,
+          .sample_select = 6,
+          .source_available = true,
+          .resolve_info_valid = true,
+          .native_2x_msaa = true};
+}
+
 }  // namespace
 
 int main() {
@@ -62,6 +93,62 @@ int main() {
               third.logical_row_count == 208 &&
               third.padded_height == 736 && third.chunk_count == 3,
           "the final chunk must commit 720 logical and 736 stored rows");
+
+  const auto first_layout =
+      nr::BuildProceduralFrameAccumulatorPhysicalLayout(first, Topology(256));
+  Require(first_layout.ready() && first_layout.output_width == 2560 &&
+              first_layout.output_logical_height == 1440 &&
+              first_layout.output_storage_height == 1472 &&
+              first_layout.destination_row == 0 &&
+              first_layout.destination_copy_rows == 512 &&
+              first_layout.padding_rows == 0 &&
+              first_layout.source_width == 2560 &&
+              first_layout.source_height == 512,
+          "the first 2x resolve must map exactly into physical rows");
+  const auto second_layout =
+      nr::BuildProceduralFrameAccumulatorPhysicalLayout(second, Topology(256));
+  Require(second_layout.ready() && second_layout.destination_row == 512 &&
+              second_layout.output_storage_height == 1472 &&
+              second_layout.destination_copy_rows == 512,
+          "the second 2x resolve must append after the first physical rows");
+  const auto third_layout =
+      nr::BuildProceduralFrameAccumulatorPhysicalLayout(third, Topology(208));
+  Require(third_layout.ready() && third_layout.destination_row == 1024 &&
+              third_layout.output_logical_height == 1440 &&
+              third_layout.output_storage_height == 1472 &&
+              third_layout.destination_copy_rows == 416 &&
+              third_layout.destination_storage_rows == 448 &&
+              third_layout.padding_rows == 32 &&
+              third_layout.source_y == 0 && third_layout.source_height == 416,
+          "the final 2x resolve must preserve logical rows and padded storage");
+
+  auto wrong_target = Topology(256);
+  wrong_target.resolve_pitch_tiles = 31;
+  Require(nr::BuildProceduralFrameAccumulatorPhysicalLayout(first,
+                                                             wrong_target)
+                  .status == nr::ProceduralFrameAccumulatorLayoutStatus::
+                                 kTargetMismatch,
+          "a different resolve target must fail closed");
+  auto wrong_crop = Topology(256);
+  wrong_crop.source_physical_y = 512;
+  Require(nr::BuildProceduralFrameAccumulatorPhysicalLayout(first, wrong_crop)
+                  .status == nr::ProceduralFrameAccumulatorLayoutStatus::
+                                 kRegionMismatch,
+          "a destination-row source crop must fail against resolve origin");
+  auto wrong_samples = Topology(256);
+  wrong_samples.sample_select = 0;
+  Require(nr::BuildProceduralFrameAccumulatorPhysicalLayout(first,
+                                                             wrong_samples)
+                  .status == nr::ProceduralFrameAccumulatorLayoutStatus::
+                                 kUnsupportedSamples,
+          "a non-averaging sample selection must remain unsupported");
+  auto missing_topology = Topology(256);
+  missing_topology.resolve_info_valid = false;
+  Require(nr::BuildProceduralFrameAccumulatorPhysicalLayout(first,
+                                                             missing_topology)
+                  .status == nr::ProceduralFrameAccumulatorLayoutStatus::
+                                 kMissingTopology,
+          "missing resolve geometry must fail closed");
   Require(!planner.Flush().actionable(),
           "a committed frame must not be cancelled at shutdown");
 
