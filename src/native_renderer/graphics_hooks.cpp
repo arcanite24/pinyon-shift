@@ -244,6 +244,8 @@ constexpr uint32_t kTrackPvsZoneObjectVtable = 0x82144DE0;
 constexpr uint32_t kTrackPvsZoneResourceVtable = 0x82144E64;
 constexpr size_t kTrackWorldResourceIdentityCapacity = 16;
 constexpr size_t kTrackWorldResourceGraphCacheCapacity = 1024;
+constexpr size_t kTrackWorldPointeePrefixWords = 16;
+constexpr size_t kTrackWorldPointeeIdentityCount = 14;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -2638,6 +2640,14 @@ std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_identity_relations{};
 std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_shared_identity_relations{};
+std::atomic<uint64_t> g_track_world_pointee_graph_samples{};
+std::atomic<uint64_t> g_track_world_pointee_direct_hits{};
+std::atomic<uint64_t> g_track_world_pointee_nested_hits{};
+std::atomic<uint64_t> g_track_world_pointee_host_unmapped_rejections{};
+std::array<std::atomic<uint64_t>, kTrackWorldPointeeIdentityCount>
+    g_track_world_pointee_direct_identity_relations{};
+std::array<std::atomic<uint64_t>, kTrackWorldPointeeIdentityCount>
+    g_track_world_pointee_nested_identity_relations{};
 std::atomic<uint64_t> g_static_world_scope_entries{};
 std::atomic<uint64_t> g_static_world_scope_exits{};
 std::atomic<uint64_t> g_static_world_scope_overlaps{};
@@ -3342,6 +3352,116 @@ uint32_t ClassifyTrackWorldResourceVtable(uint32_t vtable) {
   }
 }
 
+size_t ClassifyTrackWorldPointeeVtable(uint32_t vtable) {
+  switch (vtable) {
+  case kTrackModelVtable:
+    return 0;
+  case kTrackMeshVtable:
+    return 1;
+  case kTrackSubModelVtable:
+    return 2;
+  case kTrackProceduralGeometryObjectVtable:
+    return 3;
+  case kTrackProceduralGeometryResourceVtable:
+    return 4;
+  case kTrackPvsZoneObjectVtable:
+    return 5;
+  case kTrackPvsZoneResourceVtable:
+    return 6;
+  case kSimpleModelRendererVtable:
+    return 7;
+  case kSimpleModelResourceVtable:
+    return 8;
+  case kSimpleModelVtable:
+    return 9;
+  case kSimpleSubModelVtable:
+    return 10;
+  case kSimpleMeshVtable:
+    return 11;
+  case kDeferredSimpleModelRendererVtable:
+    return 12;
+  case kModelPresentationVtable:
+  case kRefCountedModelPresentationVtable:
+    return 13;
+  default:
+    return kTrackWorldPointeeIdentityCount;
+  }
+}
+
+bool TryReadTrackWorldPointeeVtable(rex::memory::Memory *memory,
+                                    uint32_t address, uint32_t &vtable) {
+  if (!address || (address & 3) ||
+      !IsReadableVehicleGuestRange(memory, address, sizeof(uint32_t))) {
+    return false;
+  }
+  size_t host_region_length = 0;
+  rex::memory::PageAccess host_access = rex::memory::PageAccess::kNoAccess;
+  void *host_address = memory->TranslateVirtual<void *>(address);
+  if (!rex::memory::QueryProtect(host_address, host_region_length,
+                                 host_access) ||
+      host_access == rex::memory::PageAccess::kNoAccess) {
+    ++g_track_world_pointee_host_unmapped_rejections;
+    return false;
+  }
+  vtable = static_cast<uint32_t>(
+      *memory->TranslateVirtual<rex::be_u32 *>(address));
+  return true;
+}
+
+template <size_t N>
+void CensusTrackWorldPointees(rex::memory::Memory *memory,
+                              const std::array<uint32_t, N> &words) {
+  ++g_track_world_pointee_graph_samples;
+  std::array<uint32_t, kTrackWorldResourceIdentityCapacity> roots{};
+  size_t root_count = 0;
+  for (uint32_t address : words) {
+    uint32_t vtable = 0;
+    if (!TryReadTrackWorldPointeeVtable(memory, address, vtable)) {
+      continue;
+    }
+    const size_t identity = ClassifyTrackWorldPointeeVtable(vtable);
+    if (identity != kTrackWorldPointeeIdentityCount) {
+      ++g_track_world_pointee_direct_hits;
+      ++g_track_world_pointee_direct_identity_relations[identity];
+    }
+    if (root_count >= roots.size() ||
+        std::find(roots.begin(), roots.begin() + root_count, address) !=
+            roots.begin() + root_count) {
+      continue;
+    }
+    roots[root_count++] = address;
+  }
+  for (size_t root_index = 0; root_index < root_count; ++root_index) {
+    const uint32_t root = roots[root_index];
+    if (root > UINT32_MAX -
+                   uint32_t((kTrackWorldPointeePrefixWords - 1) *
+                            sizeof(uint32_t))) {
+      continue;
+    }
+    for (size_t word_index = 0; word_index < kTrackWorldPointeePrefixWords;
+         ++word_index) {
+      const uint32_t field_address =
+          root + uint32_t(word_index * sizeof(uint32_t));
+      uint32_t nested_address = 0;
+      if (!TryReadTrackWorldPointeeVtable(memory, field_address,
+                                         nested_address)) {
+        continue;
+      }
+      uint32_t nested_vtable = 0;
+      if (!TryReadTrackWorldPointeeVtable(memory, nested_address,
+                                         nested_vtable)) {
+        continue;
+      }
+      const size_t identity = ClassifyTrackWorldPointeeVtable(nested_vtable);
+      if (identity == kTrackWorldPointeeIdentityCount) {
+        continue;
+      }
+      ++g_track_world_pointee_nested_hits;
+      ++g_track_world_pointee_nested_identity_relations[identity];
+    }
+  }
+}
+
 void AddTrackWorldResourceReference(
     TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
     uint32_t identity) {
@@ -3424,6 +3544,8 @@ void PopulateTrackWorldResourceGraph(
     };
     ScanTrackWorldResourcePointers(memory, child_words, entry);
     ScanTrackWorldResourcePointers(memory, descriptor_words, entry);
+    CensusTrackWorldPointees(memory, child_words);
+    CensusTrackWorldPointees(memory, descriptor_words);
   }
   TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
   scope.world_resource_identity_mask = entry.identity_mask;
@@ -12555,6 +12677,61 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_track_world_resource_graph_host_unmapped_rejections.load(
                 std::memory_order_relaxed))},
+       {"world_pointee_graph_samples",
+        std::to_string(g_track_world_pointee_graph_samples.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_direct_hits",
+        std::to_string(g_track_world_pointee_direct_hits.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_nested_hits",
+        std::to_string(g_track_world_pointee_nested_hits.load(
+            std::memory_order_relaxed))},
+       {"world_pointee_host_unmapped_rejections",
+        std::to_string(
+            g_track_world_pointee_host_unmapped_rejections.load(
+                std::memory_order_relaxed))},
+       {"world_pointee_direct_relations",
+        fmt::format(
+            "track_model={};track_mesh={};track_submodel={};"
+            "procedural_object={};procedural_resource={};pvs_object={};"
+            "pvs_resource={};simple_renderer={};simple_resource={};"
+            "simple_model={};simple_submodel={};simple_mesh={};"
+            "deferred_renderer={};model_presentation={}",
+            g_track_world_pointee_direct_identity_relations[0].load(),
+            g_track_world_pointee_direct_identity_relations[1].load(),
+            g_track_world_pointee_direct_identity_relations[2].load(),
+            g_track_world_pointee_direct_identity_relations[3].load(),
+            g_track_world_pointee_direct_identity_relations[4].load(),
+            g_track_world_pointee_direct_identity_relations[5].load(),
+            g_track_world_pointee_direct_identity_relations[6].load(),
+            g_track_world_pointee_direct_identity_relations[7].load(),
+            g_track_world_pointee_direct_identity_relations[8].load(),
+            g_track_world_pointee_direct_identity_relations[9].load(),
+            g_track_world_pointee_direct_identity_relations[10].load(),
+            g_track_world_pointee_direct_identity_relations[11].load(),
+            g_track_world_pointee_direct_identity_relations[12].load(),
+            g_track_world_pointee_direct_identity_relations[13].load())},
+       {"world_pointee_nested_relations",
+        fmt::format(
+            "track_model={};track_mesh={};track_submodel={};"
+            "procedural_object={};procedural_resource={};pvs_object={};"
+            "pvs_resource={};simple_renderer={};simple_resource={};"
+            "simple_model={};simple_submodel={};simple_mesh={};"
+            "deferred_renderer={};model_presentation={}",
+            g_track_world_pointee_nested_identity_relations[0].load(),
+            g_track_world_pointee_nested_identity_relations[1].load(),
+            g_track_world_pointee_nested_identity_relations[2].load(),
+            g_track_world_pointee_nested_identity_relations[3].load(),
+            g_track_world_pointee_nested_identity_relations[4].load(),
+            g_track_world_pointee_nested_identity_relations[5].load(),
+            g_track_world_pointee_nested_identity_relations[6].load(),
+            g_track_world_pointee_nested_identity_relations[7].load(),
+            g_track_world_pointee_nested_identity_relations[8].load(),
+            g_track_world_pointee_nested_identity_relations[9].load(),
+            g_track_world_pointee_nested_identity_relations[10].load(),
+            g_track_world_pointee_nested_identity_relations[11].load(),
+            g_track_world_pointee_nested_identity_relations[12].load(),
+            g_track_world_pointee_nested_identity_relations[13].load())},
        {"world_resource_shared_identity_joins",
         std::to_string(g_track_world_resource_shared_identity_joins.load(
             std::memory_order_relaxed))},
