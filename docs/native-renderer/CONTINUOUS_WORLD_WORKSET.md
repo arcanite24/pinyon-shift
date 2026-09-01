@@ -98,6 +98,12 @@ mode. A draw reuses the private target only when that identity is unchanged;
 an in-frame target-family transition begins a newly seeded private target and
 is reported as a reseed. This prevents sky/world retention from being reused as
 the procedural producer's target while preserving consecutive producer draws.
+Exact procedural replay requests additionally carry a one-consumer ownership
+tag into ReXGlue. Each accumulator append requires and consumes that same-frame
+tag; a sky, track, static-world, or otherwise unmarked private replay reports
+`unqualified_source` and cannot enter the procedural accumulator. This closes
+source provenance without reading guest payloads or retaining Xenos output as
+native content.
 When exact track-world selection is armed, accepted requests and provider-only
 identity exclusions are reported separately as `track_world_requests` and
 `track_world_identity_exclusions`.

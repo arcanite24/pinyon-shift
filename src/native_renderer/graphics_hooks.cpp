@@ -11302,7 +11302,7 @@ uint64_t g_procedural_frame_accumulator_qualified_resolve_arms = 0;
 std::array<uint64_t, 2>
     g_procedural_frame_accumulator_qualified_resolve_source_modes{};
 bool g_procedural_frame_accumulator_backend_armed = false;
-std::array<uint64_t, 6> g_procedural_frame_accumulator_backend_statuses{};
+std::array<uint64_t, 7> g_procedural_frame_accumulator_backend_statuses{};
 uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
@@ -17455,6 +17455,8 @@ const char *ProceduralFrameAccumulatorBackendStatusName(
       return "unsupported_target";
     case Status::kAllocationFailed:
       return "allocation_failed";
+    case Status::kUnqualifiedSource:
+      return "unqualified_source";
   }
   return "unknown";
 }
@@ -17463,7 +17465,9 @@ void CompleteProceduralFrameAccumulatorBackend(
     const rex::system::GraphicsNativeFrameAccumulatorResult &result) {
   const uint32_t status = static_cast<uint32_t>(result.status);
   if (result.status ==
-      rex::system::GraphicsNativeFrameAccumulatorStatus::kUnavailable) {
+          rex::system::GraphicsNativeFrameAccumulatorStatus::kUnavailable ||
+      result.status == rex::system::GraphicsNativeFrameAccumulatorStatus::
+                           kUnqualifiedSource) {
     g_procedural_frame_accumulator_backend_unavailable_frame =
         result.frame_sequence;
   }
@@ -18183,6 +18187,8 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(g_procedural_frame_accumulator_backend_statuses[4])},
        {"allocation_failed",
         std::to_string(g_procedural_frame_accumulator_backend_statuses[5])},
+       {"unqualified_source",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[6])},
        {"detail_events",
         std::to_string(
             g_procedural_frame_accumulator_backend_detail_count)},
@@ -27767,6 +27773,7 @@ void RequestIsolatedDraw(
     request.retain_target = true;
     request.reuse_target = reuse_target;
     request.defer_preview_publication_until_swap = true;
+    request.frame_accumulator_source = exact_procedural_color_producer;
     request.frame_sequence = g_isolated_draw.frame;
     request.reference_marker_requested = true;
     request.completion = &CompleteContinuousWorldWorksetReplay;

@@ -888,6 +888,14 @@ identity; target-family transitions reseed a private target, and only identical
 consecutive attachments reuse it. This is a correctness repair for continuous
 procedural accumulation, not a relaxation of native authority gates.
 
+Accumulator-source ownership checkpoint: the exact `82417BC0` replay request
+now tags its completed private color target for one same-frame accumulator
+append. ReXGlue consumes the tag on successful use and reports a distinct
+`unqualified_source` result when the latest private replay belongs to any other
+family. This prevents a later sky/world replay from becoming procedural input
+merely because it is the most recent retained target; no Xenos content is
+accepted as a native source.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
