@@ -10066,6 +10066,9 @@ struct ContinuousWorldWorksetState {
   uint64_t track_world_requests = 0;
   uint64_t procedural_color_producer_candidates = 0;
   uint64_t procedural_color_producer_requests = 0;
+  uint64_t procedural_color_producer_target_failures = 0;
+  std::array<uint64_t, 13> target_failure_reasons{};
+  std::array<uint64_t, 13> procedural_color_target_failure_reasons{};
   uint64_t static_world_lineage_rejections = 0;
   uint64_t static_world_requests = 0;
   uint64_t per_frame_quota_yields = 0;
@@ -27064,6 +27067,19 @@ void CompleteContinuousWorldWorksetReplay(
   if (result.status == rex::system::
                            GraphicsIsolatedDrawStatus::kTargetCreationFailed) {
     ++g_continuous_world_workset.target_creation_failures;
+    const size_t failure_index = size_t(result.target_failure);
+    if (failure_index <
+        g_continuous_world_workset.target_failure_reasons.size()) {
+      ++g_continuous_world_workset.target_failure_reasons[failure_index];
+      if (g_isolated_draw.prepared_procedural_color_producer) {
+        ++g_continuous_world_workset
+              .procedural_color_target_failure_reasons[failure_index];
+      }
+    }
+    if (g_isolated_draw.prepared_procedural_color_producer) {
+      ++g_continuous_world_workset
+            .procedural_color_producer_target_failures;
+    }
   } else {
     ++g_continuous_world_workset.unsupported;
   }
@@ -27175,6 +27191,54 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
        {"procedural_color_producer_requests",
         std::to_string(
             g_continuous_world_workset.procedural_color_producer_requests)},
+       {"procedural_color_producer_target_failures",
+        std::to_string(g_continuous_world_workset
+                           .procedural_color_producer_target_failures)},
+       {"target_failure_reasons",
+        fmt::format(
+            "none={};incompatible_modes={};unsupported_path={};missing_depth={};unexpected_depth={};missing_color={};additional_color={};depth_create={};color_create={};invalid_extent={};depth_format={};retained_unavailable={};retained_mismatch={}",
+            g_continuous_world_workset.target_failure_reasons[0],
+            g_continuous_world_workset.target_failure_reasons[1],
+            g_continuous_world_workset.target_failure_reasons[2],
+            g_continuous_world_workset.target_failure_reasons[3],
+            g_continuous_world_workset.target_failure_reasons[4],
+            g_continuous_world_workset.target_failure_reasons[5],
+            g_continuous_world_workset.target_failure_reasons[6],
+            g_continuous_world_workset.target_failure_reasons[7],
+            g_continuous_world_workset.target_failure_reasons[8],
+            g_continuous_world_workset.target_failure_reasons[9],
+            g_continuous_world_workset.target_failure_reasons[10],
+            g_continuous_world_workset.target_failure_reasons[11],
+            g_continuous_world_workset.target_failure_reasons[12])},
+       {"procedural_color_target_failure_reasons",
+        fmt::format(
+            "none={};incompatible_modes={};unsupported_path={};missing_depth={};unexpected_depth={};missing_color={};additional_color={};depth_create={};color_create={};invalid_extent={};depth_format={};retained_unavailable={};retained_mismatch={}",
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[0],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[1],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[2],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[3],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[4],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[5],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[6],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[7],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[8],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[9],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[10],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[11],
+            g_continuous_world_workset
+                .procedural_color_target_failure_reasons[12])},
        {"static_world_lineage_rejections",
         std::to_string(
             g_continuous_world_workset.static_world_lineage_rejections)},

@@ -128,6 +128,9 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("track_world_mechanical_rejection_reasons", source)
         self.assertIn("prepared_procedural_color_producer", source)
         self.assertIn("procedural_color_producer_requests", source)
+        self.assertIn("procedural_color_producer_target_failures", source)
+        self.assertIn("procedural_color_target_failure_reasons", source)
+
         self.assertIn(
             ".track_command_lineage = exact_track_command", source
         )
@@ -172,6 +175,17 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_WORLD_WORKSET", capture
         )
+
+    def test_rexglue_reports_isolated_target_failure_detail(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0112-d3d12-isolated-target-failure-detail.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsIsolatedDrawTargetFailure", patch)
+        self.assertIn("kDepthTargetCreationFailed", patch)
+        self.assertIn("kColorTargetCreationFailed", patch)
+        self.assertIn("kRetainedTargetMismatch", patch)
+        self.assertIn("isolated_result.target_failure", patch)
 
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

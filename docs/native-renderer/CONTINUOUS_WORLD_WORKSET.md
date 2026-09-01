@@ -87,6 +87,11 @@ The exact procedural color route is reported independently as
 `procedural_color_producer_candidates` and
 `procedural_color_producer_requests`; the v8 qualifier requires at least one
 accepted request and rejects requests that exceed exact candidates.
+Target-construction failures now carry a bounded backend reason code and the
+workset summary partitions both all failures and the exact procedural subset.
+This distinguishes missing or extra guest attachments, private depth/color
+allocation failures, invalid extents or depth formats, and retained-target
+mismatches without adding payload capture or weakening Xenos fallback.
 When exact track-world selection is armed, accepted requests and provider-only
 identity exclusions are reported separately as `track_world_requests` and
 `track_world_identity_exclusions`.
