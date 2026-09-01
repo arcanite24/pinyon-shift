@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v4"
+SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v5"
 CONFIG = "native_renderer.discovery.track_render_model_runtime_join_config"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
 CHECKPOINT = (
@@ -38,6 +38,9 @@ WORLD_RELATIONS = (
 
 SHARED_WORLD_RELATIONS = tuple(
     f"shared_{relation}" for relation in WORLD_RELATIONS
+)
+NESTED_WORLD_RELATIONS = tuple(
+    f"nested_{relation}" for relation in WORLD_RELATIONS
 )
 POINTEE_RELATIONS = (
     "track_model",
@@ -173,7 +176,8 @@ def build(events, requested_session=None, allow_checkpoint=False):
             "82144E64"
         ),
         "world_resource_graph": (
-            "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+            "host_mapped_direct_or_one_level_nested_child_or_descriptor_pointer_"
+            "with_exact_track_rtti_vtable"
         ),
         "world_resource_shared_identity": (
             "exact_address_equality_to_submission_objects_or_resources"
@@ -181,7 +185,8 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "world_resource_graph_cache_capacity": "1024",
         "world_resource_reference_capacity": "16",
         "guest_payload_read": (
-            "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"
+            "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
+            "cache_miss"
         ),
     }
     if any(config.get(key) != value for key, value in expected_config.items()):
@@ -238,6 +243,7 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "scope_overlaps",
         "exit_without_entry",
         "world_resource_graph_scopes",
+        "world_resource_nested_graph_scopes",
         "world_resource_graph_cache_hits",
         "world_resource_graph_cache_misses",
         "world_resource_graph_reference_overflow",
@@ -245,6 +251,7 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "world_resource_shared_identity_joins",
         *RELATIONS,
         *WORLD_RELATIONS,
+        *NESTED_WORLD_RELATIONS,
         *SHARED_WORLD_RELATIONS,
     )
     totals = {key: integer(summary, key) for key in keys}
@@ -354,6 +361,11 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("world-resource graph cache accounting drifted")
     if totals["world_resource_graph_scopes"] > totals["exact_scopes"]:
         failures.append("world-resource graph scopes exceed exact scopes")
+    if (
+        totals["world_resource_nested_graph_scopes"]
+        > totals["world_resource_graph_scopes"]
+    ):
+        failures.append("nested world-resource scopes exceed graph scopes")
     if totals["world_resource_graph_reference_overflow"]:
         failures.append("world-resource graph reference overflow is nonzero")
     if totals["world_resource_graph_scopes"] and not any(
@@ -365,6 +377,15 @@ def build(events, requested_session=None, allow_checkpoint=False):
         for key in WORLD_RELATIONS
     ):
         failures.append("world-resource graph relation exceeds graph scopes")
+    if totals["world_resource_nested_graph_scopes"] and not any(
+        totals[key] for key in NESTED_WORLD_RELATIONS
+    ):
+        failures.append("nested world-resource relation accounting is empty")
+    if any(
+        totals[key] > totals["world_resource_nested_graph_scopes"]
+        for key in NESTED_WORLD_RELATIONS
+    ):
+        failures.append("nested world-resource relation exceeds nested scopes")
     if (
         totals["world_resource_shared_identity_joins"]
         > totals["submission_joins"]
@@ -409,6 +430,9 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "world_resource_relations": {
             key: totals[key] for key in WORLD_RELATIONS
         },
+        "nested_world_resource_relations": {
+            key: totals[key] for key in NESTED_WORLD_RELATIONS
+        },
         "shared_world_resource_relations": {
             key: totals[key] for key in SHARED_WORLD_RELATIONS
         },
@@ -425,6 +449,10 @@ def build(events, requested_session=None, allow_checkpoint=False):
             ),
             "track_world_resource_graph_identity_proved": (
                 not failures and totals["world_resource_graph_scopes"] > 0
+            ),
+            "nested_track_world_resource_graph_identity_proved": (
+                not failures
+                and totals["world_resource_nested_graph_scopes"] > 0
             ),
             "track_world_resource_to_submission_identity_proved": (
                 not failures

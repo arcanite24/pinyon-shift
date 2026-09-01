@@ -51,7 +51,8 @@ def fixture(shared=3):
             "82144E64"
         ),
         world_resource_graph=(
-            "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"
+            "host_mapped_direct_or_one_level_nested_child_or_descriptor_pointer_"
+            "with_exact_track_rtti_vtable"
         ),
         world_resource_shared_identity=(
             "exact_address_equality_to_submission_objects_or_resources"
@@ -59,7 +60,8 @@ def fixture(shared=3):
         world_resource_graph_cache_capacity="1024",
         world_resource_reference_capacity="16",
         guest_payload_read=(
-            "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"
+            "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
+            "cache_miss"
         ),
         **safety(),
     )
@@ -68,9 +70,13 @@ def fixture(shared=3):
     shared_world_relations = {
         key: "0" for key in MODULE.SHARED_WORLD_RELATIONS
     }
+    nested_world_relations = {
+        key: "0" for key in MODULE.NESTED_WORLD_RELATIONS
+    }
     if shared:
         relations["shared_descriptor_payload_bound_resource"] = str(shared)
         world_relations["world_track_mesh"] = "6"
+        nested_world_relations["nested_world_track_mesh"] = "4"
         shared_world_relations["shared_world_track_mesh"] = str(shared)
     relations["shared_command_lineage"] = "24"
     summary = event(
@@ -96,6 +102,7 @@ def fixture(shared=3):
         command_prepared_draw_joins_without_semantic_origin="15",
         shared_identity_joins=str(shared),
         world_resource_graph_scopes="6" if shared else "0",
+        world_resource_nested_graph_scopes="4" if shared else "0",
         world_resource_graph_cache_hits="8",
         world_resource_graph_cache_misses="2",
         world_resource_graph_reference_overflow="0",
@@ -114,6 +121,7 @@ def fixture(shared=3):
         classification="exact_track_scope_to_indirect_command_packet_to_prepared_draw",
         **relations,
         **world_relations,
+        **nested_world_relations,
         **shared_world_relations,
         **safety(),
     )
@@ -121,7 +129,7 @@ def fixture(shared=3):
 
 
 class TrackModelRuntimeJoinTests(unittest.TestCase):
-    def test_runtime_census_is_bounded_and_observation_only(self):
+    def test_runtime_census_promotes_only_exact_nested_track_identity(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
         )
@@ -132,7 +140,8 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         census = source.split("void CensusTrackWorldPointees", 1)[1].split(
             "void AddTrackWorldResourceReference", 1
         )[0]
-        self.assertNotIn("identity_mask", census)
+        self.assertIn("ClassifyTrackWorldResourceVtable(nested_vtable)", census)
+        self.assertIn("kTrackWorldResourceNestedPointer", census)
 
     def test_qualifies_scope_and_shared_identity(self):
         document = MODULE.build(fixture())
@@ -153,6 +162,17 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             ]
         )
         self.assertTrue(document["world_pointee_census"]["available"])
+        self.assertTrue(
+            document["qualification"][
+                "nested_track_world_resource_graph_identity_proved"
+            ]
+        )
+        self.assertEqual(
+            4,
+            document["nested_world_resource_relations"][
+                "nested_world_track_mesh"
+            ],
+        )
         self.assertEqual(
             1,
             document["world_pointee_census"]["nested_relations"][
