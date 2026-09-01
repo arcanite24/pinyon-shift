@@ -174,6 +174,13 @@ qualification, and
 restart-time fail-safe override. Missing, incomplete, or unsupported work still
 falls back to Xenos without publication or suppression.
 
+Prototype-only runs also bypass the broad candidate hash tables, prepared-shader
+catalog, and periodic draw-census serialization when the census cvar is off.
+The minimum draw/prepared/copy observers required for exact title provenance,
+resolved-input joins, continuous replay, and frame accumulation remain active.
+This removes discovery-only CPU and log work from the launcher path without
+weakening any native admission or fallback check.
+
 Run it after the combined AppData session closes:
 
 ```powershell

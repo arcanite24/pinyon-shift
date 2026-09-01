@@ -800,6 +800,11 @@ the qualified private accumulator by default, with an explicit restart-time
 environment override for fail-safe disablement. This promotes the corrected
 full-frame source into the launcher-visible prototype while preserving exact
 current-frame admission, Xenos fallback, and zero suppression/publication.
+When the explicit census cvar is off, prototype mode now skips broad candidate
+hashing, prepared-shader cataloging, and periodic census serialization while
+retaining the exact observers used by provenance, replay, and accumulation.
+This is the first focused response to the observed prototype CPU overhead; a
+batched AppData comparison remains required before claiming a measured gain.
 
 ### C2. Static world buildings and props
 
