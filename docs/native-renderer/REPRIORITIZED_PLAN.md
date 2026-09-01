@@ -744,6 +744,16 @@ and padding join without publishing or suppressing anything. Its event contract
 will ride the next substantial AppData batch rather than forcing a standalone
 long validation run.
 
+Private-accumulator planning checkpoint: the proved three-copy workset now
+produces exact backend-neutral row operations `0+256`, `256+256`, and
+`512+224`, with only 208 logical rows in the last stored chunk. The plan commits
+only at 720 logical / 736 padded rows and cancels on frame advance, target
+conflict, destination mismatch, malformed row geometry, or bounded chunk
+overflow. Runtime details are capped at 64 and final counters remain
+payload-free. This creates the fail-closed contract for the next D3D12 private
+resource slice, but performs no backend resource action, native admission,
+publication, or suppression itself.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

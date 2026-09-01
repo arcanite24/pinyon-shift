@@ -78,6 +78,15 @@ class ProceduralResolveAssemblyTests(unittest.TestCase):
         self.assertIn(
             "g_procedural_resolve_assembly_tracker.Observe", source
         )
+        self.assertIn(
+            '"native_renderer.discovery.procedural_frame_accumulator_plan"',
+            source,
+        )
+        self.assertIn(
+            '{"procedural_color_frame_accumulator_plan", '
+            '"exact_padded_rows_v1"}',
+            source,
+        )
 
     def test_qualifies_three_contiguous_resolves_as_full_frame(self):
         result = MODULE.build(fixture(), "session")
