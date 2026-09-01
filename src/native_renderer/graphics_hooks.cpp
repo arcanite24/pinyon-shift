@@ -90,6 +90,7 @@ constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
 constexpr size_t kTrackWorldPreparedLayoutCapacity = 1024;
 constexpr size_t kTrackWorldScopeSpatialCapacity = 1024;
 constexpr size_t kTrackWorldReferenceSpatialCapacity = 2048;
+constexpr size_t kTrackPresentationPreparedTargetCapacity = 256;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -1115,6 +1116,19 @@ struct TrackWorldPreparedLayoutEntry {
   rex::system::GraphicsDrawObservation sample{};
 };
 
+struct TrackPresentationPreparedTargetEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint32_t pass_mask = 0;
+  uint32_t bound_render_target_bits = 0;
+  std::array<uint32_t, 5> bound_render_target_formats{};
+  uint32_t prepared_pipeline_flags = 0;
+};
+
 struct TrackWorldScopeSpatialEntry {
   uint64_t key = 0;
   uint64_t calls = 0;
@@ -1176,6 +1190,7 @@ struct TitleIndirectPacketEntry {
   uint32_t track_render_descriptor_address = 0;
   uint32_t track_render_descriptor_payload = 0;
   uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_presentation_pass_mask = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
@@ -1204,6 +1219,7 @@ struct IndirectConstructorOrigin {
         uint32_t track_render_descriptor_address = 0;
         uint32_t track_render_descriptor_payload = 0;
         uint32_t track_world_resource_identity_mask = 0;
+        uint32_t track_presentation_pass_mask = 0;
         bool semantic_receiver_known = false;
         bool track_command_lineage = false;
         bool valid = false;
@@ -2900,6 +2916,13 @@ std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_overlaps{};
 std::array<std::atomic<uint64_t>, 4>
     g_track_presentation_pass_exit_without_entry{};
 thread_local std::array<bool, 4> g_track_presentation_pass_active{};
+thread_local std::array<bool, 4> g_track_presentation_pass_accepted{};
+std::array<TrackPresentationPreparedTargetEntry,
+           kTrackPresentationPreparedTargetCapacity>
+    g_track_presentation_prepared_targets{};
+std::atomic<uint64_t> g_track_presentation_prepared_target_observations{};
+std::atomic<uint64_t> g_track_presentation_prepared_target_overflow{};
+size_t g_track_presentation_prepared_target_count = 0;
 std::atomic<uint64_t> g_static_world_presentation_entries{};
 std::atomic<uint64_t> g_static_world_presentation_exits{};
 std::atomic<uint64_t> g_static_world_presentation_exact{};
@@ -3882,6 +3905,7 @@ void BeginTrackPresentationPass(size_t pass_index, uint32_t root_address) {
     ++g_track_presentation_pass_overlaps[pass_index];
   }
   g_track_presentation_pass_active[pass_index] = true;
+  g_track_presentation_pass_accepted[pass_index] = false;
   rex::memory::Memory *memory =
       g_command_buffer_lineage_memory.load(std::memory_order_acquire);
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
@@ -3896,6 +3920,7 @@ void BeginTrackPresentationPass(size_t pass_index, uint32_t root_address) {
     return;
   }
   ++g_track_presentation_pass_exact[pass_index];
+  g_track_presentation_pass_accepted[pass_index] = true;
 }
 
 void EndTrackPresentationPass(size_t pass_index) {
@@ -3908,6 +3933,7 @@ void EndTrackPresentationPass(size_t pass_index) {
     return;
   }
   g_track_presentation_pass_active[pass_index] = false;
+  g_track_presentation_pass_accepted[pass_index] = false;
 }
 
 void EndTrackRenderModelDispatch() {
@@ -6544,6 +6570,10 @@ void ResetTitleDrawProvenance() {
        g_track_world_prepared_layouts) {
     entry = {};
   }
+  for (TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    entry = {};
+  }
   for (TrackWorldScopeSpatialEntry &entry :
        g_track_world_scope_spatial_entries) {
     entry = {};
@@ -6596,6 +6626,7 @@ void ResetTitleDrawProvenance() {
   g_title_draw_provenance_overflow = 0;
   g_static_world_prepared_layout_count = 0;
   g_track_world_prepared_layout_count = 0;
+  g_track_presentation_prepared_target_count = 0;
   g_track_world_scope_spatial_count = 0;
   g_track_world_reference_spatial_count = 0;
   g_pending_track_world_reference_spatial = {};
@@ -6772,6 +6803,7 @@ void ResetTitleDrawProvenance() {
     }
   }
   g_track_presentation_pass_active = {};
+  g_track_presentation_pass_accepted = {};
   for (UnifiedTrackMeshTransformEntry &entry :
        g_unified_track_mesh_transforms) {
     entry.key.store(0, std::memory_order_relaxed);
@@ -6886,6 +6918,8 @@ void ResetTitleDrawProvenance() {
            &g_track_world_prepared_layout_unbounded_geometry,
            &g_track_world_prepared_layout_parameter_overflows,
            &g_track_world_prepared_layout_table_overflow,
+           &g_track_presentation_prepared_target_observations,
+           &g_track_presentation_prepared_target_overflow,
            &g_track_world_scope_spatial_observations,
            &g_track_world_scope_spatial_table_overflow,
            &g_track_world_reference_spatial_observations,
@@ -8705,6 +8739,18 @@ bool ResolveSemanticReceiver(uint32_t address, uint32_t *generation,
   return *generation != 0;
 }
 
+uint32_t CurrentTrackPresentationPassMask() {
+  uint32_t mask = 0;
+  for (size_t index = 0; index < g_track_presentation_pass_accepted.size();
+       ++index) {
+    if (g_track_presentation_pass_active[index] &&
+        g_track_presentation_pass_accepted[index]) {
+      mask |= uint32_t(1) << index;
+    }
+  }
+  return mask;
+}
+
 void PushIndirectContextOrigin(uint32_t function_address,
                                uint32_t return_address, uint32_t r3,
                                uint32_t r4, uint32_t r5, uint32_t r6,
@@ -8729,6 +8775,8 @@ void PushIndirectContextOrigin(uint32_t function_address,
   context.root_address =
       DeriveIndirectContextRoot(function_address, context.arguments);
   if (function_address == 0x824365B0) {
+    context.track_presentation_pass_mask =
+        CurrentTrackPresentationPassMask();
     g_track_render_model_context_observations.fetch_add(
         1, std::memory_order_relaxed);
     TrackRenderModelDispatchScope &track_scope =
@@ -9121,6 +9169,8 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
       origin.owner.producer.context.track_render_descriptor_payload;
   entry.track_world_resource_identity_mask =
       origin.owner.producer.context.track_world_resource_identity_mask;
+  entry.track_presentation_pass_mask =
+      origin.owner.producer.context.track_presentation_pass_mask;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
@@ -9243,6 +9293,8 @@ void ObserveIndirectBuffer(
     active.constructor_origin.owner.producer.context
         .track_world_resource_identity_mask =
         matched.track_world_resource_identity_mask;
+    active.constructor_origin.owner.producer.context
+        .track_presentation_pass_mask = matched.track_presentation_pass_mask;
     active.constructor_origin.owner.producer.context.semantic_receiver_known =
         matched.semantic_receiver_known;
     active.constructor_origin.owner.producer.context.track_command_lineage =
@@ -10881,6 +10933,7 @@ struct CommandBufferLineageEntry {
   uint32_t track_render_descriptor_address = 0;
   uint32_t track_render_descriptor_payload = 0;
   uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_presentation_pass_mask = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
@@ -13209,6 +13262,7 @@ void EmitProceduralModelSemanticSubmissions() {
 void EmitTrackWorldScopeSpatialEntries();
 void EmitTrackWorldReferenceSpatialEntries();
 void EmitTrackWorldPreparedLayoutEntries();
+void EmitTrackPresentationPreparedTargetEntries();
 
 void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
                                           bool final_summary,
@@ -13576,6 +13630,21 @@ void EmitTrackPresentationPassSummary() {
   std::array<uint64_t, 4> overlaps{};
   std::array<uint64_t, 4> exit_without_entry{};
   uint64_t total_entries = 0;
+  uint64_t prepared_target_accounted = 0;
+  for (const TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    prepared_target_accounted += entry.calls;
+  }
+  const uint64_t prepared_target_observations =
+      g_track_presentation_prepared_target_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_target_overflow =
+      g_track_presentation_prepared_target_overflow.load(
+          std::memory_order_relaxed);
+  const bool prepared_target_accounting_complete =
+      prepared_target_observations ==
+          prepared_target_accounted + prepared_target_overflow &&
+      !prepared_target_overflow;
   bool accounting_complete = true;
   for (size_t index = 0; index < entries.size(); ++index) {
     entries[index] = g_track_presentation_pass_entries[index].load(
@@ -13597,6 +13666,8 @@ void EmitTrackPresentationPassSummary() {
         entries[index] == exact[index] + invalid_root[index] &&
         !overlaps[index] && !exit_without_entry[index];
   }
+  accounting_complete =
+      accounting_complete && prepared_target_accounting_complete;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.track_presentation_pass_summary",
       {{"status", !total_entries
@@ -13629,6 +13700,13 @@ void EmitTrackPresentationPassSummary() {
        {"exit_without_entry",
         std::to_string(exit_without_entry[0] + exit_without_entry[1] +
                        exit_without_entry[2] + exit_without_entry[3])},
+       {"prepared_target_observations",
+        std::to_string(prepared_target_observations)},
+       {"prepared_target_entries",
+        std::to_string(g_track_presentation_prepared_target_count)},
+       {"prepared_target_overflow", std::to_string(prepared_target_overflow)},
+       {"prepared_target_accounting_complete",
+        prepared_target_accounting_complete ? "true" : "false"},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"classification", "unified_track_presentation_adjacent_pass_census"},
        {"guest_state_changed", "false"},
@@ -13641,6 +13719,7 @@ void EmitTrackPresentationPassSummary() {
 
 void EmitTrackRenderModelRuntimeJoinSummary() {
   EmitTrackPresentationPassSummary();
+  EmitTrackPresentationPreparedTargetEntries();
   EmitTrackWorldScopeSpatialEntries();
   EmitTrackWorldReferenceSpatialEntries();
   EmitTrackWorldPreparedLayoutEntries();
@@ -15960,6 +16039,45 @@ std::string SerializeHexWords(const std::array<uint32_t, N> &words) {
   return result;
 }
 
+void EmitTrackPresentationPreparedTargetEntries() {
+  for (const TrackPresentationPreparedTargetEntry &entry :
+       g_track_presentation_prepared_targets) {
+    if (!entry.calls) {
+      continue;
+    }
+    const std::string bound_render_target_formats = fmt::format(
+        "{}:{}:{}:{}:{}", entry.bound_render_target_formats[0],
+        entry.bound_render_target_formats[1],
+        entry.bound_render_target_formats[2],
+        entry.bound_render_target_formats[3],
+        entry.bound_render_target_formats[4]);
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_presentation_prepared_target_entry",
+        {{"entry_key", fmt::format("{:016X}", entry.key)},
+         {"pass_mask", fmt::format("{:08X}", entry.pass_mask)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"vertex_shader",
+          fmt::format("{:016X}", entry.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", entry.bound_render_target_bits)},
+         {"bound_render_target_formats", bound_render_target_formats},
+         {"prepared_pipeline_flags",
+          fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"classification",
+          "exact_unified_track_presentation_pass_to_prepared_target"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
 void EmitTrackWorldScopeSpatialEntries() {
   std::scoped_lock lock(g_track_world_scope_spatial_mutex);
   for (const TrackWorldScopeSpatialEntry &entry :
@@ -16632,6 +16750,9 @@ void RecordPreparedCommandBufferLineage(
       entry.track_world_resource_identity_mask =
           constructor_origin.owner.producer.context
               .track_world_resource_identity_mask;
+      entry.track_presentation_pass_mask =
+          constructor_origin.owner.producer.context
+              .track_presentation_pass_mask;
       entry.track_command_lineage = constructor_origin.owner.producer.context
                                         .track_command_lineage;
       entry.depth = observation.command_buffer_depth;
@@ -16663,6 +16784,9 @@ void RecordPreparedCommandBufferLineage(
         entry.track_render_root_address ==
             constructor_origin.owner.producer.context
                 .track_render_root_address &&
+        entry.track_presentation_pass_mask ==
+            constructor_origin.owner.producer.context
+                .track_presentation_pass_mask &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.semantic_preparation_epoch_varied |=
@@ -16908,6 +17032,8 @@ void EmitCommandBufferLineageSummary() {
           entry.semantic_preparation_epoch_varied ? "true" : "false"},
          {"track_command_lineage",
           entry.track_command_lineage ? "true" : "false"},
+         {"track_presentation_pass_mask",
+          fmt::format("{:08X}", entry.track_presentation_pass_mask)},
          {"track_render_root_address",
           entry.track_command_lineage
               ? fmt::format("{:08X}", entry.track_render_root_address)
@@ -18929,6 +19055,66 @@ void RecordTrackWorldPreparedLayout(
     index = (index + 1) % kTrackWorldPreparedLayoutCapacity;
   }
   g_track_world_prepared_layout_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void RecordTrackPresentationPreparedTarget(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    uint32_t pass_mask) {
+  if (!pass_mask) {
+    return;
+  }
+  g_track_presentation_prepared_target_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(pass_mask), uint64_t(prepared.bound_render_target_bits),
+        uint64_t(prepared.flags), observation.vertex_shader_hash,
+        observation.pixel_shader_hash}) {
+    key = HashCombine(key, value);
+  }
+  for (uint32_t format : prepared.bound_render_target_formats) {
+    key = HashCombine(key, format);
+  }
+  key = key ? key : 1;
+  size_t index =
+      size_t(key % kTrackPresentationPreparedTargetCapacity);
+  for (size_t probe = 0; probe < kTrackPresentationPreparedTargetCapacity;
+       ++probe) {
+    TrackPresentationPreparedTargetEntry &entry =
+        g_track_presentation_prepared_targets[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.vertex_shader_hash = observation.vertex_shader_hash;
+      entry.pixel_shader_hash = observation.pixel_shader_hash;
+      entry.pass_mask = pass_mask;
+      entry.bound_render_target_bits = prepared.bound_render_target_bits;
+      std::copy(std::begin(prepared.bound_render_target_formats),
+                std::end(prepared.bound_render_target_formats),
+                entry.bound_render_target_formats.begin());
+      entry.prepared_pipeline_flags = prepared.flags;
+      ++g_track_presentation_prepared_target_count;
+      return;
+    }
+    if (entry.key == key && entry.pass_mask == pass_mask &&
+        entry.bound_render_target_bits == prepared.bound_render_target_bits &&
+        entry.prepared_pipeline_flags == prepared.flags &&
+        entry.vertex_shader_hash == observation.vertex_shader_hash &&
+        entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        std::equal(entry.bound_render_target_formats.begin(),
+                   entry.bound_render_target_formats.end(),
+                   std::begin(prepared.bound_render_target_formats))) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      return;
+    }
+    index = (index + 1) % kTrackPresentationPreparedTargetCapacity;
+  }
+  g_track_presentation_prepared_target_overflow.fetch_add(
       1, std::memory_order_relaxed);
 }
 
@@ -21489,8 +21675,14 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const bool exact_track_command =
       active && active->constructor_origin.owner.producer.context
                     .track_command_lineage;
+  const uint32_t track_presentation_pass_mask =
+      active ? active->constructor_origin.owner.producer.context
+                   .track_presentation_pass_mask
+             : 0;
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
+  RecordTrackPresentationPreparedTarget(observation, prepared,
+                                        track_presentation_pass_mask);
   if (exact_track_command) {
     g_track_render_model_prepared_draw_joins.fetch_add(
         1, std::memory_order_relaxed);

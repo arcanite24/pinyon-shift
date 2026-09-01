@@ -41,6 +41,11 @@ class TrackPresentationPassTests(unittest.TestCase):
             '"native_renderer.discovery.track_presentation_pass_summary"',
             source,
         )
+        self.assertIn("track_presentation_pass_mask", source)
+        self.assertIn(
+            '"native_renderer.discovery.track_presentation_prepared_target_entry"',
+            source,
+        )
         self.assertIn('"native_admission", "false"', source)
         self.assertIn('"xenos_authority", "true"', source)
         self.assertIn('"suppression_allowed", "false"', source)
