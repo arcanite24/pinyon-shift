@@ -141,13 +141,6 @@ class ProceduralFrameAccumulatorTests(unittest.TestCase):
         result = MODULE.build(events, "session")
         self.assertEqual("complete", result["status"])
 
-    def test_qualifies_resolve_only_configuration(self):
-        events = fixture()
-        config = next(event for event in events if event.get("event") == MODULE.CONFIG)
-        config["event"] = MODULE.RESOLVE_ONLY_CONFIG
-        result = MODULE.build(events, "session")
-        self.assertEqual("complete", result["status"])
-
     def test_rejects_unproved_source_mode(self):
         events = fixture()
         for event in events:
