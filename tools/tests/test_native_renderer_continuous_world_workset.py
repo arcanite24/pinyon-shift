@@ -112,6 +112,10 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("prepared_track_texture_provider", source)
         self.assertIn("prepared_track_render_model_scope", source)
         self.assertIn(
+            ".track_command_lineage = exact_track_command", source
+        )
+        self.assertIn("!exact_track_world &&", source)
+        self.assertIn(
             "prepared_track_world_resource_shared_identity_mask", source
         )
         self.assertIn("prepared_static_world_exact", source)
