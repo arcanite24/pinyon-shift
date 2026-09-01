@@ -88,6 +88,7 @@ constexpr size_t kTitlePacketProvenanceCapacity = 16384;
 constexpr size_t kTitleDrawProvenanceCapacity = 4096;
 constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
 constexpr size_t kTrackWorldPreparedLayoutCapacity = 1024;
+constexpr size_t kTrackWorldScopeSpatialCapacity = 1024;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -1109,6 +1110,21 @@ struct TrackWorldPreparedLayoutEntry {
   rex::system::GraphicsDrawObservation sample{};
 };
 
+struct TrackWorldScopeSpatialEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t snapshot_hash = 0;
+  uint64_t snapshot_variations = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  std::array<uint32_t, kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+      child_words{};
+  std::array<uint32_t, kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+      descriptor_words{};
+};
+
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
@@ -1202,6 +1218,8 @@ std::array<StaticWorldPreparedLayoutEntry,
     g_static_world_prepared_layouts{};
 std::array<TrackWorldPreparedLayoutEntry, kTrackWorldPreparedLayoutCapacity>
     g_track_world_prepared_layouts{};
+std::array<TrackWorldScopeSpatialEntry, kTrackWorldScopeSpatialCapacity>
+    g_track_world_scope_spatial_entries{};
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
@@ -2705,6 +2723,10 @@ std::atomic<uint64_t>
 std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 9>
     g_track_render_model_shared_identity_relations{};
+std::mutex g_track_world_scope_spatial_mutex;
+std::atomic<uint64_t> g_track_world_scope_spatial_observations{};
+std::atomic<uint64_t> g_track_world_scope_spatial_table_overflow{};
+size_t g_track_world_scope_spatial_count = 0;
 std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
 std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
@@ -3674,6 +3696,56 @@ void PopulateTrackWorldResourceGraph(
   }
 }
 
+void RecordTrackWorldScopeSpatialSnapshot(
+    uint32_t child_address, uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words) {
+  g_track_world_scope_spatial_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
+  key = HashCombine(key, descriptor_address);
+  key = key ? key : 1;
+  uint64_t snapshot_hash = HashSemanticWords(child_words);
+  snapshot_hash = HashCombine(snapshot_hash,
+                              HashSemanticWords(descriptor_words));
+  const uint64_t frame_sequence =
+      g_frame_sequence.load(std::memory_order_relaxed);
+
+  std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+  size_t index = size_t(key % kTrackWorldScopeSpatialCapacity);
+  for (size_t probe = 0; probe < kTrackWorldScopeSpatialCapacity; ++probe) {
+    TrackWorldScopeSpatialEntry &entry =
+        g_track_world_scope_spatial_entries[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = frame_sequence;
+      entry.last_frame = frame_sequence;
+      entry.snapshot_hash = snapshot_hash;
+      entry.child_address = child_address;
+      entry.descriptor_address = descriptor_address;
+      entry.child_words = child_words;
+      entry.descriptor_words = descriptor_words;
+      ++g_track_world_scope_spatial_count;
+      return;
+    }
+    if (entry.key == key && entry.child_address == child_address &&
+        entry.descriptor_address == descriptor_address) {
+      ++entry.calls;
+      entry.last_frame = frame_sequence;
+      entry.snapshot_variations += entry.snapshot_hash != snapshot_hash ? 1 : 0;
+      return;
+    }
+    index = (index + 1) % kTrackWorldScopeSpatialCapacity;
+  }
+  g_track_world_scope_spatial_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 void BeginTrackRenderModelDispatch(uint32_t root_address) {
   ++g_track_render_model_scope_entries;
   if (g_track_render_model_scope.active) {
@@ -3728,6 +3800,8 @@ void BeginTrackRenderModelDispatch(uint32_t root_address) {
     ++g_track_render_model_scope_contract_mismatches;
     return;
   }
+  RecordTrackWorldScopeSpatialSnapshot(child_address, descriptor_address,
+                                       child_words, descriptor_words);
   g_track_render_model_scope.root_address = root_address;
   g_track_render_model_scope.child_address = child_address;
   g_track_render_model_scope.descriptor_address = descriptor_address;
@@ -6372,6 +6446,10 @@ void ResetTitleDrawProvenance() {
        g_track_world_prepared_layouts) {
     entry = {};
   }
+  for (TrackWorldScopeSpatialEntry &entry :
+       g_track_world_scope_spatial_entries) {
+    entry = {};
+  }
   for (SemanticBatchOpportunityEntry &entry :
        g_semantic_batch_opportunities) {
     entry = {};
@@ -6416,6 +6494,7 @@ void ResetTitleDrawProvenance() {
   g_title_draw_provenance_overflow = 0;
   g_static_world_prepared_layout_count = 0;
   g_track_world_prepared_layout_count = 0;
+  g_track_world_scope_spatial_count = 0;
   g_semantic_batch_observations = 0;
   g_semantic_visibility_prepared_observations = 0;
   g_semantic_visibility_prepared_selected_joins = 0;
@@ -6692,6 +6771,8 @@ void ResetTitleDrawProvenance() {
            &g_track_world_prepared_layout_unbounded_geometry,
            &g_track_world_prepared_layout_parameter_overflows,
            &g_track_world_prepared_layout_table_overflow,
+           &g_track_world_scope_spatial_observations,
+           &g_track_world_scope_spatial_table_overflow,
            &g_static_world_presentation_entries,
            &g_static_world_presentation_exits,
            &g_static_world_presentation_exact,
@@ -12897,6 +12978,7 @@ void EmitProceduralModelSemanticSubmissions() {
        {"suppression_allowed", "false"}});
 }
 
+void EmitTrackWorldScopeSpatialEntries();
 void EmitTrackWorldPreparedLayoutEntries();
 
 void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
@@ -12959,6 +13041,26 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
           prepared_layout_exact + prepared_layout_unbounded_geometry +
               prepared_layout_parameter_overflows &&
       !prepared_layout_table_overflow;
+  const uint64_t scope_spatial_observations =
+      g_track_world_scope_spatial_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t scope_spatial_table_overflow =
+      g_track_world_scope_spatial_table_overflow.load(
+          std::memory_order_relaxed);
+  uint64_t scope_spatial_accounted = 0;
+  size_t scope_spatial_entries = 0;
+  {
+    std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+    scope_spatial_entries = g_track_world_scope_spatial_count;
+    for (const TrackWorldScopeSpatialEntry &entry :
+         g_track_world_scope_spatial_entries) {
+      scope_spatial_accounted += entry.calls;
+    }
+  }
+  const bool scope_spatial_accounting_complete =
+      scope_spatial_observations ==
+          scope_spatial_accounted + scope_spatial_table_overflow &&
+      !scope_spatial_table_overflow;
   pinyon_shift::diagnostics::RecordEvent(
       event_name,
       {{"status", !entries
@@ -13017,6 +13119,14 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
          std::to_string(prepared_layout_table_overflow)},
        {"prepared_layout_accounting_complete",
          prepared_layout_accounting_complete ? "true" : "false"},
+       {"scope_spatial_observations",
+        std::to_string(scope_spatial_observations)},
+       {"scope_spatial_entries",
+        std::to_string(scope_spatial_entries)},
+       {"scope_spatial_table_overflow",
+        std::to_string(scope_spatial_table_overflow)},
+       {"scope_spatial_accounting_complete",
+        scope_spatial_accounting_complete ? "true" : "false"},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -13186,6 +13296,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
 }
 
 void EmitTrackRenderModelRuntimeJoinSummary() {
+  EmitTrackWorldScopeSpatialEntries();
   EmitTrackWorldPreparedLayoutEntries();
   EmitTrackRenderModelRuntimeJoinEvent(
       "native_renderer.discovery.track_render_model_runtime_join_summary",
@@ -15489,6 +15600,55 @@ std::string SerializeVertexAttributes(
         attribute.flags);
   }
   return result;
+}
+
+template <size_t N>
+std::string SerializeHexWords(const std::array<uint32_t, N> &words) {
+  std::string result;
+  for (uint32_t word : words) {
+    if (!result.empty()) {
+      result += ":";
+    }
+    result += fmt::format("{:08X}", word);
+  }
+  return result;
+}
+
+void EmitTrackWorldScopeSpatialEntries() {
+  std::scoped_lock lock(g_track_world_scope_spatial_mutex);
+  for (const TrackWorldScopeSpatialEntry &entry :
+       g_track_world_scope_spatial_entries) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_scope_spatial_entry",
+        {{"snapshot_key", fmt::format("{:016X}", entry.key)},
+         {"child_address", fmt::format("{:08X}", entry.child_address)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"snapshot_hash", fmt::format("{:016X}", entry.snapshot_hash)},
+         {"snapshot_variations",
+          std::to_string(entry.snapshot_variations)},
+         {"child_word_count", std::to_string(entry.child_words.size())},
+         {"child_words", SerializeHexWords(entry.child_words)},
+         {"descriptor_word_count",
+          std::to_string(entry.descriptor_words.size())},
+         {"descriptor_words", SerializeHexWords(entry.descriptor_words)},
+         {"classification", "exact_track_scope_numeric_spatial_candidate"},
+         {"guest_payload_read",
+          "bounded_validated_track_child_and_descriptor_words_only"},
+         {"plaintext_identity_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
 }
 
 void EmitTrackWorldPreparedLayoutEntries() {
@@ -28886,6 +29046,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "exact_address_equality_to_submission_objects_or_resources"},
        {"world_resource_graph_cache_capacity", "1024"},
        {"world_resource_reference_capacity", "16"},
+       {"scope_spatial_capacity",
+        std::to_string(kTrackWorldScopeSpatialCapacity)},
+       {"scope_spatial_words", "child_16_descriptor_62"},
+       {"scope_spatial_export", "numeric_words_hash_variation_only"},
        {"guest_payload_read",
         "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"},
        {"guest_state_changed", "false"},
