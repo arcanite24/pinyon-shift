@@ -246,6 +246,11 @@ constexpr size_t kTrackWorldResourceIdentityCapacity = 16;
 constexpr size_t kTrackWorldResourceGraphCacheCapacity = 1024;
 constexpr size_t kTrackWorldPointeePrefixWords = 16;
 constexpr size_t kTrackWorldPointeeIdentityCount = 14;
+constexpr uint32_t kDirectIndexedDrawEmitter = 0x82416380;
+constexpr uint32_t kUnifiedTrackMeshDrawReturn = 0x82C5B038;
+constexpr size_t kDirectIndexedDrawProducerCount = 13;
+constexpr size_t kUnifiedTrackMeshTransformCapacity = 4096;
+constexpr uint64_t kUnifiedTrackMeshTransformClaimed = UINT64_MAX;
 constexpr uint64_t kSkyHorizonAnchorSignature = UINT64_C(0x747837906D0BF484);
 constexpr uint64_t kSkyHorizonFollowerSignature = UINT64_C(0x1D253A52B55C9FB3);
 constexpr uint64_t kShadowDepthVertexShader = UINT64_C(0x4E1DA281CC3D7EDB);
@@ -575,6 +580,41 @@ struct DeferredSimpleModelTaskDispatch {
   uint32_t renderer_address = 0;
   uint32_t target_address = 0;
   bool active = false;
+};
+
+struct DirectIndexedDrawProducerSpec {
+  uint32_t return_address;
+  uint32_t producer_function;
+  const char *classification;
+};
+
+constexpr std::array<DirectIndexedDrawProducerSpec,
+                     kDirectIndexedDrawProducerCount>
+    kDirectIndexedDrawProducers{{
+        {0x823F59C8, 0x823F5980, "d3d9_device"},
+        {0x8240F020, 0x8240EE98, "navigation_map_renderer"},
+        {0x82412D90, 0x82412A28, "vector_font"},
+        {0x824131F4, 0x824131B8, "d3d9_device"},
+        {0x8243C8FC, 0x8243C050, "title_graphics_helper"},
+        {0x82473BDC, 0x82473868, "mirror_renderer"},
+        {0x82C4DC58, 0x82C4CCC8, "simple_model_renderer"},
+        {kUnifiedTrackMeshDrawReturn, 0x82C5ADC0,
+         "unified_track_presentation_mesh"},
+        {0x82C8E79C, 0x82C8E610, "livery_renderer"},
+        {0x82D841DC, 0x82D83350, "title_graphics_helper"},
+        {0x82DA154C, 0x82DA1148, "title_graphics_helper"},
+        {0x82DA1678, 0x82DA1148, "title_graphics_helper"},
+        {0x82DA1754, 0x82DA1148, "title_graphics_helper"},
+    }};
+
+struct UnifiedTrackMeshTransformEntry {
+  std::atomic<uint64_t> key{};
+  std::atomic<uint64_t> observations{};
+  std::atomic<uint64_t> last_frame{};
+  uint64_t transform_hash = 0;
+  uint64_t first_frame = 0;
+  uint32_t mesh_address = 0;
+  std::array<uint32_t, kModelPresentationTransformWordCount> transform_words{};
 };
 
 struct TitleDrawOrigin {
@@ -2827,6 +2867,22 @@ std::atomic<uint64_t> g_static_world_transform_joins{};
 std::atomic<uint64_t> g_static_world_transform_missing_joins{};
 std::atomic<uint64_t> g_static_world_transform_packet_origins{};
 std::atomic<uint64_t> g_static_world_transform_missing_packet_origins{};
+std::array<std::atomic<uint64_t>, kDirectIndexedDrawProducerCount>
+    g_direct_indexed_draw_producer_observations{};
+std::atomic<bool> g_direct_indexed_draw_producer_census_armed{};
+std::atomic<uint64_t> g_direct_indexed_draw_observations{};
+std::atomic<uint64_t> g_direct_indexed_draw_unknown_callers{};
+std::array<UnifiedTrackMeshTransformEntry,
+           kUnifiedTrackMeshTransformCapacity>
+    g_unified_track_mesh_transforms{};
+std::atomic<uint64_t> g_unified_track_mesh_observations{};
+std::atomic<uint64_t> g_unified_track_mesh_exact{};
+std::atomic<uint64_t> g_unified_track_mesh_read_faults{};
+std::atomic<uint64_t> g_unified_track_mesh_vtable_mismatches{};
+std::atomic<uint64_t> g_unified_track_mesh_nonfinite_transforms{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_collisions{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_overflow{};
+std::atomic<uint64_t> g_unified_track_mesh_transform_count{};
 std::array<SemanticBindingCacheSlot, 5> g_semantic_binding_cache_slots{};
 std::array<SemanticResolverCacheSlot, 5> g_semantic_resolver_cache_slots{};
 thread_local PendingSemanticResourceBindings g_pending_semantic_bindings{};
@@ -6243,6 +6299,8 @@ TitleDrawOrigin MakeTitleDrawOrigin(DispatchWrapper wrapper, uint32_t caller,
 }
 
 void ResetTitleDrawProvenance() {
+  g_direct_indexed_draw_producer_census_armed.store(
+      false, std::memory_order_release);
   std::scoped_lock lock(g_title_packet_provenance_mutex);
   for (TitlePacketProvenanceEntry &entry : g_title_packet_provenance) {
     entry = {};
@@ -6455,6 +6513,20 @@ void ResetTitleDrawProvenance() {
     entry.registrations.store(0, std::memory_order_relaxed);
     entry.renderer_joins.store(0, std::memory_order_relaxed);
   }
+  for (std::atomic<uint64_t> &observations :
+       g_direct_indexed_draw_producer_observations) {
+    observations.store(0, std::memory_order_relaxed);
+  }
+  for (UnifiedTrackMeshTransformEntry &entry :
+       g_unified_track_mesh_transforms) {
+    entry.key.store(0, std::memory_order_relaxed);
+    entry.observations.store(0, std::memory_order_relaxed);
+    entry.last_frame.store(0, std::memory_order_relaxed);
+    entry.transform_hash = 0;
+    entry.first_frame = 0;
+    entry.mesh_address = 0;
+    entry.transform_words = {};
+  }
   for (std::atomic<uint64_t> *counter : {
            &g_static_world_scope_entries,
            &g_static_world_scope_exits,
@@ -6579,6 +6651,16 @@ void ResetTitleDrawProvenance() {
            &g_static_world_transform_missing_joins,
            &g_static_world_transform_packet_origins,
            &g_static_world_transform_missing_packet_origins,
+           &g_direct_indexed_draw_observations,
+           &g_direct_indexed_draw_unknown_callers,
+           &g_unified_track_mesh_observations,
+           &g_unified_track_mesh_exact,
+           &g_unified_track_mesh_read_faults,
+           &g_unified_track_mesh_vtable_mismatches,
+           &g_unified_track_mesh_nonfinite_transforms,
+           &g_unified_track_mesh_transform_collisions,
+           &g_unified_track_mesh_transform_overflow,
+           &g_unified_track_mesh_transform_count,
        }) {
     counter->store(0, std::memory_order_relaxed);
   }
@@ -10794,6 +10876,137 @@ uint64_t HashCombine(uint64_t hash, uint64_t value) {
   return hash ^ value;
 }
 
+size_t DirectIndexedDrawProducerIndex(uint32_t return_address) {
+  for (size_t index = 0; index < kDirectIndexedDrawProducers.size();
+       ++index) {
+    if (kDirectIndexedDrawProducers[index].return_address == return_address) {
+      return index;
+    }
+  }
+  return kDirectIndexedDrawProducers.size();
+}
+
+void RecordUnifiedTrackMeshTransform(uint32_t mesh_address,
+                                     uint32_t transform_address) {
+  g_unified_track_mesh_observations.fetch_add(1,
+                                               std::memory_order_relaxed);
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  if (!memory || !mesh_address || !transform_address ||
+      (mesh_address & 3) || (transform_address & 3) ||
+      transform_address >
+          UINT32_MAX - kModelPresentationTransformWordCount * 4) {
+    g_unified_track_mesh_read_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+
+  uint32_t vtable = 0;
+  if (!LoadMappedGuestU32(memory, mesh_address, vtable)) {
+    g_unified_track_mesh_read_faults.fetch_add(1,
+                                               std::memory_order_relaxed);
+    return;
+  }
+  if (vtable != kTrackMeshVtable) {
+    g_unified_track_mesh_vtable_mismatches.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+
+  std::array<uint32_t, kModelPresentationTransformWordCount> words{};
+  bool finite = true;
+  for (size_t index = 0; index < words.size(); ++index) {
+    if (!LoadMappedGuestU32(memory,
+                            transform_address + uint32_t(index * 4),
+                            words[index])) {
+      g_unified_track_mesh_read_faults.fetch_add(
+          1, std::memory_order_relaxed);
+      return;
+    }
+    finite = finite && std::isfinite(std::bit_cast<float>(words[index]));
+  }
+  if (!finite) {
+    g_unified_track_mesh_nonfinite_transforms.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+
+  uint64_t transform_hash = 0xCBF29CE484222325ull;
+  for (uint32_t word : words) {
+    transform_hash = HashCombine(transform_hash, word);
+  }
+  transform_hash = transform_hash ? transform_hash : 1;
+  uint64_t key = HashCombine(transform_hash, mesh_address);
+  if (!key || key == kUnifiedTrackMeshTransformClaimed) {
+    key ^= UINT64_C(0x9E3779B97F4A7C15);
+  }
+  const uint64_t frame =
+      g_frame_sequence.load(std::memory_order_relaxed);
+  size_t table_index = size_t(key % kUnifiedTrackMeshTransformCapacity);
+  for (size_t probe = 0; probe < kUnifiedTrackMeshTransformCapacity;
+       ++probe) {
+    UnifiedTrackMeshTransformEntry &entry =
+        g_unified_track_mesh_transforms[table_index];
+    uint64_t observed = entry.key.load(std::memory_order_acquire);
+    if (!observed && entry.key.compare_exchange_strong(
+                         observed, kUnifiedTrackMeshTransformClaimed,
+                         std::memory_order_acq_rel,
+                         std::memory_order_acquire)) {
+      entry.transform_hash = transform_hash;
+      entry.first_frame = frame;
+      entry.mesh_address = mesh_address;
+      entry.transform_words = words;
+      entry.observations.store(1, std::memory_order_relaxed);
+      entry.last_frame.store(frame, std::memory_order_relaxed);
+      entry.key.store(key, std::memory_order_release);
+      g_unified_track_mesh_transform_count.fetch_add(
+          1, std::memory_order_relaxed);
+      g_unified_track_mesh_exact.fetch_add(1,
+                                           std::memory_order_relaxed);
+      return;
+    }
+    if (observed == key) {
+      if (entry.mesh_address == mesh_address &&
+          entry.transform_hash == transform_hash &&
+          entry.transform_words == words) {
+        entry.observations.fetch_add(1, std::memory_order_relaxed);
+        entry.last_frame.store(frame, std::memory_order_relaxed);
+        g_unified_track_mesh_exact.fetch_add(1,
+                                             std::memory_order_relaxed);
+        return;
+      }
+      g_unified_track_mesh_transform_collisions.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    table_index = (table_index + 1) % kUnifiedTrackMeshTransformCapacity;
+  }
+  g_unified_track_mesh_transform_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
+void ObserveDirectIndexedDrawProducer(uint32_t mesh_address,
+                                      uint32_t transform_address,
+                                      uint32_t return_address) {
+  if (!g_direct_indexed_draw_producer_census_armed.load(
+          std::memory_order_acquire)) {
+    return;
+  }
+  g_direct_indexed_draw_observations.fetch_add(1,
+                                               std::memory_order_relaxed);
+  const size_t producer_index =
+      DirectIndexedDrawProducerIndex(return_address);
+  if (producer_index == kDirectIndexedDrawProducers.size()) {
+    g_direct_indexed_draw_unknown_callers.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_direct_indexed_draw_producer_observations[producer_index].fetch_add(
+      1, std::memory_order_relaxed);
+  if (return_address == kUnifiedTrackMeshDrawReturn) {
+    RecordUnifiedTrackMeshTransform(mesh_address, transform_address);
+  }
+}
+
 uint32_t LoadSemanticGuestU32(rex::memory::Memory *memory,
                               uint32_t address) {
   return static_cast<uint32_t>(
@@ -13731,7 +13944,129 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"suppression_allowed", "false"}});
 }
 
+void EmitDirectIndexedDrawProducerSummary() {
+  uint64_t classified = 0;
+  for (size_t index = 0; index < kDirectIndexedDrawProducers.size();
+       ++index) {
+    const DirectIndexedDrawProducerSpec &producer =
+        kDirectIndexedDrawProducers[index];
+    const uint64_t observations =
+        g_direct_indexed_draw_producer_observations[index].load(
+            std::memory_order_relaxed);
+    classified += observations;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.direct_indexed_draw_producer_entry",
+        {{"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+         {"return_address", fmt::format("{:08X}", producer.return_address)},
+         {"producer_function",
+          fmt::format("{:08X}", producer.producer_function)},
+         {"classification", producer.classification},
+         {"observations", std::to_string(observations)},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  uint64_t emitted_transforms = 0;
+  for (const UnifiedTrackMeshTransformEntry &entry :
+       g_unified_track_mesh_transforms) {
+    const uint64_t key = entry.key.load(std::memory_order_acquire);
+    if (!key || key == kUnifiedTrackMeshTransformClaimed) {
+      continue;
+    }
+    ++emitted_transforms;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.unified_track_mesh_transform_entry",
+        {{"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+         {"return_address",
+          fmt::format("{:08X}", kUnifiedTrackMeshDrawReturn)},
+         {"producer_function", "82C5ADC0"},
+         {"mesh_vtable", fmt::format("{:08X}", kTrackMeshVtable)},
+         {"mesh_address", fmt::format("{:08X}", entry.mesh_address)},
+         {"transform_hash", fmt::format("{:016X}", entry.transform_hash)},
+         {"transform_words", FormatSemanticWords(entry.transform_words)},
+         {"observations",
+          std::to_string(entry.observations.load(
+              std::memory_order_relaxed))},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame",
+          std::to_string(entry.last_frame.load(std::memory_order_relaxed))},
+         {"classification", "exact_unified_track_mesh_draw_transform"},
+         {"guest_payload_read", "bounded_64_byte_live_transform"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+
+  const uint64_t observations =
+      g_direct_indexed_draw_observations.load(std::memory_order_relaxed);
+  const uint64_t unknown =
+      g_direct_indexed_draw_unknown_callers.load(std::memory_order_relaxed);
+  const uint64_t track_observations =
+      g_unified_track_mesh_observations.load(std::memory_order_relaxed);
+  const uint64_t track_exact =
+      g_unified_track_mesh_exact.load(std::memory_order_relaxed);
+  const uint64_t read_faults =
+      g_unified_track_mesh_read_faults.load(std::memory_order_relaxed);
+  const uint64_t vtable_mismatches =
+      g_unified_track_mesh_vtable_mismatches.load(
+          std::memory_order_relaxed);
+  const uint64_t nonfinite =
+      g_unified_track_mesh_nonfinite_transforms.load(
+          std::memory_order_relaxed);
+  const uint64_t overflow =
+      g_unified_track_mesh_transform_overflow.load(
+          std::memory_order_relaxed);
+  const uint64_t transform_count =
+      g_unified_track_mesh_transform_count.load(std::memory_order_relaxed);
+  const bool accounting_complete =
+      observations == classified + unknown &&
+      track_observations ==
+          track_exact + read_faults + vtable_mismatches + nonfinite +
+              overflow &&
+      transform_count == emitted_transforms;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.direct_indexed_draw_producer_summary",
+      {{"status", accounting_complete ? "complete" : "incomplete"},
+       {"emitter", fmt::format("{:08X}", kDirectIndexedDrawEmitter)},
+       {"observations", std::to_string(observations)},
+       {"classified_observations", std::to_string(classified)},
+       {"unknown_callers", std::to_string(unknown)},
+       {"producer_count", std::to_string(kDirectIndexedDrawProducerCount)},
+       {"unified_track_mesh_observations",
+        std::to_string(track_observations)},
+       {"unified_track_mesh_exact", std::to_string(track_exact)},
+       {"unified_track_mesh_read_faults", std::to_string(read_faults)},
+       {"unified_track_mesh_vtable_mismatches",
+        std::to_string(vtable_mismatches)},
+       {"unified_track_mesh_nonfinite_transforms",
+        std::to_string(nonfinite)},
+       {"unified_track_mesh_transform_entries",
+        std::to_string(transform_count)},
+       {"unified_track_mesh_transform_collisions",
+        std::to_string(g_unified_track_mesh_transform_collisions.load(
+            std::memory_order_relaxed))},
+       {"unified_track_mesh_transform_overflow", std::to_string(overflow)},
+       {"accounting_complete", accounting_complete ? "true" : "false"},
+       {"classification",
+        "bounded_exact_direct_draw_producer_and_track_mesh_transform_census"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void EmitStaticWorldRuntimeJoinSummary() {
+  EmitDirectIndexedDrawProducerSummary();
   EmitStaticWorldRuntimeJoinEvent(
       "native_renderer.discovery.static_world_runtime_join_summary", true,
       g_frame_sequence.load(std::memory_order_relaxed));
@@ -27751,6 +28086,11 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery));
   ConfigureVehicleDiscovery(census_requested, memory);
   ConfigureTitleDrawProvenance(title_provenance_requested, memory);
+  g_direct_indexed_draw_producer_census_armed.store(
+      census_requested &&
+          REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery) &&
+          memory,
+      std::memory_order_release);
   ConfigureShadowCasterProvenance(census_requested);
   const bool lineage_armed = observation_requested && memory;
   g_command_buffer_lineage_installed.store(false, std::memory_order_release);
@@ -28186,6 +28526,22 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"deferred_task_handoff_hook", "82BA61DC"},
        {"deferred_task_join",
         "exact_deferred_renderer_to_task_to_callback_target"},
+       {"direct_indexed_draw_emitter", "82416380"},
+       {"direct_indexed_draw_producer_count",
+        std::to_string(kDirectIndexedDrawProducerCount)},
+       {"direct_indexed_draw_producer_hook", "82416380:r26,r31,lr"},
+       {"direct_indexed_draw_producer_census",
+        g_direct_indexed_draw_producer_census_armed.load(
+            std::memory_order_acquire)
+            ? "armed"
+            : "disabled"},
+       {"unified_track_mesh_draw_return", "82C5B038"},
+       {"unified_track_mesh_draw_producer", "82C5ADC0"},
+       {"unified_track_mesh_vtable", "8200143C"},
+       {"unified_track_mesh_transform",
+        "live_r31_16_be_u32_at_exact_draw_entry"},
+       {"unified_track_mesh_transform_capacity",
+        std::to_string(kUnifiedTrackMeshTransformCapacity)},
        {"presentation_resource_field", "presentation_plus_148"},
        {"presentation_renderer_field", "presentation_plus_1608"},
        {"presentation_resource_join",
@@ -30475,6 +30831,11 @@ void PinyonShiftObserveStaticWorldDeferredTaskCallback(
 void PinyonShiftObserveStaticWorldDeferredTaskHandoff(
     PPCRegister &r3, PPCRegister &r11) {
   ObserveStaticWorldDeferredTaskHandoff(r3.u32, r11.u32);
+}
+
+void PinyonShiftObserveDirectIndexedDrawProducer(
+    PPCRegister &r26, PPCRegister &r31, uint64_t &lr) {
+  ObserveDirectIndexedDrawProducer(r26.u32, r31.u32, uint32_t(lr));
 }
 
 void PinyonShiftObserveStaticWorldPresentationRendererHandoff(
