@@ -11,9 +11,18 @@ import struct
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-prepared-layout.v1"
+SCHEMA = "pinyon-shift.native-renderer-track-prepared-layout.v2"
 ENTRY = "native_renderer.discovery.track_world_prepared_layout_entry"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
+TRACK_WORLD_IDENTITIES = (
+    "track_model",
+    "track_mesh",
+    "track_submodel",
+    "procedural_geometry_object",
+    "procedural_geometry_resource",
+    "pvs_zone_object",
+    "pvs_zone_resource",
+)
 
 
 def read_events(paths):
@@ -161,6 +170,11 @@ def build(events, requested_session=None):
     pixel_frequency = {}
     vertex_shader_frequency = {}
     target_shape_frequency = {}
+    nested_identity_frequency = {
+        name: {"layouts": 0, "calls": 0} for name in TRACK_WORLD_IDENTITIES
+    }
+    nested_identity_layouts = 0
+    nested_identity_calls = 0
     candidate_runs = []
     for event in entries:
         require_safety(event)
@@ -200,12 +214,39 @@ def build(events, requested_session=None):
             "track_render_descriptor_payload",
         ):
             hexadecimal(event.get(address_key, ""), 8, address_key)
+        resource_identity_mask = int(
+            hexadecimal(
+                event.get("track_world_resource_identity_mask", ""),
+                8,
+                "track world resource identity mask",
+            ),
+            16,
+        )
+        nested_identity_mask = int(
+            hexadecimal(
+                event.get("track_world_resource_nested_identity_mask", ""),
+                8,
+                "track world nested resource identity mask",
+            ),
+            16,
+        )
+        if nested_identity_mask & ~resource_identity_mask:
+            raise ValueError("nested track identity exceeds resource identity")
+        if resource_identity_mask & ~((1 << len(TRACK_WORLD_IDENTITIES)) - 1):
+            raise ValueError("unknown track world resource identity")
         calls = integer(event, "calls")
         first_frame = integer(event, "first_frame")
         last_frame = integer(event, "last_frame")
         if not calls or first_frame > last_frame:
             raise ValueError("invalid track prepared layout lifetime")
         entry_calls += calls
+        if nested_identity_mask:
+            nested_identity_layouts += 1
+            nested_identity_calls += calls
+        for bit, name in enumerate(TRACK_WORLD_IDENTITIES):
+            if nested_identity_mask & (1 << bit):
+                nested_identity_frequency[name]["layouts"] += 1
+                nested_identity_frequency[name]["calls"] += calls
         shader_item = vertex_shader_frequency.setdefault(
             vertex_shader, {"layouts": 0, "calls": 0}
         )
@@ -317,9 +358,17 @@ def build(events, requested_session=None):
                 item["bound_render_target_formats"],
             ),
         ),
+        "nested_track_world_identity": {
+            "layouts": nested_identity_layouts,
+            "calls": nested_identity_calls,
+            "relations": nested_identity_frequency,
+        },
         "vertex_consecutive_register_runs": candidate_runs,
         "qualification": {
             "exact_track_prepared_layouts_proved": not failures,
+            "nested_track_world_to_prepared_layout_proved": (
+                not failures and nested_identity_calls > 0
+            ),
             "color_target_layout_observed": any(
                 bits & 2 for bits, _ in target_shape_frequency
             ),

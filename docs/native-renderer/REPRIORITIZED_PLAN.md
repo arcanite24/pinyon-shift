@@ -668,6 +668,15 @@ without enabling native admission, suppression, or changing Xenos authority.
 Runtime qualification is intentionally deferred to the next meaningful C1
 batch.
 
+Nested prepared-lineage implementation checkpoint: nested track-resource masks
+now survive the exact context, deferred packet, active indirect buffer, and
+prepared-layout path. Prepared-layout schema v2 reports both the complete
+world-resource mask and its nested subset, then qualifies per-class nested
+identity only when the same bounded draw layout reaches a prepared draw. This
+closes the instrumentation hop needed to select exact mesh/submodel-owned C1
+layouts after the next batched run; it still changes no native admission or
+output behavior.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

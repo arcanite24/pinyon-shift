@@ -38,6 +38,8 @@ def fixture():
         track_render_child="10000010",
         track_render_descriptor="10000020",
         track_render_descriptor_payload="10000030",
+        track_world_resource_identity_mask="00000006",
+        track_world_resource_nested_identity_mask="00000006",
         calls="12",
         first_frame="100",
         last_frame="110",
@@ -87,6 +89,17 @@ class TrackPreparedLayoutTests(unittest.TestCase):
         self.assertTrue(
             document["qualification"]["color_target_layout_observed"]
         )
+        self.assertTrue(
+            document["qualification"][
+                "nested_track_world_to_prepared_layout_proved"
+            ]
+        )
+        self.assertEqual(
+            12,
+            document["nested_track_world_identity"]["relations"][
+                "track_mesh"
+            ]["calls"],
+        )
         self.assertEqual(
             "color_only", document["render_target_shape_frequency"][0]["shape"]
         )
@@ -107,6 +120,12 @@ class TrackPreparedLayoutTests(unittest.TestCase):
         self.assertIn(
             "prepared layout call accounting drifted", document["failures"]
         )
+
+    def test_rejects_nested_identity_outside_resource_mask(self):
+        events = fixture()
+        events[1]["track_world_resource_identity_mask"] = "00000002"
+        with self.assertRaisesRegex(ValueError, "nested track identity exceeds"):
+            MODULE.build(events)
 
     def test_runtime_census_is_shutdown_only_and_observation_only(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(

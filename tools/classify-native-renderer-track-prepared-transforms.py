@@ -13,7 +13,7 @@ import sys
 
 
 SCHEMA = "pinyon-shift.native-renderer-track-prepared-transform-classification.v1"
-PREPARED_SCHEMA = "pinyon-shift.native-renderer-track-prepared-layout.v1"
+PREPARED_SCHEMA = "pinyon-shift.native-renderer-track-prepared-layout.v2"
 CATALOG_SCHEMA = "pinyon-shift.native-renderer-static-world-instance-catalog.v1"
 DEFAULT_TOLERANCE = 0.05
 DEFAULT_MINIMUM_MATCHES = 8

@@ -408,3 +408,14 @@ prepared-draw lineage. It does not infer terrain or road visual identity,
 enable native admission, suppress Xenos work, or change output authority. The
 next batched AppData qualification must observe nonzero nested graph scopes
 with complete accounting before this boundary can guide isolated replay.
+
+The nested subset is also retained across deferred command construction. It is
+copied from the accepted render-model scope into the command context, packet
+provenance, active indirect buffer, command-lineage record, and bounded
+prepared-layout entry. The layout key includes both the complete resource mask
+and its nested subset so changing ownership cannot coalesce unrelated layouts.
+Track prepared-layout schema v2 reports per-class nested layout and call
+frequency and exposes a separate
+`nested_track_world_to_prepared_layout_proved` result. This is the exact gate
+for choosing the first nested mesh/submodel isolated replay candidate in the
+next AppData batch, not permission to admit or suppress it before that run.
