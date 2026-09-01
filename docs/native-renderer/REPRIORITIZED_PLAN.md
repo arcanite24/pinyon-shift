@@ -825,6 +825,15 @@ path is reverted; mode-12 ingress and the broad-census optimization remain.
 Future performance work must retain the minimal native replay producer graph
 and cannot substitute the authoritative Xenos target as native content.
 
+Minimal-producer checkpoint: ordinary census-off prototype runs now keep the
+draw, prepared-draw, indirect-lineage, draw-outcome, isolated-request, and
+private accumulator planner chain that creates native replay content. Only the
+broad dependency-census tail of the copy observer is bypassed; exact mode-3 and
+mode-12 resolve ingress and padded full-frame assembly remain armed. Explicit
+census/qualification runs retain the complete copy observer. This removes work
+that is unrelated to prototype production without repeating the invalid
+copy-only architecture, changing guest memory, or suppressing Xenos work.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

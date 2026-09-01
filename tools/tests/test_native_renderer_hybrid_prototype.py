@@ -6,6 +6,24 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererHybridPrototypeTests(unittest.TestCase):
+    def test_minimal_producer_graph_retains_native_replay_observers(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("minimal_producer_graph_requested", source)
+        self.assertIn("SetCopyObserver(&ObservePrototypeResolveCopy)", source)
+        for observer in (
+            "SetDrawObserver(&ObserveDraw)",
+            "SetPreparedDrawObserver(&ObservePreparedDraw)",
+            "SetIndirectBufferObserver(&ObserveIndirectBuffer)",
+            "SetDrawOutcomeObserver(&ObserveDrawOutcome)",
+            "SetIsolatedDrawRequestObserver(&RequestIsolatedDraw)",
+        ):
+            self.assertIn(observer, source)
+        self.assertIn('"native_replay_producer", "retained"', source)
+        self.assertIn('"xenos_draw", "preserved"', source)
+        self.assertNotIn("PublishIsolatedReplayTarget", source)
+
     def test_hybrid_selector_arms_workset_and_reports_safe_authority(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
