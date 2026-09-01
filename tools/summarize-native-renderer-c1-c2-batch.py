@@ -9,7 +9,7 @@ import sys
 
 SCHEMA = "pinyon-shift.native-renderer-c1-c2-batch.v1"
 INPUT_SCHEMAS = {
-    "track": "pinyon-shift.native-renderer-track-model-runtime-join.v3",
+    "track": "pinyon-shift.native-renderer-track-model-runtime-join.v4",
     "presentation": (
         "pinyon-shift.native-renderer-track-presentation-passes.v1"
     ),
@@ -17,7 +17,7 @@ INPUT_SCHEMAS = {
     "classification": (
         "pinyon-shift.native-renderer-static-world-instance-classification.v1"
     ),
-    "workset": "pinyon-shift.native-renderer-continuous-world-workset.v6",
+    "workset": "pinyon-shift.native-renderer-continuous-world-workset.v7",
 }
 
 

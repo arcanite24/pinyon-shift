@@ -643,6 +643,20 @@ successful presentation lineage from one expensive session. The artifact
 remains `incomplete`, records the upstream failure explicitly, and cannot
 enable native admission or suppression.
 
+Deferred-packet runtime result: clean AppData session
+`20260901T060513Z-p5744` reached the saved festival, remained visually stable,
+and exited normally. Slot 80 constructed 21 exact packets beneath the stable
+`823FDE50` adapter target; those packets produced 80 prepared draws, all on a
+1024x1024 depth-only target. Slot 79 constructed 491 packets and remained the
+known shadow family. The recovered provenance proves the bridge works and
+closes slot 80 as an opaque-world candidate for this scene. C1 now pivots to
+semantic mesh/world-section ingress instead of tracing deeper through either
+presentation shadow route. No native draw or suppression was admitted.
+
+Combined-report compatibility checkpoint: the C1/C2 join now consumes the
+current track-model v4 and continuous-workset v7 schemas. This repairs report
+composition only; every incomplete component remains fail closed.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
