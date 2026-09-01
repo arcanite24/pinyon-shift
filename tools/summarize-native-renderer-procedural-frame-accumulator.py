@@ -11,6 +11,7 @@ import sys
 
 SCHEMA = "pinyon-shift.native-renderer-procedural-frame-accumulator.v1"
 CONFIG = "native_renderer.discovery.command_buffer_lineage_config"
+RESOLVE_ONLY_CONFIG = "native_renderer.resolve_only.config"
 PLAN = "native_renderer.discovery.procedural_frame_accumulator_plan"
 PLAN_SUMMARY = (
     "native_renderer.discovery.procedural_frame_accumulator_plan_summary"
@@ -102,7 +103,11 @@ def exact_result_frames(events):
 
 
 def build(events, session):
-    configs = [event for event in events if event.get("event") == CONFIG]
+    configs = [
+        event
+        for event in events
+        if event.get("event") in (CONFIG, RESOLVE_ONLY_CONFIG)
+    ]
     plans = [event for event in events if event.get("event") == PLAN]
     plan_summaries = [event for event in events if event.get("event") == PLAN_SUMMARY]
     results = [event for event in events if event.get("event") == RESULT]
@@ -113,7 +118,7 @@ def build(events, session):
     failures = []
 
     if len(configs) != 1:
-        failures.append("expected one command-lineage config")
+        failures.append("expected one accumulator ingress config")
     elif configs[0].get("procedural_color_frame_accumulator_backend") != (
         "armed_private_d3d12_v1"
     ):

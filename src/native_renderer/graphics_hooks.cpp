@@ -67,6 +67,10 @@ bool NativePrototypeSelected() {
          mode == "comparison_native" || mode == "comparison_xenos";
 }
 
+bool NativeResolveOnlyPrototypeSelected() {
+  return REXCVAR_GET(pinyon_shift_native_renderer) == "native_prototype";
+}
+
 bool ProceduralFrameAccumulatorSelected(bool prototype_selected) {
   bool selected =
       prototype_selected ||
@@ -11298,6 +11302,7 @@ uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 bool g_graphics_census_installed = false;
 bool g_graphics_full_census_armed = false;
+bool g_graphics_resolve_only_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
 
@@ -28647,18 +28652,8 @@ void ObserveDrawOutcome(
   g_pending_candidate.valid = false;
 }
 
-void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
-  AdvanceDependencyWindow(observation.frame_sequence);
-  if (!observation.succeeded) {
-    ++g_dependency_census.window_failed_copy_count;
-    return;
-  }
-  if (!observation.written_length) {
-    ++g_dependency_census.window_zero_length_copy_count;
-    return;
-  }
-
-  const auto copy = ProceduralResolveCopyFromObservation(observation);
+void ObserveQualifiedResolveIngress(
+    const pinyon_shift::native_renderer::ProceduralResolveCopy &copy) {
   pinyon_shift::native_renderer::ProceduralResolveTarget qualified_target;
   if (g_procedural_frame_accumulator_backend_armed &&
       pinyon_shift::native_renderer::
@@ -28672,6 +28667,32 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
     EmitProceduralFrameAccumulatorTransition(
         g_procedural_frame_accumulator_planner.Arm(qualified_target));
   }
+}
+
+void ObserveResolveOnlyCopy(
+    const rex::system::GraphicsCopyObservation &observation) {
+  if (!observation.succeeded || !observation.written_length) {
+    return;
+  }
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Observe(copy));
+}
+
+void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
+  AdvanceDependencyWindow(observation.frame_sequence);
+  if (!observation.succeeded) {
+    ++g_dependency_census.window_failed_copy_count;
+    return;
+  }
+  if (!observation.written_length) {
+    ++g_dependency_census.window_zero_length_copy_count;
+    return;
+  }
+
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
   EmitProceduralResolveAssembly(
       g_procedural_resolve_assembly_tracker.Observe(copy));
   if (!g_procedural_frame_accumulator_backend_armed) {
@@ -30725,6 +30746,40 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool prototype_selected = NativePrototypeSelected();
   const bool procedural_frame_accumulator_requested =
       ProceduralFrameAccumulatorSelected(prototype_selected);
+  const bool resolve_only_requested =
+      !census_requested && NativeResolveOnlyPrototypeSelected() &&
+      procedural_frame_accumulator_requested &&
+      !g_sky_horizon_suppression.requested;
+  if (resolve_only_requested) {
+    ResetCommandBufferLineage();
+    g_native_shadow_prototype_enabled.store(false, std::memory_order_release);
+    g_native_shadow_fail_closed.store(false, std::memory_order_release);
+    g_native_shadow_publication_frame.store(UINT64_MAX,
+                                             std::memory_order_release);
+    g_procedural_frame_accumulator_backend_armed = true;
+    g_graphics_resolve_only_armed = true;
+    graphics_system->SetCopyObserver(&ObserveResolveOnlyCopy);
+    graphics_system->SetNativeFrameAccumulatorPlanner(
+        &PlanProceduralFrameAccumulatorBackend);
+    diagnostics::RecordEvent(
+        "native_renderer.resolve_only.config",
+        {{"status", "armed"},
+         {"selection", "exact_qualified_full_frame_resolve"},
+         {"source_modes", "3,12"},
+         {"draw_observer", "disabled"},
+         {"prepared_draw_observer", "disabled"},
+         {"indirect_buffer_observer", "disabled"},
+         {"draw_outcome_observer", "disabled"},
+         {"copy_observer", "exact_resolve_only"},
+         {"procedural_color_frame_accumulator_backend",
+          "armed_private_d3d12_v1"},
+         {"xenos_resolve", "preserved_and_completed_first"},
+         {"xenos_draw", "preserved"},
+         {"guest_memory_publication", "false"},
+         {"draw_suppression", "false"}});
+    EmitSkyHorizonSuppressionControl();
+    return;
+  }
   const bool observation_requested = census_requested || prototype_selected ||
                                      procedural_frame_accumulator_requested;
   const bool title_provenance_requested =
@@ -31592,6 +31647,14 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
     graphics_system->SetNativeFrameAccumulatorPlanner(nullptr);
+  }
+  if (g_graphics_resolve_only_armed) {
+    EmitProceduralColorTargetProfiles();
+    g_graphics_resolve_only_armed = false;
+    g_procedural_frame_accumulator_backend_armed = false;
+    g_graphics_full_census_armed = false;
+    g_graphics_census_memory = nullptr;
+    return;
   }
   EmitShadowCasterProvenanceSummary();
   EmitVehicleDiscoverySummary();
