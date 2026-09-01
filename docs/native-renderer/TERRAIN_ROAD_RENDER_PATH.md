@@ -385,3 +385,26 @@ explicitly `checkpoint_complete` or `checkpoint_incomplete`, records that
 session exit was not proved, and cannot serve as native-admission evidence. A
 later final summary always wins. This makes long-run crash diagnosis durable
 without weakening the clean-shutdown gate that remains required for C1.
+
+## Exact nested track-world identity
+
+The earlier bounded pointee census repeatedly observed exact `CTrackMesh` and
+`CTrackSubModel` vtables one pointer below the accepted child/descriptor graph,
+but discarded their addresses after incrementing diagnostic counters. The
+world graph now retains those addresses with explicit nested provenance.
+
+Promotion remains narrower than the diagnostic census. Only the seven exact
+RTTI-backed track, procedural-geometry, and PVS-zone classes accepted by the
+direct world-resource classifier may enter the graph. `CSimpleModelRenderer`,
+`CSimpleModelResource`, model-presentation, and the remaining SimpleModel
+family continue to be counted for investigation but cannot establish C1 track
+ownership. References are still deduplicated inside the existing 16-entry
+cache record, with overflow and host-mapping failures visible in the report.
+
+Track-model report schema v5 separates nested graph scopes and per-class
+relations from direct graph evidence. This proves where the identity came from
+while carrying the same exact object address into the established command and
+prepared-draw lineage. It does not infer terrain or road visual identity,
+enable native admission, suppress Xenos work, or change output authority. The
+next batched AppData qualification must observe nonzero nested graph scopes
+with complete accounting before this boundary can guide isolated replay.

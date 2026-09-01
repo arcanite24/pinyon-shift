@@ -654,8 +654,19 @@ semantic mesh/world-section ingress instead of tracing deeper through either
 presentation shadow route. No native draw or suppression was admitted.
 
 Combined-report compatibility checkpoint: the C1/C2 join now consumes the
-current track-model v4 and continuous-workset v7 schemas. This repairs report
+current track-model v5 and continuous-workset v7 schemas. This repairs report
 composition only; every incomplete component remains fail closed.
+
+Nested world-identity implementation checkpoint: the bounded one-level
+pointee census now retains exact RTTI-backed `CTrackModel`, `CTrackMesh`,
+`CTrackSubModel`, procedural-geometry, and PVS-zone objects in the cached
+track-world graph instead of discarding their addresses after diagnostic
+counting. Direct and nested provenance remain separately reported, and the
+broader SimpleModel-family census cannot enter this C1 graph. This carries a
+semantic track-owned resource identity into the existing command lineage
+without enabling native admission, suppression, or changing Xenos authority.
+Runtime qualification is intentionally deferred to the next meaningful C1
+batch.
 
 ### C2. Static world buildings and props
 

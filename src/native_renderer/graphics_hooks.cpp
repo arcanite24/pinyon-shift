@@ -2574,9 +2574,15 @@ enum TrackWorldResourceIdentity : uint32_t {
   kTrackWorldResourcePvsZoneResource = 1u << 6,
 };
 
+enum TrackWorldResourceProvenance : uint32_t {
+  kTrackWorldResourceDirectPointer = 1u << 0,
+  kTrackWorldResourceNestedPointer = 1u << 1,
+};
+
 struct TrackWorldResourceReference {
   uint32_t address = 0;
   uint32_t identity = 0;
+  uint32_t provenance = 0;
 };
 
 struct TrackWorldResourceGraphCacheEntry {
@@ -2584,6 +2590,7 @@ struct TrackWorldResourceGraphCacheEntry {
   uint32_t child_address = 0;
   uint32_t descriptor_address = 0;
   uint32_t identity_mask = 0;
+  uint32_t nested_identity_mask = 0;
   uint32_t reference_count = 0;
   std::array<TrackWorldResourceReference,
              kTrackWorldResourceIdentityCapacity>
@@ -2599,6 +2606,7 @@ struct TrackRenderModelDispatchScope {
   uint32_t descriptor_payload = 0;
   uint32_t shared_identity_mask = 0;
   uint32_t world_resource_identity_mask = 0;
+  uint32_t world_resource_nested_identity_mask = 0;
   uint32_t world_resource_shared_identity_mask = 0;
   uint32_t world_resource_reference_count = 0;
   std::array<TrackWorldResourceReference,
@@ -2805,9 +2813,12 @@ std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
 std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
 std::atomic<uint64_t> g_track_world_resource_graph_host_unmapped_rejections{};
 std::atomic<uint64_t> g_track_world_resource_graph_scopes{};
+std::atomic<uint64_t> g_track_world_resource_nested_graph_scopes{};
 std::atomic<uint64_t> g_track_world_resource_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_identity_relations{};
+std::array<std::atomic<uint64_t>, 7>
+    g_track_world_resource_nested_identity_relations{};
 std::array<std::atomic<uint64_t>, 7>
     g_track_world_resource_shared_identity_relations{};
 std::atomic<uint64_t> g_track_world_pointee_graph_samples{};
@@ -3664,9 +3675,14 @@ bool TryReadTrackWorldPointeeVtable(rex::memory::Memory *memory,
   return true;
 }
 
+void AddTrackWorldResourceReference(
+    TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
+    uint32_t identity, uint32_t provenance);
+
 template <size_t N>
 void CensusTrackWorldPointees(rex::memory::Memory *memory,
-                              const std::array<uint32_t, N> &words) {
+                              const std::array<uint32_t, N> &words,
+                              TrackWorldResourceGraphCacheEntry &entry) {
   ++g_track_world_pointee_graph_samples;
   std::array<uint32_t, kTrackWorldResourceIdentityCapacity> roots{};
   size_t root_count = 0;
@@ -3714,13 +3730,20 @@ void CensusTrackWorldPointees(rex::memory::Memory *memory,
       }
       ++g_track_world_pointee_nested_hits;
       ++g_track_world_pointee_nested_identity_relations[identity];
+      const uint32_t track_identity =
+          ClassifyTrackWorldResourceVtable(nested_vtable);
+      if (track_identity) {
+        entry.nested_identity_mask |= track_identity;
+        AddTrackWorldResourceReference(entry, nested_address, track_identity,
+                                       kTrackWorldResourceNestedPointer);
+      }
     }
   }
 }
 
 void AddTrackWorldResourceReference(
     TrackWorldResourceGraphCacheEntry &entry, uint32_t address,
-    uint32_t identity) {
+    uint32_t identity, uint32_t provenance) {
   if (!address || !identity) {
     return;
   }
@@ -3728,6 +3751,7 @@ void AddTrackWorldResourceReference(
   for (size_t index = 0; index < entry.reference_count; ++index) {
     if (entry.references[index].address == address) {
       entry.references[index].identity |= identity;
+      entry.references[index].provenance |= provenance;
       return;
     }
   }
@@ -3738,6 +3762,7 @@ void AddTrackWorldResourceReference(
   entry.references[entry.reference_count++] = {
       .address = address,
       .identity = identity,
+      .provenance = provenance,
   };
 }
 
@@ -3762,7 +3787,8 @@ void ScanTrackWorldResourcePointers(
     const uint32_t identity = ClassifyTrackWorldResourceVtable(
         static_cast<uint32_t>(
             *memory->TranslateVirtual<rex::be_u32 *>(address)));
-    AddTrackWorldResourceReference(entry, address, identity);
+    AddTrackWorldResourceReference(entry, address, identity,
+                                   kTrackWorldResourceDirectPointer);
   }
 }
 
@@ -3800,11 +3826,12 @@ void PopulateTrackWorldResourceGraph(
     };
     ScanTrackWorldResourcePointers(memory, child_words, entry);
     ScanTrackWorldResourcePointers(memory, descriptor_words, entry);
-    CensusTrackWorldPointees(memory, child_words);
-    CensusTrackWorldPointees(memory, descriptor_words);
+    CensusTrackWorldPointees(memory, child_words, entry);
+    CensusTrackWorldPointees(memory, descriptor_words, entry);
   }
   TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
   scope.world_resource_identity_mask = entry.identity_mask;
+  scope.world_resource_nested_identity_mask = entry.nested_identity_mask;
   scope.world_resource_reference_count = entry.reference_count;
   scope.world_resource_references = entry.references;
   if (entry.identity_mask) {
@@ -3813,6 +3840,15 @@ void PopulateTrackWorldResourceGraph(
          bit < g_track_world_resource_identity_relations.size(); ++bit) {
       if (entry.identity_mask & (1u << bit)) {
         ++g_track_world_resource_identity_relations[bit];
+      }
+    }
+  }
+  if (entry.nested_identity_mask) {
+    ++g_track_world_resource_nested_graph_scopes;
+    for (size_t bit = 0;
+         bit < g_track_world_resource_nested_identity_relations.size(); ++bit) {
+      if (entry.nested_identity_mask & (1u << bit)) {
+        ++g_track_world_resource_nested_identity_relations[bit];
       }
     }
   }
@@ -13662,6 +13698,9 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"world_resource_graph_scopes",
         std::to_string(g_track_world_resource_graph_scopes.load(
             std::memory_order_relaxed))},
+       {"world_resource_nested_graph_scopes",
+        std::to_string(g_track_world_resource_nested_graph_scopes.load(
+            std::memory_order_relaxed))},
        {"world_resource_graph_cache_hits",
         std::to_string(g_track_world_resource_graph_cache_hits.load(
             std::memory_order_relaxed))},
@@ -13754,6 +13793,34 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"world_pvs_zone_resource",
         std::to_string(g_track_world_resource_identity_relations[6].load(
             std::memory_order_relaxed))},
+       {"nested_world_track_model",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[0].load(
+                std::memory_order_relaxed))},
+       {"nested_world_track_mesh",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[1].load(
+                std::memory_order_relaxed))},
+       {"nested_world_track_submodel",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[2].load(
+                std::memory_order_relaxed))},
+       {"nested_world_procedural_geometry_object",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[3].load(
+                std::memory_order_relaxed))},
+       {"nested_world_procedural_geometry_resource",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[4].load(
+                std::memory_order_relaxed))},
+       {"nested_world_pvs_zone_object",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[5].load(
+                std::memory_order_relaxed))},
+       {"nested_world_pvs_zone_resource",
+        std::to_string(
+            g_track_world_resource_nested_identity_relations[6].load(
+                std::memory_order_relaxed))},
        {"shared_world_track_model",
         std::to_string(
             g_track_world_resource_shared_identity_relations[0].load(
@@ -30064,7 +30131,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"world_resource_vtables",
         "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,82144E64"},
        {"world_resource_graph",
-        "host_mapped_direct_child_or_descriptor_pointer_with_exact_rtti_vtable"},
+        "host_mapped_direct_or_one_level_nested_child_or_descriptor_pointer_"
+        "with_exact_track_rtti_vtable"},
        {"world_resource_shared_identity",
         "exact_address_equality_to_submission_objects_or_resources"},
        {"world_resource_graph_cache_capacity", "1024"},
@@ -30081,7 +30149,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "staged_same_thread_then_exact_8240EC80_scope"},
        {"reference_spatial_export", "two_numeric_16_word_matrices_only"},
        {"guest_payload_read",
-        "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"},
+        "bounded_320_bytes_plus_direct_and_16_word_nested_vtable_census_per_"
+        "cache_miss"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
