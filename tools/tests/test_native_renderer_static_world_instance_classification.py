@@ -158,8 +158,12 @@ class StaticWorldInstanceClassificationTests(unittest.TestCase):
     def test_rejects_incomplete_runtime_summary(self):
         observed = events()
         observed[-2]["status"] = "incomplete"
-        with self.assertRaisesRegex(ValueError, "qualification is incomplete"):
-            MODULE.build(catalog(), observed)
+        document = MODULE.build(catalog(), observed)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "runtime transform qualification is incomplete",
+            document["failures"],
+        )
 
     def test_rejects_gameplay_only_classification(self):
         gameplay_catalog = catalog()
@@ -196,8 +200,12 @@ class StaticWorldInstanceClassificationTests(unittest.TestCase):
     def test_rejects_incomplete_track_packet_join(self):
         observed = track_events()
         observed[-2]["unified_track_mesh_scopes_without_packets"] = "1"
-        with self.assertRaisesRegex(ValueError, "qualification is incomplete"):
-            MODULE.build(catalog(), observed, origin="unified_track_mesh")
+        document = MODULE.build(catalog(), observed, origin="unified_track_mesh")
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "runtime transform qualification is incomplete",
+            document["failures"],
+        )
 
 
 if __name__ == "__main__":
