@@ -134,6 +134,23 @@ locks the 1280x720 logical / 1280x736 storage extents, private-resource scope,
 completed-first Xenos resolve, zero guest-memory publication, and zero draw
 suppression.
 
+The first enabled AppData run reached the exact 1280x720 three-row workload.
+Descriptor logging then corrected the initial format-only hypothesis: the guest
+destination is 10:10:10:2, but the isolated host source is a 640-wide RGBA16F
+2x-MSAA target. Its two samples represent adjacent horizontal guest pixels and
+must not be averaged by a conventional resolve. Patch `0110` adds a private
+compute expansion that writes sample 0 and sample 1 to their exact 1280-wide
+positions. One-sample sources retain the direct-copy path; other topology and
+format combinations remain fail-closed.
+
+The AppData qualification session `20260901T102213Z-p45980` recorded 12 exact
+frames and 36 successful operations with zero hard failures. Every frame ended
+at the private `1280x736` resource with a `1280x720` logical extent and a
+committed third chunk. Xenos resolves completed first, draw suppression stayed
+off, and no guest-memory publication occurred. This closes structural
+accumulator qualification; the visibly repeated/corrupt scene regions remain a
+separate source-row addressing problem for the next slice.
+
 Run it after the combined AppData session closes:
 
 ```powershell

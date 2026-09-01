@@ -2049,6 +2049,27 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("+      PublishIsolatedReplayTarget(", patch)
         self.assertNotIn("+            PublishIsolatedReplayTarget(", patch)
 
+        format_patch = (
+            ROOT
+            / "patches/rexglue/0109-d3d12-procedural-frame-accumulator-format.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("DXGI_FORMAT_R10G10B10A2_UNORM", format_patch)
+        self.assertIn("source_format_supported", format_patch)
+        self.assertIn("use_frame_accumulator &&", format_patch)
+        self.assertNotIn("SetDrawSuppression", format_patch)
+        self.assertNotIn("PublishIsolatedReplayTarget", format_patch)
+
+        topology_patch = (
+            ROOT
+            / "patches/rexglue/0110-d3d12-procedural-frame-accumulator-msaa-topology.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Texture2DMS<float4, 2>", topology_patch)
+        self.assertIn("source_desc.Width * 2", topology_patch)
+        self.assertIn("sample_index = output_position.x & 1", topology_patch)
+        self.assertIn("D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS", topology_patch)
+        self.assertNotIn("SetDrawSuppression", topology_patch)
+        self.assertNotIn("PublishIsolatedReplayTarget", topology_patch)
+
         scanner = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
         )
