@@ -772,6 +772,15 @@ meaningful AppData validation can therefore exercise the complete target-role,
 resolve-workset, row-plan, private assembly, and swap-preview chain as one
 batch.
 
+Qualification-tooling checkpoint: the combined runtime slice now has a strict
+offline gate. It accepts only an armed private backend, one exact three-step
+`0+256`, `256+256`, `512+224` row plan, matching recorded results ending in a
+committed 1280x736 private resource with 1280x720 logical output, complete
+bounded status accounting, zero hard backend failures, and a clean shutdown.
+It independently locks completed-first Xenos resolves, zero guest-memory
+publication, and zero draw suppression. This converts the pending visual run
+into a reproducible evidence gate without adding another gameplay capture.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
