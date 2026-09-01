@@ -19,7 +19,9 @@ census and semantic dispatch discovery so every admitted draw has:
 - a mechanically replayable prepared-draw contract;
 - either a current, selected semantic visibility decision carrying the exact
   unified track-texture provider vtable and four-method tuple, the exact
-  previously qualified sky/horizon follower signature, or, only when the
+  previously qualified sky/horizon follower signature, the exact proved
+  `82417BC0` procedural color context with a live semantic receiver and first
+  color attachment, or, only when the
   additional `-ContinuousStaticWorld` capture switch is set, exact
   `CModelPresentation` resource, asset-key, transform, member-mesh, and
   prepared-layout lineage; and
@@ -81,6 +83,10 @@ authority with suppression disabled.
 It reports the exact-family seed count separately as
 `qualified_retained_family_requests`, and reports fresh visibility candidates
 excluded by the track-provider gate as `non_track_provider_rejections`.
+The exact procedural color route is reported independently as
+`procedural_color_producer_candidates` and
+`procedural_color_producer_requests`; the v8 qualifier requires at least one
+accepted request and rejects requests that exceed exact candidates.
 When exact track-world selection is armed, accepted requests and provider-only
 identity exclusions are reported separately as `track_world_requests` and
 `track_world_identity_exclusions`.
@@ -112,6 +118,7 @@ Arm the still-default-off static-world extension for the deferred C1/C2 run:
 ```
 
 Qualification requires at least one exact track-provider visibility request,
+one exact procedural color-producer request,
 one complete frame with multiple accumulated draws, zero replay or frame
 failures, exact accounting, preserved Xenos draws, and disabled suppression.
 When `-ContinuousTrackWorld` is armed, at least one accepted semantic request

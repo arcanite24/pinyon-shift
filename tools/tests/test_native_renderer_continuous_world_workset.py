@@ -42,9 +42,9 @@ def fixture():
         status="complete",
         final_summary="true",
         frame_sequence="900",
-        prepared_observations="20",
-        requests="8",
-        recorded="8",
+        prepared_observations="22",
+        requests="10",
+        recorded="10",
         target_creation_failures="0",
         unsupported="0",
         mechanical_rejections="4",
@@ -63,12 +63,14 @@ def fixture():
             "render_targets=0"
         ),
         track_world_requests="3",
+        procedural_color_producer_candidates="2",
+        procedural_color_producer_requests="2",
         static_world_lineage_rejections="0",
         static_world_requests="3",
         per_frame_quota_yields="2",
         fail_closed_yields="0",
         qualified_retained_family_requests="2",
-        reused_target_requests="6",
+        reused_target_requests="8",
         frames_started="2",
         frames_completed="2",
         frames_failed="0",
@@ -124,6 +126,8 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("prepared_track_render_model_scope", source)
         self.assertIn("track_world_mechanically_rejected", source)
         self.assertIn("track_world_mechanical_rejection_reasons", source)
+        self.assertIn("prepared_procedural_color_producer", source)
+        self.assertIn("procedural_color_producer_requests", source)
         self.assertIn(
             ".track_command_lineage = exact_track_command", source
         )
@@ -201,6 +205,11 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         )
         self.assertTrue(
             document["qualification"]["track_world_selection_proved"]
+        )
+        self.assertTrue(
+            document["qualification"][
+                "procedural_color_producer_selection_proved"
+            ]
         )
         self.assertTrue(
             document["qualification"]["static_world_selection_proved"]
@@ -288,6 +297,23 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             "no exact track-world request was observed", document["failures"]
         )
 
+    def test_rejects_missing_exact_procedural_color_producer(self):
+        events = fixture()
+        events[-1].update(
+            procedural_color_producer_candidates="0",
+            procedural_color_producer_requests="0",
+        )
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "no exact procedural color producer was observed",
+            document["failures"],
+        )
+        self.assertIn(
+            "no exact procedural color producer was replayed",
+            document["failures"],
+        )
+
     def test_rejects_track_world_eligibility_accounting_drift(self):
         events = fixture()
         events[-1]["track_world_mechanically_rejected"] = "3"
@@ -314,7 +340,7 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         events = fixture()
         events[0]["track_world_selection"] = "disabled"
         events[-1].update(
-            prepared_observations="19",
+            prepared_observations="21",
             track_world_selection="disabled",
             track_world_identity_exclusions="0",
             track_world_requests="0",
@@ -329,7 +355,7 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         events = fixture()
         events[-1].update(
             status="fallback_observed",
-            recorded="7",
+            recorded="9",
             unsupported="1",
             frames_completed="1",
             frames_failed="1",
