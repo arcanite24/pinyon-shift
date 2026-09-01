@@ -67,8 +67,10 @@ Already landed or substantially qualified:
 
 Phase A and B are merged and qualified. Phase C is active: C1 has reached a
 live procedural color producer, proved its padded full-frame resolve assembly,
-and is moving that exact gate into the runtime workset before any new native
-publication. Terrain and roads remain the next visible-impact target.
+and has corrected the 2x-MSAA sample topology plus source-row addressing in its
+private 1280x736 accumulator. The corrected source is visually coherent, while
+Xenos remains authoritative and no guest publication or suppression is enabled.
+Terrain and roads remain the next visible-impact target.
 
 ---
 
@@ -788,9 +790,12 @@ samples instead of averaging them. AppData session
 `20260901T102213Z-p45980` recorded 12 exact frames / 36 operations, all at
 `1280x736` storage and `1280x720` logical extent, with zero hard failures,
 normal exit, completed-first Xenos resolves, no draw suppression, and no guest
-memory publication. Structural accumulation is qualified. The resulting frame
-still exposes incorrect/repeated scene regions, so exact source-row addressing
-is the next visual correctness gate before expanding producer coverage.
+memory publication. Structural accumulation is qualified. Patch `0111` then
+corrected source-row addressing: equivalent Phase-C AppData session
+`20260901T104300Z-p42688` recorded nine exact frames / 27 operations, all
+successful, with the same extents and safety invariants before a normal exit.
+The corrected frame is visually coherent, so producer coverage and continuous
+presentation are now the next visible gates.
 
 ### C2. Static world buildings and props
 
