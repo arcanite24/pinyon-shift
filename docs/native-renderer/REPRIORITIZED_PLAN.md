@@ -689,6 +689,19 @@ The reference store is now independently raised to 64 while the 16-root scan
 bound remains unchanged, and schema v6 reports its high-water mark and makes
 any overflow fail the runtime status itself.
 
+Complete presentation-callgraph checkpoint: a payload-free six-edge static
+trace now inventories all 135 exact unified track-presentation wrapper slots.
+Only slots 75, 78, 79, and 80 directly reach the track dispatcher, unified
+track-mesh helper, and indexed-draw emitter. The complete saved-festival runtime
+census observed only 79 and 80; both are already proved 1024x1024 depth-only
+shadow routes. Slots 75 and 78 were inactive, and the other 61 static
+candidates terminate at unclassified indirect boundaries without a known
+graphics sink. This closes the exact presentation surface as the missing C1
+opaque-color ingress for this scene. The next visible-world slice must select a
+separate live color producer; no further hook is added beneath this shadow
+family. The reproducible inventory is documented in
+[`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
