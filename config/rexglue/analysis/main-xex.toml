@@ -200,6 +200,49 @@ address = 0x8240E7B4
 name = "PinyonShiftObserveVehicleMatrixCallerEntry"
 registers = ["r6", "r12"]
 
+# Phase C1 unified track-presentation pass census. Retail RTTI proves slots
+# 78-81 of Presentation_Unified::CTrackPresentation resolve to these exact
+# functions, with the previously followed 8240E7B0 path at slot 79. Balanced
+# passive scopes distinguish which adjacent title-owned passes are live in the
+# saved world before extending packet lineage to the opaque road/terrain pass.
+# Only r3's vtable is read; registers, control flow, draws, and output remain
+# unchanged.
+[[midasm_hook]]
+address = 0x82DEEEE0
+name = "PinyonShiftObserveTrackPresentationSlot78Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEF2A4
+name = "PinyonShiftObserveTrackPresentationSlot78Exit"
+
+[[midasm_hook]]
+address = 0x8240E7B0
+name = "PinyonShiftObserveTrackPresentationSlot79Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x8240ED40
+name = "PinyonShiftObserveTrackPresentationSlot79Exit"
+
+[[midasm_hook]]
+address = 0x82DEF2B0
+name = "PinyonShiftObserveTrackPresentationSlot80Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEFE78
+name = "PinyonShiftObserveTrackPresentationSlot80Exit"
+
+[[midasm_hook]]
+address = 0x82DEADE0
+name = "PinyonShiftObserveTrackPresentationSlot81Entry"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DEAEE8
+name = "PinyonShiftObserveTrackPresentationSlot81Exit"
+
 # After the 8240E7B0 render-item predicate succeeds, title instructions have
 # resolved r31's typed child/descriptor chain and immediately read through
 # descriptor offset 244. Observe that exact-lifetime root and descriptor for a

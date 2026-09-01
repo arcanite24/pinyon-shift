@@ -540,6 +540,23 @@ proved upstream stage overwrites it. Reference entries carry that exact scope
 content hash. This preserves every changing sample and the one-to-many retail
 control flow without widening the accepted scope or weakening accounting.
 
+Corrected combined-census result: session `20260901T034815Z-p46676` retained
+all 485 exact scopes as 140 content snapshots and 167 reference-composition
+snapshots, with zero missing stage, invalid range, non-finite value, overflow,
+or accounting fault. Across 96 raw and 384 composed candidate groups, neither
+classifier found a unique match in the 24,025-entry authored spatial catalog.
+Those transform interpretations are closed.
+
+Opaque-pass pivot: the same run showed 732 exact prepared draws passing every
+mechanical gate except attachment shape, so the native workset admitted zero
+exact track draws. Static RTTI places the followed function at unified track-
+presentation slot 79. Balanced census hooks now cover adjacent slots 78-81,
+and slot-79 prepared entries export exact backend target bits/formats. The next
+batched run will select the live color-producing title pass before extending
+packet lineage; depth-only activity may feed shadows but cannot satisfy C1.
+See
+[`TRACK_PRESENTATION_PASS_CENSUS.md`](TRACK_PRESENTATION_PASS_CENSUS.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

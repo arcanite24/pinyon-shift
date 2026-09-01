@@ -125,6 +125,14 @@ def consecutive_runs(constants, minimum=4):
     return runs
 
 
+def target_shape(bits):
+    return {
+        1: "depth_only",
+        2: "color_only",
+        3: "color_and_depth",
+    }.get(bits, "other")
+
+
 def build(events, requested_session=None):
     session, selected = select_session(events, requested_session)
     starts = [event for event in selected if event.get("event") == "process.start"]
@@ -152,12 +160,35 @@ def build(events, requested_session=None):
     vertex_frequency = {}
     pixel_frequency = {}
     vertex_shader_frequency = {}
+    target_shape_frequency = {}
     candidate_runs = []
     for event in entries:
         require_safety(event)
         key = hexadecimal(event.get("layout_key", ""), 16, "layout key")
         vertex_shader = hexadecimal(
             event.get("vertex_shader", ""), 16, "vertex shader"
+        )
+        target_bits = int(
+            hexadecimal(
+                event.get("bound_render_target_bits", ""),
+                8,
+                "bound render target bits",
+            ),
+            16,
+        )
+        formats = str(event.get("bound_render_target_formats", "")).split(":")
+        if len(formats) != 5:
+            raise ValueError("invalid bound render target formats")
+        try:
+            formats = tuple(int(value) for value in formats)
+        except ValueError as error:
+            raise ValueError("invalid bound render target formats") from error
+        if any(value < 0 for value in formats):
+            raise ValueError("invalid bound render target formats")
+        hexadecimal(
+            event.get("prepared_pipeline_flags", ""),
+            8,
+            "prepared pipeline flags",
         )
         if key in seen:
             raise ValueError("duplicate track prepared layout key")
@@ -180,6 +211,19 @@ def build(events, requested_session=None):
         )
         shader_item["layouts"] += 1
         shader_item["calls"] += calls
+        shape_key = (target_bits, formats)
+        shape_item = target_shape_frequency.setdefault(
+            shape_key,
+            {
+                "shape": target_shape(target_bits),
+                "bound_render_target_bits": f"{target_bits:08X}",
+                "bound_render_target_formats": list(formats),
+                "layouts": 0,
+                "calls": 0,
+            },
+        )
+        shape_item["layouts"] += 1
+        shape_item["calls"] += calls
         vertex = parse_float_constants(event, "vertex_float_constants")
         pixel = parse_float_constants(event, "pixel_float_constants")
         if integer(event, "vertex_float_constant_count") != len(vertex):
@@ -265,17 +309,28 @@ def build(events, requested_session=None):
             {"vertex_shader": shader, **vertex_shader_frequency[shader]}
             for shader in sorted(vertex_shader_frequency)
         ],
+        "render_target_shape_frequency": sorted(
+            target_shape_frequency.values(),
+            key=lambda item: (
+                -item["calls"],
+                item["bound_render_target_bits"],
+                item["bound_render_target_formats"],
+            ),
+        ),
         "vertex_consecutive_register_runs": candidate_runs,
         "qualification": {
             "exact_track_prepared_layouts_proved": not failures,
+            "color_target_layout_observed": any(
+                bits & 2 for bits, _ in target_shape_frequency
+            ),
             "world_transform_constant_layout_proved": False,
             "terrain_or_road_identity_proved": False,
             "native_admission": False,
             "suppression_allowed": False,
         },
         "next_step": (
-            "compare recurring finite vertex constant runs against the static "
-            "world transform catalog across changed camera and vehicle poses"
+            "correlate exact target shapes with the adjacent unified track "
+            "presentation pass census before extending opaque-pass lineage"
         ),
         "safety": {
             "guest_state_changed": False,

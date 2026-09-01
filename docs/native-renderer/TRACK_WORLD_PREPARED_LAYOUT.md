@@ -1,6 +1,6 @@
 # Track-world prepared-layout census
 
-Status: qualified; prepared constant-window lead closed
+Status: qualified; constant-window lead closed, target-shape census extended
 
 ## Why this is the next C1 boundary
 
@@ -46,7 +46,9 @@ python tools/summarize-native-renderer-track-prepared-layout.py `
 The report verifies process lifecycle, safety fields, exact command/prepared
 accounting, boundedness, table capacity, and per-entry call totals. It also
 lists vertex/pixel float-constant register frequency and maximal runs of at
-least four consecutive finite vertex registers.
+least four consecutive finite vertex registers. The extended report groups
+the exact backend target bitmask and five formats by layout and call count so
+depth-only, color-only, paired, and unusual attachment shapes remain distinct.
 
 The checked-in catalog classifier then evaluates every four-register window
 under both plausible title matrix conventions:
@@ -103,6 +105,18 @@ constant windows are therefore not the authored terrain/road transform carrier
 for this population, and C1 pivots upstream to the exact command's validated
 track child and type-21 descriptor rather than collecting more shader-state
 captures.
+
+## Attachment-shape extension
+
+Clean session `20260901T034815Z-p46676` reconfirmed 732 exact prepared draws,
+but the continuous workset rejected all 732 solely at the generic paired-
+attachment gate and admitted zero exact track draws. Each retained prepared
+layout now also exports its exact backend attachment bitmask, five numeric
+formats, and pipeline flags. The adjacent unified track-presentation slot
+census described in
+[`TRACK_PRESENTATION_PASS_CENSUS.md`](TRACK_PRESENTATION_PASS_CENSUS.md) will
+use the next batched run to distinguish an opaque color route from depth-only
+track work before any admission gate is widened.
 
 ## Safety
 
