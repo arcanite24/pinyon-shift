@@ -65,9 +65,10 @@ Already landed or substantially qualified:
   vehicle-map pool lineage is the final bounded follow-up; and
 - post-processing topology census plus the mechanical presentation ingress.
 
-Phase A and B1-B5 are merged. The active B6 slice qualifies the first coherent
-continuous frame and closes the retained-target lifecycle discovered during
-the AppData run. Phase C terrain and roads are the next visible-impact target.
+Phase A and B are merged and qualified. Phase C is active: C1 has reached a
+live procedural color producer and is closing its padded full-frame resolve
+assembly before any new native publication. Terrain and roads remain the next
+visible-impact target.
 
 ---
 
@@ -717,6 +718,19 @@ registers. The next batched AppData run can distinguish monolithic profiles
 from EDRAM tiles; a tile advances to resolve-assembly work and is never
 published alone. Xenos output remains authoritative. See
 [`COLOR_PRODUCER_LINEAGE.md`](COLOR_PRODUCER_LINEAGE.md).
+
+EDRAM target-role runtime result: clean AppData session
+`20260901T073926Z-p40856` reached the saved festival and exited normally. All
+382 exact procedural color draws are bounded opaque 1280x256 predicated draws
+with bin intersection `0000000080000003`; no monolithic 1280x720 draw profile
+exists. The final resolve census independently exposes a three-range contiguous
+source-zero candidate on the same surface with 1280x720 destination pitch and
+1280x736 physical storage. The extra 16 rows are bounded alignment, so the
+earlier 1280x256 publication was one component of the padded full frame and
+explains its wrong camera/view. Resolve events now retain exact selected-source
+state, and a fail-closed offline join proves target identity, contiguity,
+format, logical extent, and padding on the next batched run. No native
+admission or suppression changes in this checkpoint.
 
 ### C2. Static world buildings and props
 

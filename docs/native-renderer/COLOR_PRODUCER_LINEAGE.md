@@ -1,7 +1,7 @@
 # Live color-producer lineage
 
-Status: live semantic color producer proved; exact target-role profiler
-implemented for the next batched AppData run
+Status: predicated color tile proved; exact resolve-assembly join implemented
+for the next batched AppData run
 
 ## Why this is the next ingress
 
@@ -60,6 +60,28 @@ targets. Receiver addresses are samples only; a variation bit proves when a
 target profile spans multiple live receiver instances. The bounded table has
 1,024 entries and fails closed on overflow or incomplete accounting.
 
+The clean AppData-backed festival session `20260901T073926Z-p40856` completes
+that target-role checkpoint. All 382 exact procedural color draws are bounded,
+opaque, predicated, and use the same 1280x256 scissor, target state
+`14020500:00030000:00000000:00000000:00000000:00010400`, and bin intersection
+`0000000080000003`. There is no monolithic 1280x720 profile. The same final
+resolve census exposes three contiguous source-zero ranges on surface
+`14020500`, with byte lengths `1310720`, `1310720`, and `1146880`. Their
+destination pitch declares 1280x720, format 7 is four bytes per pixel, and the
+combined storage is 1280x736: the logical 720 rows plus 16 rows of alignment.
+This is strong resolve-topology evidence that the 1280x256 draw extent is one
+piece of the padded full-frame assembly, not an independently publishable
+camera view.
+
+The resolve census now exports the exact selected source index, selected
+source target state, and all bound source targets. The offline
+`summarize-native-renderer-procedural-resolve-assembly.py` join requires that
+source state to match the procedural target, requires the resolves to fall in
+the procedural profile frame window, and proves address contiguity, copy
+format, bytes per pixel, logical extent, and bounded row padding. This removes
+the last inference from the assembly gate. It remains diagnostic only and is
+batched with the next substantial AppData validation.
+
 Run the deferred qualifier after the next combined AppData capture:
 
 ```powershell
@@ -78,12 +100,20 @@ python tools/summarize-native-renderer-procedural-color-targets.py `
   --output .local/qualification/native-renderer-procedural-color-targets.json
 ```
 
+Finally, prove the exact resolve assembly:
+
+```powershell
+python tools/summarize-native-renderer-procedural-resolve-assembly.py `
+  <session-log.jsonl> `
+  --session <session> `
+  --output .local/qualification/native-renderer-procedural-resolve-assembly.json
+```
+
 ## Promotion gate
 
-The next C1 implementation may privately capture a monolithic profile only
-when a clean session proves complete target-profile accounting and an exact
-full-preview 1280x720 profile whose calls are all bounded and opaque and never
-sample a resolved target. A predicated 1280-wide EDRAM tile instead advances to
-tile-sequence and resolve-assembly investigation; it cannot be published alone.
-Other reduced targets remain excluded. Until then, Xenos remains authoritative
-and this census changes no rendering or control flow.
+The next C1 implementation may privately capture this family only after a
+clean session proves an exact contiguous 1280x720 logical resolve assembly.
+The private target must use the complete assembly dimensions and preserve its
+16 alignment rows; no 1280x256 component may be published alone. Other reduced
+targets remain excluded. Until then, Xenos remains authoritative and this
+census changes no rendering or control flow.
