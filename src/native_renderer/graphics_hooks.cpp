@@ -227,6 +227,7 @@ constexpr uint32_t kModelPresentationTransformOffset = 80;
 constexpr uint32_t kModelPresentationTransformWordCount = 16;
 constexpr uint32_t kModelPresentationResourceOffset = 148;
 constexpr uint32_t kModelPresentationRendererOffset = 1608;
+constexpr uint32_t kDeferredSimpleModelRendererVtable = 0x82021334;
 constexpr uint32_t kMsvcStringSizeOffset = 16;
 constexpr uint32_t kMsvcStringCapacityOffset = 20;
 constexpr uint32_t kMsvcStringInlineCapacity = 16;
@@ -518,6 +519,7 @@ struct SemanticDrawIdentity {
   bool title_lod_valid = false;
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
+  bool track_command_lineage = false;
   uint32_t track_render_shared_identity_mask = 0;
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_shared_identity_mask = 0;
@@ -892,6 +894,7 @@ struct SemanticVisibilityPreparedCandidateEntry {
   bool title_lod_valid = false;
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
+  bool track_command_lineage = false;
   uint32_t track_render_shared_identity_mask = 0;
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_shared_identity_mask = 0;
@@ -1036,12 +1039,18 @@ struct TitleIndirectPacketEntry {
   uint64_t semantic_visibility_epoch = 0;
   uint64_t semantic_render_state_epoch = 0;
   uint64_t semantic_render_state_visibility_epoch = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
   bool semantic_receiver_known = false;
+  bool track_command_lineage = false;
   bool occupied = false;
 };
 
@@ -1058,7 +1067,13 @@ struct IndirectConstructorOrigin {
         uint64_t semantic_visibility_epoch = 0;
         uint64_t semantic_render_state_epoch = 0;
         uint64_t semantic_render_state_visibility_epoch = 0;
+        uint32_t track_render_root_address = 0;
+        uint32_t track_render_child_address = 0;
+        uint32_t track_render_descriptor_address = 0;
+        uint32_t track_render_descriptor_payload = 0;
+        uint32_t track_world_resource_identity_mask = 0;
         bool semantic_receiver_known = false;
+        bool track_command_lineage = false;
         bool valid = false;
       } context{};
       uint32_t function_address = 0;
@@ -1968,12 +1983,6 @@ struct SemanticReceiverLifecycleEntry {
   std::atomic<uint64_t> dispatches_without_preparation{};
   std::atomic<uint64_t> dispatches_without_visibility{};
   std::atomic<uint64_t> dispatches_without_render_state{};
-  std::atomic<uint32_t> track_render_bridge_generation{};
-  std::atomic<uint32_t> track_render_root_address{};
-  std::atomic<uint32_t> track_render_child_address{};
-  std::atomic<uint32_t> track_render_descriptor_address{};
-  std::atomic<uint32_t> track_render_descriptor_payload{};
-  std::atomic<uint32_t> track_world_resource_identity_mask{};
 };
 
 std::array<SemanticReceiverLifecycleEntry,
@@ -2377,7 +2386,7 @@ enum TrackRenderSharedIdentity : uint32_t {
   kTrackRenderSharedChildReceiver = 1u << 5,
   kTrackRenderSharedRootRuntimeObject = 1u << 6,
   kTrackRenderSharedChildRuntimeObject = 1u << 7,
-  kTrackRenderSharedProceduralReceiverBridge = 1u << 8,
+  kTrackRenderSharedCommandLineage = 1u << 8,
 };
 
 enum TrackWorldResourceIdentity : uint32_t {
@@ -2408,7 +2417,7 @@ struct TrackWorldResourceGraphCacheEntry {
 
 struct TrackRenderModelDispatchScope {
   uint64_t submission_joins = 0;
-  uint64_t receiver_bridges = 0;
+  uint64_t command_context_bridges = 0;
   uint32_t root_address = 0;
   uint32_t child_address = 0;
   uint32_t descriptor_address = 0;
@@ -2592,12 +2601,10 @@ std::atomic<uint64_t> g_track_render_model_scope_contract_mismatches{};
 std::atomic<uint64_t> g_track_render_model_scope_joined{};
 std::atomic<uint64_t> g_track_render_model_scope_unjoined{};
 std::atomic<uint64_t> g_track_render_model_submission_joins{};
-std::atomic<uint64_t> g_track_render_model_receiver_bridge_observations{};
-std::atomic<uint64_t> g_track_render_model_receiver_bridge_successes{};
-std::atomic<uint64_t> g_track_render_model_receiver_bridge_missing_scope{};
-std::atomic<uint64_t> g_track_render_model_receiver_bridge_unknown_receiver{};
-std::atomic<uint64_t>
-    g_track_render_model_receiver_bridge_submission_joins{};
+std::atomic<uint64_t> g_track_render_model_context_observations{};
+std::atomic<uint64_t> g_track_render_model_context_bridges{};
+std::atomic<uint64_t> g_track_render_model_packet_joins{};
+std::atomic<uint64_t> g_track_render_model_prepared_draw_joins{};
 std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 9>
     g_track_render_model_shared_identity_relations{};
@@ -2728,6 +2735,20 @@ std::atomic<uint64_t> g_static_world_presentation_scopes_without_renderer{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_joins{};
 std::atomic<uint64_t> g_static_world_presentation_renderer_mismatches{};
 std::atomic<uint64_t> g_static_world_presentation_resource_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_observations{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_exact{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_missing_scope{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_owner_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_resource_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_base_targets{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_deferred_targets{};
+std::atomic<uint64_t> g_static_world_presentation_handoff_unknown_targets{};
+std::atomic<uint32_t> g_static_world_presentation_handoff_sample_vtable{};
+std::atomic<uint32_t> g_static_world_presentation_handoff_sample_target{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_exact{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_presentation_resource_vtable_read_faults{};
+std::atomic<uint32_t> g_static_world_presentation_resource_sample_vtable{};
 std::atomic<uint64_t> g_static_world_asset_metadata_observations{};
 std::atomic<uint64_t> g_static_world_asset_metadata_exact{};
 std::atomic<uint64_t> g_static_world_asset_metadata_empty_keys{};
@@ -3434,7 +3455,7 @@ void EndTrackRenderModelDispatch() {
   }
   if (g_track_render_model_scope.exact) {
     if (g_track_render_model_scope.submission_joins ||
-        g_track_render_model_scope.receiver_bridges) {
+        g_track_render_model_scope.command_context_bridges) {
       ++g_track_render_model_scope_joined;
     } else {
       ++g_track_render_model_scope_unjoined;
@@ -4383,6 +4404,17 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
     ++g_static_world_presentation_resource_read_faults;
     return;
   }
+  uint32_t resource_vtable = 0;
+  if (!LoadMappedGuestU32(memory, scope.resource_address,
+                          resource_vtable)) {
+    ++g_static_world_presentation_resource_vtable_read_faults;
+  } else if (resource_vtable == kSimpleModelResourceVtable) {
+    ++g_static_world_presentation_resource_vtable_exact;
+  } else {
+    ++g_static_world_presentation_resource_vtable_mismatches;
+    g_static_world_presentation_resource_sample_vtable.store(
+        resource_vtable, std::memory_order_relaxed);
+  }
   ++g_static_world_asset_metadata_observations;
   switch (ReadStaticWorldAssetMetadata(
       memory, presentation_address, scope.resource_address, scope)) {
@@ -4403,6 +4435,66 @@ void BeginStaticWorldPresentationDispatch(uint32_t presentation_address) {
       .fetch_add(1, std::memory_order_relaxed);
   scope.exact = true;
   ++g_static_world_presentation_exact;
+}
+
+void ObserveStaticWorldPresentationRendererHandoff(
+    uint32_t renderer_address, uint32_t dispatch_target) {
+  ++g_static_world_presentation_handoff_observations;
+  StaticWorldPresentationDispatchScope &scope =
+      g_static_world_presentation_scope;
+  if (!scope.active || !scope.exact) {
+    ++g_static_world_presentation_handoff_missing_scope;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t owned_renderer = 0;
+  uint32_t owned_resource = 0;
+  uint32_t renderer_resource = 0;
+  uint32_t renderer_vtable = 0;
+  const bool owner_matches =
+      renderer_address &&
+      scope.presentation_address <=
+          UINT32_MAX - kModelPresentationRendererOffset &&
+      renderer_address <= UINT32_MAX - kSimpleModelRendererGraphOffset &&
+      LoadMappedGuestU32(
+          memory, scope.presentation_address +
+                      kModelPresentationRendererOffset,
+          owned_renderer) &&
+      owned_renderer == renderer_address &&
+      LoadMappedGuestU32(memory, renderer_address, renderer_vtable);
+  if (!owner_matches) {
+    ++g_static_world_presentation_handoff_owner_mismatches;
+    return;
+  }
+  const bool resource_matches =
+      LoadMappedGuestU32(
+          memory, scope.presentation_address +
+                      kModelPresentationResourceOffset,
+          owned_resource) &&
+      LoadMappedGuestU32(memory,
+                         renderer_address +
+                             kSimpleModelRendererGraphOffset,
+                         renderer_resource) &&
+      owned_resource == scope.resource_address &&
+      owned_resource == renderer_resource;
+  if (!resource_matches) {
+    ++g_static_world_presentation_handoff_resource_mismatches;
+    return;
+  }
+  g_static_world_presentation_handoff_sample_vtable.store(
+      renderer_vtable, std::memory_order_relaxed);
+  g_static_world_presentation_handoff_sample_target.store(
+      dispatch_target, std::memory_order_relaxed);
+  if (renderer_vtable == kSimpleModelRendererVtable &&
+      dispatch_target == 0x82C4CCC8) {
+    ++g_static_world_presentation_handoff_base_targets;
+  } else if (renderer_vtable == kDeferredSimpleModelRendererVtable) {
+    ++g_static_world_presentation_handoff_deferred_targets;
+  } else {
+    ++g_static_world_presentation_handoff_unknown_targets;
+  }
+  ++g_static_world_presentation_handoff_exact;
 }
 
 void EndStaticWorldPresentationDispatch() {
@@ -6856,57 +6948,11 @@ void PublishSemanticReceiver(uint32_t address) {
                                               std::memory_order_relaxed);
   entry->dispatches_without_render_state.store(0,
                                                 std::memory_order_relaxed);
-  entry->track_render_bridge_generation.store(0,
-                                               std::memory_order_relaxed);
-  entry->track_render_root_address.store(0, std::memory_order_relaxed);
-  entry->track_render_child_address.store(0, std::memory_order_relaxed);
-  entry->track_render_descriptor_address.store(0,
-                                                std::memory_order_relaxed);
-  entry->track_render_descriptor_payload.store(0,
-                                                std::memory_order_relaxed);
-  entry->track_world_resource_identity_mask.store(
-      0, std::memory_order_relaxed);
   entry->generation.store(generation, std::memory_order_relaxed);
   entry->state.store(uint32_t(SemanticReceiverState::kLive),
                      std::memory_order_release);
   g_semantic_receiver_instances_published.fetch_add(
       1, std::memory_order_relaxed);
-}
-
-void ObserveTrackRenderModelProceduralReceiver(uint32_t receiver_address) {
-  ++g_track_render_model_receiver_bridge_observations;
-  TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
-  if (!scope.active || !scope.exact) {
-    ++g_track_render_model_receiver_bridge_missing_scope;
-    return;
-  }
-  SemanticReceiverLifecycleEntry *entry =
-      FindSemanticReceiverLifecycle(receiver_address);
-  if (!entry || entry->state.load(std::memory_order_acquire) !=
-                    uint32_t(SemanticReceiverState::kLive)) {
-    ++g_track_render_model_receiver_bridge_unknown_receiver;
-    return;
-  }
-  const uint32_t generation =
-      entry->generation.load(std::memory_order_relaxed);
-  if (!generation) {
-    ++g_track_render_model_receiver_bridge_unknown_receiver;
-    return;
-  }
-  entry->track_render_root_address.store(scope.root_address,
-                                         std::memory_order_relaxed);
-  entry->track_render_child_address.store(scope.child_address,
-                                          std::memory_order_relaxed);
-  entry->track_render_descriptor_address.store(
-      scope.descriptor_address, std::memory_order_relaxed);
-  entry->track_render_descriptor_payload.store(
-      scope.descriptor_payload, std::memory_order_relaxed);
-  entry->track_world_resource_identity_mask.store(
-      scope.world_resource_identity_mask, std::memory_order_relaxed);
-  entry->track_render_bridge_generation.store(generation,
-                                               std::memory_order_release);
-  ++scope.receiver_bridges;
-  ++g_track_render_model_receiver_bridge_successes;
 }
 
 void BeginSemanticReceiverConstruction(uint32_t address) {
@@ -7972,6 +8018,26 @@ void PushIndirectContextOrigin(uint32_t function_address,
   context.arguments = {r3, r4, r5, r6, r7, r8, r9, r10};
   context.root_address =
       DeriveIndirectContextRoot(function_address, context.arguments);
+  if (function_address == 0x824365B0) {
+    g_track_render_model_context_observations.fetch_add(
+        1, std::memory_order_relaxed);
+    TrackRenderModelDispatchScope &track_scope =
+        g_track_render_model_scope;
+    if (track_scope.active && track_scope.exact) {
+      context.track_render_root_address = track_scope.root_address;
+      context.track_render_child_address = track_scope.child_address;
+      context.track_render_descriptor_address =
+          track_scope.descriptor_address;
+      context.track_render_descriptor_payload =
+          track_scope.descriptor_payload;
+      context.track_world_resource_identity_mask =
+          track_scope.world_resource_identity_mask;
+      context.track_command_lineage = true;
+      ++track_scope.command_context_bridges;
+      g_track_render_model_context_bridges.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
   if (function_address == 0x82417BC0) {
     context.semantic_receiver_address = r3;
     context.semantic_receiver_known = ResolveSemanticReceiver(
@@ -8335,6 +8401,16 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
       origin.owner.producer.context.semantic_render_state_epoch;
   entry.semantic_render_state_visibility_epoch =
       origin.owner.producer.context.semantic_render_state_visibility_epoch;
+  entry.track_render_root_address =
+      origin.owner.producer.context.track_render_root_address;
+  entry.track_render_child_address =
+      origin.owner.producer.context.track_render_child_address;
+  entry.track_render_descriptor_address =
+      origin.owner.producer.context.track_render_descriptor_address;
+  entry.track_render_descriptor_payload =
+      origin.owner.producer.context.track_render_descriptor_payload;
+  entry.track_world_resource_identity_mask =
+      origin.owner.producer.context.track_world_resource_identity_mask;
   entry.submission_sequence = ++g_title_indirect_packet_submission_sequence;
   entry.constructor_origin_known = origin.valid;
   entry.owner_origin_known = origin.owner.valid;
@@ -8342,6 +8418,12 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
   entry.context_origin_known = origin.owner.producer.context.valid;
   entry.semantic_receiver_known =
       origin.owner.producer.context.semantic_receiver_known;
+  entry.track_command_lineage =
+      origin.owner.producer.context.track_command_lineage;
+  if (entry.track_command_lineage) {
+    g_track_render_model_packet_joins.fetch_add(1,
+                                                 std::memory_order_relaxed);
+  }
   entry.occupied = true;
   ++g_title_indirect_packets_recorded;
 }
@@ -8438,8 +8520,23 @@ void ObserveIndirectBuffer(
     active.constructor_origin.owner.producer.context
         .semantic_render_state_visibility_epoch =
         matched.semantic_render_state_visibility_epoch;
+    active.constructor_origin.owner.producer.context
+        .track_render_root_address = matched.track_render_root_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_child_address = matched.track_render_child_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_descriptor_address =
+        matched.track_render_descriptor_address;
+    active.constructor_origin.owner.producer.context
+        .track_render_descriptor_payload =
+        matched.track_render_descriptor_payload;
+    active.constructor_origin.owner.producer.context
+        .track_world_resource_identity_mask =
+        matched.track_world_resource_identity_mask;
     active.constructor_origin.owner.producer.context.semantic_receiver_known =
         matched.semantic_receiver_known;
+    active.constructor_origin.owner.producer.context.track_command_lineage =
+        matched.track_command_lineage;
     active.constructor_origin.owner.producer.context.valid =
         matched.context_origin_known;
     active.depth = observation.depth;
@@ -8780,6 +8877,7 @@ struct IsolatedDrawState {
   bool prepared_title_lod_valid = false;
   bool prepared_track_texture_provider = false;
   bool prepared_track_render_model_scope = false;
+  bool prepared_track_command_lineage = false;
   uint32_t prepared_track_world_resource_shared_identity_mask = 0;
   bool prepared_static_world_origin = false;
   bool prepared_static_world_exact = false;
@@ -10057,12 +10155,18 @@ struct CommandBufferLineageEntry {
   uint64_t semantic_visibility_epoch = 0;
   uint64_t semantic_render_state_epoch = 0;
   uint64_t semantic_render_state_visibility_epoch = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
   bool producer_origin_known = false;
   bool context_origin_known = false;
   bool semantic_receiver_known = false;
+  bool track_command_lineage = false;
   bool semantic_preparation_epoch_varied = false;
   bool prepared_signature_varied = false;
 };
@@ -11691,103 +11795,64 @@ void RecordProceduralModelGeometrySubmission(
   key = key ? key : 1;
   const bool track_texture_provider =
       IsUnifiedTrackTextureProvider(pending.primary_provider);
-  const bool live_track_render_model_scope =
-      g_track_render_model_scope.active && g_track_render_model_scope.exact;
-  const bool track_render_receiver_bridge =
-      lifecycle->track_render_bridge_generation.load(
-          std::memory_order_acquire) == receiver_generation;
   const bool track_render_model_scope =
-      live_track_render_model_scope || track_render_receiver_bridge;
+      g_track_render_model_scope.active && g_track_render_model_scope.exact;
   uint32_t track_render_shared_identity_mask = 0;
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_shared_identity_mask = 0;
   if (track_render_model_scope) {
     const TrackRenderModelDispatchScope &scope = g_track_render_model_scope;
-    const uint32_t track_root_address =
-        live_track_render_model_scope
-            ? scope.root_address
-            : lifecycle->track_render_root_address.load(
-                  std::memory_order_relaxed);
-    const uint32_t track_child_address =
-        live_track_render_model_scope
-            ? scope.child_address
-            : lifecycle->track_render_child_address.load(
-                  std::memory_order_relaxed);
-    const uint32_t track_descriptor_address =
-        live_track_render_model_scope
-            ? scope.descriptor_address
-            : lifecycle->track_render_descriptor_address.load(
-                  std::memory_order_relaxed);
-    const uint32_t track_descriptor_payload =
-        live_track_render_model_scope
-            ? scope.descriptor_payload
-            : lifecycle->track_render_descriptor_payload.load(
-                  std::memory_order_relaxed);
     track_render_shared_identity_mask |=
-        track_descriptor_address == descriptor_address
+        scope.descriptor_address == descriptor_address
             ? kTrackRenderSharedDescriptor
             : 0;
     track_render_shared_identity_mask |=
-        track_descriptor_payload == pending.primary_bound_resource_object
+        scope.descriptor_payload == pending.primary_bound_resource_object
             ? kTrackRenderSharedDescriptorPayloadBoundResource
             : 0;
     track_render_shared_identity_mask |=
-        track_descriptor_payload == pending.primary_provider.provider_object
+        scope.descriptor_payload == pending.primary_provider.provider_object
             ? kTrackRenderSharedDescriptorPayloadProvider
             : 0;
     track_render_shared_identity_mask |=
-        track_descriptor_payload == runtime_submission_object
+        scope.descriptor_payload == runtime_submission_object
             ? kTrackRenderSharedDescriptorPayloadRuntimeObject
             : 0;
     track_render_shared_identity_mask |=
-        track_root_address == receiver_address ? kTrackRenderSharedRootReceiver
+        scope.root_address == receiver_address ? kTrackRenderSharedRootReceiver
                                                : 0;
     track_render_shared_identity_mask |=
-        track_child_address == receiver_address
+        scope.child_address == receiver_address
             ? kTrackRenderSharedChildReceiver
             : 0;
     track_render_shared_identity_mask |=
-        track_root_address == runtime_submission_object
+        scope.root_address == runtime_submission_object
             ? kTrackRenderSharedRootRuntimeObject
             : 0;
     track_render_shared_identity_mask |=
-        track_child_address == runtime_submission_object
+        scope.child_address == runtime_submission_object
             ? kTrackRenderSharedChildRuntimeObject
             : 0;
-    if (track_render_receiver_bridge) {
-      track_render_shared_identity_mask |=
-          kTrackRenderSharedProceduralReceiverBridge;
-      ++g_track_render_model_receiver_bridge_submission_joins;
-    }
     track_world_resource_identity_mask =
-        live_track_render_model_scope
-            ? scope.world_resource_identity_mask
-            : lifecycle->track_world_resource_identity_mask.load(
-                  std::memory_order_relaxed);
-    if (live_track_render_model_scope) {
-      for (size_t index = 0; index < scope.world_resource_reference_count;
-           ++index) {
-        const TrackWorldResourceReference &reference =
-            scope.world_resource_references[index];
-        if (reference.address == receiver_address ||
-            reference.address == runtime_submission_object ||
-            reference.address == pending.primary_bound_resource_object ||
-            reference.address == pending.primary_provider.provider_object ||
-            (secondary_resource_present &&
-             (reference.address == pending.secondary_bound_resource_object ||
-              reference.address ==
-                  pending.secondary_provider.provider_object))) {
-          track_world_resource_shared_identity_mask |= reference.identity;
-        }
+        scope.world_resource_identity_mask;
+    for (size_t index = 0; index < scope.world_resource_reference_count;
+         ++index) {
+      const TrackWorldResourceReference &reference =
+          scope.world_resource_references[index];
+      if (reference.address == receiver_address ||
+          reference.address == runtime_submission_object ||
+          reference.address == pending.primary_bound_resource_object ||
+          reference.address == pending.primary_provider.provider_object ||
+          (secondary_resource_present &&
+           (reference.address == pending.secondary_bound_resource_object ||
+            reference.address ==
+                pending.secondary_provider.provider_object))) {
+        track_world_resource_shared_identity_mask |= reference.identity;
       }
     }
-    if (live_track_render_model_scope) {
-      ++g_track_render_model_scope.submission_joins;
-      g_track_render_model_scope.shared_identity_mask |=
-          track_render_shared_identity_mask;
-      g_track_render_model_scope.world_resource_shared_identity_mask |=
-          track_world_resource_shared_identity_mask;
-    }
+    ++g_track_render_model_scope.submission_joins;
+    g_track_render_model_scope.shared_identity_mask |=
+        track_render_shared_identity_mask;
     ++g_track_render_model_submission_joins;
     if (track_render_shared_identity_mask) {
       ++g_track_render_model_shared_identity_joins;
@@ -11799,6 +11864,8 @@ void RecordProceduralModelGeometrySubmission(
         }
       }
     }
+    g_track_render_model_scope.world_resource_shared_identity_mask |=
+        track_world_resource_shared_identity_mask;
     if (track_world_resource_shared_identity_mask) {
       ++g_track_world_resource_shared_identity_joins;
       for (size_t bit = 0;
@@ -12165,35 +12232,18 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
   const uint64_t exit_without_entry =
       g_track_render_model_scope_exit_without_entry.load(
           std::memory_order_relaxed);
-  const uint64_t receiver_bridge_observations =
-      g_track_render_model_receiver_bridge_observations.load(
-          std::memory_order_relaxed);
-  const uint64_t receiver_bridge_successes =
-      g_track_render_model_receiver_bridge_successes.load(
-          std::memory_order_relaxed);
-  const uint64_t receiver_bridge_missing_scope =
-      g_track_render_model_receiver_bridge_missing_scope.load(
-          std::memory_order_relaxed);
-  const uint64_t receiver_bridge_unknown_receiver =
-      g_track_render_model_receiver_bridge_unknown_receiver.load(
-          std::memory_order_relaxed);
-  const uint64_t receiver_bridge_submission_joins =
-      g_track_render_model_receiver_bridge_submission_joins.load(
-          std::memory_order_relaxed);
   const bool accounting_complete =
       entries == exact + invalid_root + invalid_child + invalid_descriptor +
                      contract_mismatches &&
       exact == joined + unjoined && entries == exits && !overlaps &&
-      !exit_without_entry &&
-      receiver_bridge_observations ==
-          receiver_bridge_successes + receiver_bridge_missing_scope +
-              receiver_bridge_unknown_receiver;
+      !exit_without_entry;
   const bool qualification_complete =
       accounting_complete && exact && joined &&
-      g_track_render_model_submission_joins.load(std::memory_order_relaxed) &&
-      receiver_bridge_successes && receiver_bridge_submission_joins &&
-      !receiver_bridge_missing_scope && !receiver_bridge_unknown_receiver &&
-      !invalid_root && !invalid_child && !invalid_descriptor &&
+      g_track_render_model_context_bridges.load(std::memory_order_relaxed) &&
+      g_track_render_model_packet_joins.load(std::memory_order_relaxed) &&
+      g_track_render_model_prepared_draw_joins.load(
+          std::memory_order_relaxed) &&
+      !invalid_child && !invalid_descriptor &&
       !contract_mismatches;
   pinyon_shift::diagnostics::RecordEvent(
       event_name,
@@ -12211,6 +12261,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"scope_exits", std::to_string(exits)},
        {"exact_scopes", std::to_string(exact)},
        {"invalid_root", std::to_string(invalid_root)},
+       {"non_track_root_exclusions", std::to_string(invalid_root)},
        {"invalid_child", std::to_string(invalid_child)},
        {"invalid_descriptor", std::to_string(invalid_descriptor)},
        {"contract_mismatches", std::to_string(contract_mismatches)},
@@ -12219,16 +12270,18 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"submission_joins",
         std::to_string(g_track_render_model_submission_joins.load(
             std::memory_order_relaxed))},
-       {"receiver_bridge_observations",
-        std::to_string(receiver_bridge_observations)},
-       {"receiver_bridge_successes",
-        std::to_string(receiver_bridge_successes)},
-       {"receiver_bridge_missing_scope",
-        std::to_string(receiver_bridge_missing_scope)},
-       {"receiver_bridge_unknown_receiver",
-        std::to_string(receiver_bridge_unknown_receiver)},
-       {"receiver_bridge_submission_joins",
-        std::to_string(receiver_bridge_submission_joins)},
+       {"command_context_observations",
+        std::to_string(g_track_render_model_context_observations.load(
+            std::memory_order_relaxed))},
+       {"command_context_bridges",
+        std::to_string(g_track_render_model_context_bridges.load(
+            std::memory_order_relaxed))},
+       {"command_packet_joins",
+        std::to_string(g_track_render_model_packet_joins.load(
+            std::memory_order_relaxed))},
+       {"command_prepared_draw_joins",
+        std::to_string(g_track_render_model_prepared_draw_joins.load(
+            std::memory_order_relaxed))},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -12256,7 +12309,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"shared_child_runtime_object",
         std::to_string(g_track_render_model_shared_identity_relations[7].load(
             std::memory_order_relaxed))},
-       {"shared_procedural_receiver_bridge",
+       {"shared_command_lineage",
         std::to_string(g_track_render_model_shared_identity_relations[8].load(
             std::memory_order_relaxed))},
        {"world_resource_graph_scopes",
@@ -12333,7 +12386,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"qualification_complete",
         qualification_complete ? "true" : "false"},
        {"classification",
-        "exact_unified_track_render_model_procedural_receiver_join"},
+        "exact_track_scope_to_indirect_command_packet_to_prepared_draw"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
        {"native_admission", "false"},
@@ -13026,6 +13079,53 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_static_world_presentation_resource_mismatches.load(
                 std::memory_order_relaxed))},
+       {"presentation_handoff_observations",
+        std::to_string(g_static_world_presentation_handoff_observations.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_exact",
+        std::to_string(g_static_world_presentation_handoff_exact.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_missing_scope",
+        std::to_string(g_static_world_presentation_handoff_missing_scope.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_owner_mismatches",
+        std::to_string(g_static_world_presentation_handoff_owner_mismatches.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_resource_mismatches",
+        std::to_string(g_static_world_presentation_handoff_resource_mismatches.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_base_targets",
+        std::to_string(g_static_world_presentation_handoff_base_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_deferred_targets",
+        std::to_string(g_static_world_presentation_handoff_deferred_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_unknown_targets",
+        std::to_string(g_static_world_presentation_handoff_unknown_targets.load(
+            std::memory_order_relaxed))},
+       {"presentation_handoff_sample_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_handoff_sample_vtable.load(
+                        std::memory_order_relaxed))},
+       {"presentation_handoff_sample_target",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_handoff_sample_target.load(
+                        std::memory_order_relaxed))},
+       {"presentation_resource_vtable_exact",
+        std::to_string(g_static_world_presentation_resource_vtable_exact.load(
+            std::memory_order_relaxed))},
+       {"presentation_resource_vtable_mismatches",
+        std::to_string(
+            g_static_world_presentation_resource_vtable_mismatches.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_vtable_read_faults",
+        std::to_string(
+            g_static_world_presentation_resource_vtable_read_faults.load(
+                std::memory_order_relaxed))},
+       {"presentation_resource_sample_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_presentation_resource_sample_vtable.load(
+                        std::memory_order_relaxed))},
        {"asset_metadata_observations",
         std::to_string(asset_metadata_observations)},
        {"asset_metadata_exact", std::to_string(asset_metadata_exact)},
@@ -14672,6 +14772,10 @@ void RecordPreparedCommandBufferLineage(
             constructor_origin.owner.producer.context.semantic_receiver_address),
         uint64_t(constructor_origin.owner.producer.context
                      .semantic_receiver_generation),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_command_lineage),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_render_root_address),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -14744,6 +14848,21 @@ void RecordPreparedCommandBufferLineage(
               .semantic_render_state_visibility_epoch;
       entry.semantic_receiver_known = constructor_origin.owner.producer.context
                                           .semantic_receiver_known;
+      entry.track_render_root_address = constructor_origin.owner.producer
+                                            .context.track_render_root_address;
+      entry.track_render_child_address = constructor_origin.owner.producer
+                                             .context.track_render_child_address;
+      entry.track_render_descriptor_address =
+          constructor_origin.owner.producer.context
+              .track_render_descriptor_address;
+      entry.track_render_descriptor_payload =
+          constructor_origin.owner.producer.context
+              .track_render_descriptor_payload;
+      entry.track_world_resource_identity_mask =
+          constructor_origin.owner.producer.context
+              .track_world_resource_identity_mask;
+      entry.track_command_lineage = constructor_origin.owner.producer.context
+                                        .track_command_lineage;
       entry.depth = observation.command_buffer_depth;
       ++g_command_buffer_lineage_entry_count;
       return;
@@ -14767,6 +14886,12 @@ void RecordPreparedCommandBufferLineage(
         entry.semantic_receiver_generation ==
             constructor_origin.owner.producer.context
                 .semantic_receiver_generation &&
+        entry.track_command_lineage ==
+            constructor_origin.owner.producer.context
+                .track_command_lineage &&
+        entry.track_render_root_address ==
+            constructor_origin.owner.producer.context
+                .track_render_root_address &&
         entry.depth == observation.command_buffer_depth) {
       ++entry.calls;
       entry.semantic_preparation_epoch_varied |=
@@ -15010,6 +15135,33 @@ void EmitCommandBufferLineageSummary() {
               : "unknown"},
          {"semantic_preparation_epoch_varied",
           entry.semantic_preparation_epoch_varied ? "true" : "false"},
+         {"track_command_lineage",
+          entry.track_command_lineage ? "true" : "false"},
+         {"track_render_root_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_root_address)
+              : "unknown"},
+         {"track_render_child_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_child_address)
+              : "unknown"},
+         {"track_render_descriptor_address",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_descriptor_address)
+              : "unknown"},
+         {"track_render_descriptor_payload",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}", entry.track_render_descriptor_payload)
+              : "unknown"},
+         {"track_world_resource_identity_mask",
+          entry.track_command_lineage
+              ? fmt::format("{:08X}",
+                            entry.track_world_resource_identity_mask)
+              : "unknown"},
+         {"track_command_lineage_classification",
+          entry.track_command_lineage
+              ? "exact_track_scope_to_context_to_packet_to_prepared_draw"
+              : "not_track_owned"},
          {"depth", std::to_string(entry.depth)},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
@@ -19307,6 +19459,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
         uint64_t(identity.secondary_resource_key),
         uint64_t(identity.track_texture_provider),
         uint64_t(identity.track_render_model_scope),
+        uint64_t(identity.track_command_lineage),
         uint64_t(identity.track_render_shared_identity_mask),
         uint64_t(identity.track_world_resource_identity_mask),
         uint64_t(identity.track_world_resource_shared_identity_mask),
@@ -19351,6 +19504,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
           .title_lod_valid = identity.title_lod_valid,
           .track_texture_provider = identity.track_texture_provider,
           .track_render_model_scope = identity.track_render_model_scope,
+          .track_command_lineage = identity.track_command_lineage,
           .track_render_shared_identity_mask =
               identity.track_render_shared_identity_mask,
           .track_world_resource_identity_mask =
@@ -19388,6 +19542,7 @@ bool RecordSemanticVisibilityPreparedCandidate(
         entry.secondary_resource_key == identity.secondary_resource_key &&
         entry.track_texture_provider == identity.track_texture_provider &&
         entry.track_render_model_scope == identity.track_render_model_scope &&
+        entry.track_command_lineage == identity.track_command_lineage &&
         entry.track_render_shared_identity_mask ==
             identity.track_render_shared_identity_mask &&
         entry.track_world_resource_identity_mask ==
@@ -19414,6 +19569,7 @@ struct SemanticVisibilityPreparedAdmission {
   bool title_lod_valid = false;
   bool track_texture_provider = false;
   bool track_render_model_scope = false;
+  bool track_command_lineage = false;
   bool static_world_origin = false;
   bool static_world_exact = false;
   uint32_t title_lod_index = 0;
@@ -19437,7 +19593,24 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
         .static_world_exact = static_world_exact,
     };
   }
-  const SemanticDrawIdentity &identity = origin.semantic_draw;
+  SemanticDrawIdentity identity = origin.semantic_draw;
+  const ActiveTitleIndirectBuffer *active =
+      CurrentTitleIndirectBuffer(observation);
+  if (active && active->constructor_origin.owner.producer.context
+                    .track_command_lineage) {
+    const auto &track_context =
+        active->constructor_origin.owner.producer.context;
+    identity.track_render_model_scope = true;
+    identity.track_command_lineage = true;
+    identity.track_render_shared_identity_mask |=
+        kTrackRenderSharedCommandLineage;
+    identity.track_world_resource_identity_mask |=
+        track_context.track_world_resource_identity_mask;
+    g_track_render_model_prepared_draw_joins.fetch_add(
+        1, std::memory_order_relaxed);
+    g_track_render_model_shared_identity_relations[8].fetch_add(
+        1, std::memory_order_relaxed);
+  }
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
   const uint32_t mechanical_rejection_mask =
@@ -19456,6 +19629,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
           fresh_visibility_candidate && identity.track_texture_provider,
       .track_render_model_scope =
           fresh_visibility_candidate && identity.track_render_model_scope,
+      .track_command_lineage =
+          fresh_visibility_candidate && identity.track_command_lineage,
       .static_world_origin = static_world_origin,
       .static_world_exact = static_world_exact,
       .title_lod_index = identity.title_lod_index,
@@ -19470,7 +19645,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const bool eligible = rejection == SemanticBatchRejection::kNone;
   const uint32_t world_family_mask =
       (identity.track_render_model_scope &&
-               identity.track_world_resource_shared_identity_mask
+               (identity.track_world_resource_shared_identity_mask ||
+                identity.track_command_lineage)
            ? kSemanticWorldFamilyTrack
            : 0) |
       (static_world_exact ? kSemanticWorldFamilyStatic : 0);
@@ -20930,6 +21106,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
   uint64_t track_texture_provider_entries = 0;
   uint64_t track_render_model_scope_draws = 0;
   uint64_t track_render_model_scope_entries = 0;
+  uint64_t track_command_lineage_draws = 0;
+  uint64_t track_command_lineage_entries = 0;
   uint64_t track_render_shared_identity_draws = 0;
   uint64_t track_render_shared_identity_entries = 0;
   uint64_t track_world_resource_identity_draws = 0;
@@ -20965,6 +21143,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
     if (entry.track_render_model_scope) {
       track_render_model_scope_draws += entry.draws;
       ++track_render_model_scope_entries;
+    }
+    if (entry.track_command_lineage) {
+      track_command_lineage_draws += entry.draws;
+      ++track_command_lineage_entries;
     }
     if (entry.track_render_shared_identity_mask) {
       track_render_shared_identity_draws += entry.draws;
@@ -21028,10 +21210,14 @@ void EmitSemanticVisibilityPreparedCandidates() {
           "exact_primary_provider_vtable_and_four_methods"},
          {"track_render_model_scope",
           entry.track_render_model_scope ? "true" : "false"},
+         {"track_command_lineage",
+          entry.track_command_lineage ? "true" : "false"},
          {"track_render_shared_identity_mask",
           fmt::format("{:08X}", entry.track_render_shared_identity_mask)},
          {"track_render_model_lineage",
-          "exact_unified_instance_model_nested_dispatch_scope"},
+          entry.track_command_lineage
+              ? "exact_track_scope_to_context_to_packet_to_prepared_draw"
+              : "exact_unified_instance_model_nested_dispatch_scope"},
          {"track_world_resource_identity_mask",
           fmt::format("{:08X}", entry.track_world_resource_identity_mask)},
          {"track_world_resource_shared_identity_mask",
@@ -21087,6 +21273,8 @@ void EmitSemanticVisibilityPreparedCandidates() {
       track_texture_provider_entries <= entry_count &&
       track_render_model_scope_draws <= entry_draws &&
       track_render_model_scope_entries <= entry_count &&
+      track_command_lineage_draws <= track_render_model_scope_draws &&
+      track_command_lineage_entries <= track_render_model_scope_entries &&
       track_render_shared_identity_draws <= track_render_model_scope_draws &&
       track_render_shared_identity_entries <=
           track_render_model_scope_entries &&
@@ -21143,6 +21331,10 @@ void EmitSemanticVisibilityPreparedCandidates() {
         std::to_string(track_render_model_scope_entries)},
        {"track_render_model_scope_draws",
         std::to_string(track_render_model_scope_draws)},
+       {"track_command_lineage_entries",
+        std::to_string(track_command_lineage_entries)},
+       {"track_command_lineage_draws",
+        std::to_string(track_command_lineage_draws)},
        {"track_render_shared_identity_entries",
         std::to_string(track_render_shared_identity_entries)},
        {"track_render_shared_identity_draws",
@@ -21653,6 +21845,8 @@ void ObservePreparedDraw(
         visibility_admission.track_texture_provider;
     g_isolated_draw.prepared_track_render_model_scope =
         visibility_admission.track_render_model_scope;
+    g_isolated_draw.prepared_track_command_lineage =
+        visibility_admission.track_command_lineage;
     g_isolated_draw.prepared_track_world_resource_shared_identity_mask =
         visibility_admission.track_world_resource_shared_identity_mask;
     g_isolated_draw.prepared_static_world_origin =
@@ -23785,7 +23979,8 @@ void RequestIsolatedDraw(
     const bool exact_track_world =
         g_continuous_world_workset.track_world_requested &&
         g_isolated_draw.prepared_track_render_model_scope &&
-        g_isolated_draw.prepared_track_world_resource_shared_identity_mask;
+        (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
+         g_isolated_draw.prepared_track_command_lineage);
     if (g_continuous_world_workset.track_world_requested &&
         !qualified_retained_family && !exact_static_world &&
         !exact_track_world) {
@@ -27258,7 +27453,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"entry_hook", "8240EC80"},
        {"exit_hook", "8240ECAC"},
        {"nested_dispatch", "82436468"},
-       {"procedural_receiver_bridge_hook", "82437040"},
+       {"command_context_entry", "824365B4"},
        {"instance_vtable", "820019CC"},
        {"model_vtable", "82001D74"},
        {"instance_to_model", "root_plus_4"},
@@ -27266,7 +27461,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"descriptor_type", "21"},
        {"descriptor_flag", "1"},
        {"join",
-        "exact_track_dispatch_receiver_bridge_to_procedural_model_submission"},
+        "exact_track_scope_to_indirect_command_packet_to_prepared_draw"},
        {"shared_identity",
         "descriptor_payload_or_object_address_exact_equality"},
        {"world_resource_vtables",
@@ -27331,6 +27526,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"presentation_refcounted_vtable", "82002464"},
        {"presentation_draw_slot", "12"},
        {"presentation_draw_hooks", "823F8DB8,823F8FA0"},
+       {"presentation_renderer_handoff_hook", "823F8F1C"},
+       {"presentation_renderer_handoff",
+        "owner_resource_vtable_and_virtual_target_diagnostic"},
        {"presentation_resource_field", "presentation_plus_148"},
        {"presentation_renderer_field", "presentation_plus_1608"},
        {"presentation_resource_join",
@@ -29588,11 +29786,6 @@ void PinyonShiftObserveTrackRenderModelDispatchExit() {
   EndTrackRenderModelDispatch();
 }
 
-void PinyonShiftObserveTrackRenderModelProceduralReceiver(
-    PPCRegister &r25) {
-  ObserveTrackRenderModelProceduralReceiver(r25.u32);
-}
-
 void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,
                                                          PPCRegister &r4) {
   BeginStaticWorldRendererDispatch(r3.u32, r4.u32);
@@ -29605,6 +29798,11 @@ void PinyonShiftObserveStaticWorldPresentationDispatchEntry(
 
 void PinyonShiftObserveStaticWorldPresentationDispatchExit() {
   EndStaticWorldPresentationDispatch();
+}
+
+void PinyonShiftObserveStaticWorldPresentationRendererHandoff(
+    PPCRegister &r3, PPCRegister &r11) {
+  ObserveStaticWorldPresentationRendererHandoff(r3.u32, r11.u32);
 }
 
 void PinyonShiftObserveStaticWorldRendererDispatchExit() {

@@ -29,10 +29,7 @@ def fixture():
             "failures": [],
             "evidence": {"session_exit_proved": True},
             "qualification": {
-                "track_render_model_scope_to_submission_proved": True,
-                "procedural_receiver_bridge_proved": True,
-                "track_world_resource_graph_identity_proved": True,
-                "track_world_resource_to_submission_identity_proved": True,
+                "track_command_lineage_to_prepared_draw_proved": True,
             },
             "safety": passive_safety,
         },
@@ -129,16 +126,16 @@ class NativeRendererC1C2BatchTests(unittest.TestCase):
             "workset report does not prove session exit", document["failures"]
         )
 
-    def test_reports_missing_shared_track_world_identity(self):
+    def test_reports_missing_track_command_lineage(self):
         reports = fixture()
         reports["track"]["qualification"][
-            "track_world_resource_to_submission_identity_proved"
+            "track_command_lineage_to_prepared_draw_proved"
         ] = False
         document = MODULE.build(reports)
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "track gate is unproved: "
-            "track_world_resource_to_submission_identity_proved",
+            "track_command_lineage_to_prepared_draw_proved",
             document["failures"],
         )
 
