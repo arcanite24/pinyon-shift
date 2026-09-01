@@ -113,6 +113,13 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("-DSDL_HIDAPI_LIBUSB=OFF", build)
         self.assertIn("set(SDL_HIDAPI_LIBUSB OFF CACHE BOOL", cmake)
 
+    def test_rexglue_patch_series_uses_git_apply_safe_line_endings(self):
+        patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
+        self.assertTrue(patches)
+        for patch in patches:
+            with self.subTest(patch=patch.name):
+                self.assertNotIn(b"\r\n", patch.read_bytes())
+
     def test_release_setup_uses_pinned_git_and_normalizes_command_path(self):
         common = (ROOT / "tools/release-common.ps1").read_text(encoding="utf-8")
         provision = (ROOT / "tools/provision-toolchain.ps1").read_text(
