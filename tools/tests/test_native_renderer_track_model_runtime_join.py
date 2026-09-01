@@ -27,6 +27,10 @@ def safety():
 
 
 def fixture(shared=3):
+    pointee_names = ";".join(
+        f"{name}={1 if name in ('track_mesh', 'simple_mesh') else 0}"
+        for name in MODULE.POINTEE_RELATIONS
+    )
     config = event(
         MODULE.CONFIG,
         status="armed",
@@ -96,6 +100,12 @@ def fixture(shared=3):
         world_resource_graph_cache_misses="2",
         world_resource_graph_reference_overflow="0",
         world_resource_graph_host_unmapped_rejections="3",
+        world_pointee_graph_samples="4",
+        world_pointee_direct_hits="2",
+        world_pointee_nested_hits="2",
+        world_pointee_host_unmapped_rejections="1",
+        world_pointee_direct_relations=pointee_names,
+        world_pointee_nested_relations=pointee_names,
         world_resource_shared_identity_joins=str(shared),
         scope_overlaps="0",
         exit_without_entry="0",
@@ -111,6 +121,19 @@ def fixture(shared=3):
 
 
 class TrackModelRuntimeJoinTests(unittest.TestCase):
+    def test_runtime_census_is_bounded_and_observation_only(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("kTrackWorldPointeePrefixWords = 16", source)
+        self.assertIn("CensusTrackWorldPointees", source)
+        self.assertIn("world_pointee_direct_relations", source)
+        self.assertIn("world_pointee_nested_relations", source)
+        census = source.split("void CensusTrackWorldPointees", 1)[1].split(
+            "void AddTrackWorldResourceReference", 1
+        )[0]
+        self.assertNotIn("identity_mask", census)
+
     def test_qualifies_scope_and_shared_identity(self):
         document = MODULE.build(fixture())
         self.assertEqual("complete", document["status"])
@@ -128,6 +151,13 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             document["qualification"][
                 "track_world_resource_to_submission_identity_proved"
             ]
+        )
+        self.assertTrue(document["world_pointee_census"]["available"])
+        self.assertEqual(
+            1,
+            document["world_pointee_census"]["nested_relations"][
+                "simple_mesh"
+            ],
         )
 
     def test_qualifies_scope_without_claiming_shared_identity(self):
@@ -185,6 +215,30 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         events[-1].pop("command_prepared_draw_joins_without_semantic_origin")
         document = MODULE.build(events)
         self.assertEqual("complete", document["status"])
+
+    def test_accepts_legacy_summary_without_pointee_census(self):
+        events = copy.deepcopy(fixture())
+        for key in (
+            "world_pointee_graph_samples",
+            "world_pointee_direct_hits",
+            "world_pointee_nested_hits",
+            "world_pointee_host_unmapped_rejections",
+            "world_pointee_direct_relations",
+            "world_pointee_nested_relations",
+        ):
+            events[-1].pop(key)
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
+        self.assertFalse(document["world_pointee_census"]["available"])
+
+    def test_rejects_pointee_relation_accounting_drift(self):
+        events = copy.deepcopy(fixture())
+        events[-1]["world_pointee_nested_hits"] = "3"
+        document = MODULE.build(events)
+        self.assertIn(
+            "nested world-pointee relation accounting drifted",
+            document["failures"],
+        )
 
     def test_latest_checkpoint_is_diagnostic_not_admission_evidence(self):
         events = fixture()

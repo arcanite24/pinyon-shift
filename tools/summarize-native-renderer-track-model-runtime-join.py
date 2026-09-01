@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v3"
+SCHEMA = "pinyon-shift.native-renderer-track-model-runtime-join.v4"
 CONFIG = "native_renderer.discovery.track_render_model_runtime_join_config"
 SUMMARY = "native_renderer.discovery.track_render_model_runtime_join_summary"
 CHECKPOINT = (
@@ -39,6 +39,22 @@ WORLD_RELATIONS = (
 SHARED_WORLD_RELATIONS = tuple(
     f"shared_{relation}" for relation in WORLD_RELATIONS
 )
+POINTEE_RELATIONS = (
+    "track_model",
+    "track_mesh",
+    "track_submodel",
+    "procedural_object",
+    "procedural_resource",
+    "pvs_object",
+    "pvs_resource",
+    "simple_renderer",
+    "simple_resource",
+    "simple_model",
+    "simple_submodel",
+    "simple_mesh",
+    "deferred_renderer",
+    "model_presentation",
+)
 
 
 def integer(mapping, key):
@@ -49,6 +65,21 @@ def integer(mapping, key):
     if value < 0:
         raise ValueError(f"negative {key}")
     return value
+
+
+def relation_counts(mapping, key):
+    raw = mapping.get(key)
+    if not isinstance(raw, str):
+        raise ValueError(f"invalid {key}")
+    result = {}
+    for part in raw.split(";"):
+        name, separator, value = part.partition("=")
+        if not separator or name in result:
+            raise ValueError(f"invalid {key}")
+        result[name] = integer({name: value}, name)
+    if tuple(result) != POINTEE_RELATIONS:
+        raise ValueError(f"invalid {key}")
+    return result
 
 
 def exact_event(events, name):
@@ -226,11 +257,46 @@ def build(events, requested_session=None, allow_checkpoint=False):
     )
     for key in prepared_partition_keys:
         totals[key] = integer(summary, key) if key in summary else 0
+    pointee_keys = (
+        "world_pointee_graph_samples",
+        "world_pointee_direct_hits",
+        "world_pointee_nested_hits",
+        "world_pointee_host_unmapped_rejections",
+        "world_pointee_direct_relations",
+        "world_pointee_nested_relations",
+    )
+    pointee_present = all(key in summary for key in pointee_keys)
+    pointee_direct_relations = {}
+    pointee_nested_relations = {}
+    if pointee_present:
+        for key in pointee_keys[:4]:
+            totals[key] = integer(summary, key)
+        pointee_direct_relations = relation_counts(
+            summary, "world_pointee_direct_relations"
+        )
+        pointee_nested_relations = relation_counts(
+            summary, "world_pointee_nested_relations"
+        )
     failures = []
     if any(key in summary for key in prepared_partition_keys) and not (
         prepared_partition_present
     ):
         failures.append("prepared command semantic-origin partition is incomplete")
+    if any(key in summary for key in pointee_keys) and not pointee_present:
+        failures.append("world-pointee census is incomplete")
+    if pointee_present:
+        if totals["world_pointee_graph_samples"] != (
+            2 * totals["world_resource_graph_cache_misses"]
+        ):
+            failures.append("world-pointee sample accounting drifted")
+        if totals["world_pointee_direct_hits"] != sum(
+            pointee_direct_relations.values()
+        ):
+            failures.append("direct world-pointee relation accounting drifted")
+        if totals["world_pointee_nested_hits"] != sum(
+            pointee_nested_relations.values()
+        ):
+            failures.append("nested world-pointee relation accounting drifted")
     classified = (
         totals["exact_scopes"]
         + totals["invalid_root"]
@@ -345,6 +411,11 @@ def build(events, requested_session=None, allow_checkpoint=False):
         },
         "shared_world_resource_relations": {
             key: totals[key] for key in SHARED_WORLD_RELATIONS
+        },
+        "world_pointee_census": {
+            "available": pointee_present,
+            "direct_relations": pointee_direct_relations,
+            "nested_relations": pointee_nested_relations,
         },
         "qualification": {
             "track_render_model_scope_to_submission_proved": False,

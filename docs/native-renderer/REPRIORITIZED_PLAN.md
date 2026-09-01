@@ -416,6 +416,16 @@ festival population, just like the synchronous presentation population. C2
 must move to a live SimpleModel construction/registration or draw-producing
 call edge rather than adding more assumptions to either dormant path.
 
+Live-world pointee census checkpoint: on each cache miss, the exact C1 child
+and type-21 descriptor now supply at most 16 unique mapped roots apiece to a
+one-level, 16-word prefix census. Direct and nested RTTI matches are counted
+separately for the seven proved track-world types and the immediate/deferred
+SimpleModel renderer, resource, model, submodel, mesh, and presentation types.
+Nested results are diagnostic only: they are not copied into command identity,
+native selection, or suppression. The next combined run can therefore tell us
+whether C2's live static objects sit behind the already-live command graph
+without widening either renderer contract or doing another broad draw census.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
