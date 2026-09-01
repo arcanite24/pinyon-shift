@@ -999,6 +999,16 @@ accounting, and sample selection remain fail-closed. The 2x presentation gate
 is still closed pending a batched AppData qualification of replay geometry and
 this backend path.
 
+Scaled-qualification harness checkpoint: a default-off census profile may arm
+the private procedural replay and exact accumulator at exactly `2x2`, but only
+when the selected output renderer is explicitly `xenos`. The harness enables
+the complete track/static continuous workset, forces Xenos authority for the
+process, records an armed-or-blocked configuration event, publishes no native
+frame, suppresses no guest draws, and restores every environment override on
+exit. Any other scale, renderer, missing census, or missing accumulator request
+fails closed. This is a diagnostic admission path only; it does not widen the
+visible prototype compatibility gate.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
