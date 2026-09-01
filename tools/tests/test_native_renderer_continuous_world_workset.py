@@ -289,6 +289,26 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn('"resolve_physical_rect"', source)
         self.assertIn('"resolve_destination"', source)
 
+    def test_isolated_replay_reports_scaled_geometry(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0118-d3d12-isolated-replay-geometry-result.patch"
+        ).read_text(encoding="utf-8")
+        for field in (
+            "logical_width",
+            "logical_height",
+            "draw_resolution_scale_x",
+            "draw_resolution_scale_y",
+        ):
+            self.assertIn(field, patch)
+            self.assertIn(field, source)
+        self.assertIn('"procedural_source_logical_extent"', source)
+        self.assertIn('"procedural_source_target_extent"', source)
+        self.assertIn('"procedural_source_draw_scale"', source)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

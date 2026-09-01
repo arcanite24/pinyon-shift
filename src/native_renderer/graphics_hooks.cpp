@@ -10090,6 +10090,13 @@ struct ContinuousWorldWorksetState {
   uint64_t reused_target_requests = 0;
   uint64_t target_reseed_requests = 0;
   uint64_t procedural_color_target_reseed_requests = 0;
+  uint64_t procedural_source_geometry_frame = UINT64_MAX;
+  uint32_t procedural_source_logical_width = 0;
+  uint32_t procedural_source_logical_height = 0;
+  uint32_t procedural_source_target_width = 0;
+  uint32_t procedural_source_target_height = 0;
+  uint32_t procedural_source_draw_scale_x = 0;
+  uint32_t procedural_source_draw_scale_y = 0;
   uint64_t frames_started = 0;
   uint64_t frames_completed = 0;
   uint64_t frames_failed = 0;
@@ -26590,8 +26597,13 @@ void CompleteIsolatedDraw(
        {"status", status},
        {"frame", std::to_string(g_isolated_draw.captured_frame)},
        {"draw", std::to_string(g_isolated_draw.captured_draw)},
+       {"logical_extent",
+        fmt::format("{}x{}", result.logical_width, result.logical_height)},
        {"target_width", std::to_string(result.target_width)},
        {"target_height", std::to_string(result.target_height)},
+       {"draw_scale",
+        fmt::format("{}x{}", result.draw_resolution_scale_x,
+                    result.draw_resolution_scale_y)},
        {"native_draw", result.status ==
                                    rex::system::GraphicsIsolatedDrawStatus::kRecorded
                                ? "isolated_only"
@@ -27210,6 +27222,19 @@ void CompleteContinuousWorldProceduralSourceReplay(
   if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded &&
       source_frame != UINT64_MAX) {
     g_procedural_frame_accumulator_exact_source_frame = source_frame;
+    g_continuous_world_workset.procedural_source_geometry_frame = source_frame;
+    g_continuous_world_workset.procedural_source_logical_width =
+        result.logical_width;
+    g_continuous_world_workset.procedural_source_logical_height =
+        result.logical_height;
+    g_continuous_world_workset.procedural_source_target_width =
+        result.target_width;
+    g_continuous_world_workset.procedural_source_target_height =
+        result.target_height;
+    g_continuous_world_workset.procedural_source_draw_scale_x =
+        result.draw_resolution_scale_x;
+    g_continuous_world_workset.procedural_source_draw_scale_y =
+        result.draw_resolution_scale_y;
   } else if (g_procedural_frame_accumulator_exact_source_frame ==
              source_frame) {
     g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
@@ -27389,6 +27414,27 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
        {"procedural_color_target_reseed_requests",
         std::to_string(g_continuous_world_workset
                            .procedural_color_target_reseed_requests)},
+       {"procedural_source_geometry_frame",
+        g_continuous_world_workset.procedural_source_geometry_frame ==
+                UINT64_MAX
+            ? "none"
+            : std::to_string(
+                  g_continuous_world_workset.procedural_source_geometry_frame)},
+       {"procedural_source_logical_extent",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_logical_width,
+            g_continuous_world_workset.procedural_source_logical_height)},
+       {"procedural_source_target_extent",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_target_width,
+            g_continuous_world_workset.procedural_source_target_height)},
+       {"procedural_source_draw_scale",
+        fmt::format(
+            "{}x{}",
+            g_continuous_world_workset.procedural_source_draw_scale_x,
+            g_continuous_world_workset.procedural_source_draw_scale_y)},
        {"frames_started",
         std::to_string(g_continuous_world_workset.frames_started)},
        {"frames_completed", std::to_string(frames_completed)},

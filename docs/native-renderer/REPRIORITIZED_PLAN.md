@@ -952,6 +952,21 @@ offset and extent, sample selection, and render-target key agreement. This
 closes the ambiguity between a wrong source target and a wrong crop before any
 scaled replay is enabled.
 
+Resolve-region qualification (`20260901T144616Z-p15856`) proved that the live
+source and resolve both use target key `0:32:12:4`. The two visible full-width
+chunks read guest rectangles `1280x256` and `1280x208`, corresponding to
+physical `2560x512` and `2560x416` rectangles at 2x, both beginning at source
+origin `0,0` with sample select `6`. Target selection is therefore correct; the
+remaining mismatch is downstream in private replay geometry, accumulator
+row/sample mapping, or presentation.
+
+Replay-geometry implementation checkpoint: every indexed and auto-indexed
+isolated completion now reports the exact scaled logical extent, private target
+extent, and active draw scale together with request identity. The continuous
+procedural workset retains this contract in its bounded summary. This creates a
+direct replay-versus-resolve comparison before any 2x replay or output gate is
+widened; Xenos remains authoritative and suppression remains disabled.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 117)
+        self.assertEqual(len(patches), 118)
         self.assertEqual(
             patches[-1].name,
-            "0117-d3d12-resolve-region-topology-observation.patch",
+            "0118-d3d12-isolated-replay-geometry-result.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
