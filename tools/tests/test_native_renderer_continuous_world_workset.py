@@ -138,6 +138,9 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn(
             "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD", source
         )
+        self.assertIn(
+            "track_world_environment == 0 && prototype_selected", source
+        )
         self.assertIn("kTrackTextureUnifiedVtable = 0x82001708", source)
         self.assertIn("non_track_provider_rejections", source)
         self.assertIn('"native_renderer.continuous_world_workset.summary"', source)

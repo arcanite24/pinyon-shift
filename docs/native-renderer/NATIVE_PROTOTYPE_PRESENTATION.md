@@ -3,8 +3,11 @@
 Phase B2 replaces the retained-pass diagnostic crop with a complete logical
 scene presentation mode. The `native_prototype` renderer remains
 restart-gated, default-off, and fail-closed. Selecting it automatically arms
-the bounded continuous world workset from Phase B1; the environment override
-remains available to capture tooling.
+the bounded continuous world workset from Phase B1 and the runtime-proved exact
+indirect track-world family from C1. Environment overrides remain available to
+capture tooling; setting
+`PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD=false` explicitly removes
+the exact track family without changing the Xenos fallback.
 
 For an exact current-frame retained target, ReXGlue maps the draw-derived
 logical scene extent out of the padded backing allocation into a private

@@ -1,6 +1,6 @@
 # Direct indexed-draw producers and the live C2 candidate
 
-Status: producer-to-prepared provenance implemented; batched runtime qualification pending
+Status: producer-to-prepared provenance implemented; tested candidate inactive
 
 ## Why C2 changed direction
 
@@ -54,9 +54,25 @@ python tools/discover-native-renderer-direct-indexed-producers.py `
   --output .local/qualification/native-renderer-direct-indexed-producers.json
 ```
 
-## Next batched gate
+## Runtime result
 
-The next combined AppData session must establish that `82C5B038` is active,
+Clean AppData session `20260901T022910Z-p35168` completed normally in the
+festival world with Xenos authoritative. All 68,356 direct indexed-draw scopes
+balanced, all observations belonged to the closed 13-caller inventory, and no
+scope overlap, missing exit, unknown caller, or accounting failure occurred.
+The exact `82C5B038` unified-track helper recorded zero calls. The dormant
+`82C4DC58` SimpleModel helper also remained at zero.
+
+The active direct families were vector font (50,974), D3D9 device (10,589),
+and generic title graphics helpers (6,793). None supplies the RTTI-proved
+static-world instance and transform contract required by C2. The exact unified
+track edge is therefore retained as safe passive instrumentation, but it is not
+the active road or building/prop ingress in this representative saved scene.
+No catalog classification was attempted from an empty exact population.
+
+## Deferred recheck gate
+
+Any future scene-specific recheck must establish that `82C5B038` is active,
 that every observation has the exact `CTrackMesh` vtable and a finite mapped
 transform, and that every exact scope reaches a prepared draw. The existing
 offline instance classifier now accepts `--origin unified_track_mesh`; it tests
@@ -81,6 +97,6 @@ python tools/summarize-native-renderer-static-world-instance-classification.py `
   --output .local/qualification/native-renderer-track-mesh-classification.json
 ```
 
-Until that evidence exists, this is a candidate ingress only. It enables no
+Until that evidence exists, this remains an inactive candidate ingress only. It enables no
 native admission, guest publication, Xenos suppression, or building/prop
 claim; Xenos remains authoritative.
