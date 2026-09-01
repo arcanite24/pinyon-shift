@@ -309,6 +309,32 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn('"procedural_source_target_extent"', source)
         self.assertIn('"procedural_source_draw_scale"', source)
 
+    def test_scaled_accumulator_layout_reconciles_authoritative_regions(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        header = (
+            ROOT / "src/native_renderer/resolve_frame_accumulator.h"
+        ).read_text(encoding="utf-8")
+        implementation = (
+            ROOT / "src/native_renderer/resolve_frame_accumulator.cpp"
+        ).read_text(encoding="utf-8")
+        native_test = (
+            ROOT / "tests/native_renderer/resolve_frame_accumulator_test.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ProceduralFrameAccumulatorSourceTopology", header)
+        self.assertIn("ProceduralFrameAccumulatorPhysicalLayout", header)
+        self.assertIn("BuildProceduralFrameAccumulatorPhysicalLayout", header)
+        self.assertIn("topology.source_guest_y", implementation)
+        self.assertIn("destination_copy_rows", implementation)
+        self.assertIn("padding_rows", implementation)
+        self.assertIn("third_layout.source_y == 0", native_test)
+        self.assertIn("third_layout.padding_rows == 32", native_test)
+        self.assertIn(
+            '"native_renderer.procedural_frame_accumulator.layout"', source
+        )
+        self.assertIn('"backend_copy", "not_yet_admitted"', source)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

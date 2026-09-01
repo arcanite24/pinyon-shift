@@ -5,6 +5,177 @@
 
 namespace pinyon_shift::native_renderer {
 
+namespace {
+
+bool CheckedMultiply(uint32_t left, uint32_t right, uint32_t &result_out) {
+  const uint64_t result = uint64_t(left) * right;
+  if (result > UINT32_MAX) {
+    return false;
+  }
+  result_out = uint32_t(result);
+  return true;
+}
+
+bool CheckedAdd(uint32_t left, uint32_t right, uint32_t &result_out) {
+  const uint64_t result = uint64_t(left) + right;
+  if (result > UINT32_MAX) {
+    return false;
+  }
+  result_out = uint32_t(result);
+  return true;
+}
+
+}  // namespace
+
+ProceduralFrameAccumulatorPhysicalLayout
+BuildProceduralFrameAccumulatorPhysicalLayout(
+    const ProceduralFrameAccumulatorTransition &transition,
+    const ProceduralFrameAccumulatorSourceTopology &topology) {
+  ProceduralFrameAccumulatorPhysicalLayout layout;
+  if (!transition.append || transition.cancel) {
+    return layout;
+  }
+  if (!topology.source_available || !topology.resolve_info_valid) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kMissingTopology;
+    return layout;
+  }
+  if (!topology.draw_scale_x || !topology.draw_scale_y ||
+      topology.draw_scale_x > 7 || topology.draw_scale_y > 7) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kInvalidScale;
+    return layout;
+  }
+  if (topology.target_base_tiles != topology.resolve_base_tiles ||
+      topology.target_pitch_tiles != topology.resolve_pitch_tiles ||
+      topology.guest_msaa_samples !=
+          topology.resolve_guest_msaa_samples) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kTargetMismatch;
+    return layout;
+  }
+  const bool supported_samples =
+      topology.host_sample_count == topology.guest_msaa_samples ||
+      (topology.guest_msaa_samples == 2 &&
+       topology.host_sample_count == 4 && !topology.native_2x_msaa);
+  // The proved family resolves all samples. Keep other resolve semantics closed
+  // until their native single-sample conversion is implemented explicitly.
+  if (!supported_samples || topology.sample_select != 6) {
+    layout.status =
+        ProceduralFrameAccumulatorLayoutStatus::kUnsupportedSamples;
+    return layout;
+  }
+
+  uint32_t output_width = 0;
+  uint32_t output_logical_height = 0;
+  uint32_t output_storage_height = 0;
+  uint32_t destination_row = 0;
+  uint32_t destination_storage_rows = 0;
+  uint32_t destination_copy_rows = 0;
+  uint32_t expected_source_x = 0;
+  uint32_t expected_source_y = 0;
+  uint32_t expected_source_width = 0;
+  uint32_t expected_source_height = 0;
+  if (!CheckedMultiply(transition.logical_width, topology.draw_scale_x,
+                       output_width) ||
+      !CheckedMultiply(transition.logical_height, topology.draw_scale_y,
+                       output_logical_height) ||
+      !CheckedMultiply(topology.destination_height, topology.draw_scale_y,
+                       output_storage_height) ||
+      !CheckedMultiply(transition.destination_row, topology.draw_scale_y,
+                       destination_row) ||
+      !CheckedMultiply(transition.storage_row_count, topology.draw_scale_y,
+                       destination_storage_rows) ||
+      !CheckedMultiply(transition.logical_row_count, topology.draw_scale_y,
+                       destination_copy_rows) ||
+      !CheckedMultiply(topology.source_guest_x, topology.draw_scale_x,
+                       expected_source_x) ||
+      !CheckedMultiply(topology.source_guest_y, topology.draw_scale_y,
+                       expected_source_y) ||
+      !CheckedMultiply(topology.source_guest_width, topology.draw_scale_x,
+                       expected_source_width) ||
+      !CheckedMultiply(topology.source_guest_height, topology.draw_scale_y,
+                       expected_source_height)) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kOverflow;
+    return layout;
+  }
+  uint32_t source_end_x = 0;
+  uint32_t source_end_y = 0;
+  uint32_t destination_copy_end = 0;
+  uint32_t destination_storage_end = 0;
+  if (!CheckedAdd(topology.source_physical_x,
+                  topology.source_physical_width, source_end_x) ||
+      !CheckedAdd(topology.source_physical_y,
+                  topology.source_physical_height, source_end_y) ||
+      !CheckedAdd(destination_row, destination_copy_rows,
+                  destination_copy_end) ||
+      !CheckedAdd(destination_row, destination_storage_rows,
+                  destination_storage_end)) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kOverflow;
+    return layout;
+  }
+  const bool region_matches =
+      topology.source_physical_x == expected_source_x &&
+      topology.source_physical_y == expected_source_y &&
+      topology.source_physical_width == expected_source_width &&
+      topology.source_physical_height == expected_source_height &&
+      topology.source_guest_width == transition.logical_width &&
+      topology.source_guest_height == transition.logical_row_count &&
+      topology.destination_x == 0 && topology.destination_y == 0 &&
+      topology.destination_pitch == transition.logical_width &&
+      topology.destination_height >= transition.logical_height &&
+      uint64_t(topology.destination_height) <
+          uint64_t(transition.logical_height) + 64 &&
+      source_end_x <= topology.resource_width &&
+      source_end_y <= topology.resource_height &&
+      destination_copy_end <= output_logical_height &&
+      destination_storage_end <= output_storage_height &&
+      (!transition.commit ||
+       destination_storage_end == output_storage_height) &&
+      destination_copy_rows <= destination_storage_rows;
+  if (!region_matches) {
+    layout.status = ProceduralFrameAccumulatorLayoutStatus::kRegionMismatch;
+    return layout;
+  }
+
+  layout.status = ProceduralFrameAccumulatorLayoutStatus::kReady;
+  layout.output_width = output_width;
+  layout.output_logical_height = output_logical_height;
+  layout.output_storage_height = output_storage_height;
+  layout.destination_row = destination_row;
+  layout.destination_storage_rows = destination_storage_rows;
+  layout.destination_copy_rows = destination_copy_rows;
+  layout.source_x = topology.source_physical_x;
+  layout.source_y = topology.source_physical_y;
+  layout.source_width = topology.source_physical_width;
+  layout.source_height = topology.source_physical_height;
+  layout.padding_rows = destination_storage_rows - destination_copy_rows;
+  layout.host_sample_count = topology.host_sample_count;
+  layout.guest_msaa_samples = topology.guest_msaa_samples;
+  layout.sample_select = topology.sample_select;
+  return layout;
+}
+
+const char *ProceduralFrameAccumulatorLayoutStatusName(
+    ProceduralFrameAccumulatorLayoutStatus status) {
+  switch (status) {
+    case ProceduralFrameAccumulatorLayoutStatus::kReady:
+      return "ready";
+    case ProceduralFrameAccumulatorLayoutStatus::kNoAppend:
+      return "no_append";
+    case ProceduralFrameAccumulatorLayoutStatus::kMissingTopology:
+      return "missing_topology";
+    case ProceduralFrameAccumulatorLayoutStatus::kInvalidScale:
+      return "invalid_scale";
+    case ProceduralFrameAccumulatorLayoutStatus::kTargetMismatch:
+      return "target_mismatch";
+    case ProceduralFrameAccumulatorLayoutStatus::kRegionMismatch:
+      return "region_mismatch";
+    case ProceduralFrameAccumulatorLayoutStatus::kUnsupportedSamples:
+      return "unsupported_samples";
+    case ProceduralFrameAccumulatorLayoutStatus::kOverflow:
+      return "overflow";
+  }
+  return "unknown";
+}
+
 void ProceduralFrameAccumulatorPlanner::Reset(uint64_t frame_sequence) {
   frame_sequence_ = frame_sequence;
   target_ = {};

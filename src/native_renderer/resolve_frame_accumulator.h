@@ -43,6 +43,84 @@ struct ProceduralFrameAccumulatorTransition {
   bool actionable() const { return begin || append || commit || cancel; }
 };
 
+enum class ProceduralFrameAccumulatorLayoutStatus : uint8_t {
+  kReady,
+  kNoAppend,
+  kMissingTopology,
+  kInvalidScale,
+  kTargetMismatch,
+  kRegionMismatch,
+  kUnsupportedSamples,
+  kOverflow,
+};
+
+// Payload-free topology captured from the authoritative Xenos resolve. This is
+// deliberately backend-neutral so layout qualification can be unit-tested
+// without creating or reading a GPU resource.
+struct ProceduralFrameAccumulatorSourceTopology {
+  uint32_t resource_width = 0;
+  uint32_t resource_height = 0;
+  uint32_t host_sample_count = 0;
+  uint32_t guest_msaa_samples = 0;
+  uint32_t draw_scale_x = 0;
+  uint32_t draw_scale_y = 0;
+  uint32_t target_base_tiles = 0;
+  uint32_t target_pitch_tiles = 0;
+  uint32_t resolve_base_tiles = 0;
+  uint32_t resolve_pitch_tiles = 0;
+  uint32_t resolve_guest_msaa_samples = 0;
+  uint32_t source_guest_x = 0;
+  uint32_t source_guest_y = 0;
+  uint32_t source_guest_width = 0;
+  uint32_t source_guest_height = 0;
+  uint32_t source_physical_x = 0;
+  uint32_t source_physical_y = 0;
+  uint32_t source_physical_width = 0;
+  uint32_t source_physical_height = 0;
+  uint32_t destination_x = 0;
+  uint32_t destination_y = 0;
+  uint32_t destination_pitch = 0;
+  uint32_t destination_height = 0;
+  uint32_t sample_select = 0;
+  bool source_available = false;
+  bool resolve_info_valid = false;
+  bool native_2x_msaa = false;
+};
+
+struct ProceduralFrameAccumulatorPhysicalLayout {
+  ProceduralFrameAccumulatorLayoutStatus status =
+      ProceduralFrameAccumulatorLayoutStatus::kNoAppend;
+  uint32_t output_width = 0;
+  uint32_t output_logical_height = 0;
+  uint32_t output_storage_height = 0;
+  uint32_t destination_row = 0;
+  uint32_t destination_storage_rows = 0;
+  uint32_t destination_copy_rows = 0;
+  uint32_t source_x = 0;
+  uint32_t source_y = 0;
+  uint32_t source_width = 0;
+  uint32_t source_height = 0;
+  uint32_t padding_rows = 0;
+  uint32_t host_sample_count = 0;
+  uint32_t guest_msaa_samples = 0;
+  uint32_t sample_select = 0;
+
+  bool ready() const {
+    return status == ProceduralFrameAccumulatorLayoutStatus::kReady;
+  }
+};
+
+// Reconciles one logical row-assembly transition with the exact authoritative
+// resolve source rectangle. It performs checked arithmetic and rejects target,
+// crop, padding, sample, and draw-scale mismatches before a backend can copy.
+ProceduralFrameAccumulatorPhysicalLayout
+BuildProceduralFrameAccumulatorPhysicalLayout(
+    const ProceduralFrameAccumulatorTransition &transition,
+    const ProceduralFrameAccumulatorSourceTopology &topology);
+
+const char *ProceduralFrameAccumulatorLayoutStatusName(
+    ProceduralFrameAccumulatorLayoutStatus status);
+
 // Produces a backend-neutral, fail-closed row-copy plan for assembling the
 // proved procedural EDRAM chunks into one private padded frame. It owns no GPU
 // resources and cannot publish, suppress, or otherwise alter guest rendering.

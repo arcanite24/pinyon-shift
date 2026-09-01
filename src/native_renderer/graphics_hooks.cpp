@@ -11329,6 +11329,9 @@ uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
 uint64_t g_procedural_frame_accumulator_same_frame_yields = 0;
 uint64_t g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
 uint64_t g_procedural_frame_accumulator_source_gate_yields = 0;
+std::array<uint64_t, 8> g_procedural_frame_accumulator_layout_statuses{};
+uint64_t g_procedural_frame_accumulator_layout_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_layout_detail_overflow = 0;
 bool g_graphics_census_installed = false;
 bool g_graphics_full_census_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
@@ -11628,6 +11631,9 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_same_frame_yields = 0;
   g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
   g_procedural_frame_accumulator_source_gate_yields = 0;
+  g_procedural_frame_accumulator_layout_statuses.fill(0);
+  g_procedural_frame_accumulator_layout_detail_count = 0;
+  g_procedural_frame_accumulator_layout_detail_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17599,6 +17605,84 @@ ProceduralResolveCopyFromObservation(
           .written_length = observation.written_length};
 }
 
+void ObserveProceduralFrameAccumulatorPhysicalLayout(
+    const pinyon_shift::native_renderer::
+        ProceduralFrameAccumulatorTransition &transition,
+    const rex::system::GraphicsCopyObservation &observation) {
+  if (!transition.append || transition.cancel) {
+    return;
+  }
+  const pinyon_shift::native_renderer::
+      ProceduralFrameAccumulatorSourceTopology topology{
+          .resource_width = observation.source_resource_width,
+          .resource_height = observation.source_resource_height,
+          .host_sample_count = observation.source_sample_count,
+          .guest_msaa_samples = observation.source_guest_msaa_samples,
+          .draw_scale_x = observation.draw_resolution_scale_x,
+          .draw_scale_y = observation.draw_resolution_scale_y,
+          .target_base_tiles = observation.source_target_base_tiles,
+          .target_pitch_tiles =
+              observation.source_target_pitch_tiles_at_32bpp,
+          .resolve_base_tiles = observation.resolve_source_base_tiles,
+          .resolve_pitch_tiles = observation.resolve_source_pitch_tiles,
+          .resolve_guest_msaa_samples =
+              observation.resolve_source_guest_msaa_samples,
+          .source_guest_x = observation.resolve_guest_offset_x,
+          .source_guest_y = observation.resolve_guest_offset_y,
+          .source_guest_width = observation.resolve_guest_width,
+          .source_guest_height = observation.resolve_guest_height,
+          .source_physical_x = observation.resolve_physical_offset_x,
+          .source_physical_y = observation.resolve_physical_offset_y,
+          .source_physical_width = observation.resolve_physical_width,
+          .source_physical_height = observation.resolve_physical_height,
+          .destination_x = observation.resolve_dest_offset_x,
+          .destination_y = observation.resolve_dest_offset_y,
+          .destination_pitch = observation.resolve_dest_pitch,
+          .destination_height = observation.resolve_dest_height,
+          .sample_select = observation.resolve_sample_select,
+          .source_available = observation.source_target_available,
+          .resolve_info_valid = observation.resolve_info_valid,
+          .native_2x_msaa = observation.native_2x_msaa};
+  const auto layout = pinyon_shift::native_renderer::
+      BuildProceduralFrameAccumulatorPhysicalLayout(transition, topology);
+  const size_t status_index = size_t(layout.status);
+  if (status_index < g_procedural_frame_accumulator_layout_statuses.size()) {
+    ++g_procedural_frame_accumulator_layout_statuses[status_index];
+  }
+  if (g_procedural_frame_accumulator_layout_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_layout_detail_overflow;
+    return;
+  }
+  ++g_procedural_frame_accumulator_layout_detail_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.layout",
+      {{"frame", std::to_string(transition.frame_sequence)},
+       {"chunk", std::to_string(transition.chunk_count)},
+       {"status",
+        pinyon_shift::native_renderer::
+            ProceduralFrameAccumulatorLayoutStatusName(layout.status)},
+       {"output_extent",
+        fmt::format("{}x{}", layout.output_width,
+                    layout.output_logical_height)},
+       {"output_storage_height",
+        std::to_string(layout.output_storage_height)},
+       {"destination_rows",
+        fmt::format("{}+{}/{}", layout.destination_row,
+                    layout.destination_copy_rows,
+                    layout.destination_storage_rows)},
+       {"source_rect",
+        fmt::format("{},{} {}x{}", layout.source_x, layout.source_y,
+                    layout.source_width, layout.source_height)},
+       {"padding_rows", std::to_string(layout.padding_rows)},
+       {"samples",
+        fmt::format("host={};guest={};select={}", layout.host_sample_count,
+                    layout.guest_msaa_samples, layout.sample_select)},
+       {"backend_copy", "not_yet_admitted"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 bool PlanProceduralFrameAccumulatorBackend(
     const rex::system::GraphicsCopyObservation &observation,
     rex::system::GraphicsNativeFrameAccumulatorRequest &request_out) {
@@ -17620,6 +17704,7 @@ bool PlanProceduralFrameAccumulatorBackend(
   const auto transition = g_procedural_frame_accumulator_planner.Observe(
       ProceduralResolveCopyFromObservation(observation));
   EmitProceduralFrameAccumulatorTransition(transition);
+  ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
   if (!transition.actionable()) {
     return false;
   }
@@ -18247,6 +18332,26 @@ void EmitProceduralColorTargetProfiles() {
             g_procedural_frame_accumulator_qualified_resolve_source_modes[1])},
        {"detail_limit",
         std::to_string(kProceduralRuntimeDetailLimit)},
+       {"physical_layout_ready",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[0])},
+       {"physical_layout_no_append",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[1])},
+       {"physical_layout_missing_topology",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[2])},
+       {"physical_layout_invalid_scale",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[3])},
+       {"physical_layout_target_mismatch",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[4])},
+       {"physical_layout_region_mismatch",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[5])},
+       {"physical_layout_unsupported_samples",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[6])},
+       {"physical_layout_overflow",
+        std::to_string(g_procedural_frame_accumulator_layout_statuses[7])},
+       {"physical_layout_detail_events",
+        std::to_string(g_procedural_frame_accumulator_layout_detail_count)},
+       {"physical_layout_detail_overflow",
+        std::to_string(g_procedural_frame_accumulator_layout_detail_overflow)},
        {"backend_resource_action",
         g_procedural_frame_accumulator_backend_armed ? "private_only"
                                                      : "false"},
@@ -28994,8 +29099,10 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   EmitProceduralResolveAssembly(
       g_procedural_resolve_assembly_tracker.Observe(copy));
   if (!g_procedural_frame_accumulator_backend_armed) {
-    EmitProceduralFrameAccumulatorTransition(
-        g_procedural_frame_accumulator_planner.Observe(copy));
+    const auto transition =
+        g_procedural_frame_accumulator_planner.Observe(copy);
+    EmitProceduralFrameAccumulatorTransition(transition);
+    ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
   }
 
   ++g_dependency_census.window_resolve_count;
