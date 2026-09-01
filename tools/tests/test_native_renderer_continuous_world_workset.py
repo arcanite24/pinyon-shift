@@ -51,6 +51,17 @@ def fixture():
         stale_or_unselected_rejections="3",
         non_track_provider_rejections="2",
         track_world_identity_exclusions="1",
+        track_world_candidates="7",
+        track_world_mechanically_eligible="3",
+        track_world_mechanically_rejected="4",
+        track_world_mechanical_rejection_reasons=(
+            "resolved_input=0;unsupported_geometry=4;empty_draw=0;"
+            "vertex_binding_count=0;vertex_binding_overflow=0;"
+            "vertex_attribute_overflow=0;vertex_constant_overflow=0;"
+            "pixel_constant_overflow=0;texture_state_overflow=0;memexport=0;"
+            "query=0;texture_count=0;texture_layout=0;prepared_pipeline=0;"
+            "render_targets=0"
+        ),
         track_world_requests="3",
         static_world_lineage_rejections="0",
         static_world_requests="3",
@@ -111,6 +122,8 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("qualified_retained_family_requests", source)
         self.assertIn("prepared_track_texture_provider", source)
         self.assertIn("prepared_track_render_model_scope", source)
+        self.assertIn("track_world_mechanically_rejected", source)
+        self.assertIn("track_world_mechanical_rejection_reasons", source)
         self.assertIn(
             ".track_command_lineage = exact_track_command", source
         )
@@ -250,6 +263,28 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn(
             "no exact track-world request was observed", document["failures"]
         )
+
+    def test_rejects_track_world_eligibility_accounting_drift(self):
+        events = fixture()
+        events[-1]["track_world_mechanically_rejected"] = "3"
+        document = MODULE.build(events)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "track-world mechanical eligibility accounting drifted",
+            document["failures"],
+        )
+
+    def test_accepts_legacy_summary_without_eligibility_partition(self):
+        events = fixture()
+        for key in (
+            "track_world_candidates",
+            "track_world_mechanically_eligible",
+            "track_world_mechanically_rejected",
+            "track_world_mechanical_rejection_reasons",
+        ):
+            events[-1].pop(key)
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
 
     def test_keeps_exact_track_world_selection_optional(self):
         events = fixture()

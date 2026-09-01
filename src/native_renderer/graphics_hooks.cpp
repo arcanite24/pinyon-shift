@@ -9248,6 +9248,10 @@ struct ContinuousWorldWorksetState {
   uint64_t stale_or_unselected_rejections = 0;
   uint64_t non_track_provider_rejections = 0;
   uint64_t track_world_identity_exclusions = 0;
+  uint64_t track_world_candidates = 0;
+  uint64_t track_world_mechanically_eligible = 0;
+  uint64_t track_world_mechanically_rejected = 0;
+  std::array<uint64_t, 15> track_world_mechanical_rejection_reasons{};
   uint64_t track_world_requests = 0;
   uint64_t static_world_lineage_rejections = 0;
   uint64_t static_world_requests = 0;
@@ -23969,6 +23973,37 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
        {"track_world_identity_exclusions",
         std::to_string(
             g_continuous_world_workset.track_world_identity_exclusions)},
+       {"track_world_candidates",
+        std::to_string(g_continuous_world_workset.track_world_candidates)},
+       {"track_world_mechanically_eligible",
+        std::to_string(
+            g_continuous_world_workset.track_world_mechanically_eligible)},
+       {"track_world_mechanically_rejected",
+        std::to_string(
+            g_continuous_world_workset.track_world_mechanically_rejected)},
+       {"track_world_mechanical_rejection_reasons",
+        fmt::format(
+            "resolved_input={};unsupported_geometry={};empty_draw={};"
+            "vertex_binding_count={};vertex_binding_overflow={};"
+            "vertex_attribute_overflow={};vertex_constant_overflow={};"
+            "pixel_constant_overflow={};texture_state_overflow={};"
+            "memexport={};query={};texture_count={};texture_layout={};"
+            "prepared_pipeline={};render_targets={}",
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[0],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[1],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[2],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[3],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[4],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[5],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[6],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[7],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[8],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[9],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[10],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[11],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[12],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[13],
+            g_continuous_world_workset.track_world_mechanical_rejection_reasons[14])},
        {"track_world_requests",
         std::to_string(g_continuous_world_workset.track_world_requests)},
        {"static_world_lineage_rejections",
@@ -24350,10 +24385,6 @@ void RequestIsolatedDraw(
       !g_isolated_draw.shadow_depth_batch_active) {
     BeginContinuousWorldWorksetFrame(g_isolated_draw.frame);
     ++g_continuous_world_workset.prepared_observations;
-    if (!g_isolated_draw.prepared_candidate_eligible) {
-      ++g_continuous_world_workset.mechanical_rejections;
-      return;
-    }
     const bool qualified_retained_family =
         g_isolated_draw.prepared_signature == kSkyHorizonFollowerSignature;
     const bool exact_static_world =
@@ -24364,6 +24395,29 @@ void RequestIsolatedDraw(
         g_isolated_draw.prepared_track_render_model_scope &&
         (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
          g_isolated_draw.prepared_track_command_lineage);
+    if (exact_track_world) {
+      ++g_continuous_world_workset.track_world_candidates;
+      const uint32_t rejection_mask =
+          g_isolated_draw.prepared_candidate_rejection_mask;
+      if (rejection_mask) {
+        ++g_continuous_world_workset.track_world_mechanically_rejected;
+        for (size_t bit = 0;
+             bit < g_continuous_world_workset
+                       .track_world_mechanical_rejection_reasons.size();
+             ++bit) {
+          if (rejection_mask & (uint32_t(1) << bit)) {
+            ++g_continuous_world_workset
+                  .track_world_mechanical_rejection_reasons[bit];
+          }
+        }
+      } else {
+        ++g_continuous_world_workset.track_world_mechanically_eligible;
+      }
+    }
+    if (!g_isolated_draw.prepared_candidate_eligible) {
+      ++g_continuous_world_workset.mechanical_rejections;
+      return;
+    }
     if (g_continuous_world_workset.static_world_requested &&
         g_isolated_draw.prepared_static_world_origin &&
         !g_isolated_draw.prepared_static_world_exact) {

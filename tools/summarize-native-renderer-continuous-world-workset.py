@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v6"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v7"
 SELECTION = (
     "fresh_track_texture_provider_visibility_or_qualified_"
     "sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"
@@ -174,6 +174,17 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "maximum_draws_per_frame",
     )
     totals = {key: integer(summary, key) for key in keys}
+    track_eligibility_present = "track_world_candidates" in summary
+    if track_eligibility_present:
+        for key in (
+            "track_world_candidates",
+            "track_world_mechanically_eligible",
+            "track_world_mechanically_rejected",
+        ):
+            totals[key] = integer(summary, key)
+        totals["track_world_mechanical_rejection_reasons"] = summary.get(
+            "track_world_mechanical_rejection_reasons", ""
+        )
     output_frames = [
         event for event in selected if event.get("event") == OUTPUT_FRAME
     ]
@@ -227,6 +238,17 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("no track-provider visibility request was observed")
     if track_world_requested and not totals["track_world_requests"]:
         failures.append("no exact track-world request was observed")
+    if track_eligibility_present and totals["track_world_candidates"] != (
+        totals["track_world_mechanically_eligible"]
+        + totals["track_world_mechanically_rejected"]
+    ):
+        failures.append("track-world mechanical eligibility accounting drifted")
+    if (
+        track_eligibility_present
+        and totals["track_world_requests"]
+        > totals["track_world_mechanically_eligible"]
+    ):
+        failures.append("track-world requests exceed mechanically eligible candidates")
     if not track_world_requested and (
         totals["track_world_requests"]
         or totals["track_world_identity_exclusions"]
