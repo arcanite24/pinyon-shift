@@ -64,6 +64,7 @@ constexpr size_t kSummaryLimit = 16;
 constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kCommandBufferLineageCapacity = 4096;
+constexpr size_t kProceduralColorTargetProfileCapacity = 1024;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -11199,6 +11200,35 @@ struct CommandBufferLineageEntry {
   bool color_sample_varied = false;
 };
 
+struct ProceduralColorTargetProfileEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t prepared_signature = 0;
+  uint64_t vertex_shader_hash = 0;
+  uint64_t pixel_shader_hash = 0;
+  uint64_t opaque_calls = 0;
+  uint64_t bounded_calls = 0;
+  uint64_t resolved_input_calls = 0;
+  uint32_t sample_semantic_receiver_address = 0;
+  uint32_t sample_semantic_receiver_generation = 0;
+  uint32_t bound_render_target_bits = 0;
+  std::array<uint32_t, 5> bound_render_target_formats{};
+  uint32_t prepared_pipeline_flags = 0;
+  uint32_t viewport_xscale = 0;
+  uint32_t viewport_xoffset = 0;
+  uint32_t viewport_yscale = 0;
+  uint32_t viewport_yoffset = 0;
+  uint32_t viewport_transform_control = 0;
+  uint32_t window_scissor_tl = 0;
+  uint32_t window_scissor_br = 0;
+  uint32_t surface_info = 0;
+  std::array<uint32_t, 4> color_info{};
+  uint32_t depth_info = 0;
+  bool semantic_receiver_varied = false;
+};
+
 std::array<CommandBufferLineageEntry, kCommandBufferLineageCapacity>
     g_command_buffer_lineages{};
 uint64_t g_command_buffer_lineage_draws = 0;
@@ -11208,6 +11238,12 @@ uint64_t g_command_buffer_lineage_invalid = 0;
 uint64_t g_command_buffer_lineage_prepared_draws = 0;
 uint64_t g_command_buffer_lineage_entry_count = 0;
 uint64_t g_command_buffer_lineage_overflow = 0;
+std::array<ProceduralColorTargetProfileEntry,
+           kProceduralColorTargetProfileCapacity>
+    g_procedural_color_target_profiles{};
+uint64_t g_procedural_color_target_profile_observations = 0;
+uint64_t g_procedural_color_target_profile_entry_count = 0;
+uint64_t g_procedural_color_target_profile_overflow = 0;
 bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
@@ -11481,6 +11517,11 @@ void ResetCommandBufferLineage() {
   g_command_buffer_lineage_prepared_draws = 0;
   g_command_buffer_lineage_entry_count = 0;
   g_command_buffer_lineage_overflow = 0;
+  std::memset(g_procedural_color_target_profiles.data(), 0,
+              sizeof(g_procedural_color_target_profiles));
+  g_procedural_color_target_profile_observations = 0;
+  g_procedural_color_target_profile_entry_count = 0;
+  g_procedural_color_target_profile_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17184,6 +17225,137 @@ void AccumulateCommandBufferTargetShape(
   entry.sample_color_window_scissor_br = observation.window_scissor_br;
 }
 
+void RecordProceduralColorTargetProfile(
+    uint64_t prepared_signature,
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    const ActiveTitleIndirectBuffer *active) {
+  if (!active || !(prepared.bound_render_target_bits & 2)) {
+    return;
+  }
+  const auto &context = active->constructor_origin.owner.producer.context;
+  if (!context.valid || context.function_address != 0x82417BC0 ||
+      !context.semantic_receiver_address ||
+      !context.semantic_receiver_generation) {
+    return;
+  }
+  ++g_procedural_color_target_profile_observations;
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {prepared_signature, observation.vertex_shader_hash,
+        observation.pixel_shader_hash,
+        uint64_t(prepared.bound_render_target_bits), uint64_t(prepared.flags),
+        uint64_t(observation.viewport_xscale),
+        uint64_t(observation.viewport_xoffset),
+        uint64_t(observation.viewport_yscale),
+        uint64_t(observation.viewport_yoffset),
+        uint64_t(observation.viewport_transform_control),
+        uint64_t(observation.window_scissor_tl),
+        uint64_t(observation.window_scissor_br),
+        uint64_t(observation.surface_info), uint64_t(observation.color_info[0]),
+        uint64_t(observation.color_info[1]), uint64_t(observation.color_info[2]),
+        uint64_t(observation.color_info[3]), uint64_t(observation.depth_info)}) {
+    key = HashCombine(key, value);
+  }
+  for (uint32_t format : prepared.bound_render_target_formats) {
+    key = HashCombine(key, format);
+  }
+  key = key ? key : 1;
+  size_t index = size_t(key % kProceduralColorTargetProfileCapacity);
+  for (size_t probe = 0; probe < kProceduralColorTargetProfileCapacity;
+       ++probe) {
+    ProceduralColorTargetProfileEntry &entry =
+        g_procedural_color_target_profiles[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.prepared_signature = prepared_signature;
+      entry.vertex_shader_hash = observation.vertex_shader_hash;
+      entry.pixel_shader_hash = observation.pixel_shader_hash;
+      entry.opaque_calls = IsOpaqueColorState(observation) ? 1 : 0;
+      entry.bounded_calls =
+          !observation.vertex_binding_overflow &&
+                  !observation.vertex_attribute_overflow &&
+                  !observation.vertex_float_constant_overflow &&
+                  !observation.pixel_float_constant_overflow &&
+                  !observation.texture_state_overflow &&
+                  (prepared.flags & 3) == 3
+              ? 1
+              : 0;
+      entry.resolved_input_calls = samples_resolved_target ? 1 : 0;
+      entry.sample_semantic_receiver_address =
+          context.semantic_receiver_address;
+      entry.sample_semantic_receiver_generation =
+          context.semantic_receiver_generation;
+      entry.bound_render_target_bits = prepared.bound_render_target_bits;
+      std::copy(std::begin(prepared.bound_render_target_formats),
+                std::end(prepared.bound_render_target_formats),
+                entry.bound_render_target_formats.begin());
+      entry.prepared_pipeline_flags = prepared.flags;
+      entry.viewport_xscale = observation.viewport_xscale;
+      entry.viewport_xoffset = observation.viewport_xoffset;
+      entry.viewport_yscale = observation.viewport_yscale;
+      entry.viewport_yoffset = observation.viewport_yoffset;
+      entry.viewport_transform_control =
+          observation.viewport_transform_control;
+      entry.window_scissor_tl = observation.window_scissor_tl;
+      entry.window_scissor_br = observation.window_scissor_br;
+      entry.surface_info = observation.surface_info;
+      std::copy(std::begin(observation.color_info),
+                std::end(observation.color_info), entry.color_info.begin());
+      entry.depth_info = observation.depth_info;
+      ++g_procedural_color_target_profile_entry_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.prepared_signature == prepared_signature &&
+        entry.vertex_shader_hash == observation.vertex_shader_hash &&
+        entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        entry.bound_render_target_bits == prepared.bound_render_target_bits &&
+        entry.prepared_pipeline_flags == prepared.flags &&
+        entry.viewport_xscale == observation.viewport_xscale &&
+        entry.viewport_xoffset == observation.viewport_xoffset &&
+        entry.viewport_yscale == observation.viewport_yscale &&
+        entry.viewport_yoffset == observation.viewport_yoffset &&
+        entry.viewport_transform_control ==
+            observation.viewport_transform_control &&
+        entry.window_scissor_tl == observation.window_scissor_tl &&
+        entry.window_scissor_br == observation.window_scissor_br &&
+        entry.surface_info == observation.surface_info &&
+        entry.depth_info == observation.depth_info &&
+        std::equal(entry.color_info.begin(), entry.color_info.end(),
+                   std::begin(observation.color_info)) &&
+        std::equal(entry.bound_render_target_formats.begin(),
+                   entry.bound_render_target_formats.end(),
+                   std::begin(prepared.bound_render_target_formats))) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.opaque_calls += IsOpaqueColorState(observation) ? 1 : 0;
+      entry.bounded_calls +=
+          !observation.vertex_binding_overflow &&
+                  !observation.vertex_attribute_overflow &&
+                  !observation.vertex_float_constant_overflow &&
+                  !observation.pixel_float_constant_overflow &&
+                  !observation.texture_state_overflow &&
+                  (prepared.flags & 3) == 3
+              ? 1
+              : 0;
+      entry.resolved_input_calls += samples_resolved_target ? 1 : 0;
+      entry.semantic_receiver_varied |=
+          entry.sample_semantic_receiver_address !=
+              context.semantic_receiver_address ||
+          entry.sample_semantic_receiver_generation !=
+              context.semantic_receiver_generation;
+      return;
+    }
+    index = (index + 1) % kProceduralColorTargetProfileCapacity;
+  }
+  ++g_procedural_color_target_profile_overflow;
+}
+
 void RecordPreparedCommandBufferLineage(
     uint64_t prepared_signature,
     const rex::system::GraphicsDrawObservation &observation,
@@ -17203,6 +17375,9 @@ void RecordPreparedCommandBufferLineage(
           : UINT32_MAX;
   const ActiveTitleIndirectBuffer *active =
       CurrentTitleIndirectBuffer(observation);
+  RecordProceduralColorTargetProfile(prepared_signature, observation,
+                                     samples_resolved_target, prepared,
+                                     active);
   const uint32_t constructor_store_address =
       active ? active->constructor_store_address : 0;
   const IndirectConstructorOrigin constructor_origin =
@@ -17446,12 +17621,133 @@ void RecordPreparedCommandBufferLineage(
   ++g_command_buffer_lineage_overflow;
 }
 
+void EmitProceduralColorTargetProfiles() {
+  uint64_t accounted = 0;
+  uint64_t full_preview_extent_calls = 0;
+  uint64_t reduced_preview_width_calls = 0;
+  for (const ProceduralColorTargetProfileEntry &entry :
+       g_procedural_color_target_profiles) {
+    if (!entry.calls) {
+      continue;
+    }
+    accounted += entry.calls;
+    const uint32_t scissor_left = entry.window_scissor_tl & 0x7FFF;
+    const uint32_t scissor_top =
+        (entry.window_scissor_tl >> 16) & 0x7FFF;
+    const uint32_t scissor_right = entry.window_scissor_br & 0x7FFF;
+    const uint32_t scissor_bottom =
+        (entry.window_scissor_br >> 16) & 0x7FFF;
+    const bool full_preview_extent =
+        !scissor_left && !scissor_top && scissor_right == 1280 &&
+        scissor_bottom == 720;
+    const bool reduced_preview_width =
+        !scissor_left && !scissor_top && scissor_right == 1280 &&
+        scissor_bottom && scissor_bottom < 720;
+    full_preview_extent_calls += full_preview_extent ? entry.calls : 0;
+    reduced_preview_width_calls += reduced_preview_width ? entry.calls : 0;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.procedural_color_target_profile_entry",
+        {{"entry_key", fmt::format("{:016X}", entry.key)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"prepared_signature",
+          fmt::format("{:016X}", entry.prepared_signature)},
+         {"vertex_shader",
+          fmt::format("{:016X}", entry.vertex_shader_hash)},
+         {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"opaque_calls", std::to_string(entry.opaque_calls)},
+         {"bounded_calls", std::to_string(entry.bounded_calls)},
+         {"resolved_input_calls",
+          std::to_string(entry.resolved_input_calls)},
+         {"sample_semantic_receiver_address",
+          fmt::format("{:08X}", entry.sample_semantic_receiver_address)},
+         {"sample_semantic_receiver_generation",
+          std::to_string(entry.sample_semantic_receiver_generation)},
+         {"semantic_receiver_varied",
+          entry.semantic_receiver_varied ? "true" : "false"},
+         {"bound_render_target_bits",
+          fmt::format("{:08X}", entry.bound_render_target_bits)},
+         {"bound_render_target_formats",
+          fmt::format("{}:{}:{}:{}:{}",
+                      entry.bound_render_target_formats[0],
+                      entry.bound_render_target_formats[1],
+                      entry.bound_render_target_formats[2],
+                      entry.bound_render_target_formats[3],
+                      entry.bound_render_target_formats[4])},
+         {"prepared_pipeline_flags",
+          fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"viewport",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.viewport_xscale, entry.viewport_xoffset,
+                      entry.viewport_yscale, entry.viewport_yoffset)},
+         {"viewport_transform_control",
+          fmt::format("{:08X}", entry.viewport_transform_control)},
+         {"scissor",
+          fmt::format("{:08X}:{:08X}", entry.window_scissor_tl,
+                      entry.window_scissor_br)},
+         {"scissor_extent",
+          fmt::format("{}:{}:{}:{}", scissor_left, scissor_top,
+                      scissor_right, scissor_bottom)},
+         {"preview_extent_role",
+          full_preview_extent
+              ? "full_1280x720"
+              : (reduced_preview_width ? "reduced_1280_width" : "other")},
+         {"target_state",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.surface_info, entry.color_info[0],
+                      entry.color_info[1], entry.color_info[2],
+                      entry.color_info[3], entry.depth_info)},
+         {"semantic_receiver_class",
+          "proceduralGeometry::CProceduralModels"},
+         {"semantic_dispatch", "82417BC0"},
+         {"classification",
+          "exact_procedural_color_signature_target_profile"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_color_target_profile_summary",
+      {{"observations",
+        std::to_string(g_procedural_color_target_profile_observations)},
+       {"accounted", std::to_string(accounted)},
+       {"entries",
+        std::to_string(g_procedural_color_target_profile_entry_count)},
+       {"overflow",
+        std::to_string(g_procedural_color_target_profile_overflow)},
+       {"full_preview_extent_calls",
+        std::to_string(full_preview_extent_calls)},
+       {"reduced_preview_width_calls",
+        std::to_string(reduced_preview_width_calls)},
+       {"accounting_complete",
+        g_procedural_color_target_profile_observations ==
+                    accounted + g_procedural_color_target_profile_overflow &&
+                !g_procedural_color_target_profile_overflow
+            ? "true"
+            : "false"},
+       {"preview_extent", "1280x720"},
+       {"classification", "exact_procedural_color_target_role_census"},
+       {"guest_payload_read", "false"},
+       {"guest_state_changed", "false"},
+       {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void EmitCommandBufferLineageSummary() {
   EmitSemanticVisibilityWorkset();
   EmitProceduralModelSemanticInstances();
   EmitProceduralModelSemanticSubmissions();
   EmitTrackRenderModelRuntimeJoinSummary();
   EmitStaticWorldRuntimeJoinSummary();
+  EmitProceduralColorTargetProfiles();
   for (const CommandBufferLineageEntry &entry : g_command_buffer_lineages) {
     if (!entry.calls) {
       continue;
@@ -30064,8 +30360,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "context_r3-r10,context_root,semantic_receiver_generation,"
         "semantic_visibility_epoch,semantic_render_state_epoch,"
         "backend_packet,prepared_target_shape,"
-        "current_buffer,parent_packet,root_buffer,depth"},
+       "current_buffer,parent_packet,root_buffer,depth"},
        {"prepared_target_shape_census", "bounded_aggregate_v1"},
+       {"procedural_color_target_profile_census", "bounded_exact_v1"},
+       {"procedural_color_target_profile_capacity",
+        std::to_string(kProceduralColorTargetProfileCapacity)},
+       {"procedural_color_target_profile_dispatch", "82417BC0"},
+       {"procedural_color_target_profile_preview_extent", "1280x720"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
