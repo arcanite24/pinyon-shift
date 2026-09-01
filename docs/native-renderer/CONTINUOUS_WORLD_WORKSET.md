@@ -4,9 +4,11 @@ Phase B1 promotes the qualified visibility-selected private replay from one
 draw per frame to a bounded multi-draw target that can participate in the
 existing continuous native composition path.
 
-This checkpoint is default-off and does not suppress any Xenos work. It proves
-the accumulation and freshness contract before expanding material-family
-coverage or claiming a coherent native scene.
+As a standalone experiment this checkpoint is default-off and does not
+suppress any Xenos work. The `native_prototype` renderer selector arms the
+workset and its exact track-world family automatically. It proves the
+accumulation and freshness contract before expanding material-family coverage
+or claiming a coherent native scene.
 
 ## Selection
 
@@ -23,7 +25,9 @@ census and semantic dispatch discovery so every admitted draw has:
   prepared-layout lineage; and
 - exact title-to-backend lineage.
 
-For the C1 qualification probe, add `-ContinuousTrackWorld`. Semantic draws
+For an explicit C1 qualification probe, add `-ContinuousTrackWorld`. The same
+selection is the default when `native_prototype` is active unless
+`PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD=false` is set. Semantic draws
 then require both the exact unified track render-model scope and a nonzero
 shared world-resource identity mask: the same RTTI-proved track model, mesh,
 submodel, procedural-geometry, or PVS-zone object/resource address must occur

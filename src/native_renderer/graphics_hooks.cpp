@@ -10362,10 +10362,10 @@ void ConfigureContinuousWorldWorkset() {
 
   value = nullptr;
   length = 0;
-  if (_dupenv_s(
-          &value, &length,
-          "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD") == 0 &&
-      value && length > 1) {
+  const errno_t track_world_environment = _dupenv_s(
+      &value, &length,
+      "PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD");
+  if (track_world_environment == 0 && value && length > 1) {
     const std::string setting(value);
     if (setting != "false") {
       g_continuous_world_workset.track_world_requested = true;
@@ -10373,6 +10373,12 @@ void ConfigureContinuousWorldWorkset() {
         g_continuous_world_workset.valid = false;
       }
     }
+  } else if (track_world_environment == 0 && prototype_selected) {
+    // The exact indirect track lineage is the only runtime-proved terrain and
+    // road family. Include it in the visible prototype by default while
+    // preserving an explicit false environment override and every existing
+    // mechanical, publication, and Xenos-authority gate.
+    g_continuous_world_workset.track_world_requested = true;
   }
   std::free(value);
   if (g_continuous_world_workset.track_world_requested &&

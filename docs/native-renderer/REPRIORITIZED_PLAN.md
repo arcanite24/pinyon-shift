@@ -457,6 +457,16 @@ live-candidate draw edge without yet claiming runtime activity or a concrete
 building/prop category. Static proof and the next batched gate are documented
 in [`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md).
 
+Runtime pivot result: clean festival-world session
+`20260901T022910Z-p35168` balanced all 68,356 direct indexed-draw scopes with
+zero unknown callers or lifecycle faults, but both the exact unified-track
+helper `82C5B038` and SimpleModel helper `82C4DC58` remained inactive. The
+proven indirect track route remained healthy with 485 balanced exact scopes,
+485 packet joins, and 732 prepared-draw joins. C1 therefore stays on that
+indirect route; the direct unified-track edge is deferred until a scene proves
+it live, and C2 must not infer building/prop identity from generic active
+helpers.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
@@ -601,7 +611,7 @@ collision and gameplay manifests produce a payload-free catalog of 24,025
 hashed spatial entries (21,877 collision props and 2,148 gameplay objects).
 See
 [`STATIC_WORLD_INSTANCE_CLASSIFICATION.md`](STATIC_WORLD_INSTANCE_CLASSIFICATION.md).
-The next combined C1/C2 AppData run must prove the matrix convention and a
+The next C2-specific AppData run must prove the matrix convention and a
 unique runtime-to-catalog match; no building/prop category, native admission,
 or suppression is claimed yet.
 
@@ -613,17 +623,27 @@ process lifecycle, and a complete static-world runtime summary. The qualifier
 is ready for the deferred combined AppData run; it cannot self-qualify from
 static fixtures and still enables no native admission or suppression.
 
-Live C2 ingress checkpoint: the closed 13-caller indexed-draw inventory found
-an active candidate independent of the dormant SimpleModel graph. Exact unified
+Candidate C2 ingress checkpoint: the closed 13-caller indexed-draw inventory
+found a statically exact candidate independent of the dormant SimpleModel
+graph. Exact unified
 track helper `82C5ADC0` carries RTTI-proved `CTrackMesh` plus its 64-byte live
 transform into emitter `82416380`. A balanced entry/common-exit scope now joins
 that identity through the synchronous PM4 packet into prepared-draw provenance,
 with separate lifecycle, packet, and prepared counters. The catalog qualifier
 can consume this alternate origin via `--origin unified_track_mesh`. See
-[`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md). The next
-batched AppData run must prove the path is live and uniquely maps at least eight
+[`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md). Clean
+session `20260901T022910Z-p35168` proved the complete direct producer inventory
+and balanced lifecycle, but recorded zero calls from `82C5B038`. A future
+scene-specific recheck must first prove the path live and then uniquely map at least eight
 instances, including a collision prop. This is evidence-only: native admission
 and suppression remain disabled and Xenos remains authoritative.
+
+C1 visible-prototype promotion checkpoint: because the same clean session
+reconfirmed the indirect route's exact packet/prepared lineage, selecting
+`native_prototype` now also requests the exact track-world family by default.
+An explicit `PINYON_SHIFT_NATIVE_RENDERER_CONTINUOUS_TRACK_WORLD=false` remains
+a fail-safe override. The existing mechanical eligibility, one-frame private
+target, swap commit, fallback, and Xenos-authority gates are unchanged.
 
 Native-output implementation checkpoint: the existing one-frame,
 swap-committed continuous world target now has an independent default-off
