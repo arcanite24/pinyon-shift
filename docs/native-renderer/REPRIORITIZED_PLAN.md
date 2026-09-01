@@ -635,6 +635,14 @@ therefore determine whether slot 80 produces the main-view color target through
 passive evidence only; Xenos remains authoritative and native admission stays
 disabled.
 
+Incomplete-classification artifact checkpoint: static-world instance
+classification now emits a fail-closed JSON report when its upstream runtime
+qualification is incomplete instead of discarding all downstream evidence.
+This lets the combined C1/C2 join explain both the failed static gate and the
+successful presentation lineage from one expensive session. The artifact
+remains `incomplete`, records the upstream failure explicitly, and cannot
+enable native admission or suppression.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

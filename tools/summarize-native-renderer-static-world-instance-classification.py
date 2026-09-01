@@ -224,6 +224,7 @@ def build(
     if len(starts) != 1 or len(shutdowns) != 1:
         raise ValueError("process lifecycle is incomplete")
     summary = summaries[0]
+    failures = []
     if origin == "static_world":
         qualified = (
             summary.get("status") == "complete"
@@ -241,10 +242,9 @@ def build(
             and integer(summary, "unified_track_mesh_unprepared_matches") == 0
         )
     if not qualified:
-        raise ValueError("runtime transform qualification is incomplete")
+        failures.append("runtime transform qualification is incomplete")
 
     transforms = {}
-    failures = []
     for event in selected:
         if event.get("event") != PROVENANCE or event.get("outcome") != "prepared":
             continue
