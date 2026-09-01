@@ -97,6 +97,34 @@ def events():
     return result
 
 
+def track_events():
+    result = events()
+    for event in result:
+        if event.get("event") == MODULE.PROVENANCE:
+            event["unified_track_mesh_origin"] = "true"
+            event["unified_track_mesh_transform_hash"] = event.pop(
+                "static_world_transform_hash"
+            )
+            event["unified_track_mesh_transform_words"] = event.pop(
+                "static_world_transform_words"
+            ).replace(":", ",")
+            event["static_world_origin"] = "false"
+            event["static_world_transform_valid"] = ""
+    result[-2] = {
+        "event": MODULE.DIRECT_SUMMARY,
+        "session": "session-1",
+        "status": "complete",
+        "accounting_complete": "true",
+        "scope_accounting_complete": "true",
+        "prepared_join_accounting_complete": "true",
+        "unified_track_mesh_scopes_exact": "8",
+        "unified_track_mesh_scopes_without_packets": "0",
+        "unified_track_mesh_prepared_matches": "8",
+        "unified_track_mesh_unprepared_matches": "0",
+    }
+    return result
+
+
 class StaticWorldInstanceClassificationTests(unittest.TestCase):
     def test_proves_unique_row_translation_join(self):
         document = MODULE.build(catalog(), events())
@@ -152,6 +180,24 @@ class StaticWorldInstanceClassificationTests(unittest.TestCase):
         self.assertIn(
             "runtime provenance violated Xenos authority", document["failures"]
         )
+
+    def test_proves_unified_track_mesh_prepared_join(self):
+        document = MODULE.build(
+            catalog(), track_events(), origin="unified_track_mesh"
+        )
+        self.assertEqual("complete", document["status"])
+        self.assertEqual("unified_track_mesh", document["runtime_origin"])
+        self.assertTrue(
+            document["qualification"][
+                "building_or_prop_instance_identity_proved"
+            ]
+        )
+
+    def test_rejects_incomplete_track_packet_join(self):
+        observed = track_events()
+        observed[-2]["unified_track_mesh_scopes_without_packets"] = "1"
+        with self.assertRaisesRegex(ValueError, "qualification is incomplete"):
+            MODULE.build(catalog(), observed, origin="unified_track_mesh")
 
 
 if __name__ == "__main__":

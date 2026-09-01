@@ -613,6 +613,18 @@ process lifecycle, and a complete static-world runtime summary. The qualifier
 is ready for the deferred combined AppData run; it cannot self-qualify from
 static fixtures and still enables no native admission or suppression.
 
+Live C2 ingress checkpoint: the closed 13-caller indexed-draw inventory found
+an active candidate independent of the dormant SimpleModel graph. Exact unified
+track helper `82C5ADC0` carries RTTI-proved `CTrackMesh` plus its 64-byte live
+transform into emitter `82416380`. A balanced entry/common-exit scope now joins
+that identity through the synchronous PM4 packet into prepared-draw provenance,
+with separate lifecycle, packet, and prepared counters. The catalog qualifier
+can consume this alternate origin via `--origin unified_track_mesh`. See
+[`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md). The next
+batched AppData run must prove the path is live and uniquely maps at least eight
+instances, including a collision prop. This is evidence-only: native admission
+and suppression remain disabled and Xenos remains authoritative.
+
 Native-output implementation checkpoint: the existing one-frame,
 swap-committed continuous world target now has an independent default-off
 static-world selection. It admits only mechanically replayable draws carrying

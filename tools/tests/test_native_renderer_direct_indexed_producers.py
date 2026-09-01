@@ -14,6 +14,9 @@ def fixture():
     functions = {}
     for function, call, _return, _classification in MODULE.EXPECTED_CALLS:
         functions.setdefault(function, {})[call] = "bl 0x82416380"
+    functions.setdefault(MODULE.DRAW_EMITTER, {})[
+        MODULE.DRAW_EMITTER_EXIT
+    ] = "addi r1,r1,208"
     functions[MODULE.TRACK_HELPER].update(
         {
             0x82C5ADD8: "mr r26,r6",
@@ -78,6 +81,7 @@ class DirectIndexedProducerTests(unittest.TestCase):
         report = MODULE.build(functions, image)
         self.assertEqual("complete", report["status"])
         self.assertEqual(13, len(report["producers"]))
+        self.assertEqual("824167EC", report["draw_emitter_common_exit"])
         candidate = report["c2_live_candidate"]
         self.assertEqual("82C5ADC0", candidate["producer"])
         self.assertEqual("CTrackMesh", candidate["mesh_class"])
@@ -109,6 +113,10 @@ class DirectIndexedProducerTests(unittest.TestCase):
             'name = "PinyonShiftObserveDirectIndexedDrawProducer"', analysis
         )
         self.assertIn('registers = ["r26", "r31", "lr"]', analysis)
+        self.assertIn("address = 0x824167EC", analysis)
+        self.assertIn(
+            'name = "PinyonShiftObserveDirectIndexedDrawProducerExit"', analysis
+        )
         self.assertIn("kDirectIndexedDrawProducerCount = 13", hooks)
         self.assertIn("kUnifiedTrackMeshTransformCapacity = 4096", hooks)
         self.assertIn("bounded_64_byte_live_transform", hooks)

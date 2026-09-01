@@ -1,6 +1,6 @@
 # Direct indexed-draw producers and the live C2 candidate
 
-Status: static producer inventory proved; batched runtime qualification pending
+Status: producer-to-prepared provenance implemented; batched runtime qualification pending
 
 ## Why C2 changed direction
 
@@ -32,11 +32,18 @@ Its direct draw returns to `82C5B038`. Static instruction flow proves that:
 - the upstream `82DED198 -> 82436468` route is owned by exact RTTI-proved
   `Presentation_Unified::CTrackPresentation` methods.
 
-The runtime observer at `82416380` is armed only with census plus dispatch
+The runtime observer at `82416380` and its exact common exit at `824167EC`
+are armed only with census plus dispatch
 discovery. It counts all 13 exact return-address families and, only for
 `82C5B038`, requires `r26` vtable `8200143C` (`CTrackMesh`) before retaining a
 bounded 4,096-entry table of mesh address plus 16 numeric transform words. It
 does not run during ordinary prototype gameplay.
+
+The balanced scope now attaches that exact mesh and transform to the
+synchronously emitted `PM4_DRAW_INDX` packet. Existing physical-packet
+provenance then carries it into the prepared backend draw. Entry/exit,
+scope-to-packet, and packet-to-prepared counters must all balance; any overlap,
+missing packet, unprepared match, read fault, or unknown caller fails closed.
 
 Generate the static report with:
 
@@ -51,10 +58,10 @@ python tools/discover-native-renderer-direct-indexed-producers.py `
 
 The next combined AppData session must establish that `82C5B038` is active,
 that every observation has the exact `CTrackMesh` vtable and a finite mapped
-transform, and that the transform table has no overflow. Those transforms can
-then be evaluated against the already-built collision-prop and gameplay-object
-catalog to determine whether this live track-owned path supplies C2's concrete
-building/prop identity.
+transform, and that every exact scope reaches a prepared draw. The existing
+offline instance classifier now accepts `--origin unified_track_mesh`; it tests
+both plausible matrix conventions against the already-built collision-prop and
+gameplay-object catalog without exporting plaintext identity.
 
 The fail-closed runtime qualifier requires a clean process lifecycle, all 13
 producer records, zero unknown callers, at least eight distinct transforms,
@@ -65,6 +72,13 @@ python tools/summarize-native-renderer-direct-indexed-producers.py `
   .local/preview/logs/<session>.jsonl `
   --session <session> `
   --output .local/qualification/native-renderer-direct-indexed-runtime.json
+
+python tools/summarize-native-renderer-static-world-instance-classification.py `
+  .local/preview/logs/<session>.jsonl `
+  --catalog .local/qualification/native-renderer-static-world-instance-catalog.json `
+  --origin unified_track_mesh `
+  --session <session> `
+  --output .local/qualification/native-renderer-track-mesh-classification.json
 ```
 
 Until that evidence exists, this is a candidate ingress only. It enables no

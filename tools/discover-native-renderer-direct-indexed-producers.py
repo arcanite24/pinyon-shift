@@ -16,6 +16,7 @@ FUNCTION_RE = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-F]{8})\) \{")
 LABEL_RE = re.compile(r"^loc_([0-9A-F]{8}):")
 COMMENT_RE = re.compile(r"^\s*//\s+(.+?)\s*$")
 DRAW_EMITTER = 0x82416380
+DRAW_EMITTER_EXIT = 0x824167EC
 TRACK_MESH_VTABLE = 0x8200143C
 TRACK_PRESENTATION_VTABLE = 0x82243774
 TRACK_HELPER = 0x82C5ADC0
@@ -108,6 +109,11 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
     expected = sorted((function, call, ret) for function, call, ret, _ in EXPECTED_CALLS)
     if observed != expected:
         raise ValueError("direct indexed-draw producer inventory drifted")
+    require_instructions(
+        functions,
+        DRAW_EMITTER,
+        {DRAW_EMITTER_EXIT: "addi r1,r1,208"},
+    )
 
     if rtti_name(image, TRACK_MESH_VTABLE) != ".?AVCTrackMesh@@":
         raise ValueError("CTrackMesh RTTI evidence drifted")
@@ -169,6 +175,7 @@ def build(functions: dict[int, dict[int, str]], image: bytes) -> dict:
         "status": "complete",
         "classification": "bounded_direct_indexed_draw_producer_inventory",
         "draw_emitter": f"{DRAW_EMITTER:08X}",
+        "draw_emitter_common_exit": f"{DRAW_EMITTER_EXIT:08X}",
         "producers": [
             {
                 "function": f"{function:08X}",

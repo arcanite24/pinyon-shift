@@ -66,3 +66,12 @@ population is dormant: all 78,312 exact preparations rejected with null
 resource and renderer. The full combined gate remains incomplete until a live
 C2 ingress is identified and both exact selectors produce swap-committed
 requests in one clean session.
+
+The direct indexed-draw producer census has since identified a replacement C2
+ingress at unified track mesh helper `82C5ADC0`. Its exact `CTrackMesh` and
+transform now flow through the synchronous PM4 packet into prepared-draw
+provenance, and the spatial classifier can evaluate that origin with
+`--origin unified_track_mesh`. The next batched session should qualify this
+live route before investing further in the dormant SimpleModel construction
+path. This changes evidence priority only; the combined promotion gate and its
+Xenos-authority requirements remain unchanged.

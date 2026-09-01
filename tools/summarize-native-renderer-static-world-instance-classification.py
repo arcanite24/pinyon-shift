@@ -16,12 +16,29 @@ SCHEMA = "pinyon-shift.native-renderer-static-world-instance-classification.v1"
 CATALOG_SCHEMA = "pinyon-shift.native-renderer-static-world-instance-catalog.v1"
 CONFIG = "native_renderer.discovery.static_world_runtime_join_config"
 SUMMARY = "native_renderer.discovery.static_world_runtime_join_summary"
+DIRECT_SUMMARY = "native_renderer.discovery.direct_indexed_draw_producer_summary"
 PROVENANCE = "native_renderer.discovery.title_provenance_entry"
 DEFAULT_TOLERANCE = 0.05
 DEFAULT_MINIMUM_MATCHES = 8
 CONVENTIONS = {
     "translation_words_12_13_14": (12, 13, 14),
     "translation_words_3_7_11": (3, 7, 11),
+}
+ORIGINS = {
+    "static_world": {
+        "flag": "static_world_origin",
+        "valid": "static_world_transform_valid",
+        "hash": "static_world_transform_hash",
+        "words": "static_world_transform_words",
+        "summary": SUMMARY,
+    },
+    "unified_track_mesh": {
+        "flag": "unified_track_mesh_origin",
+        "valid": None,
+        "hash": "unified_track_mesh_transform_hash",
+        "words": "unified_track_mesh_transform_words",
+        "summary": DIRECT_SUMMARY,
+    },
 }
 
 
@@ -67,13 +84,14 @@ def hexadecimal(value, width, label):
     return value
 
 
-def parse_transform(event):
-    words = str(event.get("static_world_transform_words", "")).split(":")
+def parse_transform(event, origin):
+    fields = ORIGINS[origin]
+    words = str(event.get(fields["words"], "")).replace(":", ",").split(",")
     if len(words) != 16:
         raise ValueError("runtime transform does not contain 16 words")
     values = tuple(int(hexadecimal(word, 8, "transform word"), 16) for word in words)
     transform_hash = hexadecimal(
-        event.get("static_world_transform_hash", ""), 16, "transform hash"
+        event.get(fields["hash"], ""), 16, "transform hash"
     )
     return transform_hash, values
 
@@ -182,45 +200,65 @@ def build(
     requested_session=None,
     tolerance=DEFAULT_TOLERANCE,
     minimum_matches=DEFAULT_MINIMUM_MATCHES,
+    origin="static_world",
 ):
     if not math.isfinite(tolerance) or tolerance <= 0 or tolerance > 1:
         raise ValueError("match tolerance is outside the safe range")
     if minimum_matches < 1:
         raise ValueError("minimum matches must be positive")
+    if origin not in ORIGINS:
+        raise ValueError("runtime origin is unsupported")
+    fields = ORIGINS[origin]
     instances = validate_catalog(catalog)
     session, selected = select_session(events, requested_session)
     configs = [event for event in selected if event.get("event") == CONFIG]
-    summaries = [event for event in selected if event.get("event") == SUMMARY]
+    summaries = [
+        event for event in selected if event.get("event") == fields["summary"]
+    ]
     starts = [event for event in selected if event.get("event") == "process.start"]
     shutdowns = [
         event for event in selected if event.get("event") == "process.shutdown"
     ]
     if len(configs) != 1 or len(summaries) != 1:
-        raise ValueError("static-world runtime lifecycle is incomplete")
+        raise ValueError("runtime transform lifecycle is incomplete")
     if len(starts) != 1 or len(shutdowns) != 1:
         raise ValueError("process lifecycle is incomplete")
-    if (
-        summaries[0].get("status") != "complete"
-        or summaries[0].get("qualification_complete") != "true"
-    ):
-        raise ValueError("static-world runtime qualification is incomplete")
+    summary = summaries[0]
+    if origin == "static_world":
+        qualified = (
+            summary.get("status") == "complete"
+            and summary.get("qualification_complete") == "true"
+        )
+    else:
+        qualified = (
+            summary.get("status") == "complete"
+            and summary.get("accounting_complete") == "true"
+            and summary.get("scope_accounting_complete") == "true"
+            and summary.get("prepared_join_accounting_complete") == "true"
+            and integer(summary, "unified_track_mesh_scopes_exact") > 0
+            and integer(summary, "unified_track_mesh_prepared_matches") > 0
+            and integer(summary, "unified_track_mesh_scopes_without_packets") == 0
+            and integer(summary, "unified_track_mesh_unprepared_matches") == 0
+        )
+    if not qualified:
+        raise ValueError("runtime transform qualification is incomplete")
 
     transforms = {}
     failures = []
     for event in selected:
         if event.get("event") != PROVENANCE or event.get("outcome") != "prepared":
             continue
-        if event.get("static_world_origin") != "true":
+        if event.get(fields["flag"]) != "true":
             continue
-        if event.get("static_world_transform_valid") != "true":
-            failures.append("prepared static-world origin lacks a valid transform")
+        if fields["valid"] and event.get(fields["valid"]) != "true":
+            failures.append("prepared runtime origin lacks a valid transform")
             continue
         if (
             event.get("xenos_draw") != "preserved"
             or event.get("suppression_eligible") != "false"
         ):
             failures.append("runtime provenance violated Xenos authority")
-        transform_hash, words = parse_transform(event)
+        transform_hash, words = parse_transform(event, origin)
         calls = integer(event, "calls")
         previous = transforms.get(transform_hash)
         if previous and previous["words"] != words:
@@ -231,7 +269,7 @@ def build(
         else:
             transforms[transform_hash] = {"words": words, "calls": calls}
     if not transforms:
-        failures.append("no prepared static-world transforms were observed")
+        failures.append("no prepared runtime transforms were observed")
 
     index = spatial_index(instances, tolerance)
     convention_reports = {}
@@ -299,6 +337,7 @@ def build(
     return {
         "schema": SCHEMA,
         "session": session,
+        "runtime_origin": origin,
         "status": "complete" if not failures else "incomplete",
         "failures": failures,
         "catalog_instance_count": len(instances),
@@ -332,6 +371,7 @@ def main():
     parser.add_argument("--catalog", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--session")
+    parser.add_argument("--origin", choices=tuple(ORIGINS), default="static_world")
     parser.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE)
     parser.add_argument(
         "--minimum-matches", type=int, default=DEFAULT_MINIMUM_MATCHES
@@ -345,6 +385,7 @@ def main():
             requested_session=arguments.session,
             tolerance=arguments.tolerance,
             minimum_matches=arguments.minimum_matches,
+            origin=arguments.origin,
         )
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         arguments.output.write_text(
