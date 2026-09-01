@@ -166,6 +166,14 @@ first, and draw suppression and guest-memory publication remained off. This
 qualifies the corrected source-row path rather than relying only on the earlier
 structural session.
 
+The prototype selectors now arm this qualified private accumulator by default,
+so the launcher-visible prototype uses the coherent padded full frame instead
+of the earlier single-tile view. The standalone ReX cvar remains available for
+qualification, and
+`PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR=false` is a
+restart-time fail-safe override. Missing, incomplete, or unsupported work still
+falls back to Xenos without publication or suppression.
+
 Run it after the combined AppData session closes:
 
 ```powershell

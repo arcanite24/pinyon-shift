@@ -67,6 +67,24 @@ bool NativePrototypeSelected() {
          mode == "comparison_native" || mode == "comparison_xenos";
 }
 
+bool ProceduralFrameAccumulatorSelected(bool prototype_selected) {
+  bool selected =
+      prototype_selected ||
+      REXCVAR_GET(pinyon_shift_native_renderer_procedural_frame_accumulator);
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(
+          &value, &length,
+          "PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR") == 0 &&
+      value && length > 1) {
+    // Keep a restart-time emergency escape hatch for prototype regressions.
+    // Unknown values fail closed rather than silently arming native output.
+    selected = std::string(value) == "true";
+  }
+  std::free(value);
+  return selected;
+}
+
 constexpr size_t kSummaryLimit = 16;
 constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
@@ -30668,8 +30686,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   const bool prototype_selected = NativePrototypeSelected();
-  const bool procedural_frame_accumulator_requested = REXCVAR_GET(
-      pinyon_shift_native_renderer_procedural_frame_accumulator);
+  const bool procedural_frame_accumulator_requested =
+      ProceduralFrameAccumulatorSelected(prototype_selected);
   const bool observation_requested = census_requested || prototype_selected ||
                                      procedural_frame_accumulator_requested;
   const bool title_provenance_requested =
