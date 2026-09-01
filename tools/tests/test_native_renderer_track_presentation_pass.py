@@ -80,6 +80,8 @@ class TrackPresentationPassTests(unittest.TestCase):
         self.assertIn("g_track_presentation_adapter_entries", source)
         self.assertIn("g_track_presentation_adapter_first_targets", source)
         self.assertIn('"slot_80_adapter_dispatches"', source)
+        self.assertIn("presentation_construction_mask", source)
+        self.assertIn('"slot_80_packet_constructions"', source)
 
     def test_prepared_layout_exports_exact_target_shape(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
