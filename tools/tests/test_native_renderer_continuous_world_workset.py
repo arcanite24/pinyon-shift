@@ -385,6 +385,23 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             patch,
         )
 
+    def test_accumulator_source_remains_qualified_for_same_frame_chunks(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0121-d3d12-accumulator-source-frame-lifetime.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("may provide multiple resolve chunks", patch)
+        self.assertIn("target reseeding or frame", patch)
+        self.assertIn("frame-sequence check above", patch)
+        self.assertIn(
+            "-  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;",
+            patch,
+        )
+        self.assertNotIn(
+            "+  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;",
+            patch,
+        )
+
     def test_scaled_accumulator_qualification_keeps_xenos_authoritative(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

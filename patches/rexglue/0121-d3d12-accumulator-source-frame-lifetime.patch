@@ -1,0 +1,28 @@
+From 2b835fb37c7393d95ef6658ca5999623597bbc1d Mon Sep 17 00:00:00 2001
+From: "Brandon G. Neri" <arcaniteamp@gmail.com>
+Date: Tue, 1 Sep 2026 16:10:00 -0600
+Subject: [PATCH] fix(graphics): retain accumulator source for frame
+
+---
+ src/graphics/d3d12/render_target_cache.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index d6f7c0a..392fd81 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -2972,7 +2972,10 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+   result.appended_row_end =
+       isolated_replay_frame_accumulator_appended_row_end_;
+   result.committed = request.commit;
+-  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
++  // A qualified retained replay target may provide multiple resolve chunks in
++  // the same frame. Keep its source identity until target reseeding or frame
++  // cancellation clears it, while the frame-sequence check above continues to
++  // reject stale and unrelated sources.
+   return result;
+ }
+ 
+-- 
+2.51.1.windows.1
+
