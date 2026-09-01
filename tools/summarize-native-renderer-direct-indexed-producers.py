@@ -118,6 +118,7 @@ def build(events, requested_session=None, minimum_transforms=MINIMUM_TRANSFORMS)
         "direct_indexed_draw_emitter": "82416380",
         "direct_indexed_draw_producer_count": "13",
         "direct_indexed_draw_producer_hook": "82416380:r26,r31,lr",
+        "direct_indexed_draw_producer_exit_hook": "824167EC",
         "direct_indexed_draw_producer_census": "armed",
         "unified_track_mesh_draw_return": "82C5B038",
         "unified_track_mesh_draw_producer": "82C5ADC0",
@@ -185,11 +186,26 @@ def build(events, requested_session=None, minimum_transforms=MINIMUM_TRANSFORMS)
             "unified_track_mesh_transform_entries",
             "unified_track_mesh_transform_collisions",
             "unified_track_mesh_transform_overflow",
+            "direct_indexed_draw_scope_entries",
+            "direct_indexed_draw_scope_exits",
+            "direct_indexed_draw_scope_overlaps",
+            "direct_indexed_draw_scope_exit_without_entry",
+            "unified_track_mesh_scopes_exact",
+            "unified_track_mesh_scopes_with_packets",
+            "unified_track_mesh_scopes_without_packets",
+            "unified_track_mesh_packet_origins",
+            "unified_track_mesh_prepared_matches",
+            "unified_track_mesh_unprepared_matches",
         )
     }
     failures = []
     if summary.get("status") != "complete" or summary.get("accounting_complete") != "true":
         failures.append("runtime accounting is incomplete")
+    if (
+        summary.get("scope_accounting_complete") != "true"
+        or summary.get("prepared_join_accounting_complete") != "true"
+    ):
+        failures.append("prepared provenance accounting is incomplete")
     if totals["observations"] != classified or totals["classified_observations"] != classified:
         failures.append("producer observation accounting does not balance")
     if totals["producer_count"] != len(EXPECTED_RETURNS):
@@ -212,6 +228,23 @@ def build(events, requested_session=None, minimum_transforms=MINIMUM_TRANSFORMS)
             failures.append(f"{key} is nonzero")
     if totals["unified_track_mesh_transform_entries"] != len(transforms):
         failures.append("unified track mesh transform entry count does not balance")
+    if (
+        totals["direct_indexed_draw_scope_entries"]
+        != totals["direct_indexed_draw_scope_exits"]
+        or totals["direct_indexed_draw_scope_entries"] != totals["observations"]
+        or totals["direct_indexed_draw_scope_overlaps"]
+        or totals["direct_indexed_draw_scope_exit_without_entry"]
+    ):
+        failures.append("direct indexed draw scope lifecycle does not balance")
+    if (
+        totals["unified_track_mesh_scopes_exact"] != track_calls
+        or totals["unified_track_mesh_scopes_with_packets"] != track_calls
+        or totals["unified_track_mesh_scopes_without_packets"]
+        or totals["unified_track_mesh_packet_origins"] != track_calls
+        or totals["unified_track_mesh_prepared_matches"] != track_calls
+        or totals["unified_track_mesh_unprepared_matches"]
+    ):
+        failures.append("unified track mesh prepared provenance does not balance")
     if len(transforms) < minimum_transforms:
         failures.append("too few distinct unified track mesh transforms")
 
@@ -226,6 +259,7 @@ def build(events, requested_session=None, minimum_transforms=MINIMUM_TRANSFORMS)
             "direct_indexed_draw_producer_inventory_proved": not failures,
             "unified_track_mesh_draw_activity_proved": not failures,
             "unified_track_mesh_transform_boundary_proved": not failures,
+            "unified_track_mesh_prepared_provenance_proved": not failures,
             "building_or_prop_instance_identity_proved": False,
             "native_admission": False,
             "suppression_allowed": False,

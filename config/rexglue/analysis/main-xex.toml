@@ -282,6 +282,10 @@ address = 0x82416380
 name = "PinyonShiftObserveDirectIndexedDrawProducer"
 registers = ["r26", "r31", "lr"]
 
+[[midasm_hook]]
+address = 0x824167EC
+name = "PinyonShiftObserveDirectIndexedDrawProducerExit"
+
 # Phase C2 exact SimpleModel renderer scope. Retail RTTI proves vtable slot 12
 # resolves to 0x82C4CCC8. Entry r3 is the CSimpleModelRenderer instance and r4
 # is its render context; every path converges at 0x82C4DEA0. The scope attaches
