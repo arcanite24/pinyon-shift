@@ -124,6 +124,27 @@ identity alongside attachment shape and spatial state, so one run can separate
 two passes that share dimensions and formats but write different tiles. The
 observer does not read target contents or change target ownership.
 
+## Exact live-pass result
+
+Clean AppData session `20260901T050049Z-p8056` reached the saved festival and
+exited normally. Slots 79 and 80 again made four and six balanced calls,
+respectively. All ten used exact wrapper vtable `82003CCC`; there were no read
+faults, overlaps, lifecycle faults, or table overflows.
+
+Slot 79 inherited 732 prepared draws through exact packet lineage. Every draw
+was depth-only on target state
+`10000410:00000000:00000000:00000000:00000000:000002D0`, with 1024-square or
+512-square scissor work. It is the already known dynamic-shadow route, not the
+opaque road/terrain color pass. Slot 80 inherited zero prepared draws, so the
+existing `824365B0` packet-context path does not classify its work.
+
+Static AOT control flow explains the gap: slot 80 calls common dispatcher
+`82436468` with the alternate-context flag and may bypass `824365B0`. The next
+profile therefore combines two independently labeled sources: exact balanced
+direct presentation scope and inherited packet lineage. Direct scope remains
+diagnostic temporal attribution only; it cannot by itself prove semantic
+ownership or native admission.
+
 ## Safety
 
 - The hooks read only the exact refcounted presentation-wrapper vtable already
