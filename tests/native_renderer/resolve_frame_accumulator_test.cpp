@@ -133,6 +133,41 @@ int main() {
                   nr::ProceduralFrameAccumulatorCancelReason::kChunkOverflow,
           "a ninth chunk must cancel the bounded plan");
 
+  nr::ProceduralResolveTarget qualified_target;
+  Require(nr::QualifiedProceduralResolveTargetFromFirstCopy(
+              Copy(kBase, kRows256), qualified_target) &&
+              qualified_target.frame_sequence == 10 &&
+              qualified_target.surface_info == 0x14020500 &&
+              qualified_target.color_info == 0x00030000 &&
+              qualified_target.logical_width == 1280 &&
+              qualified_target.logical_height == 720,
+          "the qualified float first chunk must arm the full-frame target");
+
+  auto float_as_16 = Copy(kBase, kRows256);
+  float_as_16.source_info = 0x000C0000;
+  Require(nr::QualifiedProceduralResolveTargetFromFirstCopy(
+              float_as_16, qualified_target) &&
+              qualified_target.color_info == 0x000C0000,
+          "the qualified float-as-16 alias must arm the same host family");
+
+  const auto rejected = [](nr::ProceduralResolveCopy copy) {
+    nr::ProceduralResolveTarget target;
+    return nr::QualifiedProceduralResolveTargetFromFirstCopy(copy, target);
+  };
+  auto near_miss = Copy(kBase, kRows256);
+  near_miss.source_info = 0x00020000;
+  Require(!rejected(near_miss), "an unproved source mode must fail closed");
+  near_miss = Copy(kBase, kRows256);
+  near_miss.destination_info ^= 1;
+  Require(!rejected(near_miss), "a destination format mismatch must fail");
+  near_miss = Copy(kBase, kRows256);
+  near_miss.destination_pitch ^= 1;
+  Require(!rejected(near_miss), "a destination extent mismatch must fail");
+  near_miss = Copy(kBase + 1, kRows256);
+  Require(!rejected(near_miss), "a first-address mismatch must fail");
+  near_miss = Copy(kBase, kRows256 - 1);
+  Require(!rejected(near_miss), "a first-row-count mismatch must fail");
+
   std::cout << "native renderer resolve frame accumulator tests passed\n";
   return EXIT_SUCCESS;
 }

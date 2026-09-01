@@ -18,6 +18,7 @@ PLAN_SUMMARY = (
 RESULT = "native_renderer.procedural_frame_accumulator.result"
 RESULT_SUMMARY = "native_renderer.procedural_frame_accumulator.result_summary"
 SHUTDOWN = "process.shutdown"
+QUALIFIED_SOURCE_STATES = {"14020500:00030000", "14020500:000C0000"}
 
 
 def integer(event, name):
@@ -64,6 +65,7 @@ def exact_plan_frames(events):
         )
         if observed == expected and all(
             row.get("logical_extent") == "1280x720"
+            and row.get("source_state") in QUALIFIED_SOURCE_STATES
             and row.get("backend_resource_action") == "private_only"
             and row.get("xenos_authority") == "true"
             and row.get("suppression_allowed") == "false"
@@ -130,6 +132,32 @@ def build(events, session):
         failures.append("no exact planned and committed 1280x720 frame was observed")
 
     status_counts = {}
+    ingress_counts = {}
+    ingress_accounting_complete = False
+    if len(plan_summaries) == 1 and any(
+        name in plan_summaries[0]
+        for name in (
+            "qualified_resolve_ingress_arms",
+            "qualified_resolve_source_mode_3",
+            "qualified_resolve_source_mode_12",
+        )
+    ):
+        summary = plan_summaries[0]
+        ingress_counts = {
+            "arms": integer(summary, "qualified_resolve_ingress_arms"),
+            "source_mode_3": integer(
+                summary, "qualified_resolve_source_mode_3"
+            ),
+            "source_mode_12": integer(
+                summary, "qualified_resolve_source_mode_12"
+            ),
+        }
+        ingress_accounting_complete = ingress_counts["arms"] == (
+            ingress_counts["source_mode_3"]
+            + ingress_counts["source_mode_12"]
+        )
+        if not ingress_accounting_complete:
+            failures.append("qualified resolve ingress accounting is incomplete")
     accounting_complete = False
     hard_failures = 0
     if len(result_summaries) == 1:
@@ -184,6 +212,10 @@ def build(events, session):
             "exact_plan_frames": plan_frames,
             "exact_result_frames": result_frames,
             "qualified_frames": qualified_frames,
+            "qualified_resolve_ingress": ingress_counts,
+            "qualified_resolve_ingress_accounting_complete": (
+                ingress_accounting_complete
+            ),
             "status_counts": status_counts,
             "result_accounting_complete": accounting_complete,
             "hard_failures": hard_failures,

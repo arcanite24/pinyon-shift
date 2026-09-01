@@ -37,6 +37,7 @@ def fixture():
                 "storage_row_count": str(storage_rows),
                 "padded_height": str(padded_height),
                 "logical_extent": "1280x720",
+                "source_state": "14020500:00030000",
                 "backend_resource_action": "private_only",
                 "xenos_authority": "true",
                 "suppression_allowed": "false",
@@ -61,7 +62,13 @@ def fixture():
         )
     events.extend(
         [
-            {**common, "event": MODULE.PLAN_SUMMARY},
+            {
+                **common,
+                "event": MODULE.PLAN_SUMMARY,
+                "qualified_resolve_ingress_arms": "1",
+                "qualified_resolve_source_mode_3": "1",
+                "qualified_resolve_source_mode_12": "0",
+            },
             {
                 **common,
                 "event": MODULE.RESULT_SUMMARY,
@@ -120,6 +127,44 @@ class ProceduralFrameAccumulatorTests(unittest.TestCase):
         result = MODULE.build(events, "session")
         self.assertEqual("incomplete", result["status"])
         self.assertIn("backend reported a hard failure", result["failures"])
+
+    def test_qualifies_float_as_16_source_alias(self):
+        events = fixture()
+        for event in events:
+            if event.get("event") == MODULE.PLAN:
+                event["source_state"] = "14020500:000C0000"
+        summary = next(
+            event for event in events if event.get("event") == MODULE.PLAN_SUMMARY
+        )
+        summary["qualified_resolve_source_mode_3"] = "0"
+        summary["qualified_resolve_source_mode_12"] = "1"
+        result = MODULE.build(events, "session")
+        self.assertEqual("complete", result["status"])
+
+    def test_rejects_unproved_source_mode(self):
+        events = fixture()
+        for event in events:
+            if event.get("event") == MODULE.PLAN:
+                event["source_state"] = "14020500:00020000"
+        result = MODULE.build(events, "session")
+        self.assertEqual("incomplete", result["status"])
+        self.assertIn(
+            "no exact planned and committed 1280x720 frame was observed",
+            result["failures"],
+        )
+
+    def test_rejects_ingress_accounting_drift(self):
+        events = fixture()
+        summary = next(
+            event for event in events if event.get("event") == MODULE.PLAN_SUMMARY
+        )
+        summary["qualified_resolve_ingress_arms"] = "2"
+        result = MODULE.build(events, "session")
+        self.assertEqual("incomplete", result["status"])
+        self.assertIn(
+            "qualified resolve ingress accounting is incomplete",
+            result["failures"],
+        )
 
     def test_rejects_incomplete_result_accounting(self):
         events = fixture()

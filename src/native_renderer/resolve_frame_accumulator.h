@@ -83,6 +83,12 @@ class ProceduralFrameAccumulatorPlanner {
 const char *ProceduralFrameAccumulatorCancelReasonName(
     ProceduralFrameAccumulatorCancelReason reason);
 
+// Recognizes the exact first resolve chunk of the qualified Forza full-frame
+// family. The title uses two Xenos color modes that map to the same host
+// R16G16B16A16_FLOAT resource; every other field remains fail-closed.
+bool QualifiedProceduralResolveTargetFromFirstCopy(
+    const ProceduralResolveCopy &copy, ProceduralResolveTarget &target_out);
+
 }  // namespace pinyon_shift::native_renderer
 
 #endif  // PINYON_SHIFT_NATIVE_RENDERER_RESOLVE_FRAME_ACCUMULATOR_H_
