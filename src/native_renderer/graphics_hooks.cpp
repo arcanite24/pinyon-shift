@@ -89,6 +89,7 @@ constexpr size_t kTitleDrawProvenanceCapacity = 4096;
 constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
 constexpr size_t kTrackWorldPreparedLayoutCapacity = 1024;
 constexpr size_t kTrackWorldScopeSpatialCapacity = 1024;
+constexpr size_t kTrackWorldReferenceSpatialCapacity = 2048;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -1125,6 +1126,25 @@ struct TrackWorldScopeSpatialEntry {
       descriptor_words{};
 };
 
+struct TrackWorldReferenceSpatialEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint32_t child_address = 0;
+  uint32_t descriptor_address = 0;
+  std::array<uint32_t, 16> object_matrix_words{};
+  std::array<uint32_t, 16> composed_matrix_words{};
+};
+
+struct PendingTrackWorldReferenceSpatial {
+  uint32_t object_matrix_address = 0;
+  uint32_t composed_matrix_address = 0;
+  std::array<uint32_t, 16> object_matrix_words{};
+  std::array<uint32_t, 16> composed_matrix_words{};
+  bool valid = false;
+};
+
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
@@ -1220,6 +1240,9 @@ std::array<TrackWorldPreparedLayoutEntry, kTrackWorldPreparedLayoutCapacity>
     g_track_world_prepared_layouts{};
 std::array<TrackWorldScopeSpatialEntry, kTrackWorldScopeSpatialCapacity>
     g_track_world_scope_spatial_entries{};
+std::array<TrackWorldReferenceSpatialEntry,
+           kTrackWorldReferenceSpatialCapacity>
+    g_track_world_reference_spatial_entries{};
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
@@ -2727,6 +2750,15 @@ std::mutex g_track_world_scope_spatial_mutex;
 std::atomic<uint64_t> g_track_world_scope_spatial_observations{};
 std::atomic<uint64_t> g_track_world_scope_spatial_table_overflow{};
 size_t g_track_world_scope_spatial_count = 0;
+std::mutex g_track_world_reference_spatial_mutex;
+std::atomic<uint64_t> g_track_world_reference_spatial_observations{};
+std::atomic<uint64_t> g_track_world_reference_spatial_missing_stage{};
+std::atomic<uint64_t> g_track_world_reference_spatial_invalid_range{};
+std::atomic<uint64_t> g_track_world_reference_spatial_non_finite{};
+std::atomic<uint64_t> g_track_world_reference_spatial_table_overflow{};
+size_t g_track_world_reference_spatial_count = 0;
+thread_local PendingTrackWorldReferenceSpatial
+    g_pending_track_world_reference_spatial{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_hits{};
 std::atomic<uint64_t> g_track_world_resource_graph_cache_misses{};
 std::atomic<uint64_t> g_track_world_resource_graph_reference_overflow{};
@@ -3331,6 +3363,10 @@ void LoadSemanticGuestWords(rex::memory::Memory *memory, uint32_t address,
                             std::array<uint32_t, N> &words);
 template <size_t N>
 uint64_t HashSemanticWords(const std::array<uint32_t, N> &words);
+void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
+                                     uint32_t composed_matrix_address);
+void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
+                                       uint32_t descriptor_address);
 
 const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
   switch (kind) {
@@ -3802,6 +3838,7 @@ void BeginTrackRenderModelDispatch(uint32_t root_address) {
   }
   RecordTrackWorldScopeSpatialSnapshot(child_address, descriptor_address,
                                        child_words, descriptor_words);
+  ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address);
   g_track_render_model_scope.root_address = root_address;
   g_track_render_model_scope.child_address = child_address;
   g_track_render_model_scope.descriptor_address = descriptor_address;
@@ -6450,6 +6487,10 @@ void ResetTitleDrawProvenance() {
        g_track_world_scope_spatial_entries) {
     entry = {};
   }
+  for (TrackWorldReferenceSpatialEntry &entry :
+       g_track_world_reference_spatial_entries) {
+    entry = {};
+  }
   for (SemanticBatchOpportunityEntry &entry :
        g_semantic_batch_opportunities) {
     entry = {};
@@ -6495,6 +6536,8 @@ void ResetTitleDrawProvenance() {
   g_static_world_prepared_layout_count = 0;
   g_track_world_prepared_layout_count = 0;
   g_track_world_scope_spatial_count = 0;
+  g_track_world_reference_spatial_count = 0;
+  g_pending_track_world_reference_spatial = {};
   g_semantic_batch_observations = 0;
   g_semantic_visibility_prepared_observations = 0;
   g_semantic_visibility_prepared_selected_joins = 0;
@@ -6773,6 +6816,11 @@ void ResetTitleDrawProvenance() {
            &g_track_world_prepared_layout_table_overflow,
            &g_track_world_scope_spatial_observations,
            &g_track_world_scope_spatial_table_overflow,
+           &g_track_world_reference_spatial_observations,
+           &g_track_world_reference_spatial_missing_stage,
+           &g_track_world_reference_spatial_invalid_range,
+           &g_track_world_reference_spatial_non_finite,
+           &g_track_world_reference_spatial_table_overflow,
            &g_static_world_presentation_entries,
            &g_static_world_presentation_exits,
            &g_static_world_presentation_exact,
@@ -10785,6 +10833,103 @@ bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
 
+void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
+                                     uint32_t composed_matrix_address) {
+  g_pending_track_world_reference_spatial = {};
+  if (!g_graphics_census_installed || !g_graphics_census_memory) {
+    return;
+  }
+  if (!IsReadableVehicleGuestRange(g_graphics_census_memory,
+                                   object_matrix_address, 64) ||
+      !IsReadableVehicleGuestRange(g_graphics_census_memory,
+                                   composed_matrix_address, 64)) {
+    g_track_world_reference_spatial_invalid_range.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  LoadSemanticGuestWords(
+      g_graphics_census_memory, object_matrix_address,
+      g_pending_track_world_reference_spatial.object_matrix_words);
+  LoadSemanticGuestWords(
+      g_graphics_census_memory, composed_matrix_address,
+      g_pending_track_world_reference_spatial.composed_matrix_words);
+  for (uint32_t word :
+       g_pending_track_world_reference_spatial.object_matrix_words) {
+    if (!std::isfinite(std::bit_cast<float>(word))) {
+      g_track_world_reference_spatial_non_finite.fetch_add(
+          1, std::memory_order_relaxed);
+      g_pending_track_world_reference_spatial = {};
+      return;
+    }
+  }
+  for (uint32_t word :
+       g_pending_track_world_reference_spatial.composed_matrix_words) {
+    if (!std::isfinite(std::bit_cast<float>(word))) {
+      g_track_world_reference_spatial_non_finite.fetch_add(
+          1, std::memory_order_relaxed);
+      g_pending_track_world_reference_spatial = {};
+      return;
+    }
+  }
+  g_pending_track_world_reference_spatial.object_matrix_address =
+      object_matrix_address;
+  g_pending_track_world_reference_spatial.composed_matrix_address =
+      composed_matrix_address;
+  g_pending_track_world_reference_spatial.valid = true;
+}
+
+void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
+                                       uint32_t descriptor_address) {
+  g_track_world_reference_spatial_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  PendingTrackWorldReferenceSpatial snapshot =
+      g_pending_track_world_reference_spatial;
+  g_pending_track_world_reference_spatial = {};
+  if (!snapshot.valid) {
+    g_track_world_reference_spatial_missing_stage.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
+  key = HashCombine(key, descriptor_address);
+  key = HashCombine(key, HashSemanticWords(snapshot.object_matrix_words));
+  key = HashCombine(key, HashSemanticWords(snapshot.composed_matrix_words));
+  key = key ? key : 1;
+  const uint64_t frame_sequence =
+      g_frame_sequence.load(std::memory_order_relaxed);
+
+  std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+  size_t index = size_t(key % kTrackWorldReferenceSpatialCapacity);
+  for (size_t probe = 0; probe < kTrackWorldReferenceSpatialCapacity;
+       ++probe) {
+    TrackWorldReferenceSpatialEntry &entry =
+        g_track_world_reference_spatial_entries[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = frame_sequence;
+      entry.last_frame = frame_sequence;
+      entry.child_address = child_address;
+      entry.descriptor_address = descriptor_address;
+      entry.object_matrix_words = snapshot.object_matrix_words;
+      entry.composed_matrix_words = snapshot.composed_matrix_words;
+      ++g_track_world_reference_spatial_count;
+      return;
+    }
+    if (entry.key == key && entry.child_address == child_address &&
+        entry.descriptor_address == descriptor_address &&
+        entry.object_matrix_words == snapshot.object_matrix_words &&
+        entry.composed_matrix_words == snapshot.composed_matrix_words) {
+      ++entry.calls;
+      entry.last_frame = frame_sequence;
+      return;
+    }
+    index = (index + 1) % kTrackWorldReferenceSpatialCapacity;
+  }
+  g_track_world_reference_spatial_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 struct GuestCpuVisibilityTargetEntry {
   std::atomic<uint32_t> address{};
   std::atomic<uint32_t> length{};
@@ -12979,6 +13124,7 @@ void EmitProceduralModelSemanticSubmissions() {
 }
 
 void EmitTrackWorldScopeSpatialEntries();
+void EmitTrackWorldReferenceSpatialEntries();
 void EmitTrackWorldPreparedLayoutEntries();
 
 void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
@@ -13061,6 +13207,36 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
       scope_spatial_observations ==
           scope_spatial_accounted + scope_spatial_table_overflow &&
       !scope_spatial_table_overflow;
+  const uint64_t reference_spatial_observations =
+      g_track_world_reference_spatial_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_missing_stage =
+      g_track_world_reference_spatial_missing_stage.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_invalid_range =
+      g_track_world_reference_spatial_invalid_range.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_non_finite =
+      g_track_world_reference_spatial_non_finite.load(
+          std::memory_order_relaxed);
+  const uint64_t reference_spatial_table_overflow =
+      g_track_world_reference_spatial_table_overflow.load(
+          std::memory_order_relaxed);
+  uint64_t reference_spatial_accounted = 0;
+  size_t reference_spatial_entries = 0;
+  {
+    std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+    reference_spatial_entries = g_track_world_reference_spatial_count;
+    for (const TrackWorldReferenceSpatialEntry &entry :
+         g_track_world_reference_spatial_entries) {
+      reference_spatial_accounted += entry.calls;
+    }
+  }
+  const bool reference_spatial_accounting_complete =
+      reference_spatial_observations ==
+          reference_spatial_accounted + reference_spatial_missing_stage +
+              reference_spatial_table_overflow &&
+      !reference_spatial_missing_stage && !reference_spatial_table_overflow;
   pinyon_shift::diagnostics::RecordEvent(
       event_name,
       {{"status", !entries
@@ -13127,6 +13303,20 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
         std::to_string(scope_spatial_table_overflow)},
        {"scope_spatial_accounting_complete",
         scope_spatial_accounting_complete ? "true" : "false"},
+       {"reference_spatial_observations",
+        std::to_string(reference_spatial_observations)},
+       {"reference_spatial_entries",
+        std::to_string(reference_spatial_entries)},
+       {"reference_spatial_missing_stage",
+        std::to_string(reference_spatial_missing_stage)},
+       {"reference_spatial_invalid_range",
+        std::to_string(reference_spatial_invalid_range)},
+       {"reference_spatial_non_finite",
+        std::to_string(reference_spatial_non_finite)},
+       {"reference_spatial_table_overflow",
+        std::to_string(reference_spatial_table_overflow)},
+       {"reference_spatial_accounting_complete",
+        reference_spatial_accounting_complete ? "true" : "false"},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -13297,6 +13487,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
 
 void EmitTrackRenderModelRuntimeJoinSummary() {
   EmitTrackWorldScopeSpatialEntries();
+  EmitTrackWorldReferenceSpatialEntries();
   EmitTrackWorldPreparedLayoutEntries();
   EmitTrackRenderModelRuntimeJoinEvent(
       "native_renderer.discovery.track_render_model_runtime_join_summary",
@@ -15641,6 +15832,44 @@ void EmitTrackWorldScopeSpatialEntries() {
          {"classification", "exact_track_scope_numeric_spatial_candidate"},
          {"guest_payload_read",
           "bounded_validated_track_child_and_descriptor_words_only"},
+         {"plaintext_identity_exported", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackWorldReferenceSpatialEntries() {
+  std::scoped_lock lock(g_track_world_reference_spatial_mutex);
+  for (const TrackWorldReferenceSpatialEntry &entry :
+       g_track_world_reference_spatial_entries) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_reference_spatial_entry",
+        {{"snapshot_key", fmt::format("{:016X}", entry.key)},
+         {"child_address", fmt::format("{:08X}", entry.child_address)},
+         {"descriptor_address",
+          fmt::format("{:08X}", entry.descriptor_address)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"object_matrix_word_count",
+          std::to_string(entry.object_matrix_words.size())},
+         {"object_matrix_words",
+          SerializeHexWords(entry.object_matrix_words)},
+         {"composed_matrix_word_count",
+          std::to_string(entry.composed_matrix_words.size())},
+         {"composed_matrix_words",
+          SerializeHexWords(entry.composed_matrix_words)},
+         {"classification",
+          "exact_track_scope_reference_composition_candidate"},
+         {"guest_payload_read",
+          "two_title_proved_live_64_byte_matrix_ranges"},
          {"plaintext_identity_exported", "false"},
          {"guest_state_changed", "false"},
          {"control_flow_changed", "false"},
@@ -29050,6 +29279,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         std::to_string(kTrackWorldScopeSpatialCapacity)},
        {"scope_spatial_words", "child_16_descriptor_62"},
        {"scope_spatial_export", "numeric_words_hash_variation_only"},
+       {"reference_spatial_hook",
+        "8240EB5C:r22_object_matrix,r5_composed_matrix"},
+       {"reference_spatial_capacity",
+        std::to_string(kTrackWorldReferenceSpatialCapacity)},
+       {"reference_spatial_join",
+        "staged_same_thread_then_exact_8240EC80_scope"},
+       {"reference_spatial_export", "two_numeric_16_word_matrices_only"},
        {"guest_payload_read",
         "bounded_320_bytes_plus_direct_vtable_words_per_cache_miss"},
        {"guest_state_changed", "false"},
@@ -31511,6 +31747,7 @@ void PinyonShiftObserveStaticWorldResourceRefreshResetExit(
 
 void PinyonShiftObserveVehicleComposedMatrix(PPCRegister &r5,
                                              PPCRegister &r22) {
+  StageTrackWorldReferenceSpatial(r22.u32, r5.u32);
   ObserveVehicleComposedMatrix(r22.u32, r5.u32);
 }
 
