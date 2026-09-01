@@ -707,13 +707,15 @@ Live color-producer qualification checkpoint: clean AppData session
 under exact procedural-model context `82417BC0`. Its first prepared signature
 `751139AF66FBCCF4` and shader pair are independently present in the same
 session's mechanically eligible candidate census, closing the semantic-to-
-prepared color join. That sample uses a 1280x256 scissor rather than the
-1280x720 preview extent, so it is not promoted as visible world work. A bounded
-exact target-role profiler now partitions every color draw under that semantic
-receiver by signature, shaders, viewport, scissor, attachment formats, and
-target registers. The next batched AppData run can select a full-preview
-profile for private capture, if one exists, without admitting reduced/offscreen
-targets or changing Xenos output. See
+prepared color join. That sample uses a 1280x256 scissor, and the same session
+contains no monolithic 1280x720 draw scissor. Because the title has proved
+bin-mask/select wrappers and a tiled 1280x720 presentation resource, this may
+be a predicated EDRAM tile of the main view rather than an offscreen pass. A
+bounded exact target-role profiler now retains backend bin-select/mask state in
+addition to signature, shaders, viewport, scissor, attachments, and target
+registers. The next batched AppData run can distinguish monolithic profiles
+from EDRAM tiles; a tile advances to resolve-assembly work and is never
+published alone. Xenos output remains authoritative. See
 [`COLOR_PRODUCER_LINEAGE.md`](COLOR_PRODUCER_LINEAGE.md).
 
 ### C2. Static world buildings and props

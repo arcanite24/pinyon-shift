@@ -20,9 +20,12 @@ gap. It records 688 opaque, bounded color-plus-depth draws under the exact
 that exact mechanically eligible signature.
 
 That is an exact semantic + mechanical color-ingress join, but not yet a
-main-view join. Its sampled scissor is `00000000:01000500`, or 1280x256, rather
-than the preview's 1280x720 extent. It may be a reflection, horizon strip, or
-other reduced target. It therefore remains ineligible for native publication.
+main-view assembly join. Its sampled scissor is `00000000:01000500`, or
+1280x256. The same session contains no 1280x720 draw scissor at all, while the
+title has proved bin-mask/select wrappers and a tiled 1280x720 presentation
+resource. The 1280x256 region may therefore be one predicated EDRAM tile of the
+main view, rather than an offscreen pass. Replaying it as a complete frame is
+still invalid and explains the earlier wrong-view prototype symptom.
 
 ## Bounded target-shape census
 
@@ -50,11 +53,12 @@ it cannot enable native admission or suppression.
 
 The follow-up exact target-role profiler partitions every color draw under the
 live `82417BC0` semantic receiver by prepared signature, shaders, attachments,
-viewport, scissor, and target registers. It emits decoded scissor extents and
-separates exact 1280x720 profiles from reduced-width and other targets. Receiver
-addresses are samples only; a variation bit proves when a target profile spans
-multiple live receiver instances. The bounded table has 1,024 entries and
-fails closed on overflow or incomplete accounting.
+viewport, scissor, target registers, and exact backend bin-select/mask state.
+It emits decoded scissor extents and separates monolithic 1280x720 profiles,
+predicated 1280-wide EDRAM tiles, unpredicated reduced targets, and other
+targets. Receiver addresses are samples only; a variation bit proves when a
+target profile spans multiple live receiver instances. The bounded table has
+1,024 entries and fails closed on overflow or incomplete accounting.
 
 Run the deferred qualifier after the next combined AppData capture:
 
@@ -76,9 +80,10 @@ python tools/summarize-native-renderer-procedural-color-targets.py `
 
 ## Promotion gate
 
-The next C1 implementation may privately capture one profile only when a clean
-session proves complete target-profile accounting and an exact full-preview
-1280x720 profile whose calls are all bounded and opaque and never sample a
-resolved target. Reduced targets remain excluded even when mechanically
-eligible. Until then, Xenos remains authoritative and this census changes no
-rendering or control flow.
+The next C1 implementation may privately capture a monolithic profile only
+when a clean session proves complete target-profile accounting and an exact
+full-preview 1280x720 profile whose calls are all bounded and opaque and never
+sample a resolved target. A predicated 1280-wide EDRAM tile instead advances to
+tile-sequence and resolve-assembly investigation; it cannot be published alone.
+Other reduced targets remain excluded. Until then, Xenos remains authoritative
+and this census changes no rendering or control flow.
