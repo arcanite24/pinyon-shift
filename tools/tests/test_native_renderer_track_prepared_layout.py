@@ -103,7 +103,7 @@ class TrackPreparedLayoutTests(unittest.TestCase):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
         )
-        self.assertIn("kTrackWorldPreparedLayoutCapacity = 512", source)
+        self.assertIn("kTrackWorldPreparedLayoutCapacity = 1024", source)
         self.assertIn("RecordTrackWorldPreparedLayout", source)
         self.assertIn("track_world_prepared_layout_entry", source)
         summary = source.split(
