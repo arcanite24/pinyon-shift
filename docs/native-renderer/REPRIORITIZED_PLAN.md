@@ -761,10 +761,16 @@ isolated replay target from authoritative guest EDRAM between tiles, and makes
 only a fully committed 1280x720 logical frame eligible for the existing
 swap-time preview. Gaps, overlap, target or extent changes, unsupported formats,
 and allocation failures clear the active sequence; an incomplete frame cannot
-replace the guest output. The callback remains unregistered in this slice, and
-there is still no guest-memory publication or draw suppression. Title-side
-planner registration and result diagnostics are the next implementation slice
-and will form the next meaningful AppData validation batch.
+replace the guest output. There is still no guest-memory publication or draw
+suppression. Title-side planner registration and bounded result diagnostics
+are now implemented behind the default-off
+`pinyon_shift_native_renderer_procedural_frame_accumulator` switch. The live
+callback consumes the existing planner exactly once per successful Xenos copy,
+submits the fixed 1280x736 storage contract, and reports recorded, cancelled,
+invalid, unavailable, unsupported, and allocation-failed outcomes. The next
+meaningful AppData validation can therefore exercise the complete target-role,
+resolve-workset, row-plan, private assembly, and swap-preview chain as one
+batch.
 
 ### C2. Static world buildings and props
 

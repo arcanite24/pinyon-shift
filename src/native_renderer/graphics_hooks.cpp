@@ -49,6 +49,11 @@ REXCVAR_DEFINE_BOOL(
     "Pinyon Shift",
     "Request the fail-closed sky/horizon suppression experiment")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_procedural_frame_accumulator, false,
+    "Pinyon Shift",
+    "Assemble exact procedural resolve tiles in a private native frame")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DECLARE(std::string, pinyon_shift_native_renderer);
 
 namespace {
@@ -68,6 +73,9 @@ constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kCommandBufferLineageCapacity = 4096;
 constexpr size_t kProceduralColorTargetProfileCapacity = 1024;
 constexpr uint64_t kProceduralRuntimeDetailLimit = 64;
+constexpr uint32_t kProceduralFrameAccumulatorWidth = 1280;
+constexpr uint32_t kProceduralFrameAccumulatorLogicalHeight = 720;
+constexpr uint32_t kProceduralFrameAccumulatorStorageHeight = 736;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -11263,6 +11271,10 @@ uint64_t g_procedural_frame_accumulator_commits = 0;
 uint64_t g_procedural_frame_accumulator_cancels = 0;
 uint64_t g_procedural_frame_accumulator_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_detail_overflow = 0;
+bool g_procedural_frame_accumulator_backend_armed = false;
+std::array<uint64_t, 6> g_procedural_frame_accumulator_backend_statuses{};
+uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
@@ -11552,6 +11564,9 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_cancels = 0;
   g_procedural_frame_accumulator_detail_count = 0;
   g_procedural_frame_accumulator_detail_overflow = 0;
+  g_procedural_frame_accumulator_backend_statuses.fill(0);
+  g_procedural_frame_accumulator_backend_detail_count = 0;
+  g_procedural_frame_accumulator_backend_detail_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17377,12 +17392,118 @@ void EmitProceduralFrameAccumulatorTransition(
        {"padded_height", std::to_string(transition.padded_height)},
        {"bytes_per_pixel", std::to_string(transition.bytes_per_pixel)},
        {"chunk_count", std::to_string(transition.chunk_count)},
-       {"backend_resource_action", "false"},
+       {"backend_resource_action",
+        g_procedural_frame_accumulator_backend_armed ? "private_only"
+                                                     : "false"},
        {"standalone_component_publication", "false"},
        {"native_admission", "false"},
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+}
+
+const char *ProceduralFrameAccumulatorBackendStatusName(
+    rex::system::GraphicsNativeFrameAccumulatorStatus status) {
+  using Status = rex::system::GraphicsNativeFrameAccumulatorStatus;
+  switch (status) {
+    case Status::kRecorded:
+      return "recorded";
+    case Status::kCancelled:
+      return "cancelled";
+    case Status::kInvalidRequest:
+      return "invalid_request";
+    case Status::kUnavailable:
+      return "unavailable";
+    case Status::kUnsupportedTarget:
+      return "unsupported_target";
+    case Status::kAllocationFailed:
+      return "allocation_failed";
+  }
+  return "unknown";
+}
+
+void CompleteProceduralFrameAccumulatorBackend(
+    const rex::system::GraphicsNativeFrameAccumulatorResult &result) {
+  const uint32_t status = static_cast<uint32_t>(result.status);
+  if (status >= 1 &&
+      status <= g_procedural_frame_accumulator_backend_statuses.size()) {
+    ++g_procedural_frame_accumulator_backend_statuses[status - 1];
+  }
+  if (g_procedural_frame_accumulator_backend_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_backend_detail_overflow;
+    return;
+  }
+  ++g_procedural_frame_accumulator_backend_detail_count;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.result",
+      {{"frame", std::to_string(result.frame_sequence)},
+       {"status",
+        ProceduralFrameAccumulatorBackendStatusName(result.status)},
+       {"resource_extent",
+        fmt::format("{}x{}", result.resource_width,
+                    result.resource_height)},
+       {"logical_extent",
+        fmt::format("{}x{}", result.logical_width,
+                    result.logical_height)},
+       {"appended_row_end", std::to_string(result.appended_row_end)},
+       {"committed", result.committed ? "true" : "false"},
+       {"resource_scope", "private_d3d12"},
+       {"guest_memory_publication", "false"},
+       {"xenos_resolve", "preserved_and_completed_first"},
+       {"draw_suppression", "false"}});
+}
+
+pinyon_shift::native_renderer::ProceduralResolveCopy
+ProceduralResolveCopyFromObservation(
+    const rex::system::GraphicsCopyObservation &observation) {
+  const uint32_t copy_source = observation.rb_copy_control & 7;
+  const uint32_t copy_source_info =
+      copy_source < 4 ? observation.color_info[copy_source]
+                      : observation.depth_info;
+  return {.frame_sequence = observation.frame_sequence,
+          .source = copy_source,
+          .source_surface_info = observation.surface_info,
+          .source_info = copy_source_info,
+          .destination_info = observation.rb_copy_dest_info,
+          .destination_pitch = observation.rb_copy_dest_pitch,
+          .written_address = observation.written_address,
+          .written_length = observation.written_length};
+}
+
+bool PlanProceduralFrameAccumulatorBackend(
+    const rex::system::GraphicsCopyObservation &observation,
+    rex::system::GraphicsNativeFrameAccumulatorRequest &request_out) {
+  request_out = {};
+  if (!g_procedural_frame_accumulator_backend_armed ||
+      !observation.succeeded) {
+    return false;
+  }
+  const auto transition = g_procedural_frame_accumulator_planner.Observe(
+      ProceduralResolveCopyFromObservation(observation));
+  EmitProceduralFrameAccumulatorTransition(transition);
+  if (!transition.actionable()) {
+    return false;
+  }
+  if (!transition.cancel &&
+      (transition.logical_width != kProceduralFrameAccumulatorWidth ||
+       transition.logical_height !=
+           kProceduralFrameAccumulatorLogicalHeight ||
+       transition.padded_height >
+           kProceduralFrameAccumulatorStorageHeight)) {
+    return false;
+  }
+  request_out.logical_width = transition.logical_width;
+  request_out.logical_height = transition.logical_height;
+  request_out.storage_height = kProceduralFrameAccumulatorStorageHeight;
+  request_out.destination_row = transition.destination_row;
+  request_out.storage_row_count = transition.storage_row_count;
+  request_out.begin = transition.begin;
+  request_out.append = transition.append;
+  request_out.commit = transition.commit;
+  request_out.cancel = transition.cancel;
+  request_out.completion = &CompleteProceduralFrameAccumulatorBackend;
+  return true;
 }
 
 void RecordProceduralColorTargetProfile(
@@ -17978,12 +18099,41 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(g_procedural_frame_accumulator_detail_overflow)},
        {"detail_limit",
         std::to_string(kProceduralRuntimeDetailLimit)},
-       {"backend_resource_action", "false"},
+       {"backend_resource_action",
+        g_procedural_frame_accumulator_backend_armed ? "private_only"
+                                                     : "false"},
        {"standalone_component_publication", "false"},
        {"native_admission", "false"},
        {"native_draw", "false"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.procedural_frame_accumulator.result_summary",
+      {{"status",
+        g_procedural_frame_accumulator_backend_armed ? "armed" : "disabled"},
+       {"recorded",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[0])},
+       {"cancelled",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[1])},
+       {"invalid_request",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[2])},
+       {"unavailable",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[3])},
+       {"unsupported_target",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[4])},
+       {"allocation_failed",
+        std::to_string(g_procedural_frame_accumulator_backend_statuses[5])},
+       {"detail_events",
+        std::to_string(
+            g_procedural_frame_accumulator_backend_detail_count)},
+       {"detail_overflow",
+        std::to_string(
+            g_procedural_frame_accumulator_backend_detail_overflow)},
+       {"detail_limit", std::to_string(kProceduralRuntimeDetailLimit)},
+       {"resource_scope", "private_d3d12"},
+       {"guest_memory_publication", "false"},
+       {"xenos_resolve", "preserved_and_completed_first"},
+       {"draw_suppression", "false"}});
 }
 
 void EmitCommandBufferLineageSummary() {
@@ -28470,23 +28620,13 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
     return;
   }
 
-  const uint32_t copy_source = observation.rb_copy_control & 7;
-  const uint32_t copy_source_info =
-      copy_source < 4 ? observation.color_info[copy_source]
-                      : observation.depth_info;
-  const pinyon_shift::native_renderer::ProceduralResolveCopy copy{
-      .frame_sequence = observation.frame_sequence,
-      .source = copy_source,
-      .source_surface_info = observation.surface_info,
-      .source_info = copy_source_info,
-      .destination_info = observation.rb_copy_dest_info,
-      .destination_pitch = observation.rb_copy_dest_pitch,
-      .written_address = observation.written_address,
-      .written_length = observation.written_length};
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
   EmitProceduralResolveAssembly(
       g_procedural_resolve_assembly_tracker.Observe(copy));
-  EmitProceduralFrameAccumulatorTransition(
-      g_procedural_frame_accumulator_planner.Observe(copy));
+  if (!g_procedural_frame_accumulator_backend_armed) {
+    EmitProceduralFrameAccumulatorTransition(
+        g_procedural_frame_accumulator_planner.Observe(copy));
+  }
 
   ++g_dependency_census.window_resolve_count;
   g_dependency_census.window_resolve_bytes += observation.written_length;
@@ -30528,9 +30668,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   const bool prototype_selected = NativePrototypeSelected();
-  const bool observation_requested = census_requested || prototype_selected;
+  const bool procedural_frame_accumulator_requested = REXCVAR_GET(
+      pinyon_shift_native_renderer_procedural_frame_accumulator);
+  const bool observation_requested = census_requested || prototype_selected ||
+                                     procedural_frame_accumulator_requested;
   const bool title_provenance_requested =
-      prototype_selected ||
+      prototype_selected || procedural_frame_accumulator_requested ||
       (census_requested &&
        REXCVAR_GET(pinyon_shift_native_renderer_dispatch_discovery));
   ConfigureVehicleDiscovery(census_requested, memory);
@@ -30549,6 +30692,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   g_native_shadow_fail_closed.store(false, std::memory_order_release);
   g_native_shadow_publication_frame.store(UINT64_MAX,
                                            std::memory_order_release);
+  g_procedural_frame_accumulator_backend_armed =
+      procedural_frame_accumulator_requested;
   if (!observation_requested && !g_sky_horizon_suppression.requested) {
     EmitSkyHorizonSuppressionControl();
     return;
@@ -30595,6 +30740,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
   graphics_system->SetDrawOutcomeObserver(&ObserveDrawOutcome);
   graphics_system->SetIsolatedDrawRequestObserver(&RequestIsolatedDraw);
+  graphics_system->SetNativeFrameAccumulatorPlanner(
+      g_procedural_frame_accumulator_backend_armed
+          ? &PlanProceduralFrameAccumulatorBackend
+          : nullptr);
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
@@ -30635,6 +30784,10 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"procedural_color_resolve_runtime_tracker",
         "exact_contiguous_full_frame_v1"},
        {"procedural_color_frame_accumulator_plan", "exact_padded_rows_v1"},
+       {"procedural_color_frame_accumulator_backend",
+        g_procedural_frame_accumulator_backend_armed
+            ? "armed_private_d3d12_v1"
+            : "disabled"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
@@ -31383,6 +31536,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
     graphics_system->SetPreparedDrawObserver(nullptr);
     graphics_system->SetDrawOutcomeObserver(nullptr);
     graphics_system->SetIsolatedDrawRequestObserver(nullptr);
+    graphics_system->SetNativeFrameAccumulatorPlanner(nullptr);
   }
   EmitShadowCasterProvenanceSummary();
   EmitVehicleDiscoverySummary();
@@ -31390,6 +31544,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   g_command_buffer_lineage_memory.store(nullptr, std::memory_order_release);
   EmitDispatchDiscoverySummary();
   if (!g_graphics_census_installed) {
+    g_procedural_frame_accumulator_backend_armed = false;
     return;
   }
   const bool guest_cpu_observer_installed =
@@ -31775,6 +31930,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"xenos_fallback",
         "mandatory_on_state_yield_replay_or_publication_failure"}});
   g_graphics_census_installed = false;
+  g_procedural_frame_accumulator_backend_armed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {
     EmitDrawCensusWindow(g_draw_census.window_last_frame);

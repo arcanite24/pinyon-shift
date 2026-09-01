@@ -2049,6 +2049,32 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("+      PublishIsolatedReplayTarget(", patch)
         self.assertNotIn("+            PublishIsolatedReplayTarget(", patch)
 
+        scanner = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "pinyon_shift_native_renderer_procedural_frame_accumulator",
+            scanner,
+        )
+        self.assertIn("PlanProceduralFrameAccumulatorBackend", scanner)
+        self.assertIn("SetNativeFrameAccumulatorPlanner(", scanner)
+        self.assertIn("kProceduralFrameAccumulatorStorageHeight = 736", scanner)
+        self.assertIn("request_out.storage_height =", scanner)
+        self.assertIn("request_out.completion =", scanner)
+        self.assertIn("preserved_and_completed_first", scanner)
+        self.assertIn(
+            "if (!g_procedural_frame_accumulator_backend_armed)", scanner
+        )
+
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("[switch]$ProceduralFrameAccumulator", capture)
+        self.assertIn(
+            "REX_PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR",
+            capture,
+        )
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"

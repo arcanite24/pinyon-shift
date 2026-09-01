@@ -116,9 +116,14 @@ resolves multisampled private tiles before copying, and re-seeds the private
 replay target from authoritative guest EDRAM between component tiles. Only an
 exact committed frame may enter the existing swap-time preview; an incomplete,
 conflicting, malformed, or allocation-failed frame remains unavailable so the
-guest output falls back to Xenos. The callback is not registered yet, so this
-slice is dormant by default and cannot publish guest memory, suppress a draw,
-or change rendering until the title-side planner is wired.
+guest output falls back to Xenos. The title-side planner is now registered only
+when the default-off
+`pinyon_shift_native_renderer_procedural_frame_accumulator` switch is enabled.
+It forwards the exact 1280x720 logical / 1280x736 storage contract after each
+successful Xenos resolve and records bounded backend outcomes. Disabled runs
+retain the passive planning census; enabled runs let the callback consume each
+transition exactly once. Neither mode can publish guest memory or suppress a
+draw.
 
 Run the deferred qualifier after the next combined AppData capture:
 
