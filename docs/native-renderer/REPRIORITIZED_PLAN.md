@@ -501,6 +501,22 @@ This is ready before the batched capture, so that run can either prove one
 concrete transform contract or close the constant-window lead without another
 instrumentation cycle.
 
+Qualified prepared-layout result: clean session
+`20260901T031325Z-p38496` retained 562 families from all 732 exact observations
+with zero geometry, parameter, or table overflow and a normal shutdown. Across
+90 complete shader/register/convention groups, catalog correlation produced
+zero unique world-position matches (2,066 unmatched and 1,022 ambiguous
+common-value windows). The prepared constant lead is closed.
+
+Upstream spatial pivot: the next passive census retains bounded numeric words
+from the exact command's already-validated 64-byte child and 248-byte type-21
+descriptor, grouped by exact address pair with hash-variation accounting. Its
+offline classifier applies the same fail-closed spatial-catalog contract to
+every finite 16-word window. This adds no guest reads, admission, native draw,
+or suppression, and its AppData qualification is deliberately batched with a
+larger renderer slice. See
+[`TRACK_WORLD_SCOPE_SPATIAL.md`](TRACK_WORLD_SCOPE_SPATIAL.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

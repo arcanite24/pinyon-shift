@@ -1,6 +1,6 @@
 # Track-world prepared-layout census
 
-Status: implemented; capacity correction awaits one batched AppData rerun
+Status: qualified; prepared constant-window lead closed
 
 ## Why this is the next C1 boundary
 
@@ -35,7 +35,7 @@ sessions bounded and avoiding repeated log volume.
 
 ## Offline report
 
-After the next batched AppData run:
+For a qualified AppData run:
 
 ```powershell
 python tools/summarize-native-renderer-track-prepared-layout.py `
@@ -65,10 +65,9 @@ at least one is a collision prop, and exactly one group satisfies the whole
 contract. Shader similarity, frequency, near misses, and duplicate catalog
 positions cannot qualify it.
 
-These runs are candidates, not transforms. C1 advances only after recurring
-runs are compared across changed camera/vehicle poses and matched to the static
-world transform catalog without ambiguity. Until then, terrain/road identity,
-native admission, publication, and suppression remain unproved and disabled.
+These runs are candidates, not transforms. Terrain/road identity, native
+admission, publication, and suppression remain unproved and disabled unless a
+single mapping passes the full catalog contract.
 
 ## First runtime result
 
@@ -79,17 +78,31 @@ parameter metadata stayed bounded: there were zero unbounded-geometry and zero
 parameter-overflow observations. The 512-entry assumption, rather than the
 exact join, was therefore too small for this scene.
 
-The census capacity is now 1,024 entries. This remains a fixed startup
+The census capacity was raised to 1,024 entries. This remains a fixed startup
 allocation and comfortably covers the first run's worst case of 566 distinct
-families while preserving fail-closed overflow accounting. A new clean run is
-required before transform classification can qualify, because the classifier
-correctly rejects any incomplete source census.
+families while preserving fail-closed overflow accounting.
 
 An immediately preceding identical launch, session
 `20260901T025802Z-p39560`, hit the existing intermittent guest null dereference
 at RVA `0x48844D8` while loading the world, before any track prepared-layout
 observation was recorded. The controlled retry reached gameplay and exited
 normally, so that fault is not attributed to this observer.
+
+## Qualified runtime result
+
+Clean controlled retry `20260901T031325Z-p38496` reached the saved festival
+world, retained 562 families from all 732 exact prepared observations, and
+exited normally. There were zero unbounded-geometry, parameter-overflow, or
+table-overflow observations, and all per-entry call accounting reconciled.
+
+The catalog classifier evaluated 90 complete shader/register/convention groups
+against the 24,025-entry title-authored spatial catalog. It found zero unique
+world-position matches: 2,066 windows were unmatched and 1,022 contained
+ambiguous common or zero values. No mapping qualified. The prepared shader
+constant windows are therefore not the authored terrain/road transform carrier
+for this population, and C1 pivots upstream to the exact command's validated
+track child and type-21 descriptor rather than collecting more shader-state
+captures.
 
 ## Safety
 
