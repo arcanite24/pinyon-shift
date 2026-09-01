@@ -2089,6 +2089,12 @@ class NativeRendererContractTests(unittest.TestCase):
             "pinyon_shift_native_renderer_procedural_frame_accumulator",
             scanner,
         )
+        self.assertIn("ProceduralFrameAccumulatorSelected", scanner)
+        self.assertIn(
+            '"PINYON_SHIFT_NATIVE_RENDERER_PROCEDURAL_FRAME_ACCUMULATOR"',
+            scanner,
+        )
+        self.assertIn("prototype_selected ||", scanner)
         self.assertIn("PlanProceduralFrameAccumulatorBackend", scanner)
         self.assertIn("SetNativeFrameAccumulatorPlanner(", scanner)
         self.assertIn("kProceduralFrameAccumulatorStorageHeight = 736", scanner)

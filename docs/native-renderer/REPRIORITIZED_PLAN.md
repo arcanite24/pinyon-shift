@@ -795,7 +795,11 @@ corrected source-row addressing: equivalent Phase-C AppData session
 `20260901T104300Z-p42688` recorded nine exact frames / 27 operations, all
 successful, with the same extents and safety invariants before a normal exit.
 The corrected frame is visually coherent, so producer coverage and continuous
-presentation are now the next visible gates.
+presentation are now the next visible gates. The prototype selectors now arm
+the qualified private accumulator by default, with an explicit restart-time
+environment override for fail-safe disablement. This promotes the corrected
+full-frame source into the launcher-visible prototype while preserving exact
+current-frame admission, Xenos fallback, and zero suppression/publication.
 
 ### C2. Static world buildings and props
 
