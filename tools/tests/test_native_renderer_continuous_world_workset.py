@@ -385,6 +385,41 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             patch,
         )
 
+    def test_scaled_accumulator_qualification_keeps_xenos_authoritative(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        capture = (
+            ROOT / "tools/capture-native-renderer-census.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pinyon_shift_native_renderer_scaled_accumulator_qualification",
+            source,
+        )
+        self.assertIn("NativeScaledAccumulatorScaleSupported", source)
+        self.assertIn('== "2"', source)
+        self.assertIn(
+            'REXCVAR_GET(pinyon_shift_native_renderer) == "xenos"', source
+        )
+        self.assertIn('"armed_private_2x"', source)
+        self.assertIn('{"publication", "disabled"}', source)
+        self.assertIn('{"output_authority", "xenos"}', source)
+        self.assertIn("[switch]$ScaledAccumulatorQualification", capture)
+        qualification = capture.split(
+            "if ($ScaledAccumulatorQualification) {", 1
+        )[1]
+        self.assertIn("$ProceduralFrameAccumulator = $true", qualification)
+        self.assertIn("$ContinuousWorldWorkset = $true", qualification)
+        self.assertIn("$ContinuousTrackWorld = $true", qualification)
+        self.assertIn("$ContinuousStaticWorld = $true", qualification)
+        self.assertIn(
+            "$env:REX_PINYON_SHIFT_NATIVE_RENDERER = 'xenos'", capture
+        )
+        self.assertIn(
+            "$env:REX_PINYON_SHIFT_NATIVE_RENDERER = $savedNativeRenderer",
+            capture,
+        )
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

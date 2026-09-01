@@ -54,6 +54,12 @@ REXCVAR_DEFINE_BOOL(
     "Pinyon Shift",
     "Assemble exact procedural resolve tiles in a private native frame")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(
+    pinyon_shift_native_renderer_scaled_accumulator_qualification, false,
+    "Pinyon Shift",
+    "Qualify the private procedural accumulator at exactly 2x while Xenos "
+    "remains authoritative")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DECLARE(std::string, pinyon_shift_native_renderer);
 
 namespace {
@@ -64,6 +70,11 @@ constexpr size_t kSignatureCapacity = 4096;
 bool NativePrototypeScaleSupported() {
   return rex::cvar::GetFlagByName("draw_resolution_scale_x") == "1" &&
          rex::cvar::GetFlagByName("draw_resolution_scale_y") == "1";
+}
+
+bool NativeScaledAccumulatorScaleSupported() {
+  return rex::cvar::GetFlagByName("draw_resolution_scale_x") == "2" &&
+         rex::cvar::GetFlagByName("draw_resolution_scale_y") == "2";
 }
 
 bool NativePrototypeSelected() {
@@ -31179,6 +31190,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   g_graphics_full_census_armed = census_requested;
   const bool prototype_requested = NativePrototypeRequested();
   const bool prototype_selected = NativePrototypeSelected();
+  const bool scaled_accumulator_qualification_requested = REXCVAR_GET(
+      pinyon_shift_native_renderer_scaled_accumulator_qualification);
+  const bool scaled_accumulator_qualification_supported =
+      scaled_accumulator_qualification_requested && census_requested &&
+      NativeScaledAccumulatorScaleSupported() &&
+      REXCVAR_GET(pinyon_shift_native_renderer) == "xenos";
   if (prototype_requested) {
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.prototype.compatibility",
@@ -31195,9 +31212,34 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
          {"xenos_draw", "preserved"},
          {"suppression", "disabled"}});
   }
-  const bool procedural_frame_accumulator_requested =
-      NativePrototypeScaleSupported() &&
+  const bool procedural_frame_accumulator_selected =
       ProceduralFrameAccumulatorSelected(prototype_selected);
+  const bool procedural_frame_accumulator_requested =
+      procedural_frame_accumulator_selected &&
+      (NativePrototypeScaleSupported() ||
+       scaled_accumulator_qualification_supported);
+  if (scaled_accumulator_qualification_requested) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.scaled_accumulator_qualification.config",
+        {{"status", scaled_accumulator_qualification_supported &&
+                            procedural_frame_accumulator_selected
+                        ? "armed_private_2x"
+                        : "blocked_invalid_configuration"},
+         {"requires_census", "true"},
+         {"census", census_requested ? "armed" : "disabled"},
+         {"accumulator",
+          procedural_frame_accumulator_selected ? "requested" : "disabled"},
+         {"renderer", REXCVAR_GET(pinyon_shift_native_renderer)},
+         {"draw_resolution_scale_x",
+          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y",
+          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"qualified_scale", "2x2"},
+         {"publication", "disabled"},
+         {"output_authority", "xenos"},
+         {"fallback", "xenos"},
+         {"draw_suppression", "false"}});
+  }
   const bool minimal_producer_graph_requested =
       prototype_selected && !census_requested &&
       procedural_frame_accumulator_requested;
