@@ -896,6 +896,17 @@ family. This prevents a later sky/world replay from becoming procedural input
 merely because it is the most recent retained target; no Xenos content is
 accepted as a native source.
 
+Accumulator source-gate checkpoint: two equivalent prototype launches crashed
+before gameplay after title-only mode-12 resolves repeatedly reached the
+accumulator without an exact private producer. A pure-Xenos run and a prototype
+run with only the accumulator disabled both remained healthy past the failure
+window, isolating the fault. Accumulator planning now requires a successfully
+recorded exact procedural replay from the same guest frame before observing a
+copy. The enabled AppData rerun exited normally after rejecting 78,646
+unqualified title callbacks at the gate, with zero backend requests, upload
+failures, allocation failures, or crashes. This keeps discovery observations
+available without creating title-screen resources and preserves Xenos output.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
