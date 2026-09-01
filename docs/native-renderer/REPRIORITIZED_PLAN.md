@@ -907,6 +907,17 @@ unqualified title callbacks at the gate, with zero backend requests, upload
 failures, allocation failures, or crashes. This keeps discovery observations
 available without creating title-screen resources and preserves Xenos output.
 
+Draw-scale compatibility checkpoint: the next open-world transition exposed
+that the saved launcher configuration uses 2x draw resolution. Both the normal
+prototype and an accumulator-disabled prototype failed with the same crash ID,
+while an otherwise equivalent pure-Xenos control reached the saved festival,
+remained stable, and exited normally. The current private replay and output
+contracts are qualified only at 1x1 draw scale, so all prototype observers,
+replay, accumulation, and native output now fail closed to Xenos before install
+at any other scale. Scaled native replay remains required work: it must prove
+render-target extent, emulated-MSAA sample mapping, logical presentation, and
+performance independently before the compatibility gate can widen.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

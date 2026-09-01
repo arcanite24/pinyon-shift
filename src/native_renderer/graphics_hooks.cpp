@@ -61,7 +61,20 @@ namespace {
 constexpr uint64_t kFrameSummaryInterval = 300;
 constexpr size_t kSignatureCapacity = 4096;
 
+bool NativePrototypeScaleSupported() {
+  return rex::cvar::GetFlagByName("draw_resolution_scale_x") == "1" &&
+         rex::cvar::GetFlagByName("draw_resolution_scale_y") == "1";
+}
+
 bool NativePrototypeSelected() {
+  const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
+  const bool requested =
+      mode == "native_prototype" || mode == "hybrid_prototype" ||
+      mode == "comparison_native" || mode == "comparison_xenos";
+  return requested && NativePrototypeScaleSupported();
+}
+
+bool NativePrototypeRequested() {
   const std::string mode = REXCVAR_GET(pinyon_shift_native_renderer);
   return mode == "native_prototype" || mode == "hybrid_prototype" ||
          mode == "comparison_native" || mode == "comparison_xenos";
@@ -30934,8 +30947,26 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
   g_graphics_full_census_armed = census_requested;
+  const bool prototype_requested = NativePrototypeRequested();
   const bool prototype_selected = NativePrototypeSelected();
+  if (prototype_requested) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.prototype.compatibility",
+        {{"status", prototype_selected ? "supported" : "fallback_xenos"},
+         {"reason", prototype_selected ? "qualified" :
+                                          "unsupported_draw_resolution_scale"},
+         {"draw_resolution_scale_x",
+          rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y",
+          rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"qualified_scale", "1x1"},
+         {"prototype_observers", prototype_selected ? "armed" : "disabled"},
+         {"fallback", "xenos"},
+         {"xenos_draw", "preserved"},
+         {"suppression", "disabled"}});
+  }
   const bool procedural_frame_accumulator_requested =
+      NativePrototypeScaleSupported() &&
       ProceduralFrameAccumulatorSelected(prototype_selected);
   const bool minimal_producer_graph_requested =
       prototype_selected && !census_requested &&

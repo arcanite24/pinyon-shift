@@ -22,6 +22,26 @@ class NativeRendererPrototypePresentationTests(unittest.TestCase):
             '"logical_scene_scale_then_title_gamma_then_title_upscale"', output
         )
 
+    def test_prototype_fails_closed_outside_qualified_draw_scale(self):
+        hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        output = (ROOT / "src/native_renderer/guest_output_renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        for source in (hooks, output):
+            self.assertIn("draw_resolution_scale_x", source)
+            self.assertIn("draw_resolution_scale_y", source)
+            self.assertIn('"unsupported_draw_resolution_scale"', source)
+            self.assertIn('{"fallback", "xenos"}', source)
+        self.assertIn("NativePrototypeScaleSupported()", hooks)
+        self.assertIn('"prototype_observers"', hooks)
+        self.assertIn("if (prototype_mode &&", output)
+        self.assertLess(
+            output.index("if (prototype_mode &&"),
+            output.index("SetNativeGuestOutputRenderer"),
+        )
+
     def test_rexglue_patch_preserves_legacy_preview_and_adds_passthrough(self):
         patch = (
             ROOT
