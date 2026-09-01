@@ -11120,7 +11120,16 @@ uint64_t g_candidate_prepared_without_observation_count = 0;
 
 struct CommandBufferLineageEntry {
   uint64_t sample_prepared_signature = 0;
+  uint64_t sample_color_prepared_signature = 0;
   uint64_t calls = 0;
+  uint64_t depth_only_draws = 0;
+  uint64_t color_only_draws = 0;
+  uint64_t color_depth_draws = 0;
+  uint64_t other_target_draws = 0;
+  uint64_t other_color_draws = 0;
+  uint64_t opaque_color_draws = 0;
+  uint64_t bounded_color_draws = 0;
+  uint64_t resolved_input_color_draws = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
   uint64_t first_draw = 0;
@@ -11167,6 +11176,16 @@ struct CommandBufferLineageEntry {
   uint32_t track_world_resource_identity_mask = 0;
   uint32_t track_world_resource_nested_identity_mask = 0;
   uint32_t track_presentation_pass_mask = 0;
+  uint64_t sample_color_vertex_shader = 0;
+  uint64_t sample_color_pixel_shader = 0;
+  uint32_t sample_color_bound_render_target_bits = 0;
+  std::array<uint32_t, 5> sample_color_bound_render_target_formats{};
+  uint32_t sample_color_prepared_pipeline_flags = 0;
+  uint32_t sample_color_surface_info = 0;
+  std::array<uint32_t, 4> sample_color_info{};
+  uint32_t sample_color_depth_info = 0;
+  uint32_t sample_color_window_scissor_tl = 0;
+  uint32_t sample_color_window_scissor_br = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
   bool owner_origin_known = false;
@@ -11176,6 +11195,8 @@ struct CommandBufferLineageEntry {
   bool track_command_lineage = false;
   bool semantic_preparation_epoch_varied = false;
   bool prepared_signature_varied = false;
+  bool sample_color_known = false;
+  bool color_sample_varied = false;
 };
 
 std::array<CommandBufferLineageEntry, kCommandBufferLineageCapacity>
@@ -17103,9 +17124,71 @@ void ObserveCommandBufferLineage(
   }
 }
 
+bool IsOpaqueColorState(
+    const rex::system::GraphicsDrawObservation &observation);
+
+void AccumulateCommandBufferTargetShape(
+    CommandBufferLineageEntry &entry, uint64_t prepared_signature,
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
+  switch (prepared.bound_render_target_bits) {
+  case 1:
+    ++entry.depth_only_draws;
+    break;
+  case 2:
+    ++entry.color_only_draws;
+    break;
+  case 3:
+    ++entry.color_depth_draws;
+    break;
+  default:
+    ++entry.other_target_draws;
+    entry.other_color_draws +=
+        (prepared.bound_render_target_bits & 2) ? 1 : 0;
+    break;
+  }
+  if (!(prepared.bound_render_target_bits & 2)) {
+    return;
+  }
+  entry.opaque_color_draws += IsOpaqueColorState(observation) ? 1 : 0;
+  entry.resolved_input_color_draws += samples_resolved_target ? 1 : 0;
+  const bool bounded =
+      !observation.vertex_binding_overflow &&
+      !observation.vertex_attribute_overflow &&
+      !observation.vertex_float_constant_overflow &&
+      !observation.pixel_float_constant_overflow &&
+      !observation.texture_state_overflow && (prepared.flags & 3) == 3;
+  entry.bounded_color_draws += bounded ? 1 : 0;
+  if (entry.sample_color_known) {
+    entry.color_sample_varied |=
+        entry.sample_color_prepared_signature != prepared_signature;
+    return;
+  }
+  entry.sample_color_known = true;
+  entry.sample_color_prepared_signature = prepared_signature;
+  entry.sample_color_vertex_shader = observation.vertex_shader_hash;
+  entry.sample_color_pixel_shader = observation.pixel_shader_hash;
+  entry.sample_color_bound_render_target_bits =
+      prepared.bound_render_target_bits;
+  std::copy(std::begin(prepared.bound_render_target_formats),
+            std::end(prepared.bound_render_target_formats),
+            entry.sample_color_bound_render_target_formats.begin());
+  entry.sample_color_prepared_pipeline_flags = prepared.flags;
+  entry.sample_color_surface_info = observation.surface_info;
+  std::copy(std::begin(observation.color_info),
+            std::end(observation.color_info),
+            entry.sample_color_info.begin());
+  entry.sample_color_depth_info = observation.depth_info;
+  entry.sample_color_window_scissor_tl = observation.window_scissor_tl;
+  entry.sample_color_window_scissor_br = observation.window_scissor_br;
+}
+
 void RecordPreparedCommandBufferLineage(
     uint64_t prepared_signature,
-    const rex::system::GraphicsDrawObservation &observation) {
+    const rex::system::GraphicsDrawObservation &observation,
+    bool samples_resolved_target,
+    const rex::system::GraphicsPreparedDrawObservation &prepared) {
   if (!HasValidCommandBufferLineage(observation)) {
     return;
   }
@@ -17240,6 +17323,9 @@ void RecordPreparedCommandBufferLineage(
       entry.track_command_lineage = constructor_origin.owner.producer.context
                                         .track_command_lineage;
       entry.depth = observation.command_buffer_depth;
+      AccumulateCommandBufferTargetShape(
+          entry, prepared_signature, observation, samples_resolved_target,
+          prepared);
       ++g_command_buffer_lineage_entry_count;
       return;
     }
@@ -17309,6 +17395,9 @@ void RecordPreparedCommandBufferLineage(
                    parent_root_offset_bytes);
       entry.prepared_signature_varied |=
           entry.sample_prepared_signature != prepared_signature;
+      AccumulateCommandBufferTargetShape(
+          entry, prepared_signature, observation, samples_resolved_target,
+          prepared);
       if (entry.constructor_origin_known && constructor_origin.valid) {
         for (size_t argument = 0;
              argument < entry.sample_constructor_arguments.size(); ++argument) {
@@ -17373,6 +17462,66 @@ void EmitCommandBufferLineageSummary() {
           fmt::format("{:016X}", entry.sample_prepared_signature)},
          {"prepared_signature_varied",
           entry.prepared_signature_varied ? "true" : "false"},
+         {"depth_only_draws", std::to_string(entry.depth_only_draws)},
+         {"color_only_draws", std::to_string(entry.color_only_draws)},
+         {"color_depth_draws", std::to_string(entry.color_depth_draws)},
+         {"other_target_draws", std::to_string(entry.other_target_draws)},
+         {"other_color_draws", std::to_string(entry.other_color_draws)},
+         {"opaque_color_draws", std::to_string(entry.opaque_color_draws)},
+         {"bounded_color_draws", std::to_string(entry.bounded_color_draws)},
+         {"resolved_input_color_draws",
+          std::to_string(entry.resolved_input_color_draws)},
+         {"sample_color_prepared_signature",
+          entry.sample_color_known
+              ? fmt::format("{:016X}",
+                            entry.sample_color_prepared_signature)
+              : "none"},
+         {"color_sample_varied",
+          entry.color_sample_varied ? "true" : "false"},
+         {"sample_color_vertex_shader",
+          entry.sample_color_known
+              ? fmt::format("{:016X}", entry.sample_color_vertex_shader)
+              : "none"},
+         {"sample_color_pixel_shader",
+          entry.sample_color_known
+              ? fmt::format("{:016X}", entry.sample_color_pixel_shader)
+              : "none"},
+         {"sample_color_bound_render_target_bits",
+          entry.sample_color_known
+              ? fmt::format(
+                    "{:08X}", entry.sample_color_bound_render_target_bits)
+              : "none"},
+         {"sample_color_bound_render_target_formats",
+          entry.sample_color_known
+              ? fmt::format(
+                    "{}:{}:{}:{}:{}",
+                    entry.sample_color_bound_render_target_formats[0],
+                    entry.sample_color_bound_render_target_formats[1],
+                    entry.sample_color_bound_render_target_formats[2],
+                    entry.sample_color_bound_render_target_formats[3],
+                    entry.sample_color_bound_render_target_formats[4])
+              : "none"},
+         {"sample_color_prepared_pipeline_flags",
+          entry.sample_color_known
+              ? fmt::format("{:08X}",
+                            entry.sample_color_prepared_pipeline_flags)
+              : "none"},
+         {"sample_color_target_state",
+          entry.sample_color_known
+              ? fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                            entry.sample_color_surface_info,
+                            entry.sample_color_info[0],
+                            entry.sample_color_info[1],
+                            entry.sample_color_info[2],
+                            entry.sample_color_info[3],
+                            entry.sample_color_depth_info)
+              : "none"},
+         {"sample_color_scissor",
+          entry.sample_color_known
+              ? fmt::format("{:08X}:{:08X}",
+                            entry.sample_color_window_scissor_tl,
+                            entry.sample_color_window_scissor_br)
+              : "none"},
          {"calls", std::to_string(entry.calls)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -24306,7 +24455,9 @@ void ObservePreparedDraw(
         sample, g_pending_candidate.samples_resolved_target, observation);
     const SemanticPreparedDrawContract prepared_semantic_contract =
         BuildSemanticPreparedDrawContract(sample, observation);
-    RecordPreparedCommandBufferLineage(prepared_signature, sample);
+    RecordPreparedCommandBufferLineage(
+        prepared_signature, sample,
+        g_pending_candidate.samples_resolved_target, observation);
     RecordTitleDrawProvenance(prepared_signature, true, 0, sample,
                               g_pending_candidate.title_origin,
                               &observation);
@@ -29912,8 +30063,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "producer_return,producer_r3-r10,context_function,context_return,"
         "context_r3-r10,context_root,semantic_receiver_generation,"
         "semantic_visibility_epoch,semantic_render_state_epoch,"
-        "backend_packet,"
+        "backend_packet,prepared_target_shape,"
         "current_buffer,parent_packet,root_buffer,depth"},
+       {"prepared_target_shape_census", "bounded_aggregate_v1"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
