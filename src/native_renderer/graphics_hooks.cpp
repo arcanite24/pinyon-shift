@@ -30,6 +30,7 @@
 #include <rex/system/xmemory.h>
 
 #include "native_renderer/graphics_hooks.h"
+#include "native_renderer/resolve_assembly_tracker.h"
 #include "native_renderer/resource_identity.h"
 #include "pinyon_shift_diagnostics.h"
 
@@ -65,6 +66,7 @@ constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kCommandBufferLineageCapacity = 4096;
 constexpr size_t kProceduralColorTargetProfileCapacity = 1024;
+constexpr uint64_t kProceduralResolveAssemblyDetailLimit = 64;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -11247,6 +11249,11 @@ std::array<ProceduralColorTargetProfileEntry,
 uint64_t g_procedural_color_target_profile_observations = 0;
 uint64_t g_procedural_color_target_profile_entry_count = 0;
 uint64_t g_procedural_color_target_profile_overflow = 0;
+uint64_t g_procedural_resolve_assembly_count = 0;
+uint64_t g_procedural_resolve_assembly_detail_count = 0;
+uint64_t g_procedural_resolve_assembly_detail_overflow = 0;
+pinyon_shift::native_renderer::ProceduralResolveAssemblyTracker
+    g_procedural_resolve_assembly_tracker;
 bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
@@ -11525,6 +11532,10 @@ void ResetCommandBufferLineage() {
   g_procedural_color_target_profile_observations = 0;
   g_procedural_color_target_profile_entry_count = 0;
   g_procedural_color_target_profile_overflow = 0;
+  g_procedural_resolve_assembly_count = 0;
+  g_procedural_resolve_assembly_detail_count = 0;
+  g_procedural_resolve_assembly_detail_overflow = 0;
+  g_procedural_resolve_assembly_tracker = {};
 }
 
 void ResetDependencyCensus() {
@@ -17241,6 +17252,65 @@ void AccumulateCommandBufferTargetShape(
   entry.sample_color_window_scissor_br = observation.window_scissor_br;
 }
 
+void EmitProceduralResolveAssembly(
+    const std::optional<
+        pinyon_shift::native_renderer::ProceduralResolveAssembly> &result) {
+  if (!result || !result->exact_contiguous_full_frame) {
+    return;
+  }
+  ++g_procedural_resolve_assembly_count;
+  if (g_procedural_resolve_assembly_detail_count ==
+      kProceduralResolveAssemblyDetailLimit) {
+    ++g_procedural_resolve_assembly_detail_overflow;
+    return;
+  }
+  ++g_procedural_resolve_assembly_detail_count;
+  const auto &assembly = *result;
+  std::string addresses;
+  std::string lengths;
+  for (uint32_t index = 0; index < assembly.chunk_count; ++index) {
+    if (index) {
+      addresses += ':';
+      lengths += ':';
+    }
+    addresses += fmt::format("{:08X}", assembly.addresses[index]);
+    lengths += std::to_string(assembly.lengths[index]);
+  }
+  const uint32_t padding_rows =
+      assembly.padded_height >= assembly.logical_height
+          ? assembly.padded_height - assembly.logical_height
+          : 0;
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_resolve_assembly",
+      {{"frame", std::to_string(assembly.frame_sequence)},
+       {"copy_source", std::to_string(assembly.source)},
+       {"copy_source_state",
+        fmt::format("{:08X}:{:08X}", assembly.source_surface_info,
+                    assembly.source_info)},
+       {"base_address", fmt::format("{:08X}", assembly.base_address)},
+       {"chunk_count", std::to_string(assembly.chunk_count)},
+       {"addresses", addresses},
+       {"lengths", lengths},
+       {"destination_info",
+        fmt::format("{:08X}", assembly.destination_info)},
+       {"destination_pitch",
+        fmt::format("{:08X}", assembly.destination_pitch)},
+       {"logical_extent",
+        fmt::format("{}x{}", assembly.logical_width,
+                    assembly.logical_height)},
+       {"padded_height", std::to_string(assembly.padded_height)},
+       {"padding_rows", std::to_string(padding_rows)},
+       {"bytes_per_pixel", std::to_string(assembly.bytes_per_pixel)},
+       {"total_bytes", std::to_string(assembly.total_bytes)},
+       {"copy_overflow", assembly.copy_overflow ? "true" : "false"},
+       {"status", "exact_contiguous_full_frame"},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void RecordProceduralColorTargetProfile(
     uint64_t prepared_signature,
     const rex::system::GraphicsDrawObservation &observation,
@@ -17256,6 +17326,12 @@ void RecordProceduralColorTargetProfile(
       !context.semantic_receiver_generation) {
     return;
   }
+  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Arm(
+      {.frame_sequence = observation.frame_sequence,
+       .surface_info = observation.surface_info,
+       .color_info = observation.color_info[0],
+       .logical_width = 1280,
+       .logical_height = 720}));
   ++g_procedural_color_target_profile_observations;
   uint64_t key = UINT64_C(0xCBF29CE484222325);
   for (uint64_t value :
@@ -17646,6 +17722,39 @@ void RecordPreparedCommandBufferLineage(
 }
 
 void EmitProceduralColorTargetProfiles() {
+  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Flush());
+  const auto &latest_assembly =
+      g_procedural_resolve_assembly_tracker.latest_qualified();
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_resolve_assembly_summary",
+      {{"status", latest_assembly ? "exact_qualified" : "no_exact_assembly"},
+       {"exact_assemblies",
+        std::to_string(g_procedural_resolve_assembly_count)},
+       {"detail_events",
+        std::to_string(g_procedural_resolve_assembly_detail_count)},
+       {"detail_overflow",
+        std::to_string(g_procedural_resolve_assembly_detail_overflow)},
+       {"detail_limit",
+        std::to_string(kProceduralResolveAssemblyDetailLimit)},
+       {"latest_frame",
+        std::to_string(latest_assembly ? latest_assembly->frame_sequence : 0)},
+       {"latest_base_address",
+        latest_assembly ? fmt::format("{:08X}", latest_assembly->base_address)
+                        : "00000000"},
+       {"latest_chunk_count",
+        std::to_string(latest_assembly ? latest_assembly->chunk_count : 0)},
+       {"latest_logical_extent",
+        latest_assembly
+            ? fmt::format("{}x{}", latest_assembly->logical_width,
+                          latest_assembly->logical_height)
+            : "0x0"},
+       {"latest_padded_height",
+        std::to_string(latest_assembly ? latest_assembly->padded_height : 0)},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
   uint64_t accounted = 0;
   uint64_t full_preview_extent_calls = 0;
   uint64_t reduced_preview_width_calls = 0;
@@ -28263,6 +28372,20 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
     return;
   }
 
+  const uint32_t copy_source = observation.rb_copy_control & 7;
+  const uint32_t copy_source_info =
+      copy_source < 4 ? observation.color_info[copy_source]
+                      : observation.depth_info;
+  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Observe(
+      {.frame_sequence = observation.frame_sequence,
+       .source = copy_source,
+       .source_surface_info = observation.surface_info,
+       .source_info = copy_source_info,
+       .destination_info = observation.rb_copy_dest_info,
+       .destination_pitch = observation.rb_copy_dest_pitch,
+       .written_address = observation.written_address,
+       .written_length = observation.written_length}));
+
   ++g_dependency_census.window_resolve_count;
   g_dependency_census.window_resolve_bytes += observation.written_length;
   const size_t target_index = ResolveTargetIndex(observation.written_address);
@@ -30407,6 +30530,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"procedural_color_target_profile_preview_extent", "1280x720"},
        {"procedural_color_target_profile_bin_state", "exact_backend_v1"},
        {"procedural_color_resolve_source_state", "exact_backend_v1"},
+       {"procedural_color_resolve_runtime_tracker",
+        "exact_contiguous_full_frame_v1"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
