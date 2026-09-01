@@ -869,6 +869,16 @@ qualifier requires distinct candidate and accepted-request accounting for this
 producer. Depth-only slot-79 track draws remain excluded as shadow work, and
 Xenos output remains the mandatory fallback until the exact producer completes.
 
+Target-failure diagnostic checkpoint: the first batched AppData run after exact
+producer admission observed 318 exact candidates across nine gameplay frames.
+Each frame's first procedural replay failed target construction, while 102
+existing retained-family requests still recorded and eight frames completed.
+ReXGlue now returns a bounded fail-closed reason for every isolated target
+construction failure, and the workset partitions the exact procedural subset.
+The next run can therefore fix the specific attachment, allocation, extent, or
+retained-target incompatibility without guessing or enabling Xenos-derived
+content as a native producer.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
