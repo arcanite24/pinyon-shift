@@ -33,6 +33,30 @@ def fixture():
             },
             "safety": passive_safety,
         },
+        "presentation": {
+            "schema": MODULE.INPUT_SCHEMAS["presentation"],
+            "session": "session-1",
+            "status": "complete",
+            "failures": [],
+            "qualification": {
+                "color_target_slots": [80],
+                "opaque_world_slot_proved": True,
+            },
+            "slot_totals": {
+                "80": {
+                    "adapter_route": {
+                        "entries": 4,
+                        "enabled": 4,
+                        "eligible": 4,
+                        "dispatches": 4,
+                        "first_target": "8240F000",
+                        "last_target": "8240F000",
+                        "target_changes": 0,
+                    }
+                }
+            },
+            "safety": passive_safety,
+        },
         "static_world": {
             "schema": MODULE.INPUT_SCHEMAS["static_world"],
             "session": "session-1",
@@ -109,6 +133,12 @@ class NativeRendererC1C2BatchTests(unittest.TestCase):
             document["qualification"]["manual_visual_acceptance_proved"]
         )
         self.assertFalse(document["qualification"]["suppression_allowed"])
+        self.assertEqual(
+            "8240F000",
+            document["presentation_lead"][
+                "slot_80_stable_adapter_target"
+            ],
+        )
 
     def test_rejects_cross_session_evidence(self):
         reports = fixture()
@@ -137,6 +167,40 @@ class NativeRendererC1C2BatchTests(unittest.TestCase):
             "track gate is unproved: "
             "track_command_lineage_to_prepared_draw_proved",
             document["failures"],
+        )
+
+    def test_routes_unproved_color_pass_to_stable_adapter_target(self):
+        reports = fixture()
+        reports["presentation"]["qualification"][
+            "opaque_world_slot_proved"
+        ] = False
+        reports["presentation"]["qualification"]["color_target_slots"] = []
+        document = MODULE.build(reports)
+        self.assertEqual("incomplete", document["status"])
+        self.assertIn(
+            "track presentation color-pass identity is unproved",
+            document["failures"],
+        )
+        self.assertEqual(
+            "instrument_slot_80_adapter_target", document["next_gate"]
+        )
+
+    def test_closes_gated_slot_80_before_semantic_pivot(self):
+        reports = fixture()
+        reports["presentation"]["qualification"][
+            "opaque_world_slot_proved"
+        ] = False
+        reports["presentation"]["qualification"]["color_target_slots"] = []
+        adapter = reports["presentation"]["slot_totals"]["80"][
+            "adapter_route"
+        ]
+        adapter["dispatches"] = 0
+        adapter["first_target"] = "00000000"
+        adapter["last_target"] = "00000000"
+        document = MODULE.build(reports)
+        self.assertEqual(
+            "close_slot_80_and_pivot_to_semantic_world_ingress",
+            document["next_gate"],
         )
 
     def test_rejects_safety_drift(self):

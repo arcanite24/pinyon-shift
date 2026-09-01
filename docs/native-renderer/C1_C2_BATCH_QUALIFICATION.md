@@ -3,9 +3,10 @@
 Status: implementation complete; first clean AppData batch incomplete
 
 The combined gate turns one exact runtime session into a single promotion
-decision. It joins four independently strict, payload-free reports:
+decision. It joins five independently strict, payload-free reports:
 
 - exact track scope-to-command-packet-to-prepared-draw lineage;
+- exact unified track-presentation color/adapter route classification;
 - complete SimpleModel presentation/resource/mesh lineage;
 - runtime transform classification against the title-authored spatial catalog;
   and
@@ -32,11 +33,12 @@ does not request the isolated per-resource vehicle readback: shadow-depth
 capture and the continuous workset are mutually exclusive, so conflating them
 would invalidate both gates.
 
-Run the four component qualifiers first, then join them:
+Run the five component qualifiers first, then join them:
 
 ```powershell
 python tools/summarize-native-renderer-c1-c2-batch.py `
   --track .local/qualification/track-model-runtime-join.json `
+  --presentation .local/qualification/track-presentation-passes.json `
   --static-world .local/qualification/static-world-runtime-join.json `
   --classification .local/qualification/static-world-classification.json `
   --workset .local/qualification/continuous-world-workset.json `
@@ -51,6 +53,12 @@ family promotion, or suppression. Those remain the next gates.
 
 This report never reads or modifies the AppData save and cannot enable runtime
 behavior. It only joins existing payload-free evidence.
+
+The presentation input also makes an incomplete batch actionable. A stable
+slot-80 adapter target selects that exact downstream function for the next
+instrumentation slice; an observed adapter that never dispatches closes slot
+80 for the representative scene and pivots C1 to semantic world ingress. It
+does not promote either result to an opaque-world color-pass proof.
 
 The first clean combined run reached exact C1 scope, context, and indirect
 packet identity but exposed an observer-ordering gap at the prepared boundary.
