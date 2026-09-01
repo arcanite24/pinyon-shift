@@ -926,6 +926,14 @@ an accumulator source only when that exact request records successfully. This
 keeps frame ownership correct if title submission and graphics completion are
 decoupled, and is required before scaled replay can safely widen.
 
+Scaled-topology evidence checkpoint: accumulator completion results now carry
+the private source resource extent, host sample count and quality, guest MSAA
+count, active draw scale, and whether native 2x MSAA is available. These fields
+are emitted in the bounded payload-free result event even when the backend
+rejects the target. This turns the next batched 1x/2x qualification into an
+exact topology comparison and prevents sample expansion or presentation extent
+from being implemented from an ambiguous D3D12 descriptor alone.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
