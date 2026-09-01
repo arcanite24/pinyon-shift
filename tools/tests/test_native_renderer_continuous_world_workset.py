@@ -335,6 +335,30 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         )
         self.assertIn('"backend_copy", "not_yet_admitted"', source)
 
+    def test_scaled_layout_crosses_accumulator_backend_contract(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0119-d3d12-accumulator-source-layout-request.patch"
+        ).read_text(encoding="utf-8")
+        for field in (
+            "source_x",
+            "source_y",
+            "source_width",
+            "source_height",
+            "copy_row_count",
+            "padding_row_count",
+            "sample_select",
+        ):
+            self.assertIn(field, patch)
+            self.assertIn(f"request_out.{field}", source)
+        self.assertIn("requested_source_x", patch)
+        self.assertIn('"requested_source_rect"', source)
+        self.assertIn('"requested_rows"', source)
+        self.assertIn("!physical_layout.ready()", source)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

@@ -1,0 +1,63 @@
+From afd3561c9b1a8e5fbd551bea0dfe1edd46697bde Mon Sep 17 00:00:00 2001
+From: "Brandon G. Neri" <arcaniteamp@gmail.com>
+Date: Tue, 1 Sep 2026 09:15:54 -0600
+Subject: [PATCH] feat(graphics): carry accumulator source layout
+
+---
+ include/rex/system/interfaces/graphics.h   | 14 ++++++++++++++
+ src/graphics/d3d12/render_target_cache.cpp |  7 +++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index 94c9c24..0236bc9 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -415,6 +415,13 @@ struct GraphicsNativeFrameAccumulatorResult {
+   uint32_t source_guest_msaa_samples = 0;
+   uint32_t draw_resolution_scale_x = 0;
+   uint32_t draw_resolution_scale_y = 0;
++  uint32_t requested_source_x = 0;
++  uint32_t requested_source_y = 0;
++  uint32_t requested_source_width = 0;
++  uint32_t requested_source_height = 0;
++  uint32_t requested_copy_row_count = 0;
++  uint32_t requested_padding_row_count = 0;
++  uint32_t requested_sample_select = 0;
+   bool native_2x_msaa = false;
+   bool committed = false;
+ };
+@@ -432,6 +439,13 @@ struct GraphicsNativeFrameAccumulatorRequest {
+   uint32_t storage_height = 0;
+   uint32_t destination_row = 0;
+   uint32_t storage_row_count = 0;
++  uint32_t source_x = 0;
++  uint32_t source_y = 0;
++  uint32_t source_width = 0;
++  uint32_t source_height = 0;
++  uint32_t copy_row_count = 0;
++  uint32_t padding_row_count = 0;
++  uint32_t sample_select = 0;
+   bool begin = false;
+   bool append = false;
+   bool commit = false;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 73272f1..3efce08 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -2609,6 +2609,13 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+     const system::GraphicsNativeFrameAccumulatorRequest& request) {
+   system::GraphicsNativeFrameAccumulatorResult result;
+   result.frame_sequence = frame_sequence;
++  result.requested_source_x = request.source_x;
++  result.requested_source_y = request.source_y;
++  result.requested_source_width = request.source_width;
++  result.requested_source_height = request.source_height;
++  result.requested_copy_row_count = request.copy_row_count;
++  result.requested_padding_row_count = request.padding_row_count;
++  result.requested_sample_select = request.sample_select;
+   const auto clear_active = [&]() {
+     isolated_replay_frame_accumulator_frame_sequence_ = 0;
+     isolated_replay_frame_accumulator_committed_frame_sequence_ = 0;
+-- 
+2.51.1.windows.1
+
