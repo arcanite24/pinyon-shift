@@ -2070,6 +2070,18 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertNotIn("SetDrawSuppression", topology_patch)
         self.assertNotIn("PublishIsolatedReplayTarget", topology_patch)
 
+        source_rows_patch = (
+            ROOT
+            / "patches/rexglue/0111-d3d12-procedural-frame-accumulator-source-rows.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "source_x, destination_row + output_position.y",
+            source_rows_patch,
+        )
+        self.assertIn("destination_row + output_position.y", source_rows_patch)
+        self.assertNotIn("SetDrawSuppression", source_rows_patch)
+        self.assertNotIn("PublishIsolatedReplayTarget", source_rows_patch)
+
         scanner = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
         )

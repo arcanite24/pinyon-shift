@@ -1,0 +1,171 @@
+diff --git a/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+index 183cf20..744434c 100644
+--- a/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
++++ b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+@@ -18,5 +18,6 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+   uint sample_index = output_position.x & 1;
+   frame_accumulator[uint2(output_position.x,
+                           destination_row + output_position.y)] =
+-      source_tile.Load(uint2(source_x, output_position.y), sample_index);
++      source_tile.Load(uint2(source_x, destination_row + output_position.y),
++                       sample_index);
+ }
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+index 7b349d7..9e6e9f1 100644
+--- a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+@@ -42,7 +42,7 @@ dcl_constantbuffer CB0[0:0][1], immediateIndexed, space=0
+ dcl_resource_texture2dms(2) (float,float,float,float) T0[0:0], space=0
+ dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
+ dcl_input vThreadID.xy
+-dcl_temps 3
++dcl_temps 2
+ dcl_thread_group 8, 8, 1
+ ishl r0.x, CB0[0][0].x, l(1)
+ uge r0.x, vThreadID.x, r0.x
+@@ -53,27 +53,26 @@ if_nz r0.x
+ endif 
+ ushr r0.x, vThreadID.x, l(1)
+ and r1.x, vThreadID.x, l(1)
+-iadd r2.yzw, vThreadID.yyyy, CB0[0][0].zzzz
+-mov r0.y, vThreadID.y
+-mov r0.zw, l(0,0,0,0)
+-ldms r0.xyzw, r0.xyzw, T0[0].xyzw, r1.x
+-mov r2.x, vThreadID.x
+-store_uav_typed U0[0].xyzw, r2.xyzw, r0.xyzw
++iadd r0.y, vThreadID.y, CB0[0][0].z
++mov r0.z, l(0)
++ldms r1.xyzw, r0.xyzz, T0[0].xyzw, r1.x
++mov r0.w, vThreadID.x
++store_uav_typed U0[0].xyzw, r0.wyyy, r1.xyzw
+ ret 
+-// Approximately 16 instruction slots used
++// Approximately 15 instruction slots used
+ #endif
+ 
+ const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+ {
+-     68,  88,  66,  67, 246,  11, 
+-     91,   7, 145, 214,  54,  12, 
+-    235,  11, 217,  77,  65, 189, 
+-     75, 217,   1,   0,   0,   0, 
+-     32,   5,   0,   0,   5,   0, 
++     68,  88,  66,  67, 136, 246, 
++      2, 135, 125, 104, 241,  79, 
++    122, 179, 185, 142, 219, 241, 
++     60,   3,   1,   0,   0,   0, 
++      4,   5,   0,   0,   5,   0, 
+       0,   0,  52,   0,   0,   0, 
+     116,   2,   0,   0, 132,   2, 
+       0,   0, 148,   2,   0,   0, 
+-    132,   4,   0,   0,  82,  68, 
++    104,   4,   0,   0,  82,  68, 
+      69,  70,  56,   2,   0,   0, 
+       1,   0,   0,   0, 248,   0, 
+       0,   0,   3,   0,   0,   0, 
+@@ -175,9 +174,9 @@ const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+       0,   0,  79,  83,  71,  78, 
+       8,   0,   0,   0,   0,   0, 
+       0,   0,   8,   0,   0,   0, 
+-     83,  72,  69,  88, 232,   1, 
++     83,  72,  69,  88, 204,   1, 
+       0,   0,  81,   0,   5,   0, 
+-    122,   0,   0,   0, 106,   8, 
++    115,   0,   0,   0, 106,   8, 
+       0,   1,  89,   0,   0,   7, 
+      70, 142,  48,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+@@ -194,7 +193,7 @@ const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+      85,  85,   0,   0,   0,   0, 
+       0,   0,  95,   0,   0,   2, 
+      50,   0,   2,   0, 104,   0, 
+-      0,   2,   3,   0,   0,   0, 
++      0,   2,   2,   0,   0,   0, 
+     155,   0,   0,   4,   8,   0, 
+       0,   0,   8,   0,   0,   0, 
+       1,   0,   0,   0,  41,   0, 
+@@ -229,50 +228,45 @@ const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+      16,   0,   1,   0,   0,   0, 
+      10,   0,   2,   0,   1,  64, 
+       0,   0,   1,   0,   0,   0, 
+-     30,   0,   0,   8, 226,   0, 
+-     16,   0,   2,   0,   0,   0, 
+-     86,   5,   2,   0, 166, 138, 
++     30,   0,   0,   8,  34,   0, 
++     16,   0,   0,   0,   0,   0, 
++     26,   0,   2,   0,  42, 128, 
+      48,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+-      0,   0,  54,   0,   0,   4, 
+-     34,   0,  16,   0,   0,   0, 
+-      0,   0,  26,   0,   2,   0, 
+-     54,   0,   0,   8, 194,   0, 
++      0,   0,  54,   0,   0,   5, 
++     66,   0,  16,   0,   0,   0, 
++      0,   0,   1,  64,   0,   0, 
++      0,   0,   0,   0,  46,   0, 
++      0,  10, 242,   0,  16,   0, 
++      1,   0,   0,   0,  70,  10, 
+      16,   0,   0,   0,   0,   0, 
+-      2,  64,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,  46,   0,   0,  10, 
+-    242,   0,  16,   0,   0,   0, 
+-      0,   0,  70,  14,  16,   0, 
+-      0,   0,   0,   0,  70, 126, 
+-     32,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,  10,   0, 
+-     16,   0,   1,   0,   0,   0, 
+-     54,   0,   0,   4,  18,   0, 
+-     16,   0,   2,   0,   0,   0, 
+-     10,   0,   2,   0, 164,   0, 
+-      0,   8, 242, 224,  33,   0, 
++     70, 126,  32,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+-      0,   0,  70,  14,  16,   0, 
+-      2,   0,   0,   0,  70,  14, 
++     10,   0,  16,   0,   1,   0, 
++      0,   0,  54,   0,   0,   4, 
++    130,   0,  16,   0,   0,   0, 
++      0,   0,  10,   0,   2,   0, 
++    164,   0,   0,   8, 242, 224, 
++     33,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0, 118,   5, 
+      16,   0,   0,   0,   0,   0, 
+-     62,   0,   0,   1,  83,  84, 
+-     65,  84, 148,   0,   0,   0, 
+-     16,   0,   0,   0,   3,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      1,   0,   0,   0,   0,   0, 
+-      0,   0,   2,   0,   0,   0, 
+-      5,   0,   0,   0,   2,   0, 
++     70,  14,  16,   0,   1,   0, 
++      0,   0,  62,   0,   0,   1, 
++     83,  84,  65,  84, 148,   0, 
++      0,   0,  15,   0,   0,   0, 
++      2,   0,   0,   0,   0,   0, 
+       0,   0,   1,   0,   0,   0, 
++      0,   0,   0,   0,   2,   0, 
++      0,   0,   5,   0,   0,   0, 
++      2,   0,   0,   0,   1,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+-      1,   0,   0,   0,   0,   0, 
++      0,   0,   1,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   3,   0, 
+       0,   0,   0,   0,   0,   0, 
++      2,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+@@ -283,5 +277,5 @@ const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+       0,   0,   0,   0,   0,   0, 
+-      1,   0,   0,   0
++      0,   0,   1,   0,   0,   0
+ };

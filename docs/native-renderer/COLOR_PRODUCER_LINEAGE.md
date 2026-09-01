@@ -151,6 +151,21 @@ off, and no guest-memory publication occurred. This closes structural
 accumulator qualification; the visibly repeated/corrupt scene regions remain a
 separate source-row addressing problem for the next slice.
 
+Patch `0111` closes that addressing defect. Each 256-row isolated source keeps
+the guest destination row encoded in its source texture, so the second and
+third accumulator operations must load source rows 256-511 and 512-735 rather
+than replaying rows from zero. The corrected compute path adds
+`destination_row` to both the source and destination Y coordinates while
+retaining the already-qualified two-sample horizontal expansion. A visual
+AppData probe replaced the repeated horizontal bands and noisy right edge with
+one coherent scene. Equivalent Phase-C AppData session
+`20260901T104300Z-p42688` then recorded nine exact frames and 27 successful
+operations with zero hard failures before exiting normally. Every operation
+used `1280x736` storage and `1280x720` logical extents, Xenos resolves completed
+first, and draw suppression and guest-memory publication remained off. This
+qualifies the corrected source-row path rather than relying only on the earlier
+structural session.
+
 Run it after the combined AppData session closes:
 
 ```powershell
