@@ -859,6 +859,16 @@ This removes two guaranteed-invalid backend requests per unavailable three-copy
 frame without borrowing Xenos content, weakening producer ownership, or
 preventing later native frames from becoming eligible.
 
+Exact color-producer checkpoint: the accumulator no longer accepts an
+unrelated retained sky/horizon replay as sufficient producer ownership. The
+continuous workset now explicitly recognizes only the already-proved
+`82417BC0` procedural color context with a live semantic receiver and first
+color attachment, then replays its mechanically eligible tiled draws into the
+same-frame private target consumed by the three-copy accumulator. The v8
+qualifier requires distinct candidate and accepted-request accounting for this
+producer. Depth-only slot-79 track draws remain excluded as shadow work, and
+Xenos output remains the mandatory fallback until the exact producer completes.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

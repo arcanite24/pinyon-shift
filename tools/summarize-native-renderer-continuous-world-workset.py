@@ -7,10 +7,11 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v7"
+SCHEMA = "pinyon-shift.native-renderer-continuous-world-workset.v8"
 SELECTION = (
     "fresh_track_texture_provider_visibility_or_qualified_"
-    "sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"
+    "sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_"
+    "static_world_and_mechanical"
 )
 TRACK_WORLD_SELECTION = (
     "exact_track_render_model_scope_and_shared_world_resource_identity"
@@ -162,6 +163,8 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "non_track_provider_rejections",
         "track_world_identity_exclusions",
         "track_world_requests",
+        "procedural_color_producer_candidates",
+        "procedural_color_producer_requests",
         "static_world_lineage_rejections",
         "static_world_requests",
         "per_frame_quota_yields",
@@ -232,6 +235,7 @@ def build(events, requested_session=None, allow_checkpoint=False):
     track_provider_requests = (
         totals["requests"]
         - totals["qualified_retained_family_requests"]
+        - totals["procedural_color_producer_requests"]
         - totals["static_world_requests"]
     )
     if track_provider_requests <= 0:
@@ -256,6 +260,15 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("track-world selection occurred while disabled")
     if totals["track_world_requests"] > track_provider_requests:
         failures.append("track-world requests exceed track-provider requests")
+    if not totals["procedural_color_producer_candidates"]:
+        failures.append("no exact procedural color producer was observed")
+    if not totals["procedural_color_producer_requests"]:
+        failures.append("no exact procedural color producer was replayed")
+    if (
+        totals["procedural_color_producer_requests"]
+        > totals["procedural_color_producer_candidates"]
+    ):
+        failures.append("procedural color requests exceed exact candidates")
     if static_world_requested and not totals["static_world_requests"]:
         failures.append("no exact static-world request was observed")
     if not static_world_requested and totals["static_world_requests"]:
@@ -389,6 +402,21 @@ def build(events, requested_session=None, allow_checkpoint=False):
             )
         )
     )
+    procedural_color_producer_selection_proved = (
+        totals["procedural_color_producer_requests"] > 0
+        and totals["procedural_color_producer_requests"]
+        <= totals["procedural_color_producer_candidates"]
+        and not any(
+            message
+            in failures
+            for message in (
+                "prepared selection accounting drifted",
+                "runtime workset status does not match its outcomes",
+                "no exact procedural color producer was replayed",
+                "procedural color requests exceed exact candidates",
+            )
+        )
+    )
 
     return {
         "schema": SCHEMA,
@@ -411,6 +439,9 @@ def build(events, requested_session=None, allow_checkpoint=False):
             "clean_xenos_fallback_proved": clean_fallback_proved,
             "track_provider_selection_proved": track_provider_selection_proved,
             "track_world_selection_proved": track_world_selection_proved,
+            "procedural_color_producer_selection_proved": (
+                procedural_color_producer_selection_proved
+            ),
             "static_world_selection_proved": static_world_selection_proved,
             "native_output_markers": len(exact_output_frames),
             "xenos_fallback_markers": len(output_waiting),

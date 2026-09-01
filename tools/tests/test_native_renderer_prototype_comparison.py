@@ -115,7 +115,7 @@ class NativeRendererPrototypeComparisonTests(unittest.TestCase):
         )
         self.assertIn("qualified_retained_family_requests", hooks)
         self.assertIn(
-            "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_track_or_static_world_and_mechanical",
+            "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical",
             hooks,
         )
         self.assertIn("static_world_requested = false", hooks)

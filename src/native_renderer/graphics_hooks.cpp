@@ -9904,6 +9904,7 @@ struct IsolatedDrawState {
   bool prepared_track_render_model_scope = false;
   bool prepared_track_command_lineage = false;
   uint32_t prepared_track_world_resource_shared_identity_mask = 0;
+  bool prepared_procedural_color_producer = false;
   bool prepared_static_world_origin = false;
   bool prepared_static_world_exact = false;
   bool require_fresh_visibility_candidate = false;
@@ -10063,6 +10064,8 @@ struct ContinuousWorldWorksetState {
   uint64_t track_world_mechanically_rejected = 0;
   std::array<uint64_t, 15> track_world_mechanical_rejection_reasons{};
   uint64_t track_world_requests = 0;
+  uint64_t procedural_color_producer_candidates = 0;
+  uint64_t procedural_color_producer_requests = 0;
   uint64_t static_world_lineage_rejections = 0;
   uint64_t static_world_requests = 0;
   uint64_t per_frame_quota_yields = 0;
@@ -11006,7 +11009,7 @@ void ValidateAndEmitContinuousWorldWorksetConfiguration() {
        {"activation", "startup_environment_only"},
        {"default_enabled", "false"},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical"},
        {"track_world_selection",
         g_continuous_world_workset.track_world_requested
             ? "exact_track_render_model_scope_and_shared_world_resource_identity"
@@ -17559,6 +17562,7 @@ void RecordProceduralColorTargetProfile(
       !context.semantic_receiver_generation) {
     return;
   }
+  g_isolated_draw.prepared_procedural_color_producer = true;
   const pinyon_shift::native_renderer::ProceduralResolveTarget target{
       .frame_sequence = observation.frame_sequence,
       .surface_info = observation.surface_info,
@@ -25173,6 +25177,7 @@ void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
   g_isolated_draw.prepared_color_only_target = false;
+  g_isolated_draw.prepared_procedural_color_producer = false;
   g_isolated_draw.prepared_shadow_depth_seed_eligible = false;
   g_isolated_draw.prepared_shadow_depth_batch_member = false;
   g_isolated_draw.prepared_shadow_depth_batch_family =
@@ -27164,6 +27169,12 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
             g_continuous_world_workset.track_world_mechanical_rejection_reasons[14])},
        {"track_world_requests",
         std::to_string(g_continuous_world_workset.track_world_requests)},
+       {"procedural_color_producer_candidates",
+        std::to_string(
+            g_continuous_world_workset.procedural_color_producer_candidates)},
+       {"procedural_color_producer_requests",
+        std::to_string(
+            g_continuous_world_workset.procedural_color_producer_requests)},
        {"static_world_lineage_rejections",
         std::to_string(
             g_continuous_world_workset.static_world_lineage_rejections)},
@@ -27191,7 +27202,7 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
        {"maximum_draws_per_frame",
         std::to_string(kContinuousWorldWorksetMaximumDrawsPerFrame)},
        {"selection",
-        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_optional_exact_track_or_static_world_and_mechanical"},
+        "fresh_track_texture_provider_visibility_or_qualified_sky_horizon_or_exact_procedural_color_or_optional_exact_track_or_static_world_and_mechanical"},
        {"track_world_selection",
         g_continuous_world_workset.track_world_requested
             ? "exact_track_render_model_scope_and_shared_world_resource_identity"
@@ -27553,6 +27564,11 @@ void RequestIsolatedDraw(
         g_isolated_draw.prepared_track_render_model_scope &&
         (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
          g_isolated_draw.prepared_track_command_lineage);
+    const bool exact_procedural_color_producer =
+        g_isolated_draw.prepared_procedural_color_producer;
+    if (exact_procedural_color_producer) {
+      ++g_continuous_world_workset.procedural_color_producer_candidates;
+    }
     if (exact_track_world) {
       ++g_continuous_world_workset.track_world_candidates;
       const uint32_t rejection_mask =
@@ -27584,20 +27600,21 @@ void RequestIsolatedDraw(
     }
     if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
         !qualified_retained_family && !exact_static_world &&
-        !exact_track_world) {
+        !exact_track_world && !exact_procedural_color_producer) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
       return;
     }
     if (!qualified_retained_family &&
         !exact_static_world &&
         !exact_track_world &&
+        !exact_procedural_color_producer &&
         !g_isolated_draw.prepared_track_texture_provider) {
       ++g_continuous_world_workset.non_track_provider_rejections;
       return;
     }
     if (g_continuous_world_workset.track_world_requested &&
         !qualified_retained_family && !exact_static_world &&
-        !exact_track_world) {
+        !exact_track_world && !exact_procedural_color_producer) {
       ++g_continuous_world_workset.track_world_identity_exclusions;
       return;
     }
@@ -27624,6 +27641,9 @@ void RequestIsolatedDraw(
     }
     if (exact_track_world) {
       ++g_continuous_world_workset.track_world_requests;
+    }
+    if (exact_procedural_color_producer) {
+      ++g_continuous_world_workset.procedural_color_producer_requests;
     }
     if (exact_static_world) {
       ++g_continuous_world_workset.static_world_requests;
