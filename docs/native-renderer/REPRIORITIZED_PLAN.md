@@ -304,6 +304,16 @@ does not persist identity on a shared receiver, and treats non-track calls as
 normal exclusions. The next batched run must prove context, packet, and
 prepared-draw joins before C1 can advance. No suppression is enabled.
 
+Clean command-lineage checkpoint: the AppData-backed Phase C run observed
+80,790 exact scopes, context bridges, and command-packet joins with zero scope
+or packet accounting faults. Prepared-draw joins remained zero because their
+observer returned before consulting active command lineage whenever the title
+draw lacked an independent procedural semantic record. The observer now counts
+exact active command lineage before that semantic-only early return and
+partitions joins with and without semantic origin. This is evidence-only: a
+command without a fresh semantic candidate is still not admitted to the
+continuous workset, and Xenos authority and suppression remain unchanged.
+
 Implementation checkpoint: the exact model scope now inspects only its
 already-validated 64-byte child prefix and 248-byte type-21 descriptor for
 direct pointers to the seven RTTI-proved track model, mesh, submodel,
@@ -345,6 +355,15 @@ virtual handoff at `823F8F1C`, including owner/resource equality, renderer
 vtable, dispatch target, and the offset-148 resource vtable. This will separate
 a deferred-renderer route from incorrect field assumptions before C2 lineage
 is widened.
+
+Latest Phase C checkpoint: a longer clean festival session produced 238,592
+exact balanced presentation scopes and transforms, but again no renderer
+handoff. Every offset-148 resource-vtable and bounded asset-metadata read
+failed, while the slot-12 handoff hook remained untouched. This proves the
+accepted wrapper path does not execute the assumed base method body in this
+scene. The next C2 slice must resolve the wrapper's actual dispatch target or
+lazy resource initialization point before widening lineage; it must not treat
+the stale offset-148 assumption as runtime identity.
 
 ### C2. Static world buildings and props
 

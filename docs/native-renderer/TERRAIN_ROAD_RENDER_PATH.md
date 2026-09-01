@@ -278,6 +278,25 @@ run. Until then it does not prove terrain/road visual identity or C1 family
 promotion. It changes no guest state, Xenos draw, output authority, or
 suppression decision.
 
+### First clean command-lineage result
+
+The combined Phase C run closed the first two runtime hops exactly: 80,790
+balanced unified track scopes produced 80,790 accepted `824365B0` context
+bridges and 80,790 matched indirect packets, with no invalid roots, descriptor
+faults, overlaps, or unmatched accepted scopes. The prepared counter was still
+zero even though 2,600,588 prepared indirect draws completed in the same
+process.
+
+That zero exposed observer ordering rather than missing command provenance.
+Prepared semantic processing returned immediately when a title draw had no
+procedural semantic record, before it queried the already-matched active
+indirect command buffer. Exact command-lineage accounting now runs before that
+semantic-only early return and separately counts prepared joins with and
+without a procedural semantic origin. The latter remain evidence only: they
+are not synthesized into visibility candidates and cannot enter the private
+continuous workset. A later batched run must prove the final hop before any C1
+admission work proceeds.
+
 ## Bounded track world-resource graph identity
 
 The balanced render-model scope now extends the passive join without adding a

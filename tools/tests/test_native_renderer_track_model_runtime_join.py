@@ -88,6 +88,8 @@ def fixture(shared=3):
         command_context_bridges="8",
         command_packet_joins="16",
         command_prepared_draw_joins="24",
+        command_prepared_draw_joins_with_semantic_origin="9",
+        command_prepared_draw_joins_without_semantic_origin="15",
         shared_identity_joins=str(shared),
         world_resource_graph_scopes="6" if shared else "0",
         world_resource_graph_cache_hits="8",
@@ -157,6 +159,8 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
         events[-1].update(
             status="incomplete",
             command_prepared_draw_joins="0",
+            command_prepared_draw_joins_with_semantic_origin="0",
+            command_prepared_draw_joins_without_semantic_origin="0",
             shared_command_lineage="0",
             qualification_complete="false",
         )
@@ -165,6 +169,22 @@ class TrackModelRuntimeJoinTests(unittest.TestCase):
             "no exact track command reached a prepared draw",
             document["failures"],
         )
+
+    def test_rejects_prepared_command_semantic_origin_drift(self):
+        events = copy.deepcopy(fixture())
+        events[-1]["command_prepared_draw_joins_without_semantic_origin"] = "14"
+        document = MODULE.build(events)
+        self.assertIn(
+            "prepared command semantic-origin accounting drifted",
+            document["failures"],
+        )
+
+    def test_accepts_legacy_summary_without_prepared_origin_partition(self):
+        events = copy.deepcopy(fixture())
+        events[-1].pop("command_prepared_draw_joins_with_semantic_origin")
+        events[-1].pop("command_prepared_draw_joins_without_semantic_origin")
+        document = MODULE.build(events)
+        self.assertEqual("complete", document["status"])
 
     def test_latest_checkpoint_is_diagnostic_not_admission_evidence(self):
         events = fixture()
