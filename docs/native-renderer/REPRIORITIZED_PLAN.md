@@ -702,6 +702,18 @@ separate live color producer; no further hook is added beneath this shadow
 family. The reproducible inventory is documented in
 [`TERRAIN_ROAD_RENDER_PATH.md`](TERRAIN_ROAD_RENDER_PATH.md).
 
+Live color-producer implementation checkpoint: the already-balanced command-
+buffer lineage now partitions every origin aggregate into depth-only,
+color-only, color-plus-depth, and other prepared-target activity. It separately
+counts opaque, bounded, and resolved-input color draws and retains one bounded
+numeric target/shader sample with variation accounting. A fail-closed offline
+ranker requires one clean session and exact reconciliation with the final
+lineage summary. Historical evidence makes exact procedural-model context
+`82417BC0` the first lead, but because its lineage and color samples came from
+different sessions, that is boundary selection rather than proof. The next
+combined AppData run will rank the live color producer without another broad
+hook pass. See [`COLOR_PRODUCER_LINEAGE.md`](COLOR_PRODUCER_LINEAGE.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
