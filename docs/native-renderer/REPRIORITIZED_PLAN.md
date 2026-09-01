@@ -1196,6 +1196,18 @@ accounting. It neither embeds the local catalog nor changes the normal
 prototype selector, Xenos execution, publication authority, or suppression.
 Runtime and visual proof is batched with the pending C1/C2 AppData run.
 
+Complete-scene publication correction: runtime visual evidence proved that the
+continuous workset reseeds its one retained target when attachment identity
+changes, then exposes whichever isolated family happens to finish last. That is
+the direct cause of the wrong camera and missing open world seen in the early
+prototype; it is not a presentation-scale issue. Workset replays remain private
+and fully observable, but deferred swap publication is now disabled and output
+stays Xenos-authoritative until a compositor can retain and join all required
+camera-consistent color families. This removes the misleading partial frame
+from the supported prototype path without discarding the native replay work.
+The next implementation slice is multi-target scene-family retention followed
+by an explicit complete-frame coverage gate.
+
 Representative-scene result: clean festival session
 `20260901T042139Z-p17172` exercised 6,016 exact generic model-presentation
 scopes but joined none to a `CSimpleModelRenderer`, resource graph, PM4 packet,
