@@ -258,6 +258,21 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             self.assertIn(field, source)
         self.assertIn("isolated_color->key().msaa_samples", patch)
 
+    def test_resolve_census_reports_authoritative_source_topology(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0116-d3d12-resolve-source-topology-observation.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PopulateCopySourceTopology", patch)
+        self.assertIn("last_update_accumulated_render_targets", patch)
+        self.assertIn("source_target_available", patch)
+        self.assertIn("source_guest_msaa_samples", patch)
+        self.assertIn('"source_resource_extent"', source)
+        self.assertIn('"draw_scale"', source)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"

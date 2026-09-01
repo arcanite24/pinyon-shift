@@ -934,6 +934,14 @@ rejects the target. This turns the next batched 1x/2x qualification into an
 exact topology comparison and prevents sample expansion or presentation extent
 from being implemented from an ambiguous D3D12 descriptor alone.
 
+Authoritative-resolve topology checkpoint: the ordinary D3D12 copy observation
+now snapshots the selected live guest render target before any native replay is
+required. Full-census Xenos runs therefore report its resource extent, format,
+host samples, guest MSAA, draw scale, and native-2x capability without arming
+the unstable scaled prototype. Comparing this safe source contract with the
+private replay result isolates target-selection errors from accumulator sample
+expansion and presentation errors.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
