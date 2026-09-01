@@ -529,6 +529,17 @@ both raw and reference-composed interpretations without another build cycle.
 See
 [`TRACK_WORLD_REFERENCE_COMPOSITION.md`](TRACK_WORLD_REFERENCE_COMPOSITION.md).
 
+First combined-census correction: clean session
+`20260901T033932Z-p38084` reached the saved festival with 485 exact scopes,
+zero table overflow, normal Xenos output, and a normal exit. It exposed two
+content-lineage facts before classification: 79 child/descriptor address pairs
+changed contents during the run, and four upstream matrix stages fed all 485
+downstream scopes. Scope entries are now keyed by address plus exact content
+hash, while the current same-thread matrix stage remains valid until the next
+proved upstream stage overwrites it. Reference entries carry that exact scope
+content hash. This preserves every changing sample and the one-to-many retail
+control flow without widening the accepted scope or weakening accounting.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

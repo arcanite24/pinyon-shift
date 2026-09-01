@@ -17,11 +17,12 @@ speculative pointer dereference, broad draw census, or shader-state guess.
 ## Runtime contract
 
 At exact scope entry, after the existing child and descriptor bounds, type, and
-flag checks succeed, the observer retains one numeric snapshot per exact
-child/descriptor address pair. The fixed 1,024-entry table records:
+flag checks succeed, the observer retains each numeric snapshot by exact
+child/descriptor addresses plus combined content hash. The fixed 1,024-entry
+table records:
 
 - all 16 child words and all 62 descriptor words;
-- snapshot hash and variation count;
+- snapshot hash and collision/variation count;
 - exact call and first/last-frame coverage; and
 - explicit table overflow.
 

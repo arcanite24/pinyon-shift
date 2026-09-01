@@ -23,13 +23,16 @@ these title-proved reference matrices.
 ## Exact runtime join
 
 The existing hook at `8240EB5C` stages both finite matrices in thread-local
-storage. The later exact scope entry at `8240EC80` consumes the stage only after
-the unified instance/model vtables and type-21 descriptor predicates pass.
-Invalid roots cannot publish a reference snapshot, and ordinary calls never
-inherit an accepted track identity.
+storage. Each later exact scope entry at `8240EC80` reuses the current stage
+only after the unified instance/model vtables and type-21 descriptor predicates
+pass. Static control flow proves one staged pair can feed many downstream exact
+scopes before the next function invocation overwrites it. Invalid roots cannot
+publish a reference snapshot, and ordinary calls never inherit an accepted
+track identity.
 
-A fixed 2,048-entry table is keyed by exact child/descriptor addresses plus
-both matrix hashes. It retains the numeric matrices and call/frame coverage.
+A fixed 2,048-entry table is keyed by exact child/descriptor addresses, exact
+child/descriptor content hash, and both matrix hashes. It retains the numeric
+matrices and call/frame coverage.
 Detailed entries are emitted only at clean final shutdown. Missing same-thread
 stages, invalid ranges, non-finite matrices, and table overflow are independently
 counted. No stack pointer is retained after the synchronous copy.
