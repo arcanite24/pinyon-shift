@@ -254,6 +254,24 @@ address = 0x823F8F1C
 name = "PinyonShiftObserveStaticWorldPresentationRendererHandoff"
 registers = ["r3", "r11"]
 
+# Deferred SimpleModel slot 12 queues a task at 82585F84. Callback 82BA61D0
+# later invokes slot 12 on the deferred target object. Keep the task identity
+# across that asynchronous boundary without changing the queue or callback.
+[[midasm_hook]]
+address = 0x82585F84
+name = "PinyonShiftObserveStaticWorldDeferredTaskPublish"
+registers = ["r7", "r31"]
+
+[[midasm_hook]]
+address = 0x82BA61D0
+name = "PinyonShiftObserveStaticWorldDeferredTaskCallback"
+registers = ["r3", "r4"]
+
+[[midasm_hook]]
+address = 0x82BA61DC
+name = "PinyonShiftObserveStaticWorldDeferredTaskHandoff"
+registers = ["r3", "r11"]
+
 # Phase C2 exact SimpleModel renderer scope. Retail RTTI proves vtable slot 12
 # resolves to 0x82C4CCC8. Entry r3 is the CSimpleModelRenderer instance and r4
 # is its render context; every path converges at 0x82C4DEA0. The scope attaches
