@@ -1,7 +1,7 @@
 # Live color-producer lineage
 
-Status: predicated color tile proved; exact resolve-assembly join implemented
-for the next batched AppData run
+Status: predicated color tile and exact padded full-frame resolve assembly
+proved; runtime workset tracker implemented
 
 ## Why this is the next ingress
 
@@ -78,9 +78,25 @@ source target state, and all bound source targets. The offline
 `summarize-native-renderer-procedural-resolve-assembly.py` join requires that
 source state to match the procedural target, requires the resolves to fall in
 the procedural profile frame window, and proves address contiguity, copy
-format, bytes per pixel, logical extent, and bounded row padding. This removes
-the last inference from the assembly gate. It remains diagnostic only and is
-batched with the next substantial AppData validation.
+format, bytes per pixel, logical extent, and bounded row padding.
+
+The follow-up clean AppData session `20260901T080735Z-p36580` removes the last
+inference from that gate. The exact selected source state is
+`14020500:00030000`, matching the procedural target, and the qualifier proves
+the contiguous ranges `1C4E1000`, `1C621000`, and `1C761000` with lengths
+`1310720`, `1310720`, and `1146880`. Destination state
+`003E0382:02D00500` decodes to four-byte pixels, logical 1280x720, padded
+1280x736, and exactly 16 alignment rows. The session exited normally with
+complete target and assembly accounting.
+
+The same fail-closed join now exists as a small runtime workset tracker. It
+retains at most 64 copies per frame, matches only the exact source target,
+requires one destination state and address-contiguous chunks, decodes format
+and pitch, and exposes an exact result only for the complete logical frame with
+bounded padding. It retains the latest qualified workset while capping detailed
+events at 64 and reporting any omitted details in its final summary. Its events
+are diagnostic only and are deliberately batched into the next substantial
+AppData validation.
 
 Run the deferred qualifier after the next combined AppData capture:
 
@@ -111,9 +127,10 @@ python tools/summarize-native-renderer-procedural-resolve-assembly.py `
 
 ## Promotion gate
 
-The next C1 implementation may privately capture this family only after a
-clean session proves an exact contiguous 1280x720 logical resolve assembly.
-The private target must use the complete assembly dimensions and preserve its
-16 alignment rows; no 1280x256 component may be published alone. Other reduced
-targets remain excluded. Until then, Xenos remains authoritative and this
-census changes no rendering or control flow.
+The exact contiguous 1280x720 logical resolve assembly is now proved. The next
+C1 implementation may use the runtime tracker as its private capture gate only
+after the tracker's event contract passes the next batched validation. The
+private target must use the complete assembly dimensions and preserve its 16
+alignment rows; no 1280x256 component may be published alone. Other reduced
+targets remain excluded. Xenos remains authoritative and this checkpoint
+changes no rendering or control flow.

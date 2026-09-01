@@ -66,9 +66,9 @@ Already landed or substantially qualified:
 - post-processing topology census plus the mechanical presentation ingress.
 
 Phase A and B are merged and qualified. Phase C is active: C1 has reached a
-live procedural color producer and is closing its padded full-frame resolve
-assembly before any new native publication. Terrain and roads remain the next
-visible-impact target.
+live procedural color producer, proved its padded full-frame resolve assembly,
+and is moving that exact gate into the runtime workset before any new native
+publication. Terrain and roads remain the next visible-impact target.
 
 ---
 
@@ -731,6 +731,18 @@ explains its wrong camera/view. Resolve events now retain exact selected-source
 state, and a fail-closed offline join proves target identity, contiguity,
 format, logical extent, and padding on the next batched run. No native
 admission or suppression changes in this checkpoint.
+
+Exact resolve-assembly result: clean AppData session
+`20260901T080735Z-p36580` proves that selected copy-source state
+`14020500:00030000` exactly matches the procedural target. Its three contiguous
+ranges begin at `1C4E1000`, `1C621000`, and `1C761000`, use one destination
+state `003E0382:02D00500`, and decode to four-byte pixels, logical 1280x720,
+padded 1280x736, and 16 alignment rows. Target and assembly accounting are
+complete and the process exited normally. A bounded fail-closed runtime tracker
+now performs the same exact source, destination, contiguity, format, extent,
+and padding join without publishing or suppressing anything. Its event contract
+will ride the next substantial AppData batch rather than forcing a standalone
+long validation run.
 
 ### C2. Static world buildings and props
 
