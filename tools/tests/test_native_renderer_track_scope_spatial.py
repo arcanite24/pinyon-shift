@@ -60,6 +60,7 @@ def evidence():
         events.append(event(
             MODULE.ENTRY,
             snapshot_key=f"{index + 1:016X}",
+            snapshot_hash=f"{index + 1001:016X}",
             child_address=f"{0x1000 + index * 0x100:08X}",
             descriptor_address=f"{0x2000 + index * 0x100:08X}",
             calls="1", first_frame="1", last_frame="2",

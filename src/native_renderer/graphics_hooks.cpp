@@ -1128,6 +1128,7 @@ struct TrackWorldScopeSpatialEntry {
 
 struct TrackWorldReferenceSpatialEntry {
   uint64_t key = 0;
+  uint64_t scope_snapshot_hash = 0;
   uint64_t calls = 0;
   uint64_t first_frame = 0;
   uint64_t last_frame = 0;
@@ -3366,7 +3367,13 @@ uint64_t HashSemanticWords(const std::array<uint32_t, N> &words);
 void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
                                      uint32_t composed_matrix_address);
 void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
-                                       uint32_t descriptor_address);
+                                       uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words);
 
 const char *VehicleIdentityAddressKindName(VehicleIdentityAddressKind kind) {
   switch (kind) {
@@ -3744,10 +3751,11 @@ void RecordTrackWorldScopeSpatialSnapshot(
       1, std::memory_order_relaxed);
   uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
   key = HashCombine(key, descriptor_address);
-  key = key ? key : 1;
   uint64_t snapshot_hash = HashSemanticWords(child_words);
   snapshot_hash = HashCombine(snapshot_hash,
                               HashSemanticWords(descriptor_words));
+  key = HashCombine(key, snapshot_hash);
+  key = key ? key : 1;
   const uint64_t frame_sequence =
       g_frame_sequence.load(std::memory_order_relaxed);
 
@@ -3770,7 +3778,10 @@ void RecordTrackWorldScopeSpatialSnapshot(
       return;
     }
     if (entry.key == key && entry.child_address == child_address &&
-        entry.descriptor_address == descriptor_address) {
+        entry.descriptor_address == descriptor_address &&
+        entry.snapshot_hash == snapshot_hash &&
+        entry.child_words == child_words &&
+        entry.descriptor_words == descriptor_words) {
       ++entry.calls;
       entry.last_frame = frame_sequence;
       entry.snapshot_variations += entry.snapshot_hash != snapshot_hash ? 1 : 0;
@@ -3838,7 +3849,8 @@ void BeginTrackRenderModelDispatch(uint32_t root_address) {
   }
   RecordTrackWorldScopeSpatialSnapshot(child_address, descriptor_address,
                                        child_words, descriptor_words);
-  ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address);
+  ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address,
+                                    child_words, descriptor_words);
   g_track_render_model_scope.root_address = root_address;
   g_track_render_model_scope.child_address = child_address;
   g_track_render_model_scope.descriptor_address = descriptor_address;
@@ -10879,12 +10891,17 @@ void StageTrackWorldReferenceSpatial(uint32_t object_matrix_address,
 }
 
 void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
-                                       uint32_t descriptor_address) {
+                                       uint32_t descriptor_address,
+    const std::array<uint32_t,
+                     kTrackRenderModelGraphBytes / sizeof(uint32_t)>
+        &child_words,
+    const std::array<uint32_t,
+                     kTrackRenderModelDescriptorBytes / sizeof(uint32_t)>
+        &descriptor_words) {
   g_track_world_reference_spatial_observations.fetch_add(
       1, std::memory_order_relaxed);
   PendingTrackWorldReferenceSpatial snapshot =
       g_pending_track_world_reference_spatial;
-  g_pending_track_world_reference_spatial = {};
   if (!snapshot.valid) {
     g_track_world_reference_spatial_missing_stage.fetch_add(
         1, std::memory_order_relaxed);
@@ -10892,6 +10909,10 @@ void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
   }
   uint64_t key = HashCombine(UINT64_C(0xCBF29CE484222325), child_address);
   key = HashCombine(key, descriptor_address);
+  uint64_t scope_snapshot_hash = HashSemanticWords(child_words);
+  scope_snapshot_hash =
+      HashCombine(scope_snapshot_hash, HashSemanticWords(descriptor_words));
+  key = HashCombine(key, scope_snapshot_hash);
   key = HashCombine(key, HashSemanticWords(snapshot.object_matrix_words));
   key = HashCombine(key, HashSemanticWords(snapshot.composed_matrix_words));
   key = key ? key : 1;
@@ -10906,6 +10927,7 @@ void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
         g_track_world_reference_spatial_entries[index];
     if (!entry.calls) {
       entry.key = key;
+      entry.scope_snapshot_hash = scope_snapshot_hash;
       entry.calls = 1;
       entry.first_frame = frame_sequence;
       entry.last_frame = frame_sequence;
@@ -10918,6 +10940,7 @@ void ConsumeTrackWorldReferenceSpatial(uint32_t child_address,
     }
     if (entry.key == key && entry.child_address == child_address &&
         entry.descriptor_address == descriptor_address &&
+        entry.scope_snapshot_hash == scope_snapshot_hash &&
         entry.object_matrix_words == snapshot.object_matrix_words &&
         entry.composed_matrix_words == snapshot.composed_matrix_words) {
       ++entry.calls;
@@ -15852,6 +15875,8 @@ void EmitTrackWorldReferenceSpatialEntries() {
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.track_world_reference_spatial_entry",
         {{"snapshot_key", fmt::format("{:016X}", entry.key)},
+         {"scope_snapshot_hash",
+          fmt::format("{:016X}", entry.scope_snapshot_hash)},
          {"child_address", fmt::format("{:08X}", entry.child_address)},
          {"descriptor_address",
           fmt::format("{:08X}", entry.descriptor_address)},

@@ -61,6 +61,7 @@ def evidence():
         events.append({
             "event": MODULE.SCOPE.ENTRY, "session": "test",
             "snapshot_key": f"{index + 1:016X}",
+            "snapshot_hash": f"{index + 1001:016X}",
             "child_address": child_address, "descriptor_address": descriptor_address,
             "calls": "1", "first_frame": "1", "last_frame": "2",
             "snapshot_variations": "0", "child_word_count": "16",
@@ -71,6 +72,7 @@ def evidence():
         events.append({
             "event": MODULE.REFERENCE_ENTRY, "session": "test",
             "snapshot_key": f"{index + 101:016X}",
+            "scope_snapshot_hash": f"{index + 1001:016X}",
             "child_address": child_address, "descriptor_address": descriptor_address,
             "calls": "1", "first_frame": "1", "last_frame": "2",
             "object_matrix_word_count": "16", "object_matrix_words": words(object_reference),
@@ -111,7 +113,8 @@ class TrackReferenceCompositionTests(unittest.TestCase):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(encoding="utf-8")
         self.assertIn("kTrackWorldReferenceSpatialCapacity = 2048", source)
         self.assertIn("StageTrackWorldReferenceSpatial(r22.u32, r5.u32)", source)
-        self.assertIn("ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address)", source)
+        self.assertIn("ConsumeTrackWorldReferenceSpatial(child_address, descriptor_address,", source)
+        self.assertNotIn("g_pending_track_world_reference_spatial = {};\n  if (!snapshot.valid)", source)
         self.assertIn(MODULE.REFERENCE_ENTRY, source)
         self.assertIn('"suppression_allowed", "false"', source)
 

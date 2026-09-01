@@ -48,7 +48,8 @@ def parse_scope_entries(selected):
         SCOPE.require_safety(event)
         child_address = SCOPE.hexadecimal(event.get("child_address", ""), 8, "child address")
         descriptor_address = SCOPE.hexadecimal(event.get("descriptor_address", ""), 8, "descriptor address")
-        key = (child_address, descriptor_address)
+        snapshot_hash = SCOPE.hexadecimal(event.get("snapshot_hash", ""), 16, "scope snapshot hash")
+        key = (child_address, descriptor_address, snapshot_hash)
         if key in result or SCOPE.integer(event, "snapshot_variations"):
             raise ValueError("track-scope spatial source is duplicate or unstable")
         entry_calls = SCOPE.integer(event, "calls")
@@ -75,6 +76,7 @@ def parse_reference_entries(selected, scopes):
         source_key = (
             SCOPE.hexadecimal(event.get("child_address", ""), 8, "child address"),
             SCOPE.hexadecimal(event.get("descriptor_address", ""), 8, "descriptor address"),
+            SCOPE.hexadecimal(event.get("scope_snapshot_hash", ""), 16, "scope snapshot hash"),
         )
         if source_key not in scopes:
             raise ValueError("track reference snapshot has no scope source")
