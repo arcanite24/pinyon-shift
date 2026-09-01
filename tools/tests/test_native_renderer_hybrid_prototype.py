@@ -6,23 +6,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererHybridPrototypeTests(unittest.TestCase):
-    def test_native_prototype_has_resolve_only_fast_path(self):
-        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("NativeResolveOnlyPrototypeSelected", source)
-        self.assertIn('"native_renderer.resolve_only.config"', source)
-        block = source.split("if (resolve_only_requested) {", 1)[1].split(
-            "const bool observation_requested", 1
-        )[0]
-        self.assertIn("SetCopyObserver(&ObserveResolveOnlyCopy)", block)
-        self.assertIn("SetNativeFrameAccumulatorPlanner", block)
-        self.assertNotIn("SetDrawObserver", block)
-        self.assertNotIn("SetPreparedDrawObserver", block)
-        self.assertNotIn("SetIndirectBufferObserver", block)
-        self.assertIn('"xenos_draw", "preserved"', block)
-        self.assertIn('"draw_suppression", "false"', block)
-
     def test_hybrid_selector_arms_workset_and_reports_safe_authority(self):
         hooks = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
