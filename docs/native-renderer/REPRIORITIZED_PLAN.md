@@ -571,6 +571,12 @@ vtable that merely contains the function address. The corrected slice admits
 only that exact diagnostic scope and inventories neighboring runtime receiver
 signatures; rendering authority and suppression remain unchanged.
 
+Spatial-state batching checkpoint: the same per-slot prepared-target key now
+includes raw viewport, viewport-transform control, and scissor state. The next
+run can distinguish main-view color work from square shadow/reflection and
+reduced offscreen passes in the same report, avoiding another call-count-only
+capture. This records no camera payload and still admits no native draw.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
