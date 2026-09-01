@@ -19752,6 +19752,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   }
   if (!origin.semantic_draw.valid) {
     return {
+        .track_render_model_scope = exact_track_command,
+        .track_command_lineage = exact_track_command,
         .static_world_origin = static_world_origin,
         .static_world_exact = static_world_exact,
     };
@@ -24115,6 +24117,11 @@ void RequestIsolatedDraw(
     const bool exact_static_world =
         g_continuous_world_workset.static_world_requested &&
         g_isolated_draw.prepared_static_world_exact;
+    const bool exact_track_world =
+        g_continuous_world_workset.track_world_requested &&
+        g_isolated_draw.prepared_track_render_model_scope &&
+        (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
+         g_isolated_draw.prepared_track_command_lineage);
     if (g_continuous_world_workset.static_world_requested &&
         g_isolated_draw.prepared_static_world_origin &&
         !g_isolated_draw.prepared_static_world_exact) {
@@ -24122,21 +24129,18 @@ void RequestIsolatedDraw(
       return;
     }
     if (!g_isolated_draw.prepared_visibility_candidate_fresh &&
-        !qualified_retained_family && !exact_static_world) {
+        !qualified_retained_family && !exact_static_world &&
+        !exact_track_world) {
       ++g_continuous_world_workset.stale_or_unselected_rejections;
       return;
     }
     if (!qualified_retained_family &&
         !exact_static_world &&
+        !exact_track_world &&
         !g_isolated_draw.prepared_track_texture_provider) {
       ++g_continuous_world_workset.non_track_provider_rejections;
       return;
     }
-    const bool exact_track_world =
-        g_continuous_world_workset.track_world_requested &&
-        g_isolated_draw.prepared_track_render_model_scope &&
-        (g_isolated_draw.prepared_track_world_resource_shared_identity_mask ||
-         g_isolated_draw.prepared_track_command_lineage);
     if (g_continuous_world_workset.track_world_requested &&
         !qualified_retained_family && !exact_static_world &&
         !exact_track_world) {

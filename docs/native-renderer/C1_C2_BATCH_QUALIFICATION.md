@@ -58,3 +58,11 @@ It also reached exact C2 presentation/transform scopes without reaching the
 assumed base-renderer handoff. Both results are diagnostic and cannot satisfy
 this gate; their focused corrections remain default-off and preserve Xenos as
 the sole output authority.
+
+The focused follow-up closed C1 command lineage through the prepared boundary:
+23,976 exact packets produced 36,266 prepared joins in clean session
+`20260901T004109Z-p33268`. It simultaneously proved the current C2 presentation
+population is dormant: all 78,312 exact preparations rejected with null
+resource and renderer. The full combined gate remains incomplete until a live
+C2 ingress is identified and both exact selectors produce swap-committed
+requests in one clean session.

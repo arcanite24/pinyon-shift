@@ -314,6 +314,16 @@ partitions joins with and without semantic origin. This is evidence-only: a
 command without a fresh semantic candidate is still not admitted to the
 continuous workset, and Xenos authority and suppression remain unchanged.
 
+Qualified command-lineage checkpoint: clean session
+`20260901T004109Z-p33268` proved 23,976 balanced exact scopes and packet joins
+reached 36,266 prepared draws with complete accounting and a normal shutdown.
+All 36,266 lacked an independent procedural semantic origin. The default-off
+C1 selector now treats the currently executing, exactly matched command as a
+fresh command candidate without fabricating a semantic record. Mechanical
+replay gates, the per-frame quota, private target, Xenos draws, fallback, and
+zero suppression remain unchanged; visual output qualification is deferred to
+the next meaningful batch.
+
 Implementation checkpoint: the exact model scope now inspects only its
 already-validated 64-byte child prefix and 248-byte type-21 descriptor for
 direct pointers to the seven RTTI-proved track model, mesh, submodel,
@@ -372,6 +382,15 @@ scope/owner faults, and null versus live offset-148 resources and offset-1608
 renderers, with bounded state/address samples. This directly explains the
 missing handoff on the next batched run and changes no guest state, call
 target, native selection, Xenos authority, or suppression decision.
+
+Preparation-outcome runtime result: the clean combined session observed
+78,464 helper returns. Every one of the 78,312 exact scopes rejected with both
+offset-148 resource and offset-1608 renderer null; the other 152 were safely
+classified as invalid presentation roots, with complete accounting and no
+handoff. This path is a dormant/unprepared population in the tested scene, not
+the live static-world draw ingress. C2 is reprioritized to identify the live
+deferred or alternate SimpleModel renderer population before reusing any owner
+or asset-field assumption from this path.
 
 ### C2. Static world buildings and props
 

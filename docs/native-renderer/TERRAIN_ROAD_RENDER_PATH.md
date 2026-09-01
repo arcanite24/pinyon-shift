@@ -297,6 +297,16 @@ are not synthesized into visibility candidates and cannot enter the private
 continuous workset. A later batched run must prove the final hop before any C1
 admission work proceeds.
 
+The clean follow-up session proved that final hop: 23,976 exact scope/packet
+joins reached 36,266 prepared draws with zero accounting faults and a normal
+shutdown. All prepared joins were command-only and had no procedural semantic
+record. The default-off exact C1 selector therefore admits the currently
+executing matched command directly after its normal mechanical replay checks;
+it does not invent a receiver, visibility category, LOD, or resource identity.
+The private native target, full Xenos execution, fallback, and zero suppression
+remain unchanged. A later batched run must now prove coherent multi-draw output
+and visual terrain/road identity.
+
 ## Bounded track world-resource graph identity
 
 The balanced render-model scope now extends the passive join without adding a
