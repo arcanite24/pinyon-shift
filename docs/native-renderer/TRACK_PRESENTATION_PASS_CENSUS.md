@@ -118,6 +118,12 @@ offscreen work even when shader and attachment formats overlap. This is
 spatial-state classification only; it does not infer camera matrices or admit
 a draw.
 
+The same entry now carries the raw Xenos surface, four color-target, and depth-
+target registers. These numeric registers preserve the exact EDRAM target
+identity alongside attachment shape and spatial state, so one run can separate
+two passes that share dimensions and formats but write different tiles. The
+observer does not read target contents or change target ownership.
+
 ## Safety
 
 - The hooks read only the exact refcounted presentation-wrapper vtable already

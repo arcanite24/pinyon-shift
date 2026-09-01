@@ -1136,6 +1136,9 @@ struct TrackPresentationPreparedTargetEntry {
   uint32_t viewport_transform_control = 0;
   uint32_t window_scissor_tl = 0;
   uint32_t window_scissor_br = 0;
+  uint32_t surface_info = 0;
+  std::array<uint32_t, 4> color_info{};
+  uint32_t depth_info = 0;
 };
 
 struct TrackPresentationReceiverEntry {
@@ -16167,6 +16170,11 @@ void EmitTrackPresentationPreparedTargetEntries() {
          {"scissor",
           fmt::format("{:08X}:{:08X}", entry.window_scissor_tl,
                       entry.window_scissor_br)},
+         {"target_state",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.surface_info, entry.color_info[0],
+                      entry.color_info[1], entry.color_info[2],
+                      entry.color_info[3], entry.depth_info)},
          {"classification",
           "exact_unified_track_presentation_pass_to_prepared_target"},
          {"guest_payload_read", "false"},
@@ -19200,9 +19208,15 @@ void RecordTrackPresentationPreparedTarget(
         uint64_t(observation.viewport_xoffset),
         uint64_t(observation.viewport_yscale),
         uint64_t(observation.viewport_yoffset),
-        uint64_t(observation.viewport_transform_control),
-        uint64_t(observation.window_scissor_tl),
-        uint64_t(observation.window_scissor_br)}) {
+         uint64_t(observation.viewport_transform_control),
+         uint64_t(observation.window_scissor_tl),
+         uint64_t(observation.window_scissor_br),
+         uint64_t(observation.surface_info),
+         uint64_t(observation.color_info[0]),
+         uint64_t(observation.color_info[1]),
+         uint64_t(observation.color_info[2]),
+         uint64_t(observation.color_info[3]),
+         uint64_t(observation.depth_info)}) {
     key = HashCombine(key, value);
   }
   for (uint32_t format : prepared.bound_render_target_formats) {
@@ -19236,6 +19250,10 @@ void RecordTrackPresentationPreparedTarget(
           observation.viewport_transform_control;
       entry.window_scissor_tl = observation.window_scissor_tl;
       entry.window_scissor_br = observation.window_scissor_br;
+      entry.surface_info = observation.surface_info;
+      std::copy(std::begin(observation.color_info),
+                std::end(observation.color_info), entry.color_info.begin());
+      entry.depth_info = observation.depth_info;
       ++g_track_presentation_prepared_target_count;
       return;
     }
@@ -19250,8 +19268,12 @@ void RecordTrackPresentationPreparedTarget(
             observation.viewport_transform_control &&
         entry.window_scissor_tl == observation.window_scissor_tl &&
         entry.window_scissor_br == observation.window_scissor_br &&
+        entry.surface_info == observation.surface_info &&
+        entry.depth_info == observation.depth_info &&
         entry.vertex_shader_hash == observation.vertex_shader_hash &&
         entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        std::equal(entry.color_info.begin(), entry.color_info.end(),
+                   std::begin(observation.color_info)) &&
         std::equal(entry.bound_render_target_formats.begin(),
                    entry.bound_render_target_formats.end(),
                    std::begin(prepared.bound_render_target_formats))) {
