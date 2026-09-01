@@ -54,6 +54,12 @@ An incomplete report is a useful negative result: it closes these raw numeric
 windows and sends C1 to the next upstream title-owned section carrier. It never
 widens native admission or suppression.
 
+The same batched capture also retains the two title-proved reference matrices
+immediately upstream of the exact scope. The companion qualifier in
+[`TRACK_WORLD_REFERENCE_COMPOSITION.md`](TRACK_WORLD_REFERENCE_COMPOSITION.md)
+tests whether any local child/descriptor window maps to authored world space
+only after that reference composition.
+
 ## Safety
 
 - Xenos output remains authoritative.

@@ -517,6 +517,18 @@ or suppression, and its AppData qualification is deliberately batched with a
 larger renderer slice. See
 [`TRACK_WORLD_SCOPE_SPATIAL.md`](TRACK_WORLD_SCOPE_SPATIAL.md).
 
+Reference-composition extension: static flow in the same exact title function
+already proves a live object/reference matrix and its composed constant payload
+at `8240EB5C`, immediately before the accepted `8240EC80` track scope. The
+observer now stages those two finite matrices and consumes them only after the
+exact unified instance/model and type-21 predicates pass. Offline correlation
+tests every local child/descriptor window under both matrix sources,
+multiplication orders, and title conventions. This materially strengthens the
+next batch: one run can prove an authored local-to-world composition or close
+both raw and reference-composed interpretations without another build cycle.
+See
+[`TRACK_WORLD_REFERENCE_COMPOSITION.md`](TRACK_WORLD_REFERENCE_COMPOSITION.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
