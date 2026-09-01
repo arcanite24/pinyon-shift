@@ -115,6 +115,12 @@ def build(events, requested_session=None):
     slot_totals = {}
     total_slot_entries = 0
     for slot in SLOTS:
+        adapter_first_target = hexadecimal(
+            summary, f"slot_{slot}_adapter_first_target", 8
+        )
+        adapter_last_target = hexadecimal(
+            summary, f"slot_{slot}_adapter_last_target", 8
+        )
         row = {
             "function": str(summary.get(f"slot_{slot}_function", "")),
             "entries": integer(summary, f"slot_{slot}_entries"),
@@ -124,6 +130,17 @@ def build(events, requested_session=None):
             "dispatcher_routes": {
                 "direct": integer(summary, f"slot_{slot}_dispatcher_direct"),
                 "context": integer(summary, f"slot_{slot}_dispatcher_context"),
+            },
+            "adapter_route": {
+                "entries": integer(summary, f"slot_{slot}_adapter_entries"),
+                "enabled": integer(summary, f"slot_{slot}_adapter_enabled"),
+                "eligible": integer(summary, f"slot_{slot}_adapter_eligible"),
+                "dispatches": integer(summary, f"slot_{slot}_adapter_dispatches"),
+                "first_target": f"{adapter_first_target:08X}",
+                "last_target": f"{adapter_last_target:08X}",
+                "target_changes": integer(
+                    summary, f"slot_{slot}_adapter_target_changes"
+                ),
             },
         }
         slot_totals[str(slot)] = row
@@ -261,6 +278,20 @@ def build(events, requested_session=None):
         failures.append("presentation receiver table overflowed")
     if not total_slot_entries:
         failures.append("no unified track presentation pass was observed")
+    for slot, row in slot_totals.items():
+        adapter = row["adapter_route"]
+        if not (
+            adapter["dispatches"]
+            <= adapter["eligible"]
+            <= adapter["enabled"]
+            <= adapter["entries"]
+        ):
+            failures.append(f"slot {slot} adapter stage accounting drifted")
+        has_target = adapter["first_target"] != "00000000"
+        if has_target != bool(adapter["dispatches"]):
+            failures.append(f"slot {slot} adapter target accounting drifted")
+        if adapter["target_changes"] >= max(adapter["dispatches"], 1):
+            failures.append(f"slot {slot} adapter target changes drifted")
 
     live_slots = [slot for slot in SLOTS if slot_totals[str(slot)]["entries"]]
     accepted_slots = [slot for slot in SLOTS if slot_totals[str(slot)]["exact"]]
@@ -292,8 +323,9 @@ def build(events, requested_session=None):
             "suppression_allowed": False,
         },
         "next_step": (
-            "extend exact packet lineage only through a live color-producing "
-            "slot, then visually qualify its private replay"
+            "follow a live adapter target or extend exact packet lineage only "
+            "through a live color-producing slot, then visually qualify its "
+            "private replay"
         ),
         "safety": {
             "guest_state_changed": False,

@@ -243,6 +243,28 @@ registers = ["r3"]
 address = 0x82DEAEE8
 name = "PinyonShiftObserveTrackPresentationSlot81Exit"
 
+# Slot 80 can bypass the common 82436468 render-context dispatcher through
+# the title-owned 8243BD40 adapter. These passive stages distinguish adapter
+# entry, its two title gates, and the final virtual target while an exact
+# track-presentation scope is active. They do not modify the adapter, target,
+# arguments, or control flow.
+[[midasm_hook]]
+address = 0x8243BD40
+name = "PinyonShiftObserveTrackPresentationAdapterEntry"
+
+[[midasm_hook]]
+address = 0x8243BD78
+name = "PinyonShiftObserveTrackPresentationAdapterEnabled"
+
+[[midasm_hook]]
+address = 0x8243BDA8
+name = "PinyonShiftObserveTrackPresentationAdapterEligible"
+
+[[midasm_hook]]
+address = 0x8243BEB4
+name = "PinyonShiftObserveTrackPresentationAdapterDispatch"
+registers = ["ctr"]
+
 # After the 8240E7B0 render-item predicate succeeds, title instructions have
 # resolved r31's typed child/descriptor chain and immediately read through
 # descriptor offset 244. Observe that exact-lifetime root and descriptor for a

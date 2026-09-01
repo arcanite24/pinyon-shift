@@ -592,6 +592,22 @@ and inherited packet lineage independently; neither source enables admission.
 Per-slot direct/context dispatcher counters accompany the next batch so an
 empty draw result can distinguish a dormant render branch from lost lineage.
 
+Dispatcher-route result: clean AppData session `20260901T051350Z-p17184`
+reproduced the exact slot-79 shadow workload (485 context dispatches and 732
+depth-only prepared draws). Slot 80 remained receiver-exact and live for six
+calls but recorded zero direct dispatches, zero context dispatches, and zero
+prepared draws. The existing common-dispatch lineage is therefore not lost;
+this scene's slot-80 work either stops at its title gates or uses the alternate
+`8243BD40` adapter.
+
+Alternate-adapter checkpoint: passive exact-scope stages now count entry,
+enabled, eligible, and final virtual-dispatch reachability through `8243BD40`.
+The final stage records only the first/last target address and target-change
+count. The next batched AppData checkpoint can select one exact downstream
+function or close slot 80 as dormant in the saved festival without tracing
+arbitrary indirect calls. No guest state, title control flow, native admission,
+or Xenos authority changes.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

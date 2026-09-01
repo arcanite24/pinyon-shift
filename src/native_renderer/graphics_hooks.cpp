@@ -2937,6 +2937,16 @@ std::array<std::atomic<uint64_t>, 4>
     g_track_presentation_pass_exit_without_entry{};
 std::array<std::array<std::atomic<uint64_t>, 2>, 4>
     g_track_presentation_dispatcher_routes{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_entries{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_enabled{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_eligible{};
+std::array<std::atomic<uint64_t>, 4> g_track_presentation_adapter_dispatches{};
+std::array<std::atomic<uint32_t>, 4>
+    g_track_presentation_adapter_first_targets{};
+std::array<std::atomic<uint32_t>, 4>
+    g_track_presentation_adapter_last_targets{};
+std::array<std::atomic<uint64_t>, 4>
+    g_track_presentation_adapter_target_changes{};
 thread_local std::array<bool, 4> g_track_presentation_pass_active{};
 thread_local std::array<bool, 4> g_track_presentation_pass_accepted{};
 std::mutex g_track_presentation_receiver_mutex;
@@ -6046,6 +6056,38 @@ void RecordTrackPresentationDispatcherRoute(bool context_path) {
   }
 }
 
+void RecordTrackPresentationAdapterStage(
+    std::array<std::atomic<uint64_t>, 4> &counters) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < counters.size(); ++index) {
+    if (pass_mask & (uint32_t(1) << index)) {
+      counters[index].fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
+void RecordTrackPresentationAdapterDispatch(uint32_t target_address) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < g_track_presentation_adapter_dispatches.size();
+       ++index) {
+    if (!(pass_mask & (uint32_t(1) << index))) {
+      continue;
+    }
+    g_track_presentation_adapter_dispatches[index].fetch_add(
+        1, std::memory_order_relaxed);
+    uint32_t expected = 0;
+    g_track_presentation_adapter_first_targets[index].compare_exchange_strong(
+        expected, target_address, std::memory_order_relaxed);
+    const uint32_t previous =
+        g_track_presentation_adapter_last_targets[index].exchange(
+            target_address, std::memory_order_relaxed);
+    if (previous && previous != target_address) {
+      g_track_presentation_adapter_target_changes[index].fetch_add(
+          1, std::memory_order_relaxed);
+    }
+  }
+}
+
 void ObserveVehicleRenderContextDispatcher(uint32_t return_address,
                                             uint32_t root_address,
                                             uint32_t vector_address,
@@ -6883,6 +6925,21 @@ void ResetTitleDrawProvenance() {
   for (auto &routes : g_track_presentation_dispatcher_routes) {
     for (std::atomic<uint64_t> &counter : routes) {
       counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto *counters : {&g_track_presentation_adapter_entries,
+                         &g_track_presentation_adapter_enabled,
+                         &g_track_presentation_adapter_eligible,
+                         &g_track_presentation_adapter_dispatches,
+                         &g_track_presentation_adapter_target_changes}) {
+    for (std::atomic<uint64_t> &counter : *counters) {
+      counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto *targets : {&g_track_presentation_adapter_first_targets,
+                        &g_track_presentation_adapter_last_targets}) {
+    for (std::atomic<uint32_t> &target : *targets) {
+      target.store(0, std::memory_order_relaxed);
     }
   }
   g_track_presentation_pass_active = {};
@@ -13797,6 +13854,27 @@ void EmitTrackPresentationPassSummary() {
        {"slot_78_dispatcher_context",
         std::to_string(g_track_presentation_dispatcher_routes[0][1].load(
             std::memory_order_relaxed))},
+       {"slot_78_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[0]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_78_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[0].load(
+                                  std::memory_order_relaxed))},
+       {"slot_78_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[0].load(
+            std::memory_order_relaxed))},
        {"slot_79_function", "8240E7B0"},
        {"slot_79_entries", std::to_string(entries[1])},
        {"slot_79_exits", std::to_string(exits[1])},
@@ -13807,6 +13885,27 @@ void EmitTrackPresentationPassSummary() {
             std::memory_order_relaxed))},
        {"slot_79_dispatcher_context",
         std::to_string(g_track_presentation_dispatcher_routes[1][1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[1].load(
+            std::memory_order_relaxed))},
+       {"slot_79_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[1]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_79_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[1].load(
+                                  std::memory_order_relaxed))},
+       {"slot_79_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[1].load(
             std::memory_order_relaxed))},
        {"slot_80_function", "82DEF2B0"},
        {"slot_80_entries", std::to_string(entries[2])},
@@ -13819,6 +13918,27 @@ void EmitTrackPresentationPassSummary() {
        {"slot_80_dispatcher_context",
         std::to_string(g_track_presentation_dispatcher_routes[2][1].load(
             std::memory_order_relaxed))},
+       {"slot_80_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[2].load(
+            std::memory_order_relaxed))},
+       {"slot_80_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[2]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_80_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[2].load(
+                                  std::memory_order_relaxed))},
+       {"slot_80_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[2].load(
+            std::memory_order_relaxed))},
        {"slot_81_function", "82DEADE0"},
        {"slot_81_entries", std::to_string(entries[3])},
        {"slot_81_exits", std::to_string(exits[3])},
@@ -13830,8 +13950,29 @@ void EmitTrackPresentationPassSummary() {
        {"slot_81_dispatcher_context",
         std::to_string(g_track_presentation_dispatcher_routes[3][1].load(
             std::memory_order_relaxed))},
-       {"overlaps", std::to_string(overlaps[0] + overlaps[1] + overlaps[2] +
-                                    overlaps[3])},
+       {"slot_81_adapter_entries",
+        std::to_string(g_track_presentation_adapter_entries[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_enabled",
+        std::to_string(g_track_presentation_adapter_enabled[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_eligible",
+        std::to_string(g_track_presentation_adapter_eligible[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_dispatches",
+        std::to_string(g_track_presentation_adapter_dispatches[3].load(
+            std::memory_order_relaxed))},
+       {"slot_81_adapter_first_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_first_targets[3]
+                                  .load(std::memory_order_relaxed))},
+       {"slot_81_adapter_last_target",
+        fmt::format("{:08X}", g_track_presentation_adapter_last_targets[3].load(
+                                  std::memory_order_relaxed))},
+       {"slot_81_adapter_target_changes",
+        std::to_string(g_track_presentation_adapter_target_changes[3].load(
+            std::memory_order_relaxed))},
+       {"overlaps",
+        std::to_string(overlaps[0] + overlaps[1] + overlaps[2] + overlaps[3])},
        {"exit_without_entry",
         std::to_string(exit_without_entry[0] + exit_without_entry[1] +
                        exit_without_entry[2] + exit_without_entry[3])},
@@ -32259,6 +32400,22 @@ void PinyonShiftObserveTrackPresentationSlot81Entry(PPCRegister &r3) {
 
 void PinyonShiftObserveTrackPresentationSlot81Exit() {
   EndTrackPresentationPass(3);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEntry() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_entries);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEnabled() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_enabled);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterEligible() {
+  RecordTrackPresentationAdapterStage(g_track_presentation_adapter_eligible);
+}
+
+void PinyonShiftObserveTrackPresentationAdapterDispatch(PPCRegister &ctr) {
+  RecordTrackPresentationAdapterDispatch(ctr.u32);
 }
 
 void PinyonShiftObserveStaticWorldRendererDispatchEntry(PPCRegister &r3,

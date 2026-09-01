@@ -61,6 +61,26 @@ class TrackPresentationPassTests(unittest.TestCase):
         self.assertIn('"xenos_authority", "true"', source)
         self.assertIn('"suppression_allowed", "false"', source)
 
+    def test_slot_80_adapter_route_has_exact_passive_stages(self):
+        analysis = (
+            ROOT / "config/rexglue/analysis/main-xex.toml"
+        ).read_text(encoding="utf-8")
+        for address, name in (
+            ("0x8243BD40", "PinyonShiftObserveTrackPresentationAdapterEntry"),
+            ("0x8243BD78", "PinyonShiftObserveTrackPresentationAdapterEnabled"),
+            ("0x8243BDA8", "PinyonShiftObserveTrackPresentationAdapterEligible"),
+            ("0x8243BEB4", "PinyonShiftObserveTrackPresentationAdapterDispatch"),
+        ):
+            self.assertIn(f"address = {address}", analysis)
+            self.assertIn(f'name = "{name}"', analysis)
+
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("g_track_presentation_adapter_entries", source)
+        self.assertIn("g_track_presentation_adapter_first_targets", source)
+        self.assertIn('"slot_80_adapter_dispatches"', source)
+
     def test_prepared_layout_exports_exact_target_shape(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
