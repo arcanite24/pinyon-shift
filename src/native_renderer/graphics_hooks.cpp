@@ -11208,6 +11208,8 @@ struct ProceduralColorTargetProfileEntry {
   uint64_t prepared_signature = 0;
   uint64_t vertex_shader_hash = 0;
   uint64_t pixel_shader_hash = 0;
+  uint64_t bin_select = 0;
+  uint64_t bin_mask = 0;
   uint64_t opaque_calls = 0;
   uint64_t bounded_calls = 0;
   uint64_t resolved_input_calls = 0;
@@ -11226,6 +11228,7 @@ struct ProceduralColorTargetProfileEntry {
   uint32_t surface_info = 0;
   std::array<uint32_t, 4> color_info{};
   uint32_t depth_info = 0;
+  bool predicated = false;
   bool semantic_receiver_varied = false;
 };
 
@@ -17253,6 +17256,8 @@ void RecordProceduralColorTargetProfile(
         uint64_t(observation.viewport_transform_control),
         uint64_t(observation.window_scissor_tl),
         uint64_t(observation.window_scissor_br),
+        observation.bin_select, observation.bin_mask,
+        uint64_t(observation.packet & 1),
         uint64_t(observation.surface_info), uint64_t(observation.color_info[0]),
         uint64_t(observation.color_info[1]), uint64_t(observation.color_info[2]),
         uint64_t(observation.color_info[3]), uint64_t(observation.depth_info)}) {
@@ -17275,6 +17280,8 @@ void RecordProceduralColorTargetProfile(
       entry.prepared_signature = prepared_signature;
       entry.vertex_shader_hash = observation.vertex_shader_hash;
       entry.pixel_shader_hash = observation.pixel_shader_hash;
+      entry.bin_select = observation.bin_select;
+      entry.bin_mask = observation.bin_mask;
       entry.opaque_calls = IsOpaqueColorState(observation) ? 1 : 0;
       entry.bounded_calls =
           !observation.vertex_binding_overflow &&
@@ -17307,6 +17314,7 @@ void RecordProceduralColorTargetProfile(
       std::copy(std::begin(observation.color_info),
                 std::end(observation.color_info), entry.color_info.begin());
       entry.depth_info = observation.depth_info;
+      entry.predicated = (observation.packet & 1) != 0;
       ++g_procedural_color_target_profile_entry_count;
       return;
     }
@@ -17314,6 +17322,9 @@ void RecordProceduralColorTargetProfile(
         entry.prepared_signature == prepared_signature &&
         entry.vertex_shader_hash == observation.vertex_shader_hash &&
         entry.pixel_shader_hash == observation.pixel_shader_hash &&
+        entry.bin_select == observation.bin_select &&
+        entry.bin_mask == observation.bin_mask &&
+        entry.predicated == ((observation.packet & 1) != 0) &&
         entry.bound_render_target_bits == prepared.bound_render_target_bits &&
         entry.prepared_pipeline_flags == prepared.flags &&
         entry.viewport_xscale == observation.viewport_xscale &&
@@ -17625,6 +17636,7 @@ void EmitProceduralColorTargetProfiles() {
   uint64_t accounted = 0;
   uint64_t full_preview_extent_calls = 0;
   uint64_t reduced_preview_width_calls = 0;
+  uint64_t predicated_edram_tile_calls = 0;
   for (const ProceduralColorTargetProfileEntry &entry :
        g_procedural_color_target_profiles) {
     if (!entry.calls) {
@@ -17643,8 +17655,11 @@ void EmitProceduralColorTargetProfiles() {
     const bool reduced_preview_width =
         !scissor_left && !scissor_top && scissor_right == 1280 &&
         scissor_bottom && scissor_bottom < 720;
+    const bool predicated_edram_tile =
+        reduced_preview_width && entry.predicated;
     full_preview_extent_calls += full_preview_extent ? entry.calls : 0;
     reduced_preview_width_calls += reduced_preview_width ? entry.calls : 0;
+    predicated_edram_tile_calls += predicated_edram_tile ? entry.calls : 0;
     pinyon_shift::diagnostics::RecordEvent(
         "native_renderer.discovery.procedural_color_target_profile_entry",
         {{"entry_key", fmt::format("{:016X}", entry.key)},
@@ -17656,6 +17671,11 @@ void EmitProceduralColorTargetProfiles() {
          {"vertex_shader",
           fmt::format("{:016X}", entry.vertex_shader_hash)},
          {"pixel_shader", fmt::format("{:016X}", entry.pixel_shader_hash)},
+         {"bin_select", fmt::format("{:016X}", entry.bin_select)},
+         {"bin_mask", fmt::format("{:016X}", entry.bin_mask)},
+         {"bin_intersection",
+          fmt::format("{:016X}", entry.bin_select & entry.bin_mask)},
+         {"predicated", entry.predicated ? "true" : "false"},
          {"opaque_calls", std::to_string(entry.opaque_calls)},
          {"bounded_calls", std::to_string(entry.bounded_calls)},
          {"resolved_input_calls",
@@ -17692,7 +17712,10 @@ void EmitProceduralColorTargetProfiles() {
          {"preview_extent_role",
           full_preview_extent
               ? "full_1280x720"
-              : (reduced_preview_width ? "reduced_1280_width" : "other")},
+              : (predicated_edram_tile
+                     ? "predicated_edram_tile"
+                     : (reduced_preview_width ? "reduced_1280_width"
+                                              : "other"))},
          {"target_state",
           fmt::format("{:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}",
                       entry.surface_info, entry.color_info[0],
@@ -17724,6 +17747,8 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(full_preview_extent_calls)},
        {"reduced_preview_width_calls",
         std::to_string(reduced_preview_width_calls)},
+       {"predicated_edram_tile_calls",
+        std::to_string(predicated_edram_tile_calls)},
        {"accounting_complete",
         g_procedural_color_target_profile_observations ==
                     accounted + g_procedural_color_target_profile_overflow &&
@@ -30362,11 +30387,12 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
         "backend_packet,prepared_target_shape,"
        "current_buffer,parent_packet,root_buffer,depth"},
        {"prepared_target_shape_census", "bounded_aggregate_v1"},
-       {"procedural_color_target_profile_census", "bounded_exact_v1"},
+       {"procedural_color_target_profile_census", "bounded_exact_v2"},
        {"procedural_color_target_profile_capacity",
         std::to_string(kProceduralColorTargetProfileCapacity)},
        {"procedural_color_target_profile_dispatch", "82417BC0"},
        {"procedural_color_target_profile_preview_extent", "1280x720"},
+       {"procedural_color_target_profile_bin_state", "exact_backend_v1"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},

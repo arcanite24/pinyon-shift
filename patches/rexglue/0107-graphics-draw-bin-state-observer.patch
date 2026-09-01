@@ -1,0 +1,23 @@
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -239,6 +239,8 @@ struct GraphicsDrawObservation {
+   uint32_t command_buffer_parent_packet_physical_address = UINT32_MAX;
+   uint32_t command_buffer_root_physical_address = UINT32_MAX;
+   uint32_t command_buffer_depth = 0;
++  uint64_t bin_select = 0;
++  uint64_t bin_mask = 0;
+   uint32_t packet = 0;
+   uint32_t initiator = 0;
+   uint32_t primitive_type = 0;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -1599,5 +1599,7 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+             observation_command_buffer_.root_physical_address;
+         observation.command_buffer_depth = observation_command_buffer_.depth;
++        observation.bin_select = bin_select_;
++        observation.bin_mask = bin_mask_;
+         observation.packet = packet;
+         observation.initiator = vgt_draw_initiator.value;
+         observation.primitive_type = uint32_t(vgt_draw_initiator.prim_type);

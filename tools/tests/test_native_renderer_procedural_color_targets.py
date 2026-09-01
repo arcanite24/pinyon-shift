@@ -10,13 +10,14 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-def fixture(scissor_extent="0:0:1280:720"):
+def fixture(scissor_extent="0:0:1280:720", predicated="false"):
     common = {"session": "session"}
     return [
         {
             **common,
             "event": MODULE.CONFIG,
-            "procedural_color_target_profile_census": "bounded_exact_v1",
+            "procedural_color_target_profile_census": "bounded_exact_v2",
+            "procedural_color_target_profile_bin_state": "exact_backend_v1",
         },
         {
             **common,
@@ -34,6 +35,10 @@ def fixture(scissor_extent="0:0:1280:720"):
             "viewport": "1:2:3:4",
             "scissor": "00000000:02D00500",
             "scissor_extent": scissor_extent,
+            "predicated": predicated,
+            "bin_select": "0000000000000004",
+            "bin_mask": "000000000000000C",
+            "bin_intersection": "0000000000000004",
             "semantic_receiver_varied": "true",
         },
         {
@@ -62,6 +67,16 @@ class ProceduralColorTargetTests(unittest.TestCase):
     def test_reduced_height_profile_stays_out_of_selection(self):
         result = MODULE.build(fixture("0:0:1280:256"), "session")
         self.assertEqual("reduced_preview_width", result["profiles"][0]["role"])
+        self.assertFalse(
+            result["qualification"]["eligible_for_isolated_capture_selection"]
+        )
+
+    def test_predicated_reduced_height_profile_is_edram_tile(self):
+        result = MODULE.build(fixture("0:0:1280:256", "true"), "session")
+        self.assertEqual("predicated_edram_tile", result["profiles"][0]["role"])
+        self.assertTrue(
+            result["qualification"]["eligible_for_tile_assembly_investigation"]
+        )
         self.assertFalse(
             result["qualification"]["eligible_for_isolated_capture_selection"]
         )

@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 
-SCHEMA = "pinyon-shift.native-renderer-procedural-color-targets.v1"
+SCHEMA = "pinyon-shift.native-renderer-procedural-color-targets.v2"
 CONFIG = "native_renderer.discovery.command_buffer_lineage_config"
 ENTRY = "native_renderer.discovery.procedural_color_target_profile_entry"
 SUMMARY = "native_renderer.discovery.procedural_color_target_profile_summary"
@@ -58,8 +58,10 @@ def build(events, session):
     failures = []
     if len(configs) != 1:
         failures.append("expected one command-lineage config")
-    elif configs[0].get("procedural_color_target_profile_census") != "bounded_exact_v1":
+    elif configs[0].get("procedural_color_target_profile_census") != "bounded_exact_v2":
         failures.append("procedural color-target profiler was not armed")
+    elif configs[0].get("procedural_color_target_profile_bin_state") != "exact_backend_v1":
+        failures.append("exact backend bin state was not armed")
     if len(summaries) != 1:
         failures.append("expected one procedural color-target summary")
     if len(shutdowns) != 1:
@@ -95,12 +97,24 @@ def build(events, session):
         if not isinstance(signature, str) or len(signature) != 16:
             failures.append("profile lacks an exact prepared signature")
         left, top, right, bottom = extent(event)
+        predicated = event.get("predicated") == "true"
+        try:
+            bin_select = int(event["bin_select"], 16)
+            bin_mask = int(event["bin_mask"], 16)
+            bin_intersection = int(event["bin_intersection"], 16)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("invalid exact bin state") from error
+        if bin_intersection != bin_select & bin_mask:
+            failures.append("bin intersection does not match select and mask")
         exact_full_preview = left == 0 and top == 0 and right == 1280 and bottom == 720
         reduced_preview_width = (
             left == 0 and top == 0 and right == 1280 and 0 < bottom < 720
         )
+        predicated_edram_tile = reduced_preview_width and predicated
         if exact_full_preview:
             role = "full_preview_extent"
+        elif predicated_edram_tile:
+            role = "predicated_edram_tile"
         elif reduced_preview_width:
             role = "reduced_preview_width"
         else:
@@ -121,6 +135,10 @@ def build(events, session):
                 "scissor": event.get("scissor"),
                 "extent": {"left": left, "top": top, "right": right, "bottom": bottom},
                 "role": role,
+                "predicated": predicated,
+                "bin_select": f"{bin_select:016X}",
+                "bin_mask": f"{bin_mask:016X}",
+                "bin_intersection": f"{bin_intersection:016X}",
                 "semantic_receiver_varied": event.get("semantic_receiver_varied") == "true",
             }
         )
@@ -142,6 +160,8 @@ def build(events, session):
         "full_preview_profiles": sum(1 for row in profiles if row["role"] == "full_preview_extent"),
         "full_preview_calls": sum(row["calls"] for row in profiles if row["role"] == "full_preview_extent"),
         "reduced_preview_width_profiles": sum(1 for row in profiles if row["role"] == "reduced_preview_width"),
+        "predicated_edram_tile_profiles": sum(1 for row in profiles if row["role"] == "predicated_edram_tile"),
+        "predicated_edram_tile_calls": sum(row["calls"] for row in profiles if row["role"] == "predicated_edram_tile"),
         "other_extent_profiles": sum(1 for row in profiles if row["role"] == "other_extent"),
     }
     return document(session, failures, profiles, totals)
@@ -168,6 +188,10 @@ def document(session, failures, profiles, totals):
             "exact_semantic_target_profiles_accounted": complete,
             "full_preview_color_profile_observed": complete and bool(full_clean),
             "eligible_for_isolated_capture_selection": complete and bool(full_clean),
+            "predicated_edram_tile_profile_observed": complete
+            and any(row["role"] == "predicated_edram_tile" for row in profiles),
+            "eligible_for_tile_assembly_investigation": complete
+            and any(row["role"] == "predicated_edram_tile" for row in profiles),
             "native_admission": False,
             "suppression_allowed": False,
         },
