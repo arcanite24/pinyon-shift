@@ -758,6 +758,16 @@ accounting. It neither embeds the local catalog nor changes the normal
 prototype selector, Xenos execution, publication authority, or suppression.
 Runtime and visual proof is batched with the pending C1/C2 AppData run.
 
+Representative-scene result: clean festival session
+`20260901T042139Z-p17172` exercised 6,016 exact generic model-presentation
+scopes but joined none to a `CSimpleModelRenderer`, resource graph, PM4 packet,
+or prepared draw. The same run exposed 6,016 asset-metadata read faults and
+5,772 resource-transition receiver-vtable mismatches. The generic SimpleModel
+route is therefore not a visible-prototype lead in this scene and requires a
+runtime-receiver correction plus a scene that exercises its renderer before
+C2 admission resumes. C1 color-pass lineage remains ahead of this route; final
+C2 scope is unchanged.
+
 ### C3. Semantic batching, culling, and LOD
 
 - Promote the existing visibility and prepared-draw evidence into production
@@ -787,6 +797,15 @@ to `(false, 0)`, while different proved LODs can never share a run. Family-local
 LOD opportunity signals remain measurement-only; independent native LOD
 selection is still disabled until the batched runtime evidence proves this
 passthrough boundary.
+
+First combined runtime result: the same clean festival session retained 38
+fresh track-texture candidates in nine bounded families; 11 draws in two
+families were mechanically replayable, with zero future decisions or table
+overflow. Exact track-world, title-LOD, and static-world lineage remained
+absent. The current semantic batch key then partitioned 2,873 eligible draws
+into 2,873 single-draw runs (maximum length one), proving zero command
+reduction for this evidence set. C3 executor and optimization work stays behind
+C1 semantic identity instead of optimizing an unbatchable key.
 
 ### C4. Player and traffic vehicles
 

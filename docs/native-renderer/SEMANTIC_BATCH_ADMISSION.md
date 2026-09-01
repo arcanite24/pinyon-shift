@@ -156,3 +156,11 @@ See `SEMANTIC_BATCH_EQUIVALENCE.md`.
 The measured material and pipeline opportunities feed a bounded shadow cache
 without enabling native state objects or execution. See
 `SEMANTIC_STATE_CACHE.md`.
+
+The smaller combined C1/C2 session `20260901T042139Z-p17172` independently
+reconfirmed the same scheduling result after world-family and title-LOD tags
+were added to the key. Its 2,873 eligible draws formed 2,873 consecutive runs,
+all length one, with zero opportunity overflow and zero projected command
+reduction. No exact track-world, static-world, or title-LOD group was present.
+The executor remains correctly deferred until C1 supplies a stronger semantic
+identity or a separately qualified coarser equivalence.
