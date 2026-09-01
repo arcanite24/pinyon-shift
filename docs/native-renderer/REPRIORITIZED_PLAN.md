@@ -781,6 +781,17 @@ It independently locks completed-first Xenos resolves, zero guest-memory
 publication, and zero draw suppression. This converts the pending visual run
 into a reproducible evidence gate without adding another gameplay capture.
 
+Accumulator checkpoint: descriptor evidence showed that the 1280-wide guest
+resolve is sourced from a 640-wide RGBA16F 2x-MSAA host target whose samples are
+adjacent horizontal guest pixels. The private compute expansion preserves both
+samples instead of averaging them. AppData session
+`20260901T102213Z-p45980` recorded 12 exact frames / 36 operations, all at
+`1280x736` storage and `1280x720` logical extent, with zero hard failures,
+normal exit, completed-first Xenos resolves, no draw suppression, and no guest
+memory publication. Structural accumulation is qualified. The resulting frame
+still exposes incorrect/repeated scene regions, so exact source-row addressing
+is the next visual correctness gate before expanding producer coverage.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

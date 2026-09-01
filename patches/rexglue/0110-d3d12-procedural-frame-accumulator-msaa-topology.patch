@@ -1,0 +1,637 @@
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index dc9e9f0..a97b6fa 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -752,10 +752,10 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+       isolated_replay_frame_accumulator_target_;
+   D3D12_RESOURCE_STATES isolated_replay_frame_accumulator_target_state_ =
+       D3D12_RESOURCE_STATE_COPY_DEST;
+-  Microsoft::WRL::ComPtr<ID3D12Resource>
+-      isolated_replay_frame_accumulator_tile_;
+-  D3D12_RESOURCE_STATES isolated_replay_frame_accumulator_tile_state_ =
+-      D3D12_RESOURCE_STATE_RESOLVE_DEST;
++  ID3D12RootSignature*
++      isolated_replay_frame_accumulator_2xmsaa_root_signature_ = nullptr;
++  ID3D12PipelineState*
++      isolated_replay_frame_accumulator_2xmsaa_pipeline_ = nullptr;
+   uint64_t isolated_replay_frame_accumulator_frame_sequence_ = 0;
+   uint64_t isolated_replay_frame_accumulator_committed_frame_sequence_ = 0;
+   uint32_t isolated_replay_frame_accumulator_width_ = 0;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index a3dee94..d1578ae 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -57,6 +57,7 @@ namespace shaders {
+ #include "../shaders/bytecode/d3d12_5_1/host_depth_store_2xmsaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/host_depth_store_4xmsaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/isolated_depth_readback_msaa_cs.h"
++#include "../shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/passthrough_position_xy_vs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_scaled_cs.h"
+@@ -1023,6 +1024,10 @@ void D3D12RenderTargetCache::Shutdown(bool from_destructor) {
+ 
+   ui::d3d12::util::ReleaseAndNull(isolated_depth_readback_pipeline_);
+   ui::d3d12::util::ReleaseAndNull(isolated_depth_readback_root_signature_);
++  ui::d3d12::util::ReleaseAndNull(
++      isolated_replay_frame_accumulator_2xmsaa_pipeline_);
++  ui::d3d12::util::ReleaseAndNull(
++      isolated_replay_frame_accumulator_2xmsaa_root_signature_);
+ 
+   const auto release_isolated_readback = [](IsolatedReplayReadback& readback) {
+     if (readback.buffer && readback.mapping) {
+@@ -1047,9 +1052,6 @@ void D3D12RenderTargetCache::Shutdown(bool from_destructor) {
+   isolated_replay_frame_accumulator_target_.Reset();
+   isolated_replay_frame_accumulator_target_state_ =
+       D3D12_RESOURCE_STATE_COPY_DEST;
+-  isolated_replay_frame_accumulator_tile_.Reset();
+-  isolated_replay_frame_accumulator_tile_state_ =
+-      D3D12_RESOURCE_STATE_RESOLVE_DEST;
+   isolated_replay_frame_accumulator_frame_sequence_ = 0;
+   isolated_replay_frame_accumulator_committed_frame_sequence_ = 0;
+   isolated_replay_frame_accumulator_width_ = 0;
+@@ -2598,14 +2600,30 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       isolated_replay_color_target_.get());
+   ID3D12Resource* source_resource = isolated_color->resource();
+   const D3D12_RESOURCE_DESC source_desc = source_resource->GetDesc();
+-  const bool source_format_supported =
+-      source_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+-      source_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
++  const bool source_topology_supported =
++      (source_desc.SampleDesc.Count == 1 &&
++       source_desc.Width >= request.logical_width) ||
++      (source_desc.SampleDesc.Count == 2 &&
++       source_desc.Width * 2 >= request.logical_width);
+   if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       source_desc.DepthOrArraySize != 1 || source_desc.MipLevels != 1 ||
+-      !source_desc.SampleDesc.Count || !source_format_supported ||
+-      source_desc.Width < request.logical_width ||
++      source_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
++      !source_topology_supported ||
+       source_desc.Height < request.storage_row_count) {
++    static bool logged_unsupported_frame_accumulator_target = false;
++    if (!logged_unsupported_frame_accumulator_target) {
++      logged_unsupported_frame_accumulator_target = true;
++      REXGPU_WARN(
++          "Native procedural frame accumulator target unsupported: "
++          "dimension {}, {}x{}, array {}, mips {}, format {}, samples {}, "
++          "quality {}, requested {}x{} rows {}",
++          uint32_t(source_desc.Dimension), source_desc.Width,
++          source_desc.Height, source_desc.DepthOrArraySize,
++          source_desc.MipLevels, uint32_t(source_desc.Format),
++          source_desc.SampleDesc.Count, source_desc.SampleDesc.Quality,
++          request.logical_width, request.storage_height,
++          request.storage_row_count);
++    }
+     clear_active();
+     result.status =
+         system::GraphicsNativeFrameAccumulatorStatus::kUnsupportedTarget;
+@@ -2635,7 +2653,10 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       target_desc.Height = request.storage_height;
+       target_desc.SampleDesc.Count = 1;
+       target_desc.SampleDesc.Quality = 0;
+-      target_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
++      target_desc.Flags =
++          source_desc.SampleDesc.Count == 2
++              ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
++              : D3D12_RESOURCE_FLAG_NONE;
+       Microsoft::WRL::ComPtr<ID3D12Resource> target;
+       HRESULT create_result = device->CreateCommittedResource(
+           &ui::d3d12::util::kHeapPropertiesDefault,
+@@ -2673,96 +2694,140 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+     return result;
+   }
+ 
+-  ID3D12Resource* copy_source = source_resource;
+   D3D12_RESOURCE_STATES source_previous_state =
+       D3D12_RESOURCE_STATE_COMMON;
+-  bool source_is_resolved_tile = false;
+-  if (source_desc.SampleDesc.Count > 1) {
+-    bool recreate_tile = !isolated_replay_frame_accumulator_tile_;
+-    if (!recreate_tile) {
+-      const D3D12_RESOURCE_DESC current =
+-          isolated_replay_frame_accumulator_tile_->GetDesc();
+-      recreate_tile = current.Width != source_desc.Width ||
+-                      current.Height != source_desc.Height ||
+-                      current.Format != source_desc.Format;
+-    }
+-    if (recreate_tile) {
+-      D3D12_RESOURCE_DESC tile_desc = source_desc;
+-      tile_desc.Alignment = 0;
+-      tile_desc.SampleDesc.Count = 1;
+-      tile_desc.SampleDesc.Quality = 0;
+-      tile_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+-      Microsoft::WRL::ComPtr<ID3D12Resource> tile;
+-      HRESULT create_result = device->CreateCommittedResource(
+-          &ui::d3d12::util::kHeapPropertiesDefault,
+-          command_processor_.GetD3D12Provider()
+-              .GetHeapFlagCreateNotZeroed(),
+-          &tile_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, nullptr,
+-          IID_PPV_ARGS(&tile));
+-      if (FAILED(create_result)) {
+-        clear_active();
+-        result.status =
+-            system::GraphicsNativeFrameAccumulatorStatus::kAllocationFailed;
+-        return result;
+-      }
+-      tile->SetName(L"Pinyon Shift private procedural resolved tile");
+-      isolated_replay_frame_accumulator_tile_ = std::move(tile);
+-      isolated_replay_frame_accumulator_tile_state_ =
+-          D3D12_RESOURCE_STATE_RESOLVE_DEST;
+-    }
++  if (source_desc.SampleDesc.Count == 1) {
+     source_previous_state =
+-        isolated_color->SetResourceState(D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
++        isolated_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
+     command_processor_.PushTransitionBarrier(
+         source_resource, source_previous_state,
+-        D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
++        D3D12_RESOURCE_STATE_COPY_SOURCE);
+     command_processor_.PushTransitionBarrier(
+-        isolated_replay_frame_accumulator_tile_.Get(),
+-        isolated_replay_frame_accumulator_tile_state_,
+-        D3D12_RESOURCE_STATE_RESOLVE_DEST);
++        isolated_replay_frame_accumulator_target_.Get(),
++        isolated_replay_frame_accumulator_target_state_,
++        D3D12_RESOURCE_STATE_COPY_DEST);
+     command_processor_.SubmitBarriers();
+-    command_processor_.GetDeferredCommandList().D3DResolveSubresource(
+-        isolated_replay_frame_accumulator_tile_.Get(), 0, source_resource, 0,
+-        source_desc.Format);
++    D3D12_TEXTURE_COPY_LOCATION destination{};
++    destination.pResource = isolated_replay_frame_accumulator_target_.Get();
++    destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++    D3D12_TEXTURE_COPY_LOCATION source{};
++    source.pResource = source_resource;
++    source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++    D3D12_BOX source_box{0, 0, 0, request.logical_width,
++                         request.storage_row_count, 1};
++    command_processor_.GetDeferredCommandList().D3DCopyTextureRegion(
++        &destination, 0, request.destination_row, 0, &source, &source_box);
+     isolated_color->SetResourceState(source_previous_state);
+     command_processor_.PushTransitionBarrier(
+-        source_resource, D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
++        source_resource, D3D12_RESOURCE_STATE_COPY_SOURCE,
+         source_previous_state);
+-    command_processor_.PushTransitionBarrier(
+-        isolated_replay_frame_accumulator_tile_.Get(),
+-        D3D12_RESOURCE_STATE_RESOLVE_DEST,
+-        D3D12_RESOURCE_STATE_COPY_SOURCE);
+-    isolated_replay_frame_accumulator_tile_state_ =
+-        D3D12_RESOURCE_STATE_COPY_SOURCE;
+-    copy_source = isolated_replay_frame_accumulator_tile_.Get();
+-    source_is_resolved_tile = true;
++    isolated_replay_frame_accumulator_target_state_ =
++        D3D12_RESOURCE_STATE_COPY_DEST;
+   } else {
+-    source_previous_state =
+-        isolated_color->SetResourceState(D3D12_RESOURCE_STATE_COPY_SOURCE);
++    if (!isolated_replay_frame_accumulator_2xmsaa_root_signature_) {
++      D3D12_ROOT_PARAMETER root_parameters[3]{};
++      root_parameters[0].ParameterType =
++          D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++      root_parameters[0].Constants.ShaderRegister = 0;
++      root_parameters[0].Constants.Num32BitValues = 4;
++      root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++      D3D12_DESCRIPTOR_RANGE source_range{};
++      source_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
++      source_range.NumDescriptors = 1;
++      source_range.BaseShaderRegister = 0;
++      root_parameters[1].ParameterType =
++          D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++      root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
++      root_parameters[1].DescriptorTable.pDescriptorRanges = &source_range;
++      root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++      D3D12_DESCRIPTOR_RANGE output_range{};
++      output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
++      output_range.NumDescriptors = 1;
++      output_range.BaseShaderRegister = 0;
++      root_parameters[2].ParameterType =
++          D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++      root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
++      root_parameters[2].DescriptorTable.pDescriptorRanges = &output_range;
++      root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++      D3D12_ROOT_SIGNATURE_DESC root_signature_desc{};
++      root_signature_desc.NumParameters = uint32_t(rex::countof(root_parameters));
++      root_signature_desc.pParameters = root_parameters;
++      isolated_replay_frame_accumulator_2xmsaa_root_signature_ =
++          ui::d3d12::util::CreateRootSignature(
++              command_processor_.GetD3D12Provider(), root_signature_desc);
++      if (!isolated_replay_frame_accumulator_2xmsaa_root_signature_) {
++        clear_active();
++        result.status =
++            system::GraphicsNativeFrameAccumulatorStatus::kAllocationFailed;
++        return result;
++      }
++    }
++    if (!isolated_replay_frame_accumulator_2xmsaa_pipeline_) {
++      isolated_replay_frame_accumulator_2xmsaa_pipeline_ =
++          ui::d3d12::util::CreateComputePipeline(
++              device, shaders::procedural_frame_accumulator_2xmsaa_cs,
++              sizeof(shaders::procedural_frame_accumulator_2xmsaa_cs),
++              isolated_replay_frame_accumulator_2xmsaa_root_signature_);
++      if (!isolated_replay_frame_accumulator_2xmsaa_pipeline_) {
++        clear_active();
++        result.status =
++            system::GraphicsNativeFrameAccumulatorStatus::kAllocationFailed;
++        return result;
++      }
++    }
++    ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[2];
++    if (!command_processor_.RequestOneUseSingleViewDescriptors(2,
++                                                                descriptors)) {
++      clear_active();
++      result.status =
++          system::GraphicsNativeFrameAccumulatorStatus::kAllocationFailed;
++      return result;
++    }
++    device->CopyDescriptorsSimple(1, descriptors[0].first,
++                                  isolated_color->descriptor_srv().GetHandle(),
++                                  D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
++    D3D12_UNORDERED_ACCESS_VIEW_DESC output_view{};
++    output_view.Format = source_desc.Format;
++    output_view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++    device->CreateUnorderedAccessView(
++        isolated_replay_frame_accumulator_target_.Get(), nullptr,
++        &output_view, descriptors[1].first);
++    source_previous_state = isolated_color->SetResourceState(
++        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+     command_processor_.PushTransitionBarrier(
+         source_resource, source_previous_state,
+-        D3D12_RESOURCE_STATE_COPY_SOURCE);
+-  }
+-  command_processor_.PushTransitionBarrier(
+-      isolated_replay_frame_accumulator_target_.Get(),
+-      isolated_replay_frame_accumulator_target_state_,
+-      D3D12_RESOURCE_STATE_COPY_DEST);
+-  command_processor_.SubmitBarriers();
+-
+-  D3D12_TEXTURE_COPY_LOCATION destination{};
+-  destination.pResource = isolated_replay_frame_accumulator_target_.Get();
+-  destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-  D3D12_TEXTURE_COPY_LOCATION source{};
+-  source.pResource = copy_source;
+-  source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-  D3D12_BOX source_box{0, 0, 0, request.logical_width,
+-                       request.storage_row_count, 1};
+-  command_processor_.GetDeferredCommandList().D3DCopyTextureRegion(
+-      &destination, 0, request.destination_row, 0, &source, &source_box);
+-  if (!source_is_resolved_tile) {
++        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    if (isolated_replay_frame_accumulator_target_state_ ==
++        D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
++      command_processor_.PushUAVBarrier(
++          isolated_replay_frame_accumulator_target_.Get());
++    }
++    command_processor_.PushTransitionBarrier(
++        isolated_replay_frame_accumulator_target_.Get(),
++        isolated_replay_frame_accumulator_target_state_,
++        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    command_processor_.SubmitBarriers();
++    DeferredCommandList& command_list =
++        command_processor_.GetDeferredCommandList();
++    command_list.D3DSetComputeRootSignature(
++        isolated_replay_frame_accumulator_2xmsaa_root_signature_);
++    const uint32_t constants[4] = {
++        uint32_t(source_desc.Width), source_desc.Height,
++        request.destination_row, request.storage_row_count};
++    command_list.D3DSetComputeRoot32BitConstants(
++        0, uint32_t(rex::countof(constants)), constants, 0);
++    command_list.D3DSetComputeRootDescriptorTable(1, descriptors[0].second);
++    command_list.D3DSetComputeRootDescriptorTable(2, descriptors[1].second);
++    command_processor_.SetExternalPipeline(
++        isolated_replay_frame_accumulator_2xmsaa_pipeline_);
++    command_list.D3DDispatch((request.logical_width + 7) / 8,
++                             (request.storage_row_count + 7) / 8, 1);
+     isolated_color->SetResourceState(source_previous_state);
+     command_processor_.PushTransitionBarrier(
+-        source_resource, D3D12_RESOURCE_STATE_COPY_SOURCE,
++        source_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+         source_previous_state);
++    isolated_replay_frame_accumulator_target_state_ =
++        D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+   }
+ 
+   isolated_replay_frame_accumulator_appended_row_end_ =
+diff --git a/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+new file mode 100644
+index 0000000..183cf20
+--- /dev/null
++++ b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+@@ -0,0 +1,22 @@
++cbuffer ProceduralFrameAccumulatorConstants : register(b0) {
++  uint2 source_size;
++  uint destination_row;
++  uint storage_row_count;
++};
++
++Texture2DMS<float4, 2> source_tile : register(t0);
++RWTexture2D<float4> frame_accumulator : register(u0);
++
++[numthreads(8, 8, 1)]
++void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
++  uint2 output_position = dispatch_thread_id.xy;
++  if (output_position.x >= source_size.x * 2 ||
++      output_position.y >= storage_row_count) {
++    return;
++  }
++  uint source_x = output_position.x >> 1;
++  uint sample_index = output_position.x & 1;
++  frame_accumulator[uint2(output_position.x,
++                          destination_row + output_position.y)] =
++      source_tile.Load(uint2(source_x, output_position.y), sample_index);
++}
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+new file mode 100644
+index 0000000..7b349d7
+--- /dev/null
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+@@ -0,0 +1,287 @@
++#if 0
++//
++// Generated by Microsoft (R) HLSL Shader Compiler 10.1
++//
++//
++// Buffer Definitions: 
++//
++// cbuffer ProceduralFrameAccumulatorConstants
++// {
++//
++//   uint2 source_size;                 // Offset:    0 Size:     8
++//   uint destination_row;              // Offset:    8 Size:     4
++//   uint storage_row_count;            // Offset:   12 Size:     4
++//
++// }
++//
++//
++// Resource Bindings:
++//
++// Name                                 Type  Format         Dim      ID      HLSL Bind  Count
++// ------------------------------ ---------- ------- ----------- ------- -------------- ------
++// source_tile                       texture  float4       2dMS2      T0             t0      1 
++// frame_accumulator                     UAV  float4          2d      U0             u0      1 
++// ProceduralFrameAccumulatorConstants    cbuffer      NA          NA     CB0            cb0      1 
++//
++//
++//
++// Input signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Input
++//
++// Output signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Output
++cs_5_1
++dcl_globalFlags refactoringAllowed
++dcl_constantbuffer CB0[0:0][1], immediateIndexed, space=0
++dcl_resource_texture2dms(2) (float,float,float,float) T0[0:0], space=0
++dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
++dcl_input vThreadID.xy
++dcl_temps 3
++dcl_thread_group 8, 8, 1
++ishl r0.x, CB0[0][0].x, l(1)
++uge r0.x, vThreadID.x, r0.x
++uge r0.y, vThreadID.y, CB0[0][0].w
++or r0.x, r0.y, r0.x
++if_nz r0.x
++  ret 
++endif 
++ushr r0.x, vThreadID.x, l(1)
++and r1.x, vThreadID.x, l(1)
++iadd r2.yzw, vThreadID.yyyy, CB0[0][0].zzzz
++mov r0.y, vThreadID.y
++mov r0.zw, l(0,0,0,0)
++ldms r0.xyzw, r0.xyzw, T0[0].xyzw, r1.x
++mov r2.x, vThreadID.x
++store_uav_typed U0[0].xyzw, r2.xyzw, r0.xyzw
++ret 
++// Approximately 16 instruction slots used
++#endif
++
++const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
++{
++     68,  88,  66,  67, 246,  11, 
++     91,   7, 145, 214,  54,  12, 
++    235,  11, 217,  77,  65, 189, 
++     75, 217,   1,   0,   0,   0, 
++     32,   5,   0,   0,   5,   0, 
++      0,   0,  52,   0,   0,   0, 
++    116,   2,   0,   0, 132,   2, 
++      0,   0, 148,   2,   0,   0, 
++    132,   4,   0,   0,  82,  68, 
++     69,  70,  56,   2,   0,   0, 
++      1,   0,   0,   0, 248,   0, 
++      0,   0,   3,   0,   0,   0, 
++     60,   0,   0,   0,   1,   5, 
++     83,  67,   0,   5,   0,   0, 
++     14,   2,   0,   0,  19,  19, 
++     68,  37,  60,   0,   0,   0, 
++     24,   0,   0,   0,  40,   0, 
++      0,   0,  40,   0,   0,   0, 
++     36,   0,   0,   0,  12,   0, 
++      0,   0,   0,   0,   0,   0, 
++    180,   0,   0,   0,   2,   0, 
++      0,   0,   5,   0,   0,   0, 
++      6,   0,   0,   0,   2,   0, 
++      0,   0,   0,   0,   0,   0, 
++      1,   0,   0,   0,  12,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0, 192,   0, 
++      0,   0,   4,   0,   0,   0, 
++      5,   0,   0,   0,   4,   0, 
++      0,   0, 255, 255, 255, 255, 
++      0,   0,   0,   0,   1,   0, 
++      0,   0,  12,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0, 210,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   1,   0,   0,   0, 
++      1,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++    115, 111, 117, 114,  99, 101, 
++     95, 116, 105, 108, 101,   0, 
++    102, 114,  97, 109, 101,  95, 
++     97,  99,  99, 117, 109, 117, 
++    108,  97, 116, 111, 114,   0, 
++     80, 114, 111,  99, 101, 100, 
++    117, 114,  97, 108,  70, 114, 
++     97, 109, 101,  65,  99,  99, 
++    117, 109, 117, 108,  97, 116, 
++    111, 114,  67, 111, 110, 115, 
++    116,  97, 110, 116, 115,   0, 
++    171, 171, 210,   0,   0,   0, 
++      3,   0,   0,   0,  16,   1, 
++      0,   0,  16,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0, 136,   1,   0,   0, 
++      0,   0,   0,   0,   8,   0, 
++      0,   0,   2,   0,   0,   0, 
++    156,   1,   0,   0,   0,   0, 
++      0,   0, 255, 255, 255, 255, 
++      0,   0,   0,   0, 255, 255, 
++    255, 255,   0,   0,   0,   0, 
++    192,   1,   0,   0,   8,   0, 
++      0,   0,   4,   0,   0,   0, 
++      2,   0,   0,   0, 216,   1, 
++      0,   0,   0,   0,   0,   0, 
++    255, 255, 255, 255,   0,   0, 
++      0,   0, 255, 255, 255, 255, 
++      0,   0,   0,   0, 252,   1, 
++      0,   0,  12,   0,   0,   0, 
++      4,   0,   0,   0,   2,   0, 
++      0,   0, 216,   1,   0,   0, 
++      0,   0,   0,   0, 255, 255, 
++    255, 255,   0,   0,   0,   0, 
++    255, 255, 255, 255,   0,   0, 
++      0,   0, 115, 111, 117, 114, 
++     99, 101,  95, 115, 105, 122, 
++    101,   0, 117, 105, 110, 116, 
++     50,   0, 171, 171,   1,   0, 
++     19,   0,   1,   0,   2,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++    148,   1,   0,   0, 100, 101, 
++    115, 116, 105, 110,  97, 116, 
++    105, 111, 110,  95, 114, 111, 
++    119,   0, 100, 119, 111, 114, 
++    100,   0, 171, 171,   0,   0, 
++     19,   0,   1,   0,   1,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++    208,   1,   0,   0, 115, 116, 
++    111, 114,  97, 103, 101,  95, 
++    114, 111, 119,  95,  99, 111, 
++    117, 110, 116,   0,  77, 105, 
++     99, 114, 111, 115, 111, 102, 
++    116,  32,  40,  82,  41,  32, 
++     72,  76,  83,  76,  32,  83, 
++    104,  97, 100, 101, 114,  32, 
++     67, 111, 109, 112, 105, 108, 
++    101, 114,  32,  49,  48,  46, 
++     49,   0, 171, 171,  73,  83, 
++     71,  78,   8,   0,   0,   0, 
++      0,   0,   0,   0,   8,   0, 
++      0,   0,  79,  83,  71,  78, 
++      8,   0,   0,   0,   0,   0, 
++      0,   0,   8,   0,   0,   0, 
++     83,  72,  69,  88, 232,   1, 
++      0,   0,  81,   0,   5,   0, 
++    122,   0,   0,   0, 106,   8, 
++      0,   1,  89,   0,   0,   7, 
++     70, 142,  48,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   1,   0, 
++      0,   0,   0,   0,   0,   0, 
++     88,  32,   2,   7,  70, 126, 
++     48,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,  85,  85,   0,   0, 
++      0,   0,   0,   0, 156,  24, 
++      0,   7,  70, 238,  49,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++     85,  85,   0,   0,   0,   0, 
++      0,   0,  95,   0,   0,   2, 
++     50,   0,   2,   0, 104,   0, 
++      0,   2,   3,   0,   0,   0, 
++    155,   0,   0,   4,   8,   0, 
++      0,   0,   8,   0,   0,   0, 
++      1,   0,   0,   0,  41,   0, 
++      0,   9,  18,   0,  16,   0, 
++      0,   0,   0,   0,  10, 128, 
++     48,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   1,  64,   0,   0, 
++      1,   0,   0,   0,  80,   0, 
++      0,   6,  18,   0,  16,   0, 
++      0,   0,   0,   0,  10,   0, 
++      2,   0,  10,   0,  16,   0, 
++      0,   0,   0,   0,  80,   0, 
++      0,   8,  34,   0,  16,   0, 
++      0,   0,   0,   0,  26,   0, 
++      2,   0,  58, 128,  48,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++     60,   0,   0,   7,  18,   0, 
++     16,   0,   0,   0,   0,   0, 
++     26,   0,  16,   0,   0,   0, 
++      0,   0,  10,   0,  16,   0, 
++      0,   0,   0,   0,  31,   0, 
++      4,   3,  10,   0,  16,   0, 
++      0,   0,   0,   0,  62,   0, 
++      0,   1,  21,   0,   0,   1, 
++     85,   0,   0,   6,  18,   0, 
++     16,   0,   0,   0,   0,   0, 
++     10,   0,   2,   0,   1,  64, 
++      0,   0,   1,   0,   0,   0, 
++      1,   0,   0,   6,  18,   0, 
++     16,   0,   1,   0,   0,   0, 
++     10,   0,   2,   0,   1,  64, 
++      0,   0,   1,   0,   0,   0, 
++     30,   0,   0,   8, 226,   0, 
++     16,   0,   2,   0,   0,   0, 
++     86,   5,   2,   0, 166, 138, 
++     48,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,  54,   0,   0,   4, 
++     34,   0,  16,   0,   0,   0, 
++      0,   0,  26,   0,   2,   0, 
++     54,   0,   0,   8, 194,   0, 
++     16,   0,   0,   0,   0,   0, 
++      2,  64,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,  46,   0,   0,  10, 
++    242,   0,  16,   0,   0,   0, 
++      0,   0,  70,  14,  16,   0, 
++      0,   0,   0,   0,  70, 126, 
++     32,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,  10,   0, 
++     16,   0,   1,   0,   0,   0, 
++     54,   0,   0,   4,  18,   0, 
++     16,   0,   2,   0,   0,   0, 
++     10,   0,   2,   0, 164,   0, 
++      0,   8, 242, 224,  33,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,  70,  14,  16,   0, 
++      2,   0,   0,   0,  70,  14, 
++     16,   0,   0,   0,   0,   0, 
++     62,   0,   0,   1,  83,  84, 
++     65,  84, 148,   0,   0,   0, 
++     16,   0,   0,   0,   3,   0, 
++      0,   0,   0,   0,   0,   0, 
++      1,   0,   0,   0,   0,   0, 
++      0,   0,   2,   0,   0,   0, 
++      5,   0,   0,   0,   2,   0, 
++      0,   0,   1,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      1,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   3,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      0,   0,   0,   0,   0,   0, 
++      1,   0,   0,   0
++};
+

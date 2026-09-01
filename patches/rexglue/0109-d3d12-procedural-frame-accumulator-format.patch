@@ -1,0 +1,42 @@
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 7de9127..a3dee94 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -2598,10 +2598,12 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       isolated_replay_color_target_.get());
+   ID3D12Resource* source_resource = isolated_color->resource();
+   const D3D12_RESOURCE_DESC source_desc = source_resource->GetDesc();
++  const bool source_format_supported =
++      source_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
++      source_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
+   if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       source_desc.DepthOrArraySize != 1 || source_desc.MipLevels != 1 ||
+-      !source_desc.SampleDesc.Count ||
+-      source_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
++      !source_desc.SampleDesc.Count || !source_format_supported ||
+       source_desc.Width < request.logical_width ||
+       source_desc.Height < request.storage_row_count) {
+     clear_active();
+@@ -3034,13 +3036,17 @@ bool D3D12RenderTargetCache::BeginIsolatedReplayPreview(
+           ? isolated_replay_frame_accumulator_target_.Get()
+           : isolated_color->resource();
+   const D3D12_RESOURCE_DESC resource_desc = resource->GetDesc();
+-  // The first retained Forza pass has an RGBA16F target. Keep this preview
+-  // exact rather than guessing how to interpret later targets, but resolve its
+-  // host MSAA representation before sampling it from the compute shader.
++  // The first retained Forza pass has an RGBA16F target, while the procedural
++  // full-frame resolve uses R10G10B10A2. Keep the accepted set exact rather
++  // than guessing how to interpret later targets, but resolve its host MSAA
++  // representation before sampling it from the compute shader.
++  const bool resource_format_supported =
++      resource_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
++      (use_frame_accumulator &&
++       resource_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM);
+   if (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       resource_desc.DepthOrArraySize != 1 || resource_desc.MipLevels != 1 ||
+-      !resource_desc.SampleDesc.Count ||
+-      resource_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
++      !resource_desc.SampleDesc.Count || !resource_format_supported ||
+       resource_desc.Width > UINT32_MAX) {
+     static bool logged_unsupported_preview_target = false;
+     if (!logged_unsupported_preview_target) {
