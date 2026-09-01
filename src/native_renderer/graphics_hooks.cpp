@@ -9205,6 +9205,7 @@ struct IsolatedDrawState {
   bool valid = true;
   bool prepared_candidate_valid = false;
   bool prepared_candidate_eligible = false;
+  bool prepared_color_only_target = false;
   uint32_t prepared_candidate_rejection_mask = 0;
   bool prepared_shadow_depth_seed_eligible = false;
   bool prepared_shadow_depth_batch_member = false;
@@ -22210,6 +22211,7 @@ void CommitPassConsumer(
 void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation &observation) {
   g_isolated_draw.prepared_candidate_valid = false;
+  g_isolated_draw.prepared_color_only_target = false;
   g_isolated_draw.prepared_shadow_depth_seed_eligible = false;
   g_isolated_draw.prepared_shadow_depth_batch_member = false;
   g_isolated_draw.prepared_shadow_depth_batch_family =
@@ -22261,6 +22263,16 @@ void ObservePreparedDraw(
             : IsolatedDrawMechanicalRejectionMask(
                   sample, g_pending_candidate.samples_resolved_target,
                   observation);
+    const bool exact_track_color_only =
+        visibility_admission.track_render_model_scope &&
+        (visibility_admission.track_world_resource_shared_identity_mask ||
+         visibility_admission.track_command_lineage) &&
+        observation.bound_render_target_bits == 2;
+    if (exact_track_color_only) {
+      g_isolated_draw.prepared_candidate_rejection_mask &=
+          ~kIsolatedRejectRenderTargets;
+      g_isolated_draw.prepared_color_only_target = true;
+    }
     g_isolated_draw.prepared_candidate_eligible =
         dedicated_shadow_mode
             ? g_isolated_draw.prepared_shadow_depth_seed_eligible
@@ -24648,6 +24660,8 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.static_world_requests;
     }
     request.requested = true;
+    request.color_only_target =
+        exact_track_world && g_isolated_draw.prepared_color_only_target;
     request.retain_target = true;
     request.reuse_target = reuse_target;
     request.defer_preview_publication_until_swap = true;
