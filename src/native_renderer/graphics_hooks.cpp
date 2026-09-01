@@ -1126,6 +1126,8 @@ struct TrackPresentationPreparedTargetEntry {
   uint64_t vertex_shader_hash = 0;
   uint64_t pixel_shader_hash = 0;
   uint32_t pass_mask = 0;
+  uint32_t direct_scope_mask = 0;
+  uint32_t packet_lineage_mask = 0;
   uint32_t bound_render_target_bits = 0;
   std::array<uint32_t, 5> bound_render_target_formats{};
   uint32_t prepared_pipeline_flags = 0;
@@ -16150,6 +16152,10 @@ void EmitTrackPresentationPreparedTargetEntries() {
         "native_renderer.discovery.track_presentation_prepared_target_entry",
         {{"entry_key", fmt::format("{:016X}", entry.key)},
          {"pass_mask", fmt::format("{:08X}", entry.pass_mask)},
+         {"direct_scope_mask",
+          fmt::format("{:08X}", entry.direct_scope_mask)},
+         {"packet_lineage_mask",
+          fmt::format("{:08X}", entry.packet_lineage_mask)},
          {"calls", std::to_string(entry.calls)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -19194,7 +19200,8 @@ void RecordTrackWorldPreparedLayout(
 void RecordTrackPresentationPreparedTarget(
     const rex::system::GraphicsDrawObservation &observation,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
-    uint32_t pass_mask) {
+    uint32_t direct_scope_mask, uint32_t packet_lineage_mask) {
+  const uint32_t pass_mask = direct_scope_mask | packet_lineage_mask;
   if (!pass_mask) {
     return;
   }
@@ -19202,7 +19209,9 @@ void RecordTrackPresentationPreparedTarget(
       1, std::memory_order_relaxed);
   uint64_t key = UINT64_C(0xCBF29CE484222325);
   for (uint64_t value :
-       {uint64_t(pass_mask), uint64_t(prepared.bound_render_target_bits),
+       {uint64_t(pass_mask), uint64_t(direct_scope_mask),
+        uint64_t(packet_lineage_mask),
+        uint64_t(prepared.bound_render_target_bits),
         uint64_t(prepared.flags), observation.vertex_shader_hash,
         observation.pixel_shader_hash, uint64_t(observation.viewport_xscale),
         uint64_t(observation.viewport_xoffset),
@@ -19237,6 +19246,8 @@ void RecordTrackPresentationPreparedTarget(
       entry.vertex_shader_hash = observation.vertex_shader_hash;
       entry.pixel_shader_hash = observation.pixel_shader_hash;
       entry.pass_mask = pass_mask;
+      entry.direct_scope_mask = direct_scope_mask;
+      entry.packet_lineage_mask = packet_lineage_mask;
       entry.bound_render_target_bits = prepared.bound_render_target_bits;
       std::copy(std::begin(prepared.bound_render_target_formats),
                 std::end(prepared.bound_render_target_formats),
@@ -19258,6 +19269,8 @@ void RecordTrackPresentationPreparedTarget(
       return;
     }
     if (entry.key == key && entry.pass_mask == pass_mask &&
+        entry.direct_scope_mask == direct_scope_mask &&
+        entry.packet_lineage_mask == packet_lineage_mask &&
         entry.bound_render_target_bits == prepared.bound_render_target_bits &&
         entry.prepared_pipeline_flags == prepared.flags &&
         entry.viewport_xscale == observation.viewport_xscale &&
@@ -21844,14 +21857,17 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const bool exact_track_command =
       active && active->constructor_origin.owner.producer.context
                     .track_command_lineage;
-  const uint32_t track_presentation_pass_mask =
+  const uint32_t track_presentation_packet_lineage_mask =
       active ? active->constructor_origin.owner.producer.context
                    .track_presentation_pass_mask
              : 0;
+  const uint32_t track_presentation_direct_scope_mask =
+      CurrentTrackPresentationPassMask();
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
-  RecordTrackPresentationPreparedTarget(observation, prepared,
-                                        track_presentation_pass_mask);
+  RecordTrackPresentationPreparedTarget(
+      observation, prepared, track_presentation_direct_scope_mask,
+      track_presentation_packet_lineage_mask);
   if (exact_track_command) {
     g_track_render_model_prepared_draw_joins.fetch_add(
         1, std::memory_order_relaxed);

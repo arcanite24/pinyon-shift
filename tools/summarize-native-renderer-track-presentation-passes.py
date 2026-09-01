@@ -134,6 +134,7 @@ def build(events, requested_session=None):
     per_slot = {
         str(slot): {
             "calls": 0,
+            "attribution_sources": {},
             "target_shapes": {},
             "shader_pairs": {},
             "spatial_states": {},
@@ -150,6 +151,14 @@ def build(events, requested_session=None):
         pass_mask = hexadecimal(event, "pass_mask", 8)
         if not pass_mask or pass_mask & ~0xF:
             raise ValueError("invalid pass mask")
+        direct_scope_mask = hexadecimal(event, "direct_scope_mask", 8)
+        packet_lineage_mask = hexadecimal(event, "packet_lineage_mask", 8)
+        if (
+            direct_scope_mask & ~0xF
+            or packet_lineage_mask & ~0xF
+            or direct_scope_mask | packet_lineage_mask != pass_mask
+        ):
+            raise ValueError("invalid attribution masks")
         bits = hexadecimal(event, "bound_render_target_bits", 8)
         viewport = hexadecimal_tuple(event, "viewport", 4)
         viewport_control = hexadecimal(event, "viewport_transform_control", 8)
@@ -168,6 +177,18 @@ def build(events, requested_session=None):
                 continue
             row = per_slot[str(slot)]
             row["calls"] += calls
+            direct = bool(direct_scope_mask & (1 << index))
+            packet = bool(packet_lineage_mask & (1 << index))
+            source = (
+                "direct_scope_and_packet_lineage"
+                if direct and packet
+                else "direct_scope"
+                if direct
+                else "packet_lineage"
+            )
+            row["attribution_sources"][source] = (
+                row["attribution_sources"].get(source, 0) + calls
+            )
             shape = target_shape(bits)
             row["target_shapes"][shape] = row["target_shapes"].get(shape, 0) + calls
             pair = f"{vertex_shader}:{pixel_shader}"

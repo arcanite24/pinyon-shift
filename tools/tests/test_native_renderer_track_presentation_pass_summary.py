@@ -64,6 +64,8 @@ def fixture():
         MODULE.ENTRY,
         entry_key="1111222233334444",
         pass_mask="00000002",
+        direct_scope_mask="00000000",
+        packet_lineage_mask="00000002",
         calls="8",
         first_frame="10",
         last_frame="11",
@@ -82,6 +84,8 @@ def fixture():
         MODULE.ENTRY,
         entry_key="5555666677778888",
         pass_mask="00000001",
+        direct_scope_mask="00000001",
+        packet_lineage_mask="00000000",
         calls="4",
         first_frame="10",
         last_frame="11",
@@ -147,6 +151,12 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
             8,
             document["prepared_targets_by_slot"]["79"]["target_states"][
                 "10000410:00000000:00000000:00000000:00000000:000002D0"
+            ],
+        )
+        self.assertEqual(
+            {"packet_lineage": 8},
+            document["prepared_targets_by_slot"]["79"][
+                "attribution_sources"
             ],
         )
 

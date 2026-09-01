@@ -583,6 +583,13 @@ target registers now accompany each prepared-target profile. The next run can
 therefore distinguish exact EDRAM resources as well as attachment shape and
 spatial extent before any private replay candidate is selected.
 
+Exact pass result: clean AppData session `20260901T050049Z-p8056` proved slot
+79 owns 732 depth-only draws on the known dynamic-shadow target, not opaque
+world color. Slot 80 is receiver-exact and live but carries no draw through the
+existing `824365B0` packet lineage. AOT flow shows its alternate dispatcher
+path may bypass that context. The census now labels exact synchronous scope
+and inherited packet lineage independently; neither source enables admission.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

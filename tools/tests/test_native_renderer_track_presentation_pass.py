@@ -50,6 +50,8 @@ class TrackPresentationPassTests(unittest.TestCase):
             source,
         )
         self.assertIn('{"target_state",', source)
+        self.assertIn('{"direct_scope_mask",', source)
+        self.assertIn('{"packet_lineage_mask",', source)
         self.assertIn(
             '"native_renderer.discovery.track_presentation_receiver_entry"',
             source,
