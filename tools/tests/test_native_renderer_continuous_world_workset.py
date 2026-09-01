@@ -402,6 +402,24 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             patch,
         )
 
+    def test_exact_4x_accumulator_uses_fixed_resolve_and_region_copy(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0122-d3d12-fixed-resolve-accumulator-copy.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("source_desc.SampleDesc.Count == 4", patch)
+        self.assertIn("request.sample_select == 6", patch)
+        self.assertIn("D3DResolveSubresource", patch)
+        self.assertIn(
+            "isolated_replay_frame_accumulator_resolved_source_", patch
+        )
+        self.assertIn("D3D12_RESOURCE_STATE_RESOLVE_DEST", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_COPY_SOURCE", patch)
+        self.assertIn("D3DCopyTextureRegion", patch)
+        self.assertIn("request.source_x + request.source_width", patch)
+        self.assertIn("request.source_y + request.source_height", patch)
+        self.assertIn("request.destination_row", patch)
+
     def test_scaled_accumulator_qualification_keeps_xenos_authoritative(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
