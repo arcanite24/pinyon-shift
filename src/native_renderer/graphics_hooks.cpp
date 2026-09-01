@@ -1111,6 +1111,8 @@ struct TrackWorldPreparedLayoutEntry {
   uint32_t track_render_child_address = 0;
   uint32_t track_render_descriptor_address = 0;
   uint32_t track_render_descriptor_payload = 0;
+  uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
   uint32_t bound_render_target_bits = 0;
   std::array<uint32_t, 5> bound_render_target_formats{};
   uint32_t prepared_pipeline_flags = 0;
@@ -1210,6 +1212,7 @@ struct TitleIndirectPacketEntry {
   uint32_t track_render_descriptor_address = 0;
   uint32_t track_render_descriptor_payload = 0;
   uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
   uint32_t track_presentation_pass_mask = 0;
   uint64_t submission_sequence = 0;
   bool constructor_origin_known = false;
@@ -1239,6 +1242,7 @@ struct IndirectConstructorOrigin {
         uint32_t track_render_descriptor_address = 0;
         uint32_t track_render_descriptor_payload = 0;
         uint32_t track_world_resource_identity_mask = 0;
+        uint32_t track_world_resource_nested_identity_mask = 0;
         uint32_t track_presentation_pass_mask = 0;
         bool semantic_receiver_known = false;
         bool track_command_lineage = false;
@@ -8987,6 +8991,8 @@ void PushIndirectContextOrigin(uint32_t function_address,
           track_scope.descriptor_payload;
       context.track_world_resource_identity_mask =
           track_scope.world_resource_identity_mask;
+      context.track_world_resource_nested_identity_mask =
+          track_scope.world_resource_nested_identity_mask;
       context.track_command_lineage = true;
       ++track_scope.command_context_bridges;
       g_track_render_model_context_bridges.fetch_add(
@@ -9366,6 +9372,8 @@ void RecordTitleIndirectPacket(uint32_t packet_guest_address,
       origin.owner.producer.context.track_render_descriptor_payload;
   entry.track_world_resource_identity_mask =
       origin.owner.producer.context.track_world_resource_identity_mask;
+  entry.track_world_resource_nested_identity_mask =
+      origin.owner.producer.context.track_world_resource_nested_identity_mask;
   const uint32_t presentation_construction_mask =
       CurrentTrackPresentationPassMask();
   // The title may defer consuming an indirect packet until after its exact
@@ -9503,6 +9511,9 @@ void ObserveIndirectBuffer(
     active.constructor_origin.owner.producer.context
         .track_world_resource_identity_mask =
         matched.track_world_resource_identity_mask;
+    active.constructor_origin.owner.producer.context
+        .track_world_resource_nested_identity_mask =
+        matched.track_world_resource_nested_identity_mask;
     active.constructor_origin.owner.producer.context
         .track_presentation_pass_mask = matched.track_presentation_pass_mask;
     active.constructor_origin.owner.producer.context.semantic_receiver_known =
@@ -11143,6 +11154,7 @@ struct CommandBufferLineageEntry {
   uint32_t track_render_descriptor_address = 0;
   uint32_t track_render_descriptor_payload = 0;
   uint32_t track_world_resource_identity_mask = 0;
+  uint32_t track_world_resource_nested_identity_mask = 0;
   uint32_t track_presentation_pass_mask = 0;
   uint32_t depth = 0;
   bool constructor_origin_known = false;
@@ -16623,6 +16635,11 @@ void EmitTrackWorldPreparedLayoutEntries() {
           fmt::format("{:08X}", entry.track_render_descriptor_address)},
          {"track_render_descriptor_payload",
           fmt::format("{:08X}", entry.track_render_descriptor_payload)},
+         {"track_world_resource_identity_mask",
+          fmt::format("{:08X}", entry.track_world_resource_identity_mask)},
+         {"track_world_resource_nested_identity_mask",
+          fmt::format("{:08X}",
+                      entry.track_world_resource_nested_identity_mask)},
          {"calls", std::to_string(entry.calls)},
          {"first_frame", std::to_string(entry.first_frame)},
          {"last_frame", std::to_string(entry.last_frame)},
@@ -17108,6 +17125,10 @@ void RecordPreparedCommandBufferLineage(
                      .track_command_lineage),
         uint64_t(constructor_origin.owner.producer.context
                      .track_render_root_address),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_world_resource_identity_mask),
+        uint64_t(constructor_origin.owner.producer.context
+                     .track_world_resource_nested_identity_mask),
         uint64_t(observation.command_buffer_depth)}) {
     key = HashCombine(key, value);
   }
@@ -17193,6 +17214,9 @@ void RecordPreparedCommandBufferLineage(
       entry.track_world_resource_identity_mask =
           constructor_origin.owner.producer.context
               .track_world_resource_identity_mask;
+      entry.track_world_resource_nested_identity_mask =
+          constructor_origin.owner.producer.context
+              .track_world_resource_nested_identity_mask;
       entry.track_presentation_pass_mask =
           constructor_origin.owner.producer.context
               .track_presentation_pass_mask;
@@ -17227,6 +17251,12 @@ void RecordPreparedCommandBufferLineage(
         entry.track_render_root_address ==
             constructor_origin.owner.producer.context
                 .track_render_root_address &&
+        entry.track_world_resource_identity_mask ==
+            constructor_origin.owner.producer.context
+                .track_world_resource_identity_mask &&
+        entry.track_world_resource_nested_identity_mask ==
+            constructor_origin.owner.producer.context
+                .track_world_resource_nested_identity_mask &&
         entry.track_presentation_pass_mask ==
             constructor_origin.owner.producer.context
                 .track_presentation_pass_mask &&
@@ -17497,6 +17527,11 @@ void EmitCommandBufferLineageSummary() {
           entry.track_command_lineage
               ? fmt::format("{:08X}",
                             entry.track_world_resource_identity_mask)
+              : "unknown"},
+         {"track_world_resource_nested_identity_mask",
+          entry.track_command_lineage
+              ? fmt::format(
+                    "{:08X}", entry.track_world_resource_nested_identity_mask)
               : "unknown"},
          {"track_command_lineage_classification",
           entry.track_command_lineage
@@ -19438,6 +19473,8 @@ void RecordTrackWorldPreparedLayout(
         uint64_t(context.track_render_child_address),
         uint64_t(context.track_render_descriptor_address),
         uint64_t(context.track_render_descriptor_payload),
+        uint64_t(context.track_world_resource_identity_mask),
+        uint64_t(context.track_world_resource_nested_identity_mask),
         contract.prepared_pipeline_hash, contract.geometry_layout_hash,
         contract.texture_layout_hash, contract.render_state_hash}) {
     key = HashCombine(key, value);
@@ -19460,6 +19497,10 @@ void RecordTrackWorldPreparedLayout(
           context.track_render_descriptor_address;
       entry.track_render_descriptor_payload =
           context.track_render_descriptor_payload;
+      entry.track_world_resource_identity_mask =
+          context.track_world_resource_identity_mask;
+      entry.track_world_resource_nested_identity_mask =
+          context.track_world_resource_nested_identity_mask;
       entry.bound_render_target_bits = prepared.bound_render_target_bits;
       std::copy(std::begin(prepared.bound_render_target_formats),
                 std::end(prepared.bound_render_target_formats),
@@ -19478,6 +19519,10 @@ void RecordTrackWorldPreparedLayout(
             context.track_render_descriptor_address &&
         entry.track_render_descriptor_payload ==
             context.track_render_descriptor_payload &&
+        entry.track_world_resource_identity_mask ==
+            context.track_world_resource_identity_mask &&
+        entry.track_world_resource_nested_identity_mask ==
+            context.track_world_resource_nested_identity_mask &&
         entry.bound_render_target_bits == prepared.bound_render_target_bits &&
         std::equal(entry.bound_render_target_formats.begin(),
                    entry.bound_render_target_formats.end(),
