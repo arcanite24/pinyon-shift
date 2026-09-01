@@ -72,6 +72,9 @@ def fixture():
         bound_render_target_bits="00000001",
         bound_render_target_formats="0:0:0:0:0",
         prepared_pipeline_flags="00000003",
+        viewport="43800000:44400000:C3800000:43800000",
+        viewport_transform_control="00010F00",
+        scissor="00000000:04000400",
         **safety(),
     )
     color = event(
@@ -86,6 +89,9 @@ def fixture():
         bound_render_target_bits="00000002",
         bound_render_target_formats="0:6:0:0:0",
         prepared_pipeline_flags="00000003",
+        viewport="44200000:44200000:C4200000:44200000",
+        viewport_transform_control="00010F00",
+        scissor="00000000:02800280",
         **safety(),
     )
     receiver_78 = event(
@@ -124,6 +130,10 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
         self.assertEqual([78], document["qualification"]["color_target_slots"])
         self.assertEqual(
             {"820019CC": 8}, document["runtime_receivers_by_slot"]["79"]
+        )
+        self.assertIn(
+            "1024x1024:43800000:44400000:C3800000:43800000:00010F00",
+            document["prepared_targets_by_slot"]["79"]["spatial_states"],
         )
         self.assertEqual(
             8,

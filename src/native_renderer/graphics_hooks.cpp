@@ -1128,6 +1128,13 @@ struct TrackPresentationPreparedTargetEntry {
   uint32_t bound_render_target_bits = 0;
   std::array<uint32_t, 5> bound_render_target_formats{};
   uint32_t prepared_pipeline_flags = 0;
+  uint32_t viewport_xscale = 0;
+  uint32_t viewport_xoffset = 0;
+  uint32_t viewport_yscale = 0;
+  uint32_t viewport_yoffset = 0;
+  uint32_t viewport_transform_control = 0;
+  uint32_t window_scissor_tl = 0;
+  uint32_t window_scissor_br = 0;
 };
 
 struct TrackPresentationReceiverEntry {
@@ -16152,6 +16159,15 @@ void EmitTrackPresentationPreparedTargetEntries() {
          {"bound_render_target_formats", bound_render_target_formats},
          {"prepared_pipeline_flags",
           fmt::format("{:08X}", entry.prepared_pipeline_flags)},
+         {"viewport",
+          fmt::format("{:08X}:{:08X}:{:08X}:{:08X}",
+                      entry.viewport_xscale, entry.viewport_xoffset,
+                      entry.viewport_yscale, entry.viewport_yoffset)},
+         {"viewport_transform_control",
+          fmt::format("{:08X}", entry.viewport_transform_control)},
+         {"scissor",
+          fmt::format("{:08X}:{:08X}", entry.window_scissor_tl,
+                      entry.window_scissor_br)},
          {"classification",
           "exact_unified_track_presentation_pass_to_prepared_target"},
          {"guest_payload_read", "false"},
@@ -19181,7 +19197,13 @@ void RecordTrackPresentationPreparedTarget(
   for (uint64_t value :
        {uint64_t(pass_mask), uint64_t(prepared.bound_render_target_bits),
         uint64_t(prepared.flags), observation.vertex_shader_hash,
-        observation.pixel_shader_hash}) {
+        observation.pixel_shader_hash, uint64_t(observation.viewport_xscale),
+        uint64_t(observation.viewport_xoffset),
+        uint64_t(observation.viewport_yscale),
+        uint64_t(observation.viewport_yoffset),
+        uint64_t(observation.viewport_transform_control),
+        uint64_t(observation.window_scissor_tl),
+        uint64_t(observation.window_scissor_br)}) {
     key = HashCombine(key, value);
   }
   for (uint32_t format : prepared.bound_render_target_formats) {
@@ -19207,12 +19229,28 @@ void RecordTrackPresentationPreparedTarget(
                 std::end(prepared.bound_render_target_formats),
                 entry.bound_render_target_formats.begin());
       entry.prepared_pipeline_flags = prepared.flags;
+      entry.viewport_xscale = observation.viewport_xscale;
+      entry.viewport_xoffset = observation.viewport_xoffset;
+      entry.viewport_yscale = observation.viewport_yscale;
+      entry.viewport_yoffset = observation.viewport_yoffset;
+      entry.viewport_transform_control =
+          observation.viewport_transform_control;
+      entry.window_scissor_tl = observation.window_scissor_tl;
+      entry.window_scissor_br = observation.window_scissor_br;
       ++g_track_presentation_prepared_target_count;
       return;
     }
     if (entry.key == key && entry.pass_mask == pass_mask &&
         entry.bound_render_target_bits == prepared.bound_render_target_bits &&
         entry.prepared_pipeline_flags == prepared.flags &&
+        entry.viewport_xscale == observation.viewport_xscale &&
+        entry.viewport_xoffset == observation.viewport_xoffset &&
+        entry.viewport_yscale == observation.viewport_yscale &&
+        entry.viewport_yoffset == observation.viewport_yoffset &&
+        entry.viewport_transform_control ==
+            observation.viewport_transform_control &&
+        entry.window_scissor_tl == observation.window_scissor_tl &&
+        entry.window_scissor_br == observation.window_scissor_br &&
         entry.vertex_shader_hash == observation.vertex_shader_hash &&
         entry.pixel_shader_hash == observation.pixel_shader_hash &&
         std::equal(entry.bound_render_target_formats.begin(),

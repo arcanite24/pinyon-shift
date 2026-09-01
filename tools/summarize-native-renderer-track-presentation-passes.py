@@ -71,6 +71,25 @@ def target_shape(bits):
     }.get(bits, "other")
 
 
+def hexadecimal_tuple(event, key, count):
+    parts = str(event.get(key, "")).upper().split(":")
+    if len(parts) != count or any(
+        len(part) != 8 or any(c not in "0123456789ABCDEF" for c in part)
+        for part in parts
+    ):
+        raise ValueError(f"invalid {key}")
+    return tuple(int(part, 16) for part in parts)
+
+
+def scissor_extent(scissor):
+    tl, br = scissor
+    left, top = tl & 0x7FFF, (tl >> 16) & 0x7FFF
+    right, bottom = br & 0x7FFF, (br >> 16) & 0x7FFF
+    if right < left or bottom < top:
+        return "invalid"
+    return f"{right - left}x{bottom - top}"
+
+
 def build(events, requested_session=None):
     summaries = [event for event in events if event.get("event") == SUMMARY]
     sessions = {
@@ -113,7 +132,12 @@ def build(events, requested_session=None):
     seen = set()
     entry_calls = 0
     per_slot = {
-        str(slot): {"calls": 0, "target_shapes": {}, "shader_pairs": {}}
+        str(slot): {
+            "calls": 0,
+            "target_shapes": {},
+            "shader_pairs": {},
+            "spatial_states": {},
+        }
         for slot in SLOTS
     }
     for event in entries:
@@ -126,6 +150,9 @@ def build(events, requested_session=None):
         if not pass_mask or pass_mask & ~0xF:
             raise ValueError("invalid pass mask")
         bits = hexadecimal(event, "bound_render_target_bits", 8)
+        viewport = hexadecimal_tuple(event, "viewport", 4)
+        viewport_control = hexadecimal(event, "viewport_transform_control", 8)
+        scissor = hexadecimal_tuple(event, "scissor", 2)
         vertex_shader = str(event.get("vertex_shader", "")).upper()
         pixel_shader = str(event.get("pixel_shader", "")).upper()
         if len(vertex_shader) != 16 or len(pixel_shader) != 16:
@@ -143,6 +170,14 @@ def build(events, requested_session=None):
             row["target_shapes"][shape] = row["target_shapes"].get(shape, 0) + calls
             pair = f"{vertex_shader}:{pixel_shader}"
             row["shader_pairs"][pair] = row["shader_pairs"].get(pair, 0) + calls
+            spatial = (
+                f"{scissor_extent(scissor)}:"
+                f"{':'.join(f'{value:08X}' for value in viewport)}:"
+                f"{viewport_control:08X}"
+            )
+            row["spatial_states"][spatial] = (
+                row["spatial_states"].get(spatial, 0) + calls
+            )
 
     receiver_observations = integer(summary, "receiver_observations")
     receiver_entry_count = integer(summary, "receiver_entries")

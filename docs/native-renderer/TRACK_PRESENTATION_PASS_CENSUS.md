@@ -98,6 +98,14 @@ This correction still changes no renderer behavior: it only allows the
 already diagnostic packet lineage to retain slot 79's identity. Xenos remains
 authoritative, and native admission, publication, and suppression stay closed.
 
+The prepared-target key now also retains the already observed raw viewport,
+viewport-transform control, and window scissor. The offline report decodes
+only the scissor extent while preserving the raw state. The next batched run
+can therefore separate main-view color, square shadow/reflection, and reduced
+offscreen work even when shader and attachment formats overlap. This is
+spatial-state classification only; it does not infer camera matrices or admit
+a draw.
+
 ## Safety
 
 - The hooks read only the presentation vtable already live at entry.
