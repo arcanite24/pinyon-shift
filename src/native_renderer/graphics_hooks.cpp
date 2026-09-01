@@ -11307,6 +11307,9 @@ uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
 uint64_t g_procedural_frame_accumulator_same_frame_yields = 0;
+uint64_t g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+uint64_t g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
+uint64_t g_procedural_frame_accumulator_source_gate_yields = 0;
 bool g_graphics_census_installed = false;
 bool g_graphics_full_census_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
@@ -11604,6 +11607,9 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_backend_detail_overflow = 0;
   g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
   g_procedural_frame_accumulator_same_frame_yields = 0;
+  g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+  g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
+  g_procedural_frame_accumulator_source_gate_yields = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17525,6 +17531,11 @@ bool PlanProceduralFrameAccumulatorBackend(
       !observation.succeeded) {
     return false;
   }
+  if (observation.frame_sequence !=
+      g_procedural_frame_accumulator_exact_source_frame) {
+    ++g_procedural_frame_accumulator_source_gate_yields;
+    return false;
+  }
   if (observation.frame_sequence ==
       g_procedural_frame_accumulator_backend_unavailable_frame) {
     ++g_procedural_frame_accumulator_same_frame_yields;
@@ -18182,6 +18193,9 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(g_procedural_frame_accumulator_backend_statuses[3])},
        {"same_frame_yields_after_unavailable",
         std::to_string(g_procedural_frame_accumulator_same_frame_yields)},
+       {"source_gate_yields",
+        std::to_string(g_procedural_frame_accumulator_source_gate_yields)},
+       {"source_gate", "same_frame_recorded_exact_procedural_replay"},
        {"retry_policy", "next_frame"},
        {"unsupported_target",
         std::to_string(g_procedural_frame_accumulator_backend_statuses[4])},
@@ -27118,6 +27132,21 @@ void CompleteContinuousWorldWorksetReplay(
   }
 }
 
+void CompleteContinuousWorldProceduralSourceReplay(
+    const rex::system::GraphicsIsolatedDrawResult &result) {
+  const uint64_t source_frame =
+      g_procedural_frame_accumulator_pending_source_frame;
+  CompleteContinuousWorldWorksetReplay(result);
+  if (result.status == rex::system::GraphicsIsolatedDrawStatus::kRecorded &&
+      source_frame != UINT64_MAX) {
+    g_procedural_frame_accumulator_exact_source_frame = source_frame;
+  } else if (g_procedural_frame_accumulator_exact_source_frame ==
+             source_frame) {
+    g_procedural_frame_accumulator_exact_source_frame = UINT64_MAX;
+  }
+  g_procedural_frame_accumulator_pending_source_frame = UINT64_MAX;
+}
+
 void EmitContinuousWorldWorksetEvent(const char *event_name,
                                      bool final_summary,
                                      uint64_t frame_sequence) {
@@ -27776,7 +27805,13 @@ void RequestIsolatedDraw(
     request.frame_accumulator_source = exact_procedural_color_producer;
     request.frame_sequence = g_isolated_draw.frame;
     request.reference_marker_requested = true;
-    request.completion = &CompleteContinuousWorldWorksetReplay;
+    if (exact_procedural_color_producer) {
+      g_procedural_frame_accumulator_pending_source_frame =
+          g_isolated_draw.frame;
+      request.completion = &CompleteContinuousWorldProceduralSourceReplay;
+    } else {
+      request.completion = &CompleteContinuousWorldWorksetReplay;
+    }
     return;
   }
   if (g_visibility_shadow_replay.requested &&

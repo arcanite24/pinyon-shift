@@ -215,6 +215,16 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             "isolated_replay_frame_accumulator_source_frame_sequence_", patch
         )
         self.assertIn("unqualified_source", source)
+        self.assertIn(
+            "g_procedural_frame_accumulator_exact_source_frame", source
+        )
+        self.assertIn(
+            "CompleteContinuousWorldProceduralSourceReplay", source
+        )
+        self.assertIn(
+            '"source_gate", "same_frame_recorded_exact_procedural_replay"',
+            source,
+        )
 
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
