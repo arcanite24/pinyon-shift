@@ -365,6 +365,14 @@ scene. The next C2 slice must resolve the wrapper's actual dispatch target or
 lazy resource initialization point before widening lineage; it must not treat
 the stale offset-148 assumption as runtime identity.
 
+Preparation-outcome implementation checkpoint: the exact return from helper
+`823F8980` is now observed at `823F8DE0` inside the balanced presentation
+scope. Payload-free accounting partitions accepted and rejected results,
+scope/owner faults, and null versus live offset-148 resources and offset-1608
+renderers, with bounded state/address samples. This directly explains the
+missing handoff on the next batched run and changes no guest state, call
+target, native selection, Xenos authority, or suppression decision.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
