@@ -10,6 +10,9 @@ import sys
 SCHEMA = "pinyon-shift.native-renderer-c1-c2-batch.v1"
 INPUT_SCHEMAS = {
     "track": "pinyon-shift.native-renderer-track-model-runtime-join.v3",
+    "presentation": (
+        "pinyon-shift.native-renderer-track-presentation-passes.v1"
+    ),
     "static_world": "pinyon-shift.native-renderer-static-world-runtime-join.v10",
     "classification": (
         "pinyon-shift.native-renderer-static-world-instance-classification.v1"
@@ -35,6 +38,9 @@ def require_mapping(document, key, label):
 
 def validate_safety(reports):
     track = require_mapping(reports["track"], "safety", "track report")
+    presentation = require_mapping(
+        reports["presentation"], "safety", "presentation report"
+    )
     static_world = require_mapping(
         reports["static_world"], "safety", "static-world report"
     )
@@ -50,6 +56,7 @@ def validate_safety(reports):
     }
     for label, safety in (
         ("track", track),
+        ("presentation", presentation),
         ("static-world", static_world),
     ):
         if any(safety.get(key) != value for key, value in passive.items()):
@@ -98,6 +105,9 @@ def build(reports):
             failures.append(f"{label} report does not prove session exit")
 
     track = require_mapping(reports["track"], "qualification", "track report")
+    presentation = require_mapping(
+        reports["presentation"], "qualification", "presentation report"
+    )
     static_world = require_mapping(
         reports["static_world"], "qualification", "static-world report"
     )
@@ -114,6 +124,39 @@ def build(reports):
     for key in required_track:
         if track.get(key) is not True:
             failures.append(f"track gate is unproved: {key}")
+
+    color_slots = presentation.get("color_target_slots")
+    if not isinstance(color_slots, list):
+        raise ValueError("presentation color-target slots are missing")
+    opaque_world_slot_proved = (
+        presentation.get("opaque_world_slot_proved") is True
+    )
+    if not opaque_world_slot_proved:
+        failures.append("track presentation color-pass identity is unproved")
+
+    presentation_slots = require_mapping(
+        reports["presentation"], "slot_totals", "presentation report"
+    )
+    slot_80 = require_mapping(presentation_slots, "80", "presentation slots")
+    adapter = require_mapping(slot_80, "adapter_route", "slot 80")
+    adapter_entries = adapter.get("entries")
+    adapter_dispatches = adapter.get("dispatches")
+    adapter_first_target = adapter.get("first_target")
+    adapter_last_target = adapter.get("last_target")
+    adapter_target_changes = adapter.get("target_changes")
+    stable_adapter_target = (
+        isinstance(adapter_dispatches, int)
+        and adapter_dispatches > 0
+        and isinstance(adapter_first_target, str)
+        and adapter_first_target != "00000000"
+        and adapter_first_target == adapter_last_target
+        and adapter_target_changes == 0
+    )
+    gated_adapter = (
+        isinstance(adapter_entries, int)
+        and adapter_entries > 0
+        and adapter_dispatches == 0
+    )
 
     required_static = (
         "simple_model_renderer_scope_proved",
@@ -147,6 +190,7 @@ def build(reports):
 
     track_ready = not any(
         failure.startswith("track gate")
+        or failure.startswith("track presentation")
         or failure.startswith("continuous-output gate")
         for failure in failures
     )
@@ -173,10 +217,27 @@ def build(reports):
             "family_promotion_allowed": False,
             "suppression_allowed": False,
         },
+        "presentation_lead": {
+            "color_target_slots": color_slots,
+            "opaque_world_slot_proved": opaque_world_slot_proved,
+            "slot_80_adapter_entries": adapter_entries,
+            "slot_80_adapter_dispatches": adapter_dispatches,
+            "slot_80_stable_adapter_target": (
+                adapter_first_target if stable_adapter_target else None
+            ),
+        },
         "next_gate": (
             "manual_visual_and_representative_race_streaming_qualification"
             if not failures
-            else "resolve_reported_batch_failures"
+            else (
+                "instrument_slot_80_adapter_target"
+                if stable_adapter_target
+                else (
+                    "close_slot_80_and_pivot_to_semantic_world_ingress"
+                    if gated_adapter
+                    else "resolve_reported_batch_failures"
+                )
+            )
         ),
         "safety": {
             "xenos_authority_preserved": True,
@@ -191,6 +252,7 @@ def build(reports):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--track", required=True, type=pathlib.Path)
+    parser.add_argument("--presentation", required=True, type=pathlib.Path)
     parser.add_argument("--static-world", required=True, type=pathlib.Path)
     parser.add_argument("--classification", required=True, type=pathlib.Path)
     parser.add_argument("--workset", required=True, type=pathlib.Path)
@@ -200,6 +262,7 @@ def main(argv=None):
         document = build(
             {
                 "track": read_document(args.track),
+                "presentation": read_document(args.presentation),
                 "static_world": read_document(args.static_world),
                 "classification": read_document(args.classification),
                 "workset": read_document(args.workset),

@@ -608,6 +608,13 @@ function or close slot 80 as dormant in the saved festival without tracing
 arbitrary indirect calls. No guest state, title control flow, native admission,
 or Xenos authority changes.
 
+Combined-gate checkpoint: the C1/C2 batch join now requires the exact
+track-presentation report from the same clean session. An incomplete batch
+routes a stable slot-80 adapter target to exact downstream instrumentation, or
+closes a gated adapter and pivots to semantic world ingress. Neither outcome
+is treated as opaque-world color proof, keeping promotion fail closed while
+making the expensive combined run decisive.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
