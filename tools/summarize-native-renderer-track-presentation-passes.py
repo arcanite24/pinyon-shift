@@ -137,6 +137,7 @@ def build(events, requested_session=None):
             "target_shapes": {},
             "shader_pairs": {},
             "spatial_states": {},
+            "target_states": {},
         }
         for slot in SLOTS
     }
@@ -153,6 +154,7 @@ def build(events, requested_session=None):
         viewport = hexadecimal_tuple(event, "viewport", 4)
         viewport_control = hexadecimal(event, "viewport_transform_control", 8)
         scissor = hexadecimal_tuple(event, "scissor", 2)
+        target_state = hexadecimal_tuple(event, "target_state", 6)
         vertex_shader = str(event.get("vertex_shader", "")).upper()
         pixel_shader = str(event.get("pixel_shader", "")).upper()
         if len(vertex_shader) != 16 or len(pixel_shader) != 16:
@@ -177,6 +179,10 @@ def build(events, requested_session=None):
             )
             row["spatial_states"][spatial] = (
                 row["spatial_states"].get(spatial, 0) + calls
+            )
+            target = ":".join(f"{value:08X}" for value in target_state)
+            row["target_states"][target] = (
+                row["target_states"].get(target, 0) + calls
             )
 
     receiver_observations = integer(summary, "receiver_observations")

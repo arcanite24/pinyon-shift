@@ -75,6 +75,7 @@ def fixture():
         viewport="43800000:44400000:C3800000:43800000",
         viewport_transform_control="00010F00",
         scissor="00000000:04000400",
+        target_state="10000410:00000000:00000000:00000000:00000000:000002D0",
         **safety(),
     )
     color = event(
@@ -92,6 +93,7 @@ def fixture():
         viewport="44200000:44200000:C4200000:44200000",
         viewport_transform_control="00010F00",
         scissor="00000000:02800280",
+        target_state="10000290:00000640:00000000:00000000:00000000:00000000",
         **safety(),
     )
     receiver_78 = event(
@@ -139,6 +141,12 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
             8,
             document["prepared_targets_by_slot"]["79"]["target_shapes"][
                 "depth_only"
+            ],
+        )
+        self.assertEqual(
+            8,
+            document["prepared_targets_by_slot"]["79"]["target_states"][
+                "10000410:00000000:00000000:00000000:00000000:000002D0"
             ],
         )
 

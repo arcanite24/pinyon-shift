@@ -578,6 +578,11 @@ run can distinguish main-view color work from square shadow/reflection and
 reduced offscreen passes in the same report, avoiding another call-count-only
 capture. This records no camera payload and still admits no native draw.
 
+Target-identity batching checkpoint: raw surface, color-target, and depth-
+target registers now accompany each prepared-target profile. The next run can
+therefore distinguish exact EDRAM resources as well as attachment shape and
+spatial extent before any private replay candidate is selected.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
