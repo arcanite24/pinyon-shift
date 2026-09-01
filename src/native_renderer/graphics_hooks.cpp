@@ -229,6 +229,8 @@ constexpr uint32_t kModelPresentationStateOffset = 144;
 constexpr uint32_t kModelPresentationResourceOffset = 148;
 constexpr uint32_t kModelPresentationRendererOffset = 1608;
 constexpr uint32_t kDeferredSimpleModelRendererVtable = 0x82021334;
+constexpr uint32_t kDeferredSimpleModelTaskVtable = 0x820213B8;
+constexpr size_t kDeferredSimpleModelTaskCapacity = 1024;
 constexpr uint32_t kMsvcStringSizeOffset = 16;
 constexpr uint32_t kMsvcStringCapacityOffset = 20;
 constexpr uint32_t kMsvcStringInlineCapacity = 16;
@@ -558,6 +560,19 @@ struct StaticWorldDrawIdentity {
   bool transform_valid = false;
   bool asset_metadata_valid = false;
   bool valid = false;
+};
+
+struct DeferredSimpleModelTaskEntry {
+  uint64_t sequence = 0;
+  uint32_t task_address = 0;
+  uint32_t renderer_address = 0;
+  bool occupied = false;
+};
+
+struct DeferredSimpleModelTaskDispatch {
+  uint32_t renderer_address = 0;
+  uint32_t target_address = 0;
+  bool active = false;
 };
 
 struct TitleDrawOrigin {
@@ -2754,6 +2769,28 @@ std::atomic<uint64_t> g_static_world_presentation_prepare_live_renderers{};
 std::atomic<uint32_t> g_static_world_presentation_prepare_sample_state{};
 std::atomic<uint32_t> g_static_world_presentation_prepare_sample_resource{};
 std::atomic<uint32_t> g_static_world_presentation_prepare_sample_renderer{};
+std::array<DeferredSimpleModelTaskEntry,
+           kDeferredSimpleModelTaskCapacity>
+    g_static_world_deferred_tasks{};
+std::mutex g_static_world_deferred_task_mutex;
+uint64_t g_static_world_deferred_task_sequence = 0;
+std::atomic<uint64_t> g_static_world_deferred_task_publish_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_published{};
+std::atomic<uint64_t> g_static_world_deferred_task_null{};
+std::atomic<uint64_t> g_static_world_deferred_task_read_faults{};
+std::atomic<uint64_t> g_static_world_deferred_task_renderer_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_vtable_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_overflow{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_matches{};
+std::atomic<uint64_t> g_static_world_deferred_task_callback_unmatched{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_observations{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_exact{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_missing_callback{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_target_mismatches{};
+std::atomic<uint64_t> g_static_world_deferred_task_handoff_read_faults{};
+std::atomic<uint32_t> g_static_world_deferred_task_sample_target_vtable{};
+std::atomic<uint32_t> g_static_world_deferred_task_sample_dispatch_target{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_exact{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_missing_scope{};
 std::atomic<uint64_t> g_static_world_presentation_handoff_owner_mismatches{};
@@ -2794,6 +2831,8 @@ thread_local TrackRenderModelDispatchScope g_track_render_model_scope{};
 thread_local StaticWorldRendererDispatchScope g_static_world_renderer_scope{};
 thread_local StaticWorldPresentationDispatchScope
     g_static_world_presentation_scope{};
+thread_local DeferredSimpleModelTaskDispatch
+    g_static_world_deferred_task_dispatch{};
 thread_local std::array<uint32_t, kSemanticReceiverStackCapacity>
     g_static_world_renderer_destructor_stack{};
 thread_local size_t g_static_world_renderer_destructor_stack_depth = 0;
@@ -4562,6 +4601,115 @@ void ObserveStaticWorldPresentationPrepareOutcome(
   ((result & 0xFF) ? g_static_world_presentation_prepare_accepted
                    : g_static_world_presentation_prepare_rejected)
       .fetch_add(1, std::memory_order_relaxed);
+}
+
+void ObserveStaticWorldDeferredTaskPublish(
+    uint32_t task_address, uint32_t renderer_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_publish_observations;
+  if (!task_address || !renderer_address) {
+    ++g_static_world_deferred_task_null;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t task_vtable = 0;
+  uint32_t renderer_vtable = 0;
+  if (!LoadMappedGuestU32(memory, task_address, task_vtable) ||
+      !LoadMappedGuestU32(memory, renderer_address, renderer_vtable)) {
+    ++g_static_world_deferred_task_read_faults;
+    return;
+  }
+  if (renderer_vtable != kDeferredSimpleModelRendererVtable) {
+    ++g_static_world_deferred_task_renderer_mismatches;
+    return;
+  }
+  if (task_vtable != kDeferredSimpleModelTaskVtable) {
+    ++g_static_world_deferred_task_vtable_mismatches;
+    return;
+  }
+  std::scoped_lock lock(g_static_world_deferred_task_mutex);
+  size_t index =
+      (task_address >> 2) % kDeferredSimpleModelTaskCapacity;
+  for (size_t probe = 0; probe < kDeferredSimpleModelTaskCapacity; ++probe) {
+    DeferredSimpleModelTaskEntry &entry =
+        g_static_world_deferred_tasks[index];
+    if (!entry.occupied || entry.task_address == task_address) {
+      entry.sequence = ++g_static_world_deferred_task_sequence;
+      entry.task_address = task_address;
+      entry.renderer_address = renderer_address;
+      entry.occupied = true;
+      ++g_static_world_deferred_task_published;
+      return;
+    }
+    index = (index + 1) % kDeferredSimpleModelTaskCapacity;
+  }
+  ++g_static_world_deferred_task_overflow;
+}
+
+void ObserveStaticWorldDeferredTaskCallback(
+    uint32_t target_address, uint32_t task_address) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_callback_observations;
+  g_static_world_deferred_task_dispatch = {};
+  if (!task_address || !target_address) {
+    ++g_static_world_deferred_task_callback_unmatched;
+    return;
+  }
+  std::scoped_lock lock(g_static_world_deferred_task_mutex);
+  size_t index =
+      (task_address >> 2) % kDeferredSimpleModelTaskCapacity;
+  for (size_t probe = 0; probe < kDeferredSimpleModelTaskCapacity; ++probe) {
+    DeferredSimpleModelTaskEntry &entry =
+        g_static_world_deferred_tasks[index];
+    if (entry.occupied && entry.task_address == task_address) {
+      g_static_world_deferred_task_dispatch = {
+          .renderer_address = entry.renderer_address,
+          .target_address = target_address,
+          .active = true,
+      };
+      entry.occupied = false;
+      ++g_static_world_deferred_task_callback_matches;
+      return;
+    }
+    index = (index + 1) % kDeferredSimpleModelTaskCapacity;
+  }
+  ++g_static_world_deferred_task_callback_unmatched;
+}
+
+void ObserveStaticWorldDeferredTaskHandoff(
+    uint32_t target_address, uint32_t dispatch_target) {
+  if (!g_title_provenance_installed.load(std::memory_order_acquire)) {
+    return;
+  }
+  ++g_static_world_deferred_task_handoff_observations;
+  const DeferredSimpleModelTaskDispatch dispatch =
+      g_static_world_deferred_task_dispatch;
+  g_static_world_deferred_task_dispatch = {};
+  if (!dispatch.active) {
+    ++g_static_world_deferred_task_handoff_missing_callback;
+    return;
+  }
+  if (dispatch.target_address != target_address) {
+    ++g_static_world_deferred_task_handoff_target_mismatches;
+    return;
+  }
+  rex::memory::Memory *memory =
+      g_title_provenance_memory.load(std::memory_order_acquire);
+  uint32_t target_vtable = 0;
+  if (!LoadMappedGuestU32(memory, target_address, target_vtable)) {
+    ++g_static_world_deferred_task_handoff_read_faults;
+    return;
+  }
+  g_static_world_deferred_task_sample_target_vtable.store(
+      target_vtable, std::memory_order_relaxed);
+  g_static_world_deferred_task_sample_dispatch_target.store(
+      dispatch_target, std::memory_order_relaxed);
+  ++g_static_world_deferred_task_handoff_exact;
 }
 
 void EndStaticWorldPresentationDispatch() {
@@ -12726,6 +12874,27 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
   const uint64_t presentation_prepare_live_renderers =
       g_static_world_presentation_prepare_live_renderers.load(
           std::memory_order_relaxed);
+  const uint64_t deferred_task_publish_observations =
+      g_static_world_deferred_task_publish_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_published =
+      g_static_world_deferred_task_published.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_observations =
+      g_static_world_deferred_task_callback_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_matches =
+      g_static_world_deferred_task_callback_matches.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_callback_unmatched =
+      g_static_world_deferred_task_callback_unmatched.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_handoff_observations =
+      g_static_world_deferred_task_handoff_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t deferred_task_handoff_exact =
+      g_static_world_deferred_task_handoff_exact.load(
+          std::memory_order_relaxed);
   const uint64_t asset_metadata_observations =
       g_static_world_asset_metadata_observations.load(
           std::memory_order_relaxed);
@@ -12864,6 +13033,31 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
       presentation_prepare_accepted + presentation_prepare_rejected ==
           presentation_prepare_null_renderers +
               presentation_prepare_live_renderers &&
+      deferred_task_publish_observations ==
+          deferred_task_published +
+              g_static_world_deferred_task_null.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_read_faults.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_renderer_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_vtable_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_overflow.load(
+                  std::memory_order_relaxed) &&
+      deferred_task_callback_observations ==
+          deferred_task_callback_matches +
+              deferred_task_callback_unmatched &&
+      deferred_task_callback_matches <= deferred_task_published &&
+      deferred_task_handoff_observations ==
+          deferred_task_handoff_exact +
+              g_static_world_deferred_task_handoff_missing_callback.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_handoff_target_mismatches.load(
+                  std::memory_order_relaxed) +
+              g_static_world_deferred_task_handoff_read_faults.load(
+                  std::memory_order_relaxed) &&
+      deferred_task_handoff_exact <= deferred_task_callback_matches &&
       asset_metadata_observations == presentation_exact &&
       asset_metadata_observations ==
           asset_metadata_exact + asset_metadata_empty_keys +
@@ -13226,6 +13420,54 @@ void EmitStaticWorldRuntimeJoinEvent(const char *event_name,
        {"presentation_prepare_sample_renderer",
         fmt::format("{:08X}",
                     g_static_world_presentation_prepare_sample_renderer.load(
+                        std::memory_order_relaxed))},
+       {"deferred_task_publish_observations",
+        std::to_string(deferred_task_publish_observations)},
+       {"deferred_task_published",
+        std::to_string(deferred_task_published)},
+       {"deferred_task_null",
+        std::to_string(g_static_world_deferred_task_null.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_read_faults",
+        std::to_string(g_static_world_deferred_task_read_faults.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_renderer_mismatches",
+        std::to_string(g_static_world_deferred_task_renderer_mismatches.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_vtable_mismatches",
+        std::to_string(g_static_world_deferred_task_vtable_mismatches.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_overflow",
+        std::to_string(g_static_world_deferred_task_overflow.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_callback_observations",
+        std::to_string(deferred_task_callback_observations)},
+       {"deferred_task_callback_matches",
+        std::to_string(deferred_task_callback_matches)},
+       {"deferred_task_callback_unmatched",
+        std::to_string(deferred_task_callback_unmatched)},
+       {"deferred_task_handoff_observations",
+        std::to_string(deferred_task_handoff_observations)},
+       {"deferred_task_handoff_exact",
+        std::to_string(deferred_task_handoff_exact)},
+       {"deferred_task_handoff_missing_callback",
+        std::to_string(
+            g_static_world_deferred_task_handoff_missing_callback.load(
+                std::memory_order_relaxed))},
+       {"deferred_task_handoff_target_mismatches",
+        std::to_string(
+            g_static_world_deferred_task_handoff_target_mismatches.load(
+                std::memory_order_relaxed))},
+       {"deferred_task_handoff_read_faults",
+        std::to_string(g_static_world_deferred_task_handoff_read_faults.load(
+            std::memory_order_relaxed))},
+       {"deferred_task_sample_target_vtable",
+        fmt::format("{:08X}",
+                    g_static_world_deferred_task_sample_target_vtable.load(
+                        std::memory_order_relaxed))},
+       {"deferred_task_sample_dispatch_target",
+        fmt::format("{:08X}",
+                    g_static_world_deferred_task_sample_dispatch_target.load(
                         std::memory_order_relaxed))},
        {"presentation_handoff_observations",
         std::to_string(g_static_world_presentation_handoff_observations.load(
@@ -27692,6 +27934,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"presentation_renderer_handoff_hook", "823F8F1C"},
        {"presentation_renderer_handoff",
         "owner_resource_vtable_and_virtual_target_diagnostic"},
+       {"deferred_renderer_vtable", "82021334"},
+       {"deferred_task_vtable", "820213B8"},
+       {"deferred_task_publish_hook", "82585F84"},
+       {"deferred_task_callback_hook", "82BA61D0"},
+       {"deferred_task_handoff_hook", "82BA61DC"},
+       {"deferred_task_join",
+        "exact_deferred_renderer_to_task_to_callback_target"},
        {"presentation_resource_field", "presentation_plus_148"},
        {"presentation_renderer_field", "presentation_plus_1608"},
        {"presentation_resource_join",
@@ -29966,6 +30215,21 @@ void PinyonShiftObserveStaticWorldPresentationDispatchExit() {
 void PinyonShiftObserveStaticWorldPresentationPrepareOutcome(
     PPCRegister &r3, PPCRegister &r31) {
   ObserveStaticWorldPresentationPrepareOutcome(r3.u32, r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskPublish(
+    PPCRegister &r7, PPCRegister &r31) {
+  ObserveStaticWorldDeferredTaskPublish(r7.u32, r31.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskCallback(
+    PPCRegister &r3, PPCRegister &r4) {
+  ObserveStaticWorldDeferredTaskCallback(r3.u32, r4.u32);
+}
+
+void PinyonShiftObserveStaticWorldDeferredTaskHandoff(
+    PPCRegister &r3, PPCRegister &r11) {
+  ObserveStaticWorldDeferredTaskHandoff(r3.u32, r11.u32);
 }
 
 void PinyonShiftObserveStaticWorldPresentationRendererHandoff(

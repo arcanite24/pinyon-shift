@@ -392,6 +392,14 @@ the live static-world draw ingress. C2 is reprioritized to identify the live
 deferred or alternate SimpleModel renderer population before reusing any owner
 or asset-field assumption from this path.
 
+Deferred-ingress implementation checkpoint: static instruction flow proves
+deferred renderer slot 12 (`82585F38`) publishes an exact `820213B8` task and
+queues callback `82BA61D0`, which later invokes slot 12 on a target object.
+A passive 1,024-entry task table now joins publication to callback and records
+the target vtable and dispatch at `82BA61DC` with complete fail-closed
+accounting. This is the next batched C2 lead; it changes no queue, callback,
+draw, output authority, or suppression state.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

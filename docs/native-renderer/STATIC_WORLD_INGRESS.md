@@ -120,3 +120,20 @@ requires a completed renderer generation and matching graph-binding generation
 before it attributes any PM4 packet. The bound graph is now independently
 proved as an exact, live, registered `CSimpleModelResource` generation in
 [`STATIC_WORLD_RESOURCE.md`](STATIC_WORLD_RESOURCE.md).
+
+## Deferred task ingress
+
+The failed synchronous owner batches do not invalidate the separately proved
+`CSimpleModelRendererDeferred` surface. Its slot 12 target `82585F38` allocates
+an eight-byte task, assigns exact task vtable `820213B8`, and queues callback
+`82BA61D0` at `82585F84`. The callback reads the task mode byte and invokes
+slot 12 on a later target object at `82BA61DC`.
+
+A passive bounded table now carries the exact deferred renderer address from
+task publication to that callback and records the target object's vtable and
+dispatch target. Publication, callback, and handoff each have complete
+outcome accounting; task records are consumed once, and overflow fails closed.
+This is an ingress diagnostic only. It changes no task, queue, callback,
+guest state, draw, output authority, or suppression decision. The next batched
+runtime evidence must prove the live callback target before C2 renderer/PM4
+lineage is moved to it.
