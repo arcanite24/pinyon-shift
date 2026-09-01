@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify unified track render-model scopes joined to semantic submissions."""
+"""Qualify exact track scopes joined to prepared draws by command lineage."""
 
 import argparse
 import json
@@ -23,7 +23,7 @@ RELATIONS = (
     "shared_child_receiver",
     "shared_root_runtime_object",
     "shared_child_runtime_object",
-    "shared_procedural_receiver_bridge",
+    "shared_command_lineage",
 )
 
 WORLD_RELATIONS = (
@@ -128,17 +128,14 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "entry_hook": "8240EC80",
         "exit_hook": "8240ECAC",
         "nested_dispatch": "82436468",
-        "procedural_receiver_bridge_hook": "82437040",
+        "command_context_entry": "824365B4",
         "instance_vtable": "820019CC",
         "model_vtable": "82001D74",
         "instance_to_model": "root_plus_4",
         "model_to_descriptor": "child_plus_48_then_plus_128",
         "descriptor_type": "21",
         "descriptor_flag": "1",
-        "join": (
-            "exact_track_dispatch_receiver_bridge_to_"
-            "procedural_model_submission"
-        ),
+        "join": "exact_track_scope_to_indirect_command_packet_to_prepared_draw",
         "shared_identity": "descriptor_payload_or_object_address_exact_equality",
         "world_resource_vtables": (
             "820016B4,8200143C,82001474,82144CF8,82144D7C,82144DE0,"
@@ -180,7 +177,7 @@ def build(events, requested_session=None, allow_checkpoint=False):
             and summary.get("checkpoint_kind") != "periodic"
         )
         or summary.get("classification")
-        != "exact_unified_track_render_model_procedural_receiver_join"
+        != "exact_track_scope_to_indirect_command_packet_to_prepared_draw"
     ):
         raise ValueError("track-model runtime summary drifted")
     frame_sequence = (
@@ -202,11 +199,10 @@ def build(events, requested_session=None, allow_checkpoint=False):
         "joined_scopes",
         "unjoined_scopes",
         "submission_joins",
-        "receiver_bridge_observations",
-        "receiver_bridge_successes",
-        "receiver_bridge_missing_scope",
-        "receiver_bridge_unknown_receiver",
-        "receiver_bridge_submission_joins",
+        "command_context_observations",
+        "command_context_bridges",
+        "command_packet_joins",
+        "command_prepared_draw_joins",
         "shared_identity_joins",
         "scope_overlaps",
         "exit_without_entry",
@@ -241,36 +237,22 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("exact scope outcome accounting drifted")
     if not totals["exact_scopes"]:
         failures.append("no exact unified track render-model scope was observed")
-    if not totals["joined_scopes"] or not totals["submission_joins"]:
-        failures.append("no exact scope joined a procedural-model submission")
-    if totals["receiver_bridge_observations"] != (
-        totals["receiver_bridge_successes"]
-        + totals["receiver_bridge_missing_scope"]
-        + totals["receiver_bridge_unknown_receiver"]
-    ):
-        failures.append("procedural-receiver bridge accounting drifted")
-    if not totals["receiver_bridge_successes"]:
-        failures.append("no exact procedural-receiver bridge was established")
-    if not totals["receiver_bridge_submission_joins"]:
-        failures.append("no bridged receiver joined a procedural submission")
-    if (
-        totals["receiver_bridge_submission_joins"]
-        > totals["submission_joins"]
-    ):
-        failures.append("receiver bridge joins exceed submission joins")
-    if totals["shared_procedural_receiver_bridge"] != totals[
-        "receiver_bridge_submission_joins"
-    ]:
-        failures.append("receiver bridge relation accounting drifted")
+    if not totals["joined_scopes"]:
+        failures.append("no exact scope joined an indirect command context")
+    if not totals["command_context_bridges"]:
+        failures.append("no exact track command context bridge was observed")
+    if not totals["command_packet_joins"]:
+        failures.append("no exact track command packet was observed")
+    if not totals["command_prepared_draw_joins"]:
+        failures.append("no exact track command reached a prepared draw")
+    if totals["shared_command_lineage"] != totals["command_prepared_draw_joins"]:
+        failures.append("prepared command-lineage relation accounting drifted")
     for key in (
-        "invalid_root",
         "invalid_child",
         "invalid_descriptor",
         "contract_mismatches",
         "scope_overlaps",
         "exit_without_entry",
-        "receiver_bridge_missing_scope",
-        "receiver_bridge_unknown_receiver",
     ):
         if totals[key]:
             failures.append(f"{key} is nonzero")
@@ -347,8 +329,8 @@ def build(events, requested_session=None, allow_checkpoint=False):
             key: totals[key] for key in SHARED_WORLD_RELATIONS
         },
         "qualification": {
-            "track_render_model_scope_to_submission_proved": not failures,
-            "procedural_receiver_bridge_proved": not failures,
+            "track_render_model_scope_to_submission_proved": False,
+            "track_command_lineage_to_prepared_draw_proved": not failures,
             "shared_object_or_resource_identity_proved": (
                 not failures and totals["shared_identity_joins"] > 0
             ),

@@ -262,10 +262,9 @@ qualified sky/horizon seed remains available. Runtime qualification is deferred
 to the next batched build/AppData checkpoint. This precision filter is not yet
 a terrain/road mesh identity or C1 family-admission claim.
 
-Exact-output checkpoint: the default-off continuous workset now has a stricter
-C1 selector that requires the exact unified track render-model scope and a
-nonzero shared RTTI-proved world-resource identity at the procedural submission
-boundary. Provider-only candidates are excluded, while the qualified sky seed,
+Exact-output checkpoint: the default-off continuous workset requires exact
+per-command track lineage or a nonzero shared RTTI-proved world-resource
+identity. Provider-only candidates are excluded, while the qualified sky seed,
 independent exact C2 selection, Xenos draws, and fallback remain intact. The
 next combined AppData run arms `-ContinuousTrackWorld`; runtime and visual
 qualification remain pending before any family promotion or suppression.
@@ -291,13 +290,19 @@ stays in a later dedicated run. This gives the next manual session one clear
 purpose and prevents accidental combinations that would invalidate the
 continuous and shadow-depth gates.
 
-Next runtime checkpoint: the old typed-render-item evidence is now correctly
-classified by RTTI as the unified track render-model instance/model pair. A
-balanced passive scope at its accepted nested dispatch (`8240EC80`-`8240ECAC`)
-joins exact dynamic-type ownership and explicit shared-identity relations to
-procedural-model submissions and prepared records. The implementation and
-payload-free qualifier are ready; runtime proof is deferred to the next batched
-AppData session. No C1 admission or suppression is enabled by this probe.
+Current runtime checkpoint: the old typed-render-item evidence is correctly
+classified by RTTI as the unified track render-model instance/model pair. The
+clean combined AppData run observed 45,523 exact scopes but zero synchronous
+procedural submissions, disproving that join. Offline lineage from the same run
+proved `824365B0` and the later procedural-model context share fixed command
+root `41A5E740`; retained `r25` is that root, not `CProceduralModels`.
+
+Correction in progress: exact scope ownership is now captured at the
+`824365B0` context entry and copied through the existing producer, owner,
+constructor, indirect-packet, and prepared-draw lineage. This is per-command,
+does not persist identity on a shared receiver, and treats non-track calls as
+normal exclusions. The next batched run must prove context, packet, and
+prepared-draw joins before C1 can advance. No suppression is enabled.
 
 Implementation checkpoint: the exact model scope now inspects only its
 already-validated 64-byte child prefix and 248-byte type-21 descriptor for
@@ -332,17 +337,14 @@ accepts both `822432D4` and `82002464`; all resource, renderer, transform,
 metadata, prepared-layout, and lifecycle joins remain independently required.
 This fixes a type-family omission without weakening C2 admission.
 
-C1 receiver-handoff correction: that same clean session observed 110,023
-track-render scopes and 94,826 exact unified instance/model scopes, but zero
-procedural submissions inside them. The synchronous-scope join is therefore a
-disproved assumption, not a reason to gather more broad census data. Generated
-title code gives a stronger bounded edge: `82437040` moves the retained
-`CProceduralModels` receiver from `r25` to `r3` immediately before the semantic
-producer call at `82437044`. The passive runtime bridge now attaches the exact
-track owner tuple to the receiver's independently proved live generation and
-requires a later semantic submission from that same generation. Reuse clears
-the bridge; Xenos authority, native admission, and suppression remain unchanged
-until the next batched qualification proves the new edge.
+Clean-batch follow-up: accepting the ref-counted presentation vtable produced
+148,077 exact owner scopes and zero vtable mismatches, so that correction is
+proved. None reached the expected base-renderer entry, and all bounded asset
+metadata reads failed. The next batch therefore records the exact slot-12
+virtual handoff at `823F8F1C`, including owner/resource equality, renderer
+vtable, dispatch target, and the offset-148 resource vtable. This will separate
+a deferred-renderer route from incorrect field assumptions before C2 lineage
+is widened.
 
 ### C2. Static world buildings and props
 

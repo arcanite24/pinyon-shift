@@ -109,10 +109,7 @@ def build(reports):
     )
 
     required_track = (
-        "track_render_model_scope_to_submission_proved",
-        "procedural_receiver_bridge_proved",
-        "track_world_resource_graph_identity_proved",
-        "track_world_resource_to_submission_identity_proved",
+        "track_command_lineage_to_prepared_draw_proved",
     )
     for key in required_track:
         if track.get(key) is not True:

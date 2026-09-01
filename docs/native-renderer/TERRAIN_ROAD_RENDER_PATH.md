@@ -258,29 +258,25 @@ flow shows that `8240EC80` is reached only after the instance, its child, and
 the child-owned 248-byte type-21 descriptor pass the title predicates. The
 nested render dispatch returns at `8240ECAC`.
 
-A balanced passive runtime scope brackets those two addresses. The first
-combined Phase C session observed 110,023 scopes, including 94,826 exact
-dynamic-type scopes, but zero procedural submissions inside the scope. That
-clean negative result disproves the original synchronous-submission assumption;
-it is not an ownership failure in the title and cannot qualify C1.
+A balanced passive runtime scope brackets those two addresses. The first clean
+combined AppData run disproved the earlier synchronous-submission assumption:
+45,523 exact scopes produced no in-scope procedural submission. It also proved
+that `824365B0` and the later `82417BC0` procedural-model context use the same
+fixed command root (`41A5E740`), while only `82417BC0` receives the real
+`CProceduralModels` object. The retained `r25` at `82437040` is therefore the
+command root, not a semantic receiver.
 
-Static generated-code evidence supplies the missing handoff. Inside the exact
-track dispatch, `82437040` copies the retained `CProceduralModels` receiver from
-`r25` to `r3`, and `82437044` immediately calls the already-proved semantic
-producer `82417060`. A passive hook at the copy records the exact track root,
-child, descriptor, payload, and bounded world-resource mask against that
-receiver's independently generation-tracked live lifetime. Later submissions
-from the same live generation recover the owner without requiring PM4 work to
-remain on the title's balanced call stack. Re-publication clears the bridge, so
-an address reused by another receiver lifetime cannot inherit track identity.
+The corrected bridge records exact track ownership when `824365B0` enters
+inside an accepted scope, then carries that immutable value through the
+existing context, producer, owner, constructor, indirect-packet, and prepared-
+draw lineage. Ordinary calls to the shared entry outside an exact scope remain
+explicit exclusions. No receiver lifetime is marked and unrelated command
+traffic cannot inherit track identity.
 
-The payload-free qualifier now requires complete receiver-bridge accounting,
-at least one exact handoff, and at least one semantic submission from a bridged
-receiver. It still reports descriptor/root/child and world-resource equality
-separately rather than conflating them with the direct receiver proof. This
-instrumentation awaits the next batched AppData-backed run. Until then it does
-not prove terrain/road visual identity or C1 admission, and it changes no guest
-state, draw, output authority, or suppression decision.
+This command-lineage implementation awaits the next batched AppData-backed
+run. Until then it does not prove terrain/road visual identity or C1 family
+promotion. It changes no guest state, Xenos draw, output authority, or
+suppression decision.
 
 ## Bounded track world-resource graph identity
 
@@ -317,11 +313,10 @@ Xenos remains authoritative and no native admission or suppression is enabled.
 
 ## Exact track-world native selection
 
-The default-off continuous workset can now apply that preferred gate directly.
-`-ContinuousTrackWorld` requires an exact unified render-model scope and a
-nonzero shared world-resource identity mask before a fresh, mechanically
-eligible semantic draw is replayed into the private native target. Merely
-sharing the track-texture provider is insufficient in this mode and is counted
+The default-off continuous workset accepts either a nonzero shared world-
+resource identity or the stronger per-command track lineage before a fresh,
+mechanically eligible semantic draw is replayed into the private native target.
+Merely sharing the track-texture provider remains insufficient and is counted
 as an identity exclusion.
 
 This is an isolated C1 qualification path, not a default family promotion. It
