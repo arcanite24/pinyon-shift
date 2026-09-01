@@ -28647,18 +28647,8 @@ void ObserveDrawOutcome(
   g_pending_candidate.valid = false;
 }
 
-void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
-  AdvanceDependencyWindow(observation.frame_sequence);
-  if (!observation.succeeded) {
-    ++g_dependency_census.window_failed_copy_count;
-    return;
-  }
-  if (!observation.written_length) {
-    ++g_dependency_census.window_zero_length_copy_count;
-    return;
-  }
-
-  const auto copy = ProceduralResolveCopyFromObservation(observation);
+void ObserveQualifiedResolveIngress(
+    const pinyon_shift::native_renderer::ProceduralResolveCopy &copy) {
   pinyon_shift::native_renderer::ProceduralResolveTarget qualified_target;
   if (g_procedural_frame_accumulator_backend_armed &&
       pinyon_shift::native_renderer::
@@ -28672,6 +28662,32 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
     EmitProceduralFrameAccumulatorTransition(
         g_procedural_frame_accumulator_planner.Arm(qualified_target));
   }
+}
+
+void ObservePrototypeResolveCopy(
+    const rex::system::GraphicsCopyObservation &observation) {
+  if (!observation.succeeded || !observation.written_length) {
+    return;
+  }
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Observe(copy));
+}
+
+void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
+  AdvanceDependencyWindow(observation.frame_sequence);
+  if (!observation.succeeded) {
+    ++g_dependency_census.window_failed_copy_count;
+    return;
+  }
+  if (!observation.written_length) {
+    ++g_dependency_census.window_zero_length_copy_count;
+    return;
+  }
+
+  const auto copy = ProceduralResolveCopyFromObservation(observation);
+  ObserveQualifiedResolveIngress(copy);
   EmitProceduralResolveAssembly(
       g_procedural_resolve_assembly_tracker.Observe(copy));
   if (!g_procedural_frame_accumulator_backend_armed) {
@@ -30725,6 +30741,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   const bool prototype_selected = NativePrototypeSelected();
   const bool procedural_frame_accumulator_requested =
       ProceduralFrameAccumulatorSelected(prototype_selected);
+  const bool minimal_producer_graph_requested =
+      prototype_selected && !census_requested &&
+      procedural_frame_accumulator_requested;
   const bool observation_requested = census_requested || prototype_selected ||
                                      procedural_frame_accumulator_requested;
   const bool title_provenance_requested =
@@ -30791,7 +30810,11 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   graphics_system->SetShaderConstantWriteObserver(
       &ObserveVehicleShaderConstantWrite);
   graphics_system->SetIndirectBufferObserver(&ObserveIndirectBuffer);
-  graphics_system->SetCopyObserver(&ObserveCopy);
+  if (minimal_producer_graph_requested) {
+    graphics_system->SetCopyObserver(&ObservePrototypeResolveCopy);
+  } else {
+    graphics_system->SetCopyObserver(&ObserveCopy);
+  }
   graphics_system->SetPreparedDrawObserver(&ObservePreparedDraw);
   graphics_system->SetDrawOutcomeObserver(&ObserveDrawOutcome);
   graphics_system->SetIsolatedDrawRequestObserver(&RequestIsolatedDraw);
@@ -30799,6 +30822,21 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       g_procedural_frame_accumulator_backend_armed
           ? &PlanProceduralFrameAccumulatorBackend
           : nullptr);
+  diagnostics::RecordEvent(
+      "native_renderer.prototype_producer_graph.config",
+      {{"status", minimal_producer_graph_requested ? "armed" : "disabled"},
+       {"copy_observer", minimal_producer_graph_requested
+                             ? "exact_resolve_ingress"
+                             : "full_dependency_census"},
+       {"draw_observer", "retained"},
+       {"prepared_draw_observer", "retained"},
+       {"indirect_buffer_observer", "retained"},
+       {"draw_outcome_observer", "retained"},
+       {"isolated_draw_request_observer", "retained"},
+       {"native_replay_producer", "retained"},
+       {"xenos_draw", "preserved"},
+       {"guest_memory_publication", "false"},
+       {"draw_suppression", "false"}});
   const std::string capacity = std::to_string(kSignatureCapacity);
   const std::string scene = CensusSceneMarker();
   diagnostics::RecordEvent("native_renderer.census.installed",
