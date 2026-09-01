@@ -36,6 +36,11 @@ def fixture():
         prepared_target_entries="2",
         prepared_target_overflow="0",
         prepared_target_accounting_complete="true",
+        receiver_observations="12",
+        receiver_entries="2",
+        receiver_read_faults="0",
+        receiver_overflow="0",
+        receiver_accounting_complete="true",
         accounting_complete="true",
         **{
             f"slot_{slot}_{field}": value
@@ -83,7 +88,29 @@ def fixture():
         prepared_pipeline_flags="00000003",
         **safety(),
     )
-    return [event("process.start"), depth, color, summary, event("process.shutdown")]
+    receiver_78 = event(
+        MODULE.RECEIVER,
+        pass_mask="00000001",
+        receiver_vtable="82112233",
+        calls="4",
+        **safety(),
+    )
+    receiver_79 = event(
+        MODULE.RECEIVER,
+        pass_mask="00000002",
+        receiver_vtable="820019CC",
+        calls="8",
+        **safety(),
+    )
+    return [
+        event("process.start"),
+        depth,
+        color,
+        receiver_78,
+        receiver_79,
+        summary,
+        event("process.shutdown"),
+    ]
 
 
 class TrackPresentationPassSummaryTests(unittest.TestCase):
@@ -91,7 +118,13 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
         document = MODULE.build(fixture())
         self.assertEqual("complete", document["status"])
         self.assertEqual([78, 79], document["qualification"]["live_slots"])
+        self.assertEqual(
+            [78, 79], document["qualification"]["accepted_receiver_slots"]
+        )
         self.assertEqual([78], document["qualification"]["color_target_slots"])
+        self.assertEqual(
+            {"820019CC": 8}, document["runtime_receivers_by_slot"]["79"]
+        )
         self.assertEqual(
             8,
             document["prepared_targets_by_slot"]["79"]["target_shapes"][

@@ -77,6 +77,27 @@ only through a live color-producing slot after visual proof. A depth-only slot
 may feed the native shadow slice, but it cannot satisfy C1 opaque world
 coverage.
 
+## First pass-lineage run and receiver correction
+
+AppData session `20260901T042139Z-p17172` reached the saved festival and
+exited normally. Slot 79 made four balanced calls and slot 80 made six;
+slots 78 and 81 were idle. All ten calls failed the initial receiver check,
+so no prepared target inherited a pass mask. The zero-target result therefore
+does not reject either live slot.
+
+The check incorrectly treated membership in the static `82243774`
+presentation vtable as a runtime receiver constraint. Existing qualified
+evidence inside slot 79 already identifies its live `r3` receiver as unified
+track render-model instance vtable `820019CC`. Slot 79 now accepts only that
+proved runtime type. A bounded receiver-signature census records the readable
+`r3` vtable for every neighboring slot with exact observation, entry,
+read-fault, and overflow accounting. Slots 78, 80, and 81 remain unaccepted
+until their runtime receiver types are captured and classified.
+
+This correction still changes no renderer behavior: it only allows the
+already diagnostic packet lineage to retain slot 79's identity. Xenos remains
+authoritative, and native admission, publication, and suppression stay closed.
+
 ## Safety
 
 - The hooks read only the presentation vtable already live at entry.

@@ -91,6 +91,7 @@ constexpr size_t kTrackWorldPreparedLayoutCapacity = 1024;
 constexpr size_t kTrackWorldScopeSpatialCapacity = 1024;
 constexpr size_t kTrackWorldReferenceSpatialCapacity = 2048;
 constexpr size_t kTrackPresentationPreparedTargetCapacity = 256;
+constexpr size_t kTrackPresentationReceiverCapacity = 32;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -1127,6 +1128,12 @@ struct TrackPresentationPreparedTargetEntry {
   uint32_t bound_render_target_bits = 0;
   std::array<uint32_t, 5> bound_render_target_formats{};
   uint32_t prepared_pipeline_flags = 0;
+};
+
+struct TrackPresentationReceiverEntry {
+  uint64_t calls = 0;
+  uint32_t pass_index = 0;
+  uint32_t receiver_vtable = 0;
 };
 
 struct TrackWorldScopeSpatialEntry {
@@ -2917,6 +2924,14 @@ std::array<std::atomic<uint64_t>, 4>
     g_track_presentation_pass_exit_without_entry{};
 thread_local std::array<bool, 4> g_track_presentation_pass_active{};
 thread_local std::array<bool, 4> g_track_presentation_pass_accepted{};
+std::mutex g_track_presentation_receiver_mutex;
+std::array<TrackPresentationReceiverEntry,
+           kTrackPresentationReceiverCapacity>
+    g_track_presentation_receivers{};
+std::atomic<uint64_t> g_track_presentation_receiver_observations{};
+std::atomic<uint64_t> g_track_presentation_receiver_read_faults{};
+std::atomic<uint64_t> g_track_presentation_receiver_overflow{};
+size_t g_track_presentation_receiver_count = 0;
 std::array<TrackPresentationPreparedTargetEntry,
            kTrackPresentationPreparedTargetCapacity>
     g_track_presentation_prepared_targets{};
@@ -3910,12 +3925,40 @@ void BeginTrackPresentationPass(size_t pass_index, uint32_t root_address) {
       g_command_buffer_lineage_memory.load(std::memory_order_acquire);
   if (!g_command_buffer_lineage_installed.load(std::memory_order_acquire) ||
       !IsReadableVehicleGuestRange(memory, root_address, sizeof(uint32_t))) {
+    ++g_track_presentation_receiver_read_faults;
     ++g_track_presentation_pass_invalid_root[pass_index];
     return;
   }
   std::array<uint32_t, 1> root_words{};
   LoadSemanticGuestWords(memory, root_address, root_words);
-  if (root_words[0] != kTrackPresentationUnifiedVtable) {
+  ++g_track_presentation_receiver_observations;
+  {
+    std::scoped_lock lock(g_track_presentation_receiver_mutex);
+    TrackPresentationReceiverEntry *available = nullptr;
+    for (TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      if (entry.calls && entry.pass_index == pass_index &&
+          entry.receiver_vtable == root_words[0]) {
+        ++entry.calls;
+        available = &entry;
+        break;
+      }
+      if (!entry.calls && !available) {
+        available = &entry;
+      }
+    }
+    if (available && !available->calls) {
+      available->calls = 1;
+      available->pass_index = static_cast<uint32_t>(pass_index);
+      available->receiver_vtable = root_words[0];
+      ++g_track_presentation_receiver_count;
+    } else if (!available) {
+      ++g_track_presentation_receiver_overflow;
+    }
+  }
+  const uint32_t expected_receiver_vtable =
+      pass_index == 1 ? kTrackRenderModelInstanceUnifiedVtable : 0;
+  if (!expected_receiver_vtable || root_words[0] != expected_receiver_vtable) {
     ++g_track_presentation_pass_invalid_root[pass_index];
     return;
   }
@@ -6574,6 +6617,14 @@ void ResetTitleDrawProvenance() {
        g_track_presentation_prepared_targets) {
     entry = {};
   }
+  {
+    std::scoped_lock receiver_lock(g_track_presentation_receiver_mutex);
+    for (TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      entry = {};
+    }
+    g_track_presentation_receiver_count = 0;
+  }
   for (TrackWorldScopeSpatialEntry &entry :
        g_track_world_scope_spatial_entries) {
     entry = {};
@@ -6920,6 +6971,9 @@ void ResetTitleDrawProvenance() {
            &g_track_world_prepared_layout_table_overflow,
            &g_track_presentation_prepared_target_observations,
            &g_track_presentation_prepared_target_overflow,
+           &g_track_presentation_receiver_observations,
+           &g_track_presentation_receiver_read_faults,
+           &g_track_presentation_receiver_overflow,
            &g_track_world_scope_spatial_observations,
            &g_track_world_scope_spatial_table_overflow,
            &g_track_world_reference_spatial_observations,
@@ -13263,6 +13317,7 @@ void EmitTrackWorldScopeSpatialEntries();
 void EmitTrackWorldReferenceSpatialEntries();
 void EmitTrackWorldPreparedLayoutEntries();
 void EmitTrackPresentationPreparedTargetEntries();
+void EmitTrackPresentationReceiverEntries();
 
 void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
                                           bool final_summary,
@@ -13645,6 +13700,27 @@ void EmitTrackPresentationPassSummary() {
       prepared_target_observations ==
           prepared_target_accounted + prepared_target_overflow &&
       !prepared_target_overflow;
+  uint64_t receiver_accounted = 0;
+  size_t receiver_entry_count = 0;
+  {
+    std::scoped_lock lock(g_track_presentation_receiver_mutex);
+    for (const TrackPresentationReceiverEntry &entry :
+         g_track_presentation_receivers) {
+      receiver_accounted += entry.calls;
+    }
+    receiver_entry_count = g_track_presentation_receiver_count;
+  }
+  const uint64_t receiver_observations =
+      g_track_presentation_receiver_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_read_faults =
+      g_track_presentation_receiver_read_faults.load(
+          std::memory_order_relaxed);
+  const uint64_t receiver_overflow =
+      g_track_presentation_receiver_overflow.load(std::memory_order_relaxed);
+  const bool receiver_accounting_complete =
+      receiver_observations == receiver_accounted + receiver_overflow &&
+      !receiver_overflow;
   bool accounting_complete = true;
   for (size_t index = 0; index < entries.size(); ++index) {
     entries[index] = g_track_presentation_pass_entries[index].load(
@@ -13666,8 +13742,9 @@ void EmitTrackPresentationPassSummary() {
         entries[index] == exact[index] + invalid_root[index] &&
         !overlaps[index] && !exit_without_entry[index];
   }
-  accounting_complete =
-      accounting_complete && prepared_target_accounting_complete;
+  accounting_complete = accounting_complete &&
+                        prepared_target_accounting_complete &&
+                        receiver_accounting_complete;
   pinyon_shift::diagnostics::RecordEvent(
       "native_renderer.discovery.track_presentation_pass_summary",
       {{"status", !total_entries
@@ -13675,6 +13752,8 @@ void EmitTrackPresentationPassSummary() {
                       : (accounting_complete ? "complete" : "incomplete")},
        {"presentation_vtable",
         fmt::format("{:08X}", kTrackPresentationUnifiedVtable)},
+       {"slot_79_runtime_receiver_vtable",
+        fmt::format("{:08X}", kTrackRenderModelInstanceUnifiedVtable)},
        {"slot_78_function", "82DEEEE0"},
        {"slot_78_entries", std::to_string(entries[0])},
        {"slot_78_exits", std::to_string(exits[0])},
@@ -13707,6 +13786,12 @@ void EmitTrackPresentationPassSummary() {
        {"prepared_target_overflow", std::to_string(prepared_target_overflow)},
        {"prepared_target_accounting_complete",
         prepared_target_accounting_complete ? "true" : "false"},
+       {"receiver_observations", std::to_string(receiver_observations)},
+       {"receiver_entries", std::to_string(receiver_entry_count)},
+       {"receiver_read_faults", std::to_string(receiver_read_faults)},
+       {"receiver_overflow", std::to_string(receiver_overflow)},
+       {"receiver_accounting_complete",
+        receiver_accounting_complete ? "true" : "false"},
        {"accounting_complete", accounting_complete ? "true" : "false"},
        {"classification", "unified_track_presentation_adjacent_pass_census"},
        {"guest_state_changed", "false"},
@@ -13719,6 +13804,7 @@ void EmitTrackPresentationPassSummary() {
 
 void EmitTrackRenderModelRuntimeJoinSummary() {
   EmitTrackPresentationPassSummary();
+  EmitTrackPresentationReceiverEntries();
   EmitTrackPresentationPreparedTargetEntries();
   EmitTrackWorldScopeSpatialEntries();
   EmitTrackWorldReferenceSpatialEntries();
@@ -16068,6 +16154,30 @@ void EmitTrackPresentationPreparedTargetEntries() {
           fmt::format("{:08X}", entry.prepared_pipeline_flags)},
          {"classification",
           "exact_unified_track_presentation_pass_to_prepared_target"},
+         {"guest_payload_read", "false"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"native_draw", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
+}
+
+void EmitTrackPresentationReceiverEntries() {
+  std::scoped_lock lock(g_track_presentation_receiver_mutex);
+  for (const TrackPresentationReceiverEntry &entry :
+       g_track_presentation_receivers) {
+    if (!entry.calls) {
+      continue;
+    }
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_presentation_receiver_entry",
+        {{"pass_mask", fmt::format("{:08X}",
+                                    uint32_t(1) << entry.pass_index)},
+         {"receiver_vtable", fmt::format("{:08X}", entry.receiver_vtable)},
+         {"calls", std::to_string(entry.calls)},
+         {"classification", "track_presentation_runtime_receiver_signature"},
          {"guest_payload_read", "false"},
          {"guest_state_changed", "false"},
          {"control_flow_changed", "false"},

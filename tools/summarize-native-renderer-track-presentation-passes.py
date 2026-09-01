@@ -12,6 +12,7 @@ import sys
 SCHEMA = "pinyon-shift.native-renderer-track-presentation-passes.v1"
 SUMMARY = "native_renderer.discovery.track_presentation_pass_summary"
 ENTRY = "native_renderer.discovery.track_presentation_prepared_target_entry"
+RECEIVER = "native_renderer.discovery.track_presentation_receiver_entry"
 SLOTS = (78, 79, 80, 81)
 
 
@@ -143,6 +144,32 @@ def build(events, requested_session=None):
             pair = f"{vertex_shader}:{pixel_shader}"
             row["shader_pairs"][pair] = row["shader_pairs"].get(pair, 0) + calls
 
+    receiver_observations = integer(summary, "receiver_observations")
+    receiver_entry_count = integer(summary, "receiver_entries")
+    receiver_read_faults = integer(summary, "receiver_read_faults")
+    receiver_overflow = integer(summary, "receiver_overflow")
+    receiver_entries = [
+        event for event in selected if event.get("event") == RECEIVER
+    ]
+    receiver_calls = 0
+    receiver_profiles = {str(slot): {} for slot in SLOTS}
+    for event in receiver_entries:
+        require_safety(event)
+        pass_mask = hexadecimal(event, "pass_mask", 8)
+        if not pass_mask or pass_mask & ~0xF or pass_mask.bit_count() != 1:
+            raise ValueError("invalid receiver pass mask")
+        receiver_vtable = str(event.get("receiver_vtable", "")).upper()
+        if len(receiver_vtable) != 8 or any(
+            c not in "0123456789ABCDEF" for c in receiver_vtable
+        ):
+            raise ValueError("invalid receiver vtable")
+        calls = integer(event, "calls")
+        if not calls:
+            raise ValueError("empty receiver entry")
+        receiver_calls += calls
+        slot = SLOTS[pass_mask.bit_length() - 1]
+        receiver_profiles[str(slot)][receiver_vtable] = calls
+
     failures = []
     if summary.get("status") not in ("complete", "not_observed"):
         failures.append("track presentation summary is incomplete")
@@ -156,10 +183,21 @@ def build(events, requested_session=None):
         failures.append("prepared target call accounting drifted")
     if prepared_overflow:
         failures.append("prepared target table overflowed")
+    if summary.get("receiver_accounting_complete") != "true":
+        failures.append("receiver accounting is incomplete")
+    if receiver_entry_count != len(receiver_entries):
+        failures.append("receiver entry count drifted")
+    if receiver_observations != receiver_calls + receiver_overflow:
+        failures.append("receiver call accounting drifted")
+    if receiver_read_faults:
+        failures.append("presentation receiver reads faulted")
+    if receiver_overflow:
+        failures.append("presentation receiver table overflowed")
     if not total_slot_entries:
         failures.append("no unified track presentation pass was observed")
 
-    live_slots = [slot for slot in SLOTS if slot_totals[str(slot)]["exact"]]
+    live_slots = [slot for slot in SLOTS if slot_totals[str(slot)]["entries"]]
+    accepted_slots = [slot for slot in SLOTS if slot_totals[str(slot)]["exact"]]
     color_slots = [
         slot
         for slot in SLOTS
@@ -178,8 +216,10 @@ def build(events, requested_session=None):
             "overflow": prepared_overflow,
         },
         "prepared_targets_by_slot": per_slot,
+        "runtime_receivers_by_slot": receiver_profiles,
         "qualification": {
             "live_slots": live_slots,
+            "accepted_receiver_slots": accepted_slots,
             "color_target_slots": color_slots,
             "opaque_world_slot_proved": False,
             "native_admission": False,
