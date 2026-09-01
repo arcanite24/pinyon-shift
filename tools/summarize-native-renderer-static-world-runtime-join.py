@@ -886,9 +886,11 @@ def build(
         "presentation_renderer_joins",
         "presentation_renderer_mismatches",
         "presentation_resource_mismatches",
+        "presentation_resource_null",
         "asset_metadata_observations",
         "asset_metadata_exact",
         "asset_metadata_empty_keys",
+        "asset_metadata_missing_resources",
         "asset_metadata_read_faults",
         "asset_metadata_joins",
         "asset_metadata_missing_joins",
@@ -1094,9 +1096,14 @@ def build(
     if totals["asset_metadata_observations"] != (
         totals["asset_metadata_exact"]
         + totals["asset_metadata_empty_keys"]
+        + totals["asset_metadata_missing_resources"]
         + totals["asset_metadata_read_faults"]
     ):
         failures.append("static-world asset metadata classification drifted")
+    if totals["presentation_resource_null"] != totals[
+        "asset_metadata_missing_resources"
+    ]:
+        failures.append("static-world missing resource accounting drifted")
     if totals["presentation_renderer_joins"] != (
         totals["asset_metadata_joins"]
         + totals["asset_metadata_missing_joins"]

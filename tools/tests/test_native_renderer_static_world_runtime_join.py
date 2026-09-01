@@ -641,9 +641,11 @@ def fixture():
         presentation_renderer_joins="8",
         presentation_renderer_mismatches="0",
         presentation_resource_mismatches="0",
+        presentation_resource_null="0",
         asset_metadata_observations="12",
         asset_metadata_exact="10",
         asset_metadata_empty_keys="2",
+        asset_metadata_missing_resources="0",
         asset_metadata_read_faults="0",
         asset_metadata_joins="8",
         asset_metadata_missing_joins="0",
@@ -1032,6 +1034,39 @@ class StaticWorldRuntimeJoinTests(unittest.TestCase):
         self.assertEqual("incomplete", document["status"])
         self.assertIn(
             "asset_metadata_missing_joins is nonzero", document["failures"]
+        )
+
+    def test_classifies_null_resources_without_read_faults(self):
+        events = copy.deepcopy(fixture())
+        events[-1].update(
+            status="incomplete",
+            presentation_scopes_with_renderer="0",
+            presentation_scopes_without_renderer="12",
+            presentation_renderer_joins="0",
+            presentation_resource_null="12",
+            asset_metadata_exact="0",
+            asset_metadata_empty_keys="0",
+            asset_metadata_missing_resources="12",
+            asset_metadata_joins="0",
+            qualification_complete="false",
+        )
+        document = MODULE.build(
+            static_ingress(),
+            static_lifetime(),
+            static_resource(),
+            static_streaming(),
+            static_graph(),
+            static_owner(),
+            static_asset_metadata(),
+            static_mesh_semantics(),
+            events,
+        )
+        self.assertEqual(12, document["totals"]["presentation_resource_null"])
+        self.assertEqual(
+            12, document["totals"]["asset_metadata_missing_resources"]
+        )
+        self.assertNotIn(
+            "asset_metadata_read_faults is nonzero", document["failures"]
         )
 
     def test_rejects_mesh_semantic_read_fault(self):
