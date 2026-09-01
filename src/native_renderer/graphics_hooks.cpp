@@ -31,6 +31,7 @@
 
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/resolve_assembly_tracker.h"
+#include "native_renderer/resolve_frame_accumulator.h"
 #include "native_renderer/resource_identity.h"
 #include "pinyon_shift_diagnostics.h"
 
@@ -66,7 +67,7 @@ constexpr size_t kCandidateSummaryLimit = 32;
 constexpr size_t kPreparedShaderPairCapacity = 1024;
 constexpr size_t kCommandBufferLineageCapacity = 4096;
 constexpr size_t kProceduralColorTargetProfileCapacity = 1024;
-constexpr uint64_t kProceduralResolveAssemblyDetailLimit = 64;
+constexpr uint64_t kProceduralRuntimeDetailLimit = 64;
 constexpr size_t kResolveTargetCapacity = 4096;
 constexpr size_t kResolvePageCapacity = 32768;
 constexpr size_t kResolveSummaryLimit = 32;
@@ -11254,6 +11255,14 @@ uint64_t g_procedural_resolve_assembly_detail_count = 0;
 uint64_t g_procedural_resolve_assembly_detail_overflow = 0;
 pinyon_shift::native_renderer::ProceduralResolveAssemblyTracker
     g_procedural_resolve_assembly_tracker;
+pinyon_shift::native_renderer::ProceduralFrameAccumulatorPlanner
+    g_procedural_frame_accumulator_planner;
+uint64_t g_procedural_frame_accumulator_begins = 0;
+uint64_t g_procedural_frame_accumulator_appends = 0;
+uint64_t g_procedural_frame_accumulator_commits = 0;
+uint64_t g_procedural_frame_accumulator_cancels = 0;
+uint64_t g_procedural_frame_accumulator_detail_count = 0;
+uint64_t g_procedural_frame_accumulator_detail_overflow = 0;
 bool g_graphics_census_installed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
@@ -11536,6 +11545,13 @@ void ResetCommandBufferLineage() {
   g_procedural_resolve_assembly_detail_count = 0;
   g_procedural_resolve_assembly_detail_overflow = 0;
   g_procedural_resolve_assembly_tracker = {};
+  g_procedural_frame_accumulator_planner = {};
+  g_procedural_frame_accumulator_begins = 0;
+  g_procedural_frame_accumulator_appends = 0;
+  g_procedural_frame_accumulator_commits = 0;
+  g_procedural_frame_accumulator_cancels = 0;
+  g_procedural_frame_accumulator_detail_count = 0;
+  g_procedural_frame_accumulator_detail_overflow = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17260,7 +17276,7 @@ void EmitProceduralResolveAssembly(
   }
   ++g_procedural_resolve_assembly_count;
   if (g_procedural_resolve_assembly_detail_count ==
-      kProceduralResolveAssemblyDetailLimit) {
+      kProceduralRuntimeDetailLimit) {
     ++g_procedural_resolve_assembly_detail_overflow;
     return;
   }
@@ -17311,6 +17327,64 @@ void EmitProceduralResolveAssembly(
        {"suppression_allowed", "false"}});
 }
 
+void EmitProceduralFrameAccumulatorTransition(
+    const pinyon_shift::native_renderer::
+        ProceduralFrameAccumulatorTransition &transition) {
+  if (!transition.actionable()) {
+    return;
+  }
+  g_procedural_frame_accumulator_begins += transition.begin ? 1 : 0;
+  g_procedural_frame_accumulator_appends += transition.append ? 1 : 0;
+  g_procedural_frame_accumulator_commits += transition.commit ? 1 : 0;
+  g_procedural_frame_accumulator_cancels += transition.cancel ? 1 : 0;
+  if (g_procedural_frame_accumulator_detail_count ==
+      kProceduralRuntimeDetailLimit) {
+    ++g_procedural_frame_accumulator_detail_overflow;
+    return;
+  }
+  ++g_procedural_frame_accumulator_detail_count;
+  const char *operation =
+      transition.cancel
+          ? "cancel"
+          : (transition.commit
+                 ? "append_and_commit"
+                 : (transition.begin ? "begin_and_append" : "append"));
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_frame_accumulator_plan",
+      {{"frame", std::to_string(transition.frame_sequence)},
+       {"operation", operation},
+       {"cancel_reason",
+        pinyon_shift::native_renderer::
+            ProceduralFrameAccumulatorCancelReasonName(
+                transition.cancel_reason)},
+       {"source_state",
+        fmt::format("{:08X}:{:08X}", transition.source_surface_info,
+                    transition.source_info)},
+       {"destination_state",
+        fmt::format("{:08X}:{:08X}", transition.destination_info,
+                    transition.destination_pitch)},
+       {"base_address", fmt::format("{:08X}", transition.base_address)},
+       {"copy_address", fmt::format("{:08X}", transition.copy_address)},
+       {"copy_length", std::to_string(transition.copy_length)},
+       {"destination_row", std::to_string(transition.destination_row)},
+       {"storage_row_count",
+        std::to_string(transition.storage_row_count)},
+       {"logical_row_count",
+        std::to_string(transition.logical_row_count)},
+       {"logical_extent",
+        fmt::format("{}x{}", transition.logical_width,
+                    transition.logical_height)},
+       {"padded_height", std::to_string(transition.padded_height)},
+       {"bytes_per_pixel", std::to_string(transition.bytes_per_pixel)},
+       {"chunk_count", std::to_string(transition.chunk_count)},
+       {"backend_resource_action", "false"},
+       {"standalone_component_publication", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+}
+
 void RecordProceduralColorTargetProfile(
     uint64_t prepared_signature,
     const rex::system::GraphicsDrawObservation &observation,
@@ -17326,12 +17400,16 @@ void RecordProceduralColorTargetProfile(
       !context.semantic_receiver_generation) {
     return;
   }
-  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Arm(
-      {.frame_sequence = observation.frame_sequence,
-       .surface_info = observation.surface_info,
-       .color_info = observation.color_info[0],
-       .logical_width = 1280,
-       .logical_height = 720}));
+  const pinyon_shift::native_renderer::ProceduralResolveTarget target{
+      .frame_sequence = observation.frame_sequence,
+      .surface_info = observation.surface_info,
+      .color_info = observation.color_info[0],
+      .logical_width = 1280,
+      .logical_height = 720};
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Arm(target));
+  EmitProceduralFrameAccumulatorTransition(
+      g_procedural_frame_accumulator_planner.Arm(target));
   ++g_procedural_color_target_profile_observations;
   uint64_t key = UINT64_C(0xCBF29CE484222325);
   for (uint64_t value :
@@ -17723,6 +17801,8 @@ void RecordPreparedCommandBufferLineage(
 
 void EmitProceduralColorTargetProfiles() {
   EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Flush());
+  EmitProceduralFrameAccumulatorTransition(
+      g_procedural_frame_accumulator_planner.Flush());
   const auto &latest_assembly =
       g_procedural_resolve_assembly_tracker.latest_qualified();
   pinyon_shift::diagnostics::RecordEvent(
@@ -17735,7 +17815,7 @@ void EmitProceduralColorTargetProfiles() {
        {"detail_overflow",
         std::to_string(g_procedural_resolve_assembly_detail_overflow)},
        {"detail_limit",
-        std::to_string(kProceduralResolveAssemblyDetailLimit)},
+        std::to_string(kProceduralRuntimeDetailLimit)},
        {"latest_frame",
         std::to_string(latest_assembly ? latest_assembly->frame_sequence : 0)},
        {"latest_base_address",
@@ -17882,6 +17962,24 @@ void EmitProceduralColorTargetProfiles() {
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},
+       {"native_admission", "false"},
+       {"native_draw", "false"},
+       {"xenos_authority", "true"},
+       {"suppression_allowed", "false"}});
+  pinyon_shift::diagnostics::RecordEvent(
+      "native_renderer.discovery.procedural_frame_accumulator_plan_summary",
+      {{"begins", std::to_string(g_procedural_frame_accumulator_begins)},
+       {"appends", std::to_string(g_procedural_frame_accumulator_appends)},
+       {"commits", std::to_string(g_procedural_frame_accumulator_commits)},
+       {"cancels", std::to_string(g_procedural_frame_accumulator_cancels)},
+       {"detail_events",
+        std::to_string(g_procedural_frame_accumulator_detail_count)},
+       {"detail_overflow",
+        std::to_string(g_procedural_frame_accumulator_detail_overflow)},
+       {"detail_limit",
+        std::to_string(kProceduralRuntimeDetailLimit)},
+       {"backend_resource_action", "false"},
+       {"standalone_component_publication", "false"},
        {"native_admission", "false"},
        {"native_draw", "false"},
        {"xenos_authority", "true"},
@@ -28376,15 +28474,19 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation &observation) {
   const uint32_t copy_source_info =
       copy_source < 4 ? observation.color_info[copy_source]
                       : observation.depth_info;
-  EmitProceduralResolveAssembly(g_procedural_resolve_assembly_tracker.Observe(
-      {.frame_sequence = observation.frame_sequence,
-       .source = copy_source,
-       .source_surface_info = observation.surface_info,
-       .source_info = copy_source_info,
-       .destination_info = observation.rb_copy_dest_info,
-       .destination_pitch = observation.rb_copy_dest_pitch,
-       .written_address = observation.written_address,
-       .written_length = observation.written_length}));
+  const pinyon_shift::native_renderer::ProceduralResolveCopy copy{
+      .frame_sequence = observation.frame_sequence,
+      .source = copy_source,
+      .source_surface_info = observation.surface_info,
+      .source_info = copy_source_info,
+      .destination_info = observation.rb_copy_dest_info,
+      .destination_pitch = observation.rb_copy_dest_pitch,
+      .written_address = observation.written_address,
+      .written_length = observation.written_length};
+  EmitProceduralResolveAssembly(
+      g_procedural_resolve_assembly_tracker.Observe(copy));
+  EmitProceduralFrameAccumulatorTransition(
+      g_procedural_frame_accumulator_planner.Observe(copy));
 
   ++g_dependency_census.window_resolve_count;
   g_dependency_census.window_resolve_bytes += observation.written_length;
@@ -30532,6 +30634,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"procedural_color_resolve_source_state", "exact_backend_v1"},
        {"procedural_color_resolve_runtime_tracker",
         "exact_contiguous_full_frame_v1"},
+       {"procedural_color_frame_accumulator_plan", "exact_padded_rows_v1"},
        {"guest_payload_read", "false"},
        {"guest_state_changed", "false"},
        {"control_flow_changed", "false"},

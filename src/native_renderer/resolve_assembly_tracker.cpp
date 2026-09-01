@@ -5,9 +5,8 @@
 #include <limits>
 
 namespace pinyon_shift::native_renderer {
-namespace {
 
-uint32_t ColorBytesPerPixel(uint32_t format) {
+uint32_t XenosColorBytesPerPixel(uint32_t format) {
   switch (format) {
     case 2:
     case 8:
@@ -44,8 +43,6 @@ uint32_t ColorBytesPerPixel(uint32_t format) {
       return 0;
   }
 }
-
-}  // namespace
 
 std::optional<ProceduralResolveAssembly>
 ProceduralResolveAssemblyTracker::Advance(uint64_t frame_sequence) {
@@ -162,7 +159,7 @@ ProceduralResolveAssemblyTracker::Finalize() {
     const uint32_t logical_height =
         (first.destination_pitch >> 16) & 0x3FFF;
     const uint32_t color_format = (first.destination_info >> 7) & 0x3F;
-    const uint32_t bytes_per_pixel = ColorBytesPerPixel(color_format);
+    const uint32_t bytes_per_pixel = XenosColorBytesPerPixel(color_format);
     const uint64_t row_bytes = uint64_t(pitch_width) * bytes_per_pixel;
     const uint32_t padded_height =
         row_bytes && total_bytes % row_bytes == 0 &&

@@ -8,6 +8,8 @@
 
 namespace pinyon_shift::native_renderer {
 
+uint32_t XenosColorBytesPerPixel(uint32_t format);
+
 struct ProceduralResolveTarget {
   uint64_t frame_sequence = 0;
   uint32_t surface_info = 0;

@@ -1,7 +1,7 @@
 # Live color-producer lineage
 
 Status: predicated color tile and exact padded full-frame resolve assembly
-proved; runtime workset tracker implemented
+proved; runtime workset tracker and private accumulator plan implemented
 
 ## Why this is the next ingress
 
@@ -98,6 +98,17 @@ events at 64 and reporting any omitted details in its final summary. Its events
 are diagnostic only and are deliberately batched into the next substantial
 AppData validation.
 
+The next implementation checkpoint converts each qualified copy into an exact
+backend-neutral private-accumulator operation. The plan begins at row 0,
+appends only same-state address-contiguous chunks, and commits only after more
+than one chunk covers all 720 logical rows with fewer than 64 padding rows. For
+the proved workset its row operations are `0+256`, `256+256`, and `512+224`;
+the final operation exposes 208 logical rows and preserves the trailing 16
+storage rows. Frame advance, target conflict, destination mismatch, malformed
+row geometry, or chunk overflow cancels the plan and poisons the remainder of
+that frame. The planner owns no backend resource yet, so this checkpoint still
+cannot publish a component or change rendering.
+
 Run the deferred qualifier after the next combined AppData capture:
 
 ```powershell
@@ -128,9 +139,9 @@ python tools/summarize-native-renderer-procedural-resolve-assembly.py `
 ## Promotion gate
 
 The exact contiguous 1280x720 logical resolve assembly is now proved. The next
-C1 implementation may use the runtime tracker as its private capture gate only
-after the tracker's event contract passes the next batched validation. The
-private target must use the complete assembly dimensions and preserve its 16
-alignment rows; no 1280x256 component may be published alone. Other reduced
-targets remain excluded. Xenos remains authoritative and this checkpoint
-changes no rendering or control flow.
+C1 implementation may use the runtime tracker and accumulator plan as its
+private capture gate only after their event contracts pass the next batched
+validation. The private target must use the complete assembly dimensions and
+preserve its 16 alignment rows; no 1280x256 component may be published alone.
+Other reduced targets remain excluded. Xenos remains authoritative and this
+checkpoint changes no rendering or control flow.
