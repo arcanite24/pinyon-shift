@@ -186,3 +186,11 @@ that absence was explicitly reconciled without inferring an index. The game
 loaded the installed AppData festival save and remained visually stable.
 Native output stayed private, the original Xenos draws remained authoritative,
 and publication and suppression stayed disabled.
+
+Release/AppData session `20260901T042139Z-p17172` requalified the passive
+handoff during the C1/C2 batch. It retained 38 fresh candidates in nine exact
+track-texture families; 11 draws in two families passed the mechanical replay
+contract. Missing, rejected, and stale exclusions reconciled all 3,310
+observations, with zero future decisions or table overflow. Exact track-world,
+static-world, and title-LOD lineage were absent, so this result keeps the
+handoff proved but does not promote a semantic world family.
