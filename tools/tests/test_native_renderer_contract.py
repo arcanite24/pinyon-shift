@@ -7,6 +7,41 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class NativeRendererContractTests(unittest.TestCase):
+    def test_prepared_draw_reuses_contract_and_mechanical_classification(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        admission_start = source.index(
+            "SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity("
+        )
+        admission_end = source.index(
+            "void EmitSemanticBatchEquivalenceSummary(", admission_start
+        )
+        admission = source[admission_start:admission_end]
+        self.assertIn(
+            "const SemanticPreparedDrawContract &contract", admission
+        )
+        self.assertIn("uint32_t mechanical_rejection_mask", admission)
+        self.assertNotIn("BuildSemanticPreparedDrawContract(", admission)
+        self.assertNotIn("IsolatedDrawMechanicalRejectionMask(", admission)
+
+        prepared_start = source.index("void ObservePreparedDraw(")
+        prepared_end = source.index("void ObserveDrawOutcome(", prepared_start)
+        prepared = source[prepared_start:prepared_end]
+        self.assertEqual(prepared.count("BuildSemanticPreparedDrawContract("), 1)
+        self.assertEqual(
+            prepared.count("IsolatedDrawMechanicalRejectionMask("), 1
+        )
+        vehicle_gate = prepared.index(
+            "if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode)"
+        )
+        vehicle_classifier = prepared.index(
+            "VehicleShadowColorPrivateCaptureRejectionMask(", vehicle_gate
+        )
+        self.assertGreater(vehicle_classifier, vehicle_gate)
+        self.assertIn('{"xenos_draw", "preserved"}', source)
+        self.assertIn('{"draw_suppression", "false"}', source)
+
     def test_isolated_depth_seed_copies_every_d3d12_plane(self) -> None:
         patch = (
             ROOT
