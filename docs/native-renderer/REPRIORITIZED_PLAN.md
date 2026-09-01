@@ -467,6 +467,19 @@ indirect route; the direct unified-track edge is deferred until a scene proves
 it live, and C2 must not infer building/prop identity from generic active
 helpers.
 
+Prepared-layout pivot checkpoint: the proven indirect track lineage now retains
+at most 512 shader-decoded prepared-layout families, keyed by the exact track
+root/child/descriptor tuple and pipeline/layout/render-state contract. Final
+shutdown emits one bounded numeric metadata sample per family plus complete
+exact, unbounded, parameter-overflow, and table-overflow accounting. The offline
+report identifies recurring finite vertex-constant register runs for comparison
+against the static world transform catalog. This replaces further speculation
+at generic direct helpers; it does not yet prove a transform, terrain/road
+identity, native admission, or suppression. The next expensive build/AppData
+run is deliberately batched until this census and its offline analyzer can
+answer that concrete transform-layout question. See
+[`TRACK_WORLD_PREPARED_LAYOUT.md`](TRACK_WORLD_PREPARED_LAYOUT.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

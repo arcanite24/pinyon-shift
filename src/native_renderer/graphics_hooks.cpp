@@ -87,6 +87,7 @@ constexpr size_t kDispatchCallerCapacity = 256;
 constexpr size_t kTitlePacketProvenanceCapacity = 16384;
 constexpr size_t kTitleDrawProvenanceCapacity = 4096;
 constexpr size_t kStaticWorldPreparedLayoutCapacity = 512;
+constexpr size_t kTrackWorldPreparedLayoutCapacity = 512;
 constexpr size_t kTitleOriginStackCapacity = 32;
 constexpr size_t kTitleIndirectPacketBucketCount = 4096;
 constexpr size_t kTitleIndirectPacketWays = 4;
@@ -1093,6 +1094,21 @@ struct StaticWorldPreparedLayoutEntry {
   rex::system::GraphicsDrawObservation sample{};
 };
 
+struct TrackWorldPreparedLayoutEntry {
+  uint64_t key = 0;
+  uint64_t calls = 0;
+  uint64_t first_frame = 0;
+  uint64_t last_frame = 0;
+  uint64_t parameter_hash = 0;
+  uint64_t parameter_variations = 0;
+  uint32_t track_render_root_address = 0;
+  uint32_t track_render_child_address = 0;
+  uint32_t track_render_descriptor_address = 0;
+  uint32_t track_render_descriptor_payload = 0;
+  SemanticPreparedDrawContract contract{};
+  rex::system::GraphicsDrawObservation sample{};
+};
+
 struct TitleIndirectPacketEntry {
   uint32_t packet_physical_address = UINT32_MAX;
   uint32_t constructor_store_address = 0;
@@ -1184,6 +1200,8 @@ std::array<TitleDrawProvenanceEntry, kTitleDrawProvenanceCapacity>
 std::array<StaticWorldPreparedLayoutEntry,
            kStaticWorldPreparedLayoutCapacity>
     g_static_world_prepared_layouts{};
+std::array<TrackWorldPreparedLayoutEntry, kTrackWorldPreparedLayoutCapacity>
+    g_track_world_prepared_layouts{};
 std::array<SemanticBatchOpportunityEntry,
            kSemanticBatchOpportunityCapacity>
     g_semantic_batch_opportunities{};
@@ -2809,6 +2827,12 @@ std::atomic<uint64_t> g_static_world_prepared_layout_unbounded_geometry{};
 std::atomic<uint64_t> g_static_world_prepared_layout_parameter_overflows{};
 std::atomic<uint64_t> g_static_world_prepared_layout_table_overflow{};
 size_t g_static_world_prepared_layout_count = 0;
+std::atomic<uint64_t> g_track_world_prepared_layout_observations{};
+std::atomic<uint64_t> g_track_world_prepared_layout_exact{};
+std::atomic<uint64_t> g_track_world_prepared_layout_unbounded_geometry{};
+std::atomic<uint64_t> g_track_world_prepared_layout_parameter_overflows{};
+std::atomic<uint64_t> g_track_world_prepared_layout_table_overflow{};
+size_t g_track_world_prepared_layout_count = 0;
 std::atomic<uint64_t> g_static_world_presentation_entries{};
 std::atomic<uint64_t> g_static_world_presentation_exits{};
 std::atomic<uint64_t> g_static_world_presentation_exact{};
@@ -6344,6 +6368,10 @@ void ResetTitleDrawProvenance() {
        g_static_world_prepared_layouts) {
     entry = {};
   }
+  for (TrackWorldPreparedLayoutEntry &entry :
+       g_track_world_prepared_layouts) {
+    entry = {};
+  }
   for (SemanticBatchOpportunityEntry &entry :
        g_semantic_batch_opportunities) {
     entry = {};
@@ -6387,6 +6415,7 @@ void ResetTitleDrawProvenance() {
   g_title_draw_provenance_count = 0;
   g_title_draw_provenance_overflow = 0;
   g_static_world_prepared_layout_count = 0;
+  g_track_world_prepared_layout_count = 0;
   g_semantic_batch_observations = 0;
   g_semantic_visibility_prepared_observations = 0;
   g_semantic_visibility_prepared_selected_joins = 0;
@@ -6658,6 +6687,11 @@ void ResetTitleDrawProvenance() {
            &g_static_world_prepared_layout_unbounded_geometry,
            &g_static_world_prepared_layout_parameter_overflows,
            &g_static_world_prepared_layout_table_overflow,
+           &g_track_world_prepared_layout_observations,
+           &g_track_world_prepared_layout_exact,
+           &g_track_world_prepared_layout_unbounded_geometry,
+           &g_track_world_prepared_layout_parameter_overflows,
+           &g_track_world_prepared_layout_table_overflow,
            &g_static_world_presentation_entries,
            &g_static_world_presentation_exits,
            &g_static_world_presentation_exact,
@@ -12863,6 +12897,8 @@ void EmitProceduralModelSemanticSubmissions() {
        {"suppression_allowed", "false"}});
 }
 
+void EmitTrackWorldPreparedLayoutEntries();
+
 void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
                                           bool final_summary,
                                           uint64_t frame_sequence) {
@@ -12904,6 +12940,25 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
           std::memory_order_relaxed) &&
       !invalid_child && !invalid_descriptor &&
       !contract_mismatches;
+  const uint64_t prepared_layout_observations =
+      g_track_world_prepared_layout_observations.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_exact =
+      g_track_world_prepared_layout_exact.load(std::memory_order_relaxed);
+  const uint64_t prepared_layout_unbounded_geometry =
+      g_track_world_prepared_layout_unbounded_geometry.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_parameter_overflows =
+      g_track_world_prepared_layout_parameter_overflows.load(
+          std::memory_order_relaxed);
+  const uint64_t prepared_layout_table_overflow =
+      g_track_world_prepared_layout_table_overflow.load(
+          std::memory_order_relaxed);
+  const bool prepared_layout_accounting_complete =
+      prepared_layout_observations ==
+          prepared_layout_exact + prepared_layout_unbounded_geometry +
+              prepared_layout_parameter_overflows &&
+      !prepared_layout_table_overflow;
   pinyon_shift::diagnostics::RecordEvent(
       event_name,
       {{"status", !entries
@@ -12949,6 +13004,19 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
         std::to_string(
             g_track_render_model_prepared_draw_joins_without_semantic_origin
                 .load(std::memory_order_relaxed))},
+       {"prepared_layout_observations",
+         std::to_string(prepared_layout_observations)},
+       {"prepared_layout_exact", std::to_string(prepared_layout_exact)},
+       {"prepared_layout_entries",
+         std::to_string(g_track_world_prepared_layout_count)},
+       {"prepared_layout_unbounded_geometry",
+         std::to_string(prepared_layout_unbounded_geometry)},
+       {"prepared_layout_parameter_overflows",
+         std::to_string(prepared_layout_parameter_overflows)},
+       {"prepared_layout_table_overflow",
+         std::to_string(prepared_layout_table_overflow)},
+       {"prepared_layout_accounting_complete",
+         prepared_layout_accounting_complete ? "true" : "false"},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -13118,6 +13186,7 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
 }
 
 void EmitTrackRenderModelRuntimeJoinSummary() {
+  EmitTrackWorldPreparedLayoutEntries();
   EmitTrackRenderModelRuntimeJoinEvent(
       "native_renderer.discovery.track_render_model_runtime_join_summary",
       true, g_frame_sequence.load(std::memory_order_relaxed));
@@ -15420,6 +15489,86 @@ std::string SerializeVertexAttributes(
         attribute.flags);
   }
   return result;
+}
+
+void EmitTrackWorldPreparedLayoutEntries() {
+  for (const TrackWorldPreparedLayoutEntry &entry :
+       g_track_world_prepared_layouts) {
+    if (!entry.calls) {
+      continue;
+    }
+    const auto &sample = entry.sample;
+    const auto &contract = entry.contract;
+    pinyon_shift::diagnostics::RecordEvent(
+        "native_renderer.discovery.track_world_prepared_layout_entry",
+        {{"layout_key", fmt::format("{:016X}", entry.key)},
+         {"track_render_root",
+          fmt::format("{:08X}", entry.track_render_root_address)},
+         {"track_render_child",
+          fmt::format("{:08X}", entry.track_render_child_address)},
+         {"track_render_descriptor",
+          fmt::format("{:08X}", entry.track_render_descriptor_address)},
+         {"track_render_descriptor_payload",
+          fmt::format("{:08X}", entry.track_render_descriptor_payload)},
+         {"calls", std::to_string(entry.calls)},
+         {"first_frame", std::to_string(entry.first_frame)},
+         {"last_frame", std::to_string(entry.last_frame)},
+         {"parameter_hash", fmt::format("{:016X}", entry.parameter_hash)},
+         {"parameter_variations",
+          std::to_string(entry.parameter_variations)},
+         {"prepared_pipeline_hash",
+          fmt::format("{:016X}", contract.prepared_pipeline_hash)},
+         {"geometry_layout_hash",
+          fmt::format("{:016X}", contract.geometry_layout_hash)},
+         {"texture_layout_hash",
+          fmt::format("{:016X}", contract.texture_layout_hash)},
+         {"render_state_hash",
+          fmt::format("{:016X}", contract.render_state_hash)},
+         {"vertex_shader",
+          fmt::format("{:016X}", contract.vertex_shader_hash)},
+         {"pixel_shader",
+          fmt::format("{:016X}", contract.pixel_shader_hash)},
+         {"primitive_type", std::to_string(sample.primitive_type)},
+         {"index_count", std::to_string(sample.index_count)},
+         {"index_buffer_address",
+          fmt::format("{:08X}", sample.index_buffer_address)},
+         {"index_buffer_length",
+          std::to_string(sample.index_buffer_length)},
+         {"index_format", std::to_string(sample.index_format)},
+         {"index_endianness", std::to_string(sample.index_endianness)},
+         {"vertex_binding_count",
+          std::to_string(sample.vertex_binding_count)},
+         {"vertex_bindings", SerializeVertexBindings(sample)},
+         {"vertex_attribute_count",
+          std::to_string(sample.vertex_attribute_count)},
+         {"vertex_attributes", SerializeVertexAttributes(sample)},
+         {"vertex_float_constant_count",
+          std::to_string(sample.vertex_float_constant_count)},
+         {"vertex_float_constants",
+          SerializeFloatConstants(sample.vertex_float_constants,
+                                  sample.vertex_float_constant_count)},
+         {"pixel_float_constant_count",
+          std::to_string(sample.pixel_float_constant_count)},
+         {"pixel_float_constants",
+          SerializeFloatConstants(sample.pixel_float_constants,
+                                  sample.pixel_float_constant_count)},
+         {"bool_constants",
+          SerializeWordConstants(sample.bool_constant_bitmap,
+                                 sample.bool_constant_values,
+                                 std::size(sample.bool_constant_bitmap))},
+         {"loop_constants",
+          SerializeLoopConstants(sample.loop_constant_bitmap,
+                                 sample.loop_constant_values)},
+         {"texture_state_count",
+          std::to_string(sample.texture_state_count)},
+         {"texture_states", SerializeTextureStates(sample)},
+         {"guest_payload_read", "bounded_prepared_draw_metadata_only"},
+         {"guest_state_changed", "false"},
+         {"control_flow_changed", "false"},
+         {"native_admission", "false"},
+         {"xenos_authority", "true"},
+         {"suppression_allowed", "false"}});
+  }
 }
 
 std::string SerializeStaticWorldTransform(
@@ -18135,6 +18284,86 @@ void RecordStaticWorldPreparedLayout(
       1, std::memory_order_relaxed);
 }
 
+void RecordTrackWorldPreparedLayout(
+    const rex::system::GraphicsDrawObservation &observation,
+    const IndirectConstructorOrigin::Owner::Producer::Context &context,
+    const SemanticPreparedDrawContract &contract) {
+  g_track_world_prepared_layout_observations.fetch_add(
+      1, std::memory_order_relaxed);
+  if (!contract.geometry_bounded) {
+    g_track_world_prepared_layout_unbounded_geometry.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  if (!contract.texture_layout_bounded ||
+      observation.vertex_float_constant_overflow ||
+      observation.pixel_float_constant_overflow ||
+      observation.texture_state_overflow) {
+    g_track_world_prepared_layout_parameter_overflows.fetch_add(
+        1, std::memory_order_relaxed);
+    return;
+  }
+  g_track_world_prepared_layout_exact.fetch_add(1, std::memory_order_relaxed);
+
+  uint64_t key = UINT64_C(0xCBF29CE484222325);
+  for (uint64_t value :
+       {uint64_t(context.track_render_root_address),
+        uint64_t(context.track_render_child_address),
+        uint64_t(context.track_render_descriptor_address),
+        uint64_t(context.track_render_descriptor_payload),
+        contract.prepared_pipeline_hash, contract.geometry_layout_hash,
+        contract.texture_layout_hash, contract.render_state_hash}) {
+    key = HashCombine(key, value);
+  }
+  key = key ? key : 1;
+  const uint64_t parameter_hash = SemanticInstanceParameterHash(observation);
+  size_t index = size_t(key % kTrackWorldPreparedLayoutCapacity);
+  for (size_t probe = 0; probe < kTrackWorldPreparedLayoutCapacity; ++probe) {
+    TrackWorldPreparedLayoutEntry &entry =
+        g_track_world_prepared_layouts[index];
+    if (!entry.calls) {
+      entry.key = key;
+      entry.calls = 1;
+      entry.first_frame = observation.frame_sequence;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_hash = parameter_hash;
+      entry.track_render_root_address = context.track_render_root_address;
+      entry.track_render_child_address = context.track_render_child_address;
+      entry.track_render_descriptor_address =
+          context.track_render_descriptor_address;
+      entry.track_render_descriptor_payload =
+          context.track_render_descriptor_payload;
+      entry.contract = contract;
+      entry.sample = observation;
+      ++g_track_world_prepared_layout_count;
+      return;
+    }
+    if (entry.key == key &&
+        entry.track_render_root_address == context.track_render_root_address &&
+        entry.track_render_child_address ==
+            context.track_render_child_address &&
+        entry.track_render_descriptor_address ==
+            context.track_render_descriptor_address &&
+        entry.track_render_descriptor_payload ==
+            context.track_render_descriptor_payload &&
+        entry.contract.prepared_pipeline_hash ==
+            contract.prepared_pipeline_hash &&
+        entry.contract.geometry_layout_hash == contract.geometry_layout_hash &&
+        entry.contract.texture_layout_hash == contract.texture_layout_hash &&
+        entry.contract.render_state_hash == contract.render_state_hash) {
+      ++entry.calls;
+      entry.last_frame = observation.frame_sequence;
+      entry.parameter_variations +=
+          entry.parameter_hash != parameter_hash ? 1 : 0;
+      entry.parameter_hash = parameter_hash;
+      return;
+    }
+    index = (index + 1) % kTrackWorldPreparedLayoutCapacity;
+  }
+  g_track_world_prepared_layout_table_overflow.fetch_add(
+      1, std::memory_order_relaxed);
+}
+
 void UpdateSemanticPreparedDrawContract(
     SemanticPreparedDrawContract &contract,
     const rex::system::GraphicsDrawObservation &observation,
@@ -20692,6 +20921,8 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
   const bool exact_track_command =
       active && active->constructor_origin.owner.producer.context
                     .track_command_lineage;
+  const SemanticPreparedDrawContract contract =
+      BuildSemanticPreparedDrawContract(observation, prepared);
   if (exact_track_command) {
     g_track_render_model_prepared_draw_joins.fetch_add(
         1, std::memory_order_relaxed);
@@ -20701,6 +20932,11 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
         .fetch_add(1, std::memory_order_relaxed);
     g_track_render_model_shared_identity_relations[8].fetch_add(
         1, std::memory_order_relaxed);
+    if (contract.valid) {
+      RecordTrackWorldPreparedLayout(
+          observation, active->constructor_origin.owner.producer.context,
+          contract);
+    }
   }
   if (!origin.semantic_draw.valid) {
     return {
@@ -20721,8 +20957,6 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     identity.track_world_resource_identity_mask |=
         track_context.track_world_resource_identity_mask;
   }
-  const SemanticPreparedDrawContract contract =
-      BuildSemanticPreparedDrawContract(observation, prepared);
   const uint32_t mechanical_rejection_mask =
       IsolatedDrawMechanicalRejectionMask(
       observation, samples_resolved_target, prepared);
