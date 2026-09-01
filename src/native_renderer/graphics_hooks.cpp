@@ -11294,6 +11294,7 @@ std::array<uint64_t, 6> g_procedural_frame_accumulator_backend_statuses{};
 uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
 bool g_graphics_census_installed = false;
+bool g_graphics_full_census_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
 void *g_guest_cpu_access_callback = nullptr;
 
@@ -25469,9 +25470,14 @@ void ObservePreparedDraw(
         g_pass_follower.awaiting_follower = true;
       }
     }
-    RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
-                    observation);
+    if (g_graphics_full_census_armed) {
+      RecordCandidate(sample, g_pending_candidate.samples_resolved_target,
+                      observation);
+    }
     g_pending_candidate.valid = false;
+  }
+  if (!g_graphics_full_census_armed) {
+    return;
   }
   uint64_t identity = 0xCBF29CE484222325ull;
   for (uint64_t value :
@@ -28919,6 +28925,9 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.samples_resolved_target = samples_resolved_target;
   g_pending_candidate = candidate;
   g_pending_candidate.valid = true;
+  if (!g_graphics_full_census_armed) {
+    return;
+  }
   size_t index = size_t(signature % kSignatureCapacity);
   for (size_t probe = 0; probe < kSignatureCapacity; ++probe) {
     DrawSignatureEntry &entry = g_draw_census.entries[index];
@@ -30685,6 +30694,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
       REXCVAR_GET(pinyon_shift_native_renderer_sky_horizon_suppression);
   const bool census_requested =
       REXCVAR_GET(pinyon_shift_native_renderer_census);
+  g_graphics_full_census_armed = census_requested;
   const bool prototype_selected = NativePrototypeSelected();
   const bool procedural_frame_accumulator_requested =
       ProceduralFrameAccumulatorSelected(prototype_selected);
@@ -31563,6 +31573,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
   EmitDispatchDiscoverySummary();
   if (!g_graphics_census_installed) {
     g_procedural_frame_accumulator_backend_armed = false;
+    g_graphics_full_census_armed = false;
     return;
   }
   const bool guest_cpu_observer_installed =
@@ -31948,6 +31959,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system) {
        {"xenos_fallback",
         "mandatory_on_state_yield_replay_or_publication_failure"}});
   g_graphics_census_installed = false;
+  g_graphics_full_census_armed = false;
   g_procedural_frame_accumulator_backend_armed = false;
   g_graphics_census_memory = nullptr;
   if (g_draw_census.window_first_frame && g_draw_census.window_draw_count) {

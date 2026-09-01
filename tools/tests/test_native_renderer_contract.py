@@ -2095,6 +2095,11 @@ class NativeRendererContractTests(unittest.TestCase):
             scanner,
         )
         self.assertIn("prototype_selected ||", scanner)
+        self.assertIn("g_graphics_full_census_armed = census_requested", scanner)
+        self.assertIn(
+            "if (!g_graphics_full_census_armed) {\n    return;\n  }",
+            scanner,
+        )
         self.assertIn("PlanProceduralFrameAccumulatorBackend", scanner)
         self.assertIn("SetNativeFrameAccumulatorPlanner(", scanner)
         self.assertIn("kProceduralFrameAccumulatorStorageHeight = 736", scanner)
