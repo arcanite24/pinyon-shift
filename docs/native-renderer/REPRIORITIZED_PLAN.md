@@ -564,6 +564,13 @@ complete overflow accounting. The next AppData run can therefore identify a
 live color-producing pass directly; no intermediate call-count-only run is
 needed, and no candidate gains admission before private visual proof.
 
+The first lineage run proved slots 79 and 80 live but exposed an incorrect
+static-owner receiver gate. Slot 79's already-qualified runtime receiver is
+the unified track render-model instance (`820019CC`), not the presentation
+vtable that merely contains the function address. The corrected slice admits
+only that exact diagnostic scope and inventories neighboring runtime receiver
+signatures; rendering authority and suppression remain unchanged.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
