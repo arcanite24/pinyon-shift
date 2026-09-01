@@ -130,6 +130,15 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
         self.assertIn("procedural_color_producer_requests", source)
         self.assertIn("procedural_color_producer_target_failures", source)
         self.assertIn("procedural_color_target_failure_reasons", source)
+        self.assertIn("ContinuousWorldRetainedTargetIdentity", source)
+        self.assertIn("current_retained_target_identity", source)
+        self.assertIn("target_reseed_requests", source)
+        self.assertIn("procedural_color_target_reseed_requests", source)
+        self.assertIn(
+            "current_retained_target_identity ==\n"
+            "            retained_target_identity",
+            source,
+        )
 
         self.assertIn(
             ".track_command_lineage = exact_track_command", source

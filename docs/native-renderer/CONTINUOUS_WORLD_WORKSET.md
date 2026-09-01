@@ -92,6 +92,12 @@ workset summary partitions both all failures and the exact procedural subset.
 This distinguishes missing or extra guest attachments, private depth/color
 allocation failures, invalid extents or depth formats, and retained-target
 mismatches without adding payload capture or weakening Xenos fallback.
+Retained-target reuse is keyed by the complete bound attachment identity: guest
+surface state, every bound depth/color target, prepared formats, and replay
+mode. A draw reuses the private target only when that identity is unchanged;
+an in-frame target-family transition begins a newly seeded private target and
+is reported as a reseed. This prevents sky/world retention from being reused as
+the procedural producer's target while preserving consecutive producer draws.
 When exact track-world selection is armed, accepted requests and provider-only
 identity exclusions are reported separately as `track_world_requests` and
 `track_world_identity_exclusions`.
