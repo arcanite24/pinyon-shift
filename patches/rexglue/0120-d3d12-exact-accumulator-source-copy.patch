@@ -1,0 +1,888 @@
+From db1e707ccf1bc75018257e0bc9e92efbdced299f Mon Sep 17 00:00:00 2001
+From: "Brandon G. Neri" <arcaniteamp@gmail.com>
+Date: Tue, 1 Sep 2026 09:24:50 -0600
+Subject: [PATCH] feat(graphics): copy exact accumulator source regions
+
+---
+ .../rex/graphics/d3d12/render_target_cache.h  |   2 +
+ src/graphics/d3d12/render_target_cache.cpp    |  71 +++-
+ .../procedural_frame_accumulator_2xmsaa_cs.h  | 366 +++++++-----------
+ .../procedural_frame_accumulator_4xmsaa_cs.h  | 215 ++++++++++
+ ...rocedural_frame_accumulator_2xmsaa.cs.hlsl |  25 +-
+ ...rocedural_frame_accumulator_4xmsaa.cs.hlsl |  38 ++
+ 6 files changed, 459 insertions(+), 258 deletions(-)
+ create mode 100644 src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_4xmsaa_cs.h
+ create mode 100644 src/graphics/shaders/procedural_frame_accumulator_4xmsaa.cs.hlsl
+
+diff --git a/include/rex/graphics/d3d12/render_target_cache.h b/include/rex/graphics/d3d12/render_target_cache.h
+index 012e89f..e6d86ae 100644
+--- a/include/rex/graphics/d3d12/render_target_cache.h
++++ b/include/rex/graphics/d3d12/render_target_cache.h
+@@ -763,6 +763,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
+       isolated_replay_frame_accumulator_2xmsaa_root_signature_ = nullptr;
+   ID3D12PipelineState*
+       isolated_replay_frame_accumulator_2xmsaa_pipeline_ = nullptr;
++  ID3D12PipelineState*
++      isolated_replay_frame_accumulator_4xmsaa_pipeline_ = nullptr;
+   uint64_t isolated_replay_frame_accumulator_frame_sequence_ = 0;
+   uint64_t isolated_replay_frame_accumulator_source_frame_sequence_ = 0;
+   uint64_t isolated_replay_frame_accumulator_committed_frame_sequence_ = 0;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index 3efce08..d6f7c0a 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -58,6 +58,7 @@ namespace shaders {
+ #include "../shaders/bytecode/d3d12_5_1/host_depth_store_4xmsaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/isolated_depth_readback_msaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h"
++#include "../shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_4xmsaa_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/passthrough_position_xy_vs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_cs.h"
+ #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_scaled_cs.h"
+@@ -1026,6 +1027,8 @@ void D3D12RenderTargetCache::Shutdown(bool from_destructor) {
+   ui::d3d12::util::ReleaseAndNull(isolated_depth_readback_root_signature_);
+   ui::d3d12::util::ReleaseAndNull(
+       isolated_replay_frame_accumulator_2xmsaa_pipeline_);
++  ui::d3d12::util::ReleaseAndNull(
++      isolated_replay_frame_accumulator_4xmsaa_pipeline_);
+   ui::d3d12::util::ReleaseAndNull(
+       isolated_replay_frame_accumulator_2xmsaa_root_signature_);
+ 
+@@ -2639,6 +2642,12 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       request.storage_height < request.logical_height ||
+       request.storage_height >= request.logical_height + 64 ||
+       !request.storage_row_count ||
++      !request.source_width || !request.source_height ||
++      !request.copy_row_count || request.sample_select > 6 ||
++      request.source_height != request.copy_row_count ||
++      request.copy_row_count > request.storage_row_count ||
++      request.padding_row_count !=
++          request.storage_row_count - request.copy_row_count ||
+       request.destination_row > request.storage_height ||
+       request.storage_row_count >
+           request.storage_height - request.destination_row ||
+@@ -2683,14 +2692,20 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+   result.native_2x_msaa = msaa_2x_supported();
+   const bool source_topology_supported =
+       (source_desc.SampleDesc.Count == 1 &&
+-       source_desc.Width >= request.logical_width) ||
++       request.source_width == request.logical_width) ||
+       (source_desc.SampleDesc.Count == 2 &&
+-       source_desc.Width * 2 >= request.logical_width);
++       (request.source_width == request.logical_width ||
++        uint64_t(request.source_width) * 2 == request.logical_width)) ||
++      (source_desc.SampleDesc.Count == 4 &&
++       request.source_width == request.logical_width);
++  const bool source_region_supported =
++      uint64_t(request.source_x) + request.source_width <= source_desc.Width &&
++      uint64_t(request.source_y) + request.source_height <=
++          source_desc.Height;
+   if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       source_desc.DepthOrArraySize != 1 || source_desc.MipLevels != 1 ||
+       source_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
+-      !source_topology_supported ||
+-      source_desc.Height < request.storage_row_count) {
++      !source_topology_supported || !source_region_supported) {
+     static bool logged_unsupported_frame_accumulator_target = false;
+     if (!logged_unsupported_frame_accumulator_target) {
+       logged_unsupported_frame_accumulator_target = true;
+@@ -2734,10 +2749,9 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       target_desc.Height = request.storage_height;
+       target_desc.SampleDesc.Count = 1;
+       target_desc.SampleDesc.Quality = 0;
+-      target_desc.Flags =
+-          source_desc.SampleDesc.Count == 2
+-              ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+-              : D3D12_RESOURCE_FLAG_NONE;
++      target_desc.Flags = source_desc.SampleDesc.Count > 1
++                              ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
++                              : D3D12_RESOURCE_FLAG_NONE;
+       Microsoft::WRL::ComPtr<ID3D12Resource> target;
+       HRESULT create_result = device->CreateCommittedResource(
+           &ui::d3d12::util::kHeapPropertiesDefault,
+@@ -2794,8 +2808,12 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+     D3D12_TEXTURE_COPY_LOCATION source{};
+     source.pResource = source_resource;
+     source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-    D3D12_BOX source_box{0, 0, 0, request.logical_width,
+-                         request.storage_row_count, 1};
++    D3D12_BOX source_box{request.source_x,
++                         request.source_y,
++                         0,
++                         request.source_x + request.source_width,
++                         request.source_y + request.source_height,
++                         1};
+     command_processor_.GetDeferredCommandList().D3DCopyTextureRegion(
+         &destination, 0, request.destination_row, 0, &source, &source_box);
+     isolated_color->SetResourceState(source_previous_state);
+@@ -2810,7 +2828,7 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+       root_parameters[0].ParameterType =
+           D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+       root_parameters[0].Constants.ShaderRegister = 0;
+-      root_parameters[0].Constants.Num32BitValues = 4;
++      root_parameters[0].Constants.Num32BitValues = 8;
+       root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+       D3D12_DESCRIPTOR_RANGE source_range{};
+       source_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+@@ -2843,7 +2861,8 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+         return result;
+       }
+     }
+-    if (!isolated_replay_frame_accumulator_2xmsaa_pipeline_) {
++    if (source_desc.SampleDesc.Count == 2 &&
++        !isolated_replay_frame_accumulator_2xmsaa_pipeline_) {
+       isolated_replay_frame_accumulator_2xmsaa_pipeline_ =
+           ui::d3d12::util::CreateComputePipeline(
+               device, shaders::procedural_frame_accumulator_2xmsaa_cs,
+@@ -2856,6 +2875,20 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+         return result;
+       }
+     }
++    if (source_desc.SampleDesc.Count == 4 &&
++        !isolated_replay_frame_accumulator_4xmsaa_pipeline_) {
++      isolated_replay_frame_accumulator_4xmsaa_pipeline_ =
++          ui::d3d12::util::CreateComputePipeline(
++              device, shaders::procedural_frame_accumulator_4xmsaa_cs,
++              sizeof(shaders::procedural_frame_accumulator_4xmsaa_cs),
++              isolated_replay_frame_accumulator_2xmsaa_root_signature_);
++      if (!isolated_replay_frame_accumulator_4xmsaa_pipeline_) {
++        clear_active();
++        result.status =
++            system::GraphicsNativeFrameAccumulatorStatus::kAllocationFailed;
++        return result;
++      }
++    }
+     ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[2];
+     if (!command_processor_.RequestOneUseSingleViewDescriptors(2,
+                                                                 descriptors)) {
+@@ -2892,17 +2925,21 @@ D3D12RenderTargetCache::ApplyIsolatedReplayFrameAccumulator(
+         command_processor_.GetDeferredCommandList();
+     command_list.D3DSetComputeRootSignature(
+         isolated_replay_frame_accumulator_2xmsaa_root_signature_);
+-    const uint32_t constants[4] = {
+-        uint32_t(source_desc.Width), source_desc.Height,
+-        request.destination_row, request.storage_row_count};
++    const uint32_t constants[8] = {
++        request.source_x,      request.source_y,
++        request.source_width,  request.source_height,
++        request.logical_width, request.destination_row,
++        request.copy_row_count, request.sample_select};
+     command_list.D3DSetComputeRoot32BitConstants(
+         0, uint32_t(rex::countof(constants)), constants, 0);
+     command_list.D3DSetComputeRootDescriptorTable(1, descriptors[0].second);
+     command_list.D3DSetComputeRootDescriptorTable(2, descriptors[1].second);
+     command_processor_.SetExternalPipeline(
+-        isolated_replay_frame_accumulator_2xmsaa_pipeline_);
++        source_desc.SampleDesc.Count == 4
++            ? isolated_replay_frame_accumulator_4xmsaa_pipeline_
++            : isolated_replay_frame_accumulator_2xmsaa_pipeline_);
+     command_list.D3DDispatch((request.logical_width + 7) / 8,
+-                             (request.storage_row_count + 7) / 8, 1);
++                             (request.copy_row_count + 7) / 8, 1);
+     isolated_color->SetResourceState(source_previous_state);
+     command_processor_.PushTransitionBarrier(
+         source_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+index 9e6e9f1..d348e0e 100644
+--- a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_2xmsaa_cs.h
+@@ -8,9 +8,12 @@
+ // cbuffer ProceduralFrameAccumulatorConstants
+ // {
+ //
+-//   uint2 source_size;                 // Offset:    0 Size:     8
+-//   uint destination_row;              // Offset:    8 Size:     4
+-//   uint storage_row_count;            // Offset:   12 Size:     4
++//   uint2 source_offset;               // Offset:    0 Size:     8
++//   uint2 source_extent;               // Offset:    8 Size:     8
++//   uint output_width;                 // Offset:   16 Size:     4
++//   uint destination_row;              // Offset:   20 Size:     4
++//   uint copy_row_count;               // Offset:   24 Size:     4
++//   uint sample_select;                // Offset:   28 Size:     4
+ //
+ // }
+ //
+@@ -38,244 +41,141 @@
+ // no Output
+ cs_5_1
+ dcl_globalFlags refactoringAllowed
+-dcl_constantbuffer CB0[0:0][1], immediateIndexed, space=0
++dcl_constantbuffer CB0[0:0][2], immediateIndexed, space=0
+ dcl_resource_texture2dms(2) (float,float,float,float) T0[0:0], space=0
+ dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
+ dcl_input vThreadID.xy
+-dcl_temps 2
++dcl_temps 3
+ dcl_thread_group 8, 8, 1
+-ishl r0.x, CB0[0][0].x, l(1)
+-uge r0.x, vThreadID.x, r0.x
+-uge r0.y, vThreadID.y, CB0[0][0].w
++uge r0.xy, vThreadID.xyxx, CB0[0][1].xzxx
+ or r0.x, r0.y, r0.x
+ if_nz r0.x
+   ret 
++endif
++ishl r0.x, CB0[0][0].z, l(1)
++ieq r0.x, r0.x, CB0[0][1].x
++ushr r0.y, vThreadID.x, l(1)
++movc r1.x, r0.x, r0.y, vThreadID.x
++and r0.y, vThreadID.x, l(1)
++and r0.z, CB0[0][1].w, l(1)
++movc r0.y, r0.x, r0.y, r0.z
++mov r1.y, vThreadID.y
++iadd r1.xy, r1.xyxx, CB0[0][0].xyxx
++mov r1.zw, l(0,0,0,0)
++ldms r2.xyzw, r1.xyww, T0[0].xyzw, r0.y
++not r0.x, r0.x
++uge r0.y, CB0[0][1].w, l(4)
++and r0.x, r0.y, r0.x
++if_nz r0.x
++  ldms r0.xyzw, r1.xyww, T0[0].xyzw, l(0)
++  ldms r1.xyzw, r1.xyzw, T0[0].xyzw, l(1)
++  add r0.xyzw, r0.xyzw, r1.xyzw
++  mul r2.xyzw, r0.xyzw, l(0.500000, 0.500000, 0.500000, 0.500000)
+ endif 
+-ushr r0.x, vThreadID.x, l(1)
+-and r1.x, vThreadID.x, l(1)
+-iadd r0.y, vThreadID.y, CB0[0][0].z
+-mov r0.z, l(0)
+-ldms r1.xyzw, r0.xyzz, T0[0].xyzw, r1.x
+-mov r0.w, vThreadID.x
+-store_uav_typed U0[0].xyzw, r0.wyyy, r1.xyzw
++iadd r0.yzw, vThreadID.yyyy, CB0[0][1].yyyy
++mov r0.x, vThreadID.x
++store_uav_typed U0[0].xyzw, r0.xyzw, r2.xyzw
+ ret 
+-// Approximately 15 instruction slots used
++// Approximately 29 instruction slots used
+ #endif
+ 
+-const BYTE procedural_frame_accumulator_2xmsaa_cs[] =
+-{
+-     68,  88,  66,  67, 136, 246, 
+-      2, 135, 125, 104, 241,  79, 
+-    122, 179, 185, 142, 219, 241, 
+-     60,   3,   1,   0,   0,   0, 
+-      4,   5,   0,   0,   5,   0, 
+-      0,   0,  52,   0,   0,   0, 
+-    116,   2,   0,   0, 132,   2, 
+-      0,   0, 148,   2,   0,   0, 
+-    104,   4,   0,   0,  82,  68, 
+-     69,  70,  56,   2,   0,   0, 
+-      1,   0,   0,   0, 248,   0, 
+-      0,   0,   3,   0,   0,   0, 
+-     60,   0,   0,   0,   1,   5, 
+-     83,  67,   0,   5,   0,   0, 
+-     14,   2,   0,   0,  19,  19, 
+-     68,  37,  60,   0,   0,   0, 
+-     24,   0,   0,   0,  40,   0, 
+-      0,   0,  40,   0,   0,   0, 
+-     36,   0,   0,   0,  12,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-    180,   0,   0,   0,   2,   0, 
+-      0,   0,   5,   0,   0,   0, 
+-      6,   0,   0,   0,   2,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      1,   0,   0,   0,  12,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0, 192,   0, 
+-      0,   0,   4,   0,   0,   0, 
+-      5,   0,   0,   0,   4,   0, 
+-      0,   0, 255, 255, 255, 255, 
+-      0,   0,   0,   0,   1,   0, 
+-      0,   0,  12,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0, 210,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   1,   0,   0,   0, 
+-      1,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-    115, 111, 117, 114,  99, 101, 
+-     95, 116, 105, 108, 101,   0, 
+-    102, 114,  97, 109, 101,  95, 
+-     97,  99,  99, 117, 109, 117, 
+-    108,  97, 116, 111, 114,   0, 
+-     80, 114, 111,  99, 101, 100, 
+-    117, 114,  97, 108,  70, 114, 
+-     97, 109, 101,  65,  99,  99, 
+-    117, 109, 117, 108,  97, 116, 
+-    111, 114,  67, 111, 110, 115, 
+-    116,  97, 110, 116, 115,   0, 
+-    171, 171, 210,   0,   0,   0, 
+-      3,   0,   0,   0,  16,   1, 
+-      0,   0,  16,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0, 136,   1,   0,   0, 
+-      0,   0,   0,   0,   8,   0, 
+-      0,   0,   2,   0,   0,   0, 
+-    156,   1,   0,   0,   0,   0, 
+-      0,   0, 255, 255, 255, 255, 
+-      0,   0,   0,   0, 255, 255, 
+-    255, 255,   0,   0,   0,   0, 
+-    192,   1,   0,   0,   8,   0, 
+-      0,   0,   4,   0,   0,   0, 
+-      2,   0,   0,   0, 216,   1, 
+-      0,   0,   0,   0,   0,   0, 
+-    255, 255, 255, 255,   0,   0, 
+-      0,   0, 255, 255, 255, 255, 
+-      0,   0,   0,   0, 252,   1, 
+-      0,   0,  12,   0,   0,   0, 
+-      4,   0,   0,   0,   2,   0, 
+-      0,   0, 216,   1,   0,   0, 
+-      0,   0,   0,   0, 255, 255, 
+-    255, 255,   0,   0,   0,   0, 
+-    255, 255, 255, 255,   0,   0, 
+-      0,   0, 115, 111, 117, 114, 
+-     99, 101,  95, 115, 105, 122, 
+-    101,   0, 117, 105, 110, 116, 
+-     50,   0, 171, 171,   1,   0, 
+-     19,   0,   1,   0,   2,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-    148,   1,   0,   0, 100, 101, 
+-    115, 116, 105, 110,  97, 116, 
+-    105, 111, 110,  95, 114, 111, 
+-    119,   0, 100, 119, 111, 114, 
+-    100,   0, 171, 171,   0,   0, 
+-     19,   0,   1,   0,   1,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-    208,   1,   0,   0, 115, 116, 
+-    111, 114,  97, 103, 101,  95, 
+-    114, 111, 119,  95,  99, 111, 
+-    117, 110, 116,   0,  77, 105, 
+-     99, 114, 111, 115, 111, 102, 
+-    116,  32,  40,  82,  41,  32, 
+-     72,  76,  83,  76,  32,  83, 
+-    104,  97, 100, 101, 114,  32, 
+-     67, 111, 109, 112, 105, 108, 
+-    101, 114,  32,  49,  48,  46, 
+-     49,   0, 171, 171,  73,  83, 
+-     71,  78,   8,   0,   0,   0, 
+-      0,   0,   0,   0,   8,   0, 
+-      0,   0,  79,  83,  71,  78, 
+-      8,   0,   0,   0,   0,   0, 
+-      0,   0,   8,   0,   0,   0, 
+-     83,  72,  69,  88, 204,   1, 
+-      0,   0,  81,   0,   5,   0, 
+-    115,   0,   0,   0, 106,   8, 
+-      0,   1,  89,   0,   0,   7, 
+-     70, 142,  48,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   1,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-     88,  32,   2,   7,  70, 126, 
+-     48,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,  85,  85,   0,   0, 
+-      0,   0,   0,   0, 156,  24, 
+-      0,   7,  70, 238,  49,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-     85,  85,   0,   0,   0,   0, 
+-      0,   0,  95,   0,   0,   2, 
+-     50,   0,   2,   0, 104,   0, 
+-      0,   2,   2,   0,   0,   0, 
+-    155,   0,   0,   4,   8,   0, 
+-      0,   0,   8,   0,   0,   0, 
+-      1,   0,   0,   0,  41,   0, 
+-      0,   9,  18,   0,  16,   0, 
+-      0,   0,   0,   0,  10, 128, 
+-     48,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   1,  64,   0,   0, 
+-      1,   0,   0,   0,  80,   0, 
+-      0,   6,  18,   0,  16,   0, 
+-      0,   0,   0,   0,  10,   0, 
+-      2,   0,  10,   0,  16,   0, 
+-      0,   0,   0,   0,  80,   0, 
+-      0,   8,  34,   0,  16,   0, 
+-      0,   0,   0,   0,  26,   0, 
+-      2,   0,  58, 128,  48,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-     60,   0,   0,   7,  18,   0, 
+-     16,   0,   0,   0,   0,   0, 
+-     26,   0,  16,   0,   0,   0, 
+-      0,   0,  10,   0,  16,   0, 
+-      0,   0,   0,   0,  31,   0, 
+-      4,   3,  10,   0,  16,   0, 
+-      0,   0,   0,   0,  62,   0, 
+-      0,   1,  21,   0,   0,   1, 
+-     85,   0,   0,   6,  18,   0, 
+-     16,   0,   0,   0,   0,   0, 
+-     10,   0,   2,   0,   1,  64, 
+-      0,   0,   1,   0,   0,   0, 
+-      1,   0,   0,   6,  18,   0, 
+-     16,   0,   1,   0,   0,   0, 
+-     10,   0,   2,   0,   1,  64, 
+-      0,   0,   1,   0,   0,   0, 
+-     30,   0,   0,   8,  34,   0, 
+-     16,   0,   0,   0,   0,   0, 
+-     26,   0,   2,   0,  42, 128, 
+-     48,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,  54,   0,   0,   5, 
+-     66,   0,  16,   0,   0,   0, 
+-      0,   0,   1,  64,   0,   0, 
+-      0,   0,   0,   0,  46,   0, 
+-      0,  10, 242,   0,  16,   0, 
+-      1,   0,   0,   0,  70,  10, 
+-     16,   0,   0,   0,   0,   0, 
+-     70, 126,  32,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-     10,   0,  16,   0,   1,   0, 
+-      0,   0,  54,   0,   0,   4, 
+-    130,   0,  16,   0,   0,   0, 
+-      0,   0,  10,   0,   2,   0, 
+-    164,   0,   0,   8, 242, 224, 
+-     33,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0, 118,   5, 
+-     16,   0,   0,   0,   0,   0, 
+-     70,  14,  16,   0,   1,   0, 
+-      0,   0,  62,   0,   0,   1, 
+-     83,  84,  65,  84, 148,   0, 
+-      0,   0,  15,   0,   0,   0, 
+-      2,   0,   0,   0,   0,   0, 
+-      0,   0,   1,   0,   0,   0, 
+-      0,   0,   0,   0,   2,   0, 
+-      0,   0,   5,   0,   0,   0, 
+-      2,   0,   0,   0,   1,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   1,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      2,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   0,   0,   0,   0, 
+-      0,   0,   1,   0,   0,   0
+-};
++const BYTE procedural_frame_accumulator_2xmsaa_cs[] = {
++    68,  88,  66,  67,  206, 165, 40,  217, 133, 241, 20,  98,  180, 233, 79,  31,  214, 75,  60,
++    210, 1,   0,   0,   0,   80,  7,   0,   0,   5,   0,   0,   0,   52,  0,   0,   0,   20,  3,
++    0,   0,   36,  3,   0,   0,   52,  3,   0,   0,   180, 6,   0,   0,   82,  68,  69,  70,  216,
++    2,   0,   0,   1,   0,   0,   0,   248, 0,   0,   0,   3,   0,   0,   0,   60,  0,   0,   0,
++    1,   5,   83,  67,  0,   141, 0,   0,   173, 2,   0,   0,   19,  19,  68,  37,  60,  0,   0,
++    0,   24,  0,   0,   0,   40,  0,   0,   0,   40,  0,   0,   0,   36,  0,   0,   0,   12,  0,
++    0,   0,   0,   0,   0,   0,   180, 0,   0,   0,   2,   0,   0,   0,   5,   0,   0,   0,   6,
++    0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   12,  0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   192, 0,   0,   0,   4,   0,   0,   0,   5,   0,   0,
++    0,   4,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   1,   0,   0,   0,   12,  0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   210, 0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++    1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   115, 111, 117, 114, 99,  101, 95,
++    116, 105, 108, 101, 0,   102, 114, 97,  109, 101, 95,  97,  99,  99,  117, 109, 117, 108, 97,
++    116, 111, 114, 0,   80,  114, 111, 99,  101, 100, 117, 114, 97,  108, 70,  114, 97,  109, 101,
++    65,  99,  99,  117, 109, 117, 108, 97,  116, 111, 114, 67,  111, 110, 115, 116, 97,  110, 116,
++    115, 0,   171, 171, 210, 0,   0,   0,   6,   0,   0,   0,   16,  1,   0,   0,   32,  0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   8,   0,
++    0,   0,   2,   0,   0,   0,   20,  2,   0,   0,   0,   0,   0,   0,   255, 255, 255, 255, 0,
++    0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   56,  2,   0,   0,   8,   0,   0,   0,
++    8,   0,   0,   0,   2,   0,   0,   0,   20,  2,   0,   0,   0,   0,   0,   0,   255, 255, 255,
++    255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   70,  2,   0,   0,   16,  0,
++    0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,   0,   0,   0,   255,
++    255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   128, 2,   0,   0,
++    20,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,   0,   0,
++    0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   144, 2,
++    0,   0,   24,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,
++    0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,
++    159, 2,   0,   0,   28,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,
++    0,   0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,
++    0,   0,   115, 111, 117, 114, 99,  101, 95,  111, 102, 102, 115, 101, 116, 0,   117, 105, 110,
++    116, 50,  0,   1,   0,   19,  0,   1,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   14,  2,   0,
++    0,   115, 111, 117, 114, 99,  101, 95,  101, 120, 116, 101, 110, 116, 0,   111, 117, 116, 112,
++    117, 116, 95,  119, 105, 100, 116, 104, 0,   100, 119, 111, 114, 100, 0,   171, 171, 171, 0,
++    0,   19,  0,   1,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   83,  2,   0,   0,   100, 101, 115,
++    116, 105, 110, 97,  116, 105, 111, 110, 95,  114, 111, 119, 0,   99,  111, 112, 121, 95,  114,
++    111, 119, 95,  99,  111, 117, 110, 116, 0,   115, 97,  109, 112, 108, 101, 95,  115, 101, 108,
++    101, 99,  116, 0,   77,  105, 99,  114, 111, 115, 111, 102, 116, 32,  40,  82,  41,  32,  72,
++    76,  83,  76,  32,  83,  104, 97,  100, 101, 114, 32,  67,  111, 109, 112, 105, 108, 101, 114,
++    32,  49,  48,  46,  49,  0,   171, 171, 171, 73,  83,  71,  78,  8,   0,   0,   0,   0,   0,
++    0,   0,   8,   0,   0,   0,   79,  83,  71,  78,  8,   0,   0,   0,   0,   0,   0,   0,   8,
++    0,   0,   0,   83,  72,  69,  88,  120, 3,   0,   0,   81,  0,   5,   0,   222, 0,   0,   0,
++    106, 8,   0,   1,   89,  0,   0,   7,   70,  142, 48,  0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   88,  32,  2,   7,   70,  126,
++    48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   85,  85,  0,   0,   0,
++    0,   0,   0,   156, 24,  0,   7,   70,  238, 49,  0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   85,  85,  0,   0,   0,   0,   0,   0,   95,  0,   0,   2,   50,  0,   2,
++    0,   104, 0,   0,   2,   3,   0,   0,   0,   155, 0,   0,   4,   8,   0,   0,   0,   8,   0,
++    0,   0,   1,   0,   0,   0,   80,  0,   0,   8,   50,  0,   16,  0,   0,   0,   0,   0,   70,
++    0,   2,   0,   134, 128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++    60,  0,   0,   7,   18,  0,   16,  0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,
++    0,   10,  0,   16,  0,   0,   0,   0,   0,   31,  0,   4,   3,   10,  0,   16,  0,   0,   0,
++    0,   0,   62,  0,   0,   1,   21,  0,   0,   1,   41,  0,   0,   9,   18,  0,   16,  0,   0,
++    0,   0,   0,   42,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    1,   64,  0,   0,   1,   0,   0,   0,   32,  0,   0,   9,   18,  0,   16,  0,   0,   0,   0,
++    0,   10,  0,   16,  0,   0,   0,   0,   0,   10,  128, 48,  0,   0,   0,   0,   0,   0,   0,
++    0,   0,   1,   0,   0,   0,   85,  0,   0,   6,   34,  0,   16,  0,   0,   0,   0,   0,   10,
++    0,   2,   0,   1,   64,  0,   0,   1,   0,   0,   0,   55,  0,   0,   8,   18,  0,   16,  0,
++    1,   0,   0,   0,   10,  0,   16,  0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,
++    0,   10,  0,   2,   0,   1,   0,   0,   6,   34,  0,   16,  0,   0,   0,   0,   0,   10,  0,
++    2,   0,   1,   64,  0,   0,   1,   0,   0,   0,   1,   0,   0,   9,   66,  0,   16,  0,   0,
++    0,   0,   0,   58,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++    1,   64,  0,   0,   1,   0,   0,   0,   55,  0,   0,   9,   34,  0,   16,  0,   0,   0,   0,
++    0,   10,  0,   16,  0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,   0,   42,  0,
++    16,  0,   0,   0,   0,   0,   54,  0,   0,   4,   34,  0,   16,  0,   1,   0,   0,   0,   26,
++    0,   2,   0,   30,  0,   0,   9,   50,  0,   16,  0,   1,   0,   0,   0,   70,  0,   16,  0,
++    1,   0,   0,   0,   70,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   54,  0,   0,   8,   194, 0,   16,  0,   1,   0,   0,   0,   2,   64,  0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   46,  0,   0,   10,  242,
++    0,   16,  0,   2,   0,   0,   0,   70,  15,  16,  0,   1,   0,   0,   0,   70,  126, 32,  0,
++    0,   0,   0,   0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,   0,   59,  0,   0,
++    5,   18,  0,   16,  0,   0,   0,   0,   0,   10,  0,   16,  0,   0,   0,   0,   0,   80,  0,
++    0,   9,   34,  0,   16,  0,   0,   0,   0,   0,   58,  128, 48,  0,   0,   0,   0,   0,   0,
++    0,   0,   0,   1,   0,   0,   0,   1,   64,  0,   0,   4,   0,   0,   0,   1,   0,   0,   7,
++    18,  0,   16,  0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,   0,   10,  0,   16,
++    0,   0,   0,   0,   0,   31,  0,   4,   3,   10,  0,   16,  0,   0,   0,   0,   0,   46,  0,
++    0,   10,  242, 0,   16,  0,   0,   0,   0,   0,   70,  15,  16,  0,   1,   0,   0,   0,   70,
++    126, 32,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   0,   0,   0,   0,
++    46,  0,   0,   10,  242, 0,   16,  0,   1,   0,   0,   0,   70,  14,  16,  0,   1,   0,   0,
++    0,   70,  126, 32,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   1,   0,
++    0,   0,   0,   0,   0,   7,   242, 0,   16,  0,   0,   0,   0,   0,   70,  14,  16,  0,   0,
++    0,   0,   0,   70,  14,  16,  0,   1,   0,   0,   0,   56,  0,   0,   10,  242, 0,   16,  0,
++    2,   0,   0,   0,   70,  14,  16,  0,   0,   0,   0,   0,   2,   64,  0,   0,   0,   0,   0,
++    63,  0,   0,   0,   63,  0,   0,   0,   63,  0,   0,   0,   63,  21,  0,   0,   1,   30,  0,
++    0,   8,   226, 0,   16,  0,   0,   0,   0,   0,   86,  5,   2,   0,   86,  133, 48,  0,   0,
++    0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   54,  0,   0,   4,   18,  0,   16,  0,
++    0,   0,   0,   0,   10,  0,   2,   0,   164, 0,   0,   8,   242, 224, 33,  0,   0,   0,   0,
++    0,   0,   0,   0,   0,   70,  14,  16,  0,   0,   0,   0,   0,   70,  14,  16,  0,   2,   0,
++    0,   0,   62,  0,   0,   1,   83,  84,  65,  84,  148, 0,   0,   0,   29,  0,   0,   0,   3,
++    0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   2,   0,   0,   0,   4,   0,   0,   0,
++    8,   0,   0,   0,   2,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   3,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   3,   0,   0,   0,   2,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   1,   0,   0,   0};
+diff --git a/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_4xmsaa_cs.h b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_4xmsaa_cs.h
+new file mode 100644
+index 0000000..7494249
+--- /dev/null
++++ b/src/graphics/shaders/bytecode/d3d12_5_1/procedural_frame_accumulator_4xmsaa_cs.h
+@@ -0,0 +1,215 @@
++#if 0
++//
++// Generated by Microsoft (R) HLSL Shader Compiler 10.1
++//
++//
++// Buffer Definitions: 
++//
++// cbuffer ProceduralFrameAccumulatorConstants
++// {
++//
++//   uint2 source_offset;               // Offset:    0 Size:     8
++//   uint2 source_extent;               // Offset:    8 Size:     8 [unused]
++//   uint output_width;                 // Offset:   16 Size:     4
++//   uint destination_row;              // Offset:   20 Size:     4
++//   uint copy_row_count;               // Offset:   24 Size:     4
++//   uint sample_select;                // Offset:   28 Size:     4
++//
++// }
++//
++//
++// Resource Bindings:
++//
++// Name                                 Type  Format         Dim      ID      HLSL Bind  Count
++// ------------------------------ ---------- ------- ----------- ------- -------------- ------
++// source_tile                       texture  float4       2dMS4      T0             t0      1 
++// frame_accumulator                     UAV  float4          2d      U0             u0      1 
++// ProceduralFrameAccumulatorConstants    cbuffer      NA          NA     CB0            cb0      1 
++//
++//
++//
++// Input signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Input
++//
++// Output signature:
++//
++// Name                 Index   Mask Register SysValue  Format   Used
++// -------------------- ----- ------ -------- -------- ------- ------
++// no Output
++cs_5_1
++dcl_globalFlags refactoringAllowed
++dcl_constantbuffer CB0[0:0][2], immediateIndexed, space=0
++dcl_resource_texture2dms(4) (float,float,float,float) T0[0:0], space=0
++dcl_uav_typed_texture2d (float,float,float,float) U0[0:0], space=0
++dcl_input vThreadID.xy
++dcl_temps 4
++dcl_thread_group 8, 8, 1
++uge r0.xy, vThreadID.xyxx, CB0[0][1].xzxx
++or r0.x, r0.y, r0.x
++if_nz r0.x
++  ret 
++endif
++iadd r0.xy, vThreadID.xyxx, CB0[0][0].xyxx
++ieq r1.x, CB0[0][1].w, l(4)
++if_nz r1.x
++  mov r0.z, l(0)
++  ldms r1.xyzw, r0.xyzz, T0[0].xyzw, l(0)
++  ldms r2.xyzw, r0.xyzz, T0[0].xyzw, l(1)
++  add r1.xyzw, r1.xyzw, r2.xyzw
++  mul r1.xyzw, r1.xyzw, l(0.500000, 0.500000, 0.500000, 0.500000)
++else 
++  ieq r2.x, CB0[0][1].w, l(5)
++  if_nz r2.x
++    mov r0.w, l(0)
++    ldms r2.xyzw, r0.xyww, T0[0].xyzw, l(2)
++    ldms r3.xyzw, r0.xyww, T0[0].xyzw, l(3)
++    add r2.xyzw, r2.xyzw, r3.xyzw
++    mul r1.xyzw, r2.xyzw, l(0.500000, 0.500000, 0.500000, 0.500000)
++  else 
++    uge r2.x, CB0[0][1].w, l(6)
++    if_nz r2.x
++      mov r0.zw, l(0,0,0,0)
++      ldms r2.xyzw, r0.xyww, T0[0].xyzw, l(0)
++      ldms r3.xyzw, r0.xyww, T0[0].xyzw, l(1)
++      add r2.xyzw, r2.xyzw, r3.xyzw
++      ldms r3.xyzw, r0.xyww, T0[0].xyzw, l(2)
++      add r2.xyzw, r2.xyzw, r3.xyzw
++      ldms r3.xyzw, r0.xyzw, T0[0].xyzw, l(3)
++      add r2.xyzw, r2.xyzw, r3.xyzw
++      mul r1.xyzw, r2.xyzw, l(0.250000, 0.250000, 0.250000, 0.250000)
++    else 
++      umin r2.x, CB0[0][1].w, l(3)
++      mov r0.zw, l(0,0,0,0)
++      ldms r1.xyzw, r0.xyzw, T0[0].xyzw, r2.x
++    endif 
++  endif 
++endif 
++iadd r0.yzw, vThreadID.yyyy, CB0[0][1].yyyy
++mov r0.x, vThreadID.x
++store_uav_typed U0[0].xyzw, r0.xyzw, r1.xyzw
++ret 
++// Approximately 44 instruction slots used
++#endif
++
++const BYTE procedural_frame_accumulator_4xmsaa_cs[] = {
++    68,  88,  66,  67,  24,  84,  135, 46,  33,  222, 254, 46,  60,  241, 241, 250, 178, 76,  169,
++    130, 1,   0,   0,   0,   188, 8,   0,   0,   5,   0,   0,   0,   52,  0,   0,   0,   20,  3,
++    0,   0,   36,  3,   0,   0,   52,  3,   0,   0,   32,  8,   0,   0,   82,  68,  69,  70,  216,
++    2,   0,   0,   1,   0,   0,   0,   248, 0,   0,   0,   3,   0,   0,   0,   60,  0,   0,   0,
++    1,   5,   83,  67,  0,   141, 0,   0,   173, 2,   0,   0,   19,  19,  68,  37,  60,  0,   0,
++    0,   24,  0,   0,   0,   40,  0,   0,   0,   40,  0,   0,   0,   36,  0,   0,   0,   12,  0,
++    0,   0,   0,   0,   0,   0,   180, 0,   0,   0,   2,   0,   0,   0,   5,   0,   0,   0,   6,
++    0,   0,   0,   4,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   12,  0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   192, 0,   0,   0,   4,   0,   0,   0,   5,   0,   0,
++    0,   4,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   1,   0,   0,   0,   12,  0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   210, 0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++    1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   115, 111, 117, 114, 99,  101, 95,
++    116, 105, 108, 101, 0,   102, 114, 97,  109, 101, 95,  97,  99,  99,  117, 109, 117, 108, 97,
++    116, 111, 114, 0,   80,  114, 111, 99,  101, 100, 117, 114, 97,  108, 70,  114, 97,  109, 101,
++    65,  99,  99,  117, 109, 117, 108, 97,  116, 111, 114, 67,  111, 110, 115, 116, 97,  110, 116,
++    115, 0,   171, 171, 210, 0,   0,   0,   6,   0,   0,   0,   16,  1,   0,   0,   32,  0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   8,   0,
++    0,   0,   2,   0,   0,   0,   20,  2,   0,   0,   0,   0,   0,   0,   255, 255, 255, 255, 0,
++    0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   56,  2,   0,   0,   8,   0,   0,   0,
++    8,   0,   0,   0,   0,   0,   0,   0,   20,  2,   0,   0,   0,   0,   0,   0,   255, 255, 255,
++    255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   70,  2,   0,   0,   16,  0,
++    0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,   0,   0,   0,   255,
++    255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   128, 2,   0,   0,
++    20,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,   0,   0,
++    0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   144, 2,
++    0,   0,   24,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,   0,   0,
++    0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,
++    159, 2,   0,   0,   28,  0,   0,   0,   4,   0,   0,   0,   2,   0,   0,   0,   92,  2,   0,
++    0,   0,   0,   0,   0,   255, 255, 255, 255, 0,   0,   0,   0,   255, 255, 255, 255, 0,   0,
++    0,   0,   115, 111, 117, 114, 99,  101, 95,  111, 102, 102, 115, 101, 116, 0,   117, 105, 110,
++    116, 50,  0,   1,   0,   19,  0,   1,   0,   2,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   14,  2,   0,
++    0,   115, 111, 117, 114, 99,  101, 95,  101, 120, 116, 101, 110, 116, 0,   111, 117, 116, 112,
++    117, 116, 95,  119, 105, 100, 116, 104, 0,   100, 119, 111, 114, 100, 0,   171, 171, 171, 0,
++    0,   19,  0,   1,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   83,  2,   0,   0,   100, 101, 115,
++    116, 105, 110, 97,  116, 105, 111, 110, 95,  114, 111, 119, 0,   99,  111, 112, 121, 95,  114,
++    111, 119, 95,  99,  111, 117, 110, 116, 0,   115, 97,  109, 112, 108, 101, 95,  115, 101, 108,
++    101, 99,  116, 0,   77,  105, 99,  114, 111, 115, 111, 102, 116, 32,  40,  82,  41,  32,  72,
++    76,  83,  76,  32,  83,  104, 97,  100, 101, 114, 32,  67,  111, 109, 112, 105, 108, 101, 114,
++    32,  49,  48,  46,  49,  0,   171, 171, 171, 73,  83,  71,  78,  8,   0,   0,   0,   0,   0,
++    0,   0,   8,   0,   0,   0,   79,  83,  71,  78,  8,   0,   0,   0,   0,   0,   0,   0,   8,
++    0,   0,   0,   83,  72,  69,  88,  228, 4,   0,   0,   81,  0,   5,   0,   57,  1,   0,   0,
++    106, 8,   0,   1,   89,  0,   0,   7,   70,  142, 48,  0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,   88,  32,  4,   7,   70,  126,
++    48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   85,  85,  0,   0,   0,
++    0,   0,   0,   156, 24,  0,   7,   70,  238, 49,  0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   85,  85,  0,   0,   0,   0,   0,   0,   95,  0,   0,   2,   50,  0,   2,
++    0,   104, 0,   0,   2,   4,   0,   0,   0,   155, 0,   0,   4,   8,   0,   0,   0,   8,   0,
++    0,   0,   1,   0,   0,   0,   80,  0,   0,   8,   50,  0,   16,  0,   0,   0,   0,   0,   70,
++    0,   2,   0,   134, 128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,
++    60,  0,   0,   7,   18,  0,   16,  0,   0,   0,   0,   0,   26,  0,   16,  0,   0,   0,   0,
++    0,   10,  0,   16,  0,   0,   0,   0,   0,   31,  0,   4,   3,   10,  0,   16,  0,   0,   0,
++    0,   0,   62,  0,   0,   1,   21,  0,   0,   1,   30,  0,   0,   8,   50,  0,   16,  0,   0,
++    0,   0,   0,   70,  0,   2,   0,   70,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   32,  0,   0,   9,   18,  0,   16,  0,   1,   0,   0,   0,   58,  128, 48,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   1,   64,  0,   0,   4,   0,
++    0,   0,   31,  0,   4,   3,   10,  0,   16,  0,   1,   0,   0,   0,   54,  0,   0,   5,   66,
++    0,   16,  0,   0,   0,   0,   0,   1,   64,  0,   0,   0,   0,   0,   0,   46,  0,   0,   10,
++    242, 0,   16,  0,   1,   0,   0,   0,   70,  10,  16,  0,   0,   0,   0,   0,   70,  126, 32,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   0,   0,   0,   0,   46,  0,
++    0,   10,  242, 0,   16,  0,   2,   0,   0,   0,   70,  10,  16,  0,   0,   0,   0,   0,   70,
++    126, 32,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   1,   0,   0,   0,
++    0,   0,   0,   7,   242, 0,   16,  0,   1,   0,   0,   0,   70,  14,  16,  0,   1,   0,   0,
++    0,   70,  14,  16,  0,   2,   0,   0,   0,   56,  0,   0,   10,  242, 0,   16,  0,   1,   0,
++    0,   0,   70,  14,  16,  0,   1,   0,   0,   0,   2,   64,  0,   0,   0,   0,   0,   63,  0,
++    0,   0,   63,  0,   0,   0,   63,  0,   0,   0,   63,  18,  0,   0,   1,   32,  0,   0,   9,
++    18,  0,   16,  0,   2,   0,   0,   0,   58,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,
++    0,   1,   0,   0,   0,   1,   64,  0,   0,   5,   0,   0,   0,   31,  0,   4,   3,   10,  0,
++    16,  0,   2,   0,   0,   0,   54,  0,   0,   5,   130, 0,   16,  0,   0,   0,   0,   0,   1,
++    64,  0,   0,   0,   0,   0,   0,   46,  0,   0,   10,  242, 0,   16,  0,   2,   0,   0,   0,
++    70,  15,  16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,   0,   0,   0,   0,   0,   0,
++    0,   1,   64,  0,   0,   2,   0,   0,   0,   46,  0,   0,   10,  242, 0,   16,  0,   3,   0,
++    0,   0,   70,  15,  16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,   0,   0,   0,   0,
++    0,   0,   0,   1,   64,  0,   0,   3,   0,   0,   0,   0,   0,   0,   7,   242, 0,   16,  0,
++    2,   0,   0,   0,   70,  14,  16,  0,   2,   0,   0,   0,   70,  14,  16,  0,   3,   0,   0,
++    0,   56,  0,   0,   10,  242, 0,   16,  0,   1,   0,   0,   0,   70,  14,  16,  0,   2,   0,
++    0,   0,   2,   64,  0,   0,   0,   0,   0,   63,  0,   0,   0,   63,  0,   0,   0,   63,  0,
++    0,   0,   63,  18,  0,   0,   1,   80,  0,   0,   9,   18,  0,   16,  0,   2,   0,   0,   0,
++    58,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   1,   64,  0,
++    0,   6,   0,   0,   0,   31,  0,   4,   3,   10,  0,   16,  0,   2,   0,   0,   0,   54,  0,
++    0,   8,   194, 0,   16,  0,   0,   0,   0,   0,   2,   64,  0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   46,  0,   0,   10,  242, 0,   16,  0,
++    2,   0,   0,   0,   70,  15,  16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,   0,   0,
++    0,   0,   0,   0,   0,   1,   64,  0,   0,   0,   0,   0,   0,   46,  0,   0,   10,  242, 0,
++    16,  0,   3,   0,   0,   0,   70,  15,  16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,
++    0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   1,   0,   0,   0,   0,   0,   0,   7,
++    242, 0,   16,  0,   2,   0,   0,   0,   70,  14,  16,  0,   2,   0,   0,   0,   70,  14,  16,
++    0,   3,   0,   0,   0,   46,  0,   0,   10,  242, 0,   16,  0,   3,   0,   0,   0,   70,  15,
++    16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,
++    64,  0,   0,   2,   0,   0,   0,   0,   0,   0,   7,   242, 0,   16,  0,   2,   0,   0,   0,
++    70,  14,  16,  0,   2,   0,   0,   0,   70,  14,  16,  0,   3,   0,   0,   0,   46,  0,   0,
++    10,  242, 0,   16,  0,   3,   0,   0,   0,   70,  14,  16,  0,   0,   0,   0,   0,   70,  126,
++    32,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   64,  0,   0,   3,   0,   0,   0,   0,
++    0,   0,   7,   242, 0,   16,  0,   2,   0,   0,   0,   70,  14,  16,  0,   2,   0,   0,   0,
++    70,  14,  16,  0,   3,   0,   0,   0,   56,  0,   0,   10,  242, 0,   16,  0,   1,   0,   0,
++    0,   70,  14,  16,  0,   2,   0,   0,   0,   2,   64,  0,   0,   0,   0,   128, 62,  0,   0,
++    128, 62,  0,   0,   128, 62,  0,   0,   128, 62,  18,  0,   0,   1,   84,  0,   0,   9,   18,
++    0,   16,  0,   2,   0,   0,   0,   58,  128, 48,  0,   0,   0,   0,   0,   0,   0,   0,   0,
++    1,   0,   0,   0,   1,   64,  0,   0,   3,   0,   0,   0,   54,  0,   0,   8,   194, 0,   16,
++    0,   0,   0,   0,   0,   2,   64,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   46,  0,   0,   10,  242, 0,   16,  0,   1,   0,   0,   0,   70,
++    14,  16,  0,   0,   0,   0,   0,   70,  126, 32,  0,   0,   0,   0,   0,   0,   0,   0,   0,
++    10,  0,   16,  0,   2,   0,   0,   0,   21,  0,   0,   1,   21,  0,   0,   1,   21,  0,   0,
++    1,   30,  0,   0,   8,   226, 0,   16,  0,   0,   0,   0,   0,   86,  5,   2,   0,   86,  133,
++    48,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   54,  0,   0,   4,   18,
++    0,   16,  0,   0,   0,   0,   0,   10,  0,   2,   0,   164, 0,   0,   8,   242, 224, 33,  0,
++    0,   0,   0,   0,   0,   0,   0,   0,   70,  14,  16,  0,   0,   0,   0,   0,   70,  14,  16,
++    0,   1,   0,   0,   0,   62,  0,   0,   1,   83,  84,  65,  84,  148, 0,   0,   0,   44,  0,
++    0,   0,   4,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   8,   0,   0,   0,   4,
++    0,   0,   0,   4,   0,   0,   0,   5,   0,   0,   0,   4,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   9,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   5,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
++    0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0};
+diff --git a/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+index 744434c..183846f 100644
+--- a/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
++++ b/src/graphics/shaders/procedural_frame_accumulator_2xmsaa.cs.hlsl
+@@ -1,7 +1,10 @@
+ cbuffer ProceduralFrameAccumulatorConstants : register(b0) {
+-  uint2 source_size;
++  uint2 source_offset;
++  uint2 source_extent;
++  uint output_width;
+   uint destination_row;
+-  uint storage_row_count;
++  uint copy_row_count;
++  uint sample_select;
+ };
+ 
+ Texture2DMS<float4, 2> source_tile : register(t0);
+@@ -10,14 +13,20 @@ RWTexture2D<float4> frame_accumulator : register(u0);
+ [numthreads(8, 8, 1)]
+ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+   uint2 output_position = dispatch_thread_id.xy;
+-  if (output_position.x >= source_size.x * 2 ||
+-      output_position.y >= storage_row_count) {
++  if (output_position.x >= output_width ||
++      output_position.y >= copy_row_count) {
+     return;
+   }
+-  uint source_x = output_position.x >> 1;
+-  uint sample_index = output_position.x & 1;
++  bool expand_samples = output_width == source_extent.x * 2;
++  uint source_x = expand_samples ? output_position.x >> 1 : output_position.x;
++  uint sample_index = expand_samples ? output_position.x & 1 : sample_select & 1;
++  uint2 source_position = source_offset + uint2(source_x, output_position.y);
++  float4 value = source_tile.Load(source_position, sample_index);
++  if (!expand_samples && sample_select >= 4) {
++    value = (source_tile.Load(source_position, 0) +
++             source_tile.Load(source_position, 1)) * 0.5;
++  }
+   frame_accumulator[uint2(output_position.x,
+                           destination_row + output_position.y)] =
+-      source_tile.Load(uint2(source_x, destination_row + output_position.y),
+-                       sample_index);
++      value;
+ }
+diff --git a/src/graphics/shaders/procedural_frame_accumulator_4xmsaa.cs.hlsl b/src/graphics/shaders/procedural_frame_accumulator_4xmsaa.cs.hlsl
+new file mode 100644
+index 0000000..7137055
+--- /dev/null
++++ b/src/graphics/shaders/procedural_frame_accumulator_4xmsaa.cs.hlsl
+@@ -0,0 +1,38 @@
++cbuffer ProceduralFrameAccumulatorConstants : register(b0) {
++  uint2 source_offset;
++  uint2 source_extent;
++  uint output_width;
++  uint destination_row;
++  uint copy_row_count;
++  uint sample_select;
++};
++
++Texture2DMS<float4, 4> source_tile : register(t0);
++RWTexture2D<float4> frame_accumulator : register(u0);
++
++[numthreads(8, 8, 1)]
++void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
++  uint2 output_position = dispatch_thread_id.xy;
++  if (output_position.x >= output_width ||
++      output_position.y >= copy_row_count) {
++    return;
++  }
++  uint2 source_position = source_offset + output_position;
++  float4 value;
++  if (sample_select == 4) {
++    value = (source_tile.Load(source_position, 0) +
++             source_tile.Load(source_position, 1)) * 0.5;
++  } else if (sample_select == 5) {
++    value = (source_tile.Load(source_position, 2) +
++             source_tile.Load(source_position, 3)) * 0.5;
++  } else if (sample_select >= 6) {
++    value = (source_tile.Load(source_position, 0) +
++             source_tile.Load(source_position, 1) +
++             source_tile.Load(source_position, 2) +
++             source_tile.Load(source_position, 3)) * 0.25;
++  } else {
++    value = source_tile.Load(source_position, min(sample_select, 3));
++  }
++  frame_accumulator[uint2(output_position.x,
++                          destination_row + output_position.y)] = value;
++}
+-- 
+2.51.1.windows.1
+
