@@ -10075,12 +10075,15 @@ struct ContinuousWorldWorksetState {
   uint64_t fail_closed_yields = 0;
   uint64_t qualified_retained_family_requests = 0;
   uint64_t reused_target_requests = 0;
+  uint64_t target_reseed_requests = 0;
+  uint64_t procedural_color_target_reseed_requests = 0;
   uint64_t frames_started = 0;
   uint64_t frames_completed = 0;
   uint64_t frames_failed = 0;
   uint64_t current_frame = UINT64_MAX;
   uint64_t current_frame_requests = 0;
   uint64_t current_frame_recorded = 0;
+  uint64_t current_retained_target_identity = 0;
   bool current_frame_failed = false;
   bool requested = false;
   bool track_world_requested = false;
@@ -27053,7 +27056,31 @@ void BeginContinuousWorldWorksetFrame(uint64_t frame) {
   g_continuous_world_workset.current_frame = frame;
   g_continuous_world_workset.current_frame_requests = 0;
   g_continuous_world_workset.current_frame_recorded = 0;
+  g_continuous_world_workset.current_retained_target_identity = 0;
   g_continuous_world_workset.current_frame_failed = false;
+}
+
+uint64_t ContinuousWorldRetainedTargetIdentity(
+    const rex::system::GraphicsDrawObservation &observation,
+    const rex::system::GraphicsPreparedDrawObservation &prepared,
+    bool color_only_target) {
+  uint64_t identity = UINT64_C(0xCBF29CE484222325);
+  identity = HashCombine(identity, prepared.bound_render_target_bits);
+  identity = HashCombine(identity, observation.surface_info);
+  identity = HashCombine(identity, color_only_target ? 1 : 0);
+  if (prepared.bound_render_target_bits & 1) {
+    identity = HashCombine(identity, observation.depth_info);
+    identity = HashCombine(identity, prepared.bound_render_target_formats[0]);
+  }
+  for (uint32_t color_index = 0; color_index < 4; ++color_index) {
+    if (!(prepared.bound_render_target_bits & (uint32_t(2) << color_index))) {
+      continue;
+    }
+    identity = HashCombine(identity, observation.color_info[color_index]);
+    identity = HashCombine(
+        identity, prepared.bound_render_target_formats[1 + color_index]);
+  }
+  return identity ? identity : 1;
 }
 
 void CompleteContinuousWorldWorksetReplay(
@@ -27253,6 +27280,11 @@ void EmitContinuousWorldWorksetEvent(const char *event_name,
             g_continuous_world_workset.qualified_retained_family_requests)},
        {"reused_target_requests",
         std::to_string(g_continuous_world_workset.reused_target_requests)},
+       {"target_reseed_requests",
+        std::to_string(g_continuous_world_workset.target_reseed_requests)},
+       {"procedural_color_target_reseed_requests",
+        std::to_string(g_continuous_world_workset
+                           .procedural_color_target_reseed_requests)},
        {"frames_started",
         std::to_string(g_continuous_world_workset.frames_started)},
        {"frames_completed", std::to_string(frames_completed)},
@@ -27585,7 +27617,7 @@ void CompleteRetainedPassPublication(
 }
 
 void RequestIsolatedDraw(
-    const rex::system::GraphicsPreparedDrawObservation &,
+    const rex::system::GraphicsPreparedDrawObservation &observation,
     rex::system::GraphicsIsolatedDrawRequest &request) {
   if (g_consumer_family_marker.current_match) {
     request.consumer_reference_marker_requested = true;
@@ -27691,13 +27723,31 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.per_frame_quota_yields;
       return;
     }
-    const bool reuse_target =
+    const bool color_only_target =
+        exact_track_world && g_isolated_draw.prepared_color_only_target;
+    const uint64_t retained_target_identity =
+        ContinuousWorldRetainedTargetIdentity(
+            g_isolated_draw.prepared_sample, observation,
+            color_only_target);
+    const bool has_retained_target =
         g_continuous_world_workset.current_frame_requests != 0;
+    const bool reuse_target =
+        has_retained_target &&
+        g_continuous_world_workset.current_retained_target_identity ==
+            retained_target_identity;
     if (!g_continuous_world_workset.current_frame_requests) {
       ++g_continuous_world_workset.frames_started;
-    } else {
+    } else if (reuse_target) {
       ++g_continuous_world_workset.reused_target_requests;
+    } else {
+      ++g_continuous_world_workset.target_reseed_requests;
+      if (exact_procedural_color_producer) {
+        ++g_continuous_world_workset
+              .procedural_color_target_reseed_requests;
+      }
     }
+    g_continuous_world_workset.current_retained_target_identity =
+        retained_target_identity;
     ++g_continuous_world_workset.current_frame_requests;
     ++g_continuous_world_workset.requests;
     if (qualified_retained_family) {
@@ -27713,8 +27763,7 @@ void RequestIsolatedDraw(
       ++g_continuous_world_workset.static_world_requests;
     }
     request.requested = true;
-    request.color_only_target =
-        exact_track_world && g_isolated_draw.prepared_color_only_target;
+    request.color_only_target = color_only_target;
     request.retain_target = true;
     request.reuse_target = reuse_target;
     request.defer_preview_publication_until_swap = true;

@@ -879,6 +879,15 @@ The next run can therefore fix the specific attachment, allocation, extent, or
 retained-target incompatibility without guessing or enabling Xenos-derived
 content as a native producer.
 
+The diagnostic AppData checkpoint identified the exact incompatibility: all 12
+procedural producer requests failed with `retained_mismatch`, while allocation,
+format, extent, and attachment-presence failures remained zero. The workset had
+treated every later request in a frame as reusable even when the raw guest
+attachment identity changed. Reuse is now keyed by the complete bound target
+identity; target-family transitions reseed a private target, and only identical
+consecutive attachments reuse it. This is a correctness repair for continuous
+procedural accumulation, not a relaxation of native authority gates.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
