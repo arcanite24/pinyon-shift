@@ -1,6 +1,6 @@
 # Track-world reference composition census
 
-Status: implemented; runtime qualification batched with scope spatial census
+Status: qualified negative; raw and reference-composed transform leads closed
 
 ## Why this is a stronger transform lead
 
@@ -60,6 +60,21 @@ distinct catalog instances including a collision prop, and exactly one
 local-source/offset/reference/order/convention mapping. A negative result
 closes both absolute and reference-composed interpretations of these bounded
 structures before C1 moves farther upstream.
+
+## Qualified runtime result
+
+Corrected clean session `20260901T034815Z-p46676` reached the saved festival
+and exited normally. All 485 exact scopes were retained as 140 changing
+child/descriptor snapshots and joined to 167 reference snapshots. Missing
+stage, invalid range, non-finite, table-overflow, and accounting counters were
+all zero.
+
+The raw classifier tested 96 source/offset/convention groups; the composed
+classifier tested 384 local/reference/order/convention groups. Neither found a
+single unique catalog match among the 24,025 authored spatial instances. This
+closes both bounded-structure transform interpretations. C1 now follows the
+adjacent unified presentation pass and exact attachment shape instead of
+weakening spatial tolerances.
 
 ## Safety
 

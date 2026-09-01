@@ -45,6 +45,9 @@ def fixture():
         vertex_float_constants=constants,
         pixel_float_constant_count="0",
         pixel_float_constants="",
+        bound_render_target_bits="00000002",
+        bound_render_target_formats="0:6:0:0:0",
+        prepared_pipeline_flags="00000003",
         **safety(),
     )
     summary = event(
@@ -80,6 +83,12 @@ class TrackPreparedLayoutTests(unittest.TestCase):
         ))
         self.assertFalse(
             document["qualification"]["world_transform_constant_layout_proved"]
+        )
+        self.assertTrue(
+            document["qualification"]["color_target_layout_observed"]
+        )
+        self.assertEqual(
+            "color_only", document["render_target_shape_frequency"][0]["shape"]
         )
 
     def test_rejects_nonfinite_constant(self):
