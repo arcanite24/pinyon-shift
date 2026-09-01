@@ -1,7 +1,8 @@
 # Live color-producer lineage
 
 Status: predicated color tile and exact padded full-frame resolve assembly
-proved; runtime workset tracker and private accumulator plan implemented
+proved; runtime workset tracker, row planner, and private D3D12 accumulator
+backend implemented
 
 ## Why this is the next ingress
 
@@ -106,8 +107,18 @@ the proved workset its row operations are `0+256`, `256+256`, and `512+224`;
 the final operation exposes 208 logical rows and preserves the trailing 16
 storage rows. Frame advance, target conflict, destination mismatch, malformed
 row geometry, or chunk overflow cancels the plan and poisons the remainder of
-that frame. The planner owns no backend resource yet, so this checkpoint still
-cannot publish a component or change rendering.
+that frame.
+
+The D3D12 backend now implements the corresponding private padded-frame
+resource contract. It accepts operations only after the authoritative Xenos
+resolve succeeds, requires contiguous rows and one exact 1280x736 resource,
+resolves multisampled private tiles before copying, and re-seeds the private
+replay target from authoritative guest EDRAM between component tiles. Only an
+exact committed frame may enter the existing swap-time preview; an incomplete,
+conflicting, malformed, or allocation-failed frame remains unavailable so the
+guest output falls back to Xenos. The callback is not registered yet, so this
+slice is dormant by default and cannot publish guest memory, suppress a draw,
+or change rendering until the title-side planner is wired.
 
 Run the deferred qualifier after the next combined AppData capture:
 

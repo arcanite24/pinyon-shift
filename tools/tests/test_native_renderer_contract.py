@@ -2026,6 +2026,29 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("ShadowDepthBatch requires IsolatedDrawDir", capture)
         self.assertIn("PINYON_SHIFT_NATIVE_RENDERER_SHADOW_DEPTH_BATCH", capture)
 
+    def test_procedural_frame_accumulator_backend_is_private_and_fail_closed(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0108-d3d12-procedural-frame-accumulator.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GraphicsNativeFrameAccumulatorRequest", patch)
+        self.assertIn("SetNativeFrameAccumulatorPlanner", patch)
+        self.assertIn("observation.succeeded", patch)
+        self.assertIn("ApplyIsolatedReplayFrameAccumulator", patch)
+        self.assertIn("request.destination_row !=", patch)
+        self.assertIn("request.storage_height - request.destination_row", patch)
+        self.assertIn("isolated_replay_frame_accumulator_reseed_required_", patch)
+        self.assertIn("return BeginIsolatedReplayTarget(", patch)
+        self.assertIn(
+            "isolated_replay_frame_accumulator_committed_frame_sequence_ ==",
+            patch,
+        )
+        self.assertIn("D3D12_RESOURCE_STATE_COPY_DEST", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE", patch)
+        self.assertNotIn("SetDrawSuppression", patch)
+        self.assertNotIn("+      PublishIsolatedReplayTarget(", patch)
+        self.assertNotIn("+            PublishIsolatedReplayTarget(", patch)
+
     def test_census_ledger_tracks_exact_starting_baseline(self):
         ledger = (ROOT / "docs/native-renderer/RENDER_PASS_CENSUS.md").read_text(
             encoding="utf-8"
