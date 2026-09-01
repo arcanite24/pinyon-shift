@@ -217,7 +217,20 @@ def build(events, requested_session=None, allow_checkpoint=False):
         *SHARED_WORLD_RELATIONS,
     )
     totals = {key: integer(summary, key) for key in keys}
+    prepared_partition_keys = (
+        "command_prepared_draw_joins_with_semantic_origin",
+        "command_prepared_draw_joins_without_semantic_origin",
+    )
+    prepared_partition_present = all(
+        key in summary for key in prepared_partition_keys
+    )
+    for key in prepared_partition_keys:
+        totals[key] = integer(summary, key) if key in summary else 0
     failures = []
+    if any(key in summary for key in prepared_partition_keys) and not (
+        prepared_partition_present
+    ):
+        failures.append("prepared command semantic-origin partition is incomplete")
     classified = (
         totals["exact_scopes"]
         + totals["invalid_root"]
@@ -245,6 +258,11 @@ def build(events, requested_session=None, allow_checkpoint=False):
         failures.append("no exact track command packet was observed")
     if not totals["command_prepared_draw_joins"]:
         failures.append("no exact track command reached a prepared draw")
+    if prepared_partition_present and totals["command_prepared_draw_joins"] != (
+        totals["command_prepared_draw_joins_with_semantic_origin"]
+        + totals["command_prepared_draw_joins_without_semantic_origin"]
+    ):
+        failures.append("prepared command semantic-origin accounting drifted")
     if totals["shared_command_lineage"] != totals["command_prepared_draw_joins"]:
         failures.append("prepared command-lineage relation accounting drifted")
     for key in (

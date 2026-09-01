@@ -1,6 +1,6 @@
 # Combined C1/C2 qualification gate
 
-Status: implementation complete; first clean AppData batch pending
+Status: implementation complete; first clean AppData batch incomplete
 
 The combined gate turns one exact runtime session into a single promotion
 decision. It joins four independently strict, payload-free reports:
@@ -51,3 +51,10 @@ family promotion, or suppression. Those remain the next gates.
 
 This report never reads or modifies the AppData save and cannot enable runtime
 behavior. It only joins existing payload-free evidence.
+
+The first clean combined run reached exact C1 scope, context, and indirect
+packet identity but exposed an observer-ordering gap at the prepared boundary.
+It also reached exact C2 presentation/transform scopes without reaching the
+assumed base-renderer handoff. Both results are diagnostic and cannot satisfy
+this gate; their focused corrections remain default-off and preserve Xenos as
+the sole output authority.

@@ -2605,6 +2605,10 @@ std::atomic<uint64_t> g_track_render_model_context_observations{};
 std::atomic<uint64_t> g_track_render_model_context_bridges{};
 std::atomic<uint64_t> g_track_render_model_packet_joins{};
 std::atomic<uint64_t> g_track_render_model_prepared_draw_joins{};
+std::atomic<uint64_t>
+    g_track_render_model_prepared_draw_joins_with_semantic_origin{};
+std::atomic<uint64_t>
+    g_track_render_model_prepared_draw_joins_without_semantic_origin{};
 std::atomic<uint64_t> g_track_render_model_shared_identity_joins{};
 std::array<std::atomic<uint64_t>, 9>
     g_track_render_model_shared_identity_relations{};
@@ -12282,6 +12286,14 @@ void EmitTrackRenderModelRuntimeJoinEvent(const char *event_name,
        {"command_prepared_draw_joins",
         std::to_string(g_track_render_model_prepared_draw_joins.load(
             std::memory_order_relaxed))},
+       {"command_prepared_draw_joins_with_semantic_origin",
+        std::to_string(
+            g_track_render_model_prepared_draw_joins_with_semantic_origin.load(
+                std::memory_order_relaxed))},
+       {"command_prepared_draw_joins_without_semantic_origin",
+        std::to_string(
+            g_track_render_model_prepared_draw_joins_without_semantic_origin
+                .load(std::memory_order_relaxed))},
        {"shared_identity_joins",
         std::to_string(g_track_render_model_shared_identity_joins.load(
             std::memory_order_relaxed))},
@@ -19587,6 +19599,21 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
       origin.static_world_draw.asset_metadata_valid &&
       origin.static_world_draw.transform_valid &&
       origin.static_world_draw.mesh_semantics_valid;
+  const ActiveTitleIndirectBuffer *active =
+      CurrentTitleIndirectBuffer(observation);
+  const bool exact_track_command =
+      active && active->constructor_origin.owner.producer.context
+                    .track_command_lineage;
+  if (exact_track_command) {
+    g_track_render_model_prepared_draw_joins.fetch_add(
+        1, std::memory_order_relaxed);
+    (origin.semantic_draw.valid
+         ? g_track_render_model_prepared_draw_joins_with_semantic_origin
+         : g_track_render_model_prepared_draw_joins_without_semantic_origin)
+        .fetch_add(1, std::memory_order_relaxed);
+    g_track_render_model_shared_identity_relations[8].fetch_add(
+        1, std::memory_order_relaxed);
+  }
   if (!origin.semantic_draw.valid) {
     return {
         .static_world_origin = static_world_origin,
@@ -19594,10 +19621,7 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     };
   }
   SemanticDrawIdentity identity = origin.semantic_draw;
-  const ActiveTitleIndirectBuffer *active =
-      CurrentTitleIndirectBuffer(observation);
-  if (active && active->constructor_origin.owner.producer.context
-                    .track_command_lineage) {
+  if (exact_track_command) {
     const auto &track_context =
         active->constructor_origin.owner.producer.context;
     identity.track_render_model_scope = true;
@@ -19606,10 +19630,6 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
         kTrackRenderSharedCommandLineage;
     identity.track_world_resource_identity_mask |=
         track_context.track_world_resource_identity_mask;
-    g_track_render_model_prepared_draw_joins.fetch_add(
-        1, std::memory_order_relaxed);
-    g_track_render_model_shared_identity_relations[8].fetch_add(
-        1, std::memory_order_relaxed);
   }
   const SemanticPreparedDrawContract contract =
       BuildSemanticPreparedDrawContract(observation, prepared);
