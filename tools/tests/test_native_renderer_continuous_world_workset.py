@@ -237,6 +237,27 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             "g_procedural_frame_accumulator_pending_source_frame", source
         )
 
+    def test_accumulator_reports_scaled_source_topology(self):
+        source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
+            encoding="utf-8"
+        )
+        patch = (
+            ROOT
+            / "patches/rexglue/0115-d3d12-frame-accumulator-topology-result.patch"
+        ).read_text(encoding="utf-8")
+        for field in (
+            "source_resource_width",
+            "source_resource_height",
+            "source_sample_count",
+            "source_guest_msaa_samples",
+            "draw_resolution_scale_x",
+            "draw_resolution_scale_y",
+            "native_2x_msaa",
+        ):
+            self.assertIn(field, patch)
+            self.assertIn(field, source)
+        self.assertIn("isolated_color->key().msaa_samples", patch)
+
     def test_exact_track_color_only_replay_is_private_and_bounded(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
