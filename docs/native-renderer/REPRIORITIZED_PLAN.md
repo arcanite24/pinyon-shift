@@ -445,6 +445,18 @@ does not widen generic isolated replay, publish into guest targets, suppress a
 draw, or change Xenos authority. Runtime visual qualification remains batched
 with the next meaningful Phase C slice.
 
+C2 producer-pivot checkpoint: static AOT flow now enumerates all 13 direct
+callsites to indexed-draw emitter `82416380` and gives each an exact guest
+return-address discriminator. The `82C5B038` family is an exact
+`Presentation_Unified::CTrackPresentation` mesh draw: preserved `r26` is the
+selected `CTrackMesh`, while `r31` supplies the 64-byte transform consumed by
+the draw helper. A default-off census records the 13 producer counts and a
+bounded table of exact track-mesh transforms only when census plus dispatch
+discovery are armed. This replaces the dormant SimpleModel assumption with a
+live-candidate draw edge without yet claiming runtime activity or a concrete
+building/prop category. Static proof and the next batched gate are documented
+in [`DIRECT_INDEXED_DRAW_PRODUCERS.md`](DIRECT_INDEXED_DRAW_PRODUCERS.md).
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
