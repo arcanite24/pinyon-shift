@@ -589,6 +589,8 @@ world color. Slot 80 is receiver-exact and live but carries no draw through the
 existing `824365B0` packet lineage. AOT flow shows its alternate dispatcher
 path may bypass that context. The census now labels exact synchronous scope
 and inherited packet lineage independently; neither source enables admission.
+Per-slot direct/context dispatcher counters accompany the next batch so an
+empty draw result can distinguish a dormant render branch from lost lineage.
 
 ### C2. Static world buildings and props
 

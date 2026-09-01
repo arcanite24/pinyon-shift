@@ -2935,6 +2935,8 @@ std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_invalid_root{};
 std::array<std::atomic<uint64_t>, 4> g_track_presentation_pass_overlaps{};
 std::array<std::atomic<uint64_t>, 4>
     g_track_presentation_pass_exit_without_entry{};
+std::array<std::array<std::atomic<uint64_t>, 2>, 4>
+    g_track_presentation_dispatcher_routes{};
 thread_local std::array<bool, 4> g_track_presentation_pass_active{};
 thread_local std::array<bool, 4> g_track_presentation_pass_accepted{};
 std::mutex g_track_presentation_receiver_mutex;
@@ -6031,10 +6033,24 @@ void ObserveVehicleTypedRenderItem(uint32_t root_address,
   }
 }
 
+uint32_t CurrentTrackPresentationPassMask();
+
+void RecordTrackPresentationDispatcherRoute(bool context_path) {
+  const uint32_t pass_mask = CurrentTrackPresentationPassMask();
+  for (size_t index = 0; index < g_track_presentation_dispatcher_routes.size();
+       ++index) {
+    if (pass_mask & (uint32_t(1) << index)) {
+      g_track_presentation_dispatcher_routes[index][context_path ? 1 : 0]
+          .fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+}
+
 void ObserveVehicleRenderContextDispatcher(uint32_t return_address,
-                                           uint32_t root_address,
-                                           uint32_t vector_address,
-                                           bool context_path) {
+                                            uint32_t root_address,
+                                            uint32_t vector_address,
+                                            bool context_path) {
+  RecordTrackPresentationDispatcherRoute(context_path);
   g_pending_vehicle_render_context_dispatcher = {};
   if (!g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
     return;
@@ -6861,6 +6877,11 @@ void ResetTitleDrawProvenance() {
                          &g_track_presentation_pass_overlaps,
                          &g_track_presentation_pass_exit_without_entry}) {
     for (std::atomic<uint64_t> &counter : *counters) {
+      counter.store(0, std::memory_order_relaxed);
+    }
+  }
+  for (auto &routes : g_track_presentation_dispatcher_routes) {
+    for (std::atomic<uint64_t> &counter : routes) {
       counter.store(0, std::memory_order_relaxed);
     }
   }
@@ -13770,21 +13791,45 @@ void EmitTrackPresentationPassSummary() {
        {"slot_78_exits", std::to_string(exits[0])},
        {"slot_78_exact", std::to_string(exact[0])},
        {"slot_78_invalid_root", std::to_string(invalid_root[0])},
+       {"slot_78_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[0][0].load(
+            std::memory_order_relaxed))},
+       {"slot_78_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[0][1].load(
+            std::memory_order_relaxed))},
        {"slot_79_function", "8240E7B0"},
        {"slot_79_entries", std::to_string(entries[1])},
        {"slot_79_exits", std::to_string(exits[1])},
        {"slot_79_exact", std::to_string(exact[1])},
        {"slot_79_invalid_root", std::to_string(invalid_root[1])},
+       {"slot_79_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[1][0].load(
+            std::memory_order_relaxed))},
+       {"slot_79_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[1][1].load(
+            std::memory_order_relaxed))},
        {"slot_80_function", "82DEF2B0"},
        {"slot_80_entries", std::to_string(entries[2])},
        {"slot_80_exits", std::to_string(exits[2])},
        {"slot_80_exact", std::to_string(exact[2])},
        {"slot_80_invalid_root", std::to_string(invalid_root[2])},
+       {"slot_80_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[2][0].load(
+            std::memory_order_relaxed))},
+       {"slot_80_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[2][1].load(
+            std::memory_order_relaxed))},
        {"slot_81_function", "82DEADE0"},
        {"slot_81_entries", std::to_string(entries[3])},
        {"slot_81_exits", std::to_string(exits[3])},
        {"slot_81_exact", std::to_string(exact[3])},
        {"slot_81_invalid_root", std::to_string(invalid_root[3])},
+       {"slot_81_dispatcher_direct",
+        std::to_string(g_track_presentation_dispatcher_routes[3][0].load(
+            std::memory_order_relaxed))},
+       {"slot_81_dispatcher_context",
+        std::to_string(g_track_presentation_dispatcher_routes[3][1].load(
+            std::memory_order_relaxed))},
        {"overlaps", std::to_string(overlaps[0] + overlaps[1] + overlaps[2] +
                                     overlaps[3])},
        {"exit_without_entry",

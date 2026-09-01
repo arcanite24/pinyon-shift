@@ -60,6 +60,9 @@ def fixture():
         },
         **safety(),
     )
+    for slot in MODULE.SLOTS:
+        summary[f"slot_{slot}_dispatcher_direct"] = "3" if slot == 79 else "0"
+        summary[f"slot_{slot}_dispatcher_context"] = "8" if slot == 79 else "0"
     depth = event(
         MODULE.ENTRY,
         entry_key="1111222233334444",
@@ -132,6 +135,10 @@ class TrackPresentationPassSummaryTests(unittest.TestCase):
         self.assertEqual([78, 79], document["qualification"]["live_slots"])
         self.assertEqual(
             [78, 79], document["qualification"]["accepted_receiver_slots"]
+        )
+        self.assertEqual(
+            {"direct": 3, "context": 8},
+            document["slot_totals"]["79"]["dispatcher_routes"],
         )
         self.assertEqual([78], document["qualification"]["color_target_slots"])
         self.assertEqual(
