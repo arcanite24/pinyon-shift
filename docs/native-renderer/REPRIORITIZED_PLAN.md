@@ -842,6 +842,15 @@ replay selection and retains title/indirect lineage, semantic admission, and
 draw outcomes. This removes two discovery-only costs from every ordinary draw
 and constant write without changing the producer contract.
 
+Prepared-contract hot-path checkpoint: successful native-prototype evidence
+showed the prepared observer processing millions of draws while most were
+mechanically rejected. The observer now builds each semantic prepared contract
+and mechanical rejection mask once and shares them across semantic admission,
+continuous replay selection, shadow staging, and optional vehicle correlation.
+Vehicle-only private-capture classification is skipped unless its exact
+correlation mode is armed. Producer observers, prepared signatures, native
+shadow replay, Xenos authority, and fail-closed selection remain unchanged.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

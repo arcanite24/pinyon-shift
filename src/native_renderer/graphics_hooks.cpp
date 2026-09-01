@@ -23084,7 +23084,9 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     const rex::system::GraphicsDrawObservation &observation,
     bool samples_resolved_target,
     const rex::system::GraphicsPreparedDrawObservation &prepared,
-    const TitleDrawOrigin &origin, uint64_t prepared_signature) {
+    const TitleDrawOrigin &origin, uint64_t prepared_signature,
+    const SemanticPreparedDrawContract &contract,
+    uint32_t mechanical_rejection_mask) {
   const bool static_world_origin = origin.static_world_draw.valid;
   const bool static_world_exact =
       static_world_origin &&
@@ -23102,8 +23104,6 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
              : 0;
   const uint32_t track_presentation_direct_scope_mask =
       CurrentTrackPresentationPassMask();
-  const SemanticPreparedDrawContract contract =
-      BuildSemanticPreparedDrawContract(observation, prepared);
   RecordTrackPresentationPreparedTarget(
       observation, prepared, track_presentation_direct_scope_mask,
       track_presentation_packet_lineage_mask);
@@ -23142,9 +23142,6 @@ SemanticVisibilityPreparedAdmission RecordSemanticBatchOpportunity(
     identity.track_world_resource_identity_mask |=
         track_context.track_world_resource_identity_mask;
   }
-  const uint32_t mechanical_rejection_mask =
-      IsolatedDrawMechanicalRejectionMask(
-      observation, samples_resolved_target, prepared);
   const bool fresh_visibility_candidate =
       RecordSemanticVisibilityPreparedCandidate(observation, identity,
                                                 contract, prepared_signature,
@@ -25181,6 +25178,9 @@ void ObservePreparedDraw(
         sample, g_pending_candidate.samples_resolved_target, observation);
     const SemanticPreparedDrawContract prepared_semantic_contract =
         BuildSemanticPreparedDrawContract(sample, observation);
+    const uint32_t mechanical_rejection_mask =
+        IsolatedDrawMechanicalRejectionMask(
+            sample, g_pending_candidate.samples_resolved_target, observation);
     RecordPreparedCommandBufferLineage(
         prepared_signature, sample,
         g_pending_candidate.samples_resolved_target, observation);
@@ -25194,7 +25194,8 @@ void ObservePreparedDraw(
     const SemanticVisibilityPreparedAdmission visibility_admission =
         RecordSemanticBatchOpportunity(
             sample, g_pending_candidate.samples_resolved_target, observation,
-            g_pending_candidate.title_origin, prepared_signature);
+            g_pending_candidate.title_origin, prepared_signature,
+            prepared_semantic_contract, mechanical_rejection_mask);
     g_isolated_draw.prepared_signature = prepared_signature;
     g_isolated_draw.frame = sample.frame_sequence;
     g_isolated_draw.draw = sample.draw_sequence;
@@ -25209,11 +25210,7 @@ void ObservePreparedDraw(
          g_isolated_draw.shadow_depth_batch_mode) &&
         !g_isolated_draw.shadow_depth_prototype_mode;
     g_isolated_draw.prepared_candidate_rejection_mask =
-        dedicated_shadow_mode
-            ? 0
-            : IsolatedDrawMechanicalRejectionMask(
-                  sample, g_pending_candidate.samples_resolved_target,
-                  observation);
+        dedicated_shadow_mode ? 0 : mechanical_rejection_mask;
     const bool exact_track_color_only =
         visibility_admission.track_render_model_scope &&
         (visibility_admission.track_world_resource_shared_identity_mask ||
@@ -25342,27 +25339,26 @@ void ObservePreparedDraw(
         }
       }
     }
-    const uint32_t vehicle_shadow_color_rejection_mask =
-        IsolatedDrawMechanicalRejectionMask(
-            sample, g_pending_candidate.samples_resolved_target,
-            observation);
-    const uint32_t vehicle_shadow_color_private_capture_rejection_mask =
-        VehicleShadowColorPrivateCaptureRejectionMask(
-            sample, g_pending_candidate.samples_resolved_target,
-            observation);
     size_t vehicle_shadow_color_family_index =
         kVehicleShadowGeometryCorrelationCapacity;
-    const bool vehicle_shadow_geometry_color_match =
-        ObserveVehicleShadowGeometryColorCorrelation(
-        sample, g_pending_candidate.samples_resolved_target, observation,
-        prepared_signature, prepared_semantic_contract,
-        vehicle_shadow_color_rejection_mask,
-        vehicle_shadow_color_private_capture_rejection_mask,
-        &vehicle_shadow_color_family_index);
-    ObserveVehicleShadowColorRun(vehicle_shadow_geometry_color_match,
-                                 sample.frame_sequence,
-                                 sample.draw_sequence,
-                                 prepared_signature);
+    bool vehicle_shadow_geometry_color_match = false;
+    uint32_t vehicle_shadow_color_private_capture_rejection_mask = 0;
+    if (g_isolated_draw.vehicle_shadow_geometry_correlation_mode) {
+      vehicle_shadow_color_private_capture_rejection_mask =
+          VehicleShadowColorPrivateCaptureRejectionMask(
+              sample, g_pending_candidate.samples_resolved_target,
+              observation);
+      vehicle_shadow_geometry_color_match =
+          ObserveVehicleShadowGeometryColorCorrelation(
+              sample, g_pending_candidate.samples_resolved_target,
+              observation, prepared_signature, prepared_semantic_contract,
+              mechanical_rejection_mask,
+              vehicle_shadow_color_private_capture_rejection_mask,
+              &vehicle_shadow_color_family_index);
+      ObserveVehicleShadowColorRun(vehicle_shadow_geometry_color_match,
+                                   sample.frame_sequence,
+                                   sample.draw_sequence, prepared_signature);
+    }
     if (g_isolated_draw.vehicle_shadow_color_capture_mode &&
         vehicle_shadow_geometry_color_match &&
         !vehicle_shadow_color_private_capture_rejection_mask) {
