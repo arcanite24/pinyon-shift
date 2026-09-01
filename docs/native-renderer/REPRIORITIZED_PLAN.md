@@ -565,11 +565,12 @@ live color-producing pass directly; no intermediate call-count-only run is
 needed, and no candidate gains admission before private visual proof.
 
 The first lineage run proved slots 79 and 80 live but exposed an incorrect
-static-owner receiver gate. Slot 79's already-qualified runtime receiver is
-the unified track render-model instance (`820019CC`), not the presentation
-vtable that merely contains the function address. The corrected slice admits
-only that exact diagnostic scope and inventories neighboring runtime receiver
-signatures; rendering authority and suppression remain unchanged.
+static-owner receiver gate. A controlled retry then showed all ten calls use
+vtable `82003CCC`. Retail RTTI proves this is the 135-slot thread-safe
+refcounted wrapper around unified `CTrackPresentation`, and its slots 78-81
+resolve to the exact hooked AOT targets. The corrected slice accepts only that
+wrapper for diagnostic lineage; the inner render-model instance (`820019CC`)
+remains a separate scope. Rendering authority and suppression are unchanged.
 
 Spatial-state batching checkpoint: the same per-slot prepared-target key now
 includes raw viewport, viewport-transform control, and scissor state. The next
