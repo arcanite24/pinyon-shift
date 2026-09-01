@@ -834,6 +834,14 @@ census/qualification runs retain the complete copy observer. This removes work
 that is unrelated to prototype production without repeating the invalid
 copy-only architecture, changing guest memory, or suppressing Xenos work.
 
+Prototype hot-path checkpoint: draw signatures are now computed only for the
+full census or active vehicle discovery, and the shader-constant write observer
+is installed only for its exact vehicle-shadow correlation mode. Ordinary
+prototype production still builds the prepared signature used for native
+replay selection and retains title/indirect lineage, semantic admission, and
+draw outcomes. This removes two discovery-only costs from every ordinary draw
+and constant write without changing the producer contract.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
