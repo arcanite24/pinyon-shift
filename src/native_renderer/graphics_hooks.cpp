@@ -11296,6 +11296,8 @@ bool g_procedural_frame_accumulator_backend_armed = false;
 std::array<uint64_t, 6> g_procedural_frame_accumulator_backend_statuses{};
 uint64_t g_procedural_frame_accumulator_backend_detail_count = 0;
 uint64_t g_procedural_frame_accumulator_backend_detail_overflow = 0;
+uint64_t g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
+uint64_t g_procedural_frame_accumulator_same_frame_yields = 0;
 bool g_graphics_census_installed = false;
 bool g_graphics_full_census_armed = false;
 rex::memory::Memory *g_graphics_census_memory = nullptr;
@@ -11591,6 +11593,8 @@ void ResetCommandBufferLineage() {
   g_procedural_frame_accumulator_backend_statuses.fill(0);
   g_procedural_frame_accumulator_backend_detail_count = 0;
   g_procedural_frame_accumulator_backend_detail_overflow = 0;
+  g_procedural_frame_accumulator_backend_unavailable_frame = UINT64_MAX;
+  g_procedural_frame_accumulator_same_frame_yields = 0;
 }
 
 void ResetDependencyCensus() {
@@ -17449,6 +17453,11 @@ const char *ProceduralFrameAccumulatorBackendStatusName(
 void CompleteProceduralFrameAccumulatorBackend(
     const rex::system::GraphicsNativeFrameAccumulatorResult &result) {
   const uint32_t status = static_cast<uint32_t>(result.status);
+  if (result.status ==
+      rex::system::GraphicsNativeFrameAccumulatorStatus::kUnavailable) {
+    g_procedural_frame_accumulator_backend_unavailable_frame =
+        result.frame_sequence;
+  }
   if (status >= 1 &&
       status <= g_procedural_frame_accumulator_backend_statuses.size()) {
     ++g_procedural_frame_accumulator_backend_statuses[status - 1];
@@ -17501,6 +17510,11 @@ bool PlanProceduralFrameAccumulatorBackend(
   request_out = {};
   if (!g_procedural_frame_accumulator_backend_armed ||
       !observation.succeeded) {
+    return false;
+  }
+  if (observation.frame_sequence ==
+      g_procedural_frame_accumulator_backend_unavailable_frame) {
+    ++g_procedural_frame_accumulator_same_frame_yields;
     return false;
   }
   const auto transition = g_procedural_frame_accumulator_planner.Observe(
@@ -18152,6 +18166,9 @@ void EmitProceduralColorTargetProfiles() {
         std::to_string(g_procedural_frame_accumulator_backend_statuses[2])},
        {"unavailable",
         std::to_string(g_procedural_frame_accumulator_backend_statuses[3])},
+       {"same_frame_yields_after_unavailable",
+        std::to_string(g_procedural_frame_accumulator_same_frame_yields)},
+       {"retry_policy", "next_frame"},
        {"unsupported_target",
         std::to_string(g_procedural_frame_accumulator_backend_statuses[4])},
        {"allocation_failed",

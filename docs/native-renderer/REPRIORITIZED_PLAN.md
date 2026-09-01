@@ -851,6 +851,14 @@ Vehicle-only private-capture classification is skipped unless its exact
 correlation mode is armed. Producer observers, prepared signatures, native
 shadow replay, Xenos authority, and fail-closed selection remain unchanged.
 
+Accumulator availability checkpoint: exact mode-12 ingress can precede any
+same-frame isolated native color producer. After the backend reports that first
+chunk unavailable, the planner now yields the remaining accumulator callbacks
+for that frame and retries from a freshly armed first chunk on the next frame.
+This removes two guaranteed-invalid backend requests per unavailable three-copy
+frame without borrowing Xenos content, weakening producer ownership, or
+preventing later native frames from becoming eligible.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

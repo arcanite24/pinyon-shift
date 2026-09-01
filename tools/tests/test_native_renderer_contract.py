@@ -2142,6 +2142,18 @@ class NativeRendererContractTests(unittest.TestCase):
         self.assertIn("request_out.completion =", scanner)
         self.assertIn("preserved_and_completed_first", scanner)
         self.assertIn(
+            "g_procedural_frame_accumulator_backend_unavailable_frame =\n"
+            "        result.frame_sequence;",
+            scanner,
+        )
+        self.assertIn(
+            "observation.frame_sequence ==\n"
+            "      g_procedural_frame_accumulator_backend_unavailable_frame",
+            scanner,
+        )
+        self.assertIn('{"retry_policy", "next_frame"}', scanner)
+        self.assertIn('"same_frame_yields_after_unavailable"', scanner)
+        self.assertIn(
             "if (!g_procedural_frame_accumulator_backend_armed)", scanner
         )
 
