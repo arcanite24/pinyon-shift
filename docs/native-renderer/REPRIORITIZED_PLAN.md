@@ -978,6 +978,15 @@ topology, non-averaging sample selection, or arithmetic overflow fails closed.
 The bounded census reports the resulting physical plan, but backend copying is
 not admitted yet and the prototype compatibility gate remains 1x1.
 
+Backend-boundary checkpoint: the title now submits an accumulator request only
+when that physical plan is ready. The request carries the exact source origin
+and extent, physical copy and padding row counts, destination geometry, and
+sample selection; the D3D12 result echoes the same contract even on a rejected
+target. This closes the previous interface ambiguity where the backend knew
+only padded destination rows and inferred a source crop. The existing copy
+implementation does not consume the new crop/sample fields yet, so scaled
+backend admission and the 1x1 compatibility gate remain unchanged.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.

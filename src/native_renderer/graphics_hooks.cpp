@@ -17579,6 +17579,16 @@ void CompleteProceduralFrameAccumulatorBackend(
        {"draw_scale",
         fmt::format("{}x{}", result.draw_resolution_scale_x,
                     result.draw_resolution_scale_y)},
+       {"requested_source_rect",
+        fmt::format("{},{} {}x{}", result.requested_source_x,
+                    result.requested_source_y,
+                    result.requested_source_width,
+                    result.requested_source_height)},
+       {"requested_rows",
+        fmt::format("copy={};padding={}", result.requested_copy_row_count,
+                    result.requested_padding_row_count)},
+       {"requested_sample_select",
+        std::to_string(result.requested_sample_select)},
        {"native_2x_msaa", result.native_2x_msaa ? "true" : "false"},
        {"appended_row_end", std::to_string(result.appended_row_end)},
        {"committed", result.committed ? "true" : "false"},
@@ -17605,12 +17615,13 @@ ProceduralResolveCopyFromObservation(
           .written_length = observation.written_length};
 }
 
-void ObserveProceduralFrameAccumulatorPhysicalLayout(
+pinyon_shift::native_renderer::ProceduralFrameAccumulatorPhysicalLayout
+ObserveProceduralFrameAccumulatorPhysicalLayout(
     const pinyon_shift::native_renderer::
         ProceduralFrameAccumulatorTransition &transition,
     const rex::system::GraphicsCopyObservation &observation) {
   if (!transition.append || transition.cancel) {
-    return;
+    return {};
   }
   const pinyon_shift::native_renderer::
       ProceduralFrameAccumulatorSourceTopology topology{
@@ -17652,7 +17663,7 @@ void ObserveProceduralFrameAccumulatorPhysicalLayout(
   if (g_procedural_frame_accumulator_layout_detail_count ==
       kProceduralRuntimeDetailLimit) {
     ++g_procedural_frame_accumulator_layout_detail_overflow;
-    return;
+    return layout;
   }
   ++g_procedural_frame_accumulator_layout_detail_count;
   pinyon_shift::diagnostics::RecordEvent(
@@ -17681,6 +17692,7 @@ void ObserveProceduralFrameAccumulatorPhysicalLayout(
        {"backend_copy", "not_yet_admitted"},
        {"xenos_authority", "true"},
        {"suppression_allowed", "false"}});
+  return layout;
 }
 
 bool PlanProceduralFrameAccumulatorBackend(
@@ -17704,8 +17716,12 @@ bool PlanProceduralFrameAccumulatorBackend(
   const auto transition = g_procedural_frame_accumulator_planner.Observe(
       ProceduralResolveCopyFromObservation(observation));
   EmitProceduralFrameAccumulatorTransition(transition);
-  ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
+  const auto physical_layout =
+      ObserveProceduralFrameAccumulatorPhysicalLayout(transition, observation);
   if (!transition.actionable()) {
+    return false;
+  }
+  if (!transition.cancel && !physical_layout.ready()) {
     return false;
   }
   if (!transition.cancel &&
@@ -17716,11 +17732,18 @@ bool PlanProceduralFrameAccumulatorBackend(
            kProceduralFrameAccumulatorStorageHeight)) {
     return false;
   }
-  request_out.logical_width = transition.logical_width;
-  request_out.logical_height = transition.logical_height;
-  request_out.storage_height = kProceduralFrameAccumulatorStorageHeight;
-  request_out.destination_row = transition.destination_row;
-  request_out.storage_row_count = transition.storage_row_count;
+  request_out.logical_width = physical_layout.output_width;
+  request_out.logical_height = physical_layout.output_logical_height;
+  request_out.storage_height = physical_layout.output_storage_height;
+  request_out.destination_row = physical_layout.destination_row;
+  request_out.storage_row_count = physical_layout.destination_storage_rows;
+  request_out.source_x = physical_layout.source_x;
+  request_out.source_y = physical_layout.source_y;
+  request_out.source_width = physical_layout.source_width;
+  request_out.source_height = physical_layout.source_height;
+  request_out.copy_row_count = physical_layout.destination_copy_rows;
+  request_out.padding_row_count = physical_layout.padding_rows;
+  request_out.sample_select = physical_layout.sample_select;
   request_out.begin = transition.begin;
   request_out.append = transition.append;
   request_out.commit = transition.commit;
