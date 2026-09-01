@@ -817,6 +817,16 @@ match. Source-mode and arm accounting is emitted for the next batched run.
 This widens producer coverage without guest publication, draw suppression, or
 relaxing any later chunk/commit check.
 
+Prototype fast-path checkpoint: ordinary launcher `native_prototype` runs with
+the census disabled now install only the exact resolve-copy observer and the
+private frame-accumulator planner. They no longer execute draw, prepared-draw,
+indirect-buffer, draw-outcome, semantic-lineage, continuous-workset, or native-
+shadow observation on every Xenos draw. Explicit census/qualification runs
+retain the complete observer graph. The fast path preserves completed-first
+Xenos resolves, all Xenos draws, private-only native resources, and zero draw
+suppression. A measured performance claim remains gated on the next batched
+clean-build AppData comparison.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
