@@ -385,6 +385,41 @@ class ContinuousWorldWorksetTests(unittest.TestCase):
             patch,
         )
 
+    def test_accumulator_source_remains_qualified_for_same_frame_chunks(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0121-d3d12-accumulator-source-frame-lifetime.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("may provide multiple resolve chunks", patch)
+        self.assertIn("target reseeding or frame", patch)
+        self.assertIn("frame-sequence check above", patch)
+        self.assertIn(
+            "-  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;",
+            patch,
+        )
+        self.assertNotIn(
+            "+  isolated_replay_frame_accumulator_source_frame_sequence_ = 0;",
+            patch,
+        )
+
+    def test_exact_4x_accumulator_uses_fixed_resolve_and_region_copy(self):
+        patch = (
+            ROOT
+            / "patches/rexglue/0122-d3d12-fixed-resolve-accumulator-copy.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("source_desc.SampleDesc.Count == 4", patch)
+        self.assertIn("request.sample_select == 6", patch)
+        self.assertIn("D3DResolveSubresource", patch)
+        self.assertIn(
+            "isolated_replay_frame_accumulator_resolved_source_", patch
+        )
+        self.assertIn("D3D12_RESOURCE_STATE_RESOLVE_DEST", patch)
+        self.assertIn("D3D12_RESOURCE_STATE_COPY_SOURCE", patch)
+        self.assertIn("D3DCopyTextureRegion", patch)
+        self.assertIn("request.source_x + request.source_width", patch)
+        self.assertIn("request.source_y + request.source_height", patch)
+        self.assertIn("request.destination_row", patch)
+
     def test_scaled_accumulator_qualification_keeps_xenos_authoritative(self):
         source = (ROOT / "src/native_renderer/graphics_hooks.cpp").read_text(
             encoding="utf-8"
