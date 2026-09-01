@@ -468,7 +468,7 @@ it live, and C2 must not infer building/prop identity from generic active
 helpers.
 
 Prepared-layout pivot checkpoint: the proven indirect track lineage now retains
-at most 512 shader-decoded prepared-layout families, keyed by the exact track
+at most 1,024 shader-decoded prepared-layout families, keyed by the exact track
 root/child/descriptor tuple and pipeline/layout/render-state contract. Final
 shutdown emits one bounded numeric metadata sample per family plus complete
 exact, unbounded, parameter-overflow, and table-overflow accounting. The offline
@@ -479,6 +479,17 @@ identity, native admission, or suppression. The next expensive build/AppData
 run is deliberately batched until this census and its offline analyzer can
 answer that concrete transform-layout question. See
 [`TRACK_WORLD_PREPARED_LAYOUT.md`](TRACK_WORLD_PREPARED_LAYOUT.md).
+
+First batched result: clean AppData session `20260901T030124Z-p12228`
+confirmed 732 exact prepared observations with zero unbounded geometry and zero
+parameter overflow, but the original 512-entry table filled and rejected 54
+later observations. The fixed capacity is therefore raised to 1,024, covering
+the first run's worst case of 566 families while keeping explicit overflow
+failure. Transform classification remains gated on one complete clean rerun.
+An immediately preceding identical launch encountered the known intermittent
+guest null
+dereference before this observer recorded any track layout; the controlled
+retry reached gameplay and exited normally.
 
 Catalog-correlation checkpoint: a second payload-free classifier now tests
 every four-register vertex-constant window against the existing 24,025-entry

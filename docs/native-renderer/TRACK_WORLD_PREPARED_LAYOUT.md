@@ -1,6 +1,6 @@
 # Track-world prepared-layout census
 
-Status: implemented; one batched AppData capture remains pending
+Status: implemented; capacity correction awaits one batched AppData rerun
 
 ## Why this is the next C1 boundary
 
@@ -23,7 +23,7 @@ active, the observer records one of three outcomes:
 - unbounded geometry; or
 - float-constant, texture-layout, or texture-state overflow.
 
-At most 512 distinct layout families are retained. A family key includes the
+At most 1,024 distinct layout families are retained. A family key includes the
 exact track root, child, descriptor, and descriptor payload plus the prepared
 pipeline, geometry-layout, texture-layout, and render-state hashes. Each entry
 keeps one bounded metadata sample, its frame/call coverage, and parameter-hash
@@ -69,6 +69,27 @@ These runs are candidates, not transforms. C1 advances only after recurring
 runs are compared across changed camera/vehicle poses and matched to the static
 world transform catalog without ambiguity. Until then, terrain/road identity,
 native admission, publication, and suppression remain unproved and disabled.
+
+## First runtime result
+
+Clean AppData session `20260901T030124Z-p12228` reached the saved festival
+world, retained 512 exact families from 732 prepared draws, and reported 54
+additional observations after the original table filled. Geometry and
+parameter metadata stayed bounded: there were zero unbounded-geometry and zero
+parameter-overflow observations. The 512-entry assumption, rather than the
+exact join, was therefore too small for this scene.
+
+The census capacity is now 1,024 entries. This remains a fixed startup
+allocation and comfortably covers the first run's worst case of 566 distinct
+families while preserving fail-closed overflow accounting. A new clean run is
+required before transform classification can qualify, because the classifier
+correctly rejects any incomplete source census.
+
+An immediately preceding identical launch, session
+`20260901T025802Z-p39560`, hit the existing intermittent guest null dereference
+at RVA `0x48844D8` while loading the world, before any track prepared-layout
+observation was recorded. The controlled retry reached gameplay and exited
+normally, so that fault is not attributed to this observer.
 
 ## Safety
 
