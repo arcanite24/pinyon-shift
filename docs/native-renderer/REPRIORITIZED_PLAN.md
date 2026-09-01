@@ -754,6 +754,18 @@ payload-free. This creates the fail-closed contract for the next D3D12 private
 resource slice, but performs no backend resource action, native admission,
 publication, or suppression itself.
 
+Private D3D12 accumulator checkpoint: a dormant backend callback now consumes
+those exact row operations only after the authoritative Xenos resolve has
+succeeded. It assembles a single-sample private 1280x736 resource, re-seeds the
+isolated replay target from authoritative guest EDRAM between tiles, and makes
+only a fully committed 1280x720 logical frame eligible for the existing
+swap-time preview. Gaps, overlap, target or extent changes, unsupported formats,
+and allocation failures clear the active sequence; an incomplete frame cannot
+replace the guest output. The callback remains unregistered in this slice, and
+there is still no guest-memory publication or draw suppression. Title-side
+planner registration and result diagnostics are the next implementation slice
+and will form the next meaningful AppData validation batch.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
