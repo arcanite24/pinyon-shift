@@ -25170,7 +25170,9 @@ void ObservePreparedDraw(
     ++g_candidate_prepared_without_observation_count;
   } else {
     const uint64_t source_draw_signature =
-        DrawSignature(g_pending_candidate.sample);
+        g_shadow_caster_provenance.requested
+            ? DrawSignature(g_pending_candidate.sample)
+            : 0;
     auto sample = g_pending_candidate.sample;
     sample.vertex_shader_hash = observation.vertex_shader_hash;
     sample.pixel_shader_hash = observation.pixel_shader_hash;
@@ -28915,14 +28917,20 @@ void ObserveDraw(const rex::system::GraphicsDrawObservation &observation) {
   candidate.sample = observation;
   ConsumeTitleDrawPacket(observation.packet_physical_address,
                          candidate.title_origin);
-  const uint64_t signature = DrawSignature(observation);
-  const ActiveTitleIndirectBuffer *vehicle_indirect_origin =
-      observation.command_buffer_depth
-          ? CurrentTitleIndirectBuffer(observation)
-          : nullptr;
-  ObserveVehicleDrawArgumentCorrelations(
-      signature, observation.frame_sequence, candidate.title_origin,
-      vehicle_indirect_origin);
+  uint64_t signature = 0;
+  if (g_graphics_full_census_armed ||
+      g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    signature = DrawSignature(observation);
+  }
+  if (g_vehicle_discovery_installed.load(std::memory_order_acquire)) {
+    const ActiveTitleIndirectBuffer *vehicle_indirect_origin =
+        observation.command_buffer_depth
+            ? CurrentTitleIndirectBuffer(observation)
+            : nullptr;
+    ObserveVehicleDrawArgumentCorrelations(
+        signature, observation.frame_sequence, candidate.title_origin,
+        vehicle_indirect_origin);
+  }
   for (uint32_t fetch_index = 0; fetch_index < 32; ++fetch_index) {
     if (!(observation.texture_fetch_mask & (uint32_t(1) << fetch_index))) {
       continue;
@@ -30807,8 +30815,13 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
   }
   g_graphics_census_installed = true;
   graphics_system->SetDrawObserver(&ObserveDraw);
+  const bool vehicle_shader_constant_observer_requested =
+      g_vehicle_discovery_installed.load(std::memory_order_acquire) &&
+      g_isolated_draw.vehicle_shadow_geometry_correlation_mode;
   graphics_system->SetShaderConstantWriteObserver(
-      &ObserveVehicleShaderConstantWrite);
+      vehicle_shader_constant_observer_requested
+          ? &ObserveVehicleShaderConstantWrite
+          : nullptr);
   graphics_system->SetIndirectBufferObserver(&ObserveIndirectBuffer);
   if (minimal_producer_graph_requested) {
     graphics_system->SetCopyObserver(&ObservePrototypeResolveCopy);
@@ -30834,6 +30847,11 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem *graphics_system,
        {"draw_outcome_observer", "retained"},
        {"isolated_draw_request_observer", "retained"},
        {"native_replay_producer", "retained"},
+       {"vehicle_shader_constant_observer",
+        vehicle_shader_constant_observer_requested ? "armed" : "disabled"},
+       {"draw_signature_scope",
+        g_graphics_full_census_armed ? "full_census"
+                                    : "producer_required_only"},
        {"xenos_draw", "preserved"},
        {"guest_memory_publication", "false"},
        {"draw_suppression", "false"}});
