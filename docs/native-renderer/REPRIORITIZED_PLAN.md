@@ -400,6 +400,22 @@ the target vtable and dispatch at `82BA61DC` with complete fail-closed
 accounting. This is the next batched C2 lead; it changes no queue, callback,
 draw, output authority, or suppression state.
 
+Combined runtime result: clean AppData session `20260901T005806Z-p31580`
+preserved a visually normal festival frame and exited normally. C1 proved
+17,373 balanced exact scopes and 26,209 prepared command-lineage joins, all
+without an independent procedural semantic origin. The workset still emitted
+zero exact track requests while completing 156 older retained-family frames;
+the existing counter could not distinguish replay-mechanical rejection from a
+selector bug. The workset now partitions exact command candidates into
+mechanically eligible and rejected outcomes and reports all 15 rejection bits.
+This is the next batched C1 gate and does not widen replay support.
+
+The same session observed zero deferred-task publications, callbacks, or
+handoffs. The proved deferred slot-12 route is therefore dormant in this
+festival population, just like the synchronous presentation population. C2
+must move to a live SimpleModel construction/registration or draw-producing
+call edge rather than adding more assumptions to either dormant path.
+
 ### C2. Static world buildings and props
 
 - Expand opaque-world material and geometry coverage.
