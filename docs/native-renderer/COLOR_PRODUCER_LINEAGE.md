@@ -125,6 +125,23 @@ retain the passive planning census; enabled runs let the callback consume each
 transition exactly once. Neither mode can publish guest memory or suppress a
 draw.
 
+`summarize-native-renderer-procedural-frame-accumulator.py` is the fail-closed
+runtime gate for the combined slice. It requires one armed backend config, one
+clean shutdown, complete result accounting, zero backend hard failures, and at
+least one frame whose plan is exactly `0+256`, `256+256`, and `512+224` and
+whose private results advance to rows 256, 512, and committed 736. It also
+locks the 1280x720 logical / 1280x736 storage extents, private-resource scope,
+completed-first Xenos resolve, zero guest-memory publication, and zero draw
+suppression.
+
+Run it after the combined AppData session closes:
+
+```powershell
+python tools/summarize-native-renderer-procedural-frame-accumulator.py `
+  <session-jsonl> --session <session-id> `
+  --output .local/qualification/native-renderer-procedural-frame-accumulator.json
+```
+
 Run the deferred qualifier after the next combined AppData capture:
 
 ```powershell
