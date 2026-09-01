@@ -43,10 +43,10 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rexglue_patches_have_stable_order_and_no_binary_payload(self):
         patches = sorted((ROOT / "patches/rexglue").glob("*.patch"))
-        self.assertEqual(len(patches), 113)
+        self.assertEqual(len(patches), 114)
         self.assertEqual(
             patches[-1].name,
-            "0113-d3d12-procedural-accumulator-source-ownership.patch",
+            "0114-isolated-replay-result-source-identity.patch",
         )
         self.assertEqual(len(patches), len({path.name[:4] for path in patches}))
         for path in patches:
