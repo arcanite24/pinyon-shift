@@ -1,5 +1,9 @@
 # Pinyon Shift
 
+<p align="center">
+  <img src=".github/pinyon-shift-logo.png" alt="Pinyon Shift logo" width="720">
+</p>
+
 Pinyon Shift is a Windows-only playable preview of a native recompilation of
 the Xbox 360 release of *Forza Horizon*. The project is early, imperfect, and
 surprisingly drivable.
