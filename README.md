@@ -69,6 +69,29 @@ patches ReXGlue, verifies/extracts the disc, generates translated source, and
 builds Release. See [Building](docs/BUILDING.md) and
 [Troubleshooting](docs/TROUBLESHOOTING.md) for details.
 
+## Roadmap
+
+Longer-term direction, in no particular order. None of it is scheduled, and the
+current preview supports none of it.
+
+- [ ] Finish the native renderer and retire the Xenos compatibility path
+- [ ] Lower the hardware requirements and qualify AMD and Intel GPUs
+- [ ] Fix the remaining rendering regressions
+- [ ] Make the first build faster and fully validated
+- [ ] Support more disc regions and languages
+- [ ] Change resolution and render scale while the game is running
+- [ ] Apply graphics settings without restarting the preview
+- [ ] Support ultrawide (21:9 and wider) displays
+- [ ] Add controller remapping
+- [ ] Ship the UI extension API
+- [ ] Ship a modding API for loading custom content
+- [ ] Build for macOS and Linux
+- [ ] Port the runtime to Android
+- [ ] Ship a Steam Deck build
+- [ ] Support portable installs
+- [ ] Sign the launcher and preview executables
+- [ ] Import cars from *Forza Horizon 2*
+
 ## Project boundaries
 
 Only independently authored project files are licensed under the
