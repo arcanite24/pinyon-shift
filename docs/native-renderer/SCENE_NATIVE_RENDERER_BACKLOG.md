@@ -38,9 +38,10 @@ bounded same-frame vegetation metadata, guarded vertex bytes and a private
 same-frame identity/depth diagnostic; full-slice coverage remains open.
 The [shared-track private diagnostic](SCENE_NATIVE_SNR04_TRACK_EVIDENCE_2026-09-23.md)
 renders all owned track draws from a paired source-frame-5000 fixture with
-verified shader/index inputs. Its permissive raster state yields a visibly
-different identity silhouette from the same-frame compatibility image; final
-per-draw raster state and one direct-root boundary remain to be proved.
+verified shader/index inputs. A second capture passed the strict frame-wide
+candidate census and final per-draw viewport, cull and depth-state joins.
+Rebasing its three EDRAM tiles produces 700,053 private identity/depth pixels,
+but stencil, material visibility and full selected-slice parity remain open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

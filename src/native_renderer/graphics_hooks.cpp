@@ -528,6 +528,9 @@ struct Snr02TrackDraw {
   std::vector<uint32_t> vertex_packed;
   std::array<uint32_t, 64> system_constants{};
   std::array<uint32_t, 4> fetch47{};
+  uint32_t raster_mode_control = 0, clip_control = 0, depth_control = 0;
+  std::array<float, 6> viewport{};
+  std::array<int32_t, 4> scissor{};
   bool final_seen = false;
 };
 struct Snr02TrackPayload {
@@ -1158,6 +1161,7 @@ void ObserveSnr02TrackFinalDrawState(
       !observation.fetch_47_words ||
       !observation.vertex_float_constant_words ||
       !observation.bound_vertex_float_constant_words ||
+      !observation.viewport || !observation.scissor ||
       observation.bound_vertex_float_constant_count * 4 !=
           draw.vertex_packed.size()) {
     payload.rejected = true;
@@ -1182,7 +1186,24 @@ void ObserveSnr02TrackFinalDrawState(
   std::copy_n(observation.system_constant_words, 64,
               draw.system_constants.begin());
   std::copy_n(observation.fetch_47_words, 4, draw.fetch47.begin());
+  draw.raster_mode_control = observation.raster_mode_control;
+  draw.clip_control = observation.clip_control;
+  draw.depth_control = observation.normalized_depth_control;
+  std::copy_n(observation.viewport, 6, draw.viewport.begin());
+  std::copy_n(observation.scissor, 4, draw.scissor.begin());
   draw.final_seen = true;
+  std::array<uint32_t, 6> viewport_words{};
+  std::array<uint32_t, 4> scissor_words{};
+  for (size_t i = 0; i < viewport_words.size(); ++i)
+    viewport_words[i] = std::bit_cast<uint32_t>(draw.viewport[i]);
+  for (size_t i = 0; i < scissor_words.size(); ++i)
+    scissor_words[i] = uint32_t(draw.scissor[i]);
+  REXGPU_INFO("FH1 SNR02 track raster state {{\"frame\":{},\"sequence\":{},"
+              "\"mode\":{},\"clip\":{},\"depth\":{},"
+              "\"viewport_hash\":{},\"scissor_hash\":{}}}",
+              observation.frame_sequence, draw.sequence,
+              draw.raster_mode_control, draw.clip_control, draw.depth_control,
+              Snr02HashWords(viewport_words), Snr02HashWords(scissor_words));
   REXGPU_INFO("FH1 SNR02 track final state {{\"frame\":{},\"packet\":{},"
               "\"sequence\":{},\"dynamic\":{},"
               "\"system_hash\":{},\"fetch47_hash\":{},"
@@ -1828,7 +1849,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
     encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '3', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '4', '\0'};
   write(magic);
   write(output_frame - 1);
   write(uint32_t(targets.size()));
@@ -1870,6 +1891,11 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     for (uint32_t word : draw.vertex_packed) write(word);
     write(draw.system_constants);
     write(draw.fetch47);
+    write(draw.raster_mode_control);
+    write(draw.clip_control);
+    write(draw.depth_control);
+    write(draw.viewport);
+    write(draw.scissor);
   }
   const auto directory = fh1_render_test::OutputDirectory();
   const bool written = !directory.empty() &&

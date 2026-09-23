@@ -27,6 +27,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "native_renderer/snr04_owned_scene_diagnostic.h"
@@ -1351,7 +1352,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     ID3D12Device* borrowed_device) {
   const auto source = read(fixture);
   Reader reader{source};
-  require(reader.take<std::array<char, 8>>() ==
+  const auto magic = reader.take<std::array<char, 8>>();
+  const bool raster_captured = magic ==
+      (std::array<char, 8>{'S','N','R','0','2','T','4','\0'});
+  require(raster_captured || magic ==
               (std::array<char, 8>{'S','N','R','0','2','T','3','\0'}),
           "wrong track fixture");
   const auto frame = reader.take<uint64_t>();
@@ -1391,6 +1395,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     std::vector<uint32_t> packed;
     std::array<uint32_t, 64> system;
     std::array<uint32_t, 4> fetch;
+    uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;
+    std::array<float, 6> viewport{};
+    std::array<int32_t, 4> scissor{};
   };
   std::vector<TrackDraw> draws;
   draws.reserve(draw_count);
@@ -1423,6 +1430,19 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
       draw.packed.push_back(reader.take<uint32_t>());
     draw.system = reader.take<std::array<uint32_t, 64>>();
     draw.fetch = reader.take<std::array<uint32_t, 4>>();
+    if (raster_captured) {
+      draw.raster_mode = reader.take<uint32_t>();
+      draw.clip_control = reader.take<uint32_t>();
+      draw.depth_control = reader.take<uint32_t>();
+      draw.viewport = reader.take<std::array<float, 6>>();
+      draw.scissor = reader.take<std::array<int32_t, 4>>();
+      require(std::all_of(draw.viewport.begin(), draw.viewport.end(),
+                          [](float value) { return std::isfinite(value); }) &&
+                  draw.viewport[2] > 0 && draw.viewport[3] > 0 &&
+                  draw.scissor[0] < draw.scissor[2] &&
+                  draw.scissor[1] < draw.scissor[3],
+              "invalid captured track raster state");
+    }
     require(draw.sequence && (!i || draw.sequence > draws.back().sequence) &&
                 target_addresses.contains(target) && vertices.contains(draw.vertex) &&
                 indices.contains(draw.index) && format == 0 && primitive == 6 &&
@@ -1434,6 +1454,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                 (draw.fetch[3] & 0x03FFFFFC) == draw.vertex.second &&
                 (draw.fetch[2] & 3) == 3,
             "unsupported track draw state");
+    if (raster_captured)
+      require((draw.raster_mode & 7) == 0 ||
+                  (draw.raster_mode & 7) == 2,
+              "unsupported track culling");
     auto as_float = [](uint32_t word) { return std::bit_cast<float>(word); };
     const float scale = as_float(draw.system[33]);
     const float offset = as_float(draw.system[37]);
@@ -1539,9 +1563,28 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
   desc.SampleDesc.Count = 1;
-  std::map<std::pair<uint64_t, uint64_t>, ComPtr<ID3D12PipelineState>> pipelines;
-  for (const auto& [key, bytes] : shaders) {
+  using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t, uint32_t>;
+  std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
+  for (const auto& draw : draws) {
+    const PipelineKey key{draw.shader, draw.specialization, draw.raster_mode,
+                          draw.clip_control, draw.depth_control};
+    if (pipelines.contains(key)) continue;
+    const auto& bytes = shaders.at({draw.shader, draw.specialization});
     desc.VS = {bytes.data(), bytes.size()};
+    if (raster_captured) {
+      desc.RasterizerState.CullMode = (draw.raster_mode & 2)
+          ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+      desc.RasterizerState.FrontCounterClockwise =
+          (draw.raster_mode & 4) == 0;
+      desc.RasterizerState.DepthClipEnable =
+          (draw.clip_control & (1u << 16)) == 0;
+      desc.DepthStencilState.DepthEnable = (draw.depth_control & 2) != 0;
+      desc.DepthStencilState.DepthWriteMask = (draw.depth_control & 4)
+          ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+      desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC(
+          uint32_t(D3D12_COMPARISON_FUNC_NEVER) +
+          ((draw.depth_control >> 4) & 7));
+    }
     ComPtr<ID3D12PipelineState> pipeline;
     check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
     pipelines.emplace(key, std::move(pipeline));
@@ -1580,8 +1623,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   for (const auto& draw : draws) {
     std::array<uint32_t, 120> system{};
     std::copy(draw.system.begin(), draw.system.end(), system.begin());
-    system[33] = std::bit_cast<uint32_t>(1.f);
-    system[37] = std::bit_cast<uint32_t>(-1.f / height);
+    if (!raster_captured) {
+      system[33] = std::bit_cast<uint32_t>(1.f);
+      system[37] = std::bit_cast<uint32_t>(-1.f / height);
+    }
     std::array<uint32_t, 192> fetch{};
     std::copy(draw.fetch.begin(), draw.fetch.end(), fetch.begin() + 188);
     fetch[190] &= 3;  // Preserve fetch endian; rebase owned bytes to offset zero.
@@ -1625,11 +1670,35 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
     const auto& state = bindings[ordinal];
+    if (raster_captured) {
+      // The 1280x720 target is replayed as 256, 256, and 208-row EDRAM tiles.
+      // Each later viewport is shortened by its output row offset.
+      const float tile_offset = float(height) - draw.viewport[3];
+      require(tile_offset >= 0 && tile_offset == std::floor(tile_offset) &&
+                  draw.viewport[0] == 0 && draw.viewport[1] == 0 &&
+                  draw.viewport[2] == width && draw.scissor[0] == 0 &&
+                  draw.scissor[1] == 0 && draw.scissor[2] == int32_t(width) &&
+                  draw.scissor[3] <= draw.viewport[3] &&
+                  tile_offset + draw.scissor[3] <= height,
+              "unsupported track EDRAM tile");
+      D3D12_VIEWPORT selected{draw.viewport[0], draw.viewport[1],
+                              draw.viewport[2], draw.viewport[3],
+                              draw.viewport[4], draw.viewport[5]};
+      selected.TopLeftY += tile_offset;
+      D3D12_RECT clip{draw.scissor[0], draw.scissor[1],
+                      draw.scissor[2], draw.scissor[3]};
+      clip.top += LONG(tile_offset);
+      clip.bottom += LONG(tile_offset);
+      commands->RSSetViewports(1, &selected);
+      commands->RSSetScissorRects(1, &clip);
+    }
     const auto& index = index_buffers.at(draw.index);
     D3D12_INDEX_BUFFER_VIEW index_view{index->GetGPUVirtualAddress(),
                                        draw.index.second, DXGI_FORMAT_R16_UINT};
     commands->IASetIndexBuffer(&index_view);
-    commands->SetPipelineState(pipelines.at({draw.shader, draw.specialization}).Get());
+    commands->SetPipelineState(pipelines.at(
+        {draw.shader, draw.specialization, draw.raster_mode,
+         draw.clip_control, draw.depth_control}).Get());
     commands->SetGraphicsRootConstantBufferView(0, state.b0->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(1, state.b1->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
@@ -1710,6 +1779,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
           << "\"width\":" << width << ",\"height\":" << height << ','
           << "\"draws\":" << draws.size() << ','
           << "\"shaders\":" << shaders.size() << ','
+          << "\"raster_state_captured\":"
+          << (raster_captured ? "true" : "false") << ','
+          << "\"viewport_cull_depth_applied\":"
+          << (raster_captured ? "true" : "false") << ','
+          << "\"edram_tiles_rebased\":"
+          << (raster_captured ? "true" : "false") << ','
+          << "\"raster_state_applied\":false,"
           << "\"covered_pixels\":" << covered << ','
           << "\"visible_draws\":"
           << std::count_if(draw_pixels.begin(), draw_pixels.end(),

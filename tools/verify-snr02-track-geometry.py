@@ -31,7 +31,7 @@ def read_fixture(path: Path):
     data = path.read_bytes()
     magic, source, targets, draws, vertices, indices = struct.unpack_from(
         "<8sQ4I", data)
-    assert magic in (b"SNR02T1\0", b"SNR02T2\0", b"SNR02T3\0")
+    assert magic in (b"SNR02T1\0", b"SNR02T2\0", b"SNR02T3\0", b"SNR02T4\0")
     assert targets <= 256 and draws <= 4096
     assert vertices <= 4096 and indices <= 4096
     offset = 32
@@ -59,8 +59,8 @@ def read_fixture(path: Path):
         offset += 56
         assert values[0] not in records
         final = None
-        if magic in (b"SNR02T2\0", b"SNR02T3\0"):
-            if magic == b"SNR02T3\0":
+        if magic in (b"SNR02T2\0", b"SNR02T3\0", b"SNR02T4\0"):
+            if magic in (b"SNR02T3\0", b"SNR02T4\0"):
                 (specialization, dynamic, host_index_format,
                  host_primitive, host_restart, index_endianness) = (
                     struct.unpack_from("<QQ4I", data, offset))
@@ -81,10 +81,14 @@ def read_fixture(path: Path):
             offset += 256
             fetch47 = struct.unpack_from("<4I", data, offset)
             offset += 16
+            raster = None
+            if magic == b"SNR02T4\0":
+                raster = struct.unpack_from("<3I6f4i", data, offset)
+                offset += 52
             assert sum(word.bit_count() for word in bitmap) * 4 == packed_count
             final = (specialization, dynamic, host_index_format,
                      host_primitive, host_restart, index_endianness,
-                     bitmap, packed, system, fetch47)
+                     bitmap, packed, system, fetch47, raster)
         records[values[0]] = (values, final)
     assert offset == len(data)
     return source, title_targets, ranges[0], ranges[1], records, magic
@@ -103,7 +107,7 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
     }
     assert selected and len(selected) <= 4096
     title_targets = set()
-    prepared, vertices, indices, finals = {}, {}, {}, {}
+    prepared, vertices, indices, finals, rasters = {}, {}, {}, {}, {}
     for line in log_path.open(encoding="utf-8-sig", errors="replace"):
         for marker, destination in (
             ("FH1 SNR01 scene indirect packet ", "title"),
@@ -111,6 +115,7 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
             ("FH1 SNR01 prepared vertex fetch ", "vertex"),
             ("FH1 SNR02 track geometry ", "index"),
             ("FH1 SNR02 track final state ", "final"),
+            ("FH1 SNR02 track raster state ", "raster"),
         ):
             if marker not in line:
                 continue
@@ -133,6 +138,9 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
                 elif destination == "final":
                     assert row["sequence"] not in finals
                     finals[row["sequence"]] = row
+                elif destination == "raster":
+                    assert row["sequence"] not in rasters
+                    rasters[row["sequence"]] = row
             break
     assert title_targets == {row["execution_command_buffer"]
                              for row in selected.values()}
@@ -141,8 +149,10 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         read_fixture(fixture_path))
     assert fixture_source == source and fixture_targets == title_targets
     assert len(records) == len(selected)
-    if magic in (b"SNR02T2\0", b"SNR02T3\0"):
+    if magic in (b"SNR02T2\0", b"SNR02T3\0", b"SNR02T4\0"):
         assert len(finals) == len(selected)
+    if magic == b"SNR02T4\0":
+        assert len(rasters) == len(selected)
     vertex_versions = collections.defaultdict(set)
     index_versions = collections.defaultdict(set)
     failures = collections.Counter()
@@ -165,15 +175,27 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         assert record[9:11] == (index["index_base"], index["index_length"])
         if final:
             (specialization, dynamic, host_index_format, host_primitive,
-             host_restart, index_endianness, bitmap, packed, system, fetch47) = final
+             host_restart, index_endianness, bitmap, packed, system, fetch47,
+             raster) = final
             final_log = finals[draw["sequence"]]
             assert (specialization, host_index_format) == (
                 index["specialization"], index["host_index_format"])
-            if magic == b"SNR02T3\0":
+            if magic in (b"SNR02T3\0", b"SNR02T4\0"):
                 assert (host_primitive, host_restart, index_endianness) == (
                     index["host_primitive"], index["host_restart"],
                     index["index_endianness"])
                 assert system[4] == index_endianness
+            if raster:
+                mode, clip, depth = raster[:3]
+                viewport_words = struct.unpack("<6I", struct.pack("<6f", *raster[3:9]))
+                scissor_words = [word & 0xFFFFFFFF for word in raster[9:13]]
+                assert (mode, clip, depth, hash_words(viewport_words),
+                        hash_words(scissor_words)) == (
+                    rasters[draw["sequence"]]["mode"],
+                    rasters[draw["sequence"]]["clip"],
+                    rasters[draw["sequence"]]["depth"],
+                    rasters[draw["sequence"]]["viewport_hash"],
+                    rasters[draw["sequence"]]["scissor_hash"])
             assert list(bitmap) == index["bitmap"]
             assert len(packed) == index["packed_words"]
             assert hash_words(packed) == index["packed_hash"]
@@ -200,7 +222,9 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
     assert len(owned_vertices) == len(vertex_versions)
     assert len(owned_indices) == len(index_versions)
     return {
-        "schema": ("pinyon-shift.snr02-track-geometry.v3"
+        "schema": ("pinyon-shift.snr02-track-geometry.v4"
+                   if magic == b"SNR02T4\0" else
+                   "pinyon-shift.snr02-track-geometry.v3"
                    if magic == b"SNR02T3\0" else
                    "pinyon-shift.snr02-track-geometry.v2"
                    if magic == b"SNR02T2\0" else

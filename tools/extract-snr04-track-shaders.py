@@ -21,7 +21,7 @@ read_fixture = runpy.run_path(str(TOOLS / "verify-snr02-track-geometry.py"))["re
 def extract(fixture: Path, pack: Path, output: Path) -> dict:
     fixture_bytes = fixture.read_bytes()
     source, _, _, _, draws, magic = read_fixture(fixture)
-    assert magic in (b"SNR02T2\0", b"SNR02T3\0") and draws
+    assert magic in (b"SNR02T2\0", b"SNR02T3\0", b"SNR02T4\0") and draws
     needed = {(record[0][1], record[1][0]) for record in draws.values()}
     data = pack.read_bytes()
     metadata = pack_format.verify_pack(data)

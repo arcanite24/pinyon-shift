@@ -22,7 +22,8 @@ int main(int argc, char** argv) {
       std::cout << "SNR04 procedural covered_pixels=" << covered << '\n';
       return 0;
     }
-    if (input && std::string_view(magic, 7) == "SNR02T3") {
+    if (input && (std::string_view(magic, 7) == "SNR02T3" ||
+                  std::string_view(magic, 7) == "SNR02T4")) {
       if (argc != 4) throw std::runtime_error("track diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
           argv[1], argv[2], argv[3]);
