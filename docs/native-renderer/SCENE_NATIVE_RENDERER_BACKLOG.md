@@ -64,7 +64,9 @@ The [remaining-family snapshot preflight](SCENE_NATIVE_SNR03_REMAINDER_SNAPSHOT_
 checks every selected car scene-list, animated-scene and car-presentation
 vertex and guest-index range in a later strict replay: 883 draws, including
 108 whose guest indices are converted by the SDK. This is byte availability
-evidence; immutable fixtures, title semantics and private rasters remain open.
+evidence. A later replay publishes 329 immutable title car scene-list records
+and joins all 1,067 selected car draws exactly. Owned geometry fixtures,
+animated/presentation title records and private rasters remain open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

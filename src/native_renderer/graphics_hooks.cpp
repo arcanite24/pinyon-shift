@@ -602,6 +602,20 @@ thread_local std::vector<Snr03ManagerRecord> snr03_manager_title_records;
 thread_local bool snr03_manager_title_rejected = false;
 std::map<uint64_t, std::shared_ptr<const Snr03ManagerScene>> snr03_manager_scenes;
 std::map<uint64_t, Snr03ManagerPayload> snr03_manager_payloads;
+struct Snr03CarSceneRecord {
+  uint32_t dispatch = 0, target = 0, words = 0;
+  uint32_t owner = 0, owner_vtable = 0, input = 0;
+  uint64_t owner_call = 0;
+  std::array<uint32_t, 7> owner_args{};
+};
+struct Snr03CarScene {
+  uint64_t source_frame = 0;
+  uint32_t view = 0, camera = 0;
+  std::vector<Snr03CarSceneRecord> records;
+};
+thread_local std::vector<Snr03CarSceneRecord> snr03_car_title_records;
+thread_local bool snr03_car_title_rejected = false;
+std::map<uint64_t, std::shared_ptr<const Snr03CarScene>> snr03_car_scenes;
 struct Snr01SceneListFlush {
   uint32_t caller;
   uint32_t owner;
@@ -1752,6 +1766,47 @@ void ObservePreparedDraw(
   ObserveSnr03ManagerPayload(observation);
   if (Snr03TargetFrame() > 0 &&
       observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+      observation.surface_info == 0x14020500 &&
+      (observation.color_info[0] == 0x00030000 ||
+       observation.color_info[0] == 0x000C0000) &&
+      observation.depth_info == 0x00010400 &&
+      observation.bound_render_target_bits == 3) {
+    std::lock_guard lock(snr03_scene_mutex);
+    if (const auto scene = snr03_car_scenes.find(uint64_t(Snr03TargetFrame()));
+        scene != snr03_car_scenes.end()) {
+      const auto record = std::find_if(scene->second->records.begin(),
+                                       scene->second->records.end(),
+                                       [&](const auto& row) {
+        return row.dispatch ==
+            observation.indirect_dispatch_packet_physical_address;
+      });
+      if (record != scene->second->records.end()) {
+        const bool vertices = observation.vertex_fetches &&
+            observation.vertex_fetch_count <= observation.vertex_fetch_capacity &&
+            std::all_of(observation.vertex_fetches,
+                        observation.vertex_fetches + observation.vertex_fetch_count,
+                        [](const auto& fetch) {
+          return fetch.cpu_snapshot_status == 1;
+        });
+        const bool valid = record->target ==
+                               observation.command_buffer_physical_address &&
+                           vertices && observation.index_cpu_snapshot_status == 1;
+        REXGPU_INFO("FH1 SNR03 car title join {{\"frame\":{},"
+                    "\"sequence\":{},\"packet\":{},\"dispatch\":{},"
+                    "\"target\":{},\"owner\":{},\"owner_vtable\":{},"
+                    "\"owner_call\":{},\"fetches\":{},\"index_type\":{},"
+                    "\"valid\":{}}}", observation.frame_sequence,
+                    observation.draw_sequence,
+                    observation.draw_packet_physical_address,
+                    record->dispatch, record->target, record->owner,
+                    record->owner_vtable, record->owner_call,
+                    observation.vertex_fetch_count,
+                    observation.index_buffer_type, valid);
+      }
+    }
+  }
+  if (Snr03TargetFrame() > 0 &&
+      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
       observation.vertex_shader_hash == 0xB8489164D5A86043ull) {
     REXGPU_INFO("FH1 SNR03 manager snapshot {{\"frame\":{},\"sequence\":{},"
                 "\"packet\":{},\"fetches\":{},\"index_status\":{},"
@@ -2528,6 +2583,15 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
   if (!Snr03ProbeEnabled() || output_frame != uint64_t(Snr03TargetFrame()) + 1) {
     return;
   }
+  {
+    std::lock_guard lock(snr03_scene_mutex);
+    if (const auto found = snr03_car_scenes.find(output_frame - 1);
+        found != snr03_car_scenes.end()) {
+      REXGPU_INFO("FH1 SNR03 car scene consumed output_frame={} records={}",
+                  output_frame, found->second->records.size());
+      snr03_car_scenes.erase(found);
+    }
+  }
   ObserveSnr03ManagerOutputFrame(output_frame);
   std::shared_ptr<const Snr03SceneSnapshot> scene;
   Snr03PayloadState payload;
@@ -3036,6 +3100,8 @@ void PinyonShiftObservePresentationViewBegin(
       snr03_scene_overflow = false;
       snr03_manager_title_records.clear();
       snr03_manager_title_rejected = false;
+      snr03_car_title_records.clear();
+      snr03_car_title_rejected = false;
     }
   }
   snr01_view_scopes.push_back(
@@ -3218,6 +3284,31 @@ void PinyonShiftObservePresentationViewEnd() {
       REXGPU_INFO("FH1 SNR03 manager scene rejected frame={} records={}"
                   " overflow={}", frame, snr03_manager_title_records.size(),
                   snr03_manager_title_rejected);
+    }
+  }
+  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
+      frame == uint64_t(Snr03TargetFrame())) {
+    if (!snr03_car_title_rejected && !snr03_car_title_records.empty() &&
+        scope.camera) {
+      Snr03CarScene snapshot{};
+      snapshot.source_frame = frame;
+      snapshot.view = scope.view;
+      snapshot.camera = scope.camera;
+      snapshot.records = std::move(snr03_car_title_records);
+      const auto scene = std::make_shared<const Snr03CarScene>(
+          std::move(snapshot));
+      {
+        std::lock_guard lock(snr03_scene_mutex);
+        if (snr03_car_scenes.size() == 2)
+          snr03_car_scenes.erase(snr03_car_scenes.begin());
+        snr03_car_scenes[frame] = scene;
+      }
+      REXGPU_INFO("FH1 SNR03 car scene published frame={} records={}",
+                  frame, scene->records.size());
+    } else {
+      REXGPU_INFO("FH1 SNR03 car scene rejected frame={} records={}"
+                  " overflow={}", frame, snr03_car_title_records.size(),
+                  snr03_car_title_rejected);
     }
   }
   if (scope.ordinal <= kSnr01ProceduralLimit) {
@@ -5494,6 +5585,31 @@ void PinyonShiftObserveSceneCommandBuffer(PPCRegister& r24, PPCRegister& r10,
         !snr01_scene_list_flushes.empty() &&
         snr01_scene_list_flushes.back().owner) {
       snr01_view8_flush_owners.insert(snr01_scene_list_flushes.back().owner);
+    }
+    if (Snr03TargetFrame() > 0 &&
+        uint64_t(Snr03TargetFrame()) == rex::perf::GetTotalCounter(
+            rex::perf::CounterId::kSourceFrameCount) &&
+        !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8 &&
+        !snr01_scene_list_flushes.empty()) {
+      const auto& flush = snr01_scene_list_flushes.back();
+      if (flush.owner_first_word == 0x82001618 ||
+          flush.owner_first_word == 0x82003A54) {
+        const uint32_t dispatch = r30.u32 & 0x1FFFFFFF;
+        const uint32_t target = r10.u32 & 0x1FFFFFFF;
+        if (!dispatch || !target || !flush.owner ||
+            snr03_car_title_records.size() >= 512 ||
+            std::any_of(snr03_car_title_records.begin(),
+                        snr03_car_title_records.end(), [&](const auto& row) {
+              return row.dispatch == dispatch;
+            })) {
+          snr03_car_title_rejected = true;
+        } else {
+          snr03_car_title_records.push_back({
+              dispatch, target, r11.u32, flush.owner,
+              flush.owner_first_word, flush.input, flush.owner_call,
+              flush.owner_args});
+        }
+      }
     }
     REXGPU_INFO(
         "FH1 SNR01 scene indirect packet {{\"frame\":{},\"ordinal\":{},"

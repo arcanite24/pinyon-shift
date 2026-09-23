@@ -50,7 +50,33 @@ concatenates its current-run `runtime.11.log` through `runtime.log` in order.
 | `remainder-snapshot-live-d-evidence.log` | `D8FF20A1B0385ACF064BBE9178673DF6079411948AEFC9946FE88B28E4A45CE1` |
 | `remainder-snapshot-live-d-ledger.json` | `93A089A700AD5F9CDC531E8374F3645BE644274FFBAE9370D93D715ABADBD024` |
 
-Next, publish exact title-linked immutable records for these families, retain
-the verified bytes and final bound state in an owned fixture, reconstruct the
-108 host-converted index submissions, and render all 883 draws into the same
-private identity/depth target as the other selected families.
+The title join, owned geometry fixture, converted-index reconstruction and
+combined private identity/depth target were still open in this preflight.
+
+## Car scene-list title handoff
+
+A later strict replay froze 329 title view-8 car scene-list dispatch records
+into one immutable source-frame scene. Each record holds the exact dispatch
+packet, target command buffer, scene owner/vtable, owner call and arguments.
+The output-frame callback joins that record by dispatch packet and target,
+then checks live vertex and guest-index snapshot readiness. This join matched
+all 1,067 selected car scene-list draws; every join was valid, and there were
+no extra or missing joins. The frame-wide census attributed all 4,997 draws,
+and the partition selected 2,650 across all Gate A families. The snapshot
+verifier also passed the 43 animated and 72 car-presentation draws and found
+136 host-converted index sources in these three families.
+
+```powershell
+python tools/summarize-snr01-frame-wide-census.py "$base/car-title-join-live-a-evidence.log" --source-frame 5000 --require-candidate-boundary --output "$base/car-title-join-live-a-ledger.json"
+python tools/partition-snr00-gate-a-slice.py "$base/car-title-join-live-a-ledger.json"
+python tools/verify-snr03-remainder-snapshots.py "$base/car-title-join-live-a-evidence.log" "$base/car-title-join-live-a-ledger.json" --require-car-title
+```
+
+| Local evidence | SHA-256 |
+| --- | --- |
+| `car-title-join-live-a-evidence.log` | `A9D38858DE8D1A28224E4578B76D08DB26DF77F90AD9A96A219A3AEC64696548` |
+| `car-title-join-live-a-ledger.json` | `F2D3A9F517A0C494258EAE5101CCA8E3F609CAE1BB398016B33E278AA7271F0C` |
+
+The car title scene currently retains metadata only. The verified geometry,
+textures, packed constants and final raster state still need an owned fixture;
+animated and car-presentation scalar records need their own title publication.
