@@ -82,3 +82,39 @@ especially car scene lists: this frame has 292 such draws, and another strict
 frame had 702 across 63 vertex shader hashes, with one or three vertex streams
 and 16- or 32-bit indices. The track fixture's single-stream, 16-bit-strip
 assumptions cannot be reused unchanged. Gate A remains open.
+
+## Complete same-frame fixture coverage
+
+A later source-frame-5000/output-frame-5001 replay published all six fixture
+families in one run. Its strict frame-wide census attributed all 3,888 draws
+with zero unknown owners. `verify-snr04-complete-slice.py` reruns each family's
+independent fixture/log/ledger verifier and checks that their role counts
+partition all **2,192/2,192** selected draws:
+
+| Owned fixture family | Draws | Separate private identity pixels |
+| --- | ---: | ---: |
+| Shared track | 699 | 659,995 |
+| Procedural items | 171 | 35,879 |
+| Vegetation | 125 | 59,781 |
+| Procedural characters | 11 | 24,884 |
+| Character manager | 306 | 14,957 |
+| Car scene-list, animated and presentation remainder | 880 | 136,308 |
+
+All six private diagnostics consumed their fixtures from that same source
+frame. These are still six separate depth targets. The pixel counts overlap
+and cannot be summed into a scene image or used to claim exact occlusion.
+The required next SNR-04 step is one private target that executes all 2,192
+draws in global sequence with shared depth and tile state. Exact material
+roles and resource generations remain separate SNR-02 work.
+
+```powershell
+$base = '.local/native-renderer/snr04'
+python tools/verify-snr04-complete-slice.py "$base/remainder-index-live-b" "$base/remainder-index-live-b-evidence.log" "$base/remainder-index-live-b-ledger.json"
+```
+
+| Same-frame evidence | SHA-256 |
+| --- | --- |
+| `remainder-index-live-b-evidence.log` | `5A690FD3F582B85F3FB8947C2BE4399730DCDA7934461D03D597E59296309054` |
+| `remainder-index-live-b-ledger.json` | `7538696389C2E4A4696370FD7515EFA141506BA0B142A9A9F2C1BC5CFD878D5E` |
+| Track / items / vegetation fixtures | `68BCBE03CD49875AE842217969A0D4BFA0D1993EE649F936E39E05B671DA6A23` / `045485A19258A0CACDA4CE3C5C8BC126A89E06798AD44104DA5CD9921AEE7125` / `D1C3D98D3DD037CC1970101A861D22D2F161383688373ACF53B1AF553985FCFD` |
+| Procedural characters / manager / remainder fixtures | `67B31765B68D6A7F58AE44F2240EA64F5F9A894C4D6F0075A024AA7E6335C18A` / `A62CE36CC359E120AC4A96BBC19A2599E7164B72F8641967C21509E968104854` / `21896007841BEB6B028A7134D681ACDA13BE7122B9CF2374077F60B76795F8DA` |

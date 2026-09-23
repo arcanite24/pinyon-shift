@@ -43,11 +43,12 @@ candidate census and final per-draw viewport, cull and depth-state joins.
 Rebasing its three EDRAM tiles produces 700,053 private identity/depth pixels,
 but stencil, material visibility and full selected-slice parity remain open.
 The [combined Gate A capture](SCENE_NATIVE_GATE_A_COMBINED_CAPTURE_2026-09-23.md)
-joins track, procedural-item and vegetation fixtures to one source/output
-frame, covering 1,229 of 1,670 required draws in that replay. It also corrects
-the procedural-character/vegetation partition and isolates their snapshot
-budgets. The three private rasters remain separate and 441 required draws
-have no owned diagnostic fixture.
+first joined track, procedural-item and vegetation fixtures to one
+source/output frame, covering 1,229 of 1,670 required draws. It also corrected
+the procedural-character/vegetation partition and isolated their snapshot
+budgets. A later same-frame replay owns all 2,192 selected draws in six
+verified fixtures. All six render separately; one ordered private target is
+still required.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
