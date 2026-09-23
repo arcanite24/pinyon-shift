@@ -156,11 +156,21 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
                 if magic == b"SNR02I3\0":
                     expected_draw_state.update(bitmap=list(bitmap), mapped=mapped)
                 assert draw_states[sequence] == expected_draw_state
-                assert final_states[sequence] == {
+                expected_final = {
                     "frame": census["backend_frame"], "packet": packet,
                     "sequence": sequence, "dynamic": dynamic,
                     "system_hash": hash_words(system),
                     "fetch47_hash": hash_words(fetch47)}
+                if "vertex_changed" in final_states[sequence]:
+                    expected_final.update(vertex_changed=False,
+                                          final_vertex_hash=hash_words(vertex_constants))
+                if "bound_changed" in final_states[sequence]:
+                    packed = [word for reg in range(256)
+                              if bitmap[reg // 64] & (1 << (reg % 64))
+                              for word in vertex_constants[reg * 4:reg * 4 + 4]]
+                    expected_final.update(bound_changed=False,
+                                          bound_vertex_hash=hash_words(packed))
+                assert final_states[sequence] == expected_final
             assert seen == set(expected)
         total_draws += draws
         total_bytes += length

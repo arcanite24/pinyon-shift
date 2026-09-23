@@ -1020,7 +1020,9 @@ void ObserveSnr02ItemFinalDrawState(
   if (geometry == state.by_packet.end() ||
       !observation.system_constant_words ||
       observation.system_constant_word_count < 64 ||
-      !observation.fetch_47_words) {
+      !observation.fetch_47_words ||
+      !observation.vertex_float_constant_words ||
+      !observation.bound_vertex_float_constant_words) {
     state.rejected = true;
     return;
   }
@@ -1035,12 +1037,39 @@ void ObserveSnr02ItemFinalDrawState(
               draw.system_constants.begin());
   std::copy_n(observation.fetch_47_words, draw.fetch47.size(),
               draw.fetch47.begin());
+  const bool vertex_changed = !std::equal(
+      draw.vertex_constants.begin(), draw.vertex_constants.end(),
+      observation.vertex_float_constant_words);
+  std::array<uint32_t, 1024> packed{};
+  uint32_t packed_words = 0;
+  for (uint32_t reg = 0; reg < 256; ++reg) {
+    if (draw.vertex_bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+      std::copy_n(draw.vertex_constants.begin() + reg * 4, 4,
+                  packed.begin() + packed_words);
+      packed_words += 4;
+    }
+  }
+  if (observation.bound_vertex_float_constant_count * 4 != packed_words) {
+    state.rejected = true;
+    return;
+  }
+  const bool bound_changed = !std::equal(packed.begin(),
+                                         packed.begin() + packed_words,
+                                         observation.bound_vertex_float_constant_words);
   draw.final_seen = true;
   REXGPU_INFO("FH1 SNR02 item final state {{\"frame\":{},\"packet\":{},"
               "\"sequence\":{},\"dynamic\":{},\"system_hash\":{},"
-              "\"fetch47_hash\":{}}}", observation.frame_sequence,
+              "\"fetch47_hash\":{},\"vertex_changed\":{},\"final_vertex_hash\":{},"
+              "\"bound_changed\":{},\"bound_vertex_hash\":{}}}",
+              observation.frame_sequence,
               item->packet, observation.draw_sequence, observation.dynamic_state,
-              Snr02HashWords(draw.system_constants), Snr02HashWords(draw.fetch47));
+              Snr02HashWords(draw.system_constants), Snr02HashWords(draw.fetch47),
+              vertex_changed,
+              Snr02HashWords(std::span(observation.vertex_float_constant_words,
+                                       draw.vertex_constants.size())),
+              bound_changed,
+              Snr02HashWords(std::span(observation.bound_vertex_float_constant_words,
+                                       packed_words)));
 }
 
 void ObserveSnr03FinalDrawState(

@@ -20,8 +20,10 @@ have live packed-register maps. Material roles, texture generations and
 private render coverage remain open.
 The [SNR-04 procedural diagnostic](SCENE_NATIVE_SNR04_PROCEDURAL_EVIDENCE_2026-09-23.md)
 replays every owned procedural draw through a private full-resolution
-identity/depth target at the output-frame handoff. It is geometry/ABI evidence,
-not material parity or full-slice coverage. The
+identity/depth target at the output-frame handoff. It also checks original
+post-VS output and the actual bound vertex-constant bytes. A RenderDoc
+post-VS comparison is still unaligned with the owned source frame. This is
+geometry/ABI evidence, not material parity or full-slice coverage. The
 [SNR-03 evidence log](SCENE_NATIVE_SNR03_EVIDENCE_2026-09-22.md) records
 bounded same-frame vegetation metadata, guarded vertex bytes and a private
 same-frame identity/depth diagnostic; full-slice coverage remains open.

@@ -37,3 +37,46 @@ families, compatibility attachment pixel parity and retained-pass bridges
 remain unproved. Source frame 6000's compatibility color/depth attachments
 were not captured as pixel-aligned references in this replay. Gate A remains
 open until the entire selected slice is covered and compared on the same frame.
+
+## Post-VS and bound-constant follow-up
+
+The private diagnostic now also stream-outputs each draw's original-viewport
+`SV_Position` before its separate normalized identity/depth raster pass. An
+extended-route replay published 178 items and 262 draws; the strict frame
+census passed 2,670 prepared draws and the independent fixture join passed.
+All 262 selected draws had identical prepared registers, final registers and
+the **packed bytes actually bound to the GPU vertex constant buffer**. Its
+1,335,296-byte `postvs.f32x4`, identity and depth files were each byte-identical
+between the live borrowed-device diagnostic and a separate offline run.
+
+| Evidence | Local path | SHA-256 |
+| --- | --- | --- |
+| Owned fixture | `.local/native-renderer/snr04/procedural-bound-live-b/snr02-items-6000.bin` | `3437B2DB1E33929E9229D63C71C701B5AEC0767EA32CB6155DAC3A09F1564244` |
+| Filtered log | `.local/native-renderer/snr04/procedural-bound-live-b-filtered.log` | `5EA45591F48E296DBEDC15B9D26F9D150C6E68CFAF1D77C3204819929703EADE` |
+| Strict ledger | `.local/native-renderer/snr04/procedural-bound-live-b-ledger.json` | `DF6233867FCE5D827410D390E95EDA6ED3A72E93085CFEEB09FC5EB4A05B25FB` |
+| Private post-VS | `.local/native-renderer/snr04/procedural-bound-live-b/snr04-procedural-6000/postvs.f32x4` | `D5160150C3E4ECAF50C637724757AC42C8A778A6C82A72127852AB6D53D07A8B` |
+
+A separate RenderDoc run probed a fixture with 181 items and 273 selected
+draws. The capture has 238 actions using ShiftGlue's replacement
+`fh1_layered_scene_vs` for guest shader `3BC346726C1C2535`, plus 9, 12 and
+14 actions using the other three captured guest bytecodes. This exactly
+matches that fixture's shader/count distribution, but **none** of the 273
+captured post-VS position streams matched the private fixture byte for byte.
+One captured draw had the same 64 system words but 30 different packed vertex
+words from a same-count fixture draw. The files named `frame6000` and
+`frame6002` both contain full scene work; `frame6001` contains almost none.
+The captured actions are not yet joined to fixture draw sequences or a
+verified source-frame boundary, so the mismatch cannot be attributed to
+shader math or stale scene publication. The comparison is recorded at
+`.local/native-renderer/snr04/procedural-marker-comparison-6002.json`
+(SHA-256 `7DB6505D5D87136F7FF214823E4DF28DFFA109CBBFDEACDBCA4E4C27B0BE15AB`).
+`tools/probe-snr04-renderdoc-procedural.py` and
+`tools/check-snr04-procedural-capture.py` reproduce the export and exact
+comparison; a sequence- or attachment-matched compatibility capture is the
+next parity requirement. The bound-byte check supports the owned fixture in
+its own replay; it does not retroactively align the separate RenderDoc run.
+
+Moving the shared final-state callback after binding was also checked with
+the source-frame 6000 vegetation probe. It published a 445,968-byte scene
+fixture and rendered 127 private draws; its live identity, depth and post-VS
+files were each byte-identical to an offline replay of that fixture.

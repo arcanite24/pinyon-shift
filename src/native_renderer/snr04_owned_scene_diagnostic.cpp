@@ -945,8 +945,6 @@ ProceduralScene load_procedural(std::span<const char> bytes) {
                   bit_float(draw.system[38]) == 1 &&
                   std::abs((oy + 1) / sy - 1 + 1.f / height) < 1e-5f,
               "unsupported procedural viewport");
-      draw.system[33] = std::bit_cast<uint32_t>(1.f);
-      draw.system[37] = std::bit_cast<uint32_t>(-1.f / height);
       item.draws.push_back(draw);
     }
     item.fetch[2] &= 3;
@@ -988,6 +986,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   ComPtr<ID3D12Device> device;
   if (borrowed_device) device = borrowed_device;
   else {
+    ComPtr<ID3D12Debug> debug;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+      debug->EnableDebugLayer();
     ComPtr<IDXGIFactory6> factory;
     check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
     ComPtr<IDXGIAdapter1> adapter;
@@ -1019,7 +1020,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
   D3D12_ROOT_SIGNATURE_DESC root_description{
       6, parameters, 0, nullptr,
-      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT};
+      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+          D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT};
   ComPtr<ID3DBlob> root_blob;
   check(D3D12SerializeRootSignature(&root_description, D3D_ROOT_SIGNATURE_VERSION_1,
                                     &root_blob, &errors));
@@ -1044,11 +1046,42 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
   desc.SampleDesc.Count = 1;
   std::map<uint64_t, ComPtr<ID3D12PipelineState>> pipelines;
+  std::map<uint64_t, ComPtr<ID3D12PipelineState>> stream_pipelines;
+  D3D12_SO_DECLARATION_ENTRY position_declaration{0, "SV_Position", 0, 0, 4, 0};
+  UINT position_stride = 16;
   for (const auto& [hash, bytes] : vertex_shaders) {
     desc.VS = {bytes.data(), bytes.size()};
     ComPtr<ID3D12PipelineState> pipeline;
     check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
     pipelines.emplace(hash, std::move(pipeline));
+    auto stream_desc = desc;
+    stream_desc.PS = {};
+    stream_desc.StreamOutput = {&position_declaration, 1, &position_stride, 1,
+                                D3D12_SO_NO_RASTERIZED_STREAM};
+    stream_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    stream_desc.NumRenderTargets = 0;
+    stream_desc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    stream_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    stream_desc.DepthStencilState.DepthEnable = FALSE;
+    ComPtr<ID3D12PipelineState> stream_pipeline;
+    const auto stream_result = device->CreateGraphicsPipelineState(
+        &stream_desc, IID_PPV_ARGS(&stream_pipeline));
+    if (FAILED(stream_result)) {
+      std::cerr << "procedural stream PSO shader " << std::hex << hash << '\n';
+      ComPtr<ID3D12InfoQueue> messages;
+      if (SUCCEEDED(device.As(&messages))) {
+        for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
+          SIZE_T size = 0;
+          messages->GetMessage(i, nullptr, &size);
+          std::vector<char> storage(size);
+          auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+          if (SUCCEEDED(messages->GetMessage(i, message, &size)))
+            std::cerr << message->pDescription << '\n';
+        }
+      }
+    }
+    check(stream_result);
+    stream_pipelines.emplace(hash, std::move(stream_pipeline));
   }
   D3D12_CLEAR_VALUE color_clear{};
   color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1085,7 +1118,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                              indices.size() * sizeof(uint16_t));
   struct Resources {
     ComPtr<ID3D12Resource> vertices, b1, b3;
-    std::vector<ComPtr<ID3D12Resource>> b0;
+    std::vector<ComPtr<ID3D12Resource>> b0, b0_original;
   };
   std::vector<Resources> owned;
   for (const auto& item : scene.items) {
@@ -1098,6 +1131,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     for (const auto& draw : item.draws) {
       std::array<uint32_t, 120> system{};
       std::copy(draw.system.begin(), draw.system.end(), system.begin());
+      resource.b0_original.push_back(upload(device.Get(), system.data(), sizeof(system)));
+      system[33] = std::bit_cast<uint32_t>(1.f);
+      system[37] = std::bit_cast<uint32_t>(-1.f / height);
       resource.b0.push_back(upload(device.Get(), system.data(), sizeof(system)));
     }
     owned.push_back(std::move(resource));
@@ -1113,7 +1149,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                                D3D12_RESOURCE_STATE_COPY_DEST);
   auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                                D3D12_RESOURCE_STATE_COPY_DEST);
-  const auto built = std::chrono::steady_clock::now();
   ComPtr<ID3D12CommandQueue> queue;
   D3D12_COMMAND_QUEUE_DESC queue_desc{};
   check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
@@ -1147,6 +1182,23 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   std::sort(draws.begin(), draws.end(), [](const auto& a, const auto& b) {
     return a.sequence < b.sequence;
   });
+  std::vector<uint64_t> position_offsets;
+  uint64_t position_allocation = 0, position_bytes = 0;
+  for (const auto& ref : draws) {
+    position_offsets.push_back(position_allocation);
+    const auto bytes = uint64_t(scene.items[ref.item].draws[ref.variant].vertex_count) * 16;
+    position_allocation += bytes + 8;
+    position_bytes += bytes;
+  }
+  auto position_output = buffer(device.Get(), position_allocation,
+                                D3D12_HEAP_TYPE_DEFAULT,
+                                D3D12_RESOURCE_STATE_COPY_DEST);
+  auto position_readback = buffer(device.Get(), position_allocation,
+                                  D3D12_HEAP_TYPE_READBACK,
+                                  D3D12_RESOURCE_STATE_COPY_DEST);
+  const std::vector<char> zero_positions(position_allocation);
+  auto position_zero = upload(device.Get(), zero_positions.data(), zero_positions.size());
+  const auto built = std::chrono::steady_clock::now();
   for (const auto& ref : draws) {
     const auto& draw = scene.items[ref.item].draws[ref.variant];
     const auto& resource = owned[ref.item];
@@ -1158,6 +1210,30 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     commands->SetGraphicsRoot32BitConstant(4, UINT(ref.item + 1), 0);
     commands->DrawIndexedInstanced(draw.vertex_count / 4 * 6, 1, 0, 0, 0);
   }
+  commands->CopyBufferRegion(position_output.Get(), 0, position_zero.Get(), 0,
+                             position_allocation);
+  transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+             D3D12_RESOURCE_STATE_STREAM_OUT);
+  commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+  for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
+    const auto& ref = draws[ordinal];
+    const auto& draw = scene.items[ref.item].draws[ref.variant];
+    const auto& resource = owned[ref.item];
+    const auto bytes = uint64_t(draw.vertex_count) * 16;
+    const auto address = position_output->GetGPUVirtualAddress() + position_offsets[ordinal];
+    commands->SetPipelineState(stream_pipelines.at(draw.vertex_shader).Get());
+    commands->SetGraphicsRootConstantBufferView(
+        0, resource.b0_original[ref.variant]->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
+    commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
+    D3D12_STREAM_OUTPUT_BUFFER_VIEW position_view{address, bytes, address + bytes};
+    commands->SOSetTargets(0, 1, &position_view);
+    commands->DrawInstanced(draw.vertex_count, 1, 0, 0);
+  }
+  transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_STREAM_OUT,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  commands->CopyResource(position_readback.Get(), position_output.Get());
   transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -1191,6 +1267,22 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   std::filesystem::create_directories(output_directory);
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
+  std::ofstream positions_file(output_directory / "postvs.f32x4", std::ios::binary);
+  void* positions = nullptr;
+  D3D12_RANGE position_range{0, SIZE_T(position_allocation)};
+  check(position_readback->Map(0, &position_range, &positions));
+  for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
+    const auto& ref = draws[ordinal];
+    const auto bytes = uint64_t(scene.items[ref.item].draws[ref.variant].vertex_count) * 16;
+    const auto* segment = static_cast<const char*>(positions) + position_offsets[ordinal];
+    uint64_t written = 0;
+    std::memcpy(&written, segment + bytes, sizeof(written));
+    require(written == bytes, "incomplete procedural post-VS stream output");
+    positions_file.write(segment, bytes);
+  }
+  position_readback->Unmap(0, nullptr);
+  positions_file.close();
+  require(bool(positions_file), "procedural post-VS write failed");
   image << "P6\n" << width << ' ' << height << "\n255\n";
   D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
   void *colors = nullptr, *depths = nullptr;
@@ -1234,6 +1326,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
           << "\"fixture_sha256\":\"" << scene.sha << "\","
           << "\"items\":" << scene.items.size() << ','
           << "\"draws\":" << draws.size() << ','
+          << "\"postvs_bytes\":" << position_bytes << ','
           << "\"covered_pixels\":" << covered << ','
           << "\"extract_us\":" << us(begin, extracted) << ','
           << "\"build_us\":" << us(extracted, built) << ','
