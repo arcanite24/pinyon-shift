@@ -480,7 +480,9 @@ only those constants in a guarded local diagnostic fixture produces exact
 pixel/sample coverage and depth for all 133,488 writes of this draw. A
 179-action census finds exact fetched vertex bytes throughout the foliage
 slice, the same 39 constant slots differing on every draw, and one system
-word differing on the 67 middle-band draws. Align those bound vertex inputs
+word differing on the 67 middle-band draws. The captured constants also
+vary by tile draw within an item, so revise the fixture/replay to retain
+bound constants per final draw at output frame 5002. Align those inputs
 throughout the frozen slice before attributing
 remaining errors to materials. Then test the original pixel shader, stencil
 and resource lifetime before broadening native admission; see

@@ -492,7 +492,13 @@ middle band differs at system word 44 for its 67 draws. Thus material
 comparisons against the current fixture remain confounded throughout the
 foliage slice. Capture those vertex constants at the exact render events,
 and account for the middle-band system word, before treating the fixture
-as a pixel-aligned reference. The census is stored locally at
+as a pixel-aligned reference. Captured constants vary across tile draws of
+the same vegetation item: 35 items have three distinct constant blocks,
+27 have two and five have one. The current `SNR03F3` fixture stores a
+single block per item from the prepared source-frame draw; final-draw
+observations already carry the bound constant words at output frame 5002.
+The next fixture revision must store and replay those words per final draw,
+including each tile variant. The census is stored locally at
 `renderdoc-gatea-full-b-vegetation-vertex-alignment.json`.
 
 ```powershell

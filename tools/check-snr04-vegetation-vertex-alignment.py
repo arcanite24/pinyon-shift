@@ -23,7 +23,7 @@ def fixture_draws(data):
     position += 4 + 128
     assert 0 < items <= 512
     draws = []
-    for _ in range(items):
+    for item in range(items):
         position += 20 + 4 + 8
         vertices, size, constants, variants = struct.unpack_from(
             "<4I", data, position)
@@ -38,7 +38,7 @@ def fixture_draws(data):
             position += 16
             system = struct.unpack_from("<64I", data, position)
             position += 256 + 16
-            draws.append((sequence, size, vertex_hash, words, system))
+            draws.append((sequence, item, size, vertex_hash, words, system))
     assert position == len(data) and len(draws) == 179
     return sorted(draws)
 
@@ -61,7 +61,8 @@ try:
     constant_patterns = Counter()
     system_patterns = Counter()
     vertex_mismatches = []
-    for event, (sequence, size, vertex_hash, words, system) in zip(events, draws):
+    captured_by_item = {}
+    for event, (sequence, item, size, vertex_hash, words, system) in zip(events, draws):
         replay.SetFrameEvent(event, True)
         pipeline = replay.GetPipelineState()
         blocks = []
@@ -80,6 +81,7 @@ try:
                                          fetch[2] & 0x1FFFFFFC, size))
         if hashlib.sha256(raw).hexdigest() != vertex_hash:
             vertex_mismatches.append([event, sequence])
+        captured_by_item.setdefault(item, set()).add(blocks[1])
         constant_patterns[tuple(i for i, (a, b) in enumerate(
             zip(words, blocks[1])) if a != b)] += 1
         system_patterns[tuple(i for i, (a, b) in enumerate(
@@ -91,7 +93,9 @@ try:
              "constant_patterns": [dict(words=list(key), draws=value)
                                    for key, value in constant_patterns.items()],
              "system_patterns": [dict(words=list(key), draws=value)
-                                 for key, value in system_patterns.items()]}
+                                 for key, value in system_patterns.items()],
+             "captured_constant_variants_per_item": dict(sorted(Counter(
+                 len(values) for values in captured_by_item.values()).items()))}
 except Exception:
     state = {"stage": "error", "error": traceback.format_exc()}
 finally:
