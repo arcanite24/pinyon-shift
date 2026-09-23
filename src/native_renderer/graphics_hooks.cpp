@@ -328,6 +328,7 @@ struct Snr03FinalState {
   uint64_t draw_sequence;
   std::array<uint32_t, 64> system_constants;
   std::array<uint32_t, 4> fetch_47;
+  std::array<uint32_t, 92> vertex_constants;
   bool operator==(const Snr03FinalState&) const = default;
 };
 struct Snr03PayloadState {
@@ -423,7 +424,7 @@ std::vector<char> EncodeSnr03Fixture(const Snr03OwnedScene& scene) {
     const auto* data = reinterpret_cast<const char*>(&value);
     bytes.insert(bytes.end(), data, data + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '3', 'F', '3', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '3', 'F', '4', '\0'};
   write(magic);
   write(scene.title->source_frame);
   write(scene.title->view);
@@ -453,6 +454,7 @@ std::vector<char> EncodeSnr03Fixture(const Snr03OwnedScene& scene) {
       write(state.draw_sequence);
       write(state.system_constants);
       write(state.fetch_47);
+      write(state.vertex_constants);
     }
   }
   return bytes;
@@ -1840,7 +1842,19 @@ void ObserveSnr03FinalDrawState(
   const auto draw = payload.by_packet.find(item->packet_physical);
   if (draw == payload.by_packet.end() || !observation.system_constant_words ||
       observation.system_constant_word_count < 64 ||
-      !observation.fetch_47_words) {
+      !observation.fetch_47_words ||
+      !observation.bound_vertex_float_constant_words ||
+      observation.bound_vertex_float_constant_count != 23) {
+    if (!payload.rejected)
+      REXGPU_INFO("FH1 SNR03 final vertex state rejected packet={} "
+                  "bound_count={} bound_present={} system_present={} "
+                  "fetch_present={} prepared_present={}",
+                  item->packet_physical,
+                  observation.bound_vertex_float_constant_count,
+                  observation.bound_vertex_float_constant_words != nullptr,
+                  observation.system_constant_words != nullptr,
+                  observation.fetch_47_words != nullptr,
+                  draw != payload.by_packet.end());
     payload.rejected = true;
     return;
   }
@@ -1850,6 +1864,8 @@ void ObserveSnr03FinalDrawState(
   auto& fetch = state.fetch_47;
   std::copy_n(observation.system_constant_words, system.size(), system.begin());
   std::copy_n(observation.fetch_47_words, fetch.size(), fetch.begin());
+  std::copy_n(observation.bound_vertex_float_constant_words,
+              state.vertex_constants.size(), state.vertex_constants.begin());
   auto& variants = draw->second.final_states;
   const auto existing = variants.find(observation.dynamic_state);
   if (existing != variants.end()) {
@@ -1868,7 +1884,7 @@ void ObserveSnr03FinalDrawState(
               "\"system0\":[{},{},{},{}],\"system1\":[{},{},{},{}],"
               "\"system8\":[{},{},{},{}],\"system9\":[{},{},{},{}],"
               "\"system14\":[{},{},{},{}],\"system15\":[{},{},{},{}],"
-              "\"fetch47\":[{},{},{},{}]}}",
+              "\"fetch47\":[{},{},{},{}],\"bound_vertex_hash\":{}}}",
               observation.frame_sequence, item->packet_physical,
               observation.draw_sequence,
               observation.dynamic_state,
@@ -1878,7 +1894,8 @@ void ObserveSnr03FinalDrawState(
               system[36], system[37], system[38], system[39],
               system[56], system[57], system[58], system[59],
               system[60], system[61], system[62], system[63],
-              fetch[0], fetch[1], fetch[2], fetch[3]);
+              fetch[0], fetch[1], fetch[2], fetch[3],
+              Snr02HashWords(state.vertex_constants));
 }
 
 void ObserveSnr02ItemVertexPayload(
@@ -3117,6 +3134,9 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
         fingerprint = (fingerprint ^ word) * 1099511628211ull;
       }
       for (const uint32_t word : state.fetch_47) {
+        fingerprint = (fingerprint ^ word) * 1099511628211ull;
+      }
+      for (const uint32_t word : state.vertex_constants) {
         fingerprint = (fingerprint ^ word) * 1099511628211ull;
       }
     }

@@ -475,16 +475,18 @@ captured BC3 alpha/sample-mask path, then expand to all 53 textured foliage
 actions. An opt-in event-11204 probe matches each compatibility per-sample
 write count within 0.8% using the verified BC3 mip chain, but the original
 fixture's spatial pixel overlap is only 73.67%. Its vertex bytes and 64
-system words match RenderDoc; 39/96 vertex constant words do not. Replacing
+system words match RenderDoc; 35/92 bound vertex constant words do not. Replacing
 only those constants in a guarded local diagnostic fixture produces exact
 pixel/sample coverage and depth for all 133,488 writes of this draw. A
 179-action census finds exact fetched vertex bytes throughout the foliage
-slice, the same 39 constant slots differing on every draw, and one system
+slice, the same 35 bound constant slots differing on every draw, and one system
 word differing on the 67 middle-band draws. The captured constants also
-vary by tile draw within an item, so revise the fixture/replay to retain
-bound constants per final draw at output frame 5002. Align those inputs
-throughout the frozen slice before attributing
-remaining errors to materials. Then test the original pixel shader, stencil
+vary by tile draw within an item. `SNR03F4` now retains the 92 actually
+bound words per final draw; a real output-frame fixture passed log/hash
+verification for 135 draws, and a synthetic same-capture F4 fixture has
+zero bound-constant differences across 179 draws. Repeat a paired live
+capture and compare complete-slice state before attributing remaining
+errors to materials. Then test the original pixel shader, stencil
 and resource lifetime before broadening native admission; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous

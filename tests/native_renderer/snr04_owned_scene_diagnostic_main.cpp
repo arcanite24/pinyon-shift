@@ -35,7 +35,8 @@ int main(int argc, char** argv) {
     std::ifstream input(argv[1], std::ios::binary);
     char magic[8]{};
     input.read(magic, sizeof(magic));
-    if (alpha && std::string_view(magic, 7) != "SNR03F3")
+    if (alpha && std::string_view(magic, 7) != "SNR03F3" &&
+        std::string_view(magic, 7) != "SNR03F4")
       throw std::runtime_error("alpha probe requires sequenced vegetation fixture");
     if (input && (std::string_view(magic, 7) == "SNR02I3" ||
                   std::string_view(magic, 7) == "SNR03C1")) {

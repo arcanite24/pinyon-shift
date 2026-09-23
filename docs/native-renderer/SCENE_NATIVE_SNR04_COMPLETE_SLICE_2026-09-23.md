@@ -435,8 +435,9 @@ alpha in that order. The original fixture produces UVs
 private records.
 
 The vertex bytes for draw 290 are byte-identical across fixture and
-RenderDoc (8,864 bytes), and all 64 vertex-system words match. **39 of the
-96 vertex constant words differ.** The first captured VS quad also differs
+RenderDoc (8,864 bytes), and all 64 vertex-system words match. **35 of the
+92 bound vertex constant words differ**; four more trailing raw words differ
+outside the 23-register shader binding. The first captured VS quad also differs
 from the private original-system post-VS quad. This is an input-state
 alignment problem in the diagnostic comparison; the BC3 sampler or mask
 cannot correct displaced vertices.
@@ -444,7 +445,7 @@ cannot correct displaced vertices.
 `tools/probe-snr04-vegetation-pixel-inputs.py` exports the captured pixel
 inputs, first VS quad, full vertex constants and SHA-256 of the fetched
 vertex bytes. `tools/match-snr04-vegetation-constants.py` checks the exact
-vertex-byte hash, system words, sequence and 39-word drift before producing
+vertex-byte hash, system words, sequence and 39-word raw drift before producing
 a local diagnostic fixture with only that item's captured vertex constants
 substituted. With that fixture and the same compatibility prior depth and
 BC3 chain, the single draw matches **all 133,488 depth-sample writes at
@@ -486,7 +487,7 @@ source-of-truth scene snapshot or Gate A admission result.
 The slice-wide census confirms this is not isolated to draw 290. Ordered
 event/sequence joins across the 45/67/67 EDRAM bands have **179/179 exact
 fetched vertex ranges**. Every action differs from its owned fixture in
-the same 39 of 96 vertex constant slots. The first and third bands have
+the same 35 of 92 bound vertex constant slots. The first and third bands have
 exactly matching 64-word vertex-system blocks (112 draws total); the
 middle band differs at system word 44 for its 67 draws. Thus material
 comparisons against the current fixture remain confounded throughout the
@@ -494,11 +495,11 @@ foliage slice. Capture those vertex constants at the exact render events,
 and account for the middle-band system word, before treating the fixture
 as a pixel-aligned reference. Captured constants vary across tile draws of
 the same vegetation item: 35 items have three distinct constant blocks,
-27 have two and five have one. The current `SNR03F3` fixture stores a
-single block per item from the prepared source-frame draw; final-draw
-observations already carry the bound constant words at output frame 5002.
-The next fixture revision must store and replay those words per final draw,
-including each tile variant. The census is stored locally at
+27 have two and five have one. The old `SNR03F3` fixture stores a single
+block per item from the prepared source-frame draw. The new `SNR03F4`
+fixture preserves that source block for provenance and stores the 92
+actually bound words separately for each final draw and tile variant.
+The census of the old fixture is stored locally at
 `renderdoc-gatea-full-b-vegetation-vertex-alignment.json`.
 
 ```powershell
@@ -511,3 +512,15 @@ $env:SNR04_OUTPUT = (Join-Path (Get-Location) "$base/renderdoc-gatea-full-b-vege
   --python tools/check-snr04-vegetation-vertex-alignment.py
 # Wait for the asynchronous exporter to write stage=done.
 ```
+
+The F4 producer was verified in a normal-exit output-frame-5001 run using
+the AppData save: 65 items and 135 final vegetation draws, with each
+stored bound-constant hash matching its live final-draw log row. The F4
+private diagnostic rendered all 135 draws (70,034 unmasked pixels). A
+synthetic F4 fixture made from the earlier RenderDoc capture confirms the
+consumer layout: all 179 captured draws have exact fetched vertex bytes
+and **zero bound-constant differences**. Event 11204 retains exact
+four-sample coverage and depth. The 67 middle-band system-word-44
+differences remain in that synthetic fixture, and the live F4 run is a
+different race execution. Material, stencil and complete-slice reference
+parity remain open.

@@ -22,9 +22,10 @@ def verify(path, log_path):
         return value
 
     magic = take("<8s")[0]
-    assert magic in (b"SNR03F1\0", b"SNR03F2\0", b"SNR03F3\0")
+    assert magic in (b"SNR03F1\0", b"SNR03F2\0", b"SNR03F3\0", b"SNR03F4\0")
     extended = magic != b"SNR03F1\0"
-    sequenced = magic == b"SNR03F3\0"
+    sequenced = magic in (b"SNR03F3\0", b"SNR03F4\0")
+    final_bound = magic == b"SNR03F4\0"
     source_frame, view, camera, count = take("<QIII")
     assert 0 < count <= 512
     camera80 = take("<16I")
@@ -54,11 +55,13 @@ def verify(path, log_path):
             sequence = take("<Q")[0] if sequenced else None
             system = take("<64I" if extended else "<40I")
             fetch = take("<4I")
+            final_constants = take("<92I") if final_bound else constants
             assert dynamic not in variants
             assert fetch[2] & 0x1FFFFFFC == address & 0x1FFFFFFC
             assert fetch[3] & 0x03FFFFFC == byte_count
             variants[dynamic] = (system, fetch)
-            states[packet, f"{dynamic:016X}"] = (sequence, system, fetch)
+            states[packet, f"{dynamic:016X}"] = (
+                sequence, system, fetch, final_constants)
         items.append(dict(owner=owner, record=record,
                           vertex_descriptor=descriptor, vertex_address=address,
                           vertex_size=size, packet_physical=packet,
@@ -122,7 +125,8 @@ def verify(path, log_path):
     assert len(final) == len(states)
     assert {(row["packet"], row["dynamic"]) for row in final} == set(states)
     for row in final:
-        sequence, system, fetch = states[row["packet"], row["dynamic"]]
+        sequence, system, fetch, final_constants = states[
+            row["packet"], row["dynamic"]]
         if sequenced:
             assert row["sequence"] == sequence
         assert system[:8] == tuple(row["system0"] + row["system1"])
@@ -130,6 +134,11 @@ def verify(path, log_path):
         if extended:
             assert system[56:64] == tuple(row["system14"] + row["system15"])
         assert fetch == tuple(row["fetch47"])
+        if final_bound:
+            value = 14695981039346656037
+            for word in final_constants:
+                value = ((value ^ word) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+            assert value == row["bound_vertex_hash"]
     if sequenced:
         selected_color = [row for row in selected
                           if row["vertex_shader"] == "5834939992FFC765" and

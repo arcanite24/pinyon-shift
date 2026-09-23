@@ -91,6 +91,7 @@ struct Item {
   struct Variant {
     uint64_t sequence = 0;
     std::array<uint32_t, 64> system{};
+    std::array<uint32_t, 96> vertex_constants{};
   };
   uint32_t packet = 0;
   uint32_t vertex_count = 0;
@@ -112,7 +113,9 @@ struct Scene {
 Scene load_scene(std::span<const char> file) {
   Reader reader{file};
   const auto magic = reader.take<std::array<char, 8>>();
-  const bool sequenced = magic ==
+  const bool final_bound = magic ==
+      std::array<char, 8>{'S', 'N', 'R', '0', '3', 'F', '4', '\0'};
+  const bool sequenced = final_bound || magic ==
       std::array<char, 8>{'S', 'N', 'R', '0', '3', 'F', '3', '\0'};
   const bool extended = sequenced || magic ==
       std::array<char, 8>{'S', 'N', 'R', '0', '3', 'F', '2', '\0'};
@@ -183,7 +186,12 @@ Scene load_scene(std::span<const char> file) {
                       (extended && word >= 42 && word <= 45),
                   "non-diagnostic variant change");
       }
-      item.variants.push_back({sequence, system});
+      auto constants = item.constants;
+      if (final_bound) {
+        const auto bound = reader.take<std::array<uint32_t, 92>>();
+        std::copy(bound.begin(), bound.end(), constants.begin());
+      }
+      item.variants.push_back({sequence, system, constants});
     }
     auto bits = [](uint32_t word) { return std::bit_cast<float>(word); };
     const float scale_y = bits(item.system[33]);
@@ -866,8 +874,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
       indices.push_back(uint16_t(first + corner));
   auto index_buffer = upload(device.Get(), indices.data(), indices.size() * sizeof(uint16_t));
   struct Resources {
-    ComPtr<ID3D12Resource> vertices, b0_original, b1, b3;
-    std::vector<ComPtr<ID3D12Resource>> b0_variants;
+    ComPtr<ID3D12Resource> vertices, b0_original, b3;
+    std::vector<ComPtr<ID3D12Resource>> b0_variants, b1_variants;
   };
   std::vector<Resources> owned;
   owned.reserve(scene.items.size());
@@ -880,13 +888,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     Resources resource{
         upload(device.Get(), item.vertices.data(), item.vertices.size()),
         upload(device.Get(), original_system.data(), sizeof(original_system)),
-        upload(device.Get(), item.constants.data(), 23 * 16),
         upload(device.Get(), fetch.data(), sizeof(fetch)), {}};
     for (const auto& variant : item.variants) {
       std::array<uint32_t, 120> system{};
       std::copy(variant.system.begin(), variant.system.end(), system.begin());
       resource.b0_variants.push_back(upload(device.Get(), system.data(),
                                             sizeof(system)));
+      resource.b1_variants.push_back(upload(
+          device.Get(), variant.vertex_constants.data(), 23 * 16));
     }
     owned.push_back(std::move(resource));
   }
@@ -1067,7 +1076,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     }
     commands->SetGraphicsRootConstantBufferView(
         0, resource.b0_variants[draw.variant]->GetGPUVirtualAddress());
-    commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(
+        1, resource.b1_variants[draw.variant]->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
     commands->SetGraphicsRoot32BitConstant(
@@ -1094,7 +1104,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     const auto bytes = uint64_t(scene.items[ordinal].vertex_count) * 16;
     const auto address = position_output->GetGPUVirtualAddress() + position_offsets[ordinal];
     commands->SetGraphicsRootConstantBufferView(0, resource.b0_original->GetGPUVirtualAddress());
-    commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(
+        1, resource.b1_variants.front()->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
     D3D12_STREAM_OUTPUT_BUFFER_VIEW position_view{address, bytes, address + bytes};

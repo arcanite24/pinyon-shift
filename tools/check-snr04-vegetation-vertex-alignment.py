@@ -17,7 +17,8 @@ import renderdoc as rd
 
 
 def fixture_draws(data):
-    assert data[:8] == b"SNR03F3\0"
+    assert data[:8] in (b"SNR03F3\0", b"SNR03F4\0")
+    final_bound = data[:8] == b"SNR03F4\0"
     position = 8 + 8 + 4 + 4
     items = struct.unpack_from("<I", data, position)[0]
     position += 4 + 128
@@ -38,7 +39,11 @@ def fixture_draws(data):
             position += 16
             system = struct.unpack_from("<64I", data, position)
             position += 256 + 16
-            draws.append((sequence, item, size, vertex_hash, words, system))
+            final_words = (struct.unpack_from("<92I", data, position)
+                           if final_bound else words[:92])
+            if final_bound:
+                position += 368
+            draws.append((sequence, item, size, vertex_hash, final_words, system))
     assert position == len(data) and len(draws) == 179
     return sorted(draws)
 
@@ -81,9 +86,9 @@ try:
                                          fetch[2] & 0x1FFFFFFC, size))
         if hashlib.sha256(raw).hexdigest() != vertex_hash:
             vertex_mismatches.append([event, sequence])
-        captured_by_item.setdefault(item, set()).add(blocks[1])
+        captured_by_item.setdefault(item, set()).add(blocks[1][:92])
         constant_patterns[tuple(i for i, (a, b) in enumerate(
-            zip(words, blocks[1])) if a != b)] += 1
+            zip(words, blocks[1][:92])) if a != b)] += 1
         system_patterns[tuple(i for i, (a, b) in enumerate(
             zip(system, blocks[0])) if a != b)] += 1
     assert not vertex_mismatches, vertex_mismatches
