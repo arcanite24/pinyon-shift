@@ -447,9 +447,10 @@ in 35 ordered stages with carried private color/depth. It covers 659,995
 pixels and is byte-repeatable; see the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Full compatibility coverage/depth parity, semantic material admission,
 resource freshness and continuous moving-frame/unload checks remain open.
-The adjacent-frame diagnostic reveals an apparent target-space orientation
-mismatch with the paired compatibility screenshot; see the complete-slice
-evidence before using its coverage as a parity baseline.
+A paired RenderDoc target check explains the apparent 180° mismatch against
+the presented screenshot: the compatibility scene attachment is itself
+inverted and reused in EDRAM bands. Compare target-space coverage/depth before
+claiming parity; see the complete-slice evidence.
 
 **Done when / Gate A:** the selected main-view scene is complete and stable at
 reference resolution with no missing, duplicated, stale or misattributed objects.
