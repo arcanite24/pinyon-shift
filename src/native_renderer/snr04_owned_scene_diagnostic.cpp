@@ -1929,3 +1929,419 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   require(bool(summary), "track summary write failed");
   return covered;
 }
+
+uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* borrowed_device) {
+  const auto source = read(fixture);
+  Reader reader{source};
+  require(reader.take<std::array<char, 8>>() ==
+              (std::array<char, 8>{'S','N','R','0','3','M','1','\0'}),
+          "wrong manager fixture");
+  const auto frame = reader.take<uint64_t>();
+  reader.take<uint32_t>();  // Title view.
+  reader.take<uint32_t>();  // Title camera.
+  const auto record_count = reader.take<uint32_t>();
+  const auto draw_count = reader.take<uint32_t>();
+  const auto range_counts = reader.take<std::array<uint32_t, 3>>();
+  require(record_count > 0 && record_count <= 256 &&
+              draw_count >= record_count && draw_count <= 512 &&
+              range_counts[0] > 0 && range_counts[0] <= 256 &&
+              range_counts[1] > 0 && range_counts[1] <= 16 &&
+              range_counts[2] > 0 && range_counts[2] <= 512,
+          "unsupported manager fixture counts");
+  reader.take<std::array<uint32_t, 32>>();  // Title camera matrices.
+  std::set<uint32_t> packets;
+  for (uint32_t i = 0; i < record_count; ++i) {
+    reader.take<uint64_t>();  // Direct-packet ordinal.
+    reader.take<uint32_t>();  // Title record.
+    reader.take<uint32_t>();  // Source entry.
+    require(packets.insert(reader.take<uint32_t>()).second,
+            "duplicate manager title packet");
+    reader.take<std::array<uint32_t, 7>>();  // Title record/source words.
+  }
+  using Range = std::pair<uint32_t, uint32_t>;
+  std::array<std::map<Range, std::vector<char>>, 3> ranges;
+  size_t owned_bytes = 0;
+  for (uint32_t slot = 0; slot < 3; ++slot) {
+    for (uint32_t i = 0; i < range_counts[slot]; ++i) {
+      const Range key{reader.take<uint32_t>(), reader.take<uint32_t>()};
+      const uint32_t limit = slot == 1 ? 3 * 1024 * 1024 : 128 * 1024;
+      require(key.second > 0 && key.second <= limit &&
+                  owned_bytes <= 8 * 1024 * 1024 - key.second,
+              "unsupported manager range");
+      owned_bytes += key.second;
+      require(ranges[slot].emplace(key, reader.bytes(key.second)).second,
+              "duplicate manager range");
+    }
+  }
+  uint32_t first_address = UINT32_MAX;
+  uint64_t end_address = 0;
+  std::vector<std::pair<uint64_t, uint64_t>> intervals;
+  for (uint32_t slot = 0; slot < 2; ++slot) {
+    for (const auto& [key, bytes] : ranges[slot]) {
+      first_address = (std::min)(first_address, key.first);
+      end_address = (std::max)(end_address, uint64_t(key.first) + key.second);
+      intervals.emplace_back(key.first, uint64_t(key.first) + key.second);
+    }
+  }
+  std::sort(intervals.begin(), intervals.end());
+  for (size_t i = 1; i < intervals.size(); ++i)
+    require(intervals[i - 1].second <= intervals[i].first,
+            "overlapping manager vertex ranges");
+  require(first_address != UINT32_MAX && end_address > first_address &&
+              end_address - first_address <= 24 * 1024 * 1024,
+          "unsupported manager vertex address span");
+  std::vector<char> vertex_span(end_address - first_address);
+  for (uint32_t slot = 0; slot < 2; ++slot)
+    for (const auto& [key, bytes] : ranges[slot])
+      std::copy(bytes.begin(), bytes.end(),
+                vertex_span.begin() + (key.first - first_address));
+
+  struct ManagerDraw {
+    uint64_t sequence = 0;
+    uint32_t packet = 0, count = 0;
+    std::array<Range, 3> ranges{};
+    std::vector<uint32_t> packed;
+    std::array<uint32_t, 64> system{};
+    std::array<uint32_t, 4> fetch{};
+    std::array<float, 6> viewport{};
+    std::array<int32_t, 4> scissor{};
+  };
+  std::vector<ManagerDraw> draws;
+  std::set<uint32_t> drawn_packets;
+  uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;
+  for (uint32_t i = 0; i < draw_count; ++i) {
+    ManagerDraw draw{};
+    draw.sequence = reader.take<uint64_t>();
+    draw.packet = reader.take<uint32_t>();
+    const auto shader = reader.take<uint64_t>();
+    const auto pixel_shader = reader.take<uint64_t>();
+    const auto specialization = reader.take<uint64_t>();
+    reader.take<uint64_t>();  // Dynamic state.
+    draw.count = reader.take<uint32_t>();
+    const auto host_format = reader.take<uint32_t>();
+    const auto endianness = reader.take<uint32_t>();
+    for (auto& range : draw.ranges)
+      range = {reader.take<uint32_t>(), reader.take<uint32_t>()};
+    reader.take<std::array<uint32_t, 18>>();  // Two material descriptors.
+    const auto bitmap = reader.take<std::array<uint64_t, 4>>();
+    const auto packed_count = reader.take<uint32_t>();
+    require(packed_count > 0 && packed_count <= 1024 &&
+                packed_count == 4 * (std::popcount(bitmap[0]) +
+                                     std::popcount(bitmap[1]) +
+                                     std::popcount(bitmap[2]) +
+                                     std::popcount(bitmap[3])),
+            "invalid manager vertex constants");
+    draw.packed.reserve(packed_count);
+    for (uint32_t word = 0; word < packed_count; ++word)
+      draw.packed.push_back(reader.take<uint32_t>());
+    draw.system = reader.take<std::array<uint32_t, 64>>();
+    draw.fetch = reader.take<std::array<uint32_t, 4>>();
+    const auto mode = reader.take<uint32_t>();
+    const auto clip = reader.take<uint32_t>();
+    const auto depth = reader.take<uint32_t>();
+    draw.viewport = reader.take<std::array<float, 6>>();
+    draw.scissor = reader.take<std::array<int32_t, 4>>();
+    const float tile_offset = float(height) - draw.viewport[3];
+    require(draw.sequence && (!i || draw.sequence > draws.back().sequence) &&
+                packets.contains(draw.packet) &&
+                shader == 0xB8489164D5A86043ull &&
+                pixel_shader == 0x68150A8E959006CDull &&
+                specialization == 31 && host_format == 0 && endianness == 1 &&
+                draw.count > 0 && draw.ranges[2].second == draw.count * 2 &&
+                ranges[0].contains(draw.ranges[0]) &&
+                ranges[1].contains(draw.ranges[1]) &&
+                ranges[2].contains(draw.ranges[2]) &&
+                (draw.fetch[0] & 0x1FFFFFFC) == draw.ranges[1].first &&
+                (draw.fetch[1] & 0x03FFFFFC) == draw.ranges[1].second &&
+                (draw.fetch[2] & 0x1FFFFFFC) == draw.ranges[0].first &&
+                (draw.fetch[3] & 0x03FFFFFC) == draw.ranges[0].second &&
+                (draw.fetch[0] & 3) == 3 && (draw.fetch[2] & 3) == 3 &&
+                draw.viewport[0] == 0 && draw.viewport[1] == 0 &&
+                draw.viewport[2] == width && tile_offset >= 0 &&
+                tile_offset == std::floor(tile_offset) &&
+                draw.scissor[0] == 0 && draw.scissor[1] == 0 &&
+                draw.scissor[2] == int32_t(width) &&
+                draw.scissor[3] > 0 &&
+                tile_offset + draw.scissor[3] <= height,
+            "unsupported manager draw state");
+    const auto& guest_indices = ranges[2].at(draw.ranges[2]);
+    for (size_t byte = 0; byte < guest_indices.size(); byte += 2) {
+      const auto index = (uint16_t(uint8_t(guest_indices[byte])) << 8) |
+                         uint8_t(guest_indices[byte + 1]);
+      require(uint32_t(index) * 32 + 32 <= draw.ranges[0].second &&
+                  uint32_t(index) * 12 + 12 <= draw.ranges[1].second,
+              "manager index exceeds captured vertex fetch");
+    }
+    if (i == 0) {
+      raster_mode = mode;
+      clip_control = clip;
+      depth_control = depth;
+    } else {
+      require(mode == raster_mode && clip == clip_control &&
+                  depth == depth_control,
+              "manager raster state changes between draws");
+    }
+    drawn_packets.insert(draw.packet);
+    draw.fetch[0] = (draw.fetch[0] & 3) +
+                    (draw.ranges[1].first - first_address);
+    draw.fetch[2] = (draw.fetch[2] & 3) +
+                    (draw.ranges[0].first - first_address);
+    draws.push_back(std::move(draw));
+  }
+  require(reader.position == source.size() && drawn_packets == packets,
+          "incomplete manager fixture");
+  const auto shader = read(shader_directory /
+      "vertex_B8489164D5A86043_000000000000001F.dxil");
+  require(shader.size() >= 4 && std::memcmp(shader.data(), "DXBC", 4) == 0 &&
+              sha256(shader) ==
+                  "1cd5925b8515aadb7db9c94911cf3aee1f66746bf2e899e218428845d990a248",
+          "wrong manager vertex shader");
+
+  ComPtr<ID3D12Device> device;
+  if (borrowed_device) device = borrowed_device;
+  else {
+    ComPtr<IDXGIFactory6> factory;
+    check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
+    ComPtr<IDXGIAdapter1> adapter;
+    check(factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                             IID_PPV_ARGS(&adapter)));
+    check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
+                            IID_PPV_ARGS(&device)));
+  }
+  constexpr char ps_source[] =
+      "cbuffer Item : register(b2) { uint id; };"
+      "float4 main() : SV_Target0 {"
+      " return float4((id & 255) / 255.0, ((id >> 8) & 255) / 255.0, 0, 1); }";
+  ComPtr<ID3DBlob> ps, errors;
+  check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
+                   "main", "ps_5_1", 0, 0, &ps, &errors));
+  D3D12_ROOT_PARAMETER parameters[6]{};
+  for (uint32_t i = 0; i < 4; ++i) {
+    parameters[i].ParameterType = i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV
+                                         : D3D12_ROOT_PARAMETER_TYPE_CBV;
+    parameters[i].Descriptor.ShaderRegister = i == 2 ? 3 : i == 3 ? 0 : i;
+    parameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  }
+  parameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+  parameters[4].Constants.ShaderRegister = 2;
+  parameters[4].Constants.Num32BitValues = 1;
+  parameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+  parameters[5].Descriptor.ShaderRegister = 0;
+  parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  D3D12_ROOT_SIGNATURE_DESC root_desc{
+      6, parameters, 0, nullptr,
+      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT};
+  ComPtr<ID3DBlob> root_blob;
+  check(D3D12SerializeRootSignature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+                                    &root_blob, &errors));
+  ComPtr<ID3D12RootSignature> root;
+  check(device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                    root_blob->GetBufferSize(), IID_PPV_ARGS(&root)));
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = root.Get();
+  desc.VS = {shader.data(), shader.size()};
+  desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+  desc.SampleMask = UINT_MAX;
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  desc.RasterizerState.CullMode = (raster_mode & 2)
+      ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = (raster_mode & 4) == 0;
+  desc.RasterizerState.DepthClipEnable = (clip_control & (1u << 16)) == 0;
+  desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+  desc.DepthStencilState.DepthEnable = (depth_control & 2) != 0;
+  desc.DepthStencilState.DepthWriteMask = (depth_control & 4)
+      ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+  desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC(
+      uint32_t(D3D12_COMPARISON_FUNC_NEVER) + ((depth_control >> 4) & 7));
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+  desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+  desc.SampleDesc.Count = 1;
+  ComPtr<ID3D12PipelineState> pipeline;
+  check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
+  D3D12_CLEAR_VALUE color_clear{};
+  color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  D3D12_CLEAR_VALUE depth_clear{};
+  depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_clear.DepthStencil.Depth = 0;
+  auto color = texture(device.Get(), color_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+  auto depth = texture(device.Get(), depth_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+  D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+  heap_desc.NumDescriptors = 1;
+  ComPtr<ID3D12DescriptorHeap> rtv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv)));
+  device->CreateRenderTargetView(color.Get(), nullptr,
+                                 rtv->GetCPUDescriptorHandleForHeapStart());
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+  ComPtr<ID3D12DescriptorHeap> dsv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
+  device->CreateDepthStencilView(depth.Get(), nullptr,
+                                 dsv->GetCPUDescriptorHandleForHeapStart());
+  auto vertices = upload(device.Get(), vertex_span.data(), vertex_span.size());
+  std::map<Range, ComPtr<ID3D12Resource>> index_buffers;
+  // The translated VS swaps the raw k8in16 index received from D3D12.
+  for (const auto& [key, bytes] : ranges[2])
+    index_buffers.emplace(key, upload(device.Get(), bytes.data(), bytes.size()));
+  struct Bindings { ComPtr<ID3D12Resource> b0, b1, b3; };
+  std::vector<Bindings> bindings;
+  for (const auto& draw : draws) {
+    std::array<uint32_t, 120> system{};
+    std::copy(draw.system.begin(), draw.system.end(), system.begin());
+    std::array<uint32_t, 192> fetch{};
+    std::copy(draw.fetch.begin(), draw.fetch.end(), fetch.begin() + 188);
+    bindings.push_back({upload(device.Get(), system.data(), sizeof(system)),
+                        upload(device.Get(), draw.packed.data(),
+                               draw.packed.size() * sizeof(uint32_t)),
+                        upload(device.Get(), fetch.data(), sizeof(fetch))});
+  }
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
+  uint64_t color_bytes = 0, depth_bytes = 0;
+  auto color_desc = color->GetDesc(), depth_desc = depth->GetDesc();
+  device->GetCopyableFootprints(&color_desc, 0, 1, 0, &color_layout,
+                                nullptr, nullptr, &color_bytes);
+  device->GetCopyableFootprints(&depth_desc, 0, 1, 0, &depth_layout,
+                                nullptr, nullptr, &depth_bytes);
+  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12CommandQueue> queue;
+  D3D12_COMMAND_QUEUE_DESC queue_desc{};
+  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  ComPtr<ID3D12CommandAllocator> allocator;
+  check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       IID_PPV_ARGS(&allocator)));
+  ComPtr<ID3D12GraphicsCommandList> commands;
+  check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                  allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
+  const auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
+  const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
+  constexpr float clear_color[4]{};
+  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
+  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
+  commands->SetGraphicsRootSignature(root.Get());
+  commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
+    const auto& draw = draws[ordinal];
+    const auto& state = bindings[ordinal];
+    const float tile_offset = float(height) - draw.viewport[3];
+    D3D12_VIEWPORT viewport{draw.viewport[0], tile_offset,
+                            draw.viewport[2], draw.viewport[3],
+                            draw.viewport[4], draw.viewport[5]};
+    D3D12_RECT scissor{draw.scissor[0], draw.scissor[1] + LONG(tile_offset),
+                       draw.scissor[2], draw.scissor[3] + LONG(tile_offset)};
+    commands->RSSetViewports(1, &viewport);
+    commands->RSSetScissorRects(1, &scissor);
+    const auto& index = index_buffers.at(draw.ranges[2]);
+    D3D12_INDEX_BUFFER_VIEW index_view{index->GetGPUVirtualAddress(),
+                                       draw.ranges[2].second, DXGI_FORMAT_R16_UINT};
+    commands->IASetIndexBuffer(&index_view);
+    commands->SetPipelineState(pipeline.Get());
+    commands->SetGraphicsRootConstantBufferView(0, state.b0->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(1, state.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
+    commands->SetGraphicsRootShaderResourceView(3, vertices->GetGPUVirtualAddress());
+    commands->SetGraphicsRoot32BitConstant(4, UINT(ordinal + 1), 0);
+    commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+  }
+  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+  from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  from.pResource = color.Get();
+  to.pResource = color_readback.Get();
+  to.PlacedFootprint = color_layout;
+  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  from.pResource = depth.Get();
+  to.pResource = depth_readback.Get();
+  to.PlacedFootprint = depth_layout;
+  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  check(commands->Close());
+  ID3D12CommandList* lists[]{commands.Get()};
+  queue->ExecuteCommandLists(1, lists);
+  ComPtr<ID3D12Fence> fence;
+  check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+  check(queue->Signal(fence.Get(), 1));
+  HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+  require(event != nullptr, "CreateEvent failed");
+  const auto wait = fence->SetEventOnCompletion(1, event);
+  const auto waited = SUCCEEDED(wait) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  CloseHandle(event);
+  check(wait);
+  require(waited == WAIT_OBJECT_0, "manager GPU wait failed");
+  check(device->GetDeviceRemovedReason());
+  std::filesystem::create_directories(output_directory);
+  std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
+  image << "P6\n" << width << ' ' << height << "\n255\n";
+  void *colors = nullptr, *depths = nullptr;
+  D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
+  check(color_readback->Map(0, &color_range, &colors));
+  check(depth_readback->Map(0, &depth_range, &depths));
+  uint32_t covered = 0;
+  std::vector<uint32_t> draw_pixels(draws.size());
+  for (uint32_t y = 0; y < height; ++y) {
+    const auto* color_row = static_cast<const uint8_t*>(colors) +
+                            y * color_layout.Footprint.RowPitch;
+    const auto* depth_row = reinterpret_cast<const float*>(
+        static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    for (uint32_t x = 0; x < width; ++x) {
+      const auto* pixel = color_row + x * 4;
+      image.write(reinterpret_cast<const char*>(pixel), 3);
+      const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
+      if (id) {
+        require(id <= draws.size() && std::isfinite(depth_row[x]) &&
+                    depth_row[x] > 0 && depth_row[x] <= 1,
+                "invalid manager identity/depth");
+        ++covered;
+        ++draw_pixels[id - 1];
+      }
+    }
+    depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
+  }
+  D3D12_RANGE empty{};
+  color_readback->Unmap(0, &empty);
+  depth_readback->Unmap(0, &empty);
+  image.close();
+  depth_file.close();
+  require(bool(image) && bool(depth_file) && covered > 0,
+          "empty or unwritable manager diagnostic");
+  std::ofstream summary(output_directory / "summary.json");
+  summary << "{\"schema\":\"pinyon-shift.snr04-manager.v1\","
+          << "\"source_frame\":" << frame << ','
+          << "\"fixture_sha256\":\"" << sha256(source) << "\","
+          << "\"records\":" << record_count << ','
+          << "\"draws\":" << draws.size() << ','
+          << "\"vertex_span_bytes\":" << vertex_span.size() << ','
+          << "\"covered_pixels\":" << covered << ','
+          << "\"visible_draws\":"
+          << std::count_if(draw_pixels.begin(), draw_pixels.end(),
+                           [](uint32_t value) { return value != 0; }) << ','
+          << "\"draw_pixels\":[";
+  for (size_t i = 0; i < draws.size(); ++i) {
+    if (i) summary << ',';
+    summary << "{\"sequence\":" << draws[i].sequence
+            << ",\"packet\":" << draws[i].packet
+            << ",\"pixels\":" << draw_pixels[i] << '}';
+  }
+  summary << "]}\n";
+  summary.close();
+  require(bool(summary), "manager summary write failed");
+  return covered;
+}

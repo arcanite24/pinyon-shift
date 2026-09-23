@@ -57,8 +57,9 @@ The [character-manager snapshot preflight](SCENE_NATIVE_SNR03_MANAGER_SNAPSHOT_2
 checks both vertex streams and 16-bit indices for every one of 342 selected
 draws in a later strict replay. Repeated ranges stayed byte-hash stable; an
 owned `SNR03M1` fixture now joins all 102 selected manager draws in another
-strict replay. Its private raster remains open; five owned geometry fixtures
-cover 1,272 of 1,596 selected draws in that replay.
+strict replay. Its private two-stream identity/depth raster produces 33,307
+deterministic pixels. Five owned geometry fixtures cover 1,272 of 1,596
+selected draws in that replay; they remain separate private targets.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

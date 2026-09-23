@@ -82,3 +82,34 @@ python tools/verify-snr03-manager-fixture.py "$base/manager-fixture-live-a/snr03
 | `manager-fixture-live-a-evidence.log` | `B7801C57D445DA357D3F7333515C906D211495AE706D219664C55A019646ED2E` |
 | `manager-fixture-live-a-ledger.json` | `3BBD3EC51929E3DD710AF711B6DBAD19D334C1C672FB64816FF857822FD7FB13` |
 | `manager-fixture-live-a/snr03-manager-5000.bin` | `53F92EFF6438923A45B9F689355862B330187E62C3ABF363939E200CD5187645` |
+
+## Private two-stream identity/depth diagnostic
+
+The standalone SNR-04 diagnostic now reads `SNR03M1`, checks the exact
+translated vertex shader `B8489164D5A86043` specialization `1F` (SHA-256
+`1CD5925B8515AADB7DB9C94911CF3AEE1F66746BF2E899E218428845D990A248`),
+and assembles only captured vertex ranges into a bounded 17,082,120-byte
+guest-address span. Both recorded fetch descriptors are rebased to that
+private buffer. It draws all 102 indexed submissions with the captured
+constants, cull/depth state and three EDRAM tile viewports/scissors into one
+1280×720 private identity/depth target. Guest index bytes stay in their
+captured order: the translated vertex shader applies the recorded `k8in16`
+swap after D3D12 supplies the raw index.
+
+Two standalone runs each produced 33,307 covered pixels, with 31 draw IDs
+visible after depth and overdraw. Their identity and depth files matched
+byte for byte. The identity silhouettes occupy the spectator positions in
+the same-frame compatibility screenshot, but this visual check does not
+establish pixel-aligned coverage or depth parity. The diagnostic replaces
+the material pixel shader and does not sample the two captured texture
+descriptors. It is geometry/ABI evidence, not material or resource-lifetime
+admission.
+
+```powershell
+& out/build/win-amd64-relwithdebinfo/pinyon_shift_snr04_owned_scene_diagnostic.exe .local/native-renderer/snr04/manager-fixture-live-a/snr03-manager-5000.bin .local/native-renderer/seeded-probe/translation/dxil .local/native-renderer/snr04/manager-diagnostic-a
+```
+
+| Private output | SHA-256 |
+| --- | --- |
+| `manager-diagnostic-a/identity.ppm` | `D700A1B576A29A4321695151A7E09597645A61C9AF8061B5E4275ACDC50A7AEC` |
+| `manager-diagnostic-a/depth.f32` | `BDEF1E7FE255BA07BB3398A9BCD69B286559BBF359B39753F87475D359302D79` |
