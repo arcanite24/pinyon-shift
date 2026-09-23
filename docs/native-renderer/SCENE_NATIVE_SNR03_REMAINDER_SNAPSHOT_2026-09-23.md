@@ -108,3 +108,36 @@ python tools/verify-snr03-remainder-snapshots.py "$base/scalar-title-join-live-a
 These title scenes still hold metadata only. The next capture must own the
 already verified bytes, per-draw constants, texture descriptors and final
 raster state in a fixture, then replay the full selected slice together.
+
+## Owned same-frame remainder fixture
+
+The `SNR03R1` fixture now owns both title scenes, source-frame camera matrices,
+deduplicated vertex and guest-index bytes, per-draw shader identities,
+primitive/index modes, packed constants, texture descriptors and final bound
+system/fetch constants, viewport, scissor and raster/depth state. The SDK
+observer exposes all 48 final fetch constants so the car's fetches 89, 90 and
+95 can each be checked against their prepared ranges. A repeated range whose
+bytes change rejects the entire fixture.
+
+A strict source-frame-5000 replay attributed all 4,614 draws and selected
+2,443. The owned remainder fixture contains exactly its 1,149 selected car
+scene-list, animated-scene and car-presentation draws (1,067 / 10 / 72),
+including 136 draws whose guest indices are SDK-converted. The independent
+parser joined every draw to the title ledger and verified 290 vertex and 689
+index ranges, all texture descriptors, packed-constant hashes and final
+system/fetch-state hashes. Flipping one fixture byte caused its hash check to
+fail. Other selected families still have separate fixtures, and this new
+fixture has no private identity/depth raster yet.
+
+```powershell
+python tools/summarize-snr01-frame-wide-census.py "$base/remainder-fixture-live-a-evidence.log" --source-frame 5000 --require-candidate-boundary --output "$base/remainder-fixture-live-a-ledger.json"
+python tools/partition-snr00-gate-a-slice.py "$base/remainder-fixture-live-a-ledger.json"
+python tools/verify-snr03-remainder-snapshots.py "$base/remainder-fixture-live-a-evidence.log" "$base/remainder-fixture-live-a-ledger.json" --require-car-title --require-scalar-title
+python tools/verify-snr03-remainder-fixture.py "$base/remainder-fixture-live-a/snr03-remainder-5000.bin" "$base/remainder-fixture-live-a-evidence.log" "$base/remainder-fixture-live-a-ledger.json"
+```
+
+| Local evidence | SHA-256 |
+| --- | --- |
+| `remainder-fixture-live-a-evidence.log` | `78E9206B5715BEF9767DA37849253A7054823C04117BE79FA8B346FF3C8CC612` |
+| `remainder-fixture-live-a-ledger.json` | `7F2806B162EFCFD175BC88B7F2D9947A0D6E34B2D2A04D5017D597F470C033EE` |
+| `remainder-fixture-live-a/snr03-remainder-5000.bin` | `9F7EF77A1D58196D1E6E7BA4A9071C05577600969AA3F3ACA3B729C000BA7BDC` |

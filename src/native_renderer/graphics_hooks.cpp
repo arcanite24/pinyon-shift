@@ -611,6 +611,7 @@ struct Snr03CarSceneRecord {
 struct Snr03CarScene {
   uint64_t source_frame = 0;
   uint32_t view = 0, camera = 0;
+  std::array<uint32_t, 32> camera_matrices{};
   std::vector<Snr03CarSceneRecord> records;
 };
 thread_local std::vector<Snr03CarSceneRecord> snr03_car_title_records;
@@ -629,6 +630,35 @@ struct Snr03ScalarScene {
 thread_local std::vector<Snr03ScalarRecord> snr03_scalar_title_records;
 thread_local bool snr03_scalar_title_rejected = false;
 std::map<uint64_t, std::shared_ptr<const Snr03ScalarScene>> snr03_scalar_scenes;
+struct Snr03RemainderFetch {
+  uint32_t constant = 0, stride_words = 0;
+  Snr02TrackRange range{};
+};
+struct Snr03RemainderDraw {
+  uint64_t sequence = 0, shader = 0, pixel_shader = 0;
+  uint64_t specialization = 0, dynamic = 0;
+  uint32_t family = 0, title_key = 0, packet = 0, count = 0;
+  uint32_t guest_primitive = 0, host_primitive = 0, index_type = 0;
+  uint32_t host_index_format = 0, index_endianness = 0;
+  std::vector<Snr03RemainderFetch> fetches;
+  Snr02TrackRange indices{};
+  std::vector<rex::system::GraphicsPreparedDrawTextureFetch> textures;
+  std::array<uint64_t, 4> bitmap{};
+  std::vector<uint32_t> packed;
+  std::array<uint32_t, 64> system{};
+  std::array<uint32_t, 192> bound_fetch{};
+  uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;
+  std::array<float, 6> viewport{};
+  std::array<int32_t, 4> scissor{};
+  bool final_seen = false;
+};
+struct Snr03RemainderPayload {
+  std::map<Snr02TrackRange, std::vector<uint8_t>> vertices, indices;
+  std::vector<Snr03RemainderDraw> draws;
+  size_t bytes = 0;
+  bool rejected = false;
+};
+std::map<uint64_t, Snr03RemainderPayload> snr03_remainder_payloads;
 struct Snr01SceneListFlush {
   uint32_t caller;
   uint32_t owner;
@@ -798,26 +828,24 @@ bool Snr02OwnTrackRange(
   return true;
 }
 
-bool Snr03OwnManagerRange(
+bool Snr03OwnRange(
     std::map<Snr02TrackRange, std::vector<uint8_t>>& ranges,
     Snr02TrackRange key, const uint8_t* bytes, uint32_t status, uint64_t hash,
-    Snr03ManagerPayload& payload) {
+    size_t& owned_bytes, size_t limit) {
   if (status != 1 || !bytes || !key.second) return false;
   if (const auto existing = ranges.find(key); existing != ranges.end()) {
     return existing->second.size() == key.second &&
            std::equal(existing->second.begin(), existing->second.end(), bytes) &&
            Snr03HashBytes(existing->second) == hash;
   }
-  constexpr size_t kOwnedBytesLimit = 8 * 1024 * 1024;
-  if (payload.bytes > kOwnedBytesLimit ||
-      key.second > kOwnedBytesLimit - payload.bytes) return false;
+  if (owned_bytes > limit || key.second > limit - owned_bytes) return false;
   auto& owned = ranges[key];
   owned.assign(bytes, bytes + key.second);
   if (Snr03HashBytes(owned) != hash) {
     ranges.erase(key);
     return false;
   }
-  payload.bytes += key.second;
+  owned_bytes += key.second;
   return true;
 }
 
@@ -1360,20 +1388,22 @@ void ObserveSnr03ManagerPayload(
   draw.index_endianness = observation.index_buffer_guest_endianness;
   for (uint32_t slot = 0; slot < 2; ++slot) {
     draw.ranges[slot] = {fetch[slot].guest_base, fetch[slot].length};
-    if (!Snr03OwnManagerRange(payload.ranges[slot], draw.ranges[slot],
+    if (!Snr03OwnRange(payload.ranges[slot], draw.ranges[slot],
                              fetch[slot].cpu_snapshot_bytes,
                              fetch[slot].cpu_snapshot_status,
-                             fetch[slot].cpu_snapshot_hash, payload)) {
+                             fetch[slot].cpu_snapshot_hash, payload.bytes,
+                             8 * 1024 * 1024)) {
       payload.rejected = true;
       return;
     }
   }
   draw.ranges[2] = {observation.index_buffer_guest_base,
                     observation.index_buffer_length};
-  if (!Snr03OwnManagerRange(payload.ranges[2], draw.ranges[2],
+  if (!Snr03OwnRange(payload.ranges[2], draw.ranges[2],
                            observation.index_cpu_snapshot_bytes,
                            observation.index_cpu_snapshot_status,
-                           observation.index_cpu_snapshot_hash, payload)) {
+                           observation.index_cpu_snapshot_hash, payload.bytes,
+                           8 * 1024 * 1024)) {
     payload.rejected = true;
     return;
   }
@@ -1396,6 +1426,90 @@ void ObserveSnr03ManagerPayload(
               "\"packet\":{},\"packed_hash\":{},\"specialization\":{}}}",
               observation.frame_sequence, draw.sequence, draw.packet,
               Snr02HashWords(draw.packed), draw.specialization);
+  payload.draws.push_back(std::move(draw));
+}
+
+void ObserveSnr03RemainderPayloadLocked(
+    const rex::system::GraphicsPreparedDrawObservation& observation,
+    uint32_t family, uint32_t title_key) {
+  auto& payload = snr03_remainder_payloads[uint64_t(Snr03TargetFrame())];
+  if (payload.rejected) return;
+  if (!observation.draw_sequence || !observation.vertex_fetches ||
+      !observation.vertex_float_constant_bitmap ||
+      !observation.vertex_float_constant_words ||
+      observation.vertex_fetch_count == 0 ||
+      observation.vertex_fetch_count > 3 ||
+      observation.vertex_fetch_count > observation.vertex_fetch_capacity ||
+      observation.texture_fetch_count > 16 ||
+      (observation.texture_fetch_count && !observation.texture_fetches) ||
+      observation.vertex_float_constant_count > 256 ||
+      observation.index_buffer_type < 1 || observation.index_buffer_type > 2 ||
+      !observation.index_count || observation.index_count > 32768 ||
+      !observation.index_buffer_length ||
+      observation.index_buffer_length > 128 * 1024 ||
+      payload.draws.size() >= 4096 ||
+      (!payload.draws.empty() &&
+       observation.draw_sequence <= payload.draws.back().sequence)) {
+    payload.rejected = true;
+    return;
+  }
+  Snr03RemainderDraw draw{};
+  draw.sequence = observation.draw_sequence;
+  draw.shader = observation.vertex_shader_hash;
+  draw.pixel_shader = observation.pixel_shader_hash;
+  draw.specialization = observation.vertex_specialization_mask;
+  draw.family = family;
+  draw.title_key = title_key;
+  draw.packet = observation.draw_packet_physical_address;
+  draw.count = observation.index_count;
+  draw.guest_primitive = observation.guest_primitive_type;
+  draw.host_primitive = observation.host_primitive_type;
+  draw.index_type = observation.index_buffer_type;
+  draw.host_index_format = observation.host_index_format;
+  draw.index_endianness = observation.index_buffer_guest_endianness;
+  for (uint32_t slot = 0; slot < observation.vertex_fetch_count; ++slot) {
+    const auto& fetch = observation.vertex_fetches[slot];
+    const Snr02TrackRange range{fetch.guest_base, fetch.length};
+    if (!Snr03OwnRange(payload.vertices, range, fetch.cpu_snapshot_bytes,
+                       fetch.cpu_snapshot_status, fetch.cpu_snapshot_hash,
+                       payload.bytes, 32 * 1024 * 1024)) {
+      payload.rejected = true;
+      return;
+    }
+    draw.fetches.push_back({fetch.fetch_constant, fetch.stride_words, range});
+  }
+  draw.indices = {observation.index_buffer_guest_base,
+                  observation.index_buffer_length};
+  if (!Snr03OwnRange(payload.indices, draw.indices,
+                     observation.index_cpu_snapshot_bytes,
+                     observation.index_cpu_snapshot_status,
+                     observation.index_cpu_snapshot_hash, payload.bytes,
+                     32 * 1024 * 1024)) {
+    payload.rejected = true;
+    return;
+  }
+  if (observation.texture_fetch_count)
+    draw.textures.assign(observation.texture_fetches,
+                         observation.texture_fetches +
+                             observation.texture_fetch_count);
+  std::copy_n(observation.vertex_float_constant_bitmap, 4,
+              draw.bitmap.begin());
+  for (uint32_t reg = 0; reg < 256; ++reg) {
+    if (draw.bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+      const auto* words = observation.vertex_float_constant_words + reg * 4;
+      draw.packed.insert(draw.packed.end(), words, words + 4);
+    }
+  }
+  if (draw.packed.size() != observation.vertex_float_constant_count * 4) {
+    payload.rejected = true;
+    return;
+  }
+  REXGPU_INFO("FH1 SNR03 remainder prepared {{\"frame\":{},"
+              "\"sequence\":{},\"packet\":{},\"family\":{},"
+              "\"title_key\":{},\"fetches\":{},\"packed_hash\":{},"
+              "\"index_type\":{}}}", observation.frame_sequence,
+              draw.sequence, draw.packet, draw.family, draw.title_key,
+              draw.fetches.size(), Snr02HashWords(draw.packed), draw.index_type);
   payload.draws.push_back(std::move(draw));
 }
 
@@ -1595,6 +1709,65 @@ void ObserveSnr03FinalDrawState(
                   Snr02HashWords(draw.system), Snr02HashWords(draw.fetch),
                   draw.dynamic, draw.raster_mode, draw.clip_control,
                   draw.depth_control);
+      return;
+    }
+  }
+  if (auto payload_it = snr03_remainder_payloads.find(uint64_t(target));
+      payload_it != snr03_remainder_payloads.end()) {
+    auto& payload = payload_it->second;
+    // ponytail: linear lookup is bounded to one probe frame; index by sequence
+    // if the selected diagnostic grows beyond a few thousand draws.
+    const auto found = std::find_if(payload.draws.begin(), payload.draws.end(),
+                                    [&](const auto& row) {
+      return row.sequence == observation.draw_sequence;
+    });
+    if (found != payload.draws.end()) {
+      if (found->final_seen ||
+          found->packet != observation.draw_packet_physical_address ||
+          !observation.system_constant_words ||
+          observation.system_constant_word_count < 64 ||
+          !observation.fetch_constant_words ||
+          observation.fetch_constant_word_count < 192 ||
+          !observation.viewport || !observation.scissor ||
+          observation.bound_vertex_float_constant_count * 4 !=
+              found->packed.size() ||
+          (!found->packed.empty() &&
+           (!observation.bound_vertex_float_constant_words ||
+            !std::equal(found->packed.begin(), found->packed.end(),
+                        observation.bound_vertex_float_constant_words)))) {
+        payload.rejected = true;
+        return;
+      }
+      auto& draw = *found;
+      for (const auto& fetch : draw.fetches) {
+        if (fetch.constant >= 96 ||
+            (observation.fetch_constant_words[fetch.constant * 2] &
+                 0x1FFFFFFC) != fetch.range.first ||
+            (observation.fetch_constant_words[fetch.constant * 2 + 1] &
+                 0x03FFFFFC) != fetch.range.second) {
+          payload.rejected = true;
+          return;
+        }
+      }
+      draw.dynamic = observation.dynamic_state;
+      std::copy_n(observation.system_constant_words, 64, draw.system.begin());
+      std::copy_n(observation.fetch_constant_words, 192,
+                  draw.bound_fetch.begin());
+      draw.raster_mode = observation.raster_mode_control;
+      draw.clip_control = observation.clip_control;
+      draw.depth_control = observation.normalized_depth_control;
+      std::copy_n(observation.viewport, 6, draw.viewport.begin());
+      std::copy_n(observation.scissor, 4, draw.scissor.begin());
+      draw.final_seen = true;
+      REXGPU_INFO("FH1 SNR03 remainder final {{\"frame\":{},"
+                  "\"sequence\":{},\"packet\":{},\"family\":{},"
+                  "\"system_hash\":{},\"fetch_hash\":{},"
+                  "\"dynamic\":{},\"raster\":{},\"clip\":{},"
+                  "\"depth\":{}}}", observation.frame_sequence,
+                  draw.sequence, draw.packet, draw.family,
+                  Snr02HashWords(draw.system),
+                  Snr02HashWords(draw.bound_fetch), draw.dynamic,
+                  draw.raster_mode, draw.clip_control, draw.depth_control);
       return;
     }
   }
@@ -1807,6 +1980,7 @@ void ObservePreparedDraw(
       observation.depth_info == 0x00010400 &&
       observation.bound_render_target_bits == 3) {
     std::lock_guard lock(snr03_scene_mutex);
+    uint32_t family = 0, title_key = 0;
     if (const auto scene = snr03_car_scenes.find(uint64_t(Snr03TargetFrame()));
         scene != snr03_car_scenes.end()) {
       const auto record = std::find_if(scene->second->records.begin(),
@@ -1837,6 +2011,10 @@ void ObservePreparedDraw(
                     record->owner_vtable, record->owner_call,
                     observation.vertex_fetch_count,
                     observation.index_buffer_type, valid);
+        if (valid) {
+          family = 1;
+          title_key = record->dispatch;
+        }
       }
     }
     if (const auto scene = snr03_scalar_scenes.find(uint64_t(Snr03TargetFrame()));
@@ -1864,8 +2042,14 @@ void ObservePreparedDraw(
                     record->object_vtable, record->scalar_ordinal,
                     observation.vertex_fetch_count,
                     observation.index_buffer_type, valid);
+        if (valid && !family) {
+          family = record->caller == 0x82415A28 ? 2 : 3;
+          title_key = record->packet;
+        }
       }
     }
+    if (family)
+      ObserveSnr03RemainderPayloadLocked(observation, family, title_key);
   }
   if (Snr03TargetFrame() > 0 &&
       observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
@@ -2641,25 +2825,135 @@ void ObserveSnr03ManagerOutputFrame(uint64_t output_frame) {
               payload.draws.size(), payload.bytes, payload.rejected, written);
 }
 
-void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
-  if (!Snr03ProbeEnabled() || output_frame != uint64_t(Snr03TargetFrame()) + 1) {
-    return;
-  }
+void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
+  std::shared_ptr<const Snr03CarScene> car;
+  std::shared_ptr<const Snr03ScalarScene> scalar;
+  Snr03RemainderPayload payload;
   {
     std::lock_guard lock(snr03_scene_mutex);
     if (const auto found = snr03_car_scenes.find(output_frame - 1);
         found != snr03_car_scenes.end()) {
-      REXGPU_INFO("FH1 SNR03 car scene consumed output_frame={} records={}",
-                  output_frame, found->second->records.size());
+      car = std::move(found->second);
       snr03_car_scenes.erase(found);
     }
     if (const auto found = snr03_scalar_scenes.find(output_frame - 1);
         found != snr03_scalar_scenes.end()) {
-      REXGPU_INFO("FH1 SNR03 scalar scene consumed output_frame={} records={}",
-                  output_frame, found->second->records.size());
+      scalar = std::move(found->second);
       snr03_scalar_scenes.erase(found);
     }
+    if (const auto found = snr03_remainder_payloads.find(output_frame - 1);
+        found != snr03_remainder_payloads.end()) {
+      payload = std::move(found->second);
+      snr03_remainder_payloads.erase(found);
+    }
   }
+  bool valid = car && scalar && !payload.rejected && !payload.draws.empty() &&
+               payload.draws.size() <= 4096 && payload.bytes <= 32 * 1024 * 1024;
+  if (car && scalar)
+    valid &= car->source_frame == scalar->source_frame &&
+             car->source_frame + 1 == output_frame &&
+             car->view == scalar->view && car->camera == scalar->camera;
+  std::set<uint64_t> sequences;
+  for (const auto& draw : payload.draws) {
+    valid &= draw.final_seen && sequences.insert(draw.sequence).second &&
+             payload.indices.contains(draw.indices);
+    for (const auto& fetch : draw.fetches)
+      valid &= payload.vertices.contains(fetch.range);
+    if (draw.family == 1 && car) {
+      valid &= std::any_of(car->records.begin(), car->records.end(),
+                           [&](const auto& row) {
+        return row.dispatch == draw.title_key;
+      });
+    } else if ((draw.family == 2 || draw.family == 3) && scalar) {
+      valid &= std::any_of(scalar->records.begin(), scalar->records.end(),
+                           [&](const auto& row) {
+        return row.packet == draw.title_key &&
+               (draw.family == 2) == (row.caller == 0x82415A28);
+      });
+    } else {
+      valid = false;
+    }
+  }
+  std::vector<char> encoded;
+  if (valid) {
+    auto write = [&](const auto& value) {
+      const auto* bytes = reinterpret_cast<const char*>(&value);
+      encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
+    };
+    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','1','\0'};
+    write(magic);
+    write(car->source_frame);
+    write(car->view);
+    write(car->camera);
+    write(uint32_t(car->records.size()));
+    write(uint32_t(scalar->records.size()));
+    write(uint32_t(payload.draws.size()));
+    write(uint32_t(payload.vertices.size()));
+    write(uint32_t(payload.indices.size()));
+    write(car->camera_matrices);
+    for (const auto& row : car->records) {
+      write(row.dispatch); write(row.target); write(row.words);
+      write(row.owner); write(row.owner_vtable); write(row.input);
+      write(row.owner_call); write(row.owner_args);
+    }
+    for (const auto& row : scalar->records) {
+      write(row.direct_ordinal); write(row.scalar_ordinal);
+      write(row.packet); write(row.caller); write(row.object);
+      write(row.object_vtable); write(row.command); write(row.selector);
+      write(row.input_count);
+    }
+    for (const auto* ranges : {&payload.vertices, &payload.indices}) {
+      for (const auto& [key, bytes] : *ranges) {
+        write(key.first); write(key.second);
+        encoded.insert(encoded.end(), bytes.begin(), bytes.end());
+      }
+    }
+    for (const auto& draw : payload.draws) {
+      write(draw.family); write(draw.title_key); write(draw.sequence);
+      write(draw.packet); write(draw.shader); write(draw.pixel_shader);
+      write(draw.specialization); write(draw.dynamic);
+      write(draw.count); write(draw.guest_primitive);
+      write(draw.host_primitive); write(draw.index_type);
+      write(draw.host_index_format); write(draw.index_endianness);
+      write(uint32_t(draw.fetches.size()));
+      for (const auto& fetch : draw.fetches) {
+        write(fetch.constant); write(fetch.stride_words);
+        write(fetch.range.first); write(fetch.range.second);
+      }
+      write(draw.indices.first); write(draw.indices.second);
+      write(uint32_t(draw.textures.size()));
+      for (const auto& texture : draw.textures) {
+        write(texture.fetch_constant); write(texture.type);
+        write(texture.base_address); write(texture.mip_address);
+        write(texture.format); write(texture.dimension);
+        write(texture.width); write(texture.height);
+        write(texture.stack_depth);
+      }
+      write(draw.bitmap); write(uint32_t(draw.packed.size()));
+      for (uint32_t word : draw.packed) write(word);
+      write(draw.system); write(draw.bound_fetch);
+      write(draw.raster_mode); write(draw.clip_control);
+      write(draw.depth_control); write(draw.viewport); write(draw.scissor);
+    }
+  }
+  const auto directory = fh1_render_test::OutputDirectory();
+  const bool written = valid && !directory.empty() &&
+      WriteSceneFixture(std::span<const char>(encoded), output_frame - 1,
+                        directory, "snr03-remainder-");
+  REXGPU_INFO("FH1 SNR03 remainder owned scene output_frame={} "
+              "car_records={} scalar_records={} draws={} bytes={} "
+              "rejected={} fixture_bytes={} written={}", output_frame,
+              car ? car->records.size() : 0,
+              scalar ? scalar->records.size() : 0,
+              payload.draws.size(), payload.bytes, payload.rejected,
+              encoded.size(), written);
+}
+
+void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
+  if (!Snr03ProbeEnabled() || output_frame != uint64_t(Snr03TargetFrame()) + 1) {
+    return;
+  }
+  ObserveSnr03RemainderOutputFrame(output_frame);
   ObserveSnr03ManagerOutputFrame(output_frame);
   std::shared_ptr<const Snr03SceneSnapshot> scene;
   Snr03PayloadState payload;
@@ -3364,6 +3658,12 @@ void PinyonShiftObservePresentationViewEnd() {
       snapshot.source_frame = frame;
       snapshot.view = scope.view;
       snapshot.camera = scope.camera;
+      for (uint32_t i = 0; i < 16; ++i) {
+        snapshot.camera_matrices[i] =
+            SnrM02ReadU32(scope.camera + 80 + i * 4);
+        snapshot.camera_matrices[16 + i] =
+            SnrM02ReadU32(scope.camera + 144 + i * 4);
+      }
       snapshot.records = std::move(snr03_car_title_records);
       const auto scene = std::make_shared<const Snr03CarScene>(
           std::move(snapshot));

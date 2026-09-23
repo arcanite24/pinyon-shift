@@ -66,8 +66,10 @@ vertex and guest-index range in a later strict replay: 883 draws, including
 108 whose guest indices are converted by the SDK. This is byte availability
 evidence. Later strict replays join every selected draw in those families to
 immutable title records, including 814 car, 12 animated and 54 presentation
-draws in the latest frame. Owned geometry fixtures and private rasters remain
-open.
+draws in one frame. An `SNR03R1` fixture now owns all 1,149 selected draws
+from these three families in a later strict replay, including final bound
+fetch state. Its private raster and a combined full selected-slice target
+remain open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.
