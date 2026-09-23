@@ -173,6 +173,7 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
                 assert (host_primitive, host_restart, index_endianness) == (
                     index["host_primitive"], index["host_restart"],
                     index["index_endianness"])
+                assert system[4] == index_endianness
             assert list(bitmap) == index["bitmap"]
             assert len(packed) == index["packed_words"]
             assert hash_words(packed) == index["packed_hash"]
