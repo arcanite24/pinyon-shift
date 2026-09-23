@@ -230,3 +230,44 @@ then extend 4× target handoff to the complete ordered slice and compare
 matched per-draw events. Stencil and the remaining material states must also
 match before parity. Resource generation, continuous moving frames,
 unload/reload and production cost are also still open.
+
+### Four-sample vegetation segment handoff
+
+The private diagnostic now accepts `--msaa4 --segment` for an `SNR03F3`
+vegetation fixture. A later segment reads the preceding segment's
+`identity.u16x4` and `depth.f32x4`, validates the sample count, dimensions,
+finite depth and prior ID range, and restores every sample through a private
+full-screen D3D12 pass before drawing its own sequence range. The four-sample
+standalone mode and all one-sample family segments retain their earlier paths.
+
+The source-5001 same-run fixture has 179 vegetation draws in the same
+45/67/67 tile groups as RenderDoc. One 179-draw four-sample segment and a
+three-segment replay with those groups produced byte-identical `coverage.u8`,
+`identity.u16x4`, `depth.f32x4`, `identity.ppm` and `depth.f32`. The first
+segment has 16,959 pixels with differing sample IDs, so this comparison
+exercises genuinely distinct per-sample state. The final result covers
+431,722 sample-0 pixels. `tools/verify-snr04-msaa-segments.py` checks the
+sequence/ID chain and the exact output bytes; the existing
+`tools/verify-snr04-msaa.py` now also checks per-sample masks, IDs, depths and
+sample-0 files for each segment:
+
+```powershell
+python tools/verify-snr04-msaa-segments.py `
+  .local/native-renderer/snr04/vegetation-msaa4-segment-single `
+  .local/native-renderer/snr04/vegetation-msaa4-segment-first `
+  .local/native-renderer/snr04/vegetation-msaa4-segment-middle `
+  .local/native-renderer/snr04/vegetation-msaa4-segment-last
+```
+
+The final four-sample identity/depth SHA-256 values are
+`82740196DD9E22D000A3E6DA6C96D63F6CA4E631C58D6161651921285F8FC00F`
+and `D3BDAC0879FA8D83C70997CCD6F32D7345A3BE6448CF73E7BC81CE9D4B60C84D`.
+A prior output with IDs from a later segment is rejected. Replaying the
+complete 1× selected slice with the rebuilt executable retained its known
+identity/color/depth hashes, and the earlier standalone 4× fixture retained
+its known coverage hash `BD31714FB1BF59DBF173397BB51D4C3D3164E0C79F5C30138A4E1C64002E5BC5`.
+
+This proves per-sample target state can survive a private process boundary
+for vegetation. It does not yet carry a full 4× target across the other
+selected families, import preceding compatibility depth, or implement the
+captured foliage alpha/sample mask. Those remain necessary for SNR-04 parity.

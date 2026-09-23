@@ -460,6 +460,11 @@ depth. The five leading foliage draws all bind two pixel textures. The
 same-run capture matches all 179 foliage actions and exports their five BC3
 mip chains. Bind the captured alpha/sample-mask state against preceding
 scene depth first; the current private identity shader ignores it.
+The vegetation diagnostic now restores four-sample identity/depth from a
+prior private segment. A 45/67/67 split matches an uninterrupted 179-draw
+four-sample replay byte for byte. Extend this handoff to every selected
+family and replay the captured alpha path before comparing full-slice
+per-sample coverage/depth.
 Semantic material admission, resource freshness and continuous
 moving-frame/unload checks remain open.
 A paired RenderDoc target check explains the apparent 180° mismatch against

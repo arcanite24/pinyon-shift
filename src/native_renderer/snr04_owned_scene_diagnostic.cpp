@@ -273,7 +273,9 @@ void transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
   commands->ResourceBarrier(1, &barrier);
 }
 struct SegmentUploads {
-  ComPtr<ID3D12Resource> color, depth;
+  ComPtr<ID3D12Resource> color, depth, sample_upload;
+  ComPtr<ID3D12RootSignature> sample_root;
+  ComPtr<ID3D12PipelineState> sample_pipeline;
 };
 SegmentUploads initialize_segment_targets(
     ID3D12Device* device, ID3D12GraphicsCommandList* commands,
@@ -281,9 +283,93 @@ SegmentUploads initialize_segment_targets(
     const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& color_layout,
     const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& depth_layout,
     D3D12_CPU_DESCRIPTOR_HANDLE rtv, D3D12_CPU_DESCRIPTOR_HANDLE dsv,
-    const pinyon_shift::native_renderer::Snr04SegmentOptions* segment) {
+    const pinyon_shift::native_renderer::Snr04SegmentOptions* segment,
+    uint32_t samples = 1) {
   SegmentUploads uploads;
   if (segment && !segment->prior_output.empty()) {
+    if (samples == 4) {
+      const auto ids = read(segment->prior_output / "identity.u16x4");
+      const auto depths = read(segment->prior_output / "depth.f32x4");
+      constexpr size_t count = size_t(width) * height * 4;
+      require(ids.size() == count * sizeof(uint16_t) &&
+                  depths.size() == count * sizeof(float),
+              "wrong prior four-sample segment dimensions");
+      std::vector<uint32_t> packed(count * 2);
+      for (size_t index = 0; index < count; ++index) {
+        uint16_t id;
+        float value;
+        std::memcpy(&id, ids.data() + index * sizeof(id), sizeof(id));
+        std::memcpy(&value, depths.data() + index * sizeof(value), sizeof(value));
+        require(id < segment->first_id && std::isfinite(value) &&
+                    value >= 0 && value <= 1,
+                "invalid prior four-sample identity/depth");
+        packed[index * 2] = id;
+        packed[index * 2 + 1] = std::bit_cast<uint32_t>(value);
+      }
+      uploads.sample_upload = upload(device, packed.data(),
+                                     packed.size() * sizeof(uint32_t));
+      constexpr char vs_source[] =
+          "float4 main(uint id : SV_VertexID) : SV_Position {"
+          " float2 uv = float2((id << 1) & 2, id & 2);"
+          " return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); }";
+      constexpr char ps_source[] =
+          "StructuredBuffer<uint2> prior : register(t0);"
+          "struct Output { float4 color : SV_Target0; float depth : SV_Depth; };"
+          "Output main(float4 position : SV_Position, uint sample : SV_SampleIndex) {"
+          " uint2 value = prior[((uint)position.y * 1280 + (uint)position.x) * 4 + sample];"
+          " Output result;"
+          " result.color = float4((value.x & 255) / 255.0,"
+          " ((value.x >> 8) & 255) / 255.0, 0, 1);"
+          " result.depth = asfloat(value.y); return result; }";
+      ComPtr<ID3DBlob> vs, ps, errors, root_blob;
+      check(D3DCompile(vs_source, sizeof(vs_source) - 1, nullptr, nullptr,
+                       nullptr, "main", "vs_5_1", 0, 0, &vs, &errors));
+      check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr,
+                       nullptr, "main", "ps_5_1", 0, 0, &ps, &errors));
+      D3D12_ROOT_PARAMETER parameter{};
+      parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+      parameter.Descriptor.ShaderRegister = 0;
+      parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+      D3D12_ROOT_SIGNATURE_DESC root_description{1, &parameter};
+      check(D3D12SerializeRootSignature(&root_description,
+                                        D3D_ROOT_SIGNATURE_VERSION_1,
+                                        &root_blob, &errors));
+      check(device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                        root_blob->GetBufferSize(),
+                                        IID_PPV_ARGS(&uploads.sample_root)));
+      D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline{};
+      pipeline.pRootSignature = uploads.sample_root.Get();
+      pipeline.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+      pipeline.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+      pipeline.SampleMask = UINT_MAX;
+      pipeline.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+      pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+      pipeline.RasterizerState.DepthClipEnable = TRUE;
+      pipeline.BlendState.RenderTarget[0].RenderTargetWriteMask =
+          D3D12_COLOR_WRITE_ENABLE_ALL;
+      pipeline.DepthStencilState.DepthEnable = TRUE;
+      pipeline.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+      pipeline.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+      pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+      pipeline.NumRenderTargets = 1;
+      pipeline.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+      pipeline.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+      pipeline.SampleDesc.Count = 4;
+      check(device->CreateGraphicsPipelineState(&pipeline,
+                                                IID_PPV_ARGS(&uploads.sample_pipeline)));
+      D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 1};
+      D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
+      commands->RSSetViewports(1, &viewport);
+      commands->RSSetScissorRects(1, &scissor);
+      commands->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+      commands->SetGraphicsRootSignature(uploads.sample_root.Get());
+      commands->SetPipelineState(uploads.sample_pipeline.Get());
+      commands->SetGraphicsRootShaderResourceView(0,
+                                                  uploads.sample_upload->GetGPUVirtualAddress());
+      commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      commands->DrawInstanced(3, 1, 0, 0);
+      return uploads;
+    }
     require(color_layout.Footprint.RowPitch == width * 4 &&
                 depth_layout.Footprint.RowPitch == width * 4,
             "unsupported segment copy pitch");
@@ -328,7 +414,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     const Snr04SegmentOptions* segment) {
   require(samples == 1 || samples == 4, "unsupported sample count");
   if (segment)
-    require(samples == 1 && segment->first_sequence &&
+    require(segment->first_sequence &&
                 segment->first_sequence <= segment->last_sequence &&
                 segment->first_id && segment->draw_count &&
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
@@ -621,7 +707,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
-      depth_layout, rtv_handle, dsv_handle, segment);
+      depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -834,7 +920,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
       for (uint32_t sample = 0; sample < 4; ++sample) {
         const auto id = words[(pixel * 4 + sample) * 2];
         const float value = std::bit_cast<float>(words[(pixel * 4 + sample) * 2 + 1]);
-        require(id <= scene.items.size() && std::isfinite(value) &&
+        require((segment || id <= scene.items.size()) && std::isfinite(value) &&
                     value >= 0 && value <= 1 && (!id || value > 0),
                 "invalid four-sample identity/depth");
         if (id) {
@@ -850,7 +936,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
           depth_file.write(reinterpret_cast<const char*>(&value), sizeof(value));
           if (id) {
             ++covered;
-            ++item_pixels[id - 1];
+            if (!segment) ++item_pixels[id - 1];
           }
         }
       }
