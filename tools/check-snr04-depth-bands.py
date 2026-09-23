@@ -34,18 +34,27 @@ def tally(families, draws, family, identity, reference, private):
         counts[2] += nearer
 
 
-def check(report_path, private_path, order_path=None, color_paths=None):
+def check(report_path, private_path, order_path=None, color_paths=None,
+          identity_paths=None):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["stage"] == "done" and len(report["rows"]) == 3
-    assert (order_path is None) == (color_paths is None)
+    assert not (color_paths and identity_paths)
+    assert (order_path is None) == (color_paths is None and identity_paths is None)
     private = private_path.read_bytes()
     assert len(private) == 1280 * 720 * 4
     private_values = [value[0] for value in struct.iter_unpack("<f", private)]
     order = json.loads(order_path.read_text(encoding="utf-8"))["order"] if order_path else None
     color_buffers = [path.read_bytes() for path in color_paths] if color_paths else None
+    identity_buffers = ([path.read_bytes() for path in identity_paths]
+                        if identity_paths else None)
+    if color_buffers is not None or identity_buffers is not None:
+        assert len(order) < 65536
     if color_buffers is not None:
-        assert len(color_buffers) == 3 and len(order) < 65536
+        assert len(color_buffers) == 3
         assert all(len(colors) == len(private) for colors in color_buffers)
+    if identity_buffers is not None:
+        assert len(identity_buffers) == 3
+        assert all(len(ids) == 1280 * 720 * 8 for ids in identity_buffers)
     families = defaultdict(lambda: [0, 0, 0])
     draws = defaultdict(lambda: [0, 0, 0])
     reference_all, private_all, bands = [], [], []
@@ -60,13 +69,18 @@ def check(report_path, private_path, order_path=None, color_paths=None):
         assert len(data) == width * height * 8
         reference = [value[0] for value in struct.iter_unpack("<fI", data[:width * band_height * 8])]
         native = private_values[offset * width:(offset + band_height) * width]
-        if color_buffers is not None:
-            colors = color_buffers[len(bands)]
+        if color_buffers is not None or identity_buffers is not None:
+            colors = color_buffers[len(bands)] if color_buffers else None
+            ids = identity_buffers[len(bands)] if identity_buffers else None
             for pixel, (a, b) in enumerate(zip(reference, native)):
                 if a == 0 or b == 0:
                     continue
-                color = (offset * width + pixel) * 4
-                identity = colors[color] | colors[color + 1] << 8
+                if ids is not None:
+                    identity = struct.unpack_from("<H", ids,
+                                                  (offset * width + pixel) * 8)[0]
+                else:
+                    color = (offset * width + pixel) * 4
+                    identity = colors[color] | colors[color + 1] << 8
                 assert 1 <= identity <= len(order)
                 tally(families, draws, order[identity - 1]["family"], identity, a, b)
         bands.append({"event": row["event"], "private_row": offset,
@@ -77,7 +91,7 @@ def check(report_path, private_path, order_path=None, color_paths=None):
     assert offset == 720
     result = {"scope": "sample-0 target-space diagnostic; not pixel/depth parity",
               "bands": bands, "total": measure(reference_all, private_all)}
-    if color_buffers is not None:
+    if color_buffers is not None or identity_buffers is not None:
         result["large_error_threshold"] = .005
         result["families"] = [dict(family=family, pixels=counts[0],
                                    large_errors=counts[1], large_private_nearer=counts[2])
@@ -111,6 +125,7 @@ if __name__ == "__main__":
     parser.add_argument("private_depth", type=Path, nargs="?")
     parser.add_argument("--order", type=Path)
     parser.add_argument("--band-colors", type=Path, nargs=3)
+    parser.add_argument("--band-identities", type=Path, nargs=3)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -118,4 +133,5 @@ if __name__ == "__main__":
     else:
         assert args.report and args.private_depth
         print(json.dumps(check(args.report, args.private_depth,
-                               args.order, args.band_colors), indent=2))
+                               args.order, args.band_colors,
+                               args.band_identities), indent=2))

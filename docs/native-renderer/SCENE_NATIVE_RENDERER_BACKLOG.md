@@ -465,7 +465,8 @@ prior private segment. A 45/67/67 split matches an uninterrupted 179-draw
 four-sample replay byte for byte. All selected families now carry this
 four-sample target across the 35-stage same-run slice; two complete replays
 match byte for byte at every stage. Sample-0 compatibility mask overlap is
-99.50%, but p90 absolute depth error is still `0.00488`. Replay captured
+99.50%, but p90 absolute depth error is still `0.00488`. Vegetation still
+accounts for 70,082/85,659 large depth errors. Replay captured
 alpha/sample-mask, stencil and per-draw state before claiming parity; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous

@@ -316,8 +316,18 @@ python tools/check-snr04-depth-bands.py `
 Against the same-run compatibility sample-0 depth, the 4× private sample-0
 mask has 99.50% intersection-over-union. The 208-row band has 98.21% mask
 overlap. Median absolute depth error is `7.02e-5` but p90 is `0.00488`,
-so 4× geometry alone has not fixed depth parity. The diagnostic still uses
-identity shading without the captured foliage alpha/sample mask, stencil
-or material state. A matched per-draw target comparison and resource
-freshness/lifetime checks remain Gate A work; this output is not a native
-renderer admission result.
+so 4× geometry alone has not fixed depth parity. Repeating the tile-end
+draw-ID attribution with the new sample-0 identity files assigns 70,082 of
+85,659 depth errors of at least `0.005` (81.8%) to vegetation. At 69,514
+of those vegetation pixels the private depth is nearer. The same five
+foliage IDs lead the errors as in the 1× diagnostic. Reproduce with
+`tools/check-snr04-depth-bands.py`, passing the draw-order manifest as
+`--order` and `step-12`, `step-23`, `step-34` `identity.u16x4` files as
+`--band-identities`.
+
+The diagnostic still uses identity shading without the captured foliage
+alpha/sample mask, stencil or material state. This pattern is consistent
+with extra private foliage depth writes, but does not prove their cause.
+A matched per-draw target comparison and resource freshness/lifetime
+checks remain Gate A work; this output is not a native renderer admission
+result.
