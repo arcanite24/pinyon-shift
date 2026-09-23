@@ -855,6 +855,8 @@ struct ProceduralDraw {
   uint64_t vertex_shader = 0;
   uint32_t vertex_count = 0;
   std::array<uint32_t, 64> system{};
+  std::array<float, 6> viewport{};
+  std::array<int32_t, 4> scissor{};
 };
 struct ProceduralItem {
   uint32_t packet = 0;
@@ -868,6 +870,105 @@ struct ProceduralScene {
   std::string sha;
   std::vector<ProceduralItem> items;
 };
+ProceduralScene load_character(std::span<const char> bytes) {
+  Reader reader{bytes};
+  require(reader.take<std::array<char, 8>>() ==
+              (std::array<char, 8>{'S','N','R','0','3','C','1','\0'}),
+          "wrong character fixture");
+  ProceduralScene scene;
+  scene.sha = sha256(bytes);
+  scene.frame = reader.take<uint64_t>();
+  reader.take<uint32_t>();  // View.
+  reader.take<uint32_t>();  // Camera.
+  const auto count = reader.take<uint32_t>();
+  const auto draw_count = reader.take<uint32_t>();
+  require(count > 0 && count <= 64 && draw_count >= count && draw_count <= 128,
+          "invalid character counts");
+  reader.take<std::array<uint32_t, 32>>();  // Two camera matrices.
+  std::set<uint32_t> packets;
+  std::set<uint64_t> sequences;
+  size_t owned_bytes = 0;
+  for (uint32_t ordinal = 0; ordinal < count; ++ordinal) {
+    reader.take<uint32_t>();  // Title record.
+    reader.take<uint32_t>();  // Vertex descriptor.
+    const auto base = reader.take<uint32_t>();
+    const auto size = reader.take<uint32_t>();
+    ProceduralItem item;
+    item.packet = reader.take<uint32_t>();
+    reader.take<uint64_t>();  // Bucket entry.
+    const auto length = reader.take<uint32_t>();
+    const auto variants = reader.take<uint32_t>();
+    require(packets.insert(item.packet).second && length > 0 &&
+                length <= 32768 && length == (size & 0x03FFFFFC) &&
+                length <= 512 * 1024 - owned_bytes &&
+                variants > 0 && variants <= 8,
+            "unsupported character geometry bound");
+    owned_bytes += length;
+    item.vertices = reader.bytes(length);
+    for (uint32_t variant = 0; variant < variants; ++variant) {
+      ProceduralDraw draw;
+      draw.sequence = reader.take<uint64_t>();
+      draw.vertex_shader = reader.take<uint64_t>();
+      const auto pixel_shader = reader.take<uint64_t>();
+      const auto specialization = reader.take<uint64_t>();
+      reader.take<uint64_t>();  // Dynamic state.
+      draw.vertex_count = reader.take<uint32_t>();
+      const auto words = reader.take<uint32_t>();
+      const auto bitmap = reader.take<std::array<uint64_t, 4>>();
+      require(words <= 1024 &&
+                  words == 4 * (std::popcount(bitmap[0]) +
+                                std::popcount(bitmap[1]) +
+                                std::popcount(bitmap[2]) +
+                                std::popcount(bitmap[3])),
+              "invalid character packed constants");
+      std::vector<uint32_t> packed;
+      packed.reserve(words);
+      for (uint32_t word = 0; word < words; ++word)
+        packed.push_back(reader.take<uint32_t>());
+      draw.system = reader.take<std::array<uint32_t, 64>>();
+      const auto fetch = reader.take<std::array<uint32_t, 4>>();
+      const auto raster_mode = reader.take<uint32_t>();
+      const auto clip_control = reader.take<uint32_t>();
+      const auto depth_control = reader.take<uint32_t>();
+      draw.viewport = reader.take<std::array<float, 6>>();
+      draw.scissor = reader.take<std::array<int32_t, 4>>();
+      const float tile_offset = float(height) - draw.viewport[3];
+      require(draw.sequence && sequences.insert(draw.sequence).second &&
+                  draw.vertex_shader == 0xAC345DADF2F24AE4ull &&
+                  pixel_shader == 0xB77EC20EA53C20F8ull &&
+                  specialization == 15 &&
+                  draw.vertex_count > 0 && draw.vertex_count % 4 == 0 &&
+                  draw.vertex_count <= UINT16_MAX &&
+                  length == draw.vertex_count * 4 &&
+                  (fetch[2] & 0x1FFFFFFC) == (base & 0x1FFFFFFC) &&
+                  (fetch[3] & 0x03FFFFFC) == length && (fetch[2] & 3) == 3 &&
+                  raster_mode == 0x218002 && clip_control == 0x80000 &&
+                  depth_control == 0x87087E7 &&
+                  draw.viewport[0] == 0 && draw.viewport[1] == 0 &&
+                  draw.viewport[2] == width && tile_offset >= 0 &&
+                  tile_offset == std::floor(tile_offset) &&
+                  draw.scissor[0] == 0 && draw.scissor[1] == 0 &&
+                  draw.scissor[2] == int32_t(width) &&
+                  draw.scissor[3] > 0 &&
+                  draw.scissor[3] <= draw.viewport[3] &&
+                  tile_offset + draw.scissor[3] <= height,
+              "unsupported character draw state");
+      if (variant == 0) {
+        item.constants = std::move(packed);
+        item.fetch = fetch;
+      } else {
+        require(packed == item.constants && fetch == item.fetch,
+                "character vertex input changes between draws");
+      }
+      item.draws.push_back(draw);
+    }
+    item.fetch[2] &= 3;
+    scene.items.push_back(std::move(item));
+  }
+  require(reader.position == bytes.size() && sequences.size() == draw_count,
+          "trailing character fixture or missing draw");
+  return scene;
+}
 ProceduralScene load_procedural(std::span<const char> bytes) {
   Reader reader{bytes};
   require(reader.take<std::array<char, 8>>() ==
@@ -964,7 +1065,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     ID3D12Device* borrowed_device) {
   const auto begin = std::chrono::steady_clock::now();
   const auto source = read(fixture);
-  const auto scene = load_procedural(source);
+  const bool character = source.size() >= 8 &&
+      std::memcmp(source.data(), "SNR03C1", 7) == 0;
+  const auto scene = character ? load_character(source) : load_procedural(source);
   struct ShaderSpec { uint64_t hash; const char* file; const char* sha; };
   constexpr std::array<ShaderSpec, 4> shaders{{
       {0x3BC346726C1C2535ull, "vertex_3BC346726C1C2535_000000000000000F.dxil",
@@ -977,11 +1080,18 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
        "5c8692ddf2ff735d28b7b5f1fdce740b6be443ee942191c8d912d9a22852a269"},
   }};
   std::map<uint64_t, std::vector<char>> vertex_shaders;
-  for (const auto& spec : shaders) {
+  auto add_shader = [&](const ShaderSpec& spec) {
     auto bytes = read(shader_directory / spec.file);
     require(bytes.size() >= 4 && std::memcmp(bytes.data(), "DXBC", 4) == 0 &&
                 sha256(bytes) == spec.sha, "wrong procedural vertex shader");
     vertex_shaders.emplace(spec.hash, std::move(bytes));
+  };
+  if (character) {
+    add_shader({0xAC345DADF2F24AE4ull,
+        "vertex_AC345DADF2F24AE4_000000000000000F.dxil",
+        "90929ccb75eb107fcb20b9f4d91612c8416f87dd3402802673d9235bebfe00f0"});
+  } else {
+    for (const auto& spec : shaders) add_shader(spec);
   }
   const auto extracted = std::chrono::steady_clock::now();
   ComPtr<ID3D12Device> device;
@@ -1034,7 +1144,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
   desc.SampleMask = UINT_MAX;
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.CullMode = character ? D3D12_CULL_MODE_BACK
+                                          : D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = character;
   desc.RasterizerState.DepthClipEnable = TRUE;
   desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
       D3D12_COLOR_WRITE_ENABLE_ALL;
@@ -1133,8 +1245,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
       std::array<uint32_t, 120> system{};
       std::copy(draw.system.begin(), draw.system.end(), system.begin());
       resource.b0_original.push_back(upload(device.Get(), system.data(), sizeof(system)));
-      system[33] = std::bit_cast<uint32_t>(1.f);
-      system[37] = std::bit_cast<uint32_t>(-1.f / height);
+      if (!character) {
+        system[33] = std::bit_cast<uint32_t>(1.f);
+        system[37] = std::bit_cast<uint32_t>(-1.f / height);
+      }
       resource.b0.push_back(upload(device.Get(), system.data(), sizeof(system)));
     }
     owned.push_back(std::move(resource));
@@ -1203,6 +1317,18 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   for (const auto& ref : draws) {
     const auto& draw = scene.items[ref.item].draws[ref.variant];
     const auto& resource = owned[ref.item];
+    if (character) {
+      const float tile_offset = float(height) - draw.viewport[3];
+      D3D12_VIEWPORT selected{draw.viewport[0], tile_offset,
+                              draw.viewport[2], draw.viewport[3],
+                              draw.viewport[4], draw.viewport[5]};
+      D3D12_RECT clip{draw.scissor[0],
+                      draw.scissor[1] + LONG(tile_offset),
+                      draw.scissor[2],
+                      draw.scissor[3] + LONG(tile_offset)};
+      commands->RSSetViewports(1, &selected);
+      commands->RSSetScissorRects(1, &clip);
+    }
     commands->SetPipelineState(pipelines.at(draw.vertex_shader).Get());
     commands->SetGraphicsRootConstantBufferView(0, resource.b0[ref.variant]->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
@@ -1322,7 +1448,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
   };
   std::ofstream summary(output_directory / "summary.json");
-  summary << "{\"schema\":\"pinyon-shift.snr04-procedural.v1\","
+  summary << "{\"schema\":\"pinyon-shift.snr04-"
+          << (character ? "character" : "procedural") << ".v1\","
           << "\"source_frame\":" << scene.frame << ','
           << "\"fixture_sha256\":\"" << scene.sha << "\","
           << "\"items\":" << scene.items.size() << ','

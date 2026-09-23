@@ -51,8 +51,8 @@ have no owned diagnostic fixture.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
-character fixture has no private raster and the larger car/character-manager
-families remain unowned.
+character fixture now renders 37,613 deterministic identity/depth pixels
+from ten draws. The larger car/character-manager families remain unowned.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

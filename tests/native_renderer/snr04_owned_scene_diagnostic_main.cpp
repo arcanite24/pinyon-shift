@@ -15,11 +15,14 @@ int main(int argc, char** argv) {
     std::ifstream input(argv[1], std::ios::binary);
     char magic[8]{};
     input.read(magic, sizeof(magic));
-    if (input && std::string_view(magic, 7) == "SNR02I3") {
+    if (input && (std::string_view(magic, 7) == "SNR02I3" ||
+                  std::string_view(magic, 7) == "SNR03C1")) {
       if (argc != 4) throw std::runtime_error("procedural diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
           argv[1], argv[2], argv[3]);
-      std::cout << "SNR04 procedural covered_pixels=" << covered << '\n';
+      std::cout << "SNR04 " << (std::string_view(magic, 7) == "SNR03C1"
+                                   ? "character" : "procedural")
+                << " covered_pixels=" << covered << '\n';
       return 0;
     }
     if (input && (std::string_view(magic, 7) == "SNR02T3" ||
