@@ -484,8 +484,10 @@ word differing on the 67 middle-band draws. The captured constants also
 vary by tile draw within an item. `SNR03F4` now retains the 92 actually
 bound words per final draw; a real output-frame fixture passed log/hash
 verification for 135 draws, and a synthetic same-capture F4 fixture has
-zero bound-constant differences across 179 draws. Repeat a paired live
-capture and compare complete-slice state before attributing remaining
+zero bound-constant differences across 179 draws. The live F4 frame also
+passed the six-family verifier for all 2,307 selected draws; two complete
+4× replays matched at all 35 stages. Repeat a paired live capture and
+compare complete-slice state before attributing remaining
 errors to materials. Then test the original pixel shader, stencil
 and resource lifetime before broadening native admission; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).

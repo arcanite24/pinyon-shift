@@ -524,3 +524,28 @@ four-sample coverage and depth. The 67 middle-band system-word-44
 differences remain in that synthetic fixture, and the live F4 run is a
 different race execution. Material, stencil and complete-slice reference
 parity remain open.
+
+The same live F4 run also passed the **six-family complete-slice verifier**:
+2,307/2,307 selected draws joined immutable fixtures (631 track, 209
+procedural items, 135 vegetation, 11 procedural characters, 297 character
+manager and 1,024 remainder). The 4× ordered replay finished all 35
+family runs with 695,089 covered sample-0 pixels, 697,154 pixels with any
+sample covered, 2,778,635 covered samples, 249 visible sample-0 draw IDs
+and no covered pixel at depth zero. A second replay made all **220 output
+files** across the 35 stages byte-identical. This verifies the F4 change
+does not break the full private target handoff; it is still an identity
+diagnostic, not a complete compatibility parity check.
+
+| Live F4 evidence | SHA-256 |
+| --- | --- |
+| Vegetation fixture | `62DCC62C78C4787DBB24CBAD7C00DEAEDB917DD800090835980D1CD8CB1D9095` |
+| Complete-slice order | `F1F579748F829FAF3B763DED9A1F9A126A79DF8BF0DA10CAA3F4801980EE2C8F` |
+| Final coverage / per-sample depth | `8D0068F98E033BD91A7F52EC5C3EE0569808ED70B0476E38611D290773B469BD` / `C83545B3E58DFF38EE8151016FB7C16F39B91AB8436681AF37D12BBC54C4B9D8` |
+
+Reproduce from `.local/native-renderer/snr04/f4-final-bound-live-c` with
+`tools/verify-snr04-complete-slice.py` using its `evidence.log` and
+`ledger.json`, then `tools/replay-snr04-complete-slice.py --msaa4` using
+its `order.json`, `track-shaders`, `remainder-shaders`, the existing
+procedural DXIL directory and the captured vegetation VS DXIL. The route
+was `track-frame-reference.fh1test` with
+`pinyon_shift_snr03_probe_frame=5000`; compatibility remained authoritative.
