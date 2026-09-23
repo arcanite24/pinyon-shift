@@ -1763,6 +1763,21 @@ void ObservePreparedDraw(
                 observation.index_cpu_snapshot_hash,
                 observation.index_buffer_length);
   }
+  if (Snr03TargetFrame() > 0 &&
+      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+      observation.index_cpu_snapshot_status &&
+      observation.vertex_shader_hash != 0xB8489164D5A86043ull &&
+      !Snr02SelectTrackSnapshot(observation.frame_sequence,
+                                observation.command_buffer_physical_address)) {
+    REXGPU_INFO("FH1 SNR03 probe index snapshot {{\"frame\":{},"
+                "\"sequence\":{},\"packet\":{},\"status\":{},"
+                "\"hash\":{},\"length\":{}}}",
+                observation.frame_sequence, observation.draw_sequence,
+                observation.draw_packet_physical_address,
+                observation.index_cpu_snapshot_status,
+                observation.index_cpu_snapshot_hash,
+                observation.index_buffer_length);
+  }
   if (Snr02SelectTrackSnapshot(observation.frame_sequence,
                                observation.command_buffer_physical_address)) {
     bool captured = false;

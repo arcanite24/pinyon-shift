@@ -60,6 +60,11 @@ owned `SNR03M1` fixture now joins all 102 selected manager draws in another
 strict replay. Its private two-stream identity/depth raster produces 33,307
 deterministic pixels. Five owned geometry fixtures cover 1,272 of 1,596
 selected draws in that replay; they remain separate private targets.
+The [remaining-family snapshot preflight](SCENE_NATIVE_SNR03_REMAINDER_SNAPSHOT_2026-09-23.md)
+checks every selected car scene-list, animated-scene and car-presentation
+vertex and guest-index range in a later strict replay: 883 draws, including
+108 whose guest indices are converted by the SDK. This is byte availability
+evidence; immutable fixtures, title semantics and private rasters remain open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.
