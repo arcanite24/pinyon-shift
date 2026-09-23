@@ -331,3 +331,44 @@ with extra private foliage depth writes, but does not prove their cause.
 A matched per-draw target comparison and resource freshness/lifetime
 checks remain Gate A work; this output is not a native renderer admission
 result.
+
+### Matched foliage draw with compatibility prior depth
+
+The leading foliage draw, global ID 290 at private sequence 10125747,
+joins RenderDoc event 11204 in the same source-5001 capture. A bounded
+check imports the four RenderDoc **before** depth samples from its 256-row
+EDRAM band into a 1280×720 private target, clears private identity, then
+replays only this draw at 4×. This removes earlier selected-only private
+depth as a variable. The checker validates the reference's recorded
+per-sample change counts before comparing the two draw deltas.
+
+| Sample | Compatibility depth writes | Private depth writes | Shared writes |
+| --- | ---: | ---: | ---: |
+| 0 | 27,325 | 91,039 | 27,323 |
+| 1 | 54,472 | 82,522 | 54,443 |
+| 2 | 43,233 | 87,275 | 43,225 |
+| 3 | 8,458 | 95,448 | 8,458 |
+
+The compatibility draw changes 133,488 samples across 59,649 pixels;
+133,449 of those samples and 59,634 of those pixels also change privately.
+The private identity shader additionally changes 222,835 samples. The
+near-complete containment, paired with sharply different per-sample counts,
+isolates a missing coverage/sample-mask behavior in this diagnostic draw.
+It does not establish depth-value parity or identify which input to the
+captured foliage shader controls every extra write.
+
+```powershell
+$base = '.local/native-renderer/snr04'
+python tools/check-snr04-matched-vegetation-draw.py `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-depth.json" `
+  "$base/renderdoc-gatea-full-live-b/snr03-scene-5001.bin" `
+  '.local/native-renderer/seeded-probe/translation/dxil/vertex_5834939992FFC765_000000000000001F.dxil' `
+  'out/build/win-amd64-relwithdebinfo/pinyon_shift_snr04_owned_scene_diagnostic.exe' `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-matched-check" `
+  --frame 5001 --sequence 10125747 --draw-id 290 --rows 256
+```
+
+The next bounded implementation should bind the event's captured pixel
+constants, sampler and BC3 mip chain, execute its alpha/sample-mask path,
+and repeat this exact-prior check. Only then should the same change extend
+across all 53 textured vegetation actions and the complete selected slice.

@@ -467,7 +467,12 @@ four-sample target across the 35-stage same-run slice; two complete replays
 match byte for byte at every stage. Sample-0 compatibility mask overlap is
 99.50%, but p90 absolute depth error is still `0.00488`. Vegetation still
 accounts for 70,082/85,659 large depth errors. Replay captured
-alpha/sample-mask, stencil and per-draw state before claiming parity; see
+alpha/sample-mask, stencil and per-draw state before claiming parity. An
+exact-prior single-draw check for matched event 11204 explains the immediate
+next step: 133,449/133,488 compatibility depth writes also occur in the
+private draw, but the unmasked private draw adds 222,835 samples. Bind its
+captured BC3 alpha/sample-mask path, then expand to all 53 textured foliage
+actions; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous
 moving-frame/unload checks remain open.
