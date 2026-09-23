@@ -268,6 +268,56 @@ identity/color/depth hashes, and the earlier standalone 4× fixture retained
 its known coverage hash `BD31714FB1BF59DBF173397BB51D4C3D3164E0C79F5C30138A4E1C64002E5BC5`.
 
 This proves per-sample target state can survive a private process boundary
-for vegetation. It does not yet carry a full 4× target across the other
-selected families, import preceding compatibility depth, or implement the
-captured foliage alpha/sample mask. Those remain necessary for SNR-04 parity.
+for vegetation. Preceding compatibility depth and the captured foliage
+alpha/sample mask remain necessary for SNR-04 parity.
+
+### Four-sample complete selected-slice replay
+
+The source-5001 same-run fixture now replays all 1,562 selected draws in
+35 ordered family stages with a carried 4× private identity/depth target.
+The track, procedural, manager and remainder diagnostics use the same
+per-sample handoff format as vegetation. The replay driver selects it with
+`--msaa4`; the default 1× path retains its existing output and hashes.
+
+Two full 4× replays produced byte-identical coverage, identity and depth
+files at **all 35 stage boundaries**. A 668-draw track replay and a 281-draw
+procedural-item replay each also matched their two-part split replay byte
+for byte. `tools/verify-snr04-msaa.py` validates the final stage's masks,
+IDs, depth and sample-0 projections. The final output has 904,375 covered
+sample-0 pixels, 905,192 pixels with any covered sample, 3,617,256 covered
+samples and 140 visible sample-0 draw IDs.
+
+| Final 4× output | SHA-256 |
+| --- | --- |
+| Coverage mask | `26327663E4489F8D4A8A67954261DCAA34632D1B2A24BFB28A4AACE2BA3FB5D0` |
+| Per-sample identity | `685A356C5601B23BF0438E633CCB3F852B05DAA83E7C2019750ECB762A3CA0F8` |
+| Per-sample depth | `27E4EE345B6D12F8C04ACA37CFE7AA9F2EFE609E156250FD26CE48D09DD3EAFA` |
+
+Reproduce using the source-5001 fixtures and verified shader translations:
+
+```powershell
+$base = '.local/native-renderer/snr04'
+$dxil = '.local/native-renderer/seeded-probe/translation/dxil'
+python tools/replay-snr04-complete-slice.py --msaa4 `
+  "$base/renderdoc-gatea-full-b-order.json" `
+  "$base/renderdoc-gatea-full-live-b" `
+  'out/build/win-amd64-relwithdebinfo/pinyon_shift_snr04_owned_scene_diagnostic.exe' `
+  "$base/renderdoc-gatea-full-remainder-shaders-b" `
+  "$base/renderdoc-gatea-full-track-shaders-b" `
+  "$dxil" `
+  "$dxil/vertex_5834939992FFC765_000000000000001F.dxil" `
+  "$base/renderdoc-gatea-full-msaa4-a"
+python tools/verify-snr04-msaa.py "$base/renderdoc-gatea-full-msaa4-a/step-34"
+python tools/check-snr04-depth-bands.py `
+  "$base/renderdoc-gatea-full-b-tile-final.json" `
+  "$base/renderdoc-gatea-full-msaa4-a/step-34/depth.f32"
+```
+
+Against the same-run compatibility sample-0 depth, the 4× private sample-0
+mask has 99.50% intersection-over-union. The 208-row band has 98.21% mask
+overlap. Median absolute depth error is `7.02e-5` but p90 is `0.00488`,
+so 4× geometry alone has not fixed depth parity. The diagnostic still uses
+identity shading without the captured foliage alpha/sample mask, stencil
+or material state. A matched per-draw target comparison and resource
+freshness/lifetime checks remain Gate A work; this output is not a native
+renderer admission result.

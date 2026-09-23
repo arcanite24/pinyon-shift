@@ -33,10 +33,8 @@ int main(int argc, char** argv) {
     input.read(magic, sizeof(magic));
     if (input && (std::string_view(magic, 7) == "SNR02I3" ||
                   std::string_view(magic, 7) == "SNR03C1")) {
-      if (msaa4 || (argc != 4 && !segment))
-        throw std::runtime_error("procedural diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, selected);
+          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
       std::cout << "SNR04 " << (std::string_view(magic, 7) == "SNR03C1"
                                    ? "character" : "procedural")
                 << " covered_pixels=" << covered << '\n';
@@ -44,26 +42,20 @@ int main(int argc, char** argv) {
     }
     if (input && (std::string_view(magic, 7) == "SNR02T3" ||
                   std::string_view(magic, 7) == "SNR02T4")) {
-      if (msaa4 || (argc != 4 && !segment))
-        throw std::runtime_error("track diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, selected);
+          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
       std::cout << "SNR04 track covered_pixels=" << covered << '\n';
       return 0;
     }
     if (input && std::string_view(magic, 7) == "SNR03M1") {
-      if (msaa4 || (argc != 4 && !segment))
-        throw std::runtime_error("manager diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, selected);
+          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
       std::cout << "SNR04 manager covered_pixels=" << covered << '\n';
       return 0;
     }
     if (input && std::string_view(magic, 7) == "SNR03R2") {
-      if (msaa4 || (argc != 4 && !segment))
-        throw std::runtime_error("remainder diagnostic is 1x only");
       const auto covered = pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, selected);
+          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
       std::cout << "SNR04 remainder covered_pixels=" << covered << '\n';
       return 0;
     }

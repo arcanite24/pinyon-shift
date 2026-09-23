@@ -404,6 +404,138 @@ SegmentUploads initialize_segment_targets(
   }
   return uploads;
 }
+
+struct SampleCapture {
+  ComPtr<ID3D12Resource> output, readback;
+  ComPtr<ID3D12DescriptorHeap> heap;
+  ComPtr<ID3D12RootSignature> root;
+  ComPtr<ID3D12PipelineState> pipeline;
+};
+SampleCapture make_sample_capture(ID3D12Device* device,
+                                  ID3D12Resource* color, ID3D12Resource* depth) {
+  constexpr char source[] =
+      "Texture2DMS<float4> colors : register(t0);"
+      "Texture2DMS<float> depths : register(t1);"
+      "RWStructuredBuffer<uint2> result : register(u0);"
+      "[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {"
+      " if (p.x >= 1280 || p.y >= 720) return;"
+      " [unroll] for (uint s = 0; s < 4; ++s) {"
+      "  float4 c = colors.Load(p.xy, s);"
+      "  uint id = (uint)round(c.r * 255.0) | ((uint)round(c.g * 255.0) << 8);"
+      "  result[(p.y * 1280 + p.x) * 4 + s] = uint2(id, asuint(depths.Load(p.xy, s)));"
+      " } }";
+  ComPtr<ID3DBlob> shader, errors, serialized;
+  check(D3DCompile(source, sizeof(source) - 1, nullptr, nullptr, nullptr,
+                   "main", "cs_5_1", 0, 0, &shader, &errors));
+  D3D12_DESCRIPTOR_RANGE range{};
+  range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+  range.NumDescriptors = 2;
+  D3D12_ROOT_PARAMETER roots[2]{};
+  roots[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+  roots[0].DescriptorTable = {1, &range};
+  roots[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+  D3D12_ROOT_SIGNATURE_DESC root_desc{2, roots};
+  check(D3D12SerializeRootSignature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+                                    &serialized, &errors));
+  SampleCapture capture;
+  check(device->CreateRootSignature(0, serialized->GetBufferPointer(),
+                                    serialized->GetBufferSize(),
+                                    IID_PPV_ARGS(&capture.root)));
+  D3D12_COMPUTE_PIPELINE_STATE_DESC compute{};
+  compute.pRootSignature = capture.root.Get();
+  compute.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+  check(device->CreateComputePipelineState(&compute,
+                                           IID_PPV_ARGS(&capture.pipeline)));
+  D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  heap_desc.NumDescriptors = 2;
+  heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&capture.heap)));
+  auto handle = capture.heap->GetCPUDescriptorHandleForHeapStart();
+  D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+  view.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
+  view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+  device->CreateShaderResourceView(color, &view, handle);
+  handle.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+  view.Format = DXGI_FORMAT_R32_FLOAT;
+  device->CreateShaderResourceView(depth, &view, handle);
+  constexpr uint64_t sample_bytes = uint64_t(width) * height * 4 * 8;
+  capture.output = buffer(device, sample_bytes, D3D12_HEAP_TYPE_DEFAULT,
+                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+  capture.readback = buffer(device, sample_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+  return capture;
+}
+void record_sample_capture(ID3D12GraphicsCommandList* commands,
+                           ID3D12Resource* color, ID3D12Resource* depth,
+                           const SampleCapture& capture) {
+  transition(commands, color, D3D12_RESOURCE_STATE_RENDER_TARGET,
+             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+  transition(commands, depth, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+  ID3D12DescriptorHeap* heaps[]{capture.heap.Get()};
+  commands->SetDescriptorHeaps(1, heaps);
+  commands->SetComputeRootSignature(capture.root.Get());
+  commands->SetPipelineState(capture.pipeline.Get());
+  commands->SetComputeRootDescriptorTable(
+      0, capture.heap->GetGPUDescriptorHandleForHeapStart());
+  commands->SetComputeRootUnorderedAccessView(
+      1, capture.output->GetGPUVirtualAddress());
+  commands->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+  transition(commands, capture.output.Get(),
+             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  commands->CopyResource(capture.readback.Get(), capture.output.Get());
+}
+uint32_t write_sample_capture(const std::filesystem::path& directory,
+                              const SampleCapture& capture, uint32_t max_id,
+                              std::vector<uint32_t>* draw_pixels = nullptr,
+                              uint32_t* zero_depth_pixels = nullptr) {
+  constexpr size_t sample_bytes = size_t(width) * height * 4 * 8;
+  D3D12_RANGE range{0, sample_bytes}, empty{};
+  void* mapped = nullptr;
+  check(capture.readback->Map(0, &range, &mapped));
+  const auto* words = static_cast<const uint32_t*>(mapped);
+  std::ofstream image(directory / "identity.ppm", std::ios::binary);
+  std::ofstream depths(directory / "depth.f32", std::ios::binary);
+  std::ofstream masks(directory / "coverage.u8", std::ios::binary);
+  std::ofstream sample_ids(directory / "identity.u16x4", std::ios::binary);
+  std::ofstream sample_depths(directory / "depth.f32x4", std::ios::binary);
+  image << "P6\n" << width << ' ' << height << "\n255\n";
+  uint32_t covered = 0;
+  for (size_t pixel = 0; pixel < size_t(width) * height; ++pixel) {
+    uint8_t mask = 0;
+    for (uint32_t sample = 0; sample < 4; ++sample) {
+      const auto id = words[(pixel * 4 + sample) * 2];
+      const float depth = std::bit_cast<float>(words[(pixel * 4 + sample) * 2 + 1]);
+      require(id <= max_id && std::isfinite(depth) && depth >= 0 && depth <= 1,
+              "invalid four-sample identity/depth");
+      if (id) mask |= uint8_t(1u << sample);
+      const auto short_id = uint16_t(id);
+      sample_ids.write(reinterpret_cast<const char*>(&short_id), sizeof(short_id));
+      sample_depths.write(reinterpret_cast<const char*>(&depth), sizeof(depth));
+      if (sample == 0) {
+        const char rgb[3]{char(id & 255), char((id >> 8) & 255), 0};
+        image.write(rgb, sizeof(rgb));
+        depths.write(reinterpret_cast<const char*>(&depth), sizeof(depth));
+        if (id) {
+          ++covered;
+          if (draw_pixels) ++(*draw_pixels)[id - 1];
+          if (zero_depth_pixels) *zero_depth_pixels += depth == 0;
+        }
+      }
+    }
+    masks.write(reinterpret_cast<const char*>(&mask), sizeof(mask));
+  }
+  capture.readback->Unmap(0, &empty);
+  require(bool(image) && bool(depths) && bool(masks) && bool(sample_ids) &&
+              bool(sample_depths) && covered,
+          "empty or unwritable four-sample diagnostic");
+  return covered;
+}
 }  // namespace
 
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
@@ -1229,8 +1361,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device,
+    ID3D12Device* borrowed_device, uint32_t samples,
     const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported procedural sample count");
   if (segment)
     require(segment->first_sequence &&
                 segment->first_sequence <= segment->last_sequence &&
@@ -1331,7 +1464,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = samples;
   std::map<uint64_t, ComPtr<ID3D12PipelineState>> pipelines;
   std::map<uint64_t, ComPtr<ID3D12PipelineState>> stream_pipelines;
   D3D12_SO_DECLARATION_ENTRY position_declaration{0, "SV_Position", 0, 0, 4, 0};
@@ -1377,10 +1510,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   depth_clear.DepthStencil.Depth = 0;
   auto color = texture(device.Get(), color_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
   auto depth = texture(device.Get(), depth_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -1391,7 +1524,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
   ComPtr<ID3D12DescriptorHeap> dsv;
   check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
-  device->CreateDepthStencilView(depth.Get(), nullptr,
+  D3D12_DEPTH_STENCIL_VIEW_DESC depth_view{};
+  depth_view.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_view.ViewDimension = samples == 4 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
+                                          : D3D12_DSV_DIMENSION_TEXTURE2D;
+  device->CreateDepthStencilView(depth.Get(), &depth_view,
                                  dsv->GetCPUDescriptorHandleForHeapStart());
   uint32_t max_vertices = 0;
   for (const auto& item : scene.items)
@@ -1429,15 +1566,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   }
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
   uint64_t color_bytes = 0, depth_bytes = 0;
-  auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
-  device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
-                                nullptr, nullptr, &color_bytes);
-  device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
-                                nullptr, nullptr, &depth_bytes);
-  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
-  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12Resource> color_readback, depth_readback;
+  SampleCapture sample_capture;
+  if (samples == 1) {
+    auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
+    device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
+                                  nullptr, nullptr, &color_bytes);
+    device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
+                                  nullptr, nullptr, &depth_bytes);
+    color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+    depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+  } else {
+    sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
+  }
   ComPtr<ID3D12CommandQueue> queue;
   D3D12_COMMAND_QUEUE_DESC queue_desc{};
   check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
@@ -1451,7 +1594,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
-      depth_layout, rtv_handle, dsv_handle, segment);
+      depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -1542,21 +1685,25 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_STREAM_OUT,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   commands->CopyResource(position_readback.Get(), position_output.Get());
-  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  D3D12_TEXTURE_COPY_LOCATION source_location{}, destination{};
-  source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  source_location.pResource = color.Get();
-  destination.pResource = color_readback.Get();
-  destination.PlacedFootprint = color_layout;
-  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
-  source_location.pResource = depth.Get();
-  destination.pResource = depth_readback.Get();
-  destination.PlacedFootprint = depth_layout;
-  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  if (samples == 1) {
+    transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION source_location{}, destination{};
+    source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    source_location.pResource = color.Get();
+    destination.pResource = color_readback.Get();
+    destination.PlacedFootprint = color_layout;
+    commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+    source_location.pResource = depth.Get();
+    destination.pResource = depth_readback.Get();
+    destination.PlacedFootprint = depth_layout;
+    commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  } else {
+    record_sample_capture(commands.Get(), color.Get(), depth.Get(), sample_capture);
+  }
   check(commands->Close());
   ID3D12CommandList* lists[]{commands.Get()};
   queue->ExecuteCommandLists(1, lists);
@@ -1573,9 +1720,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   check(device->GetDeviceRemovedReason());
   const auto drawn = std::chrono::steady_clock::now();
   std::filesystem::create_directories(output_directory);
-  std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
-  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
-  std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   std::ofstream positions_file(output_directory / "postvs.f32x4", std::ios::binary);
   void* positions = nullptr;
   D3D12_RANGE position_range{0, SIZE_T(position_allocation)};
@@ -1592,13 +1736,22 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   position_readback->Unmap(0, nullptr);
   positions_file.close();
   require(bool(positions_file), "procedural post-VS write failed");
+  uint32_t covered = 0;
+  std::vector<uint32_t> item_pixels(scene.items.size());
+  if (samples == 4) {
+    covered = write_sample_capture(
+        output_directory, sample_capture,
+        segment ? segment->first_id + segment_draws - 1 : uint32_t(scene.items.size()),
+        segment ? nullptr : &item_pixels);
+  } else {
+  std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
+  std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   image << "P6\n" << width << ' ' << height << "\n255\n";
   D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
   void *colors = nullptr, *depths = nullptr;
   check(color_readback->Map(0, &color_range, &colors));
   check(depth_readback->Map(0, &depth_range, &depths));
-  uint32_t covered = 0;
-  std::vector<uint32_t> item_pixels(scene.items.size());
   for (uint32_t y = 0; y < height; ++y) {
     const auto* color_row = static_cast<const uint8_t*>(colors) +
                             y * color_layout.Footprint.RowPitch;
@@ -1629,6 +1782,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   depth_file.close();
   require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable procedural diagnostic");
+  }
   const auto complete = std::chrono::steady_clock::now();
   auto us = [](auto a, auto b) {
     return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
@@ -1675,8 +1829,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device,
+    ID3D12Device* borrowed_device, uint32_t samples,
     const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported track sample count");
   if (segment)
     require(segment->first_sequence &&
                 segment->first_sequence <= segment->last_sequence &&
@@ -1895,7 +2050,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = samples;
   using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t, uint32_t>;
   std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
   for (const auto& draw : draws) {
@@ -1929,10 +2084,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   depth_clear.DepthStencil.Depth = 0;
   auto color = texture(device.Get(), color_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
   auto depth = texture(device.Get(), depth_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -1943,7 +2098,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
   ComPtr<ID3D12DescriptorHeap> dsv;
   check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
-  device->CreateDepthStencilView(depth.Get(), nullptr,
+  D3D12_DEPTH_STENCIL_VIEW_DESC depth_view{};
+  depth_view.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_view.ViewDimension = samples == 4 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
+                                          : D3D12_DSV_DIMENSION_TEXTURE2D;
+  device->CreateDepthStencilView(depth.Get(), &depth_view,
                                  dsv->GetCPUDescriptorHandleForHeapStart());
   std::map<Range, ComPtr<ID3D12Resource>> vertex_buffers, index_buffers;
   for (const auto& [key, bytes] : vertices)
@@ -1970,15 +2129,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   }
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
   uint64_t color_bytes = 0, depth_bytes = 0;
-  auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
-  device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
-                                nullptr, nullptr, &color_bytes);
-  device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
-                                nullptr, nullptr, &depth_bytes);
-  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
-  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12Resource> color_readback, depth_readback;
+  SampleCapture sample_capture;
+  if (samples == 1) {
+    auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
+    device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
+                                  nullptr, nullptr, &color_bytes);
+    device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
+                                  nullptr, nullptr, &depth_bytes);
+    color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+    depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+  } else {
+    sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
+  }
   ComPtr<ID3D12CommandQueue> queue;
   D3D12_COMMAND_QUEUE_DESC queue_desc{};
   check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
@@ -1992,7 +2157,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
-      depth_layout, rtv_handle, dsv_handle, segment);
+      depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -2047,21 +2212,25 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "track segment draw count mismatch");
-  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  D3D12_TEXTURE_COPY_LOCATION source_location{}, destination{};
-  source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  source_location.pResource = color.Get();
-  destination.pResource = color_readback.Get();
-  destination.PlacedFootprint = color_layout;
-  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
-  source_location.pResource = depth.Get();
-  destination.pResource = depth_readback.Get();
-  destination.PlacedFootprint = depth_layout;
-  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  if (samples == 1) {
+    transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION source_location{}, destination{};
+    source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    source_location.pResource = color.Get();
+    destination.pResource = color_readback.Get();
+    destination.PlacedFootprint = color_layout;
+    commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+    source_location.pResource = depth.Get();
+    destination.pResource = depth_readback.Get();
+    destination.PlacedFootprint = depth_layout;
+    commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  } else {
+    record_sample_capture(commands.Get(), color.Get(), depth.Get(), sample_capture);
+  }
   check(commands->Close());
   ID3D12CommandList* lists[]{commands.Get()};
   queue->ExecuteCommandLists(1, lists);
@@ -2077,6 +2246,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   require(waited == WAIT_OBJECT_0, "track GPU wait failed");
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
+  uint32_t covered = 0;
+  std::vector<uint32_t> draw_pixels(draws.size());
+  if (samples == 4) {
+    covered = write_sample_capture(
+        output_directory, sample_capture,
+        segment ? segment->first_id + segment_draws - 1 : uint32_t(draws.size()),
+        segment ? nullptr : &draw_pixels);
+  } else {
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
   std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
@@ -2085,8 +2262,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
   check(color_readback->Map(0, &color_range, &colors));
   check(depth_readback->Map(0, &depth_range, &depths));
-  uint32_t covered = 0;
-  std::vector<uint32_t> draw_pixels(draws.size());
   for (uint32_t y = 0; y < height; ++y) {
     const auto* color_row = static_cast<const uint8_t*>(colors) +
                             y * color_layout.Footprint.RowPitch;
@@ -2116,6 +2291,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   depth_file.close();
   require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable track diagnostic");
+  }
   std::ofstream summary(output_directory / "summary.json");
   if (segment) {
     summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
@@ -2164,8 +2340,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device,
+    ID3D12Device* borrowed_device, uint32_t samples,
     const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported manager sample count");
   if (segment)
     require(segment->first_sequence &&
                 segment->first_sequence <= segment->last_sequence &&
@@ -2400,7 +2577,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = samples;
   ComPtr<ID3D12PipelineState> pipeline;
   check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
   D3D12_CLEAR_VALUE color_clear{};
@@ -2410,10 +2587,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   depth_clear.DepthStencil.Depth = 0;
   auto color = texture(device.Get(), color_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
   auto depth = texture(device.Get(), depth_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -2424,7 +2601,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
   ComPtr<ID3D12DescriptorHeap> dsv;
   check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
-  device->CreateDepthStencilView(depth.Get(), nullptr,
+  D3D12_DEPTH_STENCIL_VIEW_DESC depth_view{};
+  depth_view.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_view.ViewDimension = samples == 4 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
+                                          : D3D12_DSV_DIMENSION_TEXTURE2D;
+  device->CreateDepthStencilView(depth.Get(), &depth_view,
                                  dsv->GetCPUDescriptorHandleForHeapStart());
   auto vertices = upload(device.Get(), vertex_span.data(), vertex_span.size());
   std::map<Range, ComPtr<ID3D12Resource>> index_buffers;
@@ -2445,15 +2626,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   }
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
   uint64_t color_bytes = 0, depth_bytes = 0;
-  auto color_desc = color->GetDesc(), depth_desc = depth->GetDesc();
-  device->GetCopyableFootprints(&color_desc, 0, 1, 0, &color_layout,
-                                nullptr, nullptr, &color_bytes);
-  device->GetCopyableFootprints(&depth_desc, 0, 1, 0, &depth_layout,
-                                nullptr, nullptr, &depth_bytes);
-  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
-  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12Resource> color_readback, depth_readback;
+  SampleCapture sample_capture;
+  if (samples == 1) {
+    auto color_desc = color->GetDesc(), depth_desc = depth->GetDesc();
+    device->GetCopyableFootprints(&color_desc, 0, 1, 0, &color_layout,
+                                  nullptr, nullptr, &color_bytes);
+    device->GetCopyableFootprints(&depth_desc, 0, 1, 0, &depth_layout,
+                                  nullptr, nullptr, &depth_bytes);
+    color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+    depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+  } else {
+    sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
+  }
   ComPtr<ID3D12CommandQueue> queue;
   D3D12_COMMAND_QUEUE_DESC queue_desc{};
   check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
@@ -2467,7 +2654,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
-      depth_layout, rtv_handle, dsv_handle, segment);
+      depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -2501,21 +2688,25 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "manager segment draw count mismatch");
-  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  D3D12_TEXTURE_COPY_LOCATION from{}, to{};
-  from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  from.pResource = color.Get();
-  to.pResource = color_readback.Get();
-  to.PlacedFootprint = color_layout;
-  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
-  from.pResource = depth.Get();
-  to.pResource = depth_readback.Get();
-  to.PlacedFootprint = depth_layout;
-  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  if (samples == 1) {
+    transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+    from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    from.pResource = color.Get();
+    to.pResource = color_readback.Get();
+    to.PlacedFootprint = color_layout;
+    commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+    from.pResource = depth.Get();
+    to.pResource = depth_readback.Get();
+    to.PlacedFootprint = depth_layout;
+    commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  } else {
+    record_sample_capture(commands.Get(), color.Get(), depth.Get(), sample_capture);
+  }
   check(commands->Close());
   ID3D12CommandList* lists[]{commands.Get()};
   queue->ExecuteCommandLists(1, lists);
@@ -2531,6 +2722,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   require(waited == WAIT_OBJECT_0, "manager GPU wait failed");
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
+  uint32_t covered = 0;
+  std::vector<uint32_t> draw_pixels(draws.size());
+  if (samples == 4) {
+    covered = write_sample_capture(
+        output_directory, sample_capture,
+        segment ? segment->first_id + segment_draws - 1 : uint32_t(draws.size()),
+        segment ? nullptr : &draw_pixels);
+  } else {
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
   std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
@@ -2539,8 +2738,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
   check(color_readback->Map(0, &color_range, &colors));
   check(depth_readback->Map(0, &depth_range, &depths));
-  uint32_t covered = 0;
-  std::vector<uint32_t> draw_pixels(draws.size());
   for (uint32_t y = 0; y < height; ++y) {
     const auto* color_row = static_cast<const uint8_t*>(colors) +
                             y * color_layout.Footprint.RowPitch;
@@ -2570,6 +2767,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   depth_file.close();
   require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable manager diagnostic");
+  }
   std::ofstream summary(output_directory / "summary.json");
   if (segment) {
     summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
@@ -2611,8 +2809,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device,
+    ID3D12Device* borrowed_device, uint32_t samples,
     const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported remainder sample count");
   if (segment)
     require(segment->first_sequence &&
                 segment->first_sequence <= segment->last_sequence &&
@@ -2920,7 +3119,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = samples;
   using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t,
                                  uint32_t, uint32_t, uint32_t, uint32_t>;
   auto pipeline_key = [](const Draw& draw) -> PipelineKey {
@@ -2957,10 +3156,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   depth_clear.DepthStencil.Depth = 0;
   auto color = texture(device.Get(), color_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
   auto depth = texture(device.Get(), depth_clear.Format,
                        D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -2971,7 +3170,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
   ComPtr<ID3D12DescriptorHeap> dsv;
   check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
-  device->CreateDepthStencilView(depth.Get(), nullptr,
+  D3D12_DEPTH_STENCIL_VIEW_DESC depth_view{};
+  depth_view.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_view.ViewDimension = samples == 4 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
+                                          : D3D12_DSV_DIMENSION_TEXTURE2D;
+  device->CreateDepthStencilView(depth.Get(), &depth_view,
                                  dsv->GetCPUDescriptorHandleForHeapStart());
   auto vertex_buffer = upload(device.Get(), vertex_bytes.data(), vertex_bytes.size());
   std::map<IndexKey, ComPtr<ID3D12Resource>> index_buffers;
@@ -2991,15 +3194,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   }
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
   uint64_t color_bytes = 0, depth_bytes = 0;
-  auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
-  device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
-                                nullptr, nullptr, &color_bytes);
-  device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
-                                nullptr, nullptr, &depth_bytes);
-  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
-  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
-                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12Resource> color_readback, depth_readback;
+  SampleCapture sample_capture;
+  if (samples == 1) {
+    auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
+    device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
+                                  nullptr, nullptr, &color_bytes);
+    device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
+                                  nullptr, nullptr, &depth_bytes);
+    color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+    depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                            D3D12_RESOURCE_STATE_COPY_DEST);
+  } else {
+    sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
+  }
   ComPtr<ID3D12CommandQueue> queue;
   D3D12_COMMAND_QUEUE_DESC queue_desc{};
   check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
@@ -3013,7 +3222,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
-      depth_layout, rtv_handle, dsv_handle, segment);
+      depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
   uint32_t segment_draws = 0;
@@ -3053,21 +3262,25 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "remainder segment draw count mismatch");
-  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
-             D3D12_RESOURCE_STATE_COPY_SOURCE);
-  D3D12_TEXTURE_COPY_LOCATION from{}, to{};
-  from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  from.pResource = color.Get();
-  to.pResource = color_readback.Get();
-  to.PlacedFootprint = color_layout;
-  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
-  from.pResource = depth.Get();
-  to.pResource = depth_readback.Get();
-  to.PlacedFootprint = depth_layout;
-  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  if (samples == 1) {
+    transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+    from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    from.pResource = color.Get();
+    to.pResource = color_readback.Get();
+    to.PlacedFootprint = color_layout;
+    commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+    from.pResource = depth.Get();
+    to.pResource = depth_readback.Get();
+    to.PlacedFootprint = depth_layout;
+    commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  } else {
+    record_sample_capture(commands.Get(), color.Get(), depth.Get(), sample_capture);
+  }
   check(commands->Close());
   ID3D12CommandList* lists[]{commands.Get()};
   queue->ExecuteCommandLists(1, lists);
@@ -3083,6 +3296,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   require(waited == WAIT_OBJECT_0, "remainder GPU wait failed");
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
+  uint32_t covered = 0;
+  uint32_t zero_depth_pixels = 0;
+  std::vector<uint32_t> draw_pixels(draws.size());
+  if (samples == 4) {
+    covered = write_sample_capture(
+        output_directory, sample_capture,
+        segment ? segment->first_id + segment_draws - 1 : uint32_t(draws.size()),
+        segment ? nullptr : &draw_pixels, &zero_depth_pixels);
+  } else {
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
   std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
@@ -3091,9 +3313,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
   check(color_readback->Map(0, &color_range, &colors));
   check(depth_readback->Map(0, &depth_range, &depths));
-  uint32_t covered = 0;
-  uint32_t zero_depth_pixels = 0;
-  std::vector<uint32_t> draw_pixels(draws.size());
   for (uint32_t y = 0; y < height; ++y) {
     const auto* color_row = static_cast<const uint8_t*>(colors) +
                             y * color_layout.Footprint.RowPitch;
@@ -3125,6 +3344,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   depth_file.close();
   require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable remainder diagnostic");
+  }
   std::ofstream summary(output_directory / "summary.json");
   if (segment) {
     summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
