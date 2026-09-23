@@ -934,3 +934,9 @@ shader-used values without mutable guest reads. The captured fetch-47 words
 also include the fetch-95 descriptor used by these shaders. Raster winding,
 exact post-VS positions, coverage/depth parity and texture generations
 still require a private same-frame diagnostic and compatibility comparison.
+
+The subsequent [SNR-04 procedural diagnostic](SCENE_NATIVE_SNR04_PROCEDURAL_EVIDENCE_2026-09-23.md)
+renders all 312 ordered draws in a new replay with an immutable owned fixture
+at the output-frame handoff. It establishes geometry/ABI coverage for this
+family, while compatibility attachment parity and material ownership remain
+open.

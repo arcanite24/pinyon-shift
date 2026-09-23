@@ -2,6 +2,7 @@
 
 import collections
 import json
+import math
 from pathlib import Path
 import struct
 import sys
@@ -122,6 +123,20 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
                 offset += 256
                 fetch47 = struct.unpack_from("<4I", data, offset)
                 offset += 16
+                if magic == b"SNR02I3\0":
+                    assert count_vertices > 0 and count_vertices % 4 == 0
+                    assert not system[0] & 1 and system[4] == system[5] == 0
+                    assert system[6] <= system[7]
+                    assert fetch47[2] & 3 == 3
+                    assert fetch47[2] & 0x1FFFFFFC == base & 0x1FFFFFFC
+                    assert fetch47[3] & 0x03FFFFFC == length
+                    floats = [struct.unpack("<f", struct.pack("<I", system[i]))[0]
+                              for i in (32, 33, 34, 36, 37, 38)]
+                    sx, sy, sz, ox, oy, oz = floats
+                    assert sx == 1 and sz == -1 and oz == 1
+                    assert math.isfinite(sy) and sy > 0 and math.isfinite(oy)
+                    assert abs(ox - 1 / 1280) < 1e-6
+                    assert abs((oy + 1) / sy - 1 + 1 / 720) < 1e-5
                 assert sequence in expected and sequence not in seen
                 seen.add(sequence)
                 row, observed = expected[sequence]

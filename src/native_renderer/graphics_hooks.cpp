@@ -1532,7 +1532,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
 bool Snr03ProbeEnabled() { return Snr03TargetFrame() > 0; }
 bool Snr02ItemProbeEnabled() { return Snr02ItemTargetFrame() > 0; }
 
-void ObserveSnr02ItemOutputFrame(uint64_t output_frame) {
+void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
   if (!Snr02ItemProbeEnabled() ||
       output_frame != uint64_t(Snr02ItemTargetFrame()) + 1) return;
   std::shared_ptr<const Snr02ItemScene> scene;
@@ -1614,6 +1614,26 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame) {
               "fixture_bytes={} written={}", output_frame, scene->source_frame,
               scene->items.size(), draws, payload.bytes, payload.draw_bytes,
               encoded.size(), written);
+#if defined(_WIN32)
+  if (written && device) {
+    if (const auto shaders = diagnostics::EnvironmentPath(
+            "PINYON_SHIFT_SNR04_PROCEDURAL_VS_DIR")) {
+      try {
+        const auto covered = RunSnr04ProceduralDiagnostic(
+            directory / ("snr02-items-" + std::to_string(scene->source_frame) + ".bin"),
+            *shaders,
+            directory / ("snr04-procedural-" + std::to_string(scene->source_frame)),
+            static_cast<ID3D12Device*>(device));
+        REXGPU_INFO("FH1 SNR04 procedural private diagnostic source_frame={} "
+                    "calls={} draws={} covered_pixels={}", scene->source_frame,
+                    scene->items.size(), draws, covered);
+      } catch (const std::exception& error) {
+        REXGPU_INFO("FH1 SNR04 procedural private diagnostic rejected "
+                    "source_frame={} reason={}", scene->source_frame, error.what());
+      }
+    }
+  }
+#endif
 }
 
 void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {

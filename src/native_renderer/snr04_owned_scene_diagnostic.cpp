@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <set>
 #include <span>
 #include <source_location>
@@ -845,4 +846,407 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   const auto bytes = read(fixture);
   return RunSnr04OwnedSceneDiagnostic(bytes, vertex_shader,
                                      output_directory, device, samples);
+}
+
+namespace {
+struct ProceduralDraw {
+  uint64_t sequence = 0;
+  uint64_t vertex_shader = 0;
+  uint32_t vertex_count = 0;
+  std::array<uint32_t, 64> system{};
+};
+struct ProceduralItem {
+  uint32_t packet = 0;
+  std::vector<char> vertices;
+  std::array<uint32_t, 4> fetch{};
+  std::vector<uint32_t> constants;
+  std::vector<ProceduralDraw> draws;
+};
+struct ProceduralScene {
+  uint64_t frame = 0;
+  std::string sha;
+  std::vector<ProceduralItem> items;
+};
+ProceduralScene load_procedural(std::span<const char> bytes) {
+  Reader reader{bytes};
+  require(reader.take<std::array<char, 8>>() ==
+              (std::array<char, 8>{'S','N','R','0','2','I','3','\0'}),
+          "wrong procedural fixture");
+  ProceduralScene scene;
+  scene.sha = sha256(bytes);
+  scene.frame = reader.take<uint64_t>();
+  const auto count = reader.take<uint32_t>();
+  require(count > 0 && count <= 512, "invalid procedural item count");
+  reader.take<std::array<uint32_t, 32>>();
+  std::set<uint32_t> packets;
+  std::set<uint64_t> sequences;
+  size_t owned_bytes = 0;
+  for (uint32_t ordinal = 0; ordinal < count; ++ordinal) {
+    reader.take<uint64_t>();  // Title call.
+    ProceduralItem item;
+    item.packet = reader.take<uint32_t>();
+    require(packets.insert(item.packet).second, "duplicate procedural packet");
+    reader.take<uint32_t>();  // Raw title kind.
+    reader.take<std::array<uint32_t, 23>>();
+    reader.take<std::array<uint32_t, 17>>();
+    const auto base = reader.take<uint32_t>();
+    const auto length = reader.take<uint32_t>();
+    const auto variants = reader.take<uint32_t>();
+    require(length > 0 && length <= 256 * 1024 &&
+                length <= 2 * 1024 * 1024 - owned_bytes &&
+                variants > 0 && variants <= 8,
+            "unsupported procedural geometry bound");
+    owned_bytes += length;
+    item.vertices = reader.bytes(length);
+    for (uint32_t variant = 0; variant < variants; ++variant) {
+      ProceduralDraw draw;
+      draw.sequence = reader.take<uint64_t>();
+      draw.vertex_shader = reader.take<uint64_t>();
+      reader.take<uint64_t>();  // Pixel shader; identity diagnostic replaces it.
+      reader.take<uint64_t>();  // Dynamic state.
+      draw.vertex_count = reader.take<uint32_t>();
+      const auto textures = reader.take<uint32_t>();
+      reader.take<std::array<uint32_t, 18>>();
+      const auto bitmap = reader.take<std::array<uint64_t, 4>>();
+      const auto mapped = reader.take<uint32_t>();
+      const auto registers = reader.take<std::array<uint32_t, 1024>>();
+      draw.system = reader.take<std::array<uint32_t, 64>>();
+      const auto fetch = reader.take<std::array<uint32_t, 4>>();
+      require(draw.sequence && sequences.insert(draw.sequence).second &&
+                  textures <= 2 && draw.vertex_count > 0 &&
+                  draw.vertex_count % 4 == 0 && draw.vertex_count <= UINT16_MAX &&
+                  length == draw.vertex_count * 10 &&
+                  !(draw.system[0] & 1) && draw.system[4] == 0 &&
+                  draw.system[5] == 0 && draw.system[6] <= draw.system[7] &&
+                  (fetch[2] & 0x1FFFFFFC) == (base & 0x1FFFFFFC) &&
+                  (fetch[3] & 0x03FFFFFC) == length && (fetch[2] & 3) == 3,
+              "unsupported procedural draw state");
+      std::vector<uint32_t> packed;
+      for (uint32_t reg = 0; reg < 256; ++reg)
+        if (bitmap[reg / 64] & (uint64_t(1) << (reg % 64)))
+          packed.insert(packed.end(), registers.begin() + reg * 4,
+                        registers.begin() + reg * 4 + 4);
+      require(packed.size() == mapped * 4 && (mapped == 25 || mapped == 23),
+              "invalid packed procedural constants");
+      if (variant == 0) {
+        item.constants = std::move(packed);
+        item.fetch = fetch;
+      } else {
+        require(packed == item.constants && fetch == item.fetch,
+                "procedural vertex input changes between draws");
+      }
+      auto bit_float = [](uint32_t word) { return std::bit_cast<float>(word); };
+      const float sy = bit_float(draw.system[33]);
+      const float oy = bit_float(draw.system[37]);
+      require(std::isfinite(sy) && sy > 0 && std::isfinite(oy) &&
+                  bit_float(draw.system[32]) == 1 &&
+                  bit_float(draw.system[34]) == -1 &&
+                  std::abs(bit_float(draw.system[36]) - 1.f / width) < 1e-6f &&
+                  bit_float(draw.system[38]) == 1 &&
+                  std::abs((oy + 1) / sy - 1 + 1.f / height) < 1e-5f,
+              "unsupported procedural viewport");
+      draw.system[33] = std::bit_cast<uint32_t>(1.f);
+      draw.system[37] = std::bit_cast<uint32_t>(-1.f / height);
+      item.draws.push_back(draw);
+    }
+    item.fetch[2] &= 3;
+    scene.items.push_back(std::move(item));
+  }
+  require(reader.position == bytes.size() && sequences.size() <= 512,
+          "trailing procedural fixture or draw limit");
+  return scene;
+}
+}  // namespace
+
+uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* borrowed_device) {
+  const auto begin = std::chrono::steady_clock::now();
+  const auto source = read(fixture);
+  const auto scene = load_procedural(source);
+  struct ShaderSpec { uint64_t hash; const char* file; const char* sha; };
+  constexpr std::array<ShaderSpec, 4> shaders{{
+      {0x3BC346726C1C2535ull, "vertex_3BC346726C1C2535_000000000000000F.dxil",
+       "113b8c594001b1593fff3f4861c788342721a8b7e0251bef9e41688a69ae7c31"},
+      {0xBDFD2AD68464101Aull, "vertex_BDFD2AD68464101A_000000000000000F.dxil",
+       "42cfd0a51e91b4f00f2f0f40cbc4a9f689316fbd6950abd9dbd2da4d3458a347"},
+      {0xCB8AC98467C0C283ull, "vertex_CB8AC98467C0C283_000000000000007F.dxil",
+       "f759d5de1be2b8e4913d86e9c11210cd1ee76f33ff004b88fa4dd533e347b02c"},
+      {0xA715C815EDB8EEE8ull, "vertex_A715C815EDB8EEE8_000000000000007F.dxil",
+       "5c8692ddf2ff735d28b7b5f1fdce740b6be443ee942191c8d912d9a22852a269"},
+  }};
+  std::map<uint64_t, std::vector<char>> vertex_shaders;
+  for (const auto& spec : shaders) {
+    auto bytes = read(shader_directory / spec.file);
+    require(bytes.size() >= 4 && std::memcmp(bytes.data(), "DXBC", 4) == 0 &&
+                sha256(bytes) == spec.sha, "wrong procedural vertex shader");
+    vertex_shaders.emplace(spec.hash, std::move(bytes));
+  }
+  const auto extracted = std::chrono::steady_clock::now();
+  ComPtr<ID3D12Device> device;
+  if (borrowed_device) device = borrowed_device;
+  else {
+    ComPtr<IDXGIFactory6> factory;
+    check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
+    ComPtr<IDXGIAdapter1> adapter;
+    check(factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                             IID_PPV_ARGS(&adapter)));
+    check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
+                            IID_PPV_ARGS(&device)));
+  }
+  constexpr char ps_source[] =
+      "cbuffer Item : register(b2) { uint id; };"
+      "float4 main() : SV_Target0 {"
+      " return float4((id & 255) / 255.0, ((id >> 8) & 255) / 255.0, 0, 1); }";
+  ComPtr<ID3DBlob> ps, errors;
+  check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
+                   "main", "ps_5_1", 0, 0, &ps, &errors));
+  D3D12_ROOT_PARAMETER parameters[6]{};
+  for (uint32_t i = 0; i < 4; ++i) {
+    parameters[i].ParameterType = i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV
+                                       : D3D12_ROOT_PARAMETER_TYPE_CBV;
+    parameters[i].Descriptor.ShaderRegister = i == 2 ? 3 : i == 3 ? 0 : i;
+    parameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  }
+  parameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+  parameters[4].Constants.ShaderRegister = 2;
+  parameters[4].Constants.Num32BitValues = 1;
+  parameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+  parameters[5].Descriptor.ShaderRegister = 0;
+  parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  D3D12_ROOT_SIGNATURE_DESC root_description{
+      6, parameters, 0, nullptr,
+      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT};
+  ComPtr<ID3DBlob> root_blob;
+  check(D3D12SerializeRootSignature(&root_description, D3D_ROOT_SIGNATURE_VERSION_1,
+                                    &root_blob, &errors));
+  ComPtr<ID3D12RootSignature> root;
+  check(device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                    root_blob->GetBufferSize(), IID_PPV_ARGS(&root)));
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = root.Get();
+  desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+  desc.SampleMask = UINT_MAX;
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.DepthClipEnable = TRUE;
+  desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+  desc.DepthStencilState.DepthEnable = TRUE;
+  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+  desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+  desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+  desc.SampleDesc.Count = 1;
+  std::map<uint64_t, ComPtr<ID3D12PipelineState>> pipelines;
+  for (const auto& [hash, bytes] : vertex_shaders) {
+    desc.VS = {bytes.data(), bytes.size()};
+    ComPtr<ID3D12PipelineState> pipeline;
+    check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
+    pipelines.emplace(hash, std::move(pipeline));
+  }
+  D3D12_CLEAR_VALUE color_clear{};
+  color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  D3D12_CLEAR_VALUE depth_clear{};
+  depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_clear.DepthStencil.Depth = 0;
+  auto color = texture(device.Get(), color_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+  auto depth = texture(device.Get(), depth_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+  D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+  heap_desc.NumDescriptors = 1;
+  ComPtr<ID3D12DescriptorHeap> rtv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv)));
+  device->CreateRenderTargetView(color.Get(), nullptr,
+                                 rtv->GetCPUDescriptorHandleForHeapStart());
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+  ComPtr<ID3D12DescriptorHeap> dsv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
+  device->CreateDepthStencilView(depth.Get(), nullptr,
+                                 dsv->GetCPUDescriptorHandleForHeapStart());
+  uint32_t max_vertices = 0;
+  for (const auto& item : scene.items)
+    for (const auto& draw : item.draws)
+      max_vertices = (std::max)(max_vertices, draw.vertex_count);
+  std::vector<uint16_t> indices;
+  for (uint32_t first = 0; first < max_vertices; first += 4)
+    for (uint32_t corner : {0u, 1u, 3u, 1u, 2u, 3u})
+      indices.push_back(uint16_t(first + corner));
+  auto index_buffer = upload(device.Get(), indices.data(),
+                             indices.size() * sizeof(uint16_t));
+  struct Resources {
+    ComPtr<ID3D12Resource> vertices, b1, b3;
+    std::vector<ComPtr<ID3D12Resource>> b0;
+  };
+  std::vector<Resources> owned;
+  for (const auto& item : scene.items) {
+    std::array<uint32_t, 192> fetch{};
+    std::copy(item.fetch.begin(), item.fetch.end(), fetch.begin() + 188);
+    Resources resource{upload(device.Get(), item.vertices.data(), item.vertices.size()),
+                       upload(device.Get(), item.constants.data(),
+                              item.constants.size() * sizeof(uint32_t)),
+                       upload(device.Get(), fetch.data(), sizeof(fetch)), {}};
+    for (const auto& draw : item.draws) {
+      std::array<uint32_t, 120> system{};
+      std::copy(draw.system.begin(), draw.system.end(), system.begin());
+      resource.b0.push_back(upload(device.Get(), system.data(), sizeof(system)));
+    }
+    owned.push_back(std::move(resource));
+  }
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
+  uint64_t color_bytes = 0, depth_bytes = 0;
+  auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
+  device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
+                                nullptr, nullptr, &color_bytes);
+  device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
+                                nullptr, nullptr, &depth_bytes);
+  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  const auto built = std::chrono::steady_clock::now();
+  ComPtr<ID3D12CommandQueue> queue;
+  D3D12_COMMAND_QUEUE_DESC queue_desc{};
+  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  ComPtr<ID3D12CommandAllocator> allocator;
+  check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       IID_PPV_ARGS(&allocator)));
+  ComPtr<ID3D12GraphicsCommandList> commands;
+  check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                  allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
+  auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
+  auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
+  constexpr float clear_color[4]{};
+  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
+  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
+  D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
+  D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
+  commands->RSSetViewports(1, &viewport);
+  commands->RSSetScissorRects(1, &scissor);
+  commands->SetGraphicsRootSignature(root.Get());
+  commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  D3D12_INDEX_BUFFER_VIEW index_view{index_buffer->GetGPUVirtualAddress(),
+                                     UINT(indices.size() * sizeof(uint16_t)),
+                                     DXGI_FORMAT_R16_UINT};
+  commands->IASetIndexBuffer(&index_view);
+  struct DrawRef { uint64_t sequence; size_t item, variant; };
+  std::vector<DrawRef> draws;
+  for (size_t i = 0; i < scene.items.size(); ++i)
+    for (size_t j = 0; j < scene.items[i].draws.size(); ++j)
+      draws.push_back({scene.items[i].draws[j].sequence, i, j});
+  std::sort(draws.begin(), draws.end(), [](const auto& a, const auto& b) {
+    return a.sequence < b.sequence;
+  });
+  for (const auto& ref : draws) {
+    const auto& draw = scene.items[ref.item].draws[ref.variant];
+    const auto& resource = owned[ref.item];
+    commands->SetPipelineState(pipelines.at(draw.vertex_shader).Get());
+    commands->SetGraphicsRootConstantBufferView(0, resource.b0[ref.variant]->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
+    commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
+    commands->SetGraphicsRoot32BitConstant(4, UINT(ref.item + 1), 0);
+    commands->DrawIndexedInstanced(draw.vertex_count / 4 * 6, 1, 0, 0, 0);
+  }
+  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  D3D12_TEXTURE_COPY_LOCATION source_location{}, destination{};
+  source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  source_location.pResource = color.Get();
+  destination.pResource = color_readback.Get();
+  destination.PlacedFootprint = color_layout;
+  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  source_location.pResource = depth.Get();
+  destination.pResource = depth_readback.Get();
+  destination.PlacedFootprint = depth_layout;
+  commands->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
+  check(commands->Close());
+  ID3D12CommandList* lists[]{commands.Get()};
+  queue->ExecuteCommandLists(1, lists);
+  ComPtr<ID3D12Fence> fence;
+  check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+  check(queue->Signal(fence.Get(), 1));
+  HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+  require(event != nullptr, "CreateEvent failed");
+  auto wait_result = fence->SetEventOnCompletion(1, event);
+  auto waited = SUCCEEDED(wait_result) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  CloseHandle(event);
+  check(wait_result);
+  require(waited == WAIT_OBJECT_0, "procedural GPU wait failed");
+  check(device->GetDeviceRemovedReason());
+  const auto drawn = std::chrono::steady_clock::now();
+  std::filesystem::create_directories(output_directory);
+  std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
+  image << "P6\n" << width << ' ' << height << "\n255\n";
+  D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
+  void *colors = nullptr, *depths = nullptr;
+  check(color_readback->Map(0, &color_range, &colors));
+  check(depth_readback->Map(0, &depth_range, &depths));
+  uint32_t covered = 0;
+  std::vector<uint32_t> item_pixels(scene.items.size());
+  for (uint32_t y = 0; y < height; ++y) {
+    const auto* color_row = static_cast<const uint8_t*>(colors) +
+                            y * color_layout.Footprint.RowPitch;
+    const auto* depth_row = reinterpret_cast<const float*>(
+        static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    for (uint32_t x = 0; x < width; ++x) {
+      const auto* pixel = color_row + x * 4;
+      image.write(reinterpret_cast<const char*>(pixel), 3);
+      const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
+      if (id) {
+        require(id <= scene.items.size() && std::isfinite(depth_row[x]) &&
+                    depth_row[x] > 0 && depth_row[x] <= 1,
+                "invalid procedural identity/depth");
+        ++covered;
+        ++item_pixels[id - 1];
+      }
+    }
+    depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
+  }
+  D3D12_RANGE empty{};
+  color_readback->Unmap(0, &empty);
+  depth_readback->Unmap(0, &empty);
+  image.close();
+  depth_file.close();
+  require(bool(image) && bool(depth_file) && covered > 0,
+          "empty or unwritable procedural diagnostic");
+  const auto complete = std::chrono::steady_clock::now();
+  auto us = [](auto a, auto b) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
+  };
+  std::ofstream summary(output_directory / "summary.json");
+  summary << "{\"schema\":\"pinyon-shift.snr04-procedural.v1\","
+          << "\"source_frame\":" << scene.frame << ','
+          << "\"fixture_sha256\":\"" << scene.sha << "\","
+          << "\"items\":" << scene.items.size() << ','
+          << "\"draws\":" << draws.size() << ','
+          << "\"covered_pixels\":" << covered << ','
+          << "\"extract_us\":" << us(begin, extracted) << ','
+          << "\"build_us\":" << us(extracted, built) << ','
+          << "\"draw_readback_us\":" << us(built, drawn) << ','
+          << "\"write_us\":" << us(drawn, complete) << ','
+          << "\"item_pixels\":[";
+  for (size_t i = 0; i < scene.items.size(); ++i) {
+    if (i) summary << ',';
+    summary << "{\"packet\":" << scene.items[i].packet
+            << ",\"pixels\":" << item_pixels[i] << '}';
+  }
+  summary << "]}\n";
+  summary.close();
+  require(bool(summary), "procedural summary write failed");
+  return covered;
 }
