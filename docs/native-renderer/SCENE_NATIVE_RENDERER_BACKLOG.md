@@ -70,8 +70,9 @@ draws in one frame. An `SNR03R1` fixture now owns all 1,149 selected draws
 from these three families in a later strict replay, including final bound
 fetch state. A subsequent `SNR03R2` replay captured host index endian and
 restart state; its 108 converted draws follow the SDK's mask-and-restart path
-with shader-side swapping. Its private raster and a combined full
-selected-slice target remain open.
+with shader-side swapping. The [remaining-family private diagnostic](SCENE_NATIVE_SNR04_REMAINDER_EVIDENCE_2026-09-23.md)
+renders all 880 of its selected draws on a private identity/depth target;
+the combined full selected-slice target remains open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

@@ -38,4 +38,10 @@ uint32_t RunSnr04ManagerDiagnostic(
     const std::filesystem::path& output_directory,
     ID3D12Device* device = nullptr);
 
+uint32_t RunSnr04RemainderDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device = nullptr);
+
 }  // namespace pinyon_shift::native_renderer

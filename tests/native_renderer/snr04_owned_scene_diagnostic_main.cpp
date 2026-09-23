@@ -40,6 +40,13 @@ int main(int argc, char** argv) {
       std::cout << "SNR04 manager covered_pixels=" << covered << '\n';
       return 0;
     }
+    if (input && std::string_view(magic, 7) == "SNR03R2") {
+      if (argc != 4) throw std::runtime_error("remainder diagnostic is 1x only");
+      const auto covered = pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
+          argv[1], argv[2], argv[3]);
+      std::cout << "SNR04 remainder covered_pixels=" << covered << '\n';
+      return 0;
+    }
     const auto covered = pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
         argv[1], argv[2], argv[3], nullptr, argc == 5 ? 4 : 1);
     std::cout << "SNR04 diagnostic covered_pixels=" << covered << '\n';

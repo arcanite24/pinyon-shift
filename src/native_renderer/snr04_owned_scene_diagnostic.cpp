@@ -2345,3 +2345,531 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   require(bool(summary), "manager summary write failed");
   return covered;
 }
+
+uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* borrowed_device) {
+  const auto source = read(fixture);
+  Reader reader{source};
+  require(reader.take<std::array<char, 8>>() ==
+              (std::array<char, 8>{'S','N','R','0','3','R','2','\0'}),
+          "wrong remainder fixture");
+  const auto frame = reader.take<uint64_t>();
+  const auto view = reader.take<uint32_t>();
+  const auto camera = reader.take<uint32_t>();
+  const auto car_count = reader.take<uint32_t>();
+  const auto scalar_count = reader.take<uint32_t>();
+  const auto draw_count = reader.take<uint32_t>();
+  const auto vertex_count = reader.take<uint32_t>();
+  const auto index_count = reader.take<uint32_t>();
+  require(frame && view && camera && car_count && car_count <= 512 &&
+              scalar_count && scalar_count <= 512 && draw_count &&
+              draw_count <= 4096 && vertex_count && vertex_count <= 4096 &&
+              index_count && index_count <= 4096,
+          "unsupported remainder counts");
+  reader.take<std::array<uint32_t, 32>>();  // Title camera matrices.
+  std::set<uint32_t> car_keys, scalar_keys;
+  for (uint32_t i = 0; i < car_count; ++i) {
+    auto words = reader.take<std::array<uint32_t, 6>>();
+    reader.take<uint64_t>();
+    reader.take<std::array<uint32_t, 7>>();
+    require(words[0] && car_keys.insert(words[0]).second,
+            "duplicate car title record");
+  }
+  for (uint32_t i = 0; i < scalar_count; ++i) {
+    reader.take<std::array<uint64_t, 2>>();
+    auto words = reader.take<std::array<uint32_t, 7>>();
+    require(words[0] && scalar_keys.insert(words[0]).second,
+            "duplicate scalar title record");
+  }
+  using Range = std::pair<uint32_t, uint32_t>;
+  std::map<Range, std::vector<char>> vertices, indices;
+  size_t owned_bytes = 0;
+  for (auto* ranges : {&vertices, &indices}) {
+    const uint32_t count = ranges == &vertices ? vertex_count : index_count;
+    for (uint32_t i = 0; i < count; ++i) {
+      Range key{reader.take<uint32_t>(), reader.take<uint32_t>()};
+      require(key.second && key.second <= (ranges == &vertices ? 3u << 20 : 128u << 10) &&
+                  owned_bytes <= (32u << 20) - key.second,
+              "unsupported remainder byte range");
+      owned_bytes += key.second;
+      require(ranges->emplace(key, reader.bytes(key.second)).second,
+              "duplicate remainder byte range");
+    }
+  }
+  struct Fetch { uint32_t constant, stride; Range range; };
+  struct Draw {
+    uint32_t family = 0, title_key = 0, packet = 0, count = 0;
+    uint64_t sequence = 0, shader = 0, specialization = 0;
+    uint32_t primitive = 0, index_type = 0, format = 0, endian = 0;
+    uint32_t shader_endian = 0, restart = 0, reset_index = 0;
+    std::vector<Fetch> fetches;
+    Range index{};
+    std::vector<uint32_t> packed;
+    std::array<uint32_t, 64> system{};
+    std::array<uint32_t, 192> bound_fetch{};
+    uint32_t raster = 0, clip = 0, depth = 0;
+    std::array<float, 6> viewport{};
+    std::array<int32_t, 4> scissor{};
+  };
+  std::vector<Draw> draws;
+  draws.reserve(draw_count);
+  std::set<Range> used_vertices, used_indices;
+  std::set<uint32_t> used_car, used_scalar;
+  for (uint32_t i = 0; i < draw_count; ++i) {
+    Draw draw{};
+    draw.family = reader.take<uint32_t>();
+    draw.title_key = reader.take<uint32_t>();
+    draw.sequence = reader.take<uint64_t>();
+    draw.packet = reader.take<uint32_t>();
+    draw.shader = reader.take<uint64_t>();
+    reader.take<uint64_t>();  // Pixel shader; identity target uses its own.
+    draw.specialization = reader.take<uint64_t>();
+    reader.take<uint64_t>();  // Dynamic state identity.
+    draw.count = reader.take<uint32_t>();
+    const auto guest_primitive = reader.take<uint32_t>();
+    draw.primitive = reader.take<uint32_t>();
+    draw.index_type = reader.take<uint32_t>();
+    draw.format = reader.take<uint32_t>();
+    draw.endian = reader.take<uint32_t>();
+    draw.shader_endian = reader.take<uint32_t>();
+    draw.restart = reader.take<uint32_t>();
+    draw.reset_index = reader.take<uint32_t>();
+    const auto fetch_count = reader.take<uint32_t>();
+    require(fetch_count && fetch_count <= 3, "unsupported fetch count");
+    for (uint32_t slot = 0; slot < fetch_count; ++slot) {
+      Fetch fetch{reader.take<uint32_t>(), reader.take<uint32_t>(),
+                  {reader.take<uint32_t>(), reader.take<uint32_t>()}};
+      require(fetch.constant < 96 && fetch.stride &&
+                  vertices.contains(fetch.range), "missing remainder fetch");
+      used_vertices.insert(fetch.range);
+      draw.fetches.push_back(fetch);
+    }
+    draw.index = {reader.take<uint32_t>(), reader.take<uint32_t>()};
+    require(indices.contains(draw.index), "missing remainder indices");
+    used_indices.insert(draw.index);
+    const auto texture_count = reader.take<uint32_t>();
+    require(texture_count <= 16, "unsupported texture count");
+    for (uint32_t texture = 0; texture < texture_count; ++texture)
+      reader.take<std::array<uint32_t, 9>>();  // Identity target does not sample.
+    const auto bitmap = reader.take<std::array<uint64_t, 4>>();
+    const auto packed_count = reader.take<uint32_t>();
+    require(packed_count && packed_count <= 1024 && packed_count % 4 == 0 &&
+                packed_count == 4 * (std::popcount(bitmap[0]) +
+                    std::popcount(bitmap[1]) + std::popcount(bitmap[2]) +
+                    std::popcount(bitmap[3])),
+            "invalid remainder constants");
+    draw.packed.reserve(packed_count);
+    for (uint32_t word = 0; word < packed_count; ++word)
+      draw.packed.push_back(reader.take<uint32_t>());
+    draw.system = reader.take<std::array<uint32_t, 64>>();
+    draw.bound_fetch = reader.take<std::array<uint32_t, 192>>();
+    draw.raster = reader.take<uint32_t>();
+    draw.clip = reader.take<uint32_t>();
+    draw.depth = reader.take<uint32_t>();
+    draw.viewport = reader.take<std::array<float, 6>>();
+    draw.scissor = reader.take<std::array<int32_t, 4>>();
+    require(draw.sequence && (!i || draw.sequence > draws.back().sequence) &&
+                draw.packet && draw.shader && draw.count && draw.count <= 32768 &&
+                guest_primitive == draw.primitive &&
+                (draw.primitive == 4 || draw.primitive == 6) &&
+                draw.index_type >= 1 && draw.index_type <= 2 &&
+                draw.format <= 1 && draw.endian <= 3 &&
+                draw.restart <= 1 &&
+                (draw.index_type != 1 ||
+                 (draw.format == 0 && draw.endian == 1) ||
+                 (draw.format == 1 && draw.endian == 2)) &&
+                draw.system[4] == draw.shader_endian &&
+                draw.index.second >= draw.count * (draw.format ? 4u : 2u) &&
+                ((draw.raster & 7) == 0 || (draw.raster & 7) == 2 ||
+                 (draw.raster & 7) == 6) &&
+                draw.viewport[0] == 0 && draw.viewport[1] == 0 &&
+                draw.viewport[2] == width &&
+                std::all_of(draw.viewport.begin(), draw.viewport.end(),
+                            [](float value) { return std::isfinite(value); }) &&
+                draw.viewport[4] >= 0 && draw.viewport[4] <= 1 &&
+                draw.viewport[5] >= 0 && draw.viewport[5] <= 1 &&
+                (draw.viewport[3] == 720 || draw.viewport[3] == 464 ||
+                 draw.viewport[3] == 208) &&
+                draw.scissor[0] == 0 && draw.scissor[1] == 0 &&
+                draw.scissor[2] == int32_t(width) &&
+                draw.scissor[3] > 0 &&
+                draw.scissor[3] <= draw.viewport[3] &&
+                draw.scissor[3] + height - draw.viewport[3] <= height,
+            "unsupported remainder draw state");
+    if (draw.family == 1) {
+      require(car_keys.contains(draw.title_key), "unowned car draw");
+      used_car.insert(draw.title_key);
+    } else {
+      require((draw.family == 2 || draw.family == 3) &&
+                  scalar_keys.contains(draw.title_key) &&
+                  draw.title_key == draw.packet, "unowned scalar draw");
+      used_scalar.insert(draw.title_key);
+    }
+    for (const auto& fetch : draw.fetches) {
+      require((draw.bound_fetch[fetch.constant * 2] & 3) == 3 &&
+                  (draw.bound_fetch[fetch.constant * 2] & 0x1FFFFFFC) ==
+                  fetch.range.first &&
+                  (draw.bound_fetch[fetch.constant * 2 + 1] & 0x03FFFFFC) ==
+                  fetch.range.second,
+              "changed final fetch binding");
+    }
+    if (draw.index_type == 2) {
+      require(draw.format == 1 && draw.endian == 2 &&
+                  draw.shader_endian == 2 && draw.restart &&
+                  draw.primitive == 6,
+              "unsupported converted index mode");
+    }
+    draws.push_back(std::move(draw));
+  }
+  require(reader.position == source.size() && used_vertices.size() == vertices.size() &&
+              used_indices.size() == indices.size() && used_car == car_keys &&
+              used_scalar == scalar_keys,
+          "incomplete remainder fixture");
+
+  std::ifstream manifest(shader_directory / "manifest.sha256");
+  require(bool(manifest), "missing remainder shader manifest");
+  std::string label, fixture_digest;
+  require(bool(manifest >> label >> fixture_digest) && label == "fixture" &&
+              fixture_digest == sha256(source), "wrong remainder shader fixture");
+  std::map<std::string, std::string> shader_digests;
+  std::string digest, filename;
+  while (manifest >> digest >> filename)
+    require(shader_digests.emplace(filename, digest).second,
+            "duplicate remainder shader digest");
+  require(manifest.eof(), "invalid remainder shader manifest");
+  std::map<std::pair<uint64_t, uint64_t>, std::vector<char>> shaders;
+  for (const auto& draw : draws) {
+    const auto key = std::pair{draw.shader, draw.specialization};
+    if (shaders.contains(key)) continue;
+    std::ostringstream name;
+    name << "vertex_" << std::uppercase << std::hex << std::setfill('0')
+         << std::setw(16) << draw.shader << '_' << std::setw(16)
+         << draw.specialization << ".dxil";
+    auto bytes = read(shader_directory / name.str());
+    require(bytes.size() >= 4 && std::memcmp(bytes.data(), "DXBC", 4) == 0 &&
+                shader_digests.contains(name.str()) &&
+                sha256(bytes) == shader_digests.at(name.str()),
+            "missing or changed remainder vertex shader");
+    shaders.emplace(key, std::move(bytes));
+  }
+  require(shaders.size() == shader_digests.size(),
+          "remainder shader manifest has unused entries");
+
+  std::map<Range, uint32_t> vertex_offsets;
+  std::vector<char> vertex_bytes;
+  for (const auto& [range, bytes] : vertices) {
+    vertex_bytes.resize((vertex_bytes.size() + 3) & ~size_t(3));
+    require(vertex_bytes.size() <= 0x1FFFFFFC - bytes.size(),
+            "remainder vertex buffer too large");
+    vertex_offsets.emplace(range, uint32_t(vertex_bytes.size()));
+    vertex_bytes.insert(vertex_bytes.end(), bytes.begin(), bytes.end());
+  }
+  for (auto& draw : draws) {
+    for (const auto& fetch : draw.fetches) {
+      auto& address = draw.bound_fetch[fetch.constant * 2];
+      address = (address & 3) | vertex_offsets.at(fetch.range);
+    }
+  }
+  using IndexKey = std::tuple<Range, uint32_t, uint32_t, uint32_t,
+                              uint32_t, uint32_t>;
+  std::map<IndexKey, std::vector<char>> host_indices;
+  for (const auto& draw : draws) {
+    IndexKey key{draw.index, draw.count, draw.index_type, draw.format,
+                 draw.endian, draw.reset_index};
+    if (host_indices.contains(key)) continue;
+    const auto& guest = indices.at(draw.index);
+    const size_t length = size_t(draw.count) * (draw.format ? 4 : 2);
+    require(length <= guest.size(), "truncated remainder index stream");
+    auto& host = host_indices[key];
+    host.assign(guest.begin(), guest.begin() + length);
+    if (draw.index_type == 2) {
+      const uint32_t reset = std::byteswap(draw.reset_index);
+      require((reset & 0xFF) == 0, "unsupported converted reset index");
+      uint32_t resets = 0;
+      for (size_t byte = 0; byte < length; byte += 4) {
+        uint32_t value;
+        std::memcpy(&value, guest.data() + byte, 4);
+        value &= 0xFFFFFF00;
+        if (value == reset) { value = UINT32_MAX; ++resets; }
+        std::memcpy(host.data() + byte, &value, 4);
+      }
+      require(resets, "converted index stream has no restart index");
+    }
+  }
+
+  ComPtr<ID3D12Device> device;
+  if (borrowed_device) device = borrowed_device;
+  else {
+    ComPtr<IDXGIFactory6> factory;
+    check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
+    ComPtr<IDXGIAdapter1> adapter;
+    check(factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                             IID_PPV_ARGS(&adapter)));
+    check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
+                            IID_PPV_ARGS(&device)));
+  }
+  constexpr char ps_source[] =
+      "cbuffer Item : register(b2) { uint id; };"
+      "float4 main() : SV_Target0 {"
+      " return float4((id & 255) / 255.0, ((id >> 8) & 255) / 255.0, 0, 1); }";
+  ComPtr<ID3DBlob> ps, errors;
+  check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
+                   "main", "ps_5_1", 0, 0, &ps, &errors));
+  D3D12_ROOT_PARAMETER parameters[6]{};
+  for (uint32_t i = 0; i < 4; ++i) {
+    parameters[i].ParameterType = i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV
+                                       : D3D12_ROOT_PARAMETER_TYPE_CBV;
+    parameters[i].Descriptor.ShaderRegister = i == 2 ? 3 : i == 3 ? 0 : i;
+    parameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  }
+  parameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+  parameters[4].Constants.ShaderRegister = 2;
+  parameters[4].Constants.Num32BitValues = 1;
+  parameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+  parameters[5].Descriptor.ShaderRegister = 0;
+  parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  D3D12_ROOT_SIGNATURE_DESC root_description{
+      6, parameters, 0, nullptr,
+      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT};
+  ComPtr<ID3DBlob> root_blob;
+  check(D3D12SerializeRootSignature(&root_description, D3D_ROOT_SIGNATURE_VERSION_1,
+                                    &root_blob, &errors));
+  ComPtr<ID3D12RootSignature> root;
+  check(device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                    root_blob->GetBufferSize(), IID_PPV_ARGS(&root)));
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = root.Get();
+  desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+  desc.SampleMask = UINT_MAX;
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+  desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+  desc.SampleDesc.Count = 1;
+  using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t,
+                                 uint32_t, uint32_t, uint32_t, uint32_t>;
+  auto pipeline_key = [](const Draw& draw) -> PipelineKey {
+    return {draw.shader, draw.specialization, draw.raster, draw.clip,
+            draw.depth, draw.primitive, draw.format, draw.restart};
+  };
+  std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
+  for (const auto& draw : draws) {
+    auto key = pipeline_key(draw);
+    if (pipelines.contains(key)) continue;
+    const auto& bytes = shaders.at({draw.shader, draw.specialization});
+    desc.VS = {bytes.data(), bytes.size()};
+    desc.RasterizerState.CullMode = (draw.raster & 2)
+        ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+    desc.RasterizerState.FrontCounterClockwise = (draw.raster & 4) == 0;
+    desc.RasterizerState.DepthClipEnable = (draw.clip & (1u << 16)) == 0;
+    desc.DepthStencilState.DepthEnable = (draw.depth & 2) != 0;
+    desc.DepthStencilState.DepthWriteMask = (draw.depth & 4)
+        ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+    desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC(
+        uint32_t(D3D12_COMPARISON_FUNC_NEVER) + ((draw.depth >> 4) & 7));
+    desc.IBStripCutValue = !draw.restart
+        ? D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED
+        : draw.format ? D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF
+                      : D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF;
+    ComPtr<ID3D12PipelineState> pipeline;
+    check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline)));
+    pipelines.emplace(key, std::move(pipeline));
+  }
+  D3D12_CLEAR_VALUE color_clear{};
+  color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  D3D12_CLEAR_VALUE depth_clear{};
+  depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_clear.DepthStencil.Depth = 0;
+  auto color = texture(device.Get(), color_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear);
+  auto depth = texture(device.Get(), depth_clear.Format,
+                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear);
+  D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+  heap_desc.NumDescriptors = 1;
+  ComPtr<ID3D12DescriptorHeap> rtv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv)));
+  device->CreateRenderTargetView(color.Get(), nullptr,
+                                 rtv->GetCPUDescriptorHandleForHeapStart());
+  heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+  ComPtr<ID3D12DescriptorHeap> dsv;
+  check(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv)));
+  device->CreateDepthStencilView(depth.Get(), nullptr,
+                                 dsv->GetCPUDescriptorHandleForHeapStart());
+  auto vertex_buffer = upload(device.Get(), vertex_bytes.data(), vertex_bytes.size());
+  std::map<IndexKey, ComPtr<ID3D12Resource>> index_buffers;
+  for (const auto& [key, bytes] : host_indices)
+    index_buffers.emplace(key, upload(device.Get(), bytes.data(), bytes.size()));
+  struct Bindings { ComPtr<ID3D12Resource> b0, b1, b3; };
+  std::vector<Bindings> bindings;
+  bindings.reserve(draws.size());
+  for (const auto& draw : draws) {
+    std::array<uint32_t, 120> system{};
+    std::copy(draw.system.begin(), draw.system.end(), system.begin());
+    bindings.push_back({upload(device.Get(), system.data(), sizeof(system)),
+                        upload(device.Get(), draw.packed.data(),
+                               draw.packed.size() * sizeof(uint32_t)),
+                        upload(device.Get(), draw.bound_fetch.data(),
+                               sizeof(draw.bound_fetch))});
+  }
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
+  uint64_t color_bytes = 0, depth_bytes = 0;
+  auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
+  device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
+                                nullptr, nullptr, &color_bytes);
+  device->GetCopyableFootprints(&depth_description, 0, 1, 0, &depth_layout,
+                                nullptr, nullptr, &depth_bytes);
+  auto color_readback = buffer(device.Get(), color_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  auto depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
+                               D3D12_RESOURCE_STATE_COPY_DEST);
+  ComPtr<ID3D12CommandQueue> queue;
+  D3D12_COMMAND_QUEUE_DESC queue_desc{};
+  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  ComPtr<ID3D12CommandAllocator> allocator;
+  check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       IID_PPV_ARGS(&allocator)));
+  ComPtr<ID3D12GraphicsCommandList> commands;
+  check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                  allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
+  const auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
+  const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
+  constexpr float clear_color[4]{};
+  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
+  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
+  commands->SetGraphicsRootSignature(root.Get());
+  for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
+    const auto& draw = draws[ordinal];
+    const auto& state = bindings[ordinal];
+    const float tile_offset = float(height) - draw.viewport[3];
+    D3D12_VIEWPORT viewport{draw.viewport[0], tile_offset,
+                            draw.viewport[2], draw.viewport[3],
+                            draw.viewport[4], draw.viewport[5]};
+    D3D12_RECT scissor{draw.scissor[0], draw.scissor[1] + LONG(tile_offset),
+                       draw.scissor[2], draw.scissor[3] + LONG(tile_offset)};
+    commands->RSSetViewports(1, &viewport);
+    commands->RSSetScissorRects(1, &scissor);
+    commands->IASetPrimitiveTopology(draw.primitive == 4
+        ? D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST
+        : D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    const IndexKey index_key{draw.index, draw.count, draw.index_type,
+                             draw.format, draw.endian, draw.reset_index};
+    const auto& index = index_buffers.at(index_key);
+    D3D12_INDEX_BUFFER_VIEW index_view{
+        index->GetGPUVirtualAddress(),
+        draw.count * (draw.format ? 4u : 2u),
+        draw.format ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT};
+    commands->IASetIndexBuffer(&index_view);
+    commands->SetPipelineState(pipelines.at(pipeline_key(draw)).Get());
+    commands->SetGraphicsRootConstantBufferView(0, state.b0->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(1, state.b1->GetGPUVirtualAddress());
+    commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
+    commands->SetGraphicsRootShaderResourceView(3, vertex_buffer->GetGPUVirtualAddress());
+    commands->SetGraphicsRoot32BitConstant(4, UINT(ordinal + 1), 0);
+    commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+  }
+  transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+             D3D12_RESOURCE_STATE_COPY_SOURCE);
+  D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+  from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  from.pResource = color.Get();
+  to.pResource = color_readback.Get();
+  to.PlacedFootprint = color_layout;
+  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  from.pResource = depth.Get();
+  to.pResource = depth_readback.Get();
+  to.PlacedFootprint = depth_layout;
+  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  check(commands->Close());
+  ID3D12CommandList* lists[]{commands.Get()};
+  queue->ExecuteCommandLists(1, lists);
+  ComPtr<ID3D12Fence> fence;
+  check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+  check(queue->Signal(fence.Get(), 1));
+  HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+  require(event != nullptr, "CreateEvent failed");
+  const auto wait = fence->SetEventOnCompletion(1, event);
+  const auto waited = SUCCEEDED(wait) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  CloseHandle(event);
+  check(wait);
+  require(waited == WAIT_OBJECT_0, "remainder GPU wait failed");
+  check(device->GetDeviceRemovedReason());
+  std::filesystem::create_directories(output_directory);
+  std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
+  image << "P6\n" << width << ' ' << height << "\n255\n";
+  void *colors = nullptr, *depths = nullptr;
+  D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
+  check(color_readback->Map(0, &color_range, &colors));
+  check(depth_readback->Map(0, &depth_range, &depths));
+  uint32_t covered = 0;
+  uint32_t zero_depth_pixels = 0;
+  std::vector<uint32_t> draw_pixels(draws.size());
+  for (uint32_t y = 0; y < height; ++y) {
+    const auto* color_row = static_cast<const uint8_t*>(colors) +
+                            y * color_layout.Footprint.RowPitch;
+    const auto* depth_row = reinterpret_cast<const float*>(
+        static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    for (uint32_t x = 0; x < width; ++x) {
+      const auto* pixel = color_row + x * 4;
+      image.write(reinterpret_cast<const char*>(pixel), 3);
+      const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
+      if (id) {
+        if (id > draws.size() || !std::isfinite(depth_row[x]) ||
+            depth_row[x] < 0 || depth_row[x] > 1)
+          throw std::runtime_error("invalid remainder pixel " +
+              std::to_string(x) + "," + std::to_string(y) + " id=" +
+              std::to_string(id) + " depth=" + std::to_string(depth_row[x]));
+        ++covered;
+        zero_depth_pixels += depth_row[x] == 0;
+        ++draw_pixels[id - 1];
+      }
+    }
+    depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
+  }
+  D3D12_RANGE empty{};
+  color_readback->Unmap(0, &empty);
+  depth_readback->Unmap(0, &empty);
+  image.close();
+  depth_file.close();
+  require(bool(image) && bool(depth_file) && covered > 0,
+          "empty or unwritable remainder diagnostic");
+  std::ofstream summary(output_directory / "summary.json");
+  summary << "{\"schema\":\"pinyon-shift.snr04-remainder.v1\","
+          << "\"source_frame\":" << frame << ','
+          << "\"fixture_sha256\":\"" << sha256(source) << "\","
+          << "\"width\":" << width << ",\"height\":" << height << ','
+          << "\"draws\":" << draws.size() << ','
+          << "\"shaders\":" << shaders.size() << ','
+          << "\"vertex_bytes\":" << vertex_bytes.size() << ','
+          << "\"covered_pixels\":" << covered << ','
+          << "\"zero_depth_pixels\":" << zero_depth_pixels << ','
+          << "\"visible_draws\":"
+          << std::count_if(draw_pixels.begin(), draw_pixels.end(),
+                           [](uint32_t value) { return value != 0; }) << ','
+          << "\"draw_pixels\":[";
+  for (size_t i = 0; i < draws.size(); ++i) {
+    if (i) summary << ',';
+    summary << "{\"sequence\":" << draws[i].sequence
+            << ",\"packet\":" << draws[i].packet
+            << ",\"family\":" << draws[i].family
+            << ",\"pixels\":" << draw_pixels[i] << '}';
+  }
+  summary << "]}\n";
+  summary.close();
+  require(bool(summary), "remainder summary write failed");
+  return covered;
+}

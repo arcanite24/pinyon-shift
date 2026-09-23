@@ -156,6 +156,9 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
     converted_draws = converted_resets = 0
     converted_shader_endians = collections.Counter()
     shader_pairs = set()
+    raster_modes = collections.Counter()
+    tile_modes = collections.Counter()
+    fetch_counts = collections.Counter()
     for _ in range(draw_count):
         family, title_key = take("<2I")
         sequence = take("<Q")[0]
@@ -258,6 +261,11 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert viewport[2] > 0 and viewport[3] > 0 and scissor[2] > scissor[0]
         counts[family] += 1
         shader_pairs.add((shader, specialization))
+        raster_modes[(host_primitive, host_format, host_reset,
+                      raster, clip, depth)] += 1
+        tile_modes[(viewport[0], viewport[1], viewport[2], viewport[3],
+                    scissor[0], scissor[1], scissor[2], scissor[3])] += 1
+        fetch_counts[fetch_count] += 1
         index_modes[(index_type, host_format, endian, guest_primitive,
                      host_primitive)] += 1
     assert seen == set(by_sequence) and used_vertices == set(ranges[0])
@@ -270,6 +278,9 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
             "converted_shader_endians": dict(converted_shader_endians),
             "shader_pairs": [[f"{shader:016X}", f"{specialization:016X}"]
                              for shader, specialization in sorted(shader_pairs)],
+            "raster_modes": {str(key): value for key, value in raster_modes.items()},
+            "tile_modes": {str(key): value for key, value in tile_modes.items()},
+            "fetch_counts": dict(fetch_counts),
             "fixture_sha256": hashlib.sha256(source).hexdigest()}
 
 
