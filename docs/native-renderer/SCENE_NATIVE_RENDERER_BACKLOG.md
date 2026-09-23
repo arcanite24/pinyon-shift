@@ -477,8 +477,11 @@ write count within 0.8% using the verified BC3 mip chain, but the original
 fixture's spatial pixel overlap is only 73.67%. Its vertex bytes and 64
 system words match RenderDoc; 39/96 vertex constant words do not. Replacing
 only those constants in a guarded local diagnostic fixture produces exact
-pixel/sample coverage and depth for all 133,488 writes of this draw. Align
-per-draw vertex constants throughout the frozen slice before attributing
+pixel/sample coverage and depth for all 133,488 writes of this draw. A
+179-action census finds exact fetched vertex bytes throughout the foliage
+slice, the same 39 constant slots differing on every draw, and one system
+word differing on the 67 middle-band draws. Align those bound vertex inputs
+throughout the frozen slice before attributing
 remaining errors to materials. Then test the original pixel shader, stencil
 and resource lifetime before broadening native admission; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).

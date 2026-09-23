@@ -482,3 +482,26 @@ slice before attributing pixel differences to materials. Then test the
 original pixel shader, stencil and resource lifetime on the complete
 ordered scene. The matching local fixture is an experiment, not a new
 source-of-truth scene snapshot or Gate A admission result.
+
+The slice-wide census confirms this is not isolated to draw 290. Ordered
+event/sequence joins across the 45/67/67 EDRAM bands have **179/179 exact
+fetched vertex ranges**. Every action differs from its owned fixture in
+the same 39 of 96 vertex constant slots. The first and third bands have
+exactly matching 64-word vertex-system blocks (112 draws total); the
+middle band differs at system word 44 for its 67 draws. Thus material
+comparisons against the current fixture remain confounded throughout the
+foliage slice. Capture those vertex constants at the exact render events,
+and account for the middle-band system word, before treating the fixture
+as a pixel-aligned reference. The census is stored locally at
+`renderdoc-gatea-full-b-vegetation-vertex-alignment.json`.
+
+```powershell
+$base = '.local/native-renderer/snr04'
+$env:SNR04_CAPTURE = (Resolve-Path "$base/renderdoc-gatea-full-b_frame5001.rdc").Path
+$env:SNR04_FIXTURE = (Resolve-Path "$base/renderdoc-gatea-full-live-b/snr03-scene-5001.bin").Path
+$env:SNR04_EVENTS_JSON = (Resolve-Path "$base/renderdoc-gatea-full-b-vegetation-actions.json").Path
+$env:SNR04_OUTPUT = (Join-Path (Get-Location) "$base/renderdoc-gatea-full-b-vegetation-vertex-alignment.json")
+& .local/tools/renderdoc-1.46/RenderDoc_1.46_64/qrenderdoc.exe `
+  --python tools/check-snr04-vegetation-vertex-alignment.py
+# Wait for the asynchronous exporter to write stage=done.
+```
