@@ -28,6 +28,9 @@ def role(draw: dict) -> str:
         elif kind == "out_of_view_scene":
             assert draw["view_call"] == 0 and draw["scene_source_frame"] is not None
         elif kind == "direct_root":
+            if draw["title_packet_source_frame"] is None:
+                assert draw["root_source_frame"] is not None
+                return "outside_unattributed_direct"
             assert draw["title_packet_source_frame"] is not None
             assert 0 <= draw["title_packet_view_call"] < 8
         elif kind == "title_clear":
@@ -96,13 +99,17 @@ def partition(path: Path) -> dict:
                    if name.startswith("selected_"))
     retained = sum(count for name, count in totals.items()
                    if name.startswith("retained_"))
-    assert selected + retained + totals["outside_candidate_targets"] == len(rows)
+    outside = sum(count for name, count in totals.items()
+                  if name.startswith("outside_"))
+    assert selected + retained + outside == len(rows)
     return {"schema": "pinyon-shift.gate-a-slice-partition.v1",
             "ledger_sha256": hashlib.sha256(raw).hexdigest(),
             "backend_frame": ledger["backend_frame"],
             "draws": len(rows), "selected_draws": selected,
             "retained_draws": retained,
-            "outside_draws": totals["outside_candidate_targets"],
+            "outside_draws": outside,
+            "unattributed_draws": totals["outside_unattributed_direct"],
+            "full_owner_census": totals["outside_unattributed_direct"] == 0,
             "roles": dict(sorted(totals.items())),
             "targets": {key: dict(sorted(value.items()))
                         for key, value in sorted(by_target.items())}}

@@ -47,10 +47,14 @@ This does **not** close SNR-02/03/04. The title descriptor is a cached
 command-list container; the mesh/submesh/material owner and resource lifetime
 still need title-side proof. The fixture does not yet own final constants,
 texture roles or shader bytecode, and there is no track diagnostic raster.
-Full frame-role partitioning also found two unjoined direct-root draws at
-ordinals 3419–3420 in the second replay, both on noncandidate attachments;
-they must be attributed before claiming the entire remaining-draw census is
-closed. The candidate-boundary verifier alone does not prove that.
+The full frame-role partition reports 2,005 selected, 76 retained and 1,435
+outside-candidate draws. It flags **two** of the latter as unattributed direct
+roots, ordinals 3419–3420, and `full_owner_census=false`. They share root
+command buffer `319914400`, which was linked from a title view-0 command in
+source frame 6000 and executed in backend frame 6001. That proves a buffer
+handoff, but not the producers of its two draw packets. The partition tool
+now reports this gap explicitly; the candidate-boundary verifier alone does
+not prove the entire remaining-draw census.
 
 Next: resolve those direct-root producers, connect cached track command
 targets to actual mesh/material ownership, then extend this exact-frame
