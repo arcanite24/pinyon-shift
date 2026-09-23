@@ -42,3 +42,53 @@ material alpha and stencil, and uses one sample. It neither compares final
 coverage/depth to same-frame compatibility output nor proves resource
 generation, unload/reload, moving-frame stability or production performance.
 Those are the remaining SNR-02/03/04 Gate A checks before native admission.
+
+## Adjacent moving-view sample
+
+A second AppData-backed run used the same race route with one extra
+`capture 5001 track-source-5001` line. It kept compatibility rendering as
+default and exited normally with nine screenshots. The source-frame-5000 and
+5001 screenshots from **that run** differ in 76.1% of their RGB bytes (mean
+absolute byte difference 7.42). The 5001 source scene was consumed at output
+frame 5002. Its strict census attributed all 4,682 backend draws, with zero
+unknown owners; the unchanged pilot rule selected 2,442 draws and retained
+61. All six same-frame fixture verifiers passed:
+
+| Fixture family | Selected draws |
+| --- | ---: |
+| Shared track | 777 |
+| Procedural items | 121 |
+| Vegetation | 120 |
+| Procedural characters | 10 |
+| Character manager | 363 |
+| Car scene-list, animated and presentation remainder | 1,051 |
+
+Exact vertex translations were extracted from the same validated shader
+pack: 20 track and 69 remainder shader pairs. The global-order replay carried
+private color/depth through **36** contiguous family runs and all 2,442
+selected draws. It yielded 630,961 covered pixels, 219 visible draw IDs and
+no covered pixels at depth zero. Two runs produced byte-identical final
+outputs and all 108 intermediate identity/color/depth files.
+
+| Adjacent-frame evidence | SHA-256 |
+| --- | --- |
+| Filtered runtime log | `B56978230819F9179057E2469114681299286D7DB47EA5D857E07CE163742305` |
+| Strict ledger / draw-order manifest | `07D5D63CB1133625A8C33E84BE787175584DF54A0B79E019130C553CB07F6036` / `535F339F2A03C0F37EBB9EF6DD6DAA65A68C046DB8C4837823F89775ECC69475` |
+| Final identity / RGBA / depth | `78EFBE5F63217956FF393216D932D5BF24FA74FCDA16380A415A1E845F391F02` / `E5558E95E096F560C9A2851E32DD2037DF91A8D8E9A9D64CAE703C95BC0B9E72` / `2FA2C927E90E633C6432C205464C46B51EB49CBD4D5C2A6C58C3D7CB50569076` |
+
+The optional scene-aware log extraction is reproducible with
+`extract-snr01-run-log.py SESSION OUTPUT --include-scene`; the existing
+`verify-snr04-complete-slice.py` then validates the six fixtures and writes
+the ordered manifest. `replay-snr04-complete-slice.py` accepts that manifest,
+the adjacent fixtures, the diagnostic executable and the extracted shaders.
+Both `track-source-5001.ppm` and the owned fixtures are in
+`.local/native-renderer/snr04/complete-slice-adjacent-live-a`.
+
+Visual inspection reveals an additional parity problem: the raw identity
+image appears turned 180° relative to the paired compatibility screenshot.
+Turning it for display aligns broad scene silhouettes, but the player-car
+extent and other coverage still differ. The cause could be a target-space
+orientation or resolve transform; it is **not** established by this visual
+check. Neither this sample nor frame 5000 qualifies pixel/depth parity.
+These are two independently captured source frames, not a continuous owned
+scene stream or an unload/reload test.

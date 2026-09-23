@@ -49,8 +49,9 @@ the procedural-character/vegetation partition and isolated their snapshot
 budgets. A later same-frame replay owns all 2,192 selected draws in six
 verified fixtures. The [complete selected-slice diagnostic](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md)
 now replays those draws in global sequence through logically carried private
-color/depth state. Material, resource-lifetime and moving-frame parity checks
-remain open.
+color/depth state. An adjacent moving-view sample independently owns 2,442
+selected draws and replays them through 36 stages. Material,
+resource-lifetime and pixel-aligned moving-frame parity checks remain open.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
@@ -445,7 +446,10 @@ The complete same-frame fixture set now replays 2,192/2,192 selected draws
 in 35 ordered stages with carried private color/depth. It covers 659,995
 pixels and is byte-repeatable; see the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Full compatibility coverage/depth parity, semantic material admission,
-resource freshness and moving-frame/unload checks remain open.
+resource freshness and continuous moving-frame/unload checks remain open.
+The adjacent-frame diagnostic reveals an apparent target-space orientation
+mismatch with the paired compatibility screenshot; see the complete-slice
+evidence before using its coverage as a parity baseline.
 
 **Done when / Gate A:** the selected main-view scene is complete and stable at
 reference resolution with no missing, duplicated, stale or misattributed objects.

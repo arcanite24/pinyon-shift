@@ -39,6 +39,23 @@ class ExtractSnr01RunLogTest(unittest.TestCase):
                 f"[{last}.000] FH1 clear producer last\n"
             )
 
+    def test_scene_rows_are_opt_in(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            session = root / "20260923T052728Z-p30692.jsonl"
+            session.touch()
+            start = datetime(2026, 9, 23, 5, 27, 28, tzinfo=timezone.utc)
+            os.utime(session, (start.timestamp(), start.timestamp()))
+            stamp = start.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            (root / "runtime.log").write_text(
+                f"[{stamp}.000] FH1 SNR01 title\n"
+                f"[{stamp}.001] FH1 SNR03 final\n"
+                f"[{stamp}.002] FH1 scene binding pixel\n"
+            )
+            output = root / "filtered.log"
+            assert module.extract(session, output) == 1
+            assert module.extract(session, output, include_scene=True) == 3
+
 
 if __name__ == "__main__":
     unittest.main()
