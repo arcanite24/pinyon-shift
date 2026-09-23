@@ -108,7 +108,7 @@ display is not a geometry fix.
 | RenderDoc evidence | SHA-256 |
 | --- | --- |
 | `renderdoc-frame5001_frame5001.rdc` | `2C8C0267FDD1508749DFF5E7ED0E09BD73133B4A580EB9773A8057EA181A93F2` |
-| Event-state report | `640D8E60FCA3A7179383FCD486C75903FFF660404543B2A7C38DDE6891A26D37` |
+| Event-state report | `25F9003A5748492FAA53DF87A46ABCCE2E946327C2E1AFB21B47F9B25398036F` |
 | Event 9991 color attachment | `86F73FB6F4BD0E9AB8EEF0552A7F8A281B179830430DDA1F1C5530FE92F6E7C2` |
 
 Re-export the target states with the checked RenderDoc helper:
@@ -124,3 +124,63 @@ This capture was made in a separate run from the complete-slice fixture. It
 establishes the compatibility target's coordinate convention and tile reuse,
 but it does not join each private draw to the captured attachment or compare
 same-run depth/coverage. That remains the SNR-04 parity check.
+
+### Same-run target-space depth diagnostic
+
+An extended AppData-backed race route captured source frame 5001, its six
+owned fixtures, the strict runtime census and RenderDoc output frame 5002 in
+one normal-exit run. The census attributed all 2,691 backend draws. The
+unchanged Gate A partition selected 1,562 draws, retained 61 and placed
+1,068 outside. Every selected draw joined an immutable fixture and a final
+backend sequence: 668 track, 281 procedural item, 179 vegetation, 17
+procedural character, 93 character manager and 324 remainder draws. The
+private 1280×720 replay carried identity/color/depth through 35 family runs.
+Two complete replays produced identical final files: 904,330 covered pixels,
+139 visible draw IDs and no covered pixels at depth zero.
+
+The compatibility scene bound a 1280×512 `R16G16B16A16_FLOAT` color target
+and `D32S8_TYPELESS` depth target, both **4× MSAA**. The same resources were
+reused with viewport heights 720/464/208 and scissors 256/256/208. The
+private complete-slice replay remains **1×**, lacks faithful alpha, stencil
+and material behavior, and cannot be judged by final color or exact
+per-sample coverage. The checked probe exports the exact sample-0 depth bytes
+at selected target-space events. `check-snr04-depth-bands.py` maps the three
+scissored tiles to private rows 0/256/512 and reports nonzero-depth overlap.
+
+| Same-run evidence | SHA-256 |
+| --- | --- |
+| RenderDoc capture | `277C2A371A86038901D845332704574B708F632EAB6F427175827BF93660E955` |
+| Strict ledger / draw-order manifest | `FF54BB219D79446A79DBBADA709EA836504B909664A82F4FE5D82CA63446F863` / `28AB880B18EB06AF99A4B479A7DDE50B08AFE3F59DE3347DA9D63632DF72E708` |
+| Tile-final event/depth export report | `50904ADB04D01684B8FD25D139AADB3C3568FB75E39B1AE22D680A89A57020B2` |
+| Final private identity / color / depth | `E60746286D801482093109768BEBE1983EA674884E3FFCBD17D9F1B7BEADD4E0` / `B6846068D08E6AE323E3A13079DA9F956FB47D661F777D81C9EBB7363ABEF24C` / `4AF265F13E53FDA6BCDF53F5269C9B6F11728AD2DD876F65F4F0F40A485CD15B` |
+
+To repeat the bounded comparison from those local artifacts, set
+`SNR04_CAPTURE` to `renderdoc-gatea-full-b_frame5001.rdc`, `SNR04_OUTPUT` to
+`renderdoc-gatea-full-b-tile-final.json`, `SNR04_EVENTS` to
+`11810,15324,19337` and `SNR04_DEPTH_SAMPLE=0`; run
+`qrenderdoc.exe --python tools/probe-snr04-renderdoc-target.py`. Then run:
+
+```powershell
+python tools/check-snr04-depth-bands.py .local/native-renderer/snr04/renderdoc-gatea-full-b-tile-final.json .local/native-renderer/snr04/renderdoc-gatea-full-staged-b/step-34/depth.f32
+```
+
+A full action scan identified the final scene-target draw in each band:
+events 11810, 15324 and 19337. These are later than the final matched
+track shaders at 11779, 15287 and 19300, but their sample-0 depth bytes are
+identical. Using nonzero depth as the covered-pixel mask, the tile-final
+reference has 902,659 covered pixels and the private replay has 904,330;
+901,054 overlap, for **99.46% intersection-over-union**. The first two bands
+are fully covered on both sides, so their 100% mask overlap is not a strong
+silhouette test. The 208-row band has 98.05% mask overlap. Across overlapping
+pixels, median absolute depth difference is `8.32e-5`, but p90 is
+`0.00489`; only 466,537 of 901,054 differ by less than `1e-4`.
+
+The depth comparison is a **coordinate diagnostic**, not SNR-04 acceptance.
+It samples only one of four compatibility samples and compares an
+identity-shaded selected-only replay with a compatibility target that also
+contains retained work. The large upper-band depth differences must be
+attributed by draw and material before accepting parity. The next bounded
+check needs a same-run 4× private replay with matching depth/stencil and
+alpha behavior, plus per-draw comparison at matched events. Resource
+generation, continuous moving frames, unload/reload and production cost are
+also still open.

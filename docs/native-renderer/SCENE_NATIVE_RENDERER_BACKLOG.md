@@ -50,7 +50,10 @@ budgets. A later same-frame replay owns all 2,192 selected draws in six
 verified fixtures. The [complete selected-slice diagnostic](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md)
 now replays those draws in global sequence through logically carried private
 color/depth state. An adjacent moving-view sample independently owns 2,442
-selected draws and replays them through 36 stages. Material,
+selected draws and replays them through 36 stages. A further same-run
+RenderDoc/fixture capture compares all 1,562 selected draws with sample-0
+compatibility depth at the final draw of each EDRAM band; its 99.46% nonzero
+depth-mask overlap is a coordinate diagnostic, not parity. Material,
 resource-lifetime and pixel-aligned moving-frame parity checks remain open.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
@@ -445,8 +448,14 @@ file still covers only the first state per packet.
 The complete same-frame fixture set now replays 2,192/2,192 selected draws
 in 35 ordered stages with carried private color/depth. It covers 659,995
 pixels and is byte-repeatable; see the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
-Full compatibility coverage/depth parity, semantic material admission,
-resource freshness and continuous moving-frame/unload checks remain open.
+A second same-run RenderDoc capture owns 1,562/1,562 selected draws and
+compares the private target to sample-0 compatibility depth at the final
+draw of each of three EDRAM bands. The 99.46% nonzero-depth mask overlap
+supports the coordinate mapping, while the p90 absolute depth difference
+of `0.00489` leaves substantial unexplained depth error. Reproduce at 4×
+with matched alpha, stencil and per-draw event state before claiming parity.
+Semantic material admission, resource freshness and continuous
+moving-frame/unload checks remain open.
 A paired RenderDoc target check explains the apparent 180° mismatch against
 the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before

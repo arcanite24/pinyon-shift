@@ -15,6 +15,8 @@ import renderdoc as rd
 capture = Path(os.environ["SNR04_CAPTURE"])
 output = Path(os.environ["SNR04_OUTPUT"])
 events = [int(value) for value in os.environ["SNR04_EVENTS"].split(",")]
+depth_sample = os.environ.get("SNR04_DEPTH_SAMPLE")
+depth_sample = int(depth_sample) if depth_sample is not None else None
 assert events and all(event > 0 for event in events)
 state = {"stage": "open", "capture": capture.name, "events": events}
 output.write_text(json.dumps(state))
@@ -33,6 +35,7 @@ try:
         replay.SetFrameEvent(event, True)
         pipeline = replay.GetPipelineState()
         viewport = pipeline.GetViewport(0)
+        scissor = pipeline.GetScissor(0)
         vertex = pipeline.GetShaderReflection(rd.ShaderStage.Vertex)
         target = next((target for target in pipeline.GetOutputTargets()
                        if target.resource != rd.ResourceId.Null()), None)
@@ -40,6 +43,8 @@ try:
             rows.append({"event": event, "target": None})
             continue
         desc = textures[str(target.resource)]
+        depth = pipeline.GetDepthTarget()
+        depth_desc = textures.get(str(depth.resource))
         path = output.parent / f"{output.stem}-{event}.png"
         save = rd.TextureSave()
         save.resourceId = target.resource
@@ -48,13 +53,35 @@ try:
         result = replay.SaveTexture(save, str(path))
         if hasattr(result, "code") and result.code != rd.ResultCode.Succeeded:
             raise RuntimeError(f"SaveTexture {event}: {result}")
+        depth_output = None
+        if depth_sample is not None:
+            if not depth_desc or not 0 <= depth_sample < depth_desc.msSamp:
+                raise RuntimeError(f"invalid depth sample at event {event}")
+            subresource = rd.Subresource()
+            subresource.mip = depth.firstMip
+            subresource.slice = depth.firstSlice
+            subresource.sample = depth_sample
+            data = bytes(replay.GetTextureData(depth.resource, subresource))
+            depth_path = output.parent / f"{output.stem}-{event}-s{depth_sample}.depth"
+            depth_path.write_bytes(data)
+            depth_output = {"file": depth_path.name, "bytes": len(data),
+                            "sha256": hashlib.sha256(data).hexdigest()}
         rows.append({"event": event, "target": str(target.resource),
                      "vertex_sha256": hashlib.sha256(bytes(vertex.rawBytes)).hexdigest()
                      if vertex else None,
                      "format": desc.format.Name(),
                      "size": [desc.width, desc.height],
+                     "samples": desc.msSamp,
+                     "depth": {"resource": str(depth.resource),
+                               "format": depth_desc.format.Name(),
+                               "size": [depth_desc.width, depth_desc.height],
+                               "samples": depth_desc.msSamp}
+                     if depth_desc else None,
+                     "depth_output": depth_output,
                      "viewport": [viewport.x, viewport.y,
                                   viewport.width, viewport.height],
+                     "scissor": [scissor.x, scissor.y,
+                                 scissor.width, scissor.height],
                      "file": path.name})
         state.update(stage="export", last_event=event)
         output.write_text(json.dumps(state))
