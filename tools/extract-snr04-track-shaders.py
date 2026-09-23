@@ -64,6 +64,10 @@ def extract(fixture: Path, pack: Path, output: Path) -> dict:
               "entries": entries}
     (output / "manifest.json").write_text(
         json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    (output / "manifest.sha256").write_text(
+        f"fixture {result['fixture_sha256'].lower()}\n"
+        + "".join(f"{entry['sha256'].lower()} {entry['file']}\n"
+                  for entry in entries), encoding="ascii")
     return {"source_frame": source, "shaders": len(entries),
             "bytecode_bytes": sum(entry["bytes"] for entry in entries),
             "pack_sha256": metadata["pack_sha256"]}
