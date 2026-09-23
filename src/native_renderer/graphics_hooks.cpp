@@ -519,9 +519,15 @@ std::array<uint32_t, 16> snr02_track_camera80{};
 std::array<uint32_t, 16> snr02_track_camera144{};
 using Snr02TrackRange = std::pair<uint32_t, uint32_t>;
 struct Snr02TrackDraw {
-  uint64_t sequence, vertex_shader, pixel_shader;
-  uint32_t packet, command_buffer, index_count, stride_words;
+  uint64_t sequence, vertex_shader, pixel_shader, vertex_specialization;
+  uint64_t dynamic_state = 0;
+  uint32_t packet, command_buffer, index_count, stride_words, host_index_format;
   Snr02TrackRange vertex, index;
+  std::array<uint64_t, 4> vertex_bitmap{};
+  std::vector<uint32_t> vertex_packed;
+  std::array<uint32_t, 64> system_constants{};
+  std::array<uint32_t, 4> fetch47{};
+  bool final_seen = false;
 };
 struct Snr02TrackPayload {
   std::map<Snr02TrackRange, std::vector<uint8_t>> vertices, indices;
@@ -1133,8 +1139,65 @@ void ObserveSnr02ItemFinalDrawState(
                                        packed_words)));
 }
 
+void ObserveSnr02TrackFinalDrawState(
+    const rex::system::GraphicsFinalDrawStateObservation& observation) {
+  if (Snr02TrackTargetFrame() <= 0 ||
+      observation.frame_sequence != uint64_t(Snr02TrackTargetFrame()) + 1) return;
+  std::lock_guard lock(snr02_track_targets_mutex);
+  auto& payload = snr02_track_payload;
+  const auto found = std::find_if(payload.draws.begin(), payload.draws.end(),
+                                  [&](const auto& draw) {
+    return draw.sequence == observation.draw_sequence;
+  });
+  if (found == payload.draws.end()) return;
+  auto& draw = *found;
+  if (draw.final_seen || draw.packet != observation.draw_packet_physical_address ||
+      !observation.system_constant_words ||
+      observation.system_constant_word_count < 64 ||
+      !observation.fetch_47_words ||
+      !observation.vertex_float_constant_words ||
+      !observation.bound_vertex_float_constant_words ||
+      observation.bound_vertex_float_constant_count * 4 !=
+          draw.vertex_packed.size()) {
+    payload.rejected = true;
+    return;
+  }
+  uint32_t word = 0;
+  bool vertex_changed = false;
+  for (uint32_t reg = 0; reg < 256; ++reg) {
+    if (draw.vertex_bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+      vertex_changed |= !std::equal(
+          draw.vertex_packed.begin() + word,
+          draw.vertex_packed.begin() + word + 4,
+          observation.vertex_float_constant_words + reg * 4);
+      word += 4;
+    }
+  }
+  const bool bound_changed = !std::equal(
+      draw.vertex_packed.begin(), draw.vertex_packed.end(),
+      observation.bound_vertex_float_constant_words);
+  if (vertex_changed || bound_changed) payload.rejected = true;
+  draw.dynamic_state = observation.dynamic_state;
+  std::copy_n(observation.system_constant_words, 64,
+              draw.system_constants.begin());
+  std::copy_n(observation.fetch_47_words, 4, draw.fetch47.begin());
+  draw.final_seen = true;
+  REXGPU_INFO("FH1 SNR02 track final state {{\"frame\":{},\"packet\":{},"
+              "\"sequence\":{},\"dynamic\":{},"
+              "\"system_hash\":{},\"fetch47_hash\":{},"
+              "\"vertex_changed\":{},\"bound_changed\":{},"
+              "\"bound_hash\":{}}}",
+              observation.frame_sequence, draw.packet, draw.sequence,
+              draw.dynamic_state, Snr02HashWords(draw.system_constants),
+              Snr02HashWords(draw.fetch47), vertex_changed, bound_changed,
+              Snr02HashWords(std::span(
+                  observation.bound_vertex_float_constant_words,
+                  draw.vertex_packed.size())));
+}
+
 void ObserveSnr03FinalDrawState(
     const rex::system::GraphicsFinalDrawStateObservation& observation) {
+  ObserveSnr02TrackFinalDrawState(observation);
   ObserveSnr02ItemFinalDrawState(observation);
   const int32_t target = Snr03TargetFrame();
   if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) {
@@ -1300,6 +1363,9 @@ void ObservePreparedDraw(
   if (Snr02SelectTrackSnapshot(observation.frame_sequence,
                                observation.command_buffer_physical_address)) {
     bool captured = false;
+    uint32_t packed_words = 0;
+    uint64_t packed_hash = 0;
+    std::array<uint64_t, 4> bitmap{};
     {
       std::lock_guard lock(snr02_track_targets_mutex);
       auto& payload = snr02_track_payload;
@@ -1307,7 +1373,10 @@ void ObservePreparedDraw(
           observation.draw_sequence && observation.guest_primitive_type == 6 &&
           observation.index_buffer_type == 1 &&
           observation.vertex_fetch_count == 1 && observation.vertex_fetches &&
-          observation.vertex_fetch_capacity >= 1) {
+          observation.vertex_fetch_capacity >= 1 &&
+          observation.vertex_float_constant_bitmap &&
+          observation.vertex_float_constant_words &&
+          observation.vertex_float_constant_count <= 256) {
         const auto& fetch = observation.vertex_fetches[0];
         const Snr02TrackRange vertex{fetch.guest_base, fetch.length};
         const Snr02TrackRange index{observation.index_buffer_guest_base,
@@ -1322,14 +1391,35 @@ void ObservePreparedDraw(
                                observation.index_cpu_snapshot_bytes,
                                observation.index_cpu_snapshot_status,
                                observation.index_cpu_snapshot_hash, payload)) {
-          payload.draws.push_back({observation.draw_sequence,
-                                   observation.vertex_shader_hash,
-                                   observation.pixel_shader_hash,
-                                   observation.draw_packet_physical_address,
-                                   observation.command_buffer_physical_address,
-                                   observation.index_count, fetch.stride_words,
-                                   vertex, index});
-          captured = true;
+          Snr02TrackDraw draw{};
+          draw.sequence = observation.draw_sequence;
+          draw.vertex_shader = observation.vertex_shader_hash;
+          draw.pixel_shader = observation.pixel_shader_hash;
+          draw.vertex_specialization = observation.vertex_specialization_mask;
+          draw.packet = observation.draw_packet_physical_address;
+          draw.command_buffer = observation.command_buffer_physical_address;
+          draw.index_count = observation.index_count;
+          draw.stride_words = fetch.stride_words;
+          draw.host_index_format = observation.host_index_format;
+          draw.vertex = vertex;
+          draw.index = index;
+          std::copy_n(observation.vertex_float_constant_bitmap, 4,
+                      draw.vertex_bitmap.begin());
+          bitmap = draw.vertex_bitmap;
+          draw.vertex_packed.reserve(observation.vertex_float_constant_count * 4);
+          for (uint32_t reg = 0; reg < 256; ++reg) {
+            if (draw.vertex_bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+              const auto* words = observation.vertex_float_constant_words + reg * 4;
+              draw.vertex_packed.insert(draw.vertex_packed.end(), words, words + 4);
+            }
+          }
+          if (draw.vertex_packed.size() ==
+              observation.vertex_float_constant_count * 4) {
+            packed_words = uint32_t(draw.vertex_packed.size());
+            packed_hash = Snr02HashWords(draw.vertex_packed);
+            payload.draws.push_back(std::move(draw));
+            captured = true;
+          }
         }
       }
       if (!captured) payload.rejected = true;
@@ -1338,7 +1428,10 @@ void ObservePreparedDraw(
                 "\"command_buffer\":{},\"sequence\":{},"
                 "\"index_base\":{},\"index_length\":{},"
                 "\"index_status\":{},\"index_hash\":{},"
-                "\"captured\":{}}}",
+                "\"specialization\":{},\"host_index_format\":{},"
+                "\"bitmap\":[{},{},{},{}],"
+                "\"captured\":{},\"packed_words\":{},"
+                "\"packed_hash\":{}}}",
                 observation.frame_sequence,
                 observation.draw_packet_physical_address,
                 observation.command_buffer_physical_address,
@@ -1346,7 +1439,11 @@ void ObservePreparedDraw(
                 observation.index_buffer_guest_base,
                 observation.index_buffer_length,
                 observation.index_cpu_snapshot_status,
-                observation.index_cpu_snapshot_hash, captured);
+                observation.index_cpu_snapshot_hash,
+                observation.vertex_specialization_mask,
+                observation.host_index_format,
+                bitmap[0], bitmap[1], bitmap[2], bitmap[3], captured,
+                packed_words, packed_hash);
   }
   static const bool corpus_enabled =
       rex::cvar::GetFlagByName("pinyon_shift_fh1_gpu_corpus") == "true";
@@ -1629,7 +1726,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
   graphics_system->SetPreparedDrawSnapshotSelector(
       Snr02TrackTargetFrame() > 0 ? &Snr02SelectTrackSnapshot : nullptr);
   graphics_system->SetFinalDrawStateObserver(
-      Snr03ProbeEnabled() || Snr02ItemProbeEnabled()
+      Snr03ProbeEnabled() || Snr02ItemProbeEnabled() ||
+              Snr02TrackTargetFrame() > 0
           ? &ObserveSnr03FinalDrawState : nullptr);
   graphics_system->SetIndirectBufferObserver(
       REXCVAR_GET(pinyon_shift_snr01_trace_source_frame) > 0 ||
@@ -1705,6 +1803,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
   for (const auto& draw : payload.draws) {
     seen_targets.insert(draw.command_buffer);
     if (!sequences.insert(draw.sequence).second) payload.rejected = true;
+    if (!draw.final_seen) payload.rejected = true;
   }
   if (!ready || payload.rejected || payload.draws.empty() ||
       seen_targets != targets) {
@@ -1720,7 +1819,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
     encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '1', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '2', '\0'};
   write(magic);
   write(output_frame - 1);
   write(uint32_t(targets.size()));
@@ -1751,6 +1850,14 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     write(draw.vertex.second);
     write(draw.index.first);
     write(draw.index.second);
+    write(draw.vertex_specialization);
+    write(draw.dynamic_state);
+    write(draw.host_index_format);
+    write(draw.vertex_bitmap);
+    write(uint32_t(draw.vertex_packed.size()));
+    for (uint32_t word : draw.vertex_packed) write(word);
+    write(draw.system_constants);
+    write(draw.fetch47);
   }
   const auto directory = fh1_render_test::OutputDirectory();
   const bool written = !directory.empty() &&

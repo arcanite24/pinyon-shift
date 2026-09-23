@@ -20,11 +20,19 @@ def hash_bytes(data: bytes) -> int:
     return value
 
 
+def hash_words(words) -> int:
+    value = 14695981039346656037
+    for word in words:
+        value = ((value ^ word) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return value
+
+
 def read_fixture(path: Path):
     data = path.read_bytes()
     magic, source, targets, draws, vertices, indices = struct.unpack_from(
         "<8sQ4I", data)
-    assert magic == b"SNR02T1\0" and targets <= 256 and draws <= 4096
+    assert magic in (b"SNR02T1\0", b"SNR02T2\0")
+    assert targets <= 256 and draws <= 4096
     assert vertices <= 4096 and indices <= 4096
     offset = 32
     camera = struct.unpack_from("<32I", data, offset)
@@ -50,9 +58,28 @@ def read_fixture(path: Path):
         values = struct.unpack_from("<QQQ8I", data, offset)
         offset += 56
         assert values[0] not in records
-        records[values[0]] = values
+        final = None
+        if magic == b"SNR02T2\0":
+            specialization, dynamic, host_index_format = struct.unpack_from(
+                "<QQI", data, offset)
+            offset += 20
+            bitmap = struct.unpack_from("<4Q", data, offset)
+            offset += 32
+            packed_count, = struct.unpack_from("<I", data, offset)
+            offset += 4
+            assert packed_count <= 1024
+            packed = struct.unpack_from(f"<{packed_count}I", data, offset)
+            offset += packed_count * 4
+            system = struct.unpack_from("<64I", data, offset)
+            offset += 256
+            fetch47 = struct.unpack_from("<4I", data, offset)
+            offset += 16
+            assert sum(word.bit_count() for word in bitmap) * 4 == packed_count
+            final = (specialization, dynamic, host_index_format,
+                     bitmap, packed, system, fetch47)
+        records[values[0]] = (values, final)
     assert offset == len(data)
-    return source, title_targets, ranges[0], ranges[1], records
+    return source, title_targets, ranges[0], ranges[1], records, magic
 
 
 def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
@@ -68,13 +95,14 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
     }
     assert selected and len(selected) <= 4096
     title_targets = set()
-    prepared, vertices, indices = {}, {}, {}
+    prepared, vertices, indices, finals = {}, {}, {}, {}
     for line in log_path.open(encoding="utf-8-sig", errors="replace"):
         for marker, destination in (
             ("FH1 SNR01 scene indirect packet ", "title"),
             ("FH1 SNR01 prepared draw ", "draw"),
             ("FH1 SNR01 prepared vertex fetch ", "vertex"),
             ("FH1 SNR02 track geometry ", "index"),
+            ("FH1 SNR02 track final state ", "final"),
         ):
             if marker not in line:
                 continue
@@ -94,14 +122,19 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
                     assert row["sequence"] not in indices
                     assert row["captured"]
                     indices[row["sequence"]] = row
+                elif destination == "final":
+                    assert row["sequence"] not in finals
+                    finals[row["sequence"]] = row
             break
     assert title_targets == {row["execution_command_buffer"]
                              for row in selected.values()}
     assert len(indices) == len(selected)
-    fixture_source, fixture_targets, owned_vertices, owned_indices, records = (
+    fixture_source, fixture_targets, owned_vertices, owned_indices, records, magic = (
         read_fixture(fixture_path))
     assert fixture_source == source and fixture_targets == title_targets
     assert len(records) == len(selected)
+    if magic == b"SNR02T2\0":
+        assert len(finals) == len(selected)
     vertex_versions = collections.defaultdict(set)
     index_versions = collections.defaultdict(set)
     failures = collections.Counter()
@@ -116,12 +149,26 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         assert draw["index_buffer_length"] == index["index_length"]
         assert draw["guest_primitive_type"] == 6 and draw["index_buffer_type"] == 1
         assert 4 <= vertex["stride_words"] <= 9 and draw["vertex_fetch_count"] == 1
-        record = records[draw["sequence"]]
+        record, final = records[draw["sequence"]]
         assert record[1:7] == (draw["vertex_shader"], draw["pixel_shader"],
                                draw["packet_physical"], draw["command_buffer"],
                                draw["index_count"], vertex["stride_words"])
         assert record[7:9] == (vertex["guest_base"], vertex["length"])
         assert record[9:11] == (index["index_base"], index["index_length"])
+        if final:
+            specialization, dynamic, host_index_format, bitmap, packed, system, fetch47 = final
+            final_log = finals[draw["sequence"]]
+            assert (specialization, host_index_format) == (
+                index["specialization"], index["host_index_format"])
+            assert list(bitmap) == index["bitmap"]
+            assert len(packed) == index["packed_words"]
+            assert hash_words(packed) == index["packed_hash"]
+            assert final_log["packet"] == draw["packet_physical"]
+            assert final_log["dynamic"] == dynamic
+            assert not final_log["vertex_changed"] and not final_log["bound_changed"]
+            assert hash_words(system) == final_log["system_hash"]
+            assert hash_words(fetch47) == final_log["fetch47_hash"]
+            assert hash_words(packed) == final_log["bound_hash"]
         vertex_bytes += vertex["length"]
         index_bytes += index["index_length"]
         if vertex["cpu_snapshot_status"] != 1:
@@ -139,9 +186,12 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
     assert len(owned_vertices) == len(vertex_versions)
     assert len(owned_indices) == len(index_versions)
     return {
-        "schema": "pinyon-shift.snr02-track-geometry.v1",
+        "schema": ("pinyon-shift.snr02-track-geometry.v2"
+                   if magic == b"SNR02T2\0" else
+                   "pinyon-shift.snr02-track-geometry.v1"),
         "source_frame": source,
         "draws": len(selected),
+        "final_draws": len(finals),
         "title_targets": len(title_targets),
         "vertex_bytes_repeated": vertex_bytes,
         "index_bytes_repeated": index_bytes,
