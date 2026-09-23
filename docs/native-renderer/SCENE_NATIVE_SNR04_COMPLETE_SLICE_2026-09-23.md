@@ -372,3 +372,55 @@ The next bounded implementation should bind the event's captured pixel
 constants, sampler and BC3 mip chain, execute its alpha/sample-mask path,
 and repeat this exact-prior check. Only then should the same change extend
 across all 53 textured vegetation actions and the complete selected slice.
+
+### Bounded BC3 alpha and sample-mask replay
+
+`tools/probe-snr04-vegetation-alpha-state.py` exports all four bound pixel
+constant blocks, used SRVs and samplers for event 11204. In the same-run
+capture, pixel constant block 1 matches the fixture's twelve words exactly.
+The captured descriptor indices select BC3 resource 8122 at slot 816 and
+sampler 14, which clamps UVs and uses 4× anisotropic filtering. The BC3
+nine-mip chain has SHA-256
+`812AF0DC0BCFE510207BAB31EB22FF7E55693FBE65F109B3A19A0D7C25D5478E`.
+The system/fetch blocks specify a 256×256 texture, unit derivative scale,
+alpha-test mode 7, four-sample mask mode and pattern 426.
+
+An opt-in diagnostic uses this verified BC3 chain and sampler with the
+captured shader's alpha product and four threshold comparisons. It retains
+the translated vertex shader and private identity output. The mode accepts
+only matched sequence 10125747, draw ID 290, a 4× target and imported
+compatibility prior depth; it does not replace the original pixel shader
+or generalize the captured state to other draws.
+
+| Sample | Compatibility writes | Unmasked private | BC3 mask private | BC3 shared |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 27,325 | 91,039 | 27,234 | 12,087 |
+| 1 | 54,472 | 82,522 | 54,569 | 47,285 |
+| 2 | 43,233 | 87,275 | 43,576 | 29,990 |
+| 3 | 8,458 | 95,448 | 8,512 | 1,259 |
+
+The per-sample write counts are now within 0.8% of the compatibility
+counts. The BC3 path changes 60,009 pixels, close to the reference's
+59,649, but only 50,759 pixels overlap (73.67% union overlap). Depth p90
+on shared sample writes remains `0.0030`–`0.0047`. This validates the
+bounded texture and mask path as a useful diagnostic, while showing a
+spatial/UV or remaining shader-state difference. The next check must
+compare interpolated UV, centroid fade and mip choice at matched pixels,
+then test the original translated pixel shader before expanding the path.
+
+```powershell
+$base = '.local/native-renderer/snr04'
+$env:SNR04_CAPTURE = (Resolve-Path "$base/renderdoc-gatea-full-b_frame5001.rdc").Path
+$env:SNR04_OUTPUT = (Join-Path (Get-Location) "$base/renderdoc-gatea-full-b-alpha-state-11204.json")
+$env:SNR04_EVENT = '11204'
+& .local/tools/renderdoc-1.46/RenderDoc_1.46_64/qrenderdoc.exe `
+  --python tools/probe-snr04-vegetation-alpha-state.py
+python tools/check-snr04-matched-vegetation-draw.py `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-depth.json" `
+  "$base/renderdoc-gatea-full-live-b/snr03-scene-5001.bin" `
+  '.local/native-renderer/seeded-probe/translation/dxil/vertex_5834939992FFC765_000000000000001F.dxil' `
+  'out/build/win-amd64-relwithdebinfo/pinyon_shift_snr04_owned_scene_diagnostic.exe' `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-alpha-check" `
+  --frame 5001 --sequence 10125747 --draw-id 290 --rows 256 `
+  --alpha-bc3 "$base/renderdoc-gatea-full-b-bc3/ResourceId-8122.bc3mips"
+```

@@ -12,6 +12,7 @@ struct Snr04SegmentOptions {
   uint64_t first_sequence = 0, last_sequence = 0;
   uint32_t first_id = 0, draw_count = 0;
   std::filesystem::path prior_output;
+  std::filesystem::path alpha_bc3;
 };
 
 uint32_t RunSnr04OwnedSceneDiagnostic(

@@ -536,6 +536,94 @@ uint32_t write_sample_capture(const std::filesystem::path& directory,
           "empty or unwritable four-sample diagnostic");
   return covered;
 }
+
+struct AlphaTexture {
+  ComPtr<ID3D12Resource> image, staging;
+  ComPtr<ID3D12DescriptorHeap> views, samplers;
+  std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT, 9> layouts{};
+};
+AlphaTexture make_alpha_texture(ID3D12Device* device,
+                                const std::filesystem::path& path) {
+  const auto bytes = read(path);
+  require(bytes.size() == 87408 &&
+              sha256(bytes) ==
+                  "812af0dc0bcfe510207bab31eb22ff7e55693fbe65f109b3a19a0d7c25d5478e",
+          "wrong matched-event BC3 mip chain");
+  D3D12_RESOURCE_DESC description{};
+  description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  description.Width = description.Height = 256;
+  description.DepthOrArraySize = 1;
+  description.MipLevels = 9;
+  description.Format = DXGI_FORMAT_BC3_UNORM;
+  description.SampleDesc.Count = 1;
+  D3D12_HEAP_PROPERTIES properties{};
+  properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+  AlphaTexture alpha;
+  check(device->CreateCommittedResource(
+      &properties, D3D12_HEAP_FLAG_NONE, &description,
+      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&alpha.image)));
+  std::array<UINT, 9> rows{};
+  std::array<UINT64, 9> row_bytes{};
+  uint64_t total = 0;
+  device->GetCopyableFootprints(&description, 0, 9, 0, alpha.layouts.data(),
+                                rows.data(), row_bytes.data(), &total);
+  alpha.staging = buffer(device, total, D3D12_HEAP_TYPE_UPLOAD,
+                         D3D12_RESOURCE_STATE_GENERIC_READ);
+  void* mapped = nullptr;
+  D3D12_RANGE empty{};
+  check(alpha.staging->Map(0, &empty, &mapped));
+  size_t offset = 0;
+  for (uint32_t mip = 0; mip < 9; ++mip) {
+    require(offset + rows[mip] * row_bytes[mip] <= bytes.size(),
+            "truncated matched-event BC3 mip");
+    for (UINT row = 0; row < rows[mip]; ++row)
+      std::memcpy(static_cast<char*>(mapped) + alpha.layouts[mip].Offset +
+                      row * alpha.layouts[mip].Footprint.RowPitch,
+                  bytes.data() + offset + row * row_bytes[mip], row_bytes[mip]);
+    offset += rows[mip] * row_bytes[mip];
+  }
+  alpha.staging->Unmap(0, nullptr);
+  require(offset == bytes.size(), "extra matched-event BC3 bytes");
+  D3D12_DESCRIPTOR_HEAP_DESC heap{};
+  heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  heap.NumDescriptors = 1;
+  heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  check(device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&alpha.views)));
+  D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+  view.Format = DXGI_FORMAT_BC3_UNORM;
+  view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+  view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+  view.Texture2DArray.ArraySize = 1;
+  view.Texture2DArray.MipLevels = 9;
+  device->CreateShaderResourceView(alpha.image.Get(), &view,
+                                   alpha.views->GetCPUDescriptorHandleForHeapStart());
+  heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+  check(device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&alpha.samplers)));
+  D3D12_SAMPLER_DESC sampler{};
+  sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+  sampler.AddressU = sampler.AddressV = sampler.AddressW =
+      D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+  sampler.MaxAnisotropy = 4;
+  sampler.MaxLOD = D3D12_FLOAT32_MAX;
+  device->CreateSampler(&sampler,
+                        alpha.samplers->GetCPUDescriptorHandleForHeapStart());
+  return alpha;
+}
+void upload_alpha_texture(ID3D12GraphicsCommandList* commands,
+                          const AlphaTexture& alpha) {
+  for (uint32_t mip = 0; mip < 9; ++mip) {
+    D3D12_TEXTURE_COPY_LOCATION to{}, from{};
+    to.pResource = alpha.image.Get();
+    to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.SubresourceIndex = mip;
+    from.pResource = alpha.staging.Get();
+    from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    from.PlacedFootprint = alpha.layouts[mip];
+    commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  }
+  transition(commands, alpha.image.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+}
 }  // namespace
 
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
@@ -551,6 +639,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                 segment->first_id && segment->draw_count &&
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid vegetation segment");
+  const bool alpha_probe = segment && !segment->alpha_bc3.empty();
+  if (alpha_probe)
+    require(samples == 4 && segment->first_sequence == 10125747 &&
+                segment->last_sequence == 10125747 &&
+                segment->first_id == 290 && segment->draw_count == 1 &&
+                !segment->prior_output.empty(),
+            "alpha probe requires matched event 11204 and compatibility prior");
   const auto begin = std::chrono::steady_clock::now();
   auto scene = load_scene(fixture);
   auto vs = read(vertex_shader);
@@ -581,7 +676,35 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   ComPtr<ID3DBlob> ps, errors;
   check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
                    "main", "ps_5_1", 0, 0, &ps, &errors));
-  D3D12_ROOT_PARAMETER parameters[6]{};
+  // Event 11204's captured BC3 alpha path and four SV_Coverage thresholds.
+  constexpr char alpha_source[] =
+      "cbuffer Item : register(b2) { uint id; };"
+      "Texture2DArray<float4> foliage : register(t0);"
+      "SamplerState foliage_sampler : register(s0);"
+      "struct Input { float4 uv : TEXCOORD0;"
+      " centroid float4 v1 : TEXCOORD1; float4 v2 : TEXCOORD2;"
+      " centroid float4 v3 : TEXCOORD3;"
+      " centroid float4 fade : TEXCOORD4; float4 position : SV_Position; };"
+      "struct Output { float4 color : SV_Target0; uint mask : SV_Coverage; };"
+      "Output main(Input p) {"
+      " float2 uv = p.uv.xy + 0.001465 / 256.0;"
+      " float alpha = foliage.SampleGrad(foliage_sampler, float3(uv, 0),"
+      " ddx_coarse(uv), ddy_coarse(uv)).a * p.fade.w;"
+      " uint shift = (((uint)p.position.x & 1u) << 2) |"
+      " (((uint)p.position.y & 1u) << 1);"
+      " float dither = (float)((426u >> shift) & 3u) * 0.0625;"
+      " Output o;"
+      " o.mask = (alpha >= 0.75 - dither ? 1u : 0u) |"
+      " (alpha >= 0.25 - dither ? 2u : 0u) |"
+      " (alpha >= 0.50 - dither ? 4u : 0u) |"
+      " (alpha >= 1.00 - dither ? 8u : 0u);"
+      " o.color = float4((id & 255) / 255.0, ((id >> 8) & 255) / 255.0, 0, 1);"
+      " return o; }";
+  ComPtr<ID3DBlob> alpha_ps;
+  if (alpha_probe)
+    check(D3DCompile(alpha_source, sizeof(alpha_source) - 1, nullptr, nullptr,
+                     nullptr, "main", "ps_5_1", 0, 0, &alpha_ps, &errors));
+  D3D12_ROOT_PARAMETER parameters[8]{};
   for (uint32_t i = 0; i < 4; ++i) {
     parameters[i].ParameterType =
         i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV : D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -595,8 +718,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
   parameters[5].Descriptor.ShaderRegister = 0;
   parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  D3D12_DESCRIPTOR_RANGE alpha_view_range{}, alpha_sampler_range{};
+  if (alpha_probe) {
+    alpha_view_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    alpha_view_range.NumDescriptors = 1;
+    alpha_sampler_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    alpha_sampler_range.NumDescriptors = 1;
+    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[6].DescriptorTable = {1, &alpha_view_range};
+    parameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[7].DescriptorTable = {1, &alpha_sampler_range};
+    parameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  }
   D3D12_ROOT_SIGNATURE_DESC root_description{
-      6, parameters, 0, nullptr,
+      alpha_probe ? 8u : 6u, parameters, 0, nullptr,
       D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
           D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT};
   ComPtr<ID3DBlob> root_blob;
@@ -639,6 +775,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
       }
     }
     check(pipeline_result);
+  }
+  ComPtr<ID3D12PipelineState> alpha_pipeline;
+  if (alpha_probe) {
+    auto description = pipeline_description;
+    description.PS = {alpha_ps->GetBufferPointer(), alpha_ps->GetBufferSize()};
+    check(device->CreateGraphicsPipelineState(&description,
+                                              IID_PPV_ARGS(&alpha_pipeline)));
   }
   D3D12_SO_DECLARATION_ENTRY position_declaration{0, "SV_Position", 0, 0, 4, 0};
   UINT position_stride = 16;
@@ -735,6 +878,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     }
     owned.push_back(std::move(resource));
   }
+  AlphaTexture alpha_texture;
+  if (alpha_probe)
+    alpha_texture = make_alpha_texture(device.Get(), segment->alpha_bc3);
   const auto built = std::chrono::steady_clock::now();
 
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
@@ -840,6 +986,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
       depth_layout, rtv_handle, dsv_handle, segment, samples);
+  if (alpha_probe) upload_alpha_texture(commands.Get(), alpha_texture);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -872,6 +1019,21 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                     draw.sequence > segment->last_sequence)) continue;
     const auto& item = scene.items[draw.item];
     const auto& resource = owned[draw.item];
+    if (alpha_probe) {
+      const auto& system = item.variants[draw.variant].system;
+      require(item.packet == 317998104 && system[0] == 984 &&
+                  system[44] == 16191 && system[54] == 1 &&
+                  system[55] == 1 && system[57] == 426,
+              "matched foliage alpha state changed");
+      ID3D12DescriptorHeap* heaps[]{alpha_texture.views.Get(),
+                                    alpha_texture.samplers.Get()};
+      commands->SetDescriptorHeaps(2, heaps);
+      commands->SetGraphicsRootDescriptorTable(
+          6, alpha_texture.views->GetGPUDescriptorHandleForHeapStart());
+      commands->SetGraphicsRootDescriptorTable(
+          7, alpha_texture.samplers->GetGPUDescriptorHandleForHeapStart());
+      commands->SetPipelineState(alpha_pipeline.Get());
+    }
     commands->SetGraphicsRootConstantBufferView(
         0, resource.b0_variants[draw.variant]->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
@@ -1098,7 +1260,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
             << "\"last_sequence\":" << segment->last_sequence << ','
             << "\"first_id\":" << segment->first_id << ','
             << "\"draws\":" << segment_draws << ','
-            << "\"covered_pixels\":" << covered << "}\n";
+            << "\"covered_pixels\":" << covered;
+    if (alpha_probe) summary << ",\"alpha_probe\":true";
+    summary << "}\n";
     summary.close();
     require(bool(summary), "vegetation segment summary write failed");
     return covered;

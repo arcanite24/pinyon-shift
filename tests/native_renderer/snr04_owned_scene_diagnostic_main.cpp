@@ -8,12 +8,15 @@
 
 int main(int argc, char** argv) {
   const bool msaa4 = argc >= 5 && std::string_view(argv[4]) == "--msaa4";
+  const bool alpha = argc == 13 && msaa4 &&
+      std::string_view(argv[11]) == "--alpha-bc3";
   const bool segment =
       (argc == 10 && std::string_view(argv[4]) == "--segment") ||
-      (argc == 11 && msaa4 && std::string_view(argv[5]) == "--segment");
+      ((argc == 11 || alpha) && msaa4 &&
+       std::string_view(argv[5]) == "--segment");
   if (argc != 4 && (argc != 5 || std::string_view(argv[4]) != "--msaa4") &&
       !segment) {
-    std::cerr << "usage: snr04-owned-scene-diagnostic FIXTURE VS_DXBC OUTPUT_DIR [--msaa4] [--segment FIRST_SEQUENCE LAST_SEQUENCE FIRST_ID COUNT PRIOR_DIR_OR_DASH]\n";
+    std::cerr << "usage: snr04-owned-scene-diagnostic FIXTURE VS_DXBC OUTPUT_DIR [--msaa4] [--segment FIRST_SEQUENCE LAST_SEQUENCE FIRST_ID COUNT PRIOR_DIR_OR_DASH] [--alpha-bc3 BC3_MIPS]\n";
     return 1;
   }
   try {
@@ -26,11 +29,14 @@ int main(int argc, char** argv) {
       options.draw_count = std::stoul(argv[first + 3]);
       if (std::string_view(argv[first + 4]) != "-")
         options.prior_output = argv[first + 4];
+      if (alpha) options.alpha_bc3 = argv[12];
     }
     const auto* selected = segment ? &options : nullptr;
     std::ifstream input(argv[1], std::ios::binary);
     char magic[8]{};
     input.read(magic, sizeof(magic));
+    if (alpha && std::string_view(magic, 7) != "SNR03F3")
+      throw std::runtime_error("alpha probe requires sequenced vegetation fixture");
     if (input && (std::string_view(magic, 7) == "SNR02I3" ||
                   std::string_view(magic, 7) == "SNR03C1")) {
       const auto covered = pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(

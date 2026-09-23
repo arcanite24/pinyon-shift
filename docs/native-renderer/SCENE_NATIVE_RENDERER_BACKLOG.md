@@ -472,7 +472,11 @@ exact-prior single-draw check for matched event 11204 explains the immediate
 next step: 133,449/133,488 compatibility depth writes also occur in the
 private draw, but the unmasked private draw adds 222,835 samples. Bind its
 captured BC3 alpha/sample-mask path, then expand to all 53 textured foliage
-actions; see
+actions. An opt-in event-11204 probe now matches each compatibility
+per-sample write count within 0.8% using the verified BC3 mip chain, but
+spatial pixel overlap is only 73.67%. Resolve the interpolated UV/fade,
+mip/filter or remaining shader-state difference against the original pixel
+shader before broadening this path; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous
 moving-frame/unload checks remain open.

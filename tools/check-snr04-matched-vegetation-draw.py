@@ -52,14 +52,20 @@ def check(args):
                str(args.shader.resolve()), str(result), "--msaa4", "--segment",
                str(args.sequence), str(args.sequence), str(args.draw_id), "1",
                str(prior)]
-    subprocess.run(command, check=True, capture_output=True, text=True)
+    if args.alpha_bc3:
+        command += ["--alpha-bc3", str(args.alpha_bc3.resolve())]
+    run = subprocess.run(command, capture_output=True, text=True)
+    if run.returncode:
+        raise RuntimeError(run.stderr.strip())
     private_after = array("f")
     private_after.frombytes((result / "depth.f32x4").read_bytes())
     assert len(private_after) == len(depths)
     summary = json.loads((result / "summary.json").read_text(encoding="utf-8"))
     assert (summary["source_frame"], summary["draws"], summary["first_id"]) == (
         args.frame, 1, args.draw_id)
+    assert summary.get("alpha_probe", False) == bool(args.alpha_bc3)
     totals = [dict(reference=0, private=0, overlap=0) for _ in range(4)]
+    errors = [[] for _ in range(4)]
     any_reference = any_private = any_overlap = 0
     for pixel in range(WIDTH * args.rows):
         reference_mask = private_mask = 0
@@ -74,14 +80,25 @@ def check(args):
             count["reference"] += ref_changed
             count["private"] += private_changed
             count["overlap"] += ref_changed and private_changed
+            if ref_changed and private_changed:
+                errors[sample].append(abs(reference_after[sample][pixel] -
+                                          private_after[pixel * 4 + sample]))
         any_reference += bool(reference_mask)
         any_private += bool(private_mask)
         any_overlap += bool(reference_mask) and bool(private_mask)
     assert any_reference == probe["coverage"]["pixels"]
+    for count, values in zip(totals, errors):
+        values.sort()
+        count["private_only"] = count["private"] - count["overlap"]
+        count["reference_only"] = count["reference"] - count["overlap"]
+        count["depth_p50"] = values[len(values) // 2] if values else None
+        count["depth_p90"] = values[int(len(values) * .9)] if values else None
     report = {"event": probe["event"], "source_frame": args.frame,
               "draw_id": args.draw_id, "rows": args.rows,
               "reference_any": any_reference, "private_any": any_private,
-              "overlap_any": any_overlap, "samples": totals}
+              "overlap_any": any_overlap,
+              "any_iou": any_overlap / (any_reference + any_private - any_overlap),
+              "alpha_bc3": bool(args.alpha_bc3), "samples": totals}
     (output / "comparison.json").write_text(json.dumps(report, indent=2) + "\n",
                                             encoding="utf-8")
     return report
@@ -95,4 +112,5 @@ if __name__ == "__main__":
     parser.add_argument("--sequence", type=int, required=True)
     parser.add_argument("--draw-id", type=int, required=True)
     parser.add_argument("--rows", type=int, required=True)
+    parser.add_argument("--alpha-bc3", type=Path)
     print(json.dumps(check(parser.parse_args()), sort_keys=True))
