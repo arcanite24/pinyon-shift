@@ -272,14 +272,67 @@ void transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
   barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, from, to};
   commands->ResourceBarrier(1, &barrier);
 }
+struct SegmentUploads {
+  ComPtr<ID3D12Resource> color, depth;
+};
+SegmentUploads initialize_segment_targets(
+    ID3D12Device* device, ID3D12GraphicsCommandList* commands,
+    ID3D12Resource* color, ID3D12Resource* depth,
+    const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& color_layout,
+    const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& depth_layout,
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv, D3D12_CPU_DESCRIPTOR_HANDLE dsv,
+    const pinyon_shift::native_renderer::Snr04SegmentOptions* segment) {
+  SegmentUploads uploads;
+  if (segment && !segment->prior_output.empty()) {
+    require(color_layout.Footprint.RowPitch == width * 4 &&
+                depth_layout.Footprint.RowPitch == width * 4,
+            "unsupported segment copy pitch");
+    const auto previous_color = read(segment->prior_output / "color.rgba");
+    const auto previous_depth = read(segment->prior_output / "depth.f32");
+    require(previous_color.size() == size_t(width) * height * 4 &&
+                previous_depth.size() == previous_color.size(),
+            "wrong prior segment dimensions");
+    uploads.color = upload(device, previous_color.data(), previous_color.size());
+    uploads.depth = upload(device, previous_depth.data(), previous_depth.size());
+    for (const auto& [target, input, state, layout] : {
+             std::tuple<ID3D12Resource*, ID3D12Resource*, D3D12_RESOURCE_STATES,
+                        D3D12_PLACED_SUBRESOURCE_FOOTPRINT>{
+                 color, uploads.color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+                 color_layout},
+             {depth, uploads.depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+              depth_layout}}) {
+      transition(commands, target, state, D3D12_RESOURCE_STATE_COPY_DEST);
+      D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+      from.pResource = input;
+      from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      from.PlacedFootprint = layout;
+      to.pResource = target;
+      to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+      transition(commands, target, D3D12_RESOURCE_STATE_COPY_DEST, state);
+    }
+  } else {
+    constexpr float clear_color[4]{};
+    commands->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+    commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  }
+  return uploads;
+}
 }  // namespace
 
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     std::span<const char> fixture,
     const std::filesystem::path& vertex_shader,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device, uint32_t samples) {
+    ID3D12Device* borrowed_device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
   require(samples == 1 || samples == 4, "unsupported sample count");
+  if (segment)
+    require(samples == 1 && segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid vegetation segment");
   const auto begin = std::chrono::steady_clock::now();
   auto scene = load_scene(fixture);
   auto vs = read(vertex_shader);
@@ -566,9 +619,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                                   IID_PPV_ARGS(&commands)));
   auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
   auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
-  constexpr float clear_color[4]{};
-  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
-  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  auto prior = initialize_segment_targets(
+      device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
+      depth_layout, rtv_handle, dsv_handle, segment);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -594,7 +647,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
               [](const DrawRef& a, const DrawRef& b) {
                 return a.sequence < b.sequence;
               });
+  require(!segment || scene.sequenced, "vegetation segment needs draw sequences");
+  uint32_t segment_draws = 0;
   for (const auto& draw : draws) {
+    if (segment && (draw.sequence < segment->first_sequence ||
+                    draw.sequence > segment->last_sequence)) continue;
     const auto& item = scene.items[draw.item];
     const auto& resource = owned[draw.item];
     commands->SetGraphicsRootConstantBufferView(
@@ -602,9 +659,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
-    commands->SetGraphicsRoot32BitConstant(4, UINT(draw.item + 1), 0);
+    commands->SetGraphicsRoot32BitConstant(
+        4, segment ? segment->first_id + segment_draws : UINT(draw.item + 1), 0);
     commands->DrawIndexedInstanced(item.vertex_count / 4 * 6, 1, 0, 0, 0);
+    ++segment_draws;
   }
+  require(!segment || segment_draws == segment->draw_count,
+          "vegetation segment draw count mismatch");
   commands->CopyBufferRegion(position_output.Get(), 0, position_zero.Get(), 0,
                              position_allocation);
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -728,6 +789,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   std::vector<uint32_t> item_pixels(scene.items.size());
   D3D12_RANGE empty{};
   if (samples == 1) {
+    std::ofstream rgba(directory / "color.rgba", std::ios::binary);
     void *colors = nullptr, *depths = nullptr;
     D3D12_RANGE color_range{0, SIZE_T(color_bytes)}, depth_range{0, SIZE_T(depth_bytes)};
     check(color_readback->Map(0, &color_range, &colors));
@@ -736,22 +798,27 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
       auto* color_row = static_cast<const uint8_t*>(colors) + y * color_layout.Footprint.RowPitch;
       auto* depth_row = reinterpret_cast<const float*>(
           static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+      rgba.write(reinterpret_cast<const char*>(color_row), width * 4);
       for (uint32_t x = 0; x < width; ++x) {
         const auto* pixel = color_row + x * 4;
         image.write(reinterpret_cast<const char*>(pixel), 3);
         const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
         if (id) {
-          require(id <= scene.items.size() && std::isfinite(depth_row[x]) &&
-                      depth_row[x] > 0 && depth_row[x] <= 1,
+          require((segment || id <= scene.items.size()) &&
+                      std::isfinite(depth_row[x]) &&
+                      (segment ? depth_row[x] >= 0 : depth_row[x] > 0) &&
+                      depth_row[x] <= 1,
                   "invalid covered pixel/depth");
           ++covered;
-          ++item_pixels[id - 1];
+          if (!segment) ++item_pixels[id - 1];
         }
       }
       depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
     }
     color_readback->Unmap(0, &empty);
     depth_readback->Unmap(0, &empty);
+    rgba.close();
+    require(bool(rgba), "vegetation rgba write failed");
     covered_any = covered_samples = covered;
   } else {
     constexpr size_t sample_bytes = size_t(width) * height * 4 * 8;
@@ -805,6 +872,19 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     return std::chrono::duration_cast<std::chrono::microseconds>(to - from).count();
   };
   std::ofstream summary(directory / "summary.json");
+  if (segment) {
+    summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
+            << "\"source_frame\":" << scene.source_frame << ','
+            << "\"fixture_sha256\":\"" << scene.fixture_sha256 << "\","
+            << "\"first_sequence\":" << segment->first_sequence << ','
+            << "\"last_sequence\":" << segment->last_sequence << ','
+            << "\"first_id\":" << segment->first_id << ','
+            << "\"draws\":" << segment_draws << ','
+            << "\"covered_pixels\":" << covered << "}\n";
+    summary.close();
+    require(bool(summary), "vegetation segment summary write failed");
+    return covered;
+  }
   summary << "{\"schema\":\"pinyon-shift.snr04-owned-diagnostic.v1\","
           << "\"label\":\"private unmasked geometry diagnostic, not compatibility or FPS\","
           << "\"source_frame\":" << scene.source_frame << ','
@@ -843,10 +923,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& vertex_shader,
     const std::filesystem::path& output_directory,
-    ID3D12Device* device, uint32_t samples) {
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
   const auto bytes = read(fixture);
   return RunSnr04OwnedSceneDiagnostic(bytes, vertex_shader,
-                                     output_directory, device, samples);
+                                     output_directory, device, samples, segment);
 }
 
 namespace {
@@ -1062,7 +1143,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device) {
+    ID3D12Device* borrowed_device,
+    const Snr04SegmentOptions* segment) {
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid procedural segment");
   const auto begin = std::chrono::steady_clock::now();
   const auto source = read(fixture);
   const bool character = source.size() >= 8 &&
@@ -1275,9 +1363,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                                   allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
   auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
   auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
-  constexpr float clear_color[4]{};
-  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
-  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  auto prior = initialize_segment_targets(
+      device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
+      depth_layout, rtv_handle, dsv_handle, segment);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -1314,8 +1402,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   const std::vector<char> zero_positions(position_allocation);
   auto position_zero = upload(device.Get(), zero_positions.data(), zero_positions.size());
   const auto built = std::chrono::steady_clock::now();
+  uint32_t segment_draws = 0;
   for (const auto& ref : draws) {
     const auto& draw = scene.items[ref.item].draws[ref.variant];
+    if (segment && (ref.sequence < segment->first_sequence ||
+                    ref.sequence > segment->last_sequence)) continue;
     const auto& resource = owned[ref.item];
     if (character) {
       const float tile_offset = float(height) - draw.viewport[3];
@@ -1334,9 +1425,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     commands->SetGraphicsRootConstantBufferView(1, resource.b1->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, resource.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, resource.vertices->GetGPUVirtualAddress());
-    commands->SetGraphicsRoot32BitConstant(4, UINT(ref.item + 1), 0);
+    commands->SetGraphicsRoot32BitConstant(
+        4, segment ? segment->first_id + segment_draws : UINT(ref.item + 1), 0);
     commands->DrawIndexedInstanced(draw.vertex_count / 4 * 6, 1, 0, 0, 0);
+    ++segment_draws;
   }
+  require(!segment || segment_draws == segment->draw_count,
+          "procedural segment draw count mismatch");
   commands->CopyBufferRegion(position_output.Get(), 0, position_zero.Get(), 0,
                              position_allocation);
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1393,6 +1488,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   const auto drawn = std::chrono::steady_clock::now();
   std::filesystem::create_directories(output_directory);
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   std::ofstream positions_file(output_directory / "postvs.f32x4", std::ios::binary);
   void* positions = nullptr;
@@ -1422,16 +1518,19 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                             y * color_layout.Footprint.RowPitch;
     const auto* depth_row = reinterpret_cast<const float*>(
         static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    rgba.write(reinterpret_cast<const char*>(color_row), width * 4);
     for (uint32_t x = 0; x < width; ++x) {
       const auto* pixel = color_row + x * 4;
       image.write(reinterpret_cast<const char*>(pixel), 3);
       const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
       if (id) {
-        require(id <= scene.items.size() && std::isfinite(depth_row[x]) &&
-                    depth_row[x] > 0 && depth_row[x] <= 1,
+        require((segment || id <= scene.items.size()) &&
+                    std::isfinite(depth_row[x]) &&
+                    (segment ? depth_row[x] >= 0 : depth_row[x] > 0) &&
+                    depth_row[x] <= 1,
                 "invalid procedural identity/depth");
         ++covered;
-        ++item_pixels[id - 1];
+        if (!segment) ++item_pixels[id - 1];
       }
     }
     depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
@@ -1440,14 +1539,28 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   color_readback->Unmap(0, &empty);
   depth_readback->Unmap(0, &empty);
   image.close();
+  rgba.close();
   depth_file.close();
-  require(bool(image) && bool(depth_file) && covered > 0,
+  require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable procedural diagnostic");
   const auto complete = std::chrono::steady_clock::now();
   auto us = [](auto a, auto b) {
     return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
   };
   std::ofstream summary(output_directory / "summary.json");
+  if (segment) {
+    summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
+            << "\"source_frame\":" << scene.frame << ','
+            << "\"fixture_sha256\":\"" << scene.sha << "\","
+            << "\"first_sequence\":" << segment->first_sequence << ','
+            << "\"last_sequence\":" << segment->last_sequence << ','
+            << "\"first_id\":" << segment->first_id << ','
+            << "\"draws\":" << segment_draws << ','
+            << "\"covered_pixels\":" << covered << "}\n";
+    summary.close();
+    require(bool(summary), "procedural segment summary write failed");
+    return covered;
+  }
   summary << "{\"schema\":\"pinyon-shift.snr04-"
           << (character ? "character" : "procedural") << ".v1\","
           << "\"source_frame\":" << scene.frame << ','
@@ -1476,7 +1589,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device) {
+    ID3D12Device* borrowed_device,
+    const Snr04SegmentOptions* segment) {
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid track segment");
   const auto source = read(fixture);
   Reader reader{source};
   const auto magic = reader.take<std::array<char, 8>>();
@@ -1784,9 +1904,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                                   allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
   const auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
-  constexpr float clear_color[4]{};
-  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
-  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  auto prior = initialize_segment_targets(
+      device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
+      depth_layout, rtv_handle, dsv_handle, segment);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -1794,8 +1914,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   commands->RSSetScissorRects(1, &scissor);
   commands->SetGraphicsRootSignature(root.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+  uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
+    if (segment && (draw.sequence < segment->first_sequence ||
+                    draw.sequence > segment->last_sequence)) continue;
     const auto& state = bindings[ordinal];
     if (raster_captured) {
       // The 1280x720 target is replayed as 256, 256, and 208-row EDRAM tiles.
@@ -1831,9 +1954,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(
         3, vertex_buffers.at(draw.vertex)->GetGPUVirtualAddress());
-    commands->SetGraphicsRoot32BitConstant(4, UINT(ordinal + 1), 0);
+    commands->SetGraphicsRoot32BitConstant(
+        4, segment ? segment->first_id + segment_draws : UINT(ordinal + 1), 0);
     commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+    ++segment_draws;
   }
+  require(!segment || segment_draws == segment->draw_count,
+          "track segment draw count mismatch");
   transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -1865,6 +1992,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   image << "P6\n" << width << ' ' << height << "\n255\n";
   void *colors = nullptr, *depths = nullptr;
@@ -1878,16 +2006,18 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                             y * color_layout.Footprint.RowPitch;
     const auto* depth_row = reinterpret_cast<const float*>(
         static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    rgba.write(reinterpret_cast<const char*>(color_row), width * 4);
     for (uint32_t x = 0; x < width; ++x) {
       const auto* pixel = color_row + x * 4;
       image.write(reinterpret_cast<const char*>(pixel), 3);
       const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
       if (id) {
-        require(id <= draws.size() && std::isfinite(depth_row[x]) &&
-                    depth_row[x] > 0 && depth_row[x] <= 1,
+        require((segment || id <= draws.size()) && std::isfinite(depth_row[x]) &&
+                    (segment ? depth_row[x] >= 0 : depth_row[x] > 0) &&
+                    depth_row[x] <= 1,
                 "invalid track identity/depth");
         ++covered;
-        ++draw_pixels[id - 1];
+        if (!segment) ++draw_pixels[id - 1];
       }
     }
     depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
@@ -1896,10 +2026,24 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   color_readback->Unmap(0, &empty);
   depth_readback->Unmap(0, &empty);
   image.close();
+  rgba.close();
   depth_file.close();
-  require(bool(image) && bool(depth_file) && covered > 0,
+  require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable track diagnostic");
   std::ofstream summary(output_directory / "summary.json");
+  if (segment) {
+    summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
+            << "\"source_frame\":" << frame << ','
+            << "\"fixture_sha256\":\"" << sha256(source) << "\","
+            << "\"first_sequence\":" << segment->first_sequence << ','
+            << "\"last_sequence\":" << segment->last_sequence << ','
+            << "\"first_id\":" << segment->first_id << ','
+            << "\"draws\":" << segment_draws << ','
+            << "\"covered_pixels\":" << covered << "}\n";
+    summary.close();
+    require(bool(summary), "track segment summary write failed");
+    return covered;
+  }
   summary << "{\"schema\":\"pinyon-shift.snr04-track.v1\","
           << "\"source_frame\":" << frame << ','
           << "\"fixture_sha256\":\"" << sha256(source) << "\","
@@ -1934,7 +2078,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device) {
+    ID3D12Device* borrowed_device,
+    const Snr04SegmentOptions* segment) {
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid manager segment");
   const auto source = read(fixture);
   Reader reader{source};
   require(reader.take<std::array<char, 8>>() ==
@@ -2228,14 +2379,17 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
                                   allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
   const auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
-  constexpr float clear_color[4]{};
-  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
-  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  auto prior = initialize_segment_targets(
+      device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
+      depth_layout, rtv_handle, dsv_handle, segment);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
+    if (segment && (draw.sequence < segment->first_sequence ||
+                    draw.sequence > segment->last_sequence)) continue;
     const auto& state = bindings[ordinal];
     const float tile_offset = float(height) - draw.viewport[3];
     D3D12_VIEWPORT viewport{draw.viewport[0], tile_offset,
@@ -2254,9 +2408,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
     commands->SetGraphicsRootConstantBufferView(1, state.b1->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, vertices->GetGPUVirtualAddress());
-    commands->SetGraphicsRoot32BitConstant(4, UINT(ordinal + 1), 0);
+    commands->SetGraphicsRoot32BitConstant(
+        4, segment ? segment->first_id + segment_draws : UINT(ordinal + 1), 0);
     commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+    ++segment_draws;
   }
+  require(!segment || segment_draws == segment->draw_count,
+          "manager segment draw count mismatch");
   transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -2288,6 +2446,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   image << "P6\n" << width << ' ' << height << "\n255\n";
   void *colors = nullptr, *depths = nullptr;
@@ -2301,16 +2460,18 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
                             y * color_layout.Footprint.RowPitch;
     const auto* depth_row = reinterpret_cast<const float*>(
         static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    rgba.write(reinterpret_cast<const char*>(color_row), width * 4);
     for (uint32_t x = 0; x < width; ++x) {
       const auto* pixel = color_row + x * 4;
       image.write(reinterpret_cast<const char*>(pixel), 3);
       const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
       if (id) {
-        require(id <= draws.size() && std::isfinite(depth_row[x]) &&
-                    depth_row[x] > 0 && depth_row[x] <= 1,
+        require((segment || id <= draws.size()) && std::isfinite(depth_row[x]) &&
+                    (segment ? depth_row[x] >= 0 : depth_row[x] > 0) &&
+                    depth_row[x] <= 1,
                 "invalid manager identity/depth");
         ++covered;
-        ++draw_pixels[id - 1];
+        if (!segment) ++draw_pixels[id - 1];
       }
     }
     depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
@@ -2319,10 +2480,24 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   color_readback->Unmap(0, &empty);
   depth_readback->Unmap(0, &empty);
   image.close();
+  rgba.close();
   depth_file.close();
-  require(bool(image) && bool(depth_file) && covered > 0,
+  require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable manager diagnostic");
   std::ofstream summary(output_directory / "summary.json");
+  if (segment) {
+    summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
+            << "\"source_frame\":" << frame << ','
+            << "\"fixture_sha256\":\"" << sha256(source) << "\","
+            << "\"first_sequence\":" << segment->first_sequence << ','
+            << "\"last_sequence\":" << segment->last_sequence << ','
+            << "\"first_id\":" << segment->first_id << ','
+            << "\"draws\":" << segment_draws << ','
+            << "\"covered_pixels\":" << covered << "}\n";
+    summary.close();
+    require(bool(summary), "manager segment summary write failed");
+    return covered;
+  }
   summary << "{\"schema\":\"pinyon-shift.snr04-manager.v1\","
           << "\"source_frame\":" << frame << ','
           << "\"fixture_sha256\":\"" << sha256(source) << "\","
@@ -2350,7 +2525,14 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
     const std::filesystem::path& fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device) {
+    ID3D12Device* borrowed_device,
+    const Snr04SegmentOptions* segment) {
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid remainder segment");
   const auto source = read(fixture);
   Reader reader{source};
   require(reader.take<std::array<char, 8>>() ==
@@ -2743,13 +2925,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
                                   allocator.Get(), nullptr, IID_PPV_ARGS(&commands)));
   const auto rtv_handle = rtv->GetCPUDescriptorHandleForHeapStart();
   const auto dsv_handle = dsv->GetCPUDescriptorHandleForHeapStart();
-  constexpr float clear_color[4]{};
-  commands->ClearRenderTargetView(rtv_handle, clear_color, 0, nullptr);
-  commands->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0, nullptr);
+  auto prior = initialize_segment_targets(
+      device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
+      depth_layout, rtv_handle, dsv_handle, segment);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
+  uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
+    if (segment && (draw.sequence < segment->first_sequence ||
+                    draw.sequence > segment->last_sequence)) continue;
     const auto& state = bindings[ordinal];
     const float tile_offset = float(height) - draw.viewport[3];
     D3D12_VIEWPORT viewport{draw.viewport[0], tile_offset,
@@ -2775,9 +2960,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
     commands->SetGraphicsRootConstantBufferView(1, state.b1->GetGPUVirtualAddress());
     commands->SetGraphicsRootConstantBufferView(2, state.b3->GetGPUVirtualAddress());
     commands->SetGraphicsRootShaderResourceView(3, vertex_buffer->GetGPUVirtualAddress());
-    commands->SetGraphicsRoot32BitConstant(4, UINT(ordinal + 1), 0);
+    commands->SetGraphicsRoot32BitConstant(
+        4, segment ? segment->first_id + segment_draws : UINT(ordinal + 1), 0);
     commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+    ++segment_draws;
   }
+  require(!segment || segment_draws == segment->draw_count,
+          "remainder segment draw count mismatch");
   transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -2809,6 +2998,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   check(device->GetDeviceRemovedReason());
   std::filesystem::create_directories(output_directory);
   std::ofstream image(output_directory / "identity.ppm", std::ios::binary);
+  std::ofstream rgba(output_directory / "color.rgba", std::ios::binary);
   std::ofstream depth_file(output_directory / "depth.f32", std::ios::binary);
   image << "P6\n" << width << ' ' << height << "\n255\n";
   void *colors = nullptr, *depths = nullptr;
@@ -2823,19 +3013,20 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
                             y * color_layout.Footprint.RowPitch;
     const auto* depth_row = reinterpret_cast<const float*>(
         static_cast<const uint8_t*>(depths) + y * depth_layout.Footprint.RowPitch);
+    rgba.write(reinterpret_cast<const char*>(color_row), width * 4);
     for (uint32_t x = 0; x < width; ++x) {
       const auto* pixel = color_row + x * 4;
       image.write(reinterpret_cast<const char*>(pixel), 3);
       const auto id = uint32_t(pixel[0]) | (uint32_t(pixel[1]) << 8);
       if (id) {
-        if (id > draws.size() || !std::isfinite(depth_row[x]) ||
+        if ((!segment && id > draws.size()) || !std::isfinite(depth_row[x]) ||
             depth_row[x] < 0 || depth_row[x] > 1)
           throw std::runtime_error("invalid remainder pixel " +
               std::to_string(x) + "," + std::to_string(y) + " id=" +
               std::to_string(id) + " depth=" + std::to_string(depth_row[x]));
         ++covered;
         zero_depth_pixels += depth_row[x] == 0;
-        ++draw_pixels[id - 1];
+        if (!segment) ++draw_pixels[id - 1];
       }
     }
     depth_file.write(reinterpret_cast<const char*>(depth_row), width * sizeof(float));
@@ -2844,10 +3035,25 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   color_readback->Unmap(0, &empty);
   depth_readback->Unmap(0, &empty);
   image.close();
+  rgba.close();
   depth_file.close();
-  require(bool(image) && bool(depth_file) && covered > 0,
+  require(bool(image) && bool(rgba) && bool(depth_file) && covered > 0,
           "empty or unwritable remainder diagnostic");
   std::ofstream summary(output_directory / "summary.json");
+  if (segment) {
+    summary << "{\"schema\":\"pinyon-shift.snr04-segment.v1\","
+            << "\"source_frame\":" << frame << ','
+            << "\"fixture_sha256\":\"" << sha256(source) << "\","
+            << "\"first_sequence\":" << segment->first_sequence << ','
+            << "\"last_sequence\":" << segment->last_sequence << ','
+            << "\"first_id\":" << segment->first_id << ','
+            << "\"draws\":" << segment_draws << ','
+            << "\"covered_pixels\":" << covered << ','
+            << "\"zero_depth_pixels\":" << zero_depth_pixels << "}\n";
+    summary.close();
+    require(bool(summary), "remainder segment summary write failed");
+    return covered;
+  }
   summary << "{\"schema\":\"pinyon-shift.snr04-remainder.v1\","
           << "\"source_frame\":" << frame << ','
           << "\"fixture_sha256\":\"" << sha256(source) << "\","

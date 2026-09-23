@@ -101,11 +101,12 @@ partition all **2,192/2,192** selected draws:
 | Car scene-list, animated and presentation remainder | 880 | 136,308 |
 
 All six private diagnostics consumed their fixtures from that same source
-frame. These are still six separate depth targets. The pixel counts overlap
-and cannot be summed into a scene image or used to claim exact occlusion.
-The required next SNR-04 step is one private target that executes all 2,192
-draws in global sequence with shared depth and tile state. Exact material
-roles and resource generations remain separate SNR-02 work.
+frame. These are six separate depth targets. The pixel counts overlap and
+cannot be summed into a scene image or used to claim exact occlusion. A
+[later staged diagnostic](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md)
+executes all 2,192 draws in global sequence with logically carried private
+color/depth. Exact material roles and resource generations remain separate
+SNR-02 work.
 
 ```powershell
 $base = '.local/native-renderer/snr04'

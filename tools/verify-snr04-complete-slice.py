@@ -57,12 +57,40 @@ def verify(directory: Path, log: Path, ledger_path: Path):
     selected = sum(value for key, value in roles.items()
                    if key.startswith("selected_"))
     assert sum(covered.values()) == selected
+    prepared = {}
+    marker = "FH1 SNR01 prepared draw "
+    for line in log.open(encoding="utf-8-sig", errors="replace"):
+        if marker not in line:
+            continue
+        row = json.loads(line.split(marker, 1)[1])
+        if row["frame"] == source + 1:
+            assert row["ordinal"] not in prepared
+            prepared[row["ordinal"]] = row
+    assert len(prepared) == len(ledger["draws"])
+    assert all(prepared[i]["sequence"] < prepared[i + 1]["sequence"]
+               for i in range(1, len(prepared)))
+    order = []
+    for draw in ledger["draws"]:
+        family = ROLE(draw)
+        if not family.startswith("selected_"):
+            continue
+        ordinal = draw["ordinal"]
+        row = prepared[ordinal]
+        assert row["packet_physical"] == draw["packet_physical"]
+        order.append({"ordinal": ordinal, "sequence": row["sequence"],
+                      "family": family, "packet": row["packet_physical"]})
+    assert len(order) == selected
     return {"source_frame": source, "backend_frame": source + 1,
-            "selected_draws": selected, "owned_draws": covered}
+            "selected_draws": selected, "owned_draws": covered,
+            "order": order}
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: verify-snr04-complete-slice.py FIXTURE_DIR LOG LEDGER")
-    print(json.dumps(verify(Path(sys.argv[1]), Path(sys.argv[2]),
-                            Path(sys.argv[3])), sort_keys=True))
+    if len(sys.argv) not in (4, 5):
+        raise SystemExit("usage: verify-snr04-complete-slice.py FIXTURE_DIR LOG LEDGER [ORDER_JSON]")
+    result = verify(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]))
+    if len(sys.argv) == 5:
+        Path(sys.argv[4]).write_text(json.dumps(result, indent=2) + "\n",
+                                     encoding="utf-8")
+    print(json.dumps({key: value for key, value in result.items()
+                      if key != "order"}, sort_keys=True))

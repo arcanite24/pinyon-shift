@@ -47,8 +47,10 @@ first joined track, procedural-item and vegetation fixtures to one
 source/output frame, covering 1,229 of 1,670 required draws. It also corrected
 the procedural-character/vegetation partition and isolated their snapshot
 budgets. A later same-frame replay owns all 2,192 selected draws in six
-verified fixtures. All six render separately; one ordered private target is
-still required.
+verified fixtures. The [complete selected-slice diagnostic](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md)
+now replays those draws in global sequence through logically carried private
+color/depth state. Material, resource-lifetime and moving-frame parity checks
+remain open.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
@@ -72,8 +74,8 @@ from these three families in a later strict replay, including final bound
 fetch state. A subsequent `SNR03R2` replay captured host index endian and
 restart state; its 108 converted draws follow the SDK's mask-and-restart path
 with shader-side swapping. The [remaining-family private diagnostic](SCENE_NATIVE_SNR04_REMAINDER_EVIDENCE_2026-09-23.md)
-renders all 880 of its selected draws on a private identity/depth target;
-the combined full selected-slice target remains open.
+renders all 880 of its selected draws on a private identity/depth target.
+The combined staged diagnostic carries color/depth across all six families.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.
@@ -439,9 +441,11 @@ The `SNR03F3` fixture now retains the SDK draw sequence for every selected
 final-state execution. A same-frame replay verified 135 ordered private raster
 draws from 67 packets, while the diagnostic remains unmasked and its post-VS
 file still covers only the first state per packet.
-Full compatibility
-coverage/depth parity, unload/reload and complete main-view ownership remain
-open.
+The complete same-frame fixture set now replays 2,192/2,192 selected draws
+in 35 ordered stages with carried private color/depth. It covers 659,995
+pixels and is byte-repeatable; see the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
+Full compatibility coverage/depth parity, semantic material admission,
+resource freshness and moving-frame/unload checks remain open.
 
 **Done when / Gate A:** the selected main-view scene is complete and stable at
 reference resolution with no missing, duplicated, stale or misattributed objects.
