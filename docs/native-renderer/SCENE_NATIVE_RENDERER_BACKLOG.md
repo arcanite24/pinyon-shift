@@ -23,7 +23,9 @@ owns the selected track vertex/index bytes and final bound draw state at the
 exact output frame. A 673-draw replay passed the full 4,002-draw partition;
 mesh/material ownership and native raster coverage remain open. A bounded
 post-refill clear join also attributes two late noncandidate direct-root
-draws found in an earlier replay.
+draws found in an earlier replay. All 20 exact track vertex translations are
+extracted from the validated installed pack; host topology, restart and index
+endianness remain to be proved before its private diagnostic raster.
 The [SNR-04 procedural diagnostic](SCENE_NATIVE_SNR04_PROCEDURAL_EVIDENCE_2026-09-23.md)
 replays every owned procedural draw through a private full-resolution
 identity/depth target at the output-frame handoff. It also checks original

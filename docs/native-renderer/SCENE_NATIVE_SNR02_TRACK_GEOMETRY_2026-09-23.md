@@ -1,5 +1,28 @@
 # SNR-02 shared-track geometry handoff — 2026-09-23
 
+## Exact vertex translations and topology check
+
+`tools/extract-snr04-track-shaders.py` verified the installed 1× native
+shader pack (`4308F4259A720679729EC2B71551A8CBE267C13933CEE2EF59A6FFE1A3685F6F`)
+with the existing pack verifier and extracted the **20/20** vertex
+hash/specialization pairs in the owned frame-5000 fixture. Their exact DXIL
+containers total 459,928 bytes. The local manifest at
+`.local/native-renderer/snr04/track-shaders-pack-a/manifest.json` has SHA-256
+`A5FD3C10A4F38FFFE6D8DCCC6969C5D2199BECC22574D5D533C216B7928FA7A5`;
+each extracted file is checked against the pack entry digest. This uses the
+actual bytes loaded by the preview, without changing the shader pack or save.
+
+The guest primitive value `6` in every selected draw is **triangle strip**
+(`xenos::PrimitiveType::kTriangleStrip`), not triangle list. All 673 selected
+index buffers are 16-bit (`length == index_count * 2`), but the T2 fixture
+does not yet record host topology, primitive restart or index endianness.
+Those fields must be captured and verified before a native track raster;
+index-count divisibility cannot be used to infer topology.
+
+The preview's shader-capture flag produced zero callbacks in two runs because
+that observer is compiled into the producer backend. Reading the already
+validated installed pack supplied the exact shader inputs directly.
+
 ## Final draw-state follow-up
 
 The opt-in fixture now uses `SNR02T2`: each track draw owns its shader
