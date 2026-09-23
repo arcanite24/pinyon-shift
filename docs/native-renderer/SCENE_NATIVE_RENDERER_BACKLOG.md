@@ -53,6 +53,10 @@ adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
 character fixture now renders 37,613 deterministic identity/depth pixels
 from ten draws. The larger car/character-manager families remain unowned.
+The [character-manager snapshot preflight](SCENE_NATIVE_SNR03_MANAGER_SNAPSHOT_2026-09-23.md)
+checks both vertex streams and 16-bit indices for every one of 342 selected
+draws in a later strict replay. Repeated ranges stayed byte-hash stable; an
+owned manager fixture and private raster remain open.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.

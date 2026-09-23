@@ -1544,6 +1544,19 @@ void ObservePreparedDraw(
   ObserveSnr02ItemVertexPayload(observation);
   ObserveSnr03VertexPayload(observation);
   ObserveSnr03CharacterPayload(observation);
+  if (Snr03TargetFrame() > 0 &&
+      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+      observation.vertex_shader_hash == 0xB8489164D5A86043ull) {
+    REXGPU_INFO("FH1 SNR03 manager snapshot {{\"frame\":{},\"sequence\":{},"
+                "\"packet\":{},\"fetches\":{},\"index_status\":{},"
+                "\"index_hash\":{},\"index_length\":{}}}",
+                observation.frame_sequence, observation.draw_sequence,
+                observation.draw_packet_physical_address,
+                observation.vertex_fetch_count,
+                observation.index_cpu_snapshot_status,
+                observation.index_cpu_snapshot_hash,
+                observation.index_buffer_length);
+  }
   if (Snr02SelectTrackSnapshot(observation.frame_sequence,
                                observation.command_buffer_physical_address)) {
     bool captured = false;
