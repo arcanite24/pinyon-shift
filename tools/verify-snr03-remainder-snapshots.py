@@ -12,7 +12,8 @@ FAMILIES = {"selected_car_scene_list", "selected_animated",
             "selected_car_presentation"}
 
 
-def verify(log_path: Path, ledger_path: Path, require_car_title=False):
+def verify(log_path: Path, ledger_path: Path, require_car_title=False,
+           require_scalar_title=False):
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     role = runpy.run_path(str(Path(__file__).with_name(
         "partition-snr00-gate-a-slice.py")))["role"]
@@ -22,18 +23,20 @@ def verify(log_path: Path, ledger_path: Path, require_car_title=False):
                      if row["ordinal"] in selected}
     frame = ledger["backend_frame"]
     prepared, fetches, indices = {}, collections.defaultdict(dict), {}
-    title, joins = {}, {}
+    title, joins, scalar_title, scalar_joins = {}, {}, {}, {}
     for line in log_path.open(encoding="utf-8", errors="replace"):
         for marker in ("FH1 SNR01 prepared draw ",
                        "FH1 SNR01 prepared vertex fetch ",
                        "FH1 SNR03 probe index snapshot ",
                        "FH1 SNR01 scene indirect packet ",
-                       "FH1 SNR03 car title join "):
+                       "FH1 SNR03 car title join ",
+                       "FH1 SNR03 scalar title record ",
+                       "FH1 SNR03 scalar title join "):
             if marker not in line:
                 continue
             row = json.loads(line.split(marker, 1)[1])
             if row["frame"] != (frame - 1 if marker.endswith(
-                    "scene indirect packet ") else frame):
+                    ("scene indirect packet ", "scalar title record ")) else frame):
                 break
             if marker.endswith("prepared draw ") and row["ordinal"] in selected:
                 assert row["ordinal"] not in prepared, "duplicate prepared draw"
@@ -52,6 +55,12 @@ def verify(log_path: Path, ledger_path: Path, require_car_title=False):
             elif marker.endswith("car title join "):
                 assert row["sequence"] not in joins, "duplicate car title join"
                 joins[row["sequence"]] = row
+            elif marker.endswith("scalar title record "):
+                assert row["packet"] not in scalar_title, "duplicate scalar title packet"
+                scalar_title[row["packet"]] = row
+            elif marker.endswith("scalar title join "):
+                assert row["sequence"] not in scalar_joins, "duplicate scalar join"
+                scalar_joins[row["sequence"]] = row
             break
     assert set(prepared) == set(selected), "selected/prepared draw mismatch"
     stable_fetch, stable_index = {}, {}
@@ -108,17 +117,42 @@ def verify(log_path: Path, ledger_path: Path, require_car_title=False):
                 selected_rows[ordinal]["owner_first_word"] == join["owner_vtable"] \
                 and selected_rows[ordinal]["scene_source_frame"] == frame - 1, \
                 f"car ledger ownership mismatch {ordinal}"
+    if require_scalar_title:
+        scalar = {prepared[ordinal]["sequence"]: (ordinal, prepared[ordinal])
+                  for ordinal, family in selected.items()
+                  if family in ("selected_animated", "selected_car_presentation")}
+        assert set(scalar_joins) == set(scalar), \
+            "scalar title join/selected draw mismatch"
+        for sequence, (ordinal, draw) in scalar.items():
+            join = scalar_joins[sequence]
+            record = scalar_title.get(join["packet"])
+            row = selected_rows[ordinal]
+            assert join["valid"] and join["packet"] == draw["packet_physical"] \
+                and join["fetches"] == draw["vertex_fetch_count"] \
+                and join["index_type"] == draw["index_buffer_type"] \
+                and record and record["caller"] == join["caller"] \
+                and record["object"] == join["object"] \
+                and record["vtable"] == join["vtable"] \
+                and record["scalar"] == join["scalar"] \
+                and row["title_scalar_caller_lr"] == join["caller"] \
+                and row["title_scalar_object"] == join["object"] \
+                and row["title_packet_source_frame"] == frame - 1, \
+                f"invalid scalar title join {ordinal}"
     return {"backend_frame": frame, "draws": dict(counts),
             "stable_vertex_ranges": len(stable_fetch),
             "stable_guest_index_ranges": len(stable_index),
             "car_title_records": len(title) if require_car_title else None,
-            "car_title_joins": len(joins) if require_car_title else None}
+            "car_title_joins": len(joins) if require_car_title else None,
+            "scalar_title_records": len(scalar_title) if require_scalar_title else None,
+            "scalar_title_joins": len(scalar_joins) if require_scalar_title else None}
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (3, 4) or (len(sys.argv) == 4 and
-                                    sys.argv[3] != "--require-car-title"):
+    options = set(sys.argv[3:])
+    if len(sys.argv) < 3 or len(options) != len(sys.argv[3:]) or \
+            not options <= {"--require-car-title", "--require-scalar-title"}:
         raise SystemExit("usage: verify-snr03-remainder-snapshots.py LOG LEDGER "
-                         "[--require-car-title]")
+                         "[--require-car-title] [--require-scalar-title]")
     print(json.dumps(verify(Path(sys.argv[1]), Path(sys.argv[2]),
-                            len(sys.argv) == 4), sort_keys=True))
+                            "--require-car-title" in options,
+                            "--require-scalar-title" in options), sort_keys=True))

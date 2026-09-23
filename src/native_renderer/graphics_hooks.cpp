@@ -616,6 +616,19 @@ struct Snr03CarScene {
 thread_local std::vector<Snr03CarSceneRecord> snr03_car_title_records;
 thread_local bool snr03_car_title_rejected = false;
 std::map<uint64_t, std::shared_ptr<const Snr03CarScene>> snr03_car_scenes;
+struct Snr03ScalarRecord {
+  uint64_t direct_ordinal = 0, scalar_ordinal = 0;
+  uint32_t packet = 0, caller = 0, object = 0, object_vtable = 0;
+  uint32_t command = 0, selector = 0, input_count = 0;
+};
+struct Snr03ScalarScene {
+  uint64_t source_frame = 0;
+  uint32_t view = 0, camera = 0;
+  std::vector<Snr03ScalarRecord> records;
+};
+thread_local std::vector<Snr03ScalarRecord> snr03_scalar_title_records;
+thread_local bool snr03_scalar_title_rejected = false;
+std::map<uint64_t, std::shared_ptr<const Snr03ScalarScene>> snr03_scalar_scenes;
 struct Snr01SceneListFlush {
   uint32_t caller;
   uint32_t owner;
@@ -1064,6 +1077,28 @@ void RecordSnr01DirectPacket(const char* path, uint32_t previous_word,
         if (record.packet) snr03_manager_title_rejected = true;
         record.packet = (previous_word + 4) & 0x1FFFFFFF;
         break;
+      }
+    }
+    if (!snr01_scalar_draw_scopes.empty() &&
+        !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8) {
+      const auto& scalar = snr01_scalar_draw_scopes.back();
+      if (scalar.caller_lr == 0x82415A28 ||
+          scalar.caller_lr == 0x82443B98 ||
+          scalar.caller_lr == 0x82443C40 ||
+          scalar.caller_lr == 0x82444018) {
+        const uint32_t packet = (previous_word + 4) & 0x1FFFFFFF;
+        if (!packet || snr03_scalar_title_records.size() >= 512 ||
+            std::any_of(snr03_scalar_title_records.begin(),
+                        snr03_scalar_title_records.end(), [&](const auto& row) {
+              return row.packet == packet;
+            })) {
+          snr03_scalar_title_rejected = true;
+        } else {
+          snr03_scalar_title_records.push_back({
+              ordinal, scalar.ordinal, packet, scalar.caller_lr,
+              scalar.object, scalar.object_first_word, scalar.command,
+              scalar.selector, scalar.input_count});
+        }
       }
     }
   }
@@ -1800,6 +1835,33 @@ void ObservePreparedDraw(
                     observation.draw_packet_physical_address,
                     record->dispatch, record->target, record->owner,
                     record->owner_vtable, record->owner_call,
+                    observation.vertex_fetch_count,
+                    observation.index_buffer_type, valid);
+      }
+    }
+    if (const auto scene = snr03_scalar_scenes.find(uint64_t(Snr03TargetFrame()));
+        scene != snr03_scalar_scenes.end()) {
+      const auto record = std::find_if(scene->second->records.begin(),
+                                       scene->second->records.end(),
+                                       [&](const auto& row) {
+        return row.packet == observation.draw_packet_physical_address;
+      });
+      if (record != scene->second->records.end()) {
+        const bool vertices = observation.vertex_fetches &&
+            observation.vertex_fetch_count <= observation.vertex_fetch_capacity &&
+            std::all_of(observation.vertex_fetches,
+                        observation.vertex_fetches + observation.vertex_fetch_count,
+                        [](const auto& fetch) {
+          return fetch.cpu_snapshot_status == 1;
+        });
+        const bool valid = vertices && observation.index_cpu_snapshot_status == 1;
+        REXGPU_INFO("FH1 SNR03 scalar title join {{\"frame\":{},"
+                    "\"sequence\":{},\"packet\":{},\"caller\":{},"
+                    "\"object\":{},\"vtable\":{},\"scalar\":{},"
+                    "\"fetches\":{},\"index_type\":{},\"valid\":{}}}",
+                    observation.frame_sequence, observation.draw_sequence,
+                    record->packet, record->caller, record->object,
+                    record->object_vtable, record->scalar_ordinal,
                     observation.vertex_fetch_count,
                     observation.index_buffer_type, valid);
       }
@@ -2591,6 +2653,12 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
                   output_frame, found->second->records.size());
       snr03_car_scenes.erase(found);
     }
+    if (const auto found = snr03_scalar_scenes.find(output_frame - 1);
+        found != snr03_scalar_scenes.end()) {
+      REXGPU_INFO("FH1 SNR03 scalar scene consumed output_frame={} records={}",
+                  output_frame, found->second->records.size());
+      snr03_scalar_scenes.erase(found);
+    }
   }
   ObserveSnr03ManagerOutputFrame(output_frame);
   std::shared_ptr<const Snr03SceneSnapshot> scene;
@@ -3102,6 +3170,8 @@ void PinyonShiftObservePresentationViewBegin(
       snr03_manager_title_rejected = false;
       snr03_car_title_records.clear();
       snr03_car_title_rejected = false;
+      snr03_scalar_title_records.clear();
+      snr03_scalar_title_rejected = false;
     }
   }
   snr01_view_scopes.push_back(
@@ -3309,6 +3379,40 @@ void PinyonShiftObservePresentationViewEnd() {
       REXGPU_INFO("FH1 SNR03 car scene rejected frame={} records={}"
                   " overflow={}", frame, snr03_car_title_records.size(),
                   snr03_car_title_rejected);
+    }
+  }
+  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
+      frame == uint64_t(Snr03TargetFrame())) {
+    if (!snr03_scalar_title_rejected && !snr03_scalar_title_records.empty() &&
+        scope.camera) {
+      Snr03ScalarScene snapshot{};
+      snapshot.source_frame = frame;
+      snapshot.view = scope.view;
+      snapshot.camera = scope.camera;
+      snapshot.records = std::move(snr03_scalar_title_records);
+      const auto scene = std::make_shared<const Snr03ScalarScene>(
+          std::move(snapshot));
+      {
+        std::lock_guard lock(snr03_scene_mutex);
+        if (snr03_scalar_scenes.size() == 2)
+          snr03_scalar_scenes.erase(snr03_scalar_scenes.begin());
+        snr03_scalar_scenes[frame] = scene;
+      }
+      REXGPU_INFO("FH1 SNR03 scalar scene published frame={} records={}",
+                  frame, scene->records.size());
+      for (const auto& record : scene->records)
+        REXGPU_INFO("FH1 SNR03 scalar title record {{\"frame\":{},"
+                    "\"direct\":{},\"scalar\":{},\"packet\":{},"
+                    "\"caller\":{},\"object\":{},\"vtable\":{},"
+                    "\"command\":{},\"selector\":{},\"count\":{}}}",
+                    frame, record.direct_ordinal, record.scalar_ordinal,
+                    record.packet, record.caller, record.object,
+                    record.object_vtable, record.command, record.selector,
+                    record.input_count);
+    } else {
+      REXGPU_INFO("FH1 SNR03 scalar scene rejected frame={} records={}"
+                  " overflow={}", frame, snr03_scalar_title_records.size(),
+                  snr03_scalar_title_rejected);
     }
   }
   if (scope.ordinal <= kSnr01ProceduralLimit) {

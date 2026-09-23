@@ -78,5 +78,33 @@ python tools/verify-snr03-remainder-snapshots.py "$base/car-title-join-live-a-ev
 | `car-title-join-live-a-ledger.json` | `F2D3A9F517A0C494258EAE5101CCA8E3F609CAE1BB398016B33E278AA7271F0C` |
 
 The car title scene currently retains metadata only. The verified geometry,
-textures, packed constants and final raster state still need an owned fixture;
-animated and car-presentation scalar records need their own title publication.
+textures, packed constants and final raster state still need an owned fixture.
+
+## Animated and presentation scalar title handoff
+
+The title's active scalar-draw scope now freezes each direct packet from the
+animated caller `82415A28` and the three car-presentation callers `82443B98`,
+`82443C40` and `82444018`. Each immutable record retains the direct and
+scalar ordinals, packet, caller, object, command, selector and input count.
+The output callback joins by exact packet and checks the recorded geometry
+sources. A later strict replay passed with 3,690 fully attributed draws and
+2,174 selected draws. Its 234 car title records joined all 814 selected car
+scene-list draws; 26 scalar title records joined all 12 animated and 54
+car-presentation draws. Every join was valid, with no missing or extra joins.
+All three families' vertex and guest-index snapshot checks passed, including
+108 SDK-converted index sources.
+
+```powershell
+python tools/summarize-snr01-frame-wide-census.py "$base/scalar-title-join-live-a-evidence.log" --source-frame 5000 --require-candidate-boundary --output "$base/scalar-title-join-live-a-ledger.json"
+python tools/partition-snr00-gate-a-slice.py "$base/scalar-title-join-live-a-ledger.json"
+python tools/verify-snr03-remainder-snapshots.py "$base/scalar-title-join-live-a-evidence.log" "$base/scalar-title-join-live-a-ledger.json" --require-car-title --require-scalar-title
+```
+
+| Local evidence | SHA-256 |
+| --- | --- |
+| `scalar-title-join-live-a-evidence.log` | `3D5C1FE00D4B229E5BE8FD67BAAFC9A0FF1CA62160D573BE0A6C22ACA608A18C` |
+| `scalar-title-join-live-a-ledger.json` | `77780A43927FD1E11D7842F8942A960440A1B5733C9A4C51C0C488D1DCBCBB0F` |
+
+These title scenes still hold metadata only. The next capture must own the
+already verified bytes, per-draw constants, texture descriptors and final
+raster state in a fixture, then replay the full selected slice together.
