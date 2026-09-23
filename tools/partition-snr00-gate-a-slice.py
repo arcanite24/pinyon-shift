@@ -61,8 +61,17 @@ def role(draw: dict) -> str:
         assert draw["title_item_node"]
         return "selected_procedural_item"
     if caller == 0x82412E1C:
-        return ("selected_vegetation" if draw["title_second_draw_bound_record"]
-                else "retained_sky")
+        target = draw["title_second_draw_target"]
+        if target == 0x824136F0:
+            assert draw["title_second_draw_bound_record"] and \
+                draw["title_second_draw_vegetation_owner"]
+            return "selected_vegetation"
+        if target == 0x8245AB88:
+            assert draw["title_second_draw_bound_record"] and \
+                not draw["title_second_draw_vegetation_owner"]
+            return "selected_procedural_character"
+        assert not target and not draw["title_second_draw_bound_record"]
+        return "retained_sky"
     if caller == 0x824131F4:
         scalar = draw["title_scalar_caller_lr"]
         if scalar == 0x82415A28:

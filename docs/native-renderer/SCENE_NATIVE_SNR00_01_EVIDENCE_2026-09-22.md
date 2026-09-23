@@ -3630,9 +3630,21 @@ replays give:
 | Shared track/procedural scene lists | 596 | 893 |
 | Character-manager direct records | 220 | 261 |
 | Procedural item/node packets | 211 | 170 |
-| Vegetation bound records | 166 | 138 |
+| Vegetation bound records (`CProceduralVegetation`) | 155 | 128 |
+| Procedural-character bound records (`CProceduralCharacters`) | 11 | 10 |
 | Animated-scene scalar packets | 15 | 43 |
 | Car-presentation scalar packets | 36 | 72 |
+
+The second-path bound-record test previously grouped procedural characters
+with vegetation. Its exact title draw target distinguishes
+`CProceduralCharacters` at `0x8245AB88` from `CProceduralVegetation` at
+`0x824136F0`; both remain required. The corrected partition checks the
+target, bound record and vegetation owner, and passes the two original strict
+ledgers plus three later strict ledgers. The later source-frame-5000 combined
+replay has 11 procedural-character and 155 vegetation draws; the latter count
+matches its 155 vegetation prepared callbacks exactly. The correction changes
+family names, not total selected/retained/outside counts. Neither family has
+complete native diagnostic admission yet.
 
 The third normal-exit replay independently passed the same fail-closed
 partition over both candidate groups and all other targets. Its strict ledger
@@ -3645,7 +3657,8 @@ the selected descriptor/runtime payload evidence is in the
 [SNR-02 log](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#selected-procedural-descriptor-and-runtime-payloads).
 
 The required set is every view-8 scene-list draw plus exact character-manager,
-procedural item/node, vegetation bound-record, animated-scene scalar and
+procedural-character, procedural item/node, vegetation bound-record,
+animated-scene scalar and
 car-presentation scalar packets. The latter include both depth-only packets
 on color word `00030000` and the color-writing packet on `000C0000` for each
 owner. They stay required in the diagnostic until the title proves whether

@@ -42,6 +42,12 @@ verified shader/index inputs. A second capture passed the strict frame-wide
 candidate census and final per-draw viewport, cull and depth-state joins.
 Rebasing its three EDRAM tiles produces 700,053 private identity/depth pixels,
 but stencil, material visibility and full selected-slice parity remain open.
+The [combined Gate A capture](SCENE_NATIVE_GATE_A_COMBINED_CAPTURE_2026-09-23.md)
+joins track, procedural-item and vegetation fixtures to one source/output
+frame, covering 1,229 of 1,670 required draws in that replay. It also corrects
+the procedural-character/vegetation partition and isolates their snapshot
+budgets. The three private rasters remain separate and 441 required draws
+have no owned diagnostic fixture.
 The [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md) bounds
 candidate-attachment GPU work and lists the retained resource dependencies;
 it does not qualify a suppression cut.
@@ -70,7 +76,8 @@ If that boundary is not separable, revise the slice explicitly before suppressio
 One easy mesh or a subset selected by shader hash cannot complete this milestone.
 
 For the race pilot, the **Gate A diagnostic slice is explicitly revised** to
-the title-linked scene-list, character, procedural-item, vegetation,
+the title-linked scene-list, character-manager, procedural-character,
+procedural-item, vegetation,
 animated-scene and car-presentation scalar submissions on the two exact
 candidate target tuples. The car scalar owner spans both color words: its two
 depth-only passes and color pass belong to one required diagnostic contribution
