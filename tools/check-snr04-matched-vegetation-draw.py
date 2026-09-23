@@ -93,6 +93,7 @@ def check(args):
         count["reference_only"] = count["reference"] - count["overlap"]
         count["depth_p50"] = values[len(values) // 2] if values else None
         count["depth_p90"] = values[int(len(values) * .9)] if values else None
+        count["depth_max"] = values[-1] if values else None
     report = {"event": probe["event"], "source_frame": args.frame,
               "draw_id": args.draw_id, "rows": args.rows,
               "reference_any": any_reference, "private_any": any_private,

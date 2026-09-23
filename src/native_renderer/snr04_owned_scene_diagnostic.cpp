@@ -677,10 +677,12 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
                    "main", "ps_5_1", 0, 0, &ps, &errors));
   // Event 11204's captured BC3 alpha path and four SV_Coverage thresholds.
+  // Record three pixels with exactly one reference fragment for UV comparison.
   constexpr char alpha_source[] =
       "cbuffer Item : register(b2) { uint id; };"
       "Texture2DArray<float4> foliage : register(t0);"
       "SamplerState foliage_sampler : register(s0);"
+      "RWStructuredBuffer<float4> observations : register(u0);"
       "struct Input { float4 uv : TEXCOORD0;"
       " centroid float4 v1 : TEXCOORD1; float4 v2 : TEXCOORD2;"
       " centroid float4 v3 : TEXCOORD3;"
@@ -690,6 +692,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
       " float2 uv = p.uv.xy + 0.001465 / 256.0;"
       " float alpha = foliage.SampleGrad(foliage_sampler, float3(uv, 0),"
       " ddx_coarse(uv), ddy_coarse(uv)).a * p.fade.w;"
+      " uint2 pixel = (uint2)p.position.xy;"
+      " if (pixel.x == 1143 && pixel.y == 50)"
+      " observations[0] = float4(p.uv.xy, p.fade.w, alpha);"
+      " if (pixel.x == 1153 && pixel.y == 51)"
+      " observations[1] = float4(p.uv.xy, p.fade.w, alpha);"
+      " if (pixel.x == 1154 && pixel.y == 47)"
+      " observations[2] = float4(p.uv.xy, p.fade.w, alpha);"
       " uint shift = (((uint)p.position.x & 1u) << 2) |"
       " (((uint)p.position.y & 1u) << 1);"
       " float dither = (float)((426u >> shift) & 3u) * 0.0625;"
@@ -704,7 +713,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   if (alpha_probe)
     check(D3DCompile(alpha_source, sizeof(alpha_source) - 1, nullptr, nullptr,
                      nullptr, "main", "ps_5_1", 0, 0, &alpha_ps, &errors));
-  D3D12_ROOT_PARAMETER parameters[8]{};
+  D3D12_ROOT_PARAMETER parameters[9]{};
   for (uint32_t i = 0; i < 4; ++i) {
     parameters[i].ParameterType =
         i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV : D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -730,9 +739,12 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[7].DescriptorTable = {1, &alpha_sampler_range};
     parameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[8].Descriptor.ShaderRegister = 0;
+    parameters[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   }
   D3D12_ROOT_SIGNATURE_DESC root_description{
-      alpha_probe ? 8u : 6u, parameters, 0, nullptr,
+      alpha_probe ? 9u : 6u, parameters, 0, nullptr,
       D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
           D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT};
   ComPtr<ID3DBlob> root_blob;
@@ -881,6 +893,17 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   AlphaTexture alpha_texture;
   if (alpha_probe)
     alpha_texture = make_alpha_texture(device.Get(), segment->alpha_bc3);
+  ComPtr<ID3D12Resource> alpha_inputs, alpha_inputs_readback, alpha_inputs_zero;
+  if (alpha_probe) {
+    alpha_inputs = buffer(device.Get(), 3 * 16, D3D12_HEAP_TYPE_DEFAULT,
+                          D3D12_RESOURCE_STATE_COPY_DEST,
+                          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    alpha_inputs_readback = buffer(device.Get(), 3 * 16,
+                                   D3D12_HEAP_TYPE_READBACK,
+                                   D3D12_RESOURCE_STATE_COPY_DEST);
+    const std::array<float, 12> zeros{};
+    alpha_inputs_zero = upload(device.Get(), zeros.data(), sizeof(zeros));
+  }
   const auto built = std::chrono::steady_clock::now();
 
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT color_layout{}, depth_layout{};
@@ -986,7 +1009,13 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   auto prior = initialize_segment_targets(
       device.Get(), commands.Get(), color.Get(), depth.Get(), color_layout,
       depth_layout, rtv_handle, dsv_handle, segment, samples);
-  if (alpha_probe) upload_alpha_texture(commands.Get(), alpha_texture);
+  if (alpha_probe) {
+    upload_alpha_texture(commands.Get(), alpha_texture);
+    commands->CopyBufferRegion(alpha_inputs.Get(), 0, alpha_inputs_zero.Get(), 0,
+                               3 * 16);
+    transition(commands.Get(), alpha_inputs.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  }
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   D3D12_VIEWPORT viewport{0, 0, float(width), float(height), 0, 0.5f};
   D3D12_RECT scissor{0, 0, LONG(width), LONG(height)};
@@ -1032,6 +1061,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
           6, alpha_texture.views->GetGPUDescriptorHandleForHeapStart());
       commands->SetGraphicsRootDescriptorTable(
           7, alpha_texture.samplers->GetGPUDescriptorHandleForHeapStart());
+      commands->SetGraphicsRootUnorderedAccessView(
+          8, alpha_inputs->GetGPUVirtualAddress());
       commands->SetPipelineState(alpha_pipeline.Get());
     }
     commands->SetGraphicsRootConstantBufferView(
@@ -1046,6 +1077,12 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "vegetation segment draw count mismatch");
+  if (alpha_probe) {
+    transition(commands.Get(), alpha_inputs.Get(),
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    commands->CopyResource(alpha_inputs_readback.Get(), alpha_inputs.Get());
+  }
   commands->CopyBufferRegion(position_output.Get(), 0, position_zero.Get(), 0,
                              position_allocation);
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1146,6 +1183,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
 
   std::filesystem::create_directories(output_directory);
   const auto& directory = output_directory;
+  if (alpha_probe) {
+    std::ofstream debug_file(directory / "alpha-inputs.f32x4", std::ios::binary);
+    void* mapped = nullptr;
+    D3D12_RANGE range{0, 3 * 16};
+    check(alpha_inputs_readback->Map(0, &range, &mapped));
+    debug_file.write(static_cast<const char*>(mapped), 3 * 16);
+    D3D12_RANGE empty{};
+    alpha_inputs_readback->Unmap(0, &empty);
+    require(bool(debug_file), "alpha input readback write failed");
+  }
   std::ofstream image(directory / "identity.ppm", std::ios::binary);
   image << "P6\n" << width << ' ' << height << "\n255\n";
   std::ofstream depth_file(directory / "depth.f32", std::ios::binary);

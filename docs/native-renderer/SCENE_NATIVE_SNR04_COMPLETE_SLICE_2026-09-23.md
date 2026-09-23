@@ -399,14 +399,11 @@ or generalize the captured state to other draws.
 | 2 | 43,233 | 87,275 | 43,576 | 29,990 |
 | 3 | 8,458 | 95,448 | 8,512 | 1,259 |
 
-The per-sample write counts are now within 0.8% of the compatibility
-counts. The BC3 path changes 60,009 pixels, close to the reference's
-59,649, but only 50,759 pixels overlap (73.67% union overlap). Depth p90
-on shared sample writes remains `0.0030`–`0.0047`. This validates the
-bounded texture and mask path as a useful diagnostic, while showing a
-spatial/UV or remaining shader-state difference. The next check must
-compare interpolated UV, centroid fade and mip choice at matched pixels,
-then test the original translated pixel shader before expanding the path.
+The per-sample write counts are within 0.8% of the compatibility counts.
+The BC3 path changes 60,009 pixels, close to the reference's 59,649, but
+only 50,759 pixels overlap (73.67% union overlap). Depth p90 on shared
+sample writes is `0.0030`–`0.0047`. The matched-input experiment below
+identifies why this nominally same-run fixture drifts spatially.
 
 ```powershell
 $base = '.local/native-renderer/snr04'
@@ -424,3 +421,64 @@ python tools/check-snr04-matched-vegetation-draw.py `
   --frame 5001 --sequence 10125747 --draw-id 290 --rows 256 `
   --alpha-bc3 "$base/renderdoc-gatea-full-b-bc3/ResourceId-8122.bc3mips"
 ```
+
+### Matched vertex constants isolate the event-11204 drift
+
+RenderDoc pixel history shows one event-11204 fragment at each of pixels
+`(1143,50)`, `(1153,51)` and `(1154,47)`. Its debugger reports UVs
+`(0.1279203,0.9302118)`, `(0.0775642,0.9252256)` and
+`(0.0693306,0.9369559)`; each fade is approximately one. An opt-in
+private pixel readback, `alpha-inputs.f32x4`, records UV, fade and sampled
+alpha in that order. The original fixture produces UVs
+`(0.1150367,0.9263254)`, `(0.0646334,0.9213268)` and
+`(0.0564239,0.9330517)`. Repeating the replay returns the same three
+private records.
+
+The vertex bytes for draw 290 are byte-identical across fixture and
+RenderDoc (8,864 bytes), and all 64 vertex-system words match. **39 of the
+96 vertex constant words differ.** The first captured VS quad also differs
+from the private original-system post-VS quad. This is an input-state
+alignment problem in the diagnostic comparison; the BC3 sampler or mask
+cannot correct displaced vertices.
+
+`tools/probe-snr04-vegetation-pixel-inputs.py` exports the captured pixel
+inputs, first VS quad, full vertex constants and SHA-256 of the fetched
+vertex bytes. `tools/match-snr04-vegetation-constants.py` checks the exact
+vertex-byte hash, system words, sequence and 39-word drift before producing
+a local diagnostic fixture with only that item's captured vertex constants
+substituted. With that fixture and the same compatibility prior depth and
+BC3 chain, the single draw matches **all 133,488 depth-sample writes at
+exactly the same pixels and samples**, with zero depth difference on every
+write. The three private UVs become bit-identical to RenderDoc. This proves
+the translated vertex path and bounded alpha/sample-mask path can reproduce
+this draw's depth outcome when the vertex inputs align. It does not prove
+the original pixel shader's color or the full scene's material/stencil
+parity.
+
+```powershell
+$base = '.local/native-renderer/snr04'
+$env:SNR04_CAPTURE = (Resolve-Path "$base/renderdoc-gatea-full-b_frame5001.rdc").Path
+$env:SNR04_OUTPUT = (Join-Path (Get-Location) "$base/renderdoc-gatea-full-b-pixel-inputs-11204.json")
+$env:SNR04_EVENT = '11204'
+& .local/tools/renderdoc-1.46/RenderDoc_1.46_64/qrenderdoc.exe `
+  --python tools/probe-snr04-vegetation-pixel-inputs.py
+# Wait for the asynchronous exporter to write stage=done.
+python tools/match-snr04-vegetation-constants.py `
+  "$base/renderdoc-gatea-full-live-b/snr03-scene-5001.bin" `
+  "$base/renderdoc-gatea-full-b-pixel-inputs-11204.json" `
+  "$base/renderdoc-gatea-full-b-11204-constants-matched.bin"
+python tools/check-snr04-matched-vegetation-draw.py `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-depth.json" `
+  "$base/renderdoc-gatea-full-b-11204-constants-matched.bin" `
+  '.local/native-renderer/seeded-probe/translation/dxil/vertex_5834939992FFC765_000000000000001F.dxil' `
+  'out/build/win-amd64-relwithdebinfo/pinyon_shift_snr04_owned_scene_diagnostic.exe' `
+  "$base/renderdoc-gatea-full-b-vegetation-11204-constants-matched-check" `
+  --frame 5001 --sequence 10125747 --draw-id 290 --rows 256 `
+  --alpha-bc3 "$base/renderdoc-gatea-full-b-bc3/ResourceId-8122.bc3mips"
+```
+
+Next, align captured and owned per-draw vertex constants across the frozen
+slice before attributing pixel differences to materials. Then test the
+original pixel shader, stencil and resource lifetime on the complete
+ordered scene. The matching local fixture is an experiment, not a new
+source-of-truth scene snapshot or Gate A admission result.
