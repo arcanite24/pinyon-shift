@@ -522,6 +522,7 @@ struct Snr02TrackDraw {
   uint64_t sequence, vertex_shader, pixel_shader, vertex_specialization;
   uint64_t dynamic_state = 0;
   uint32_t packet, command_buffer, index_count, stride_words, host_index_format;
+  uint32_t host_primitive_type, host_primitive_reset, index_endianness;
   Snr02TrackRange vertex, index;
   std::array<uint64_t, 4> vertex_bitmap{};
   std::vector<uint32_t> vertex_packed;
@@ -1401,6 +1402,9 @@ void ObservePreparedDraw(
           draw.index_count = observation.index_count;
           draw.stride_words = fetch.stride_words;
           draw.host_index_format = observation.host_index_format;
+          draw.host_primitive_type = observation.host_primitive_type;
+          draw.host_primitive_reset = observation.host_primitive_reset_enabled;
+          draw.index_endianness = observation.index_buffer_guest_endianness;
           draw.vertex = vertex;
           draw.index = index;
           std::copy_n(observation.vertex_float_constant_bitmap, 4,
@@ -1429,6 +1433,8 @@ void ObservePreparedDraw(
                 "\"index_base\":{},\"index_length\":{},"
                 "\"index_status\":{},\"index_hash\":{},"
                 "\"specialization\":{},\"host_index_format\":{},"
+                "\"host_primitive\":{},\"host_restart\":{},"
+                "\"index_endianness\":{},"
                 "\"bitmap\":[{},{},{},{}],"
                 "\"captured\":{},\"packed_words\":{},"
                 "\"packed_hash\":{}}}",
@@ -1442,6 +1448,9 @@ void ObservePreparedDraw(
                 observation.index_cpu_snapshot_hash,
                 observation.vertex_specialization_mask,
                 observation.host_index_format,
+                observation.host_primitive_type,
+                observation.host_primitive_reset_enabled,
+                observation.index_buffer_guest_endianness,
                 bitmap[0], bitmap[1], bitmap[2], bitmap[3], captured,
                 packed_words, packed_hash);
   }
@@ -1819,7 +1828,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
     encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '2', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '3', '\0'};
   write(magic);
   write(output_frame - 1);
   write(uint32_t(targets.size()));
@@ -1853,6 +1862,9 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     write(draw.vertex_specialization);
     write(draw.dynamic_state);
     write(draw.host_index_format);
+    write(draw.host_primitive_type);
+    write(draw.host_primitive_reset);
+    write(draw.index_endianness);
     write(draw.vertex_bitmap);
     write(uint32_t(draw.vertex_packed.size()));
     for (uint32_t word : draw.vertex_packed) write(word);

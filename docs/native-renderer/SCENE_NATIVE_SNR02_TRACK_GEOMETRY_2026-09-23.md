@@ -1,5 +1,34 @@
 # SNR-02 shared-track geometry handoff — 2026-09-23
 
+## Index state and exact shader inputs
+
+The `SNR02T3` fixture records the host primitive, primitive-restart flag and
+guest index endianness alongside the previously verified final draw state.
+The source-frame-5000/output-frame-5001 sustained-race replay exited normally
+with seven compatibility screenshots. Its independent verifier joined all
+**813** selected track draws across **84** title targets, including 813 exact
+final states and no unreadable or mutated geometry. Every selected draw uses
+host primitive `6` (triangle strip), restart enabled, 16-bit host indices,
+guest index endianness `1` (`xenos::Endian::k8in16`) and an index byte length
+equal to twice its index count. The frame-wide ledger partitions 4,438 draws:
+2,652 selected, 64 retained and 1,722 outside, with none unattributed.
+
+The fixture owns 91 vertex ranges and 204 index ranges, totaling 3,826,930
+geometry bytes. The T3 verifier and the older T1/T2 fixtures pass. Extraction
+against the validated installed shader pack finds all 20 exact vertex
+hash/specialization pairs for this frame, totaling 459,928 DXIL bytes.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| `.local/native-renderer/snr02/track-index-live-e/snr02-track-5000.bin` | `00EE5217C2AD3933791DB70D69FD5E45743D20BDC627EEF0D2F0577F9E67AC23` |
+| `.local/native-renderer/snr02/track-index-live-e-filtered.log` | `486BF907051A64BDCB054444F815D218E0E34E9B0D568486DC4FC5C4EA3F9FDA` |
+| `.local/native-renderer/snr02/track-index-live-e-ledger.json` | `8D97C18ED1EEB19D2A70A37612C42BC58734F9537A4606C934A8852AA1F146B5` |
+| RelWithDebInfo executable | `936324A4BB4EA0C4296C58937DCA28963AFD37F58A329DC0B1DD80BE0A0F08EE` |
+
+The next private raster must apply the guest `k8in16` index conversion and
+restart semantics, then validate vertex fetch and post-VS output against the
+compatibility renderer. Mesh/material ownership and pixel parity remain open.
+
 ## Exact vertex translations and topology check
 
 `tools/extract-snr04-track-shaders.py` verified the installed 1× native
@@ -14,9 +43,8 @@ actual bytes loaded by the preview, without changing the shader pack or save.
 
 The guest primitive value `6` in every selected draw is **triangle strip**
 (`xenos::PrimitiveType::kTriangleStrip`), not triangle list. All 673 selected
-index buffers are 16-bit (`length == index_count * 2`), but the T2 fixture
-does not yet record host topology, primitive restart or index endianness.
-Those fields must be captured and verified before a native track raster;
+index buffers are 16-bit (`length == index_count * 2`). The later T3 capture
+records host topology, primitive restart and index endianness directly;
 index-count divisibility cannot be used to infer topology.
 
 The preview's shader-capture flag produced zero callbacks in two runs because
@@ -56,10 +84,10 @@ steps and the title source counter are distinct. The accepted 5,000/5,001
 window is recorded explicitly rather than treating that short run as a
 capture failure or a same-frame match.
 
-The fixture still lacks semantic material ownership, live texture content,
-pixel state and exact vertex bytecode. No private track raster exists yet.
-The next diagnostic cut needs all 20 exact vertex translations and a proved
-index/vertex-fetch interpretation before it can compare coverage or depth.
+The fixture still lacks semantic material ownership, live texture content and
+pixel state. No private track raster exists yet. The exact vertex bytecode and
+host index state were obtained in the later checks above; vertex-fetch
+interpretation still needs validation before comparing coverage or depth.
 
 ## Initial geometry handoff
 

@@ -31,7 +31,7 @@ def read_fixture(path: Path):
     data = path.read_bytes()
     magic, source, targets, draws, vertices, indices = struct.unpack_from(
         "<8sQ4I", data)
-    assert magic in (b"SNR02T1\0", b"SNR02T2\0")
+    assert magic in (b"SNR02T1\0", b"SNR02T2\0", b"SNR02T3\0")
     assert targets <= 256 and draws <= 4096
     assert vertices <= 4096 and indices <= 4096
     offset = 32
@@ -59,10 +59,17 @@ def read_fixture(path: Path):
         offset += 56
         assert values[0] not in records
         final = None
-        if magic == b"SNR02T2\0":
-            specialization, dynamic, host_index_format = struct.unpack_from(
-                "<QQI", data, offset)
-            offset += 20
+        if magic in (b"SNR02T2\0", b"SNR02T3\0"):
+            if magic == b"SNR02T3\0":
+                (specialization, dynamic, host_index_format,
+                 host_primitive, host_restart, index_endianness) = (
+                    struct.unpack_from("<QQ4I", data, offset))
+                offset += 32
+            else:
+                specialization, dynamic, host_index_format = struct.unpack_from(
+                    "<QQI", data, offset)
+                offset += 20
+                host_primitive = host_restart = index_endianness = None
             bitmap = struct.unpack_from("<4Q", data, offset)
             offset += 32
             packed_count, = struct.unpack_from("<I", data, offset)
@@ -76,6 +83,7 @@ def read_fixture(path: Path):
             offset += 16
             assert sum(word.bit_count() for word in bitmap) * 4 == packed_count
             final = (specialization, dynamic, host_index_format,
+                     host_primitive, host_restart, index_endianness,
                      bitmap, packed, system, fetch47)
         records[values[0]] = (values, final)
     assert offset == len(data)
@@ -133,7 +141,7 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         read_fixture(fixture_path))
     assert fixture_source == source and fixture_targets == title_targets
     assert len(records) == len(selected)
-    if magic == b"SNR02T2\0":
+    if magic in (b"SNR02T2\0", b"SNR02T3\0"):
         assert len(finals) == len(selected)
     vertex_versions = collections.defaultdict(set)
     index_versions = collections.defaultdict(set)
@@ -156,10 +164,15 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         assert record[7:9] == (vertex["guest_base"], vertex["length"])
         assert record[9:11] == (index["index_base"], index["index_length"])
         if final:
-            specialization, dynamic, host_index_format, bitmap, packed, system, fetch47 = final
+            (specialization, dynamic, host_index_format, host_primitive,
+             host_restart, index_endianness, bitmap, packed, system, fetch47) = final
             final_log = finals[draw["sequence"]]
             assert (specialization, host_index_format) == (
                 index["specialization"], index["host_index_format"])
+            if magic == b"SNR02T3\0":
+                assert (host_primitive, host_restart, index_endianness) == (
+                    index["host_primitive"], index["host_restart"],
+                    index["index_endianness"])
             assert list(bitmap) == index["bitmap"]
             assert len(packed) == index["packed_words"]
             assert hash_words(packed) == index["packed_hash"]
@@ -186,7 +199,9 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
     assert len(owned_vertices) == len(vertex_versions)
     assert len(owned_indices) == len(index_versions)
     return {
-        "schema": ("pinyon-shift.snr02-track-geometry.v2"
+        "schema": ("pinyon-shift.snr02-track-geometry.v3"
+                   if magic == b"SNR02T3\0" else
+                   "pinyon-shift.snr02-track-geometry.v2"
                    if magic == b"SNR02T2\0" else
                    "pinyon-shift.snr02-track-geometry.v1"),
         "source_frame": source,
