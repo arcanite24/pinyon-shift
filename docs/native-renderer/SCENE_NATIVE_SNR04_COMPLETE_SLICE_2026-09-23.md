@@ -164,6 +164,13 @@ To repeat the bounded comparison from those local artifacts, set
 python tools/check-snr04-depth-bands.py .local/native-renderer/snr04/renderdoc-gatea-full-b-tile-final.json .local/native-renderer/snr04/renderdoc-gatea-full-staged-b/step-34/depth.f32
 ```
 
+Add `--order .local/native-renderer/snr04/renderdoc-gatea-full-b-order.json`
+and `--band-colors` followed by the `color.rgba` files from steps 12, 23
+and 34, in that order, to attribute pixels to the draw ID at each tile's
+end. Using only the final color file misattributes equal-depth redraws in
+the first two bands to later tile variants. Their depth bytes do not change
+between those tile ends and the final output.
+
 A full action scan identified the final scene-target draw in each band:
 events 11810, 15324 and 19337. These are later than the final matched
 track shaders at 11779, 15287 and 19300, but their sample-0 depth bytes are
@@ -175,12 +182,51 @@ silhouette test. The 208-row band has 98.05% mask overlap. Across overlapping
 pixels, median absolute depth difference is `8.32e-5`, but p90 is
 `0.00489`; only 466,537 of 901,054 differ by less than `1e-4`.
 
+Of the 85,908 overlapping pixels with absolute depth difference at least
+`0.005`, **69,490 (80.9%)** have a vegetation ID at the corresponding tile
+end. At 68,823 of those pixels (99.0%), the private reversed-Z depth is
+nearer than compatibility sample 0. Car presentation accounts for 10,947
+large errors, shared track for 3,467 and other families for 2,004. The five
+leading vegetation IDs (290, 824, 285, 280, 819) account for 65,130 large
+errors. Their ordered RenderDoc events (11204, 14636, 11188, 11172, 14620)
+each bind two pixel textures and use the same translated foliage pixel shader
+(`9954AD19FD4584CDF277F954E87005438DAA263094ACA722CF56F49930341D58`).
+For all five, RenderDoc's bound vertex-system registers 0/1, 8/9 and 14/15
+match the exact same-frame `FH1 SNR03 final draw state` row for that packet
+and sequence. This verifies the leading event-to-owned-draw joins beyond an
+ordinal count match.
+
+The private vegetation path instead uses an unmasked identity pixel shader.
+This points first to foliage alpha/sample-mask behavior, but 1× versus 4×
+sampling, later depth ties and retained scene contributions still prevent a
+causal parity claim.
+
+The exact-shader RenderDoc scan found **179 foliage actions**, matching the
+179 owned vegetation draws and their 45/67/67 tile partition. It counted 126
+actions with no pixel SRVs and 53 with two. The latter reference five BC3
+resources; all five full nine-mip chains were exported from this same run and
+match the independent earlier capture byte for byte. The census report is
+`renderdoc-gatea-full-b-vegetation-pixels.json` (SHA-256
+`78EAC8AF4D37E0097AE58421C6902D810BECBC40303E42BCBFFDE750A2AE2E157`).
+Reproduce the exact-shader event list with
+`qrenderdoc.exe --python tools/probe-snr04-vegetation-actions.py`, setting
+`SNR04_CAPTURE` to the same RDC and `SNR04_OUTPUT` to
+`renderdoc-gatea-full-b-vegetation-actions.json`. Feed that file as
+`SNR04_EVENTS_JSON` to `tools/probe-snr04-vegetation-pixel-census.py`, with
+`SNR04_BC3_DIR` set to a local output directory. The five `.bc3mips` files
+are 87,408 bytes each.
+
+At event 11204 (tile-one draw ID 290), RenderDoc records 133,488 changed
+depth samples across 59,649 pixels; sample 0 changes 27,325 texels. The
+stage-local private ID overlaps 15,608 of those texels. This is a same-run
+per-draw coordinate check, not alpha/depth parity.
+
 The depth comparison is a **coordinate diagnostic**, not SNR-04 acceptance.
 It samples only one of four compatibility samples and compares an
 identity-shaded selected-only replay with a compatibility target that also
-contains retained work. The large upper-band depth differences must be
-attributed by draw and material before accepting parity. The next bounded
-check needs a same-run 4× private replay with matching depth/stencil and
-alpha behavior, plus per-draw comparison at matched events. Resource
-generation, continuous moving frames, unload/reload and production cost are
-also still open.
+contains retained work. The next bounded check should replay the captured
+vegetation BC3 alpha/sample-mask path against preceding scene depth at 4×,
+then extend 4× target handoff to the complete ordered slice and compare
+matched per-draw events. Stencil and the remaining material states must also
+match before parity. Resource generation, continuous moving frames,
+unload/reload and production cost are also still open.

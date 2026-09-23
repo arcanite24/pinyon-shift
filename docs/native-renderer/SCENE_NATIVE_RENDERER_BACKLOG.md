@@ -454,6 +454,12 @@ draw of each of three EDRAM bands. The 99.46% nonzero-depth mask overlap
 supports the coordinate mapping, while the p90 absolute depth difference
 of `0.00489` leaves substantial unexplained depth error. Reproduce at 4×
 with matched alpha, stencil and per-draw event state before claiming parity.
+Attribution to each tile's private draw IDs puts 69,490/85,908 depth
+differences of at least `0.005` on vegetation; 99.0% write nearer private
+depth. The five leading foliage draws all bind two pixel textures. The
+same-run capture matches all 179 foliage actions and exports their five BC3
+mip chains. Bind the captured alpha/sample-mask state against preceding
+scene depth first; the current private identity shader ignores it.
 Semantic material admission, resource freshness and continuous
 moving-frame/unload checks remain open.
 A paired RenderDoc target check explains the apparent 180° mismatch against
