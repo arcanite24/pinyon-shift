@@ -64,12 +64,13 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
             destination[key] = row
     data = fixture.read_bytes()
     magic, frame, count = struct.unpack_from("<8sQI", data)
-    assert magic in (b"SNR02I1\0", b"SNR02I2\0") and frame == source_frame
+    assert magic in (b"SNR02I1\0", b"SNR02I2\0", b"SNR02I3\0") and frame == source_frame
     assert count == len(selected) and count <= 512
     camera = struct.unpack_from("<32I", data, 20)
     assert any(camera)
     offset = 148
     calls, total_draws, total_bytes = set(), 0, 0
+    shader_bitmaps = collections.defaultdict(set)
     for _ in range(count):
         values = struct.unpack_from("<QII23I17I3I", data, offset)
         offset += 188
@@ -93,12 +94,12 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
             assert (fetch["guest_base"], fetch["length"],
                     fetch["cpu_snapshot_status"], fetch["cpu_snapshot_hash"]) == (
                 base, length, 1, hash_bytes(vertex))
-            if magic == b"SNR02I2\0":
+            if magic != b"SNR02I1\0":
                 observed = prepared[row["ordinal"]]
                 assert observed["packet_physical"] == packet
                 assert observed["sequence"] not in expected
                 expected[observed["sequence"]] = (row, observed)
-        if magic == b"SNR02I2\0":
+        if magic != b"SNR02I1\0":
             seen = set()
             for _ in range(draws):
                 sequence, vs, ps, dynamic, count_vertices, count_textures = struct.unpack_from(
@@ -106,6 +107,15 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
                 offset += 40
                 texture_words = struct.unpack_from("<18I", data, offset)
                 offset += 72
+                if magic == b"SNR02I3\0":
+                    bitmap = struct.unpack_from("<4Q", data, offset)
+                    offset += 32
+                    mapped, = struct.unpack_from("<I", data, offset)
+                    offset += 4
+                    assert mapped == sum(word.bit_count() for word in bitmap)
+                    assert mapped == (25 if vs in (0x3BC346726C1C2535,
+                                                   0xBDFD2AD68464101A) else 23)
+                    shader_bitmaps[vs].add(bitmap)
                 vertex_constants = struct.unpack_from("<1024I", data, offset)
                 offset += 4096
                 system = struct.unpack_from("<64I", data, offset)
@@ -125,9 +135,12 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
                     assert actual == tuple(fetch[key] for key in (
                         "fetch_constant", "type", "base_address", "mip_address",
                         "format", "dimension", "width", "height", "stack_depth"))
-                assert draw_states[sequence] == {
+                expected_draw_state = {
                     "frame": census["backend_frame"], "packet": packet,
                     "sequence": sequence, "vertex_hash": hash_words(vertex_constants)}
+                if magic == b"SNR02I3\0":
+                    expected_draw_state.update(bitmap=list(bitmap), mapped=mapped)
+                assert draw_states[sequence] == expected_draw_state
                 assert final_states[sequence] == {
                     "frame": census["backend_frame"], "packet": packet,
                     "sequence": sequence, "dynamic": dynamic,
@@ -137,9 +150,14 @@ def verify(fixture: Path, log: Path, ledger: Path) -> dict:
         total_draws += draws
         total_bytes += length
     assert calls == set(selected) and offset == len(data)
+    assert all(len(bitmaps) == 1 for bitmaps in shader_bitmaps.values())
     return {"source_frame": frame, "version": magic.decode().rstrip("\0"),
             "calls": count, "draws": total_draws,
-            "owned_vertex_bytes": total_bytes, "fixture_bytes": len(data)}
+            "owned_vertex_bytes": total_bytes, "fixture_bytes": len(data),
+            "vertex_registers": {
+                f"{shader:016X}": [reg for reg in range(256)
+                                 if next(iter(bitmaps))[reg // 64] & (1 << (reg % 64))]
+                for shader, bitmaps in sorted(shader_bitmaps.items())}}
 
 
 if __name__ == "__main__":

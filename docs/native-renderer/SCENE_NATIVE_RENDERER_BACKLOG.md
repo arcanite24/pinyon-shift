@@ -15,8 +15,9 @@ the local-car resource census, seven selected title submodels, a complete
 procedural descriptor/runtime join and all 308 selected prepared vertex
 snapshots in one replay. A later replay owns every selected procedural
 packet's title records, vertex bytes and ordered final draw states through
-its output-frame handoff. Material roles, texture generations and private
-render coverage remain open.
+its output-frame handoff. The four selected procedural vertex shaders now
+have live packed-register maps. Material roles, texture generations and
+private render coverage remain open.
 The [SNR-03 evidence log](SCENE_NATIVE_SNR03_EVIDENCE_2026-09-22.md) records
 bounded same-frame vegetation metadata, guarded vertex bytes and a private
 same-frame identity/depth diagnostic; full-slice coverage remains open.

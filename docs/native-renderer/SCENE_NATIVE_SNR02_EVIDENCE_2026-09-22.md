@@ -894,3 +894,43 @@ writes always occur in the draw's execution.
 The fixture still lacks semantic material ownership, texture byte
 generations and a private render of these four vertex shader variants.
 SNR-03/04 and the full selected-slice coverage gate remain open.
+
+### Procedural vertex-shader binding map
+
+The version-3 owned fixture adds the SDK shader's exact 256-register vertex
+bitmap and packed-vector count to each ordered draw. A sustained-race replay
+exited normally with seven compatibility captures; its strict census passed
+3,623 draws and the Gate A partition counted 1,771 selected, 70 retained
+and 1,782 outside. The fixture owns 174 selected procedural calls, 308
+ordered draws and 518,400 unique vertex bytes. The independent verifier
+matched all raw title records, geometry, shader identities, draw sequences,
+texture fetches, vertex register words/bitmaps and final system/fetch words.
+All 308 guest primitive-13 draw counts are divisible by four.
+
+| Evidence | Local path | SHA-256 |
+| --- | --- | --- |
+| Version-3 fixture | `.local/native-renderer/snr02/item-vertex-abi-run-a/snr02-items-6000.bin` | `8598EC404038F8B117627074E48EA919EB83E66EEB0550F9AEBDDCB4C380880C` |
+| Filtered log | `.local/native-renderer/snr02/item-vertex-abi-run-a-filtered.log` | `6B46445DF3B3FF497794A51A286AD2EE87A97C5FCD1A32BC9036807705CCEFA7` |
+| Strict ledger | `.local/native-renderer/snr02/item-vertex-abi-run-a-ledger.json` | `43F6934E25E309535B759123D9FF1B2DA546BAEBAECC0297DAF3B8243491575F` |
+
+The four captured vertex bytecodes all bind a raw shared-memory SRV at
+`t0`, system constants at `cb0`, packed vertex float constants at `cb1`,
+fetch constants at `cb3`, and a declared raw UAV at `u0`. Their captured
+hashes and `fxc /dumpbin` float-vector counts agree with the live bitmap:
+
+| Vertex hash | Bytecode SHA-256 | Packed vectors | Guest register map |
+| --- | --- | ---: | --- |
+| `3BC346726C1C2535` | `113B8C594001B1593FFF3F4861C788342721A8B7E0251BEF9E41688A69AE7C31` | 25 | A |
+| `BDFD2AD68464101A` | `42CFD0A51E91B4F00F2F0F40CBC4A9F689316FBD6950ABD9DBD2DA4D3458A347` | 25 | A |
+| `CB8AC98467C0C283` | `F759D5DE1BE2B8E4913D86E9C11210CD1EE76F33FF004B88FA4DD533E347B02C` | 23 | B |
+| `A715C815EDB8EEE8` | `5C8692DDF2FF735D28B7B5F1FDCE740B6BE443EE942191C8D912D9A22852A269` | 23 | B |
+
+Map A: `128–131, 157–160, 162–163, 198, 213–215, 221, 241–245,
+250–251, 253–255`. Map B: `0, 128–131, 157–160, 163, 198, 213–215,
+241–245, 250, 253–255`. These are guest register numbers in ascending
+shader-pack order, not inferred material fields. The fixture retains all
+256 raw guest registers, so a private diagnostic can pack exactly the
+shader-used values without mutable guest reads. The captured fetch-47 words
+also include the fetch-95 descriptor used by these shaders. Raster winding,
+exact post-VS positions, coverage/depth parity and texture generations
+still require a private same-frame diagnostic and compatibility comparison.

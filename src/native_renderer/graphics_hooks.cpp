@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -359,6 +360,8 @@ struct Snr02ItemDrawState {
   uint32_t index_count = 0;
   uint32_t texture_count = 0;
   std::array<rex::system::GraphicsPreparedDrawTextureFetch, 2> textures{};
+  std::array<uint64_t, 4> vertex_bitmap{};
+  uint32_t vertex_constant_count = 0;
   std::array<uint32_t, 1024> vertex_constants{};
   std::array<uint32_t, 64> system_constants{};
   std::array<uint32_t, 4> fetch47{};
@@ -1127,6 +1130,7 @@ void ObserveSnr02ItemVertexPayload(
       fetch.length != observation.index_count * 10 ||
       fetch.cpu_snapshot_status != 1 || !fetch.cpu_snapshot_bytes ||
       !observation.draw_sequence || !observation.vertex_float_constant_words ||
+      !observation.vertex_float_constant_bitmap ||
       observation.texture_fetch_count > 2 ||
       (observation.texture_fetch_count && !observation.texture_fetches)) {
     state.rejected = true;
@@ -1171,6 +1175,17 @@ void ObserveSnr02ItemVertexPayload(
   draw.dynamic_state = observation.fh1_execution_key.dynamic_state;
   draw.index_count = observation.index_count;
   draw.texture_count = observation.texture_fetch_count;
+  draw.vertex_constant_count = observation.vertex_float_constant_count;
+  std::copy_n(observation.vertex_float_constant_bitmap, draw.vertex_bitmap.size(),
+              draw.vertex_bitmap.begin());
+  uint32_t mapped = 0;
+  for (uint64_t bits : draw.vertex_bitmap) mapped += std::popcount(bits);
+  if (mapped != draw.vertex_constant_count ||
+      mapped != (draw.vertex_shader == 0x3BC346726C1C2535ull ||
+                 draw.vertex_shader == 0xBDFD2AD68464101Aull ? 25u : 23u)) {
+    state.rejected = true;
+    return;
+  }
   if (draw.texture_count) {
     std::copy_n(observation.texture_fetches, draw.texture_count,
                 draw.textures.begin());
@@ -1178,9 +1193,12 @@ void ObserveSnr02ItemVertexPayload(
   std::copy_n(observation.vertex_float_constant_words, draw.vertex_constants.size(),
               draw.vertex_constants.begin());
   REXGPU_INFO("FH1 SNR02 item draw state {{\"frame\":{},\"packet\":{},"
-              "\"sequence\":{},\"vertex_hash\":{}}}",
+              "\"sequence\":{},\"vertex_hash\":{},"
+              "\"bitmap\":[{},{},{},{}],\"mapped\":{}}}",
               observation.frame_sequence, item->packet, observation.draw_sequence,
-              Snr02HashWords(draw.vertex_constants));
+              Snr02HashWords(draw.vertex_constants),
+              draw.vertex_bitmap[0], draw.vertex_bitmap[1],
+              draw.vertex_bitmap[2], draw.vertex_bitmap[3], mapped);
   existing->second.draws.emplace(observation.draw_sequence, std::move(draw));
   state.draw_bytes += sizeof(Snr02ItemDrawState);
 }
@@ -1545,7 +1563,7 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
     encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'I', '2', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'I', '3', '\0'};
   write(magic);
   write(scene->source_frame);
   write(uint32_t(scene->items.size()));
@@ -1579,6 +1597,8 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame) {
       write(state.index_count);
       write(state.texture_count);
       write(state.textures);
+      write(state.vertex_bitmap);
+      write(state.vertex_constant_count);
       write(state.vertex_constants);
       write(state.system_constants);
       write(state.fetch47);
