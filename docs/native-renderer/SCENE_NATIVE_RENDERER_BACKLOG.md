@@ -22,7 +22,8 @@ The [shared-track geometry handoff](SCENE_NATIVE_SNR02_TRACK_GEOMETRY_2026-09-23
 owns the selected track vertex/index bytes at the exact output frame and
 verifies all 733 draws in one replay. Its title target boundary is exact in
 that capture, but mesh/material ownership and native raster coverage remain
-open; two noncandidate direct-root draws also lack title attribution.
+open. A bounded post-refill clear join attributes the two late noncandidate
+direct-root draws found in the same replay.
 The [SNR-04 procedural diagnostic](SCENE_NATIVE_SNR04_PROCEDURAL_EVIDENCE_2026-09-23.md)
 replays every owned procedural draw through a private full-resolution
 identity/depth target at the output-frame handoff. It also checks original

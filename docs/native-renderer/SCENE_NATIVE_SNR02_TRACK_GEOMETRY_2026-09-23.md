@@ -48,14 +48,16 @@ command-list container; the mesh/submesh/material owner and resource lifetime
 still need title-side proof. The fixture does not yet own final constants,
 texture roles or shader bytecode, and there is no track diagnostic raster.
 The full frame-role partition reports 2,005 selected, 76 retained and 1,435
-outside-candidate draws. It flags **two** of the latter as unattributed direct
-roots, ordinals 3419–3420, and `full_owner_census=false`. They share root
-command buffer `319914400`, which was linked from a title view-0 command in
-source frame 6000 and executed in backend frame 6001. That proves a buffer
-handoff, but not the producers of its two draw packets. The partition tool
-now reports this gap explicitly; the candidate-boundary verifier alone does
-not prove the entire remaining-draw census.
+outside-candidate draws with `full_owner_census=true`. Its first pass flagged
+two late direct-root draws, ordinals 3419–3420. The title's clear producer
+record `62825` spans a command-buffer refill: its post-refill end cursor is
+`319914588`, and both draw packets fall between the new root buffer start
+`319914400` and that end. The bounded refill join assigns both to this
+source-frame-6000 clear. The revised ledger is
+`.local/native-renderer/snr02/track-owned-live-b-refill-ledger.json`
+(SHA-256 `EF58F8CF2E632AA1F956FC3F1BE8D82D29D8E4C4F14B9DC74A1AD96A71CFD2E5`).
+The prior 2,670-draw control ledger's classifications did not change.
 
-Next: resolve those direct-root producers, connect cached track command
-targets to actual mesh/material ownership, then extend this exact-frame
-fixture with final draw state and private full-resolution identity/depth.
+Next: connect cached track command targets to actual mesh/material ownership,
+then extend this exact-frame fixture with final draw state and private
+full-resolution identity/depth.

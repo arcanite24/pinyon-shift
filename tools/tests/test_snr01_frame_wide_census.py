@@ -129,6 +129,15 @@ class FrameWideCensusTest(unittest.TestCase):
         records["clear"][0]["_log_order"] = 30
         self.assertEqual(SUMMARIZE(records, [10, 11], 11)["draws"][1]
                          ["classification"], "direct_root")
+        records["clear"][0].update(refills=1, _log_order=10,
+                                   command_cursor_before=0xA0001000)
+        records["primary"][0]["gpu_target"] = 4
+        records["execution"][0]["command_buffer"] = 4
+        self.assertEqual(SUMMARIZE(records, [10, 11], 11)["draws"][1]
+                         ["clear_producer_record"], 7)
+        records["clear"][0]["command_cursor_after"] = 0xA0002000
+        self.assertEqual(SUMMARIZE(records, [10, 11], 11)["draws"][1]
+                         ["classification"], "direct_root")
 
 
 if __name__ == "__main__":

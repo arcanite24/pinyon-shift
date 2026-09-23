@@ -167,15 +167,17 @@ def summarize(records, frames, backend_frame):
         root_sources[root["execution"]] = primary[key]
 
     clear_ranges = collections.defaultdict(list)
+    refilled_clear_ends = collections.defaultdict(list)
     for row in records["clear"]:
-        if (row.get("refills") or row.get("nested") or
-                "command_cursor_before" not in row or
+        if (row.get("nested") or "command_cursor_before" not in row or
                 "command_cursor_after" not in row):
             continue
         begin = row["command_cursor_before"] & 0x1FFFFFFF
         end = row["command_cursor_after"] & 0x1FFFFFFF
         # ponytail: cap joins at 4 KiB; broaden only with buffer-lifetime proof.
-        if begin < end and end - begin <= 4096:
+        if row.get("refills") == 1:
+            refilled_clear_ends[row["frame"]].append((end, row))
+        elif not row.get("refills") and begin < end and end - begin <= 4096:
             clear_ranges[row["frame"]].append((begin, end, row))
 
     target_classes = collections.defaultdict(collections.Counter)
@@ -211,6 +213,14 @@ def summarize(records, frames, backend_frame):
                        if begin <= draw["packet_physical"] and end <= limit
                        and row.get("_log_order", -1) <
                        source.get("_log_order", float("inf"))]
+            matches += [row for frame in (source["frame"] - 1, source["frame"])
+                        for limit, row in refilled_clear_ends[frame]
+                        if root["command_buffer"] <= draw["packet_physical"]
+                        and end <= limit
+                        and root["command_buffer"] < limit
+                        and limit - root["command_buffer"] <= 4096
+                        and row.get("_log_order", -1) <
+                        source.get("_log_order", float("inf"))]
             assert len(matches) <= 1, f"ambiguous clear producer for draw {draw['ordinal']}"
             clear_producer = matches[0] if matches else None
         if packet is None:
