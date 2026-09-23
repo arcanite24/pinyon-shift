@@ -18,5 +18,6 @@ bool Snr03ProbeEnabled();
 void ObserveSnr03OutputFrame(uint64_t output_frame, void* device);
 bool Snr02ItemProbeEnabled();
 void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device);
+void ObserveSnr02TrackOutputFrame(uint64_t output_frame);
 
 }  // namespace pinyon_shift::native_renderer

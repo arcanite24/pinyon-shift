@@ -12,6 +12,7 @@ bool ObserveRenderTestOutput(
                                                         context.device);
   pinyon_shift::native_renderer::ObserveSnr02ItemOutputFrame(context.frame_sequence,
                                                             context.device);
+  pinyon_shift::native_renderer::ObserveSnr02TrackOutputFrame(context.frame_sequence);
   return pinyon_shift::fh1_render_test::ObserveOutput(context);
 }
 

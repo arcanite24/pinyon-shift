@@ -67,6 +67,9 @@ REXCVAR_DEFINE_INT32(pinyon_shift_snr03_probe_frame, 0, "Pinyon Shift",
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_item_payload_probe, false,
                     "Pinyon Shift", "Read selected procedural descriptor/runtime records")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_track_payload_probe, false,
+                    "Pinyon Shift", "Snapshot selected view-8 track geometry")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
 
@@ -508,6 +511,25 @@ thread_local std::vector<Snr01RenderThreadRequest> snr01_render_thread_requests;
 thread_local uint64_t snr01_render_thread_request_count = 0;
 thread_local uint64_t snr01_scene_indirect_count = 0;
 thread_local std::vector<uint32_t> snr01_scene_indirect_callers;
+std::mutex snr02_track_targets_mutex;
+std::set<uint32_t> snr02_track_targets;
+bool snr02_track_targets_overflow = false;
+bool snr02_track_title_ready = false;
+std::array<uint32_t, 16> snr02_track_camera80{};
+std::array<uint32_t, 16> snr02_track_camera144{};
+using Snr02TrackRange = std::pair<uint32_t, uint32_t>;
+struct Snr02TrackDraw {
+  uint64_t sequence, vertex_shader, pixel_shader;
+  uint32_t packet, command_buffer, index_count, stride_words;
+  Snr02TrackRange vertex, index;
+};
+struct Snr02TrackPayload {
+  std::map<Snr02TrackRange, std::vector<uint8_t>> vertices, indices;
+  std::vector<Snr02TrackDraw> draws;
+  uint32_t bytes = 0;
+  bool rejected = false;
+};
+Snr02TrackPayload snr02_track_payload;
 struct Snr01SceneListFlush {
   uint32_t caller;
   uint32_t owner;
@@ -636,6 +658,45 @@ int32_t Snr02ItemTargetFrame() {
                                     ? REXCVAR_GET(pinyon_shift_snr01_trace_source_frame)
                                     : 0;
   return target;
+}
+
+int32_t Snr02TrackTargetFrame() {
+  static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_track_payload_probe)
+                                    ? REXCVAR_GET(pinyon_shift_snr01_trace_source_frame)
+                                    : 0;
+  return target;
+}
+
+uint64_t Snr03HashBytes(const std::vector<uint8_t>& bytes);
+
+bool Snr02SelectTrackSnapshot(uint64_t frame, uint32_t command_buffer) {
+  if (Snr02TrackTargetFrame() <= 0 ||
+      frame != uint64_t(Snr02TrackTargetFrame()) + 1) return false;
+  std::lock_guard lock(snr02_track_targets_mutex);
+  return !snr02_track_targets_overflow &&
+         snr02_track_targets.contains(command_buffer);
+}
+
+bool Snr02OwnTrackRange(
+    std::map<Snr02TrackRange, std::vector<uint8_t>>& ranges,
+    Snr02TrackRange key, const uint8_t* bytes, uint32_t status, uint64_t hash,
+    Snr02TrackPayload& payload) {
+  if (status != 1 || !bytes || !key.second) return false;
+  const auto existing = ranges.find(key);
+  if (existing != ranges.end()) {
+    return std::equal(existing->second.begin(), existing->second.end(), bytes);
+  }
+  constexpr uint32_t kOwnedBytesLimit = 8 * 1024 * 1024;
+  if (payload.bytes > kOwnedBytesLimit ||
+      key.second > kOwnedBytesLimit - payload.bytes) return false;
+  auto& owned = ranges[key];
+  owned.assign(bytes, bytes + key.second);
+  if (Snr03HashBytes(owned) != hash) {
+    ranges.erase(key);
+    return false;
+  }
+  payload.bytes += key.second;
+  return true;
 }
 
 uint64_t Snr03Fingerprint(const Snr03SceneSnapshot& scene) {
@@ -1236,6 +1297,57 @@ void ObservePreparedDraw(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
   ObserveSnr02ItemVertexPayload(observation);
   ObserveSnr03VertexPayload(observation);
+  if (Snr02SelectTrackSnapshot(observation.frame_sequence,
+                               observation.command_buffer_physical_address)) {
+    bool captured = false;
+    {
+      std::lock_guard lock(snr02_track_targets_mutex);
+      auto& payload = snr02_track_payload;
+      if (!payload.rejected && payload.draws.size() < 4096 &&
+          observation.draw_sequence && observation.guest_primitive_type == 6 &&
+          observation.index_buffer_type == 1 &&
+          observation.vertex_fetch_count == 1 && observation.vertex_fetches &&
+          observation.vertex_fetch_capacity >= 1) {
+        const auto& fetch = observation.vertex_fetches[0];
+        const Snr02TrackRange vertex{fetch.guest_base, fetch.length};
+        const Snr02TrackRange index{observation.index_buffer_guest_base,
+                                    observation.index_buffer_length};
+        if (fetch.fetch_constant == 95 && fetch.stride_words >= 4 &&
+            fetch.stride_words <= 9 &&
+            Snr02OwnTrackRange(payload.vertices, vertex,
+                               fetch.cpu_snapshot_bytes,
+                               fetch.cpu_snapshot_status,
+                               fetch.cpu_snapshot_hash, payload) &&
+            Snr02OwnTrackRange(payload.indices, index,
+                               observation.index_cpu_snapshot_bytes,
+                               observation.index_cpu_snapshot_status,
+                               observation.index_cpu_snapshot_hash, payload)) {
+          payload.draws.push_back({observation.draw_sequence,
+                                   observation.vertex_shader_hash,
+                                   observation.pixel_shader_hash,
+                                   observation.draw_packet_physical_address,
+                                   observation.command_buffer_physical_address,
+                                   observation.index_count, fetch.stride_words,
+                                   vertex, index});
+          captured = true;
+        }
+      }
+      if (!captured) payload.rejected = true;
+    }
+    REXGPU_INFO("FH1 SNR02 track geometry {{\"frame\":{},\"packet\":{},"
+                "\"command_buffer\":{},\"sequence\":{},"
+                "\"index_base\":{},\"index_length\":{},"
+                "\"index_status\":{},\"index_hash\":{},"
+                "\"captured\":{}}}",
+                observation.frame_sequence,
+                observation.draw_packet_physical_address,
+                observation.command_buffer_physical_address,
+                observation.draw_sequence,
+                observation.index_buffer_guest_base,
+                observation.index_buffer_length,
+                observation.index_cpu_snapshot_status,
+                observation.index_cpu_snapshot_hash, captured);
+  }
   static const bool corpus_enabled =
       rex::cvar::GetFlagByName("pinyon_shift_fh1_gpu_corpus") == "true";
   if (corpus_enabled) {
@@ -1514,6 +1626,8 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
               Snr03ProbeEnabled()
           ? &ObservePreparedDraw
           : nullptr);
+  graphics_system->SetPreparedDrawSnapshotSelector(
+      Snr02TrackTargetFrame() > 0 ? &Snr02SelectTrackSnapshot : nullptr);
   graphics_system->SetFinalDrawStateObserver(
       Snr03ProbeEnabled() || Snr02ItemProbeEnabled()
           ? &ObserveSnr03FinalDrawState : nullptr);
@@ -1531,6 +1645,7 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
 void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
   if (graphics_system) {
     graphics_system->SetPreparedDrawObserver(nullptr);
+    graphics_system->SetPreparedDrawSnapshotSelector(nullptr);
     graphics_system->SetFinalDrawStateObserver(nullptr);
     graphics_system->SetIndirectBufferObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);
@@ -1556,10 +1671,98 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
     snr02_item_scenes.clear();
     snr02_item_payloads.clear();
   }
+  {
+    std::lock_guard lock(snr02_track_targets_mutex);
+    snr02_track_targets.clear();
+    snr02_track_targets_overflow = false;
+    snr02_track_title_ready = false;
+    snr02_track_camera80 = {};
+    snr02_track_camera144 = {};
+    snr02_track_payload = {};
+  }
 }
 
 bool Snr03ProbeEnabled() { return Snr03TargetFrame() > 0; }
 bool Snr02ItemProbeEnabled() { return Snr02ItemTargetFrame() > 0; }
+
+void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
+  if (Snr02TrackTargetFrame() <= 0 ||
+      output_frame != uint64_t(Snr02TrackTargetFrame()) + 1) return;
+  Snr02TrackPayload payload;
+  std::set<uint32_t> targets;
+  std::array<uint32_t, 16> camera80{}, camera144{};
+  bool ready = false;
+  {
+    std::lock_guard lock(snr02_track_targets_mutex);
+    ready = snr02_track_title_ready && !snr02_track_targets_overflow;
+    targets = snr02_track_targets;
+    camera80 = snr02_track_camera80;
+    camera144 = snr02_track_camera144;
+    payload = std::move(snr02_track_payload);
+  }
+  std::set<uint32_t> seen_targets;
+  std::set<uint64_t> sequences;
+  for (const auto& draw : payload.draws) {
+    seen_targets.insert(draw.command_buffer);
+    if (!sequences.insert(draw.sequence).second) payload.rejected = true;
+  }
+  if (!ready || payload.rejected || payload.draws.empty() ||
+      seen_targets != targets) {
+    REXGPU_INFO("FH1 SNR02 track owned scene rejected output_frame={} "
+                "ready={} rejected={} targets={} seen={} draws={} bytes={}",
+                output_frame, ready, payload.rejected, targets.size(),
+                seen_targets.size(), payload.draws.size(), payload.bytes);
+    return;
+  }
+  std::ranges::sort(payload.draws, {}, &Snr02TrackDraw::sequence);
+  std::vector<char> encoded;
+  auto write = [&](const auto& value) {
+    const auto* bytes = reinterpret_cast<const char*>(&value);
+    encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
+  };
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '1', '\0'};
+  write(magic);
+  write(output_frame - 1);
+  write(uint32_t(targets.size()));
+  write(uint32_t(payload.draws.size()));
+  write(uint32_t(payload.vertices.size()));
+  write(uint32_t(payload.indices.size()));
+  write(camera80);
+  write(camera144);
+  for (uint32_t target : targets) write(target);
+  const auto write_ranges = [&](const auto& ranges) {
+    for (const auto& [key, bytes] : ranges) {
+      write(key.first);
+      write(key.second);
+      encoded.insert(encoded.end(), bytes.begin(), bytes.end());
+    }
+  };
+  write_ranges(payload.vertices);
+  write_ranges(payload.indices);
+  for (const auto& draw : payload.draws) {
+    write(draw.sequence);
+    write(draw.vertex_shader);
+    write(draw.pixel_shader);
+    write(draw.packet);
+    write(draw.command_buffer);
+    write(draw.index_count);
+    write(draw.stride_words);
+    write(draw.vertex.first);
+    write(draw.vertex.second);
+    write(draw.index.first);
+    write(draw.index.second);
+  }
+  const auto directory = fh1_render_test::OutputDirectory();
+  const bool written = !directory.empty() &&
+      WriteSceneFixture(std::span<const char>(encoded), output_frame - 1,
+                        directory, "snr02-track-");
+  REXGPU_INFO("FH1 SNR02 track owned scene consumed output_frame={} "
+              "source_frame={} targets={} draws={} vertex_ranges={} "
+              "index_ranges={} owned_bytes={} fixture_bytes={} written={}",
+              output_frame, output_frame - 1, targets.size(), payload.draws.size(),
+              payload.vertices.size(), payload.indices.size(), payload.bytes,
+              encoded.size(), written);
+}
 
 void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
   if (!Snr02ItemProbeEnabled() ||
@@ -2077,6 +2280,16 @@ void PinyonShiftObservePresentationViewBegin(
   const uint64_t ordinal = ++snr01_view_begin_count;
   if (ordinal == 8) {
     snr01_view8_flush_owners.clear();
+    if (Snr02TrackTargetFrame() > 0 &&
+        frame == uint64_t(Snr02TrackTargetFrame())) {
+      std::lock_guard lock(snr02_track_targets_mutex);
+      snr02_track_targets.clear();
+      snr02_track_targets_overflow = false;
+      snr02_track_title_ready = false;
+      snr02_track_camera80 = {};
+      snr02_track_camera144 = {};
+      snr02_track_payload = {};
+    }
     if (Snr02ItemTargetFrame() > 0 && frame == uint64_t(Snr02ItemTargetFrame())) {
       snr02_item_title_items.clear();
       snr02_item_title_rejected = false;
@@ -2112,6 +2325,21 @@ void PinyonShiftObservePresentationViewEnd() {
   snr01_view_scopes.pop_back();
   const uint64_t frame = uint64_t(rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount));
+  if (scope.ordinal == 8 && Snr02TrackTargetFrame() > 0 &&
+      frame == uint64_t(Snr02TrackTargetFrame())) {
+    std::lock_guard lock(snr02_track_targets_mutex);
+    if (!snr02_track_targets_overflow && !snr02_track_targets.empty() &&
+        scope.camera) {
+      for (uint32_t i = 0; i < 16; ++i) {
+        snr02_track_camera80[i] = SnrM02ReadU32(scope.camera + 80 + i * 4);
+        snr02_track_camera144[i] = SnrM02ReadU32(scope.camera + 144 + i * 4);
+      }
+      snr02_track_title_ready = true;
+    }
+    REXGPU_INFO("FH1 SNR02 track title scene frame={} targets={} ready={} overflow={}",
+                frame, snr02_track_targets.size(), snr02_track_title_ready,
+                snr02_track_targets_overflow);
+  }
   if (scope.ordinal == 8 && Snr02ItemTargetFrame() > 0 &&
       frame == uint64_t(Snr02ItemTargetFrame())) {
     std::set<uint32_t> packets;
@@ -4422,6 +4650,21 @@ void PinyonShiftObserveSceneCommandBuffer(PPCRegister& r24, PPCRegister& r10,
                                          PPCRegister& r28, PPCRegister& r29) {
   if (Snr01TraceCurrentFrame() &&
       ++snr01_scene_indirect_count <= kSnr01PacketLimit) {
+    if (Snr02TrackTargetFrame() > 0 &&
+        uint64_t(Snr02TrackTargetFrame()) ==
+            rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount) &&
+        !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8 &&
+        !snr01_scene_list_flushes.empty() &&
+        snr01_scene_list_flushes.back().caller == 0x824170BC && r10.u32) {
+      std::lock_guard lock(snr02_track_targets_mutex);
+      const uint32_t target = r10.u32 & 0x1FFFFFFF;
+      if (snr02_track_targets.size() == 256 &&
+          !snr02_track_targets.contains(target)) {
+        snr02_track_targets_overflow = true;
+      } else {
+        snr02_track_targets.insert(target);
+      }
+    }
     if (!snr01_view_scopes.empty() &&
         snr01_view_scopes.back().ordinal == 8 &&
         !snr01_scene_list_flushes.empty() &&
