@@ -25,9 +25,16 @@ hash/specialization pairs for this frame, totaling 459,928 DXIL bytes.
 | `.local/native-renderer/snr02/track-index-live-e-ledger.json` | `8D97C18ED1EEB19D2A70A37612C42BC58734F9537A4606C934A8852AA1F146B5` |
 | RelWithDebInfo executable | `936324A4BB4EA0C4296C58937DCA28963AFD37F58A329DC0B1DD80BE0A0F08EE` |
 
-The next private raster must apply the guest `k8in16` index conversion and
-restart semantics, then validate vertex fetch and post-VS output against the
-compatibility renderer. Mesh/material ownership and pixel parity remain open.
+The owned bytes contain 591,892 raw 16-bit index entries across these draws,
+including 63,316 `0xFFFF` restart entries. The largest non-restart value as
+read by the host is 65,331; after the guest `k8in16` byte swap it is 13,390.
+The SDK binds the raw guest bytes as `R16_UINT` and sets
+`system_constants_.vertex_index_endian`; its translated vertex shader swaps
+`SV_VertexID`. The private raster must likewise bind **raw** index bytes with
+the exact shader and captured system constants, preserving strip restart.
+Pre-swapping the index buffer would double-apply the conversion. Vertex fetch
+and post-VS output still need comparison against the compatibility renderer;
+mesh/material ownership and pixel parity remain open.
 
 ## Exact vertex translations and topology check
 
