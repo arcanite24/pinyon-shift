@@ -640,6 +640,8 @@ struct Snr03RemainderDraw {
   uint32_t family = 0, title_key = 0, packet = 0, count = 0;
   uint32_t guest_primitive = 0, host_primitive = 0, index_type = 0;
   uint32_t host_index_format = 0, index_endianness = 0;
+  uint32_t host_shader_index_endianness = 0, host_primitive_reset = 0;
+  uint32_t guest_primitive_reset_index = 0;
   std::vector<Snr03RemainderFetch> fetches;
   Snr02TrackRange indices{};
   std::vector<rex::system::GraphicsPreparedDrawTextureFetch> textures;
@@ -1467,6 +1469,11 @@ void ObserveSnr03RemainderPayloadLocked(
   draw.index_type = observation.index_buffer_type;
   draw.host_index_format = observation.host_index_format;
   draw.index_endianness = observation.index_buffer_guest_endianness;
+  draw.host_shader_index_endianness =
+      observation.host_shader_index_endianness;
+  draw.host_primitive_reset = observation.host_primitive_reset_enabled;
+  draw.guest_primitive_reset_index =
+      observation.guest_primitive_reset_index;
   for (uint32_t slot = 0; slot < observation.vertex_fetch_count; ++slot) {
     const auto& fetch = observation.vertex_fetches[slot];
     const Snr02TrackRange range{fetch.guest_base, fetch.length};
@@ -1507,9 +1514,13 @@ void ObserveSnr03RemainderPayloadLocked(
   REXGPU_INFO("FH1 SNR03 remainder prepared {{\"frame\":{},"
               "\"sequence\":{},\"packet\":{},\"family\":{},"
               "\"title_key\":{},\"fetches\":{},\"packed_hash\":{},"
-              "\"index_type\":{}}}", observation.frame_sequence,
+              "\"index_type\":{},\"host_index_format\":{},"
+              "\"host_shader_index_endian\":{},\"host_reset\":{},"
+              "\"guest_reset_index\":{}}}", observation.frame_sequence,
               draw.sequence, draw.packet, draw.family, draw.title_key,
-              draw.fetches.size(), Snr02HashWords(draw.packed), draw.index_type);
+              draw.fetches.size(), Snr02HashWords(draw.packed), draw.index_type,
+              draw.host_index_format, draw.host_shader_index_endianness,
+              draw.host_primitive_reset, draw.guest_primitive_reset_index);
   payload.draws.push_back(std::move(draw));
 }
 
@@ -2880,7 +2891,7 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
       const auto* bytes = reinterpret_cast<const char*>(&value);
       encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
     };
-    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','1','\0'};
+    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','2','\0'};
     write(magic);
     write(car->source_frame);
     write(car->view);
@@ -2915,6 +2926,9 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
       write(draw.count); write(draw.guest_primitive);
       write(draw.host_primitive); write(draw.index_type);
       write(draw.host_index_format); write(draw.index_endianness);
+      write(draw.host_shader_index_endianness);
+      write(draw.host_primitive_reset);
+      write(draw.guest_primitive_reset_index);
       write(uint32_t(draw.fetches.size()));
       for (const auto& fetch : draw.fetches) {
         write(fetch.constant); write(fetch.stride_words);

@@ -141,3 +141,30 @@ python tools/verify-snr03-remainder-fixture.py "$base/remainder-fixture-live-a/s
 | `remainder-fixture-live-a-evidence.log` | `78E9206B5715BEF9767DA37849253A7054823C04117BE79FA8B346FF3C8CC612` |
 | `remainder-fixture-live-a-ledger.json` | `7F2806B162EFCFD175BC88B7F2D9947A0D6E34B2D2A04D5017D597F470C033EE` |
 | `remainder-fixture-live-a/snr03-remainder-5000.bin` | `9F7EF77A1D58196D1E6E7BA4A9071C05577600969AA3F3ACA3B729C000BA7BDC` |
+
+## Host-converted index preflight
+
+The `SNR03R2` fixture also owns the host shader index endianness, primitive
+restart enable and guest restart register for each draw. A fresh strict replay
+at source frame 5000 attributed all 3,888 draws and selected 2,192. Its
+remainder fixture owns exactly 880 car/scalar draws (814 / 12 / 54); the
+independent verifier passed every title, byte and final-state join.
+
+Of those 880 draws, 108 use SDK-converted 32-bit triangle-strip indices. In
+all 108, the host shader still uses `k8in32` index swapping. The SDK's
+`ReplaceResetIndex32To24<kNone>` path masks each raw guest index to the
+guest-endian low 24 bits and replaces the restart value with `0xFFFFFFFF`;
+it does **not** byte-swap non-restart values before upload. Reconstructing the
+captured index sources with this rule found 5,776 restart markers. The other
+772 draws use raw guest DMA indices. A private raster must preserve this
+distinction and set the 32-bit strip cut value for converted draws.
+
+```powershell
+python tools/verify-snr03-remainder-fixture.py "$base/remainder-index-live-b/snr03-remainder-5000.bin" "$base/remainder-index-live-b-evidence.log" "$base/remainder-index-live-b-ledger.json"
+```
+
+| Local evidence | SHA-256 |
+| --- | --- |
+| `remainder-index-live-b-evidence.log` | `5A690FD3F582B85F3FB8947C2BE4399730DCDA7934461D03D597E59296309054` |
+| `remainder-index-live-b-ledger.json` | `7538696389C2E4A4696370FD7515EFA141506BA0B142A9A9F2C1BC5CFD878D5E` |
+| `remainder-index-live-b/snr03-remainder-5000.bin` | `21896007841BEB6B028A7134D681ACDA13BE7122B9CF2374077F60B76795F8DA` |

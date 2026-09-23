@@ -36,7 +36,8 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         offset += length
         return result
 
-    assert take("<8s")[0] == b"SNR03R1\0"
+    magic = take("<8s")[0]
+    assert magic in (b"SNR03R1\0", b"SNR03R2\0")
     frame, view, camera, car_count, scalar_count, draw_count, vertex_count, index_count = \
         take("<Q7I")
     assert view and camera and 0 < car_count <= 512 and 0 < scalar_count <= 512
@@ -151,6 +152,10 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
                    for ordinal, row in prepared.items()}
     seen, used_vertices, used_indices = set(), set(), set()
     counts = collections.Counter()
+    index_modes = collections.Counter()
+    converted_draws = converted_resets = 0
+    converted_shader_endians = collections.Counter()
+    shader_pairs = set()
     for _ in range(draw_count):
         family, title_key = take("<2I")
         sequence = take("<Q")[0]
@@ -158,6 +163,10 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         shader, pixel, specialization, dynamic = take("<4Q")
         count, guest_primitive, host_primitive, index_type, host_format, endian = \
             take("<6I")
+        host_shader_endian = host_reset = guest_reset_index = None
+        if magic == b"SNR03R2\0":
+            host_shader_endian, host_reset, guest_reset_index = take("<3I")
+            assert host_shader_endian <= 3 and host_reset <= 1
         fetch_count = take("<I")[0]
         assert 0 < fetch_count <= 3
         owned_fetches = [take("<4I") for _ in range(fetch_count)]
@@ -204,6 +213,28 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert index["packet"] == packet and index["status"] == 1
         assert range_hashes[1].get(index_range) == index["hash"]
         used_indices.add(index_range)
+        if magic == b"SNR03R2\0" and index_type == 2:
+            mode = (host_format, endian, host_shader_endian, host_reset,
+                    guest_primitive, host_primitive)
+            assert mode in ((1, 2, 0, 1, 6, 6),
+                            (1, 2, 2, 1, 6, 6)), mode
+            assert index_range[1] >= count * 4
+            reset = int.from_bytes(guest_reset_index.to_bytes(4, "little"),
+                                   "big")
+            assert reset & 0xFF == 0
+            source_indices = struct.unpack_from(f"<{count}I", ranges[1][index_range])
+            host_indices = [0xFFFFFFFF if value & 0xFFFFFF00 == reset else
+                            (value & 0xFFFFFF00 if host_shader_endian == 2 else
+                             int.from_bytes((value & 0xFFFFFF00).to_bytes(
+                                 4, "little"), "big")) for value in source_indices]
+            resets = host_indices.count(0xFFFFFFFF)
+            assert resets and all(value == 0xFFFFFFFF or
+                                  (value & (0xFF if host_shader_endian == 2
+                                            else 0xFF000000)) == 0
+                                  for value in host_indices)
+            converted_draws += 1
+            converted_resets += resets
+            converted_shader_endians[host_shader_endian] += 1
         assert {row[0] for row in owned_textures} == set(textures[ordinal])
         for texture in owned_textures:
             row = textures[ordinal][texture[0]]
@@ -213,6 +244,11 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert before[sequence]["packet"] == packet
         assert before[sequence]["family"] == family
         assert before[sequence]["packed_hash"] == fnv(packed)
+        if magic == b"SNR03R2\0":
+            assert (host_format, host_shader_endian, host_reset,
+                    guest_reset_index) == tuple(before[sequence][key] for key in (
+                        "host_index_format", "host_shader_index_endian",
+                        "host_reset", "guest_reset_index"))
         final = after[sequence]
         assert (final["packet"], final["family"], final["dynamic"],
                 final["raster"], final["clip"], final["depth"]) == (
@@ -221,10 +257,19 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert final["fetch_hash"] == fnv(bound_fetch)
         assert viewport[2] > 0 and viewport[3] > 0 and scissor[2] > scissor[0]
         counts[family] += 1
+        shader_pairs.add((shader, specialization))
+        index_modes[(index_type, host_format, endian, guest_primitive,
+                     host_primitive)] += 1
     assert seen == set(by_sequence) and used_vertices == set(ranges[0])
     assert used_indices == set(ranges[1]) and offset == len(source)
     return {"source_frame": frame, "draws": dict(counts),
             "vertex_ranges": len(ranges[0]), "index_ranges": len(ranges[1]),
+            "index_modes": {str(key): count for key, count in index_modes.items()},
+            "host_converted_draws": converted_draws,
+            "host_converted_resets": converted_resets,
+            "converted_shader_endians": dict(converted_shader_endians),
+            "shader_pairs": [[f"{shader:016X}", f"{specialization:016X}"]
+                             for shader, specialization in sorted(shader_pairs)],
             "fixture_sha256": hashlib.sha256(source).hexdigest()}
 
 
