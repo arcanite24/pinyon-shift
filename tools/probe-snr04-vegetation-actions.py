@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import traceback
 
 import renderdoc as rd
@@ -32,8 +33,31 @@ try:
             yield action
             yield from walk(action.children)
 
-    draws = [action for action in walk(replay.GetRootActions())
-             if action.flags & rd.ActionFlags.Drawcall]
+    actions = list(walk(replay.GetRootActions()))
+    markers = [action for action in actions
+               if action.customName.startswith("SNR04 foliage output=")]
+    if markers:
+        frame = int(os.environ["SNR04_FRAME"])
+        for marker in markers:
+            match = re.fullmatch(r"SNR04 foliage output=(\d+) draw=(\d+)",
+                                 marker.customName)
+            assert match and int(match[1]) == frame
+            children = [action for action in marker.children
+                        if action.flags & rd.ActionFlags.Drawcall]
+            assert len(children) == 1
+            replay.SetFrameEvent(children[0].eventId, True)
+            pipeline = replay.GetPipelineState()
+            vertex = pipeline.GetShaderReflection(rd.ShaderStage.Vertex)
+            assert vertex and hashlib.sha256(bytes(vertex.rawBytes)).hexdigest() == expected_vs_sha
+            state["matches"].append({"event": children[0].eventId,
+                                     "sequence": int(match[2]),
+                                     "pixel_textures": len(pipeline.GetReadOnlyResources(
+                                         rd.ShaderStage.Pixel))})
+        state.update(stage="done", matched=len(state["matches"]),
+                     backend_frame=frame)
+        output.write_text(json.dumps(state, indent=2))
+        raise SystemExit(0)
+    draws = [action for action in actions if action.flags & rd.ActionFlags.Drawcall]
     for index, action in enumerate(draws):
         replay.SetFrameEvent(action.eventId, True)
         pipeline = replay.GetPipelineState()

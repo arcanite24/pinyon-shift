@@ -30,8 +30,10 @@ and a private track diagnostic raster remain open.
 The [SNR-04 procedural diagnostic](SCENE_NATIVE_SNR04_PROCEDURAL_EVIDENCE_2026-09-23.md)
 replays every owned procedural draw through a private full-resolution
 identity/depth target at the output-frame handoff. It also checks original
-post-VS output and the actual bound vertex-constant bytes. A RenderDoc
-post-VS comparison is still unaligned with the owned source frame. This is
+post-VS output and the actual bound vertex-constant bytes. A direct
+backend-frame RenderDoc capture now joins all 189 vegetation actions to the
+owned fixture with exact draw sequence, vertex bytes, bound constants and
+system words; pixel-aligned post-VS comparison remains open. This is
 geometry/ABI evidence, not material parity or full-slice coverage. The
 [SNR-03 evidence log](SCENE_NATIVE_SNR03_EVIDENCE_2026-09-22.md) records
 bounded same-frame vegetation metadata, guarded vertex bytes and a private

@@ -56,7 +56,7 @@ cap = replay = None
 try:
     fixture = Path(os.environ["SNR04_FIXTURE"]).read_bytes()
     draws = fixture_draws(fixture)
-    events = sorted(row["event"] for row in json.loads(Path(
+    events = sorted((row["event"], row.get("sequence")) for row in json.loads(Path(
         os.environ["SNR04_EVENTS_JSON"]).read_text())["matches"])
     assert len(events) == len(draws)
     cap = rd.OpenCaptureFile()
@@ -69,7 +69,9 @@ try:
     system_patterns = Counter()
     vertex_mismatches = []
     captured_by_item = {}
-    for event, (sequence, item, size, vertex_hash, words, prepared, system) in zip(events, draws):
+    for (event, marked_sequence), (sequence, item, size, vertex_hash,
+                                    words, prepared, system) in zip(events, draws):
+        assert marked_sequence is None or marked_sequence == sequence
         replay.SetFrameEvent(event, True)
         pipeline = replay.GetPipelineState()
         blocks = []

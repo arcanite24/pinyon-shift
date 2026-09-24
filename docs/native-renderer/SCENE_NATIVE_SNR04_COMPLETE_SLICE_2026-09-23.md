@@ -570,8 +570,41 @@ Probing source frames 4999 and 4998 while queuing capture 5000 did not
 produce an owned scene fixture, although RenderDoc captured a populated
 frame. Frame 4999 had preparation activity but no selected main-view call;
 the capture filename is therefore insufficient to infer its source-frame
-identity. The next check must tag backend output-frame identity at the
-captured draw boundary, then join each RenderDoc action to the matching
-immutable fixture before comparing material, stencil or pixels. The updated
+identity. The direct backend capture below tags output-frame identity at the
+captured draw boundary and resolves this input-alignment gap. The updated
 `check-snr04-vegetation-vertex-alignment.py` accepts the frame's actual
 foliage draw count and reports prepared as well as final-bound differences.
+
+### Exact backend-frame RenderDoc capture
+
+The ShiftGlue probe now starts RenderDoc after output frame 5000 submits and
+ends it after output frame 5001 submits when
+`pinyon_shift_snr03_probe_frame=5000` and RenderDoc is attached. It also
+groups each foliage draw under a marker containing the backend output frame
+and global draw sequence. This is diagnostic-only; ordinary gameplay does not
+start a capture or emit these markers. It avoids assuming that RenderDoc's
+presentation-frame filename is a backend frame: three queued captures mapped
+to backend output frames 5015, 5008 and 5066 despite filenames 5001, 4987
+and 4980 respectively.
+
+The direct capture `f4-direct-capture-a_capture.rdc` and six immutable
+fixtures came from the same normal-exit AppData-backed race run. The strict
+source-5000/output-5001 census covered all 2,918 prepared draws and joined
+all **1,559 selected draws** to their owned fixtures: 667 track, 273
+procedural items, 189 vegetation, 17 procedural characters, 93 managers and
+320 remainder. RenderDoc exposed 189 foliage markers, every one labeled
+`output=5001` with the exact fixture draw sequence. The checked shader hash,
+all 189 fetched vertex ranges, all 92 bound and prepared vertex-constant
+words, and all 64 system words per action matched. The prior uniform
+constant mismatch was a frame-alignment error, not missing final draw state.
+
+Reproduce the paired input check with RenderDoc injection and the extended
+race route, passing `--pinyon_shift_snr03_probe_frame=5000` and the matching
+source-frame trace flags, without queuing a presentation-frame capture. Run
+`probe-snr04-vegetation-actions.py` with `SNR04_CAPTURE`, `SNR04_FRAME=5001`
+and `SNR04_OUTPUT`, then run
+`check-snr04-vegetation-vertex-alignment.py` with that events JSON, the
+`snr03-scene-5000.bin` fixture, capture and output paths. Both scripts write
+`stage=done` JSON on success. This proves the foliage geometry input join;
+pixel shader/material, stencil, resource lifetime and full selected-slice
+image parity remain open.
