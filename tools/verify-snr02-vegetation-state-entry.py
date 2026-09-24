@@ -177,6 +177,35 @@ def verify(log: Path, frame: int):
                                    for row in resolved)
                         report['provider_resource_vtables'] = {
                             'chain': '8224368C', 'base': '822436F4'}
+                    if any('resource36_generation' in row for row in resolved):
+                        assert all(not row['generation_overflow'] and
+                                   row['resource36_generation'] > 0 and
+                                   row['resource40_generation'] > 0
+                                   for row in resolved)
+                        generations = defaultdict(set)
+                        for row in resolved:
+                            generations[row['key']].add((row['resource36_generation'],
+                                                         row['resource40_generation']))
+                        assert all(len(values) == 1 for values in generations.values())
+                        assert len({generation for values in generations.values()
+                                    for pair in values for generation in pair}) == 10
+                        report['provider_resource_generations'] = [
+                            {'key': candidate, 'chain': next(iter(values))[0],
+                             'base': next(iter(values))[1]}
+                            for candidate, values in sorted(generations.items())]
+                        if any('generation_reuses' in row for row in resolved):
+                            assert all('generation_reuses' in row and
+                                       'generation_destructions' in row and
+                                       'resource36_previous_generation' in row and
+                                       'resource40_previous_generation' in row
+                                       for row in resolved)
+                            report['resource_lifecycle'] = {
+                                'reuses': max(row['generation_reuses'] for row in resolved),
+                                'destructions': max(row['generation_destructions']
+                                                    for row in resolved),
+                                'selected_reused': sorted({row['key'] for row in resolved
+                                    if row['resource36_previous_generation'] or
+                                       row['resource40_previous_generation']})}
     return report
 
 

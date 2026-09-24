@@ -206,6 +206,29 @@ address = 0x82415C50
 name = "PinyonShiftObserveProceduralResourceResolution"
 registers = ["r3"]
 
+# The two concrete foliage resource constructors have installed their vtables
+# before these points. Pair them with their deleting destructors to distinguish
+# pool-slot reuse in the selected-frame diagnostic.
+[[midasm_hook]]
+address = 0x82DF40EC
+name = "PinyonShiftObserveFoliageChainConstruct"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82DF414C
+name = "PinyonShiftObserveFoliageBaseConstruct"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82DF3060
+name = "PinyonShiftObserveFoliageChainDestruct"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82DF30B0
+name = "PinyonShiftObserveFoliageBaseDestruct"
+registers = ["r3"]
+
 [[midasm_hook]]
 address = 0x82415C6C
 name = "PinyonShiftObserveProceduralResourceBind"

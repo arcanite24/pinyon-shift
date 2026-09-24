@@ -1273,5 +1273,39 @@ The title image used for RTTI has SHA-256
 `6014727FA7B0B79727FD5F32A2E2377533DC8E29679E8D2462BD764D331FA305`.
 
 This narrows the title ownership work to the chain/base resource pair and
-its parent provider. Constant pointer spacing suggests contiguous storage
-but does not prove one allocation, generation or streaming lifetime.
+its parent provider. Static constructors `sub_82DF40A0` and `sub_82DF4100`
+request 140 and 132 bytes separately from `sub_82DF3FE8`, install the two
+observed vtables, and initialize their resource fields. The deleting
+destructors are `sub_82DF3060` and `sub_82DF30B0`. The 140-byte pointer
+spacing is consistent with consecutive pool slots; it is not one allocation.
+
+### Title resource allocation generations and pool reuse
+
+The default-off selected-frame probe now records a process-unique generation
+when either constructor finishes and marks that address dead at its deleting
+destructor. It keeps at most 65,536 pool addresses; overflow makes the
+selected frame unsupported. A later construction at a dead address receives
+a new generation. The selected provider log joins both live generations to
+its already verified chain/base pointers and vtables.
+
+The AppData-backed sustained-race replay `20260924T050038Z-p35720` exited
+normally with seven route images. The strict frame-6000 join checked 52
+selected records, 125 prepared executions, 52 resolver calls, five stable
+chain/base pairs and ten distinct nonzero title generations (687–696).
+The process had observed 87 destructions and 37 dead pool-slot reuses by
+that frame, demonstrating that the constructor/destructor hooks see actual
+turnover. **None of the five selected pairs was reused** on this route.
+The same-frame output-6001 join again checked all five fenced BC3 mip chains
+against the independent RenderDoc reference. The process-scoped files are
+under `.local/native-renderer/snr02/foliage-allocation-generation-live-b`;
+`evidence.log`, `state-join.json` and `source-join.json` have SHA-256
+`4E1463FDFB9D06A3E6822778A4856A82E2343506079E5DEB408DD57913BE6FA9`,
+`7B553E8243A4D056B5C7EDDC76EA36E87CE28B506C34E6F1B7321074C224F8C6`
+and `4115E690E38671AF58851ED97E2C291E25D7809B1D240FED076800E8B8DA7CCB`.
+The executable SHA-256 was
+`1F15BF55BAFB313AF9624C2A534E7624E4B6DA3F517E401F3F3A2B9048199075`.
+
+This proves title allocation identity for the sampled frame and confirms
+pool reuse elsewhere in the process. It does not yet prove the selected
+resources' payload generations or an unload/reload transition for those
+resources; SNR-02 remains open.

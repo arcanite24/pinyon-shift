@@ -20,8 +20,10 @@ have live packed-register maps. Material roles, texture generations and
 private render coverage remain open.
 The selected foliage keys join through the title manager table to five
 distinct manager objects, returned records and byte-matched live BC3 chains;
-host-cache allocation and completed-load generations are now sampled, while
-title owner/payload generations and unload behavior remain unproven.
+host-cache allocation and completed-load generations are now sampled. The
+selected title chain/base resources have constructor/destructor allocation
+generations in one race frame; payload generations and selected unload/reload
+behavior remain unproven.
 The two provider references are identified by live vtables and title RTTI as
 `CBixTextureChainResource` and `CBixTextureBaseResource`; their ownership
 generation still needs a validated lifecycle rule.
@@ -299,8 +301,9 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    a further run joins five keys to five distinct resolved title objects
    and all 65 selected records to five BC3 payloads;
    distinct host-cache allocation and completed-load generations now label
-   the five sampled BC3 sources, but title material ownership and its own
-   generations still need proof (see the [cache generation evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#cache-allocation-and-completed-load-generations-at-the-sampled-draw)).
+   the five sampled BC3 sources; title chain/base allocation generations
+   also join a later strict frame. Title payload generation and selected
+   unload/reload still need proof (see the [title resource evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#title-resource-allocation-generations-and-pool-reuse)).
    Six scalar draws have a retained skid-presentation
    path. Resolve scene membership and resource ownership before freezing
    the slice.

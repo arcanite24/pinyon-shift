@@ -789,6 +789,72 @@ int32_t Snr03TargetFrame() {
   return target;
 }
 
+std::mutex snr02_resource_generation_mutex;
+struct Snr02ResourceGeneration {
+  uint64_t current = 0;
+  uint64_t previous = 0;
+  uint32_t vtable = 0;
+  bool alive = false;
+};
+std::map<uint32_t, Snr02ResourceGeneration> snr02_resource_generations;
+uint64_t snr02_next_resource_generation = 0;
+uint64_t snr02_resource_reuses = 0;
+uint64_t snr02_resource_destructions = 0;
+bool snr02_resource_generation_overflow = false;
+
+void Snr02ConstructResource(uint32_t address, uint32_t vtable) {
+  if (Snr03TargetFrame() <= 0 || !address) {
+    return;
+  }
+  std::lock_guard lock(snr02_resource_generation_mutex);
+  if (snr02_resource_generation_overflow) {
+    return;
+  }
+  if (!snr02_resource_generations.contains(address) &&
+      snr02_resource_generations.size() == 65536) {
+    snr02_resource_generation_overflow = true;
+    snr02_resource_generations.clear();
+    return;
+  }
+  auto& slot = snr02_resource_generations[address];
+  if (slot.current && !slot.alive) {
+    ++snr02_resource_reuses;
+  }
+  slot.previous = slot.current;
+  slot.current = ++snr02_next_resource_generation;
+  slot.vtable = vtable;
+  slot.alive = true;
+}
+
+void Snr02DestructResource(uint32_t address, uint32_t vtable) {
+  if (Snr03TargetFrame() <= 0 || !address) {
+    return;
+  }
+  std::lock_guard lock(snr02_resource_generation_mutex);
+  const auto it = snr02_resource_generations.find(address);
+  if (it != snr02_resource_generations.end() && it->second.vtable == vtable &&
+      it->second.alive) {
+    it->second.alive = false;
+    ++snr02_resource_destructions;
+  }
+}
+
+std::array<uint64_t, 7> Snr02ResourceGenerations(uint32_t chain, uint32_t base) {
+  std::lock_guard lock(snr02_resource_generation_mutex);
+  const auto generation = [](uint32_t address, uint32_t vtable) {
+    const auto it = snr02_resource_generations.find(address);
+    return it != snr02_resource_generations.end() && it->second.vtable == vtable &&
+                   it->second.alive
+               ? std::array<uint64_t, 2>{it->second.current, it->second.previous}
+               : std::array<uint64_t, 2>{0, 0};
+  };
+  const auto chain_generations = generation(chain, 0x8224368C);
+  const auto base_generations = generation(base, 0x822436F4);
+  return {chain_generations[0], base_generations[0], chain_generations[1],
+          base_generations[1], snr02_resource_reuses, snr02_resource_destructions,
+          snr02_resource_generation_overflow ? uint64_t(1) : uint64_t(0)};
+}
+
 int32_t Snr02ItemTargetFrame() {
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_item_payload_probe)
                                     ? REXCVAR_GET(pinyon_shift_snr01_trace_source_frame)
@@ -4347,6 +4413,22 @@ void PinyonShiftObserveProceduralResourceCandidate(
   }
 }
 
+void PinyonShiftObserveFoliageChainConstruct(PPCRegister& r31) {
+  Snr02ConstructResource(r31.u32, 0x8224368C);
+}
+
+void PinyonShiftObserveFoliageBaseConstruct(PPCRegister& r31) {
+  Snr02ConstructResource(r31.u32, 0x822436F4);
+}
+
+void PinyonShiftObserveFoliageChainDestruct(PPCRegister& r3) {
+  Snr02DestructResource(r3.u32, 0x8224368C);
+}
+
+void PinyonShiftObserveFoliageBaseDestruct(PPCRegister& r3) {
+  Snr02DestructResource(r3.u32, 0x822436F4);
+}
+
 void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
   if (!Snr01TraceCurrentFrame()) {
     return;
@@ -4372,6 +4454,7 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
         : 0;
     const uint32_t resource36 = manager_object ? SnrM02ReadU32(manager_object + 36) : 0;
     const uint32_t resource40 = manager_object ? SnrM02ReadU32(manager_object + 40) : 0;
+    const auto generations = Snr02ResourceGenerations(resource36, resource40);
     REXGPU_INFO("FH1 SNR02 vegetation resource resolved {{\"frame\":{},"
                 "\"bucket_entry\":{},\"record\":{},\"key\":{},"
                 "\"object\":{},\"word0\":{},\"word4\":{},"
@@ -4380,7 +4463,12 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 "\"manager_object\":{},\"manager_vtable\":{},"
                 "\"manager_flags\":{},\"resource32\":{},"
                 "\"resource36\":{},\"resource40\":{},"
-                "\"resource36_vtable\":{},\"resource40_vtable\":{}}}",
+                "\"resource36_vtable\":{},\"resource40_vtable\":{},"
+                "\"resource36_generation\":{},\"resource40_generation\":{},"
+                "\"resource36_previous_generation\":{},"
+                "\"resource40_previous_generation\":{},"
+                "\"generation_reuses\":{},\"generation_destructions\":{},"
+                "\"generation_overflow\":{}}}",
                 rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
                 bucket.ordinal, bucket.vegetation_candidate_record,
                 bucket.vegetation_candidate_key, object,
@@ -4393,7 +4481,9 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 manager_object ? SnrM02ReadU32(manager_object + 8) : 0,
                 manager_object ? SnrM02ReadU32(manager_object + 32) : 0,
                 resource36, resource40,
-                SnrM02ReadU32(resource36), SnrM02ReadU32(resource40));
+                SnrM02ReadU32(resource36), SnrM02ReadU32(resource40),
+                generations[0], generations[1], generations[2], generations[3],
+                generations[4], generations[5], generations[6] != 0);
   }
 }
 
