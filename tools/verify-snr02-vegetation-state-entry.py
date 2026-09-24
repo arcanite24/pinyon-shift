@@ -150,6 +150,23 @@ def verify(log: Path, frame: int):
                 report['manager_objects'] = [
                     {'key': candidate, 'object': next(iter(values))}
                     for candidate, values in sorted(managers.items())]
+                if any('resource36' in row for row in resolved):
+                    assert all('resource36' in row for row in resolved)
+                    resources = defaultdict(set)
+                    for row in resolved:
+                        assert row['manager_flags'] >> 13 == row['key']
+                        assert row['resource32'] == 0
+                        assert row['resource36'] and row['resource40']
+                        resources[row['key']].add(
+                            (row['resource36'], row['resource40']))
+                    assert set(resources) == set(objects)
+                    assert all(len(values) == 1 for values in resources.values())
+                    assert len({pointer for values in resources.values()
+                                for pair in values for pointer in pair}) == 10
+                    report['provider_resources'] = [
+                        {'key': candidate, 'resource36': next(iter(values))[0],
+                         'resource40': next(iter(values))[1]}
+                        for candidate, values in sorted(resources.items())]
     return report
 
 

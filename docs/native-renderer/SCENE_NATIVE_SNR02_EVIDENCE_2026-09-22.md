@@ -1168,3 +1168,31 @@ with all seven compatibility captures; its process-session SHA-256 was
 This proves the title lookup and sampled resource identity, but does not
 yet establish allocation generation, payload mutation or unload/reload
 lifetime. SNR-02 remains open.
+
+### Unified foliage provider fields
+
+The generated `CTrackTexture_Unified` readiness path reads resource pointers
+at provider offsets `+32` and `+40`; its shared readiness check reads `+36`.
+A default-off selected-frame probe in sustained-race session
+`20260924T034039Z-p47948` exited normally with seven captures. It joined
+67 selected vegetation records and 127 prepared executions to the same five
+BC3 payloads; 66 records took the resolver/bind path. In every resolved row,
+provider flags `>>13` equal the title key and the low 13 bits equal `0x601`.
+Offset `+32` is zero. Offsets `+36` and `+40` each hold five distinct,
+key-stable nonzero pointers, with `+40` 140 bytes after `+36` in each pair.
+This makes the key-to-provider-to-resource association explicit; pointer
+stability within one frame is not an allocation generation or payload
+freshness rule.
+
+The filtered `foliage-provider-fields-h/evidence.log` has SHA-256
+`E5B8AA10EBA7405AEE8BD584E6951DE3918C75F133CC4DEE33A3117305BE317A`;
+its checked `state-join.json` has SHA-256
+`CC07CAE7AA33DDD021854FB3299EC8BA4A7355662B0B5C10EFB1DD8CDE2D0592`,
+and `bc3-source-join.json` has SHA-256
+`7CF699E4C13DEC1E2BDDF604031E727B5BEC083888766919A7309C7EA6B30505`.
+The executable SHA-256 was
+`98F1540CD08DE66695ECF54AB00C8A2E18EDB7D5FD1384CEC9EB058483050F05`.
+The updated verifier also passes the earlier manager-lookup capture without
+these optional fields. The next evidence must classify the two resource
+objects, their creation/destruction and any streaming changes before using
+them as durable scene references.

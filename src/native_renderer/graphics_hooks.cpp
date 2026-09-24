@@ -4375,7 +4375,9 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 "\"object\":{},\"word0\":{},\"word4\":{},"
                 "\"word8\":{},\"word12\":{},\"manager_context\":{},"
                 "\"manager_table\":{},"
-                "\"manager_object\":{},\"manager_vtable\":{}}}",
+                "\"manager_object\":{},\"manager_vtable\":{},"
+                "\"manager_flags\":{},\"resource32\":{},"
+                "\"resource36\":{},\"resource40\":{}}}",
                 rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
                 bucket.ordinal, bucket.vegetation_candidate_record,
                 bucket.vegetation_candidate_key, object,
@@ -4384,7 +4386,11 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 object ? SnrM02ReadU32(object + 8) : 0,
                 object ? SnrM02ReadU32(object + 12) : 0,
                 manager_context, manager_table, manager_object,
-                manager_object ? SnrM02ReadU32(manager_object) : 0);
+                manager_object ? SnrM02ReadU32(manager_object) : 0,
+                manager_object ? SnrM02ReadU32(manager_object + 8) : 0,
+                manager_object ? SnrM02ReadU32(manager_object + 32) : 0,
+                manager_object ? SnrM02ReadU32(manager_object + 36) : 0,
+                manager_object ? SnrM02ReadU32(manager_object + 40) : 0);
   }
 }
 
