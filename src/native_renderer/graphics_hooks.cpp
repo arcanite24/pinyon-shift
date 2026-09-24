@@ -92,8 +92,28 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_worker, true, "Pinyon Shift",
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_continuous, false, "Pinyon Shift",
                     "Capture every source frame from the selected live frame")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(pinyon_shift_native_race_capture_start_frame, 0,
+                     "Pinyon Shift",
+                     "Prepare exact-frame native race scenes from this source frame")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
+
+bool NativeRaceCaptureEnabled() {
+  return REXCVAR_GET(pinyon_shift_native_race_capture_start_frame) > 0;
+}
+
+bool Snr04LiveCaptureEnabled() {
+  return NativeRaceCaptureEnabled() ||
+         REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+}
+
+bool Snr04LiveContinuous() {
+  return NativeRaceCaptureEnabled() ||
+         (REXCVAR_GET(pinyon_shift_snr04_live_handoff) &&
+          REXCVAR_GET(pinyon_shift_snr04_live_continuous) &&
+          !REXCVAR_GET(pinyon_shift_snr04_live_worker));
+}
 
 #if defined(_WIN32)
 std::mutex snr04_batch_worker_mutex;
@@ -125,7 +145,7 @@ bool snr04_live_stopping = false;
 void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
                              std::vector<char>&& bytes,
                              std::vector<uint64_t>&& sequences) {
-  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (!Snr04LiveCaptureEnabled()) return;
   if (bytes.size() < 16 || bytes.size() > 32 * 1024 * 1024 ||
       sequences.empty() || sequences.size() > 4096) {
     REXGPU_INFO("FH1 SNR04 live fixture rejected frame={} family={} bytes={} "
@@ -150,7 +170,7 @@ void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
 void CollectSnr04LiveVegetation(
     uint64_t frame, std::shared_ptr<const Snr03OwnedScene> scene,
     std::vector<uint64_t>&& sequences) {
-  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (!Snr04LiveCaptureEnabled()) return;
   if (!scene || sequences.empty() || sequences.size() > 4096) return;
   std::lock_guard lock(snr04_live_mutex);
   if (!snr04_live_frames.contains(frame) && snr04_live_frames.size() >= 2)
@@ -164,7 +184,7 @@ void CollectSnr04LiveProcedural(
     uint64_t frame, Snr04LiveFamily family,
     std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene> scene,
     std::vector<uint64_t>&& sequences) {
-  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (!Snr04LiveCaptureEnabled()) return;
   if (!scene || sequences.empty() || sequences.size() > 4096) return;
   std::lock_guard lock(snr04_live_mutex);
   if (!snr04_live_frames.contains(frame) && snr04_live_frames.size() >= 2)
@@ -1015,7 +1035,9 @@ uint32_t SnrM02ReadU32(uint32_t address) {
 }
 
 int32_t Snr03TargetFrame() {
-  static const int32_t target = REXCVAR_GET(pinyon_shift_snr03_probe_frame);
+  static const int32_t target = NativeRaceCaptureEnabled()
+      ? REXCVAR_GET(pinyon_shift_native_race_capture_start_frame)
+      : REXCVAR_GET(pinyon_shift_snr03_probe_frame);
   return target;
 }
 
@@ -1119,7 +1141,9 @@ std::array<uint64_t, 7> Snr02ResourceGenerations(uint32_t chain, uint32_t base) 
 }
 
 int32_t Snr02ItemTargetFrame() {
-  static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_item_payload_probe)
+  static const int32_t target = NativeRaceCaptureEnabled()
+                                    ? REXCVAR_GET(pinyon_shift_native_race_capture_start_frame)
+                                    : REXCVAR_GET(pinyon_shift_snr02_item_payload_probe)
                                     ? (REXCVAR_GET(pinyon_shift_snr04_live_handoff)
                                            ? REXCVAR_GET(pinyon_shift_snr04_live_source_frame)
                                            : REXCVAR_GET(pinyon_shift_snr01_trace_source_frame))
@@ -1128,7 +1152,9 @@ int32_t Snr02ItemTargetFrame() {
 }
 
 int32_t Snr02TrackTargetFrame() {
-  static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_track_payload_probe)
+  static const int32_t target = NativeRaceCaptureEnabled()
+                                    ? REXCVAR_GET(pinyon_shift_native_race_capture_start_frame)
+                                    : REXCVAR_GET(pinyon_shift_snr02_track_payload_probe)
                                     ? (REXCVAR_GET(pinyon_shift_snr04_live_handoff)
                                            ? REXCVAR_GET(pinyon_shift_snr04_live_source_frame)
                                            : REXCVAR_GET(pinyon_shift_snr01_trace_source_frame))
@@ -1145,9 +1171,7 @@ bool SnrProbeSourceFrame(int32_t target, uint64_t frame) {
 
 bool Snr04ContinuousSourceFrame(int32_t target, uint64_t frame) {
   return target > 0 && frame >= uint64_t(target) &&
-         REXCVAR_GET(pinyon_shift_snr04_live_handoff) &&
-         REXCVAR_GET(pinyon_shift_snr04_live_continuous) &&
-         !REXCVAR_GET(pinyon_shift_snr04_live_worker);
+         Snr04LiveContinuous();
 }
 
 bool Snr03ProbeSourceFrame(uint64_t frame) {
@@ -3026,7 +3050,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     write(draw.scissor);
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool live = Snr04LiveCaptureEnabled();
   const bool written = (!live || Snr04LiveVerifyFixtures()) &&
       !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), output_frame - 1,
@@ -3073,7 +3097,7 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
                 payload.rejected);
     return;
   }
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool live = Snr04LiveCaptureEnabled();
 #if defined(_WIN32)
   if (live) {
     try {
@@ -3284,7 +3308,7 @@ void ObserveSnr03ManagerOutputFrame(uint64_t output_frame) {
     write(draw.scissor);
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool live = Snr04LiveCaptureEnabled();
   const bool written = valid &&
       (!live || Snr04LiveVerifyFixtures()) &&
       !directory.empty() &&
@@ -3420,7 +3444,7 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
     }
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool live = Snr04LiveCaptureEnabled();
   const bool written = valid &&
       (!live || Snr04LiveVerifyFixtures()) &&
       !directory.empty() &&
@@ -3543,7 +3567,7 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
     }
     complete &= sequences.size() == draw_count;
     const auto directory = fh1_render_test::OutputDirectory();
-    const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+    const bool live = Snr04LiveCaptureEnabled();
     const bool written = complete &&
         (!live || Snr04LiveVerifyFixtures()) &&
         !directory.empty() &&
@@ -3628,7 +3652,7 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
               owned->title->source_frame, owned->items.size(), payload.bytes,
               final_variants, fingerprint);
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool live = Snr04LiveCaptureEnabled();
 #if defined(_WIN32)
   if (live) {
     std::vector<uint64_t> sequences;
@@ -3683,7 +3707,7 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
 std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
     uint64_t output_frame) {
 #if defined(_WIN32)
-  if (!output_frame || !REXCVAR_GET(pinyon_shift_snr04_live_handoff))
+  if (!output_frame || !Snr04LiveCaptureEnabled())
     return {};
   const uint64_t source_frame = output_frame - 1;
   std::array<Snr04LiveFixture, 6> families;
@@ -3767,7 +3791,7 @@ std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
 void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                                  uint64_t capture_us) {
 #if defined(_WIN32)
-  if (REXCVAR_GET(pinyon_shift_snr04_live_handoff) &&
+  if (Snr04LiveCaptureEnabled() &&
       Snr03ProbeOutputFrame(output_frame)) {
     std::array<Snr04LiveFixture, 6> fixtures;
     {
@@ -3778,8 +3802,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
         snr04_live_frames.erase(found);
       }
     }
-    if (REXCVAR_GET(pinyon_shift_snr04_live_continuous) &&
-        !REXCVAR_GET(pinyon_shift_snr04_live_worker)) {
+    if (Snr04LiveContinuous()) {
       return;
     }
     try {
@@ -5990,7 +6013,8 @@ void PinyonShiftObserveProceduralItemEnd() {
                         !scope.runtime_address)) {
     snr02_item_title_rejected = true;
   }
-  if (REXCVAR_GET(pinyon_shift_snr02_item_payload_probe) &&
+  if ((REXCVAR_GET(pinyon_shift_snr02_item_payload_probe) ||
+       NativeRaceCaptureEnabled()) &&
       scope.ordinal <= 512 && scope.descriptor_seen && scope.runtime_seen &&
       scope.descriptor_address && scope.runtime_address &&
       !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8) {

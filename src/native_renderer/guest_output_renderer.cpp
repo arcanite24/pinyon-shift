@@ -2,6 +2,8 @@
 #include <rex/cvar.h>
 
 #include <chrono>
+#include <atomic>
+#include <mutex>
 
 #include "fh1_render_test.h"
 #include "native_renderer/graphics_hooks.h"
@@ -29,9 +31,16 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_native_track_probe, false,
                     "Pinyon Shift",
                     "Draw owned track geometry into the native output")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_native_race, false, "Pinyon Shift",
+                    "Experimental native race output (requires scene capture)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 #endif
 
 namespace {
+
+#if defined(_WIN32)
+std::atomic_bool native_race_enabled{false};
+#endif
 
 bool ObserveRenderTestOutput(
     const rex::system::NativeGuestOutputRenderContext& context) {
@@ -49,8 +58,9 @@ bool ObserveRenderTestOutput(
     capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - capture_begin).count();
 #if defined(_WIN32)
-    if (REXCVAR_GET(pinyon_shift_native_track_probe) &&
-        pinyon_shift::fh1_render_test::Enabled() &&
+    if ((native_race_enabled.load(std::memory_order_acquire) ||
+         (REXCVAR_GET(pinyon_shift_native_track_probe) &&
+          pinyon_shift::fh1_render_test::Enabled())) &&
         context.guest_output_width == 1280 &&
         context.guest_output_height == 720) {
       auto scene = pinyon_shift::native_renderer::SnapshotSnr04LiveScene(
@@ -104,6 +114,17 @@ namespace pinyon_shift::native_renderer {
 
 void InstallGuestOutputRenderer(rex::system::IGraphicsSystem* graphics_system) {
   if (graphics_system) {
+#if defined(_WIN32)
+    static std::once_flag native_race_callback_once;
+    std::call_once(native_race_callback_once, [] {
+      rex::cvar::RegisterChangeCallback(
+          "pinyon_shift_native_race", [](std::string_view, std::string_view value) {
+            native_race_enabled.store(value == "true", std::memory_order_release);
+          });
+    });
+    native_race_enabled.store(REXCVAR_GET(pinyon_shift_native_race),
+                              std::memory_order_release);
+#endif
     graphics_system->SetNativeGuestOutputRenderer(
         fh1_render_test::Enabled() || Snr03ProbeEnabled() || Snr02ItemProbeEnabled() ||
                 REXCVAR_GET(pinyon_shift_native_output_clear_probe) ||
@@ -111,6 +132,7 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem* graphics_system) {
 #if defined(_WIN32)
                 || REXCVAR_GET(pinyon_shift_native_scene_triangle_probe)
                 || REXCVAR_GET(pinyon_shift_native_track_probe)
+                || REXCVAR_GET(pinyon_shift_native_race)
 #endif
             ? &ObserveRenderTestOutput : nullptr);
   }

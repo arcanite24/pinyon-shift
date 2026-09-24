@@ -433,6 +433,19 @@ presented complete compatibility frames. These are flat-color geometry
 frames without materials, alpha, original HUD or a player toggle, so L1/L2
 remain open.
 
+**Manual-toggle checkpoint (2026-09-24):** `pinyon_shift_native_race` is a
+hot-reload setting for native/compatibility output. Start scene collection
+with `--pinyon_shift_native_race_capture_start_frame=5000` (restart required),
+then switch `pinyon_shift_native_race` in the settings UI; it defaults off.
+The SDK and title use that single capture-start setting instead of the earlier
+probe flag bundle. With the toggle on, the short AppData race route produced
+an upright native frame at output 5001; with it off, the same output remained
+compatibility. Both runs exited normally. With the toggle on but no race scene,
+two captured outputs also remained complete compatibility frames. Output 5002
+in the on run fell back because its remainder payload was rejected, so this
+does not yet establish continuous native presentation or complete L1. The
+underlying remainder rejection and a live UI switch still need validation.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
