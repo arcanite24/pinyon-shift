@@ -1359,3 +1359,66 @@ frame-13000 image is
 The test did not leave the nearby streaming area. A navigable free-roam
 route or actual map transition with a later rebind is still needed; do not
 repeat straight-line throttle from the signup marker as an unload test.
+
+### Same-process title return proves selected foliage unload and rebind
+
+`config/render-tests/fh1-snr02-title-reload.fh1test` samples the qualified
+race at source frame 6000, retires it, selects **Quit** from the free-roam
+pause menu, confirms return to the title screen, reloads Single Player and
+re-enters the same event. The AppData-backed replay
+`20260924T080850Z-p40784` exited normally. Source frame 14700 was in the
+second moving race; compatibility rendering stayed authoritative throughout.
+The title menu labels remained readable, although the captured title-menu
+background was visibly corrupted before re-entry. Race and free-roam HUD
+captures were readable. This transition is a resource-lifetime probe, not a
+visual-admission pass.
+
+The strict first and second joins checked respectively 47/54 selected
+vegetation items, 102/111 prepared executions, 46/53 resolver calls, five
+distinct keys and five fenced BC3 chains. The title destructor probe recorded
+the exact ten sampled chain/base `(address, vtable, generation)` triples at
+source frames 9684–9687. At the second binding, every key resolved to a live,
+new chain/base pair; all ten title generations increased. Reused pool addresses
+could hold the opposite resource vtable, so address adjacency and pointer
+equality cannot serve as identity after reload.
+
+| Foliage key | Chain generation, before / after | Base generation, before / after | Host cache allocation | Completed payload generation, before / after |
+| ---: | ---: | ---: | ---: | ---: |
+| 19576 | 687 / 1741 | 688 / 1742 | 515 | 1 / 2 |
+| 19577 | 689 / 1743 | 690 / 1744 | 563 | 2 / 7 |
+| 19579 | 691 / 1745 | 692 / 1746 | 431 | 1 / 2 |
+| 19580 | 693 / 1747 | 694 / 1748 | 430 | 1 / 2 |
+| 19581 | 695 / 1749 | 696 / 1750 | 429 | 1 / 2 |
+
+The second-frame key-to-packet join follows each title state entry through
+its second-draw semantic ordinal, packet physical address, prepared fetch and
+bound pixel SRV. Both frames' five fenced nine-mip payloads are clean at copy,
+have current completed-load generations, and byte-match the independent
+RenderDoc BC3 reference. Static image bytes stayed the same while payload
+generations advanced, which is the expected result for reloading identical
+source textures. The host cache allocation IDs survived the title transition;
+they do not substitute for the newly allocated title resource identities.
+
+The process-scoped `evidence.log` and checked reports are under
+`.local/native-renderer/snr02/title-reload-bc3`. The log SHA-256 is
+`A225085D55F80CC168A83C6BF1FC2B18F2496CA6BB4E15491C92D26818AB9743`;
+`title-reload-join.json` is
+`DE349FFF769E595924A5B54A6116F9F1FD8A5D603EA01817E6C3F3270A59DDE0`.
+The executable/DLL SHA-256 values are
+`00F07375EE41E7F9021BE30E6B3EB4E683414B21B0D2F76596A611D307563CB4` /
+`E0F2867B21E0A6A029B07705DCA0DFE8F1A369D16A589F47FF870F95CA584777`.
+Recheck the process artifacts with:
+
+```powershell
+$base = '.local/native-renderer/snr02/title-reload-bc3'
+$ref = '.local/native-renderer/snr04/renderdoc-gatea-full-b-bc3'
+python tools/verify-snr02-vegetation-state-entry.py "$base/evidence.log" "$base/state-join-6000.json" --frame 6000
+python tools/verify-snr02-vegetation-state-entry.py "$base/evidence.log" "$base/state-join-14700.json" --frame 14700
+python tools/verify-snr04-bc3-source-join.py "$base/evidence.log" $base $ref "$base/source-join-6001.json" --frame 6001
+python tools/verify-snr04-bc3-source-join.py "$base/evidence.log" $base $ref "$base/source-join-14701.json" --frame 14701
+python tools/verify-snr02-title-reload.py $base --first 6000 --second 14700
+```
+
+This closes the selected foliage allocation/payload unload-and-rebind check.
+It does not establish lifetime rules for the other selected material families
+or justify suppressing compatibility draws.

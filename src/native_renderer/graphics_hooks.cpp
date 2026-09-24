@@ -5236,7 +5236,10 @@ void PinyonShiftObserveVegetationStateEntry(
     PPCRegister& r25, PPCRegister& r27) {
   const uint64_t frame = rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount);
-  if (Snr03TargetFrame() <= 0 || frame != uint64_t(Snr03TargetFrame()) ||
+  const int32_t trace_frame = REXCVAR_GET(pinyon_shift_snr01_trace_source_frame);
+  if (Snr03TargetFrame() <= 0 ||
+      (frame != uint64_t(Snr03TargetFrame()) &&
+       (trace_frame <= 0 || frame != uint64_t(trace_frame))) ||
       snr01_view_scopes.empty() || snr01_view_scopes.back().ordinal != 8 ||
       snr01_track_bucket_scopes.empty() || r22.u32 >= 256) {
     return;

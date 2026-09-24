@@ -21,15 +21,14 @@ private render coverage remain open.
 The selected foliage keys join through the title manager table to five
 distinct manager objects, returned records and byte-matched live BC3 chains;
 host-cache allocation and completed-load generations are now sampled. The
-selected title chain/base resources have constructor/destructor allocation
-generations in one race frame; payload generations and selected unload/reload
-behavior remain unproven.
-The checked race-retire route returns to free roam without destroying those
-ten selected resource objects; use a real streaming eviction or map change
-for the required unload/reload test.
+selected title chain/base resources now have a same-process title-return
+unload and second-race rebind: all ten original allocations were destroyed,
+their five keys resolved to new title generations, and five fenced BC3
+payloads matched the independent reference with advanced load generations.
+The checked race-retire route alone did not unload them; the title return did.
 The two provider references are identified by live vtables and title RTTI as
-`CBixTextureChainResource` and `CBixTextureBaseResource`; their ownership
-generation still needs a validated lifecycle rule.
+`CBixTextureChainResource` and `CBixTextureBaseResource`; their allocation
+generation must be checked separately from host-cache payload generation.
 The [shared-track geometry handoff](SCENE_NATIVE_SNR02_TRACK_GEOMETRY_2026-09-23.md)
 owns the selected track vertex/index bytes and final bound draw state at the
 exact output frame. An 813-draw replay passed the full 4,438-draw partition;
@@ -304,20 +303,20 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    a further run joins five keys to five distinct resolved title objects
    and all 65 selected records to five BC3 payloads;
    distinct host-cache allocation and completed-load generations now label
-   the five sampled BC3 sources; title chain/base allocation generations
-   also join a later strict frame. Title payload generation and selected
-   unload/reload still need proof (see the [title resource evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#title-resource-allocation-generations-and-pool-reuse)).
-   A straight-line post-retire drive-away test stopped against a barrier before
-   leaving the streaming area, so it cannot close that gap (see the
-   [route result](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#straight-line-travel-after-retirement-cannot-test-eviction)).
+   the five sampled BC3 sources. A same-process title return now proves the
+   ten selected title allocations are destroyed, all five keys rebind to new
+   chain/base generations, and current fenced BC3 payload generations advance
+   (see the [reload evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#same-process-title-return-proves-selected-foliage-unload-and-rebind)).
+   Other selected material families still need ownership and lifetime rules.
    Six scalar draws have a retained skid-presentation
    path. Resolve scene membership and resource ownership before freezing
    the slice.
 2. **Finish the Gate A diagnostic (SNR-02–04):** the staged offline replay now
-   owns the selected draw order and private depth. Next prove resource
-   allocation/payload generations through at least one unload/reload, compare
-   the *complete* same-frame diagnostic with compatibility across adjacent
-   moving frames, and record visible differences against SNR-00's visual bar.
+   owns the selected draw order and private depth. The sampled foliage
+   allocation/payload generations now pass an unload/rebind replay; next
+   compare the *complete* same-frame diagnostic with compatibility across
+   adjacent moving frames, and record visible differences against SNR-00's
+   visual bar.
    Investigate an isolated sample/byte mismatch only when it suggests a
    general rendering error or visible defect. Draw identity and freshness
    must remain exact even when image appearance is approximate.

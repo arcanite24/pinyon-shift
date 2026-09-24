@@ -15,6 +15,8 @@ MARKERS = {
     'source': 'FH1 SNR04 BC3 source ',
     'resolved': 'FH1 SNR02 vegetation resource resolved ',
     'resource_bound': 'FH1 SNR02 vegetation resource bound ',
+    'second_draw': 'FH1 SNR01 second draw call ',
+    'semantic': 'FH1 SNR01 semantic packet ',
 }
 
 
@@ -31,13 +33,27 @@ def verify(log: Path, frame: int):
             if name == 'bound':
                 last_bound = row
             elif name == 'source':
-                assert last_bound and last_bound['frame'] == frame + 1
+                assert last_bound
                 assert last_bound['fetch'] == row['fetch'] == 0
                 assert not last_bound['signed']
-                source_bindings.append((last_bound['absolute'], row))
+                if last_bound['frame'] == frame + 1:
+                    source_bindings.append((last_bound['absolute'], row))
             break
     items = [r for r in rows['item'] if r['frame'] == frame]
     states = [r for r in rows['state'] if r['frame'] == frame]
+    if not items:
+        semantic = {r['ordinal']: r for r in rows['semantic'] if r['frame'] == frame}
+        state_keys = {(r['bucket_entry'], r['owner'], r['record']) for r in states}
+        for call in rows['second_draw']:
+            if call['frame'] != frame or (call['bucket_entry'],
+                    call['vegetation_owner'], call['vegetation_selected_record']) not in state_keys:
+                continue
+            assert call['first_semantic'] == call['last_semantic'] in semantic
+            packet = semantic[call['first_semantic']]
+            items.append({'bucket_entry': call['bucket_entry'],
+                          'owner': call['vegetation_owner'],
+                          'record': call['vegetation_selected_record'],
+                          'packet_physical': packet['header_physical']})
     assert len(items) == len(states) > 0
     key = lambda r: (r['bucket_entry'], r['owner'], r['record'])
     assert len({key(r) for r in items}) == len(items)
@@ -52,6 +68,17 @@ def verify(log: Path, frame: int):
                r['packet_physical'] in packets and r['fetch_constant'] == 0]
     bounds = [r for r in rows['bound'] if r['frame'] == frame + 1 and
               r['packet'] in packets and r['fetch'] == 0 and not r['signed']]
+    fetch_source = 'prepared'
+    if not fetches:
+        sources_by_srv = {srv: source for srv, source in source_bindings}
+        assert len(sources_by_srv) == 5
+        assert all(r['absolute'] in sources_by_srv for r in bounds)
+        fetches = [{'packet_physical': r['packet'], 'fetch_constant': 0,
+                    'format': 20, 'width': 256, 'height': 256,
+                    'base_address': sources_by_srv[r['absolute']]['base'],
+                    'mip_address': sources_by_srv[r['absolute']]['mips']}
+                   for r in bounds]
+        fetch_source = 'fenced_bc3'
     by_packet_fetch, by_packet_srv = defaultdict(set), defaultdict(set)
     for row in fetches:
         assert row['format'] == 20 and row['width'] == row['height'] == 256
@@ -82,6 +109,7 @@ def verify(log: Path, frame: int):
         assert texture_to_srv[source['base'], source['mips']] == {srv}
     state = states[0]
     report = {'frame': frame, 'items': len(items), 'executions': len(fetches),
+            'fetch_source': fetch_source,
             'state_index': state['index'], 'state_entry': state['entry'],
             'state_words': state['words'], 'bc3': [
                 {'base': base, 'mips': mips, 'srv': next(iter(texture_to_srv[base, mips])),
@@ -172,8 +200,7 @@ def verify(log: Path, frame: int):
                         for candidate, values in sorted(resources.items())]
                     if any('resource36_vtable' in row for row in resolved):
                         assert all(row.get('resource36_vtable') == 0x8224368C and
-                                   row.get('resource40_vtable') == 0x822436F4 and
-                                   row['resource40'] - row['resource36'] == 140
+                                   row.get('resource40_vtable') == 0x822436F4
                                    for row in resolved)
                         report['provider_resource_vtables'] = {
                             'chain': '8224368C', 'base': '822436F4'}

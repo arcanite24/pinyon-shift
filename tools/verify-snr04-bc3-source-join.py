@@ -24,14 +24,15 @@ def verify(args):
         timestamp = line[1:24]
         if 'FH1 SNR04 bound pixel ' in line:
             row = json.loads(line.split('FH1 SNR04 bound pixel ', 1)[1])
-            if row['frame'] == args.frame and row['fetch'] == 0 and not row['signed']:
+            if row['fetch'] == 0 and not row['signed']:
                 bound = row
         elif 'FH1 SNR04 BC3 source ' in line:
             row = json.loads(line.split('FH1 SNR04 BC3 source ', 1)[1])
             assert bound and row['fetch'] == bound['fetch']
-            row.update(srv=bound['absolute'], packet=bound['packet'],
-                       timestamp=timestamp, line_index=line_index)
-            sources.append(row)
+            if bound['frame'] == args.frame:
+                row.update(srv=bound['absolute'], packet=bound['packet'],
+                           timestamp=timestamp, line_index=line_index)
+                sources.append(row)
             bound = None
         elif 'FH1 texture reload attempt ' in line:
             changes.append(('reload', timestamp, line_index, json.loads(
