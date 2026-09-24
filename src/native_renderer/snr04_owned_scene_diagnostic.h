@@ -7,6 +7,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -76,6 +77,35 @@ struct Snr04TrackScene {
   std::vector<Snr04TrackDraw> draws;
 };
 Snr04TrackScene ParseSnr04TrackScene(std::span<const char> fixture);
+
+using Snr04RemainderIndexKey =
+    std::tuple<Snr04TrackRange, uint32_t, uint32_t, uint32_t, uint32_t,
+               uint32_t>;
+struct Snr04RemainderDraw {
+  struct Fetch {
+    uint32_t constant = 0, stride = 0;
+    Snr04TrackRange range{};
+  };
+  uint32_t family = 0, title_key = 0, packet = 0, count = 0;
+  uint64_t sequence = 0, shader = 0, specialization = 0;
+  uint32_t primitive = 0, index_type = 0, format = 0, endian = 0;
+  uint32_t shader_endian = 0, restart = 0, reset_index = 0;
+  std::vector<Fetch> fetches;
+  Snr04TrackRange index{};
+  std::vector<uint32_t> packed;
+  std::array<uint32_t, 64> system{};
+  std::array<uint32_t, 192> bound_fetch{};
+  uint32_t raster = 0, clip = 0, depth = 0;
+  std::array<float, 6> viewport{};
+  std::array<int32_t, 4> scissor{};
+};
+struct Snr04RemainderScene {
+  uint64_t source_frame = 0;
+  std::vector<char> vertex_bytes;
+  std::map<Snr04RemainderIndexKey, std::vector<char>> host_indices;
+  std::vector<Snr04RemainderDraw> draws;
+};
+Snr04RemainderScene ParseSnr04RemainderScene(std::span<const char> fixture);
 
 // Immutable ownership of one source frame at the output decision boundary.
 // The first live pilot requires track, items and vegetation; other families

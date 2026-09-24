@@ -3267,19 +3267,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnosticFromBytes(
   return covered;
 }
 
-uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
-    std::span<const char> fixture,
-    const std::filesystem::path& shader_directory,
-    const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device, uint32_t samples,
-    const Snr04SegmentOptions* segment) {
-  require(samples == 1 || samples == 4, "unsupported remainder sample count");
-  if (segment)
-    require(segment->first_sequence &&
-                segment->first_sequence <= segment->last_sequence &&
-                segment->first_id && segment->draw_count &&
-                segment->first_id + uint64_t(segment->draw_count) <= 65536,
-            "invalid remainder segment");
+pinyon_shift::native_renderer::Snr04RemainderScene
+pinyon_shift::native_renderer::ParseSnr04RemainderScene(
+    std::span<const char> fixture) {
   const auto source = fixture;
   Reader reader{source};
   require(reader.take<std::array<char, 8>>() ==
@@ -3328,21 +3318,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
               "duplicate remainder byte range");
     }
   }
-  struct Fetch { uint32_t constant, stride; Range range; };
-  struct Draw {
-    uint32_t family = 0, title_key = 0, packet = 0, count = 0;
-    uint64_t sequence = 0, shader = 0, specialization = 0;
-    uint32_t primitive = 0, index_type = 0, format = 0, endian = 0;
-    uint32_t shader_endian = 0, restart = 0, reset_index = 0;
-    std::vector<Fetch> fetches;
-    Range index{};
-    std::vector<uint32_t> packed;
-    std::array<uint32_t, 64> system{};
-    std::array<uint32_t, 192> bound_fetch{};
-    uint32_t raster = 0, clip = 0, depth = 0;
-    std::array<float, 6> viewport{};
-    std::array<int32_t, 4> scissor{};
-  };
+  using Draw = Snr04RemainderDraw;
+  using Fetch = Draw::Fetch;
   std::vector<Draw> draws;
   draws.reserve(draw_count);
   std::set<Range> used_vertices, used_indices;
@@ -3458,6 +3435,76 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
               used_scalar == scalar_keys,
           "incomplete remainder fixture");
 
+  std::map<Range, uint32_t> vertex_offsets;
+  std::vector<char> vertex_bytes;
+  for (const auto& [range, bytes] : vertices) {
+    vertex_bytes.resize((vertex_bytes.size() + 3) & ~size_t(3));
+    require(vertex_bytes.size() <= 0x1FFFFFFC - bytes.size(),
+            "remainder vertex buffer too large");
+    vertex_offsets.emplace(range, uint32_t(vertex_bytes.size()));
+    vertex_bytes.insert(vertex_bytes.end(), bytes.begin(), bytes.end());
+  }
+  for (auto& draw : draws)
+    for (const auto& fetch : draw.fetches) {
+      auto& address = draw.bound_fetch[fetch.constant * 2];
+      address = (address & 3) | vertex_offsets.at(fetch.range);
+    }
+  using IndexKey = Snr04RemainderIndexKey;
+  std::map<IndexKey, std::vector<char>> host_indices;
+  for (const auto& draw : draws) {
+    IndexKey key{draw.index, draw.count, draw.index_type, draw.format,
+                 draw.endian, draw.reset_index};
+    if (host_indices.contains(key)) continue;
+    const auto& guest = indices.at(draw.index);
+    const size_t length = size_t(draw.count) * (draw.format ? 4 : 2);
+    require(length <= guest.size(), "truncated remainder index stream");
+    auto& host = host_indices[key];
+    host.assign(guest.begin(), guest.begin() + length);
+    if (draw.index_type == 2) {
+      const uint32_t reset = std::byteswap(draw.reset_index);
+      require((reset & 0xFF) == 0, "unsupported converted reset index");
+      uint32_t resets = 0;
+      for (size_t byte = 0; byte < length; byte += 4) {
+        uint32_t value;
+        std::memcpy(&value, guest.data() + byte, 4);
+        value &= 0xFFFFFF00;
+        if (value == reset) { value = UINT32_MAX; ++resets; }
+        std::memcpy(host.data() + byte, &value, 4);
+      }
+      require(resets, "converted index stream has no restart index");
+    }
+  }
+
+  Snr04RemainderScene scene;
+  scene.source_frame = frame;
+  scene.vertex_bytes = std::move(vertex_bytes);
+  scene.host_indices = std::move(host_indices);
+  scene.draws = std::move(draws);
+  return scene;
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
+    std::span<const char> fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* borrowed_device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported remainder sample count");
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid remainder segment");
+  auto scene = ParseSnr04RemainderScene(fixture);
+  const auto source = fixture;
+  const auto frame = scene.source_frame;
+  using Draw = Snr04RemainderDraw;
+  using IndexKey = Snr04RemainderIndexKey;
+  const auto& vertex_bytes = scene.vertex_bytes;
+  const auto& host_indices = scene.host_indices;
+  auto& draws = scene.draws;
+
   std::ifstream manifest(shader_directory / "manifest.sha256");
   require(bool(manifest), "missing remainder shader manifest");
   std::string label, fixture_digest;
@@ -3488,48 +3535,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
   if (!segment || segment->require_shader_fixture_digest)
     require(shaders.size() == shader_digests.size(),
             "remainder shader manifest has unused entries");
-
-  std::map<Range, uint32_t> vertex_offsets;
-  std::vector<char> vertex_bytes;
-  for (const auto& [range, bytes] : vertices) {
-    vertex_bytes.resize((vertex_bytes.size() + 3) & ~size_t(3));
-    require(vertex_bytes.size() <= 0x1FFFFFFC - bytes.size(),
-            "remainder vertex buffer too large");
-    vertex_offsets.emplace(range, uint32_t(vertex_bytes.size()));
-    vertex_bytes.insert(vertex_bytes.end(), bytes.begin(), bytes.end());
-  }
-  for (auto& draw : draws) {
-    for (const auto& fetch : draw.fetches) {
-      auto& address = draw.bound_fetch[fetch.constant * 2];
-      address = (address & 3) | vertex_offsets.at(fetch.range);
-    }
-  }
-  using IndexKey = std::tuple<Range, uint32_t, uint32_t, uint32_t,
-                              uint32_t, uint32_t>;
-  std::map<IndexKey, std::vector<char>> host_indices;
-  for (const auto& draw : draws) {
-    IndexKey key{draw.index, draw.count, draw.index_type, draw.format,
-                 draw.endian, draw.reset_index};
-    if (host_indices.contains(key)) continue;
-    const auto& guest = indices.at(draw.index);
-    const size_t length = size_t(draw.count) * (draw.format ? 4 : 2);
-    require(length <= guest.size(), "truncated remainder index stream");
-    auto& host = host_indices[key];
-    host.assign(guest.begin(), guest.begin() + length);
-    if (draw.index_type == 2) {
-      const uint32_t reset = std::byteswap(draw.reset_index);
-      require((reset & 0xFF) == 0, "unsupported converted reset index");
-      uint32_t resets = 0;
-      for (size_t byte = 0; byte < length; byte += 4) {
-        uint32_t value;
-        std::memcpy(&value, guest.data() + byte, 4);
-        value &= 0xFFFFFF00;
-        if (value == reset) { value = UINT32_MAX; ++resets; }
-        std::memcpy(host.data() + byte, &value, 4);
-      }
-      require(resets, "converted index stream has no restart index");
-    }
-  }
 
   ComPtr<ID3D12Device> device;
   if (segment && segment->shared_target) {
