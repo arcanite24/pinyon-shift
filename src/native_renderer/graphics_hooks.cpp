@@ -5,11 +5,13 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <deque>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -95,12 +97,15 @@ std::thread snr04_batch_worker;
 enum class Snr04LiveFamily : uint8_t {
   track, items, vegetation, characters, manager, remainder
 };
+struct Snr03OwnedScene;
 struct Snr04LiveFixture {
   std::shared_ptr<const std::vector<char>> bytes;
+  std::shared_ptr<const Snr03OwnedScene> vegetation;
   std::vector<uint64_t> sequences;
 };
 struct Snr04LiveJob {
   pinyon_shift::native_renderer::Snr04BatchInput input;
+  std::shared_ptr<const Snr03OwnedScene> vegetation;
   Microsoft::WRL::ComPtr<ID3D12Device> device;
   uint32_t samples = 4;
 };
@@ -134,6 +139,19 @@ void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
     return;
   }
   slot.bytes = std::make_shared<const std::vector<char>>(std::move(bytes));
+  slot.sequences = std::move(sequences);
+}
+void CollectSnr04LiveVegetation(
+    uint64_t frame, std::shared_ptr<const Snr03OwnedScene> scene,
+    std::vector<uint64_t>&& sequences) {
+  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (!scene || sequences.empty() || sequences.size() > 4096) return;
+  std::lock_guard lock(snr04_live_mutex);
+  if (!snr04_live_frames.contains(frame) && snr04_live_frames.size() >= 2)
+    return;
+  auto& slot = snr04_live_frames[frame][size_t(Snr04LiveFamily::vegetation)];
+  if (slot.bytes || slot.vegetation) return;
+  slot.vegetation = std::move(scene);
   slot.sequences = std::move(sequences);
 }
 #endif
@@ -447,6 +465,68 @@ struct Snr03OwnedScene {
   std::shared_ptr<const Snr03SceneSnapshot> title;
   std::vector<Snr03OwnedItem> items;
 };
+#if defined(_WIN32)
+std::shared_ptr<const pinyon_shift::native_renderer::Snr04VegetationScene>
+BuildSnr04VegetationScene(const Snr03OwnedScene& owned) {
+  using pinyon_shift::native_renderer::Snr04VegetationScene;
+  using pinyon_shift::native_renderer::Snr04VegetationItem;
+  auto scene = std::make_shared<Snr04VegetationScene>();
+  scene->source_frame = owned.title->source_frame;
+  scene->fixture_sha256 = "typed";
+  scene->items.reserve(owned.items.size());
+  std::set<uint64_t> sequences;
+  for (const auto& source : owned.items) {
+    Snr04VegetationItem item;
+    item.packet = source.metadata.packet_physical;
+    item.vertex_count = source.guest_vertex_count;
+    if (!item.packet || !item.vertex_count || item.vertex_count % 4 ||
+        item.vertex_count * 4 != source.vertex_bytes.size() ||
+        source.final_states.empty() || source.final_states.size() > 4)
+      throw std::runtime_error("invalid typed vegetation geometry");
+    item.vertices.assign(source.vertex_bytes.begin(),
+                         source.vertex_bytes.end());
+    for (size_t row = 0; row < source.vertex_constants.size(); ++row)
+      std::copy(source.vertex_constants[row].begin(),
+                source.vertex_constants[row].end(),
+                item.constants.begin() + row * 4);
+    item.pixel_registers = source.pixel_registers;
+    for (size_t row = 0; row < source.pixel_constants.size(); ++row)
+      std::copy(source.pixel_constants[row].begin(),
+                source.pixel_constants[row].end(),
+                item.pixel_constants.begin() + row * 4);
+    const auto& first = source.final_states.begin()->second;
+    item.original_system = first.system_constants;
+    item.system = first.system_constants;
+    item.fetch = first.fetch_47;
+    for (const auto& entry : source.final_states) {
+      const auto& state = entry.second;
+      if (!state.draw_sequence || !sequences.insert(state.draw_sequence).second ||
+          state.fetch_47 != first.fetch_47)
+        throw std::runtime_error("invalid typed vegetation draw state");
+      Snr04VegetationItem::Variant variant;
+      variant.sequence = state.draw_sequence;
+      variant.system = state.system_constants;
+      variant.vertex_constants = item.constants;
+      std::copy(state.vertex_constants.begin(), state.vertex_constants.end(),
+                variant.vertex_constants.begin());
+      const auto bits = [](uint32_t word) { return std::bit_cast<float>(word); };
+      const float scale = bits(variant.system[33]);
+      const float offset = bits(variant.system[37]);
+      if (!std::isfinite(scale) || scale <= 0 || !std::isfinite(offset) ||
+          std::abs((offset + 1) / scale - 1 + 1.f / 720) >= 1e-6f)
+        throw std::runtime_error("invalid typed vegetation viewport");
+      variant.system[33] = std::bit_cast<uint32_t>(1.f);
+      variant.system[37] = std::bit_cast<uint32_t>(-1.f / 720);
+      item.variants.push_back(std::move(variant));
+    }
+    item.system[33] = std::bit_cast<uint32_t>(1.f);
+    item.system[37] = std::bit_cast<uint32_t>(-1.f / 720);
+    item.fetch[2] &= 3;
+    scene->items.push_back(std::move(item));
+  }
+  return scene;
+}
+#endif
 struct Snr02ItemSnapshot {
   uint64_t call;
   uint32_t packet;
@@ -3455,11 +3535,21 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
               final_variants, fingerprint);
   const auto directory = fh1_render_test::OutputDirectory();
   const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
-  if (live || !directory.empty()) {
+#if defined(_WIN32)
+  if (live) {
+    std::vector<uint64_t> sequences;
+    sequences.reserve(final_variants);
+    for (const auto& item : owned->items)
+      for (const auto& entry : item.final_states)
+        sequences.push_back(entry.second.draw_sequence);
+    CollectSnr04LiveVegetation(owned->title->source_frame, owned,
+                               std::move(sequences));
+  }
+#endif
+  if (!directory.empty() && (!live || Snr04LiveVerifyFixtures())) {
     auto encoded = EncodeSnr03Fixture(*owned);
     const auto begin = std::chrono::steady_clock::now();
-    const bool written = (!live || Snr04LiveVerifyFixtures()) &&
-        WriteSceneFixture(std::span<const char>(encoded),
+    const bool written = WriteSceneFixture(std::span<const char>(encoded),
                                            owned->title->source_frame, directory,
                                            "snr03-scene-");
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3493,18 +3583,6 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
       }
     }
 #endif
-#if defined(_WIN32)
-    if (live) {
-      std::vector<uint64_t> sequences;
-      sequences.reserve(final_variants);
-      for (const auto& item : owned->items)
-        for (const auto& [dynamic, state] : item.final_states)
-          sequences.push_back(state.draw_sequence);
-      CollectSnr04LiveFixture(owned->title->source_frame,
-                              Snr04LiveFamily::vegetation,
-                              std::move(encoded), std::move(sequences));
-    }
-#endif
   }
 }
 
@@ -3529,7 +3607,8 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
       if (!output) throw std::runtime_error("missing live output directory");
       std::array<std::filesystem::path, 6> shaders;
       for (size_t i = 0; i < fixtures.size(); ++i) {
-        if (!fixtures[i].bytes)
+        if (!(i == size_t(Snr04LiveFamily::vegetation)
+                  ? bool(fixtures[i].vegetation) : bool(fixtures[i].bytes)))
           throw std::runtime_error("incomplete live selected frame family=" +
                                    std::to_string(i));
         const char* name = i == size_t(Snr04LiveFamily::track)
@@ -3563,12 +3642,15 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
       }
       Snr04LiveJob job;
       job.input.source_frame = output_frame - 1;
+      job.vegetation = fixtures[size_t(Snr04LiveFamily::vegetation)].vegetation;
       // Live bytes differ per frame; shader keys and bytecode digests still
       // have to match the checked directory manifest.
       job.input.require_shader_fixture_digest = false;
       job.device = static_cast<ID3D12Device*>(device);
       job.samples = GetEnvironmentVariableA("PINYON_SHIFT_SNR04_MSAA4", nullptr, 0)
           ? 4 : 1;
+      const bool verify = Snr04LiveVerifyFixtures();
+      std::vector<size_t> segment_families;
       for (size_t i = 0; i < order.size();) {
         const size_t first = i;
         const size_t family = order[i].family;
@@ -3584,8 +3666,36 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
         segment.first_id = uint32_t(first + 1);
         segment.draw_count = uint32_t(i - first);
         job.input.segments.push_back(std::move(segment));
+        if (verify) segment_families.push_back(family);
       }
       const auto segment_count = job.input.segments.size();
+      if (verify) {
+        const auto fixtures_dir = fh1_render_test::OutputDirectory();
+        const auto source = std::to_string(job.input.source_frame);
+        std::ofstream manifest(*output / ("source-" + source + ".manifest"));
+        manifest << "SNR04B1 " << source << ' ' << segment_count << '\n';
+        for (size_t i = 0; i < segment_count; ++i) {
+          const size_t family = segment_families[i];
+          const char* stem = family == size_t(Snr04LiveFamily::track)
+              ? "snr02-track" : family == size_t(Snr04LiveFamily::items)
+              ? "snr02-items" : family == size_t(Snr04LiveFamily::vegetation)
+              ? "snr03-scene" : family == size_t(Snr04LiveFamily::characters)
+              ? "snr03-characters" : family == size_t(Snr04LiveFamily::manager)
+              ? "snr03-manager" : "snr03-remainder";
+          const auto& segment = job.input.segments[i];
+          const auto fixture = fixtures_dir /
+              (std::string(stem) + '-' + source + ".bin");
+          const auto offline = *output / ("source-" + source + "-offline") /
+              ("step-" + std::to_string(i));
+          manifest << std::quoted(fixture.string()) << ' '
+                   << std::quoted(segment.shader.string()) << ' '
+                   << std::quoted(offline.string()) << ' '
+                   << segment.first_sequence << ' ' << segment.last_sequence
+                   << ' ' << segment.first_id << ' ' << segment.draw_count << '\n';
+        }
+        if (!manifest)
+          throw std::runtime_error("live verification manifest write failed");
+      }
       {
         std::lock_guard lock(snr04_live_mutex);
         if (snr04_live_stopping || snr04_live_jobs.size() >= 2)
@@ -3604,6 +3714,9 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                 snr04_live_jobs.pop_front();
               }
               try {
+                auto vegetation = BuildSnr04VegetationScene(*job.vegetation);
+                for (auto& segment : job.input.segments)
+                  if (!segment.fixture) segment.vegetation = vegetation;
                 const auto result = RunSnr04BatchDiagnosticFromBytes(
                     job.input, job.device.Get(), job.samples,
                     job.input.segments.back().output / "batch-timing.json");

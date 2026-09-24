@@ -36,15 +36,16 @@ uint32_t run(const std::string& fixture, const std::string& shader,
 }  // namespace
 
 int main(int argc, char** argv) {
-  if ((argc == 3 || argc == 4) &&
+  if ((argc == 3 || argc == 4 || argc == 5) &&
       std::string_view(argv[1]) == "--batch") {
     try {
-      const uint32_t samples = argc == 4 &&
-          std::string_view(argv[3]) == "--msaa4" ? 4 : 1;
-      if (argc == 4 && samples != 4)
-        throw std::runtime_error("invalid batch sample flag");
+      const bool msaa4 = argc >= 4 && std::string_view(argv[3]) == "--msaa4";
+      const bool live_shaders = argc == 5 &&
+          std::string_view(argv[4]) == "--live-shaders";
+      if ((argc >= 4 && !msaa4) || (argc == 5 && !live_shaders))
+        throw std::runtime_error("invalid batch option");
       const auto result = pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
-          argv[2], nullptr, samples);
+          argv[2], nullptr, msaa4 ? 4 : 1, !live_shaders);
       std::cout << "SNR04 shared target draws=" << result.draws
                 << " covered_pixels=" << result.covered_pixels << '\n';
       return 0;

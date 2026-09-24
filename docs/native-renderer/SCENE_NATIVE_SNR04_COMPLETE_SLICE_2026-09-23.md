@@ -1336,3 +1336,30 @@ sample, not a valid two-frame native output or parity result. Fixed source
 ordinal 5000 is not a safe admission rule as scene content shifts between
 runs. A direct scene producer must gate each current frame on complete owned
 families, then publish only admitted frames and count every rejection.
+
+### First typed family handoff — 2026-09-24
+
+The vegetation owner now passes its immutable `Snr03OwnedScene` pointer into
+the bounded live queue. The worker converts that scene once to the existing
+vegetation draw representation and reuses it across its contiguous selected
+segments. Ordinary live handoff does not encode or parse the vegetation
+fixture; the other five families still use their in-memory fixture bytes.
+An opt-in verification setting writes the six fixtures and a same-run batch
+manifest, outside the measured path. The manifest records the worker's exact
+sequence ranges and draw IDs, so the standalone fixture renderer can replay
+the same ordered segments without relying on an SNR-01 log.
+
+A no-dump live run completed sources 5000/5001 with 2,196/2,339 selected
+draws. A separate verification run completed them with 1,921/1,676 draws,
+then the standalone 4× batch replay consumed its same-run manifests using
+`--live-shaders`. The live typed target and independent fixture target matched
+byte-for-byte for final `coverage.u8`, `depth.f32`, `depth.f32x4`, and
+`identity.u16x4` on **both** frames. The final identity SHA-256 values were
+`1CA9445C11CE650E67AD932048BEDF835021659E9CEA1C3BBB12FD3E999989A3`
+and `9FA8C4C04FC36AF4DBE41D4B8D1544C90F5D66919FE70AAAF51822E6BD478AC8`.
+`verify-snr04-msaa.py` passed on both live final targets. The route exited
+normally. Verification fixture writes inflated output-callback capture to
+406/450 ms, so this run is a parity check, not a performance sample. The
+normal live path still builds shader/PSO state per segment, waits per family
+and reads back its final private target. Five-family fixture serialization,
+resource generations and a net gain remain open.

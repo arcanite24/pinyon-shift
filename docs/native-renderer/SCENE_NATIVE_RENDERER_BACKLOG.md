@@ -436,6 +436,14 @@ but fixed source frames 5000/5001 did not both meet six-family admission.
 The direct producer must account for scene-dependent missing families and
 publish only complete frames; this sensitivity run does not close SNR-04.
 
+The vegetation family now uses a direct immutable-scene queue entry in the
+ordinary live path. A same-run verification dump replayed both adjacent
+frames through the fixture oracle and matched all final coverage, depth and
+4× identity bytes; see the [typed-family evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#first-typed-family-handoff--2026-09-24).
+Convert the remaining five families before repeating the production-settings
+cost gate; the current worker still reparses their fixtures and waits after
+each segment.
+
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
 do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**

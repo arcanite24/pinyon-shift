@@ -110,29 +110,8 @@ struct Reader {
     return result;
   }
 };
-struct Item {
-  struct Variant {
-    uint64_t sequence = 0;
-    std::array<uint32_t, 64> system{};
-    std::array<uint32_t, 96> vertex_constants{};
-  };
-  uint32_t packet = 0;
-  uint32_t vertex_count = 0;
-  std::array<uint32_t, 96> constants{};
-  std::array<uint32_t, 3> pixel_registers{};
-  std::array<uint32_t, 12> pixel_constants{};
-  std::array<uint32_t, 64> system{};
-  std::array<uint32_t, 64> original_system{};
-  std::array<uint32_t, 4> fetch{};
-  std::vector<Variant> variants;
-  std::vector<char> vertices;
-};
-struct Scene {
-  uint64_t source_frame = 0;
-  bool sequenced = false;
-  std::string fixture_sha256;
-  std::vector<Item> items;
-};
+using Item = pinyon_shift::native_renderer::Snr04VegetationItem;
+using Scene = pinyon_shift::native_renderer::Snr04VegetationScene;
 Scene load_scene(std::span<const char> file) {
   Reader reader{file};
   const auto magic = reader.take<std::array<char, 8>>();
@@ -768,7 +747,7 @@ pinyon_shift::native_renderer::CreateSnr04SharedTarget(
 }
 
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
-    std::span<const char> fixture,
+    const Snr04VegetationScene& scene,
     const std::filesystem::path& vertex_shader,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -787,7 +766,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                 segment->draw_count == 1 && !segment->prior_output.empty(),
             "alpha probe requires one draw and compatibility prior");
   const auto begin = std::chrono::steady_clock::now();
-  auto scene = load_scene(fixture);
+  require(scene.source_frame && !scene.items.empty() && scene.items.size() <= 512,
+          "invalid vegetation scene");
   auto vs = read(vertex_shader);
   require(vs.size() == 19328 && std::memcmp(vs.data(), "DXBC", 4) == 0 &&
               sha256(vs) == expected_vs_sha,
@@ -1517,6 +1497,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   summary.close();
   require(bool(summary) && covered > 0, "empty or unwritable diagnostic");
   return covered;
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
+    std::span<const char> fixture,
+    const std::filesystem::path& vertex_shader,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  return RunSnr04OwnedSceneDiagnostic(load_scene(fixture), vertex_shader,
+                                     output_directory, device, samples, segment);
 }
 
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
@@ -3972,8 +3962,10 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
   uint32_t next_id = 1, covered = 0;
   for (size_t i = 0; i < count; ++i) {
     const auto& entry = input.segments[i];
-    require(bool(entry.fixture), "missing shared-target fixture");
-    const auto& fixture = *entry.fixture;
+    require(bool(entry.fixture) != bool(entry.vegetation),
+            "invalid shared-target source");
+    const std::span<const char> fixture = entry.fixture
+        ? std::span<const char>(*entry.fixture) : std::span<const char>{};
     const auto& shader = entry.shader;
     const auto& output = entry.output;
     Snr04SegmentOptions segment;
@@ -3985,11 +3977,16 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
                 segment.first_sequence <= segment.last_sequence &&
                 segment.first_id == next_id && segment.draw_count,
             "invalid shared-target segment");
-    require(fixture.size() >= 16, "short shared-target fixture");
     std::array<char, 8> magic{};
     uint64_t frame = 0;
-    std::memcpy(magic.data(), fixture.data(), magic.size());
-    std::memcpy(&frame, fixture.data() + magic.size(), sizeof(frame));
+    if (entry.vegetation) {
+      magic = {'S', 'N', 'R', '0', '3', 'F', '4', '\0'};
+      frame = entry.vegetation->source_frame;
+    } else {
+      require(fixture.size() >= 16, "short shared-target fixture");
+      std::memcpy(magic.data(), fixture.data(), magic.size());
+      std::memcpy(&frame, fixture.data() + magic.size(), sizeof(frame));
+    }
     require(frame == source_frame,
             "shared-target fixture frame mismatch");
     segment.shared_target = target;
@@ -4015,10 +4012,12 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     else if (kind == "SNR03R2")
       covered = RunSnr04RemainderDiagnosticFromBytes(fixture, shader, output,
                                             borrowed_device, samples, &segment);
+    else if (entry.vegetation)
+      covered = RunSnr04OwnedSceneDiagnostic(*entry.vegetation, shader, output,
+                                            borrowed_device, samples, &segment);
     else if (kind == "SNR03F3" || kind == "SNR03F4")
-      covered = RunSnr04OwnedSceneDiagnostic(std::span<const char>(fixture),
-                                             shader, output,
-                                             borrowed_device, samples, &segment);
+      covered = RunSnr04OwnedSceneDiagnostic(fixture, shader, output,
+                                            borrowed_device, samples, &segment);
     else
       throw std::runtime_error("unsupported shared-target fixture");
     const auto stage_end = std::chrono::steady_clock::now();
@@ -4080,10 +4079,11 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
 pinyon_shift::native_renderer::Snr04BatchResult
 pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     const std::filesystem::path& manifest_path, ID3D12Device* borrowed_device,
-    uint32_t samples) {
+    uint32_t samples, bool require_shader_fixture_digest) {
   std::ifstream manifest(manifest_path);
   std::string header;
   Snr04BatchInput input;
+  input.require_shader_fixture_digest = require_shader_fixture_digest;
   uint32_t count = 0;
   require(bool(manifest >> header >> input.source_frame >> count) &&
               header == "SNR04B1" && input.source_frame && count && count <= 4096,
