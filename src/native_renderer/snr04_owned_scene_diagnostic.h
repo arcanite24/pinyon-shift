@@ -28,6 +28,9 @@ struct Snr04BatchResult {
   uint64_t source_frame = 0;
   uint32_t draws = 0, covered_pixels = 0;
   uint64_t target_setup_us = 0, upload_cpu_us = 0, upload_bytes = 0;
+  uint64_t upload_reused_bytes = 0, upload_cross_frame_reused_bytes = 0;
+  uint64_t cache_key_bytes = 0;
+  uint32_t cache_entries = 0;
   uint64_t gpu_draw_us = 0, stage_wall_us = 0;
 };
 Snr04BatchResult RunSnr04BatchDiagnostic(

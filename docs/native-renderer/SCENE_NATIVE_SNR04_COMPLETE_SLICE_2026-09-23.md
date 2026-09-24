@@ -1229,3 +1229,24 @@ The result proves the in-process handoff preserves the checked diagnostic
 output. It does not establish resource-generation-safe reuse, a single GPU
 submission without per-family waits, production cadence, retained-pass
 composition, material fidelity or the 15% net speed case.
+
+The diagnostic worker now keeps immutable upload buffers across adjacent
+batches on the same device, keyed by their **complete owned bytes** rather
+than a guest address. The cache is capped at 128 MiB of key bytes; each
+cached upload resource is written once and its batch fence completes before
+the next frame uses it. This is safe for byte-identical geometry and constant
+buffers even if a title allocation is rebound. It does not establish
+texture/provider generations or shader/PSO reuse. In a no-dump adjacent run,
+frames 5000/5001 owned 1,592/1,591 draws. The first frame uploaded 27.186 MB;
+the second reused 24.155 MB of **distinct** prior-frame payloads and uploaded
+3.255 MB of new payloads. The cache held 30.441 MB of key bytes after both
+frames. Callback capture took 8.486/9.125 ms, timestamped draw work
+3.504/3.036 ms, and stage wall time 3.782/3.609 seconds. The separate
+same-run verification-dump test kept the first cached frame byte-identical
+to a fresh offline replay. The second frame in that test lacked one direct
+family trace record, so its strict frame-wide ledger could not be certified;
+no target parity claim is made for that cached second frame. The cache's
+`upload_cpu_us` counts resource creation/map/copy and excludes lookup/key
+construction. These figures still contain per-stage waits, shader-file and
+pipeline setup, and final debug readback; they are not a production-speed
+estimate.

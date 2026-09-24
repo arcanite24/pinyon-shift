@@ -45,9 +45,18 @@ struct pinyon_shift::native_renderer::Snr04SharedTarget {
 namespace {
 constexpr uint32_t width = 1280, height = 720;
 thread_local uint64_t upload_cpu_ns = 0, upload_bytes = 0;
-using UploadCache = std::unordered_map<std::string, ComPtr<ID3D12Resource>>;
+struct CachedUpload {
+  ComPtr<ID3D12Resource> resource;
+  uint64_t epoch;
+  uint64_t last_cross_frame_counted_epoch = 0;
+};
+using UploadCache = std::unordered_map<std::string, CachedUpload>;
 thread_local UploadCache* active_upload_cache = nullptr;
+thread_local size_t active_upload_cache_bytes = 0;
+thread_local uint64_t active_upload_epoch = 0;
 thread_local uint64_t upload_cache_hits = 0, upload_reused_bytes = 0;
+thread_local uint64_t upload_cross_frame_reused_bytes = 0;
+constexpr size_t max_upload_cache_bytes = 128 * 1024 * 1024;
 constexpr char expected_vs_sha[] =
     "2adfe080228c468ce9aec7e21d19798fc8aaa32cdba5d7325c4fac4070f21faa";
 
@@ -261,7 +270,12 @@ ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t si
         found != active_upload_cache->end()) {
       ++upload_cache_hits;
       upload_reused_bytes += size;
-      return found->second;
+      if (found->second.epoch != active_upload_epoch &&
+          found->second.last_cross_frame_counted_epoch != active_upload_epoch) {
+        upload_cross_frame_reused_bytes += size;
+        found->second.last_cross_frame_counted_epoch = active_upload_epoch;
+      }
+      return found->second.resource;
     }
   }
   const auto begin = std::chrono::steady_clock::now();
@@ -275,8 +289,11 @@ ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t si
   upload_cpu_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::steady_clock::now() - begin).count();
   upload_bytes += size;
-  if (active_upload_cache)
-    active_upload_cache->emplace(std::move(key), resource);
+  if (active_upload_cache && size <= max_upload_cache_bytes - active_upload_cache_bytes) {
+    active_upload_cache_bytes += size;
+    active_upload_cache->emplace(std::move(key),
+                                 CachedUpload{resource, active_upload_epoch});
+  }
   return resource;
 }
 struct Snr04GpuDrawTimer {
@@ -3902,11 +3919,30 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
   require(source_frame && count && count <= 4096,
           "invalid shared-target batch");
   auto target = CreateSnr04SharedTarget(borrowed_device, samples);
-  UploadCache upload_cache;
+  // Full owned bytes are the identity; guest addresses and stale generations
+  // cannot alias a different payload. These upload resources are immutable.
+  static thread_local UploadCache upload_cache;
+  static thread_local ComPtr<ID3D12Device> cache_device;
+  static thread_local uint64_t cache_epoch = 0;
+  if (cache_device.Get() != target->device.Get()) {
+    upload_cache.clear();
+    cache_device = target->device;
+  }
+  size_t cached_bytes = 0;
+  for (const auto& [key, resource] : upload_cache)
+    cached_bytes += key.size();
   struct CacheScope {
-    explicit CacheScope(UploadCache& cache) { active_upload_cache = &cache; }
-    ~CacheScope() { active_upload_cache = nullptr; }
-  } cache_scope(upload_cache);
+    CacheScope(UploadCache& cache, size_t bytes, uint64_t epoch) {
+      active_upload_cache = &cache;
+      active_upload_cache_bytes = bytes;
+      active_upload_epoch = epoch;
+    }
+    ~CacheScope() {
+      active_upload_cache = nullptr;
+      active_upload_cache_bytes = 0;
+      active_upload_epoch = 0;
+    }
+  } cache_scope(upload_cache, cached_bytes, ++cache_epoch);
   const auto target_ready = std::chrono::steady_clock::now();
   Snr04BatchResult result{};
   result.source_frame = source_frame;
@@ -3944,7 +3980,8 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     segment.require_shader_fixture_digest = input.require_shader_fixture_digest;
     uint64_t gpu_draw_us = 0;
     segment.gpu_draw_us = &gpu_draw_us;
-    upload_cpu_ns = upload_bytes = upload_cache_hits = upload_reused_bytes = 0;
+    upload_cpu_ns = upload_bytes = upload_cache_hits = upload_reused_bytes =
+        upload_cross_frame_reused_bytes = 0;
     const auto stage_begin = std::chrono::steady_clock::now();
     const auto kind = std::string_view(magic.data(), 7);
     if (kind == "SNR02I3" || kind == "SNR03C1")
@@ -3977,9 +4014,14 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
            << ",\"upload_bytes\":" << upload_bytes
            << ",\"upload_cache_hits\":" << upload_cache_hits
            << ",\"upload_reused_bytes\":" << upload_reused_bytes
+           << ",\"upload_cross_frame_reused_bytes\":"
+           << upload_cross_frame_reused_bytes
            << ",\"gpu_draw_us\":" << gpu_draw_us << '}';
     upload_ns_total += upload_cpu_ns;
     result.upload_bytes += upload_bytes;
+    result.upload_reused_bytes += upload_reused_bytes;
+    result.upload_cross_frame_reused_bytes +=
+        upload_cross_frame_reused_bytes;
     result.gpu_draw_us += gpu_draw_us;
     result.stage_wall_us += stage_us;
     previous_sequence = segment.last_sequence;
@@ -3988,6 +4030,9 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
   result.draws = next_id - 1;
   result.covered_pixels = covered;
   result.upload_cpu_us = upload_ns_total / 1000;
+  result.cache_entries = uint32_t(upload_cache.size());
+  for (const auto& [key, resource] : upload_cache)
+    result.cache_key_bytes += key.size();
   if (timing_path.empty()) return result;
   std::ofstream timing(timing_path);
   timing << "{\"schema\":\"pinyon-shift.snr04-batch-timing.v1\","
@@ -3996,6 +4041,11 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
          << ",\"target_setup_us\":" << result.target_setup_us
          << ",\"upload_cpu_us\":" << result.upload_cpu_us
          << ",\"upload_bytes\":" << result.upload_bytes
+         << ",\"upload_reused_bytes\":" << result.upload_reused_bytes
+         << ",\"upload_cross_frame_reused_bytes\":"
+         << result.upload_cross_frame_reused_bytes
+         << ",\"cache_entries\":" << result.cache_entries
+         << ",\"cache_key_bytes\":" << result.cache_key_bytes
          << ",\"gpu_draw_us\":" << result.gpu_draw_us
          << ",\"stage_wall_us\":" << result.stage_wall_us
          << ",\"intermediate_target_readbacks\":0,\"stages\":["

@@ -3593,11 +3593,18 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                     job.input.segments.back().output / "batch-timing.json");
                 REXGPU_INFO("FH1 SNR04 live consumed source_frame={} draws={} "
                             "covered_pixels={} samples={} upload_cpu_us={} "
-                            "upload_bytes={} gpu_draw_us={} stage_wall_us={}",
+                            "upload_bytes={} upload_reused_bytes={} "
+                            "upload_cross_frame_reused_bytes={} "
+                            "cache_entries={} cache_key_bytes={} gpu_draw_us={} "
+                            "stage_wall_us={}",
                             result.source_frame, result.draws,
                             result.covered_pixels, job.samples,
                             result.upload_cpu_us, result.upload_bytes,
-                            result.gpu_draw_us, result.stage_wall_us);
+                            result.upload_reused_bytes,
+                            result.upload_cross_frame_reused_bytes,
+                            result.cache_entries,
+                            result.cache_key_bytes, result.gpu_draw_us,
+                            result.stage_wall_us);
               } catch (const std::exception& error) {
                 REXGPU_INFO("FH1 SNR04 live rejected source_frame={} reason={}",
                             job.input.source_frame, error.what());
