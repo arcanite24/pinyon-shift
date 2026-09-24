@@ -1,5 +1,5 @@
 pinyon-shift-fh1-render-test-v1
-# Consecutive exact-output race captures, including a missing-track fallback.
+# Consecutive exact-output race captures past the scene-command limit.
 # require-native world-lit
 # require-native world-lit UV2
 # require-native depth-mesh
@@ -68,4 +68,13 @@ capture 5008 track-source-5008
 capture 5009 track-source-5009
 capture 5010 track-source-5010
 capture 5011 track-source-5011
-stop 5020
+capture 5012 track-source-5012
+capture 5013 track-source-5013
+capture 5014 track-source-5014
+capture 5015 track-source-5015
+capture 5016 track-source-5016
+capture 5017 track-source-5017
+capture 5018 track-source-5018
+capture 5019 track-source-5019
+capture 5020 track-source-5020
+stop 5030

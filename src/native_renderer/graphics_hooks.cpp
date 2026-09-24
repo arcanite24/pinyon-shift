@@ -4120,6 +4120,7 @@ void PinyonShiftObserveGraphicsFrame() {
       snr01_scalar_draw_count =
       snr01_dynamic_quad_entries =
       snr01_dynamic_quad_count =
+      snr01_scene_indirect_count =
       snr01_direct_call_count = snr01_direct_packet_count =
       snr01_unmatched_direct_exits = 0;
   if (rex::perf::CriticalPathTraceEnabled() &&
