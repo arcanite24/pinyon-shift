@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def extract(session: Path, output: Path, include_scene: bool = False) -> int:
+def extract(session: Path, output: Path, include_scene: bool = False,
+            include_bc3_source: bool = False) -> int:
     started = datetime.strptime(session.name[:16], "%Y%m%dT%H%M%SZ").replace(
         tzinfo=timezone.utc
     ).astimezone().strftime("%Y-%m-%d %H:%M:%S")
@@ -21,6 +22,9 @@ def extract(session: Path, output: Path, include_scene: bool = False) -> int:
     markers = ("FH1 SNR01 ", "FH1 SNR02 ", "FH1 clear producer ")
     if include_scene:
         markers += ("FH1 SNR03 ", "FH1 scene binding ")
+    if include_bc3_source:
+        markers += ("FH1 SNR04 BC3 ", "FH1 SNR04 bound pixel ",
+                    "FH1 texture reload attempt ", "FH1 texture invalidated ")
     count = 0
     with output.open("w", encoding="utf-8") as destination:
         for path in paths:
@@ -41,5 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("session", type=Path, help="process-specific *-pPID.jsonl")
     parser.add_argument("output", type=Path)
     parser.add_argument("--include-scene", action="store_true")
+    parser.add_argument("--include-bc3-source", action="store_true")
     args = parser.parse_args()
-    print(f"records: {extract(args.session, args.output, args.include_scene)}")
+    print(f"records: {extract(args.session, args.output, args.include_scene,
+                               args.include_bc3_source)}")

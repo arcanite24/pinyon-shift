@@ -940,3 +940,59 @@ renders all 312 ordered draws in a new replay with an immutable owned fixture
 at the output-frame handoff. It establishes geometry/ABI coverage for this
 family, while compatibility attachment parity and material ownership remain
 open.
+
+## Live foliage BC3 source and invalidation join
+
+The opt-in SNR-04 BC3 readback now logs the bound texture cache object,
+host resource, guest base/mip addresses, guest byte extents and dirty mask at
+the copy point. The source row follows the selected unsigned fetch-0 binding;
+the copy is recorded on the guest command stream and read only after its
+submission fence. A normal-exit AppData-backed sustained-race run captured
+source frame 5000/output frame 5001 with compatibility rendering intact.
+Its 7 route screenshots completed, and the process shutdown normally.
+
+All five sampled textures were 256×256 BC3 with 65,536-byte guest base and
+mip ranges and `outdated=0` at copy time. The five complete nine-mip
+readbacks (87,408 bytes each) match the **five** independently captured
+RenderDoc chains byte for byte:
+
+| Live SRV | Guest base / mips | RenderDoc chain |
+| ---: | --- | --- |
+| 564 | `0F358000` / `0ECBD000` | `ResourceId-7771` |
+| 566 | `0F348000` / `0ECB0000` | `ResourceId-7770` |
+| 568 | `0F368000` / `0ECCA000` | `ResourceId-7769` |
+| 785 | `0FD84000` / `0EFAE000` | `ResourceId-7849` |
+| 877 | `1075A000` / `0E4DA000` | `ResourceId-7929` |
+
+The last key was **not immutable throughout the run**: its mip range was
+invalidated by CPU writes twice and its base range once, with a matching
+reload attempt after each invalidation. The last reload attempt preceded the
+frame-5001 sample, whose cache dirty mask was zero. The other four keys had
+no observed invalidation or reload attempt in this run. This proves a
+bounded descriptor → live cache resource → current GPU payload join at the
+sampled frame. It does not identify the title material object, assign an
+allocation or payload generation across reuse, prove every reload completed
+at a native submission fence, or qualify streaming unload/reload.
+
+The RelWithDebInfo executable SHA-256 was
+`A92917CE435D8B7EAD7B8A5E5E2AE1E6DEBD5BEA9356AC7228594EFA5787D63C`;
+the staged `rexgpu-fh1rd.dll` SHA-256 was
+`945E3C181FCE81BD8F377A7B5D203FFE4224A5A690421D5840CB2DA4C76E2642`.
+The local process-filtered log is
+`.local/native-renderer/snr02/bc3-source-live-a/evidence.log` (SHA-256
+`72882BF5AB7B0FEAA53AD4070DCD1B14D5DD3009E66A653472264BF1F3AFA431`),
+and its checked source join is `source-join.json` (SHA-256
+`3392E990DFDBDBE3973684647238BF08A77C373493AFACADFDC2EE8B5800BF0E`).
+
+Reproduce the process-scoped evidence with `extract-snr01-run-log.py
+SESSION OUTPUT --include-bc3-source` using session
+`20260924T020223Z-p43916.jsonl`, then run
+`verify-snr04-bc3-source-join.py LOG LIVE_DIR REFERENCE_DIR OUTPUT
+--frame 5001`. The launch used `fh1-race-sustained.fh1test`,
+`--pinyon_shift_snr03_probe_frame=5000`,
+`--fh1_texture_reload_probe=true`, and
+`PINYON_SHIFT_SNR04_BC3_DIR` pointed at the local run directory. The source
+row and readback are diagnostic-only and default off. The next ownership
+check must follow the title material object into these guest ranges and
+distinguish cache object creation from subsequent payload changes; address
+equality alone is insufficient.
