@@ -525,6 +525,29 @@ attaches a scene argument at owner `+56`; it does not expose current screen
 activation. This temporary probe was also removed. The bootstrap owner is
 not a safe substitute for a per-frame UI/game-mode transition signal.
 
+**Guest UI pass comparison (2026-09-24):** an SDK diagnostic can now start a
+one-shot RenderDoc capture after a named render-test output file appears. A
+fixed output-frame trigger missed the title because `title-settled` varied
+from output 5041 to 5291 across otherwise equivalent runs. The file trigger
+captured output 5061 immediately after `title-settled` at 5059, with a normal
+route exit. Its RenderDoc capture SHA-256 is
+`50ADBA50AECB6FC19772CD92C9D54F14140FA1BAE060AD309F2D0C474A30E5CE`.
+The title trace has 69 late draws into the guest `R10G10B10A2_UNORM` target;
+the earlier race trace has 170. Both use the same three guest UI shader pairs,
+so shader identity alone cannot distinguish race from title or gate takeover.
+Saving that guest target at the final draw shows the stock title options menu,
+car/background and controller prompts. The race target similarly contains
+the original lap/place/speed/minimap HUD. These images are present before
+`IssueSwap` but absent from native presentation. Copying the completed guest
+image wholesale would also restore its compatibility world. A retained UI
+bridge must place the native scene into the guest output **before** the late
+UI draws, isolate those draws onto a transparent target, or render equivalent
+native cues; the current final-output replacement cannot preserve them.
+This capture run's `race-sustained` checkpoint occurred at output 4795,
+before native scene collection began at 5000; it is evidence for the title
+pass and UI boundary, not a new race-continuity qualification. The settled
+title capture still contained 26,740 native-only sky pixels.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
