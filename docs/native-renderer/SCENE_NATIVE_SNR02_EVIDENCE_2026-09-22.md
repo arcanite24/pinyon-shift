@@ -1144,6 +1144,10 @@ record skipped the resolver through the title's current-key cache. All five
 keys map one-to-one through the manager table to five distinct manager
 objects, then to five distinct returned resource records. The manager
 objects share one vtable; each returned record is at manager object +44.
+That vtable is `0x82001708`, independently identified in the verified
+base-image RTTI by `track-ingress-static.json` as
+`Presentation_Unified::CTrackTexture_Unified`. The resolver's virtual
+slots 6, 9, 10 and 11 match that class's generated method addresses.
 The record's first four words were `3`, `1`, a value varying within the capture,
 and `0`; the first word is **not** a vtable. Five live BC3 source chains
 again matched the independent RenderDoc nine-mip references byte for byte.
