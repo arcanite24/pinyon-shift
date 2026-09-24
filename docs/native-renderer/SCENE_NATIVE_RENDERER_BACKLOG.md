@@ -307,6 +307,9 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    the five sampled BC3 sources; title chain/base allocation generations
    also join a later strict frame. Title payload generation and selected
    unload/reload still need proof (see the [title resource evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#title-resource-allocation-generations-and-pool-reuse)).
+   A straight-line post-retire drive-away test stopped against a barrier before
+   leaving the streaming area, so it cannot close that gap (see the
+   [route result](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#straight-line-travel-after-retirement-cannot-test-eviction)).
    Six scalar draws have a retained skid-presentation
    path. Resolve scene membership and resource ownership before freezing
    the slice.

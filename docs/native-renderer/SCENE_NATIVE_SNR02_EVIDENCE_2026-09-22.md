@@ -1340,3 +1340,22 @@ The selected destructor/reconstruction markers stay default-off with the
 selected-frame probe. A subsequent route must move far enough to evict the
 sampled resources or cross a map boundary, then revisit and rebind them; a
 new allocation ID and current payload at the second binding are required.
+
+### Straight-line travel after retirement cannot test eviction
+
+An extended copy of the retire route held full throttle from script clock
+7800 to 14000 and captured free roam at 9000, 11000 and 13000. The
+AppData-backed replay on 2026-09-24 exited normally (PID 42020). At source
+frame 6000, 53 resolver observations selected five keys (19576, 19577,
+19579–19581) and the same ten live chain/base generations 687–696. No
+selected destructor or reconstruction marker appeared before exit.
+
+The route images explain why this is **not evidence of persistent resource
+lifetime over travel**: the car had reached a pipe/barrier by the first
+free-roam travel capture and remained at 0 km/h in the later captures. The
+frame-13000 image is
+`.local/native-renderer/snr02/race-retire-drive-away-output/roam-away-3.ppm`
+(SHA-256 `5A08D214CB4A8881B6BB75C6E1B26993B4A56883D0F5304585CF1434D766B479`).
+The test did not leave the nearby streaming area. A navigable free-roam
+route or actual map transition with a later rebind is still needed; do not
+repeat straight-line throttle from the signup marker as an unload test.
