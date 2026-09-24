@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "native_renderer/snr04_owned_scene_diagnostic.h"
@@ -44,6 +45,9 @@ struct pinyon_shift::native_renderer::Snr04SharedTarget {
 namespace {
 constexpr uint32_t width = 1280, height = 720;
 thread_local uint64_t upload_cpu_ns = 0, upload_bytes = 0;
+using UploadCache = std::unordered_map<std::string, ComPtr<ID3D12Resource>>;
+thread_local UploadCache* active_upload_cache = nullptr;
+thread_local uint64_t upload_cache_hits = 0, upload_reused_bytes = 0;
 constexpr char expected_vs_sha[] =
     "2adfe080228c468ce9aec7e21d19798fc8aaa32cdba5d7325c4fac4070f21faa";
 
@@ -250,6 +254,16 @@ ComPtr<ID3D12Resource> buffer(ID3D12Device* device, uint64_t size,
   return resource;
 }
 ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t size) {
+  std::string key;
+  if (active_upload_cache) {
+    key.assign(static_cast<const char*>(bytes), size);
+    if (const auto found = active_upload_cache->find(key);
+        found != active_upload_cache->end()) {
+      ++upload_cache_hits;
+      upload_reused_bytes += size;
+      return found->second;
+    }
+  }
   const auto begin = std::chrono::steady_clock::now();
   auto resource = buffer(device, (size + 255) & ~uint64_t(255),
                          D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
@@ -261,6 +275,8 @@ ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t si
   upload_cpu_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::steady_clock::now() - begin).count();
   upload_bytes += size;
+  if (active_upload_cache)
+    active_upload_cache->emplace(std::move(key), resource);
   return resource;
 }
 struct Snr04GpuDrawTimer {
@@ -3839,6 +3855,11 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
               header == "SNR04B1" && source_frame && count && count <= 4096,
           "invalid shared-target manifest");
   auto target = CreateSnr04SharedTarget(borrowed_device, samples);
+  UploadCache upload_cache;
+  struct CacheScope {
+    explicit CacheScope(UploadCache& cache) { active_upload_cache = &cache; }
+    ~CacheScope() { active_upload_cache = nullptr; }
+  } cache_scope(upload_cache);
   const auto target_ready = std::chrono::steady_clock::now();
   Snr04BatchResult result{};
   result.source_frame = source_frame;
@@ -3871,7 +3892,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     segment.shared_final = i + 1 == count;
     uint64_t gpu_draw_us = 0;
     segment.gpu_draw_us = &gpu_draw_us;
-    upload_cpu_ns = upload_bytes = 0;
+    upload_cpu_ns = upload_bytes = upload_cache_hits = upload_reused_bytes = 0;
     const auto stage_begin = std::chrono::steady_clock::now();
     const auto kind = std::string_view(magic.data(), 7);
     if (kind == "SNR02I3" || kind == "SNR03C1")
@@ -3902,6 +3923,8 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
            << ",\"wall_us\":" << stage_us
            << ",\"upload_cpu_us\":" << upload_cpu_ns / 1000
            << ",\"upload_bytes\":" << upload_bytes
+           << ",\"upload_cache_hits\":" << upload_cache_hits
+           << ",\"upload_reused_bytes\":" << upload_reused_bytes
            << ",\"gpu_draw_us\":" << gpu_draw_us << '}';
     upload_ns_total += upload_cpu_ns;
     result.upload_bytes += upload_bytes;

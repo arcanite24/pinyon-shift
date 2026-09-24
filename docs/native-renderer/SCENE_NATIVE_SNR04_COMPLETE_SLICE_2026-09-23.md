@@ -1,5 +1,58 @@
 # SNR-04 complete selected-slice diagnostic — 2026-09-23
 
+## Batch-local immutable upload reuse — 2026-09-24
+
+The shared-target diagnostic now reuses an upload resource when another
+stage requests byte-identical immutable input on the same device. The cache
+lives only for one batch and is cleared even if the batch fails. It does not
+cache resources across game frames or replace the file-backed scene handoff.
+The cache key is the full byte string, so a hash collision cannot alias two
+different vertex, index or constant buffers. Stage timing reports cache hits
+and reused bytes separately from actual CPU upload calls.
+
+An offline replay of the **same 2,036-draw, 36-stage fixture and manifest**
+used by `live-shared-timing-c` gave this controlled comparison:
+
+| Part | Before cache | With batch cache |
+| --- | ---: | ---: |
+| Actual upload bytes | 185.322 MB | 28.710 MB |
+| CPU upload calls | 12.241 s | 0.459 s |
+| Stage wall | 23.527 s | 4.720 s |
+| Selected GPU draw loops | 3.143 ms | 3.066 ms |
+| Final 4× identity/depth | `3bff1f4d` / `1d60ff46` | Same full SHA-256 values below |
+
+The cached replay had 62,431 hits and reused 156.612 MB of upload input.
+Its final coverage, per-sample identity and depth hashes match the earlier
+uncached borrowed-device and staged controls exactly: `b082b38ad798f5180beac4befa90e11ba83d6984ffd7f7a5745d7a1eea2088ac`,
+`3bff1f4dd35229b1817df910dfe31aab0178880f84acee8e9b7b60322f3a4f45`
+and `1d60ff46123d1bbfd31dbcad38cbe65f05644159b41e56af959b380ddefc5aab`.
+The cached manifest and timing are local at
+`.local/native-renderer/snr04/upload-cache-offline-a.manifest` and
+`upload-cache-offline-a.timing.json` in the same directory.
+
+A fresh AppData-backed run at `.local/native-renderer/snr04/upload-cache-live-a`
+then exited normally. Its checked current-run ledger admitted **2,005/2,005**
+selected draws in 35 stages. The worker borrowed the game device, used one
+private 4× target, had zero intermediate target readbacks, and measured
+31.701 MB actual uploads, 0.549 s CPU upload calls, 5.887 s stage wall and
+3.484 ms selected GPU draw loops. It recorded 60,974 cache hits and 173.181 MB
+reused input. The independent MSAA check passed with 891,252 pixels covered
+in any sample and 3,559,662 covered samples. A separate staged replay of
+these *same current-run fixtures* produced byte-identical final coverage,
+per-sample identity and depth (SHA-256 `e44511d735946ac89aaa175a8228720bbc3e61c291df94ca6c4dbf6377e7da7a`,
+`3eccaaedf6f35afb750591d911db8c0de52805116c3f6ba9123a889d1fbe94f6`,
+`84ce8e5f7730afaaf8fa49eef21c1577abbb9322f26b420a41565da36a27c565`).
+The checked order and timing files are
+`upload-cache-live-a.work/order.json` (SHA-256
+`a30db4e40cd14f6768db849615d74396e728edeb328eb37c01279dd9d5fdcf3`)
+and `upload-cache-live-a.timing.json` (SHA-256
+`1bb15dba3a2606fde6e595410aef9e945643bc1cc72d282950d00d1d36ad2e6b`).
+
+These are diagnostic batch timings, not frame-time savings: the capture,
+external manifest preparation, compatibility rendering and final debug
+readback remain. The 15% net median-frame target is still unproved and this
+file-backed design remains **no-go** for native admission.
+
 ## Separated current-run diagnostic costs — 2026-09-24
 
 The opt-in callback now times its three owned-scene capture observers before
@@ -42,17 +95,18 @@ per-sample identity
 and per-sample depth
 `1d60ff46123d1bbfd31dbcad38cbe65f05644159b41e56af959b380ddefc5aab`.
 
-**Stop/go:** the present file-backed diagnostic is no-go as a production
-renderer or a 15% net-speed candidate. Its 22.2 ms selected-frame capture
+**Stop/go for this uncached baseline:** the file-backed diagnostic is no-go
+as a production renderer or a 15% net-speed candidate. Its 22.2 ms selected-frame capture
 alone exceeds the illustrative 2.84 ms saving implied by the earlier
 18.922 ms control median; the runs are not paired, and the capture includes
 debug file work, so this comparison is a warning rather than a net regression
 measurement. The 185 MB of repeated per-stage uploads and queue waits also
-make its 23.5-second batch unsuitable for FPS inference. A credible speed
+make this 23.5-second baseline batch unsuitable for FPS inference. A credible speed
 case requires a persistent resource cache and an immutable in-memory scene
 handoff, followed by a paired control/suppression benchmark with retained
-passes. Material/color fidelity, adjacent moving frames and selected
-unload/reload are still unproved; compatibility remains authoritative.
+passes. Material/color fidelity and continuous adjacent owned frames remain
+unproved; the selected foliage unload/reload proof appears in the SNR-02
+evidence. Compatibility remains authoritative.
 
 ## Current-run private target on the game device — 2026-09-24
 

@@ -344,9 +344,16 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    upload calls, GPU timestamped draw loops, stage wall time and zero
    inter-family CPU target bridges; see the
    [cost evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#separated-current-run-diagnostic-costs--2026-09-24).
+   Batch-local immutable upload reuse now cuts the same-fixture diagnostic
+   from 185.322 MB to 28.710 MB of actual uploads and from 23.527 s to
+   4.720 s stage wall, with identical final coverage/identity/depth. A fresh
+   2,005-draw borrowed-device run and independent staged control also match;
+   see the [cache evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#batch-local-immutable-upload-reuse--2026-09-24).
    **No-go for the present file-backed diagnostic as a speed candidate:** its
-   debug capture and repeated resource uploads dwarf the 15% frame-time
-   budget. This does not measure a production native replacement. Keep
+   22.2 ms debug capture alone exceeds the illustrative 15% frame-time
+   saving; external fixture handoff adds latency even after batch-local
+   reuse. This does not measure a production
+   native replacement. Keep
    compatibility authoritative and defer material expansion/suppression until
    a persistent resource cache, in-memory immutable handoff, SNR-05 dependency
    census and paired net benchmark support the case.
