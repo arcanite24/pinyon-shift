@@ -269,6 +269,7 @@ struct Snr01TrackBucketScope {
   uint32_t vegetation_selected_record = 0;
   uint32_t vegetation_candidate_key = 0;
   uint32_t vegetation_candidate_record = 0;
+  uint32_t vegetation_resolver_context = 0;
   uint64_t track_call = 0;
 };
 struct Snr01SecondDrawScope {
@@ -4362,12 +4363,28 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
   if (Snr03TargetFrame() > 0 && !snr01_track_bucket_scopes.empty() &&
       snr01_track_bucket_scopes.back().vegetation_candidate_key) {
     const auto& bucket = snr01_track_bucket_scopes.back();
+    const uint32_t object = r3.u32;
+    const uint32_t manager_context = bucket.vegetation_resolver_context;
+    const uint32_t manager_table = manager_context
+        ? SnrM02ReadU32(manager_context + 2812) : 0;
+    const uint32_t manager_object = manager_table
+        ? SnrM02ReadU32(manager_table + bucket.vegetation_candidate_key * 4)
+        : 0;
     REXGPU_INFO("FH1 SNR02 vegetation resource resolved {{\"frame\":{},"
                 "\"bucket_entry\":{},\"record\":{},\"key\":{},"
-                "\"object\":{}}}",
+                "\"object\":{},\"word0\":{},\"word4\":{},"
+                "\"word8\":{},\"word12\":{},\"manager_context\":{},"
+                "\"manager_table\":{},"
+                "\"manager_object\":{},\"manager_vtable\":{}}}",
                 rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
                 bucket.ordinal, bucket.vegetation_candidate_record,
-                bucket.vegetation_candidate_key, r3.u32);
+                bucket.vegetation_candidate_key, object,
+                object ? SnrM02ReadU32(object) : 0,
+                object ? SnrM02ReadU32(object + 4) : 0,
+                object ? SnrM02ReadU32(object + 8) : 0,
+                object ? SnrM02ReadU32(object + 12) : 0,
+                manager_context, manager_table, manager_object,
+                manager_object ? SnrM02ReadU32(manager_object) : 0);
   }
 }
 
@@ -4956,7 +4973,7 @@ void PinyonShiftObserveSecondStateBind(
 }
 
 void PinyonShiftObserveVegetationStateEntry(
-    PPCRegister& r17, PPCRegister& r22, PPCRegister& r23,
+    PPCRegister& r1, PPCRegister& r17, PPCRegister& r22, PPCRegister& r23,
     PPCRegister& r25, PPCRegister& r27) {
   const uint64_t frame = rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount);
@@ -4980,6 +4997,7 @@ void PinyonShiftObserveVegetationStateEntry(
   auto& bucket = snr01_track_bucket_scopes.back();
   bucket.vegetation_candidate_key = candidate;
   bucket.vegetation_candidate_record = r27.u32;
+  bucket.vegetation_resolver_context = SnrM02ReadU32(r1.u32 + 412);
   REXGPU_INFO("FH1 SNR02 vegetation state entry {{\"frame\":{},"
               "\"bucket_entry\":{},\"owner\":{},\"record\":{},"
               "\"index\":{},\"entry\":{},\"words\":[{},{},{},{},{},{},{}],"

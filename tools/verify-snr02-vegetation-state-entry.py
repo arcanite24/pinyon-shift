@@ -129,6 +129,27 @@ def verify(log: Path, frame: int):
             report['resource_objects'] = [
                 {'key': candidate, 'object': next(iter(values))}
                 for candidate, values in sorted(objects.items())]
+            if any('manager_context' in row for row in resolved):
+                assert all('manager_context' in row for row in resolved)
+                contexts = {row['manager_context'] for row in resolved}
+                tables = {row['manager_table'] for row in resolved}
+                vtables = {row['manager_vtable'] for row in resolved}
+                assert len(contexts) == len(tables) == len(vtables) == 1
+                assert 0 not in contexts | tables | vtables
+                managers = defaultdict(set)
+                for row in resolved:
+                    assert row['manager_object'] != 0
+                    assert row['object'] - row['manager_object'] == 44
+                    managers[row['key']].add(row['manager_object'])
+                assert set(managers) == set(objects)
+                assert all(len(values) == 1 for values in managers.values())
+                assert len({next(iter(values)) for values in managers.values()}) == 5
+                report['manager_context'] = next(iter(contexts))
+                report['manager_table'] = next(iter(tables))
+                report['manager_vtable'] = next(iter(vtables))
+                report['manager_objects'] = [
+                    {'key': candidate, 'object': next(iter(values))}
+                    for candidate, values in sorted(managers.items())]
     return report
 
 

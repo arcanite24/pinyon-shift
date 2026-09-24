@@ -339,7 +339,7 @@ name = "PinyonShiftObserveDynamicQuadParentEnd"
 [[midasm_hook]]
 address = 0x824139B8
 name = "PinyonShiftObserveVegetationStateEntry"
-registers = ["r17", "r22", "r23", "r25", "r27"]
+registers = ["r1", "r17", "r22", "r23", "r25", "r27"]
 
 [[midasm_hook]]
 address = 0x82413A0C

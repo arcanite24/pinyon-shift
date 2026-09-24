@@ -1126,3 +1126,41 @@ resolved object identify the bounded foliage texture resource in these
 runs, but neither pointer nor key yet proves allocation or payload
 generation. The next trace must follow resource creation, upload and unload,
 including guest-address reuse and streaming mutation.
+
+### Foliage title manager lookup
+
+The generated `sub_824139B8` path loads the resolver context from its stack
+slot at `r1+412` and passes it to `sub_82415BF8`. On a cache miss,
+`sub_82415AD0` passes that context to `sub_82410A58`, which indexes the
+manager table at `context+2812` by the title key. An initial exploratory
+probe incorrectly treated the static resolver cache as this context and
+faulted; its capture was discarded. The corrected hook reads the stack slot
+only for the opt-in frame-5000 vegetation state entry.
+
+The corrected sustained-race replay (`20260924T032556Z-p44176`) exited
+normally with all seven route captures. It selected 52 vegetation records,
+emitted 112 prepared executions and resolved/bound 51 records; one selected
+record skipped the resolver through the title's current-key cache. All five
+keys map one-to-one through the manager table to five distinct manager
+objects, then to five distinct returned resource records. The manager
+objects share one vtable; each returned record is at manager object +44.
+The record's first four words were `3`, `1`, a value varying within the capture,
+and `0`; the first word is **not** a vtable. Five live BC3 source chains
+again matched the independent RenderDoc nine-mip references byte for byte.
+
+The process-filtered log is
+`.local/native-renderer/snr02/foliage-manager-lookup-g/evidence.log`
+(SHA-256 `656DD02D033BEBC538EDA2139C5BC949E094B3E1474ED8C5176389213620900D`),
+the checked `state-join.json` has SHA-256
+`6A840B09E0CF1189E7FB1139BCAB815E3F2CE95DD5B305759ACB50C77A386012`,
+and the checked `bc3-source-join.json` has SHA-256
+`B554F8275F91DEB86D32DB3977B38A059F2736B74109C2EA4391791186A82DDA`.
+The executable SHA-256 was
+`4AD497CE384CB20198BE013A8CDAF16800FA038B4B4F46E8ED0D8A62240C2127`.
+The updated state verifier also passed the earlier 65-record capture.
+A probe-off replay of this build (`20260924T033052Z-p42520`) exited normally
+with all seven compatibility captures; its process-session SHA-256 was
+`BD262FDFD6610FF244472381499E22225818EFB3FA87645E399E372CA286387E`.
+This proves the title lookup and sampled resource identity, but does not
+yet establish allocation generation, payload mutation or unload/reload
+lifetime. SNR-02 remains open.

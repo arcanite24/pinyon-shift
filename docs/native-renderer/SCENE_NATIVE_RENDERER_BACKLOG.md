@@ -18,6 +18,9 @@ packet's title records, vertex bytes and ordered final draw states through
 its output-frame handoff. The four selected procedural vertex shaders now
 have live packed-register maps. Material roles, texture generations and
 private render coverage remain open.
+The selected foliage keys join through the title manager table to five
+distinct manager objects, returned records and byte-matched live BC3 chains;
+allocation/payload generations and unload behavior are still unproven.
 The [shared-track geometry handoff](SCENE_NATIVE_SNR02_TRACK_GEOMETRY_2026-09-23.md)
 owns the selected track vertex/index bytes and final bound draw state at the
 exact output frame. An 813-draw replay passed the full 4,438-draw partition;
