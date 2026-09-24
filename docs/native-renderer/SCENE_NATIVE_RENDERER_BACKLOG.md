@@ -164,7 +164,7 @@ reported speedup on FH1. The following findings change the execution plan:
   standard.** Skate publishes a shared immutable scene. Its resource paths also
   document white/missing textures during warmup and previous decoded data for
   some asynchronous updates. FH1 needs explicit generations and readiness; those
-  compromises cannot qualify as equal-quality performance. [Scene state][skate-state]
+  compromises cannot qualify as current-resource performance. [Scene state][skate-state]
 - **Our output callback is an observer, not a takeover seam.**
   [Our callback](../../src/native_renderer/guest_output_renderer.cpp) only installs
   the render-test observer. ShiftGlue's
@@ -213,17 +213,25 @@ reported speedup on FH1. The following findings change the execution plan:
 | Gate | Required result | What it does not claim |
 | --- | --- | --- |
 | A — Authoritative scene, SNR-00–04 | Same-frame full-resolution diagnostic color/identity and depth from an immutable scene; every item in the selected slice accounted for, with exact view/material/resource ownership | Faithful shading, removed compatibility work or higher FPS |
-| B — Useful renderer, SNR-05–11 | Faithful complete slice integrated with retained passes; early paired draw/resolve suppression; safe admission/fallback; measured equal-quality improvement | All cameras/modes, complete Xenos retirement or removal of original title preparation |
+| B — Useful renderer, SNR-05–11 | Complete supported slice integrated with retained passes; early paired draw/resolve suppression; safe admission/fallback; measured improvement at the agreed visual-quality bar | Pixel-perfect output, all cameras/modes, complete Xenos retirement or removal of original title preparation |
 | C — Earlier bypass, SNR-12 | A measured original preparation path removed without changing authoritative state, side effects or gameplay | Permission to skip all guest rendering functions |
 
 Gate B's initial retention target is **at least 15% lower median frame time**
 at equal output settings, also exceeding twice the observed control-to-control
 median variation. Predeclare the comparison and tail-noise envelope in SNR-00;
 p95/p99 must not regress beyond that envelope. This is a go/no-go target, not a
-forecast. Missing content, stale poses, white textures, extra repeated/dropped
-frames or changed game speed cannot count as a gain. If quality passes but the
-speed target fails, retain the work as an experimental renderer only and use the
-new profile to decide whether another bounded change is justified.
+forecast. The visual target is approximately **90% acceptable fidelity** in
+predeclared representative scene regions and motion, judged side by side with
+the compatibility renderer. Bit-identical pixels, depth, sample masks and
+shader arithmetic are not required. Record visible differences, including
+minor approximations or omissions, and accept them when they do not materially
+impair the scene or gameplay. Every selected submission must still be
+accounted for; current poses/resources for rendered content, readable original
+UI, correct game speed and no concealed repeated/dropped frames remain
+mandatory. An average score cannot hide a missing road, vehicle or other
+major feature. If visual quality passes but the speed target fails, retain
+the work as an experimental renderer only and use the new profile to decide
+whether another bounded change is justified.
 
 ## Work order
 
@@ -296,24 +304,30 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    Six scalar draws have a retained skid-presentation
    path. Resolve scene membership and resource ownership before freezing
    the slice.
-2. **Diagnostic vertical slice (SNR-02–04):** recover the minimum authoritative
-   geometry, transform and lifetime fields for one bounded view contribution;
-   publish and render same-frame identity/depth beside untouched compatibility
-   output. Expand to *every* item in the frozen slice before closing Gate A.
-   A car-only or shader-selected diagnostic is useful evidence, not Gate A.
-3. **Cost and dependency check:** use the measured control and a bounded pass
-   work census to estimate removable compatibility work and added capture,
-   upload and bridge cost. Investigate SNR-05 dependencies early enough to
-   reject an inseparable or uneconomic cut. Do not infer a 15% gain from draw
-   counts or busy CPU samples. Defer production materials, broad shader work
-   and suppression until the boundary and diagnostic scene are proved.
+2. **Finish the Gate A diagnostic (SNR-02–04):** the staged offline replay now
+   owns the selected draw order and private depth. Next prove resource
+   allocation/payload generations through at least one unload/reload, compare
+   the *complete* same-frame diagnostic with compatibility across adjacent
+   moving frames, and record visible differences against SNR-00's visual bar.
+   Investigate an isolated sample/byte mismatch only when it suggests a
+   general rendering error or visible defect. Draw identity and freshness
+   must remain exact even when image appearance is approximate.
+3. **Test the real execution shape:** render the owned diagnostic into an
+   in-game private target on the existing D3D12 device, without per-family
+   CPU readback/upload. Measure capture, resource update, native draw and
+   bridge costs separately with compatibility still authoritative. Use the
+   existing control and SNR-05 dependency census to decide whether the 15%
+   *net* target remains plausible. Defer production material expansion and
+   suppression until this cost and dependency checkpoint passes.
 
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
 do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**
-if same-frame coverage, resource freshness or the dependency/cost case fails,
+if same-frame coverage, resource freshness, agreed visual quality or the
+in-game dependency/cost case fails,
 keep compatibility as the default and revise the boundary or renderer approach
-before starting SNR-06–10. Preserve Gate B's equal-quality 15% threshold.
+before starting SNR-06–10. Preserve Gate B's 15% net-speed threshold and
+the predeclared approximate visual-quality bar.
 
 ### [ ] SNR-00 — Freeze the experiment
 
@@ -325,6 +339,12 @@ before starting SNR-06–10. Preserve Gate B's equal-quality 15% threshold.
   foliage alpha edges, vehicle paint/glass boundaries, shadows, HUD and motion.
   Record unsupported views/modes and their expected whole-frame compatibility
   behavior. Existing UI, mirrors and reflections cannot silently disappear.
+- Before viewing native results, mark critical regions and a representative
+  set of scene/motion review regions from the existing references. Gate B aims
+  for roughly 90% of those regions to be acceptable side by side; document
+  every failed region and require all critical content and gameplay cues to
+  remain usable. Use pixel/depth metrics to locate defects, not as an
+  automatic byte-match threshold.
 - Treat the current full opaque/alpha-tested main-view slice as provisional.
   Resolve the two candidate scene-color groups and full prepared-draw census
   with SNR-01 before declaring exact membership frozen.
@@ -411,8 +431,16 @@ scene copies, unbounded queues or waits that cycle between title and GPU threads
 - Compare coverage/depth and identity overlays across moving frames, foliage,
   traffic/player animation and at least one unload/reload. Account for every
   selected item: rendered correctly or explicitly unsupported before admission.
-- Record extraction/build/diagnostic costs and failures. Readbacks/overlays stay
-  outside production performance runs; double rendering is not an FPS result.
+- Compare the complete selected slice against the same-frame compatibility
+  target in at least two adjacent moving frames. Classify visible differences
+  by missing content, pose, alpha/material, stencil, lighting and retained-pass
+  composition; an isolated sample or float-bit mismatch is a diagnostic, not
+  an automatic gate failure under the agreed visual bar.
+- Move the owned diagnostic to one in-game private target on the existing
+  D3D12 device. The staged offline replay's inter-family readback/upload is
+  evidence, not the execution shape to benchmark. Record extraction, update,
+  draw, bridge and presentation cost separately. Keep compatibility output
+  authoritative until admission; double rendering is not an FPS result.
 
 First bounded implementation cut (not Gate A completion):
 
@@ -541,10 +569,15 @@ the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before
 claiming parity; see the complete-slice evidence.
 
-**Done when / Gate A:** the selected main-view scene is complete and stable at
-reference resolution with no missing, duplicated, stale or misattributed objects.
-Unknown authoritative relationships stop this gate; adding more guessed offsets
-or rendering a tiny logical target does not close it.
+**Done when / Gate A:** every selected item is accounted for and the diagnostic
+scene is stable at reference resolution, with no silent missing, duplicated,
+stale or misattributed objects. Small documented rendering approximations may
+pass the visual bar; stale or wrong-owner data cannot.
+The in-game private-target path and moving-frame comparison meet the
+predeclared visual bar, and an unload/reload check validates resource
+freshness. Unknown authoritative relationships stop this gate; isolated
+byte/sample differences do not. Publish the measured in-game cost and a
+stop/go decision against the 15% net-speed target before production expansion.
 
 ### [ ] SNR-05 — Prove the dependency boundary
 
@@ -590,10 +623,10 @@ work. See [dependency evidence](GUEST_VISIBLE_RENDER_DEPENDENCIES.md) and
   identity using the [shader pack contract](SHADER_PACK_FORMAT.md); existing
   integer-scale variants do not prove arbitrary-resolution support.
 
-**Done when:** representative materials match controlled reference images and
-all required variants have a deterministic source/build route. Missing generated
-shader source is a blocker to that material, not permission to rely on the local
-legacy cache or use approximate shading in performance acceptance.
+**Done when:** representative materials meet the predeclared visual bar and
+all admitted variants have a deterministic source/build route. A deliberate
+approximation is acceptable when its visible effect is documented and remains
+within that bar; an absent shader or local-cache-only source is not.
 
 ### [ ] SNR-07 — Implement the complete native slice
 
@@ -608,9 +641,10 @@ legacy cache or use approximate shading in performance acceptance.
   content or readiness rejects admission. Account for cold-path cost as well as
   steady-state cost; asynchronous decoding may not silently reuse old content.
 
-**Done when:** the complete slice matches the reference during movement and
-streaming, with measured resource memory and no stale/placeholder content. Private
-rendering may still coexist with compatibility until SNR-09–10; no gain is claimed.
+**Done when:** the complete slice meets the agreed visual bar during movement
+and streaming, with measured resource memory and no stale/placeholder content.
+Private rendering may still coexist with compatibility until SNR-09–10; no gain
+is claimed.
 
 ### [ ] SNR-08 — Add real output takeover and composition
 
@@ -666,9 +700,9 @@ fallback after original work has already been discarded.
   bytes uploaded/transferred and added bridge work by slice. Leave original
   title dispatch intact until SNR-12. Keep a controlled compatibility reference.
 
-**Done when:** suppression is paired and visually equivalent, and counters plus
-profiles prove substantial replaced work no longer executes. A native image
-alongside the original renderer cannot close this ticket.
+**Done when:** suppression is paired and meets the agreed visual bar, and
+counters plus profiles prove substantial replaced work no longer executes.
+A native image alongside the original renderer cannot close this ticket.
 
 ### [ ] SNR-11 — Qualify the integrated renderer
 
@@ -686,9 +720,10 @@ alongside the original renderer cannot close this ticket.
   inclusive samples, asynchronous frame-domain spans or means and medians.
   Compare diagnostic-on overhead separately from production-settings behavior.
 
-**Done when / Gate B:** equal quality and gameplay pass, the entire supported
-slice is admitted without concealed omissions, memory/tails meet the frozen
-limits, and median improvement clears both the 15% target and control noise.
+**Done when / Gate B:** the predeclared approximate visual bar and gameplay
+checks pass, the entire supported slice is admitted without concealed
+omissions, memory/tails meet the frozen limits, and median improvement clears
+both the 15% target and control noise. Do not require byte-identical output.
 Publish results with scope, rejected cases, remaining work and exact artifacts.
 Do not widen scope or change defaults to rescue a failed comparison.
 
