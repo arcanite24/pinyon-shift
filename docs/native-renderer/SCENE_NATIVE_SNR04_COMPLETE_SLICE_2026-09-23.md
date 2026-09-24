@@ -1,5 +1,54 @@
 # SNR-04 complete selected-slice diagnostic — 2026-09-23
 
+## Current-run private target on the game device — 2026-09-24
+
+The output callback can now queue a borrowed-device worker before a current-run
+manifest exists. The worker waits at most 120 seconds off the game thread for
+an atomically published manifest, checks its source frame, then runs the same
+guarded batch diagnostic. `tools/prepare-snr04-live-batch.py` waits for all six
+fixture files and the callback marker, snapshots that run's log, performs the
+strict frame-wide census and six-family fixture join, extracts exact track and
+remainder shader translations, and publishes the checked order as a batch
+manifest. This is a developer diagnostic handoff through files, not a
+production scene publication path.
+
+The first live trial wrote and verified a 1,863-draw manifest, but its short
+route ended eight seconds after the callback, before the roughly 45-second
+verify-and-render work could finish. It produced no private target. Extending
+only the local route stop from 6920 to 11000 allowed the next trial to finish
+while the game continued. That run at
+`.local/native-renderer/snr04/live-shared-admission-b` exited normally, with
+the worker reporting **1,796/1,796** current-run selected draws at source
+frame 5000/output frame 5001: 843 track, 168 items, 150 vegetation, 285
+manager, 9 procedural character and 341 remaining-family draws. All six
+fixtures passed the independent join. The worker rendered 36 consecutive
+family stages on one private four-sample D3D12 target, borrowing the game's
+device; only its final stage wrote target files. It reported 37.29 seconds
+for this debug operation, which includes preparation and per-stage waits and
+is not a per-frame native-renderer timing.
+
+The independent MSAA verifier passed on the in-game final target: 748,682
+pixels covered in any sample and 2,988,126 covered samples. A separate staged
+replay of the *same current-run fixtures* matched the in-game final files
+byte for byte: coverage
+`00dd2dcc6c1d63022e0836e27404ca869d91be2b4b2d31f8e59ff949058025fe`,
+per-sample identity
+`b6fea079f5ee1ef3294fa682f23f349a907998e11dde03b14a6f645992cd82ab`,
+and per-sample depth
+`8e98ac17a1cb7277ecc032bbab306477a6026318a596ba58db72c2a6cac64cd1`.
+The local extended route, checked order and manifest hashes are respectively
+`CD6D8207EAA7509E52556DED518FDD7B6AC46427B673624A80A3BFB66A5BFDFE`,
+`FB7A1A5F3CAEBD338E1349F9CBE52DFB5621AECC9BB8925770CA8E6A92FBB732`
+and `77C1AE2D0D3EF627C0A9ACE6E1B84623A1976A69849FDAC6FB3116F9D1CD876E`.
+The run's private files are under `live-shared-admission-b.work/batch/step-35`;
+the other 35 stage directories are empty.
+
+This closes the **same-frame borrowed-device execution check** for the
+diagnostic. It does not close Gate A: the target still has identity shading,
+no complete material/color comparison across adjacent moving frames, no
+selected unload/reload proof, and no separated capture/update/draw/bridge or
+net frame-time result. Compatibility remains authoritative.
+
 ## Fresh six-family source-frame-5000 admission — 2026-09-24
 
 The first current-run borrowed-device attempt could not admit its track

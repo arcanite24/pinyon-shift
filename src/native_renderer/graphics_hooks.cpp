@@ -3352,15 +3352,6 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
       "PINYON_SHIFT_SNR04_SHARED_MANIFEST");
   if (!manifest || !device || !Snr03ProbeEnabled() ||
       output_frame != uint64_t(Snr03TargetFrame()) + 1) return;
-  std::ifstream input(*manifest);
-  std::string magic;
-  uint64_t source_frame = 0;
-  if (!(input >> magic >> source_frame) || magic != "SNR04B1" ||
-      source_frame != output_frame - 1) {
-    REXGPU_INFO("FH1 SNR04 shared target rejected output_frame={} "
-                "reason=manifest_frame_mismatch", output_frame);
-    return;
-  }
   const uint32_t samples =
       GetEnvironmentVariableA("PINYON_SHIFT_SNR04_MSAA4", nullptr, 0)
           ? 4 : 1;
@@ -3372,6 +3363,18 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
       [manifest = *manifest, held, samples, output_frame] {
         const auto begin = std::chrono::steady_clock::now();
         try {
+          // ponytail: one bounded dev-only wait; replace with a native scene
+          // handoff if this diagnostic ever moves into the frame path.
+          const auto deadline = begin + std::chrono::seconds(120);
+          while (!std::filesystem::exists(manifest) &&
+                 std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          std::ifstream input(manifest);
+          std::string magic;
+          uint64_t source_frame = 0;
+          if (!(input >> magic >> source_frame) || magic != "SNR04B1" ||
+              source_frame != output_frame - 1)
+            throw std::runtime_error("manifest_frame_mismatch_or_timeout");
           const auto result = RunSnr04BatchDiagnostic(
               manifest, held.Get(), samples);
           const auto elapsed_us =
@@ -3387,7 +3390,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
         }
       });
   REXGPU_INFO("FH1 SNR04 shared target queued output_frame={} "
-              "source_frame={} samples={}", output_frame, source_frame,
+              "source_frame={} samples={}", output_frame, output_frame - 1,
               samples);
 #else
   (void)output_frame;

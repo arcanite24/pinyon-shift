@@ -326,7 +326,11 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    fresh capture joined all 2,367 selected draws in six fixtures and its
    offline one-target replay matched its staged control exactly; see the
    [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#fresh-six-family-source-frame-5000-admission--2026-09-24).
-   Same-frame in-game admission is still open. Measure
+   A subsequent 1,796-draw current-run batch also completed on the borrowed
+   game device, matched a same-fixture staged control byte for byte and let
+   the game exit normally; see the
+   [live private-target evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#current-run-private-target-on-the-game-device--2026-09-24).
+   Measure
    capture, resource update, native draw and bridge costs separately with
    compatibility still authoritative. Use the
    existing control and SNR-05 dependency census to decide whether the 15%
