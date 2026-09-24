@@ -101,11 +101,13 @@ struct Snr03OwnedScene;
 struct Snr04LiveFixture {
   std::shared_ptr<const std::vector<char>> bytes;
   std::shared_ptr<const Snr03OwnedScene> vegetation;
+  std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene> procedural;
   std::vector<uint64_t> sequences;
 };
 struct Snr04LiveJob {
   pinyon_shift::native_renderer::Snr04BatchInput input;
   std::shared_ptr<const Snr03OwnedScene> vegetation;
+  std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene> items;
   Microsoft::WRL::ComPtr<ID3D12Device> device;
   uint32_t samples = 4;
 };
@@ -152,6 +154,20 @@ void CollectSnr04LiveVegetation(
   auto& slot = snr04_live_frames[frame][size_t(Snr04LiveFamily::vegetation)];
   if (slot.bytes || slot.vegetation) return;
   slot.vegetation = std::move(scene);
+  slot.sequences = std::move(sequences);
+}
+void CollectSnr04LiveProcedural(
+    uint64_t frame, Snr04LiveFamily family,
+    std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene> scene,
+    std::vector<uint64_t>&& sequences) {
+  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (!scene || sequences.empty() || sequences.size() > 4096) return;
+  std::lock_guard lock(snr04_live_mutex);
+  if (!snr04_live_frames.contains(frame) && snr04_live_frames.size() >= 2)
+    return;
+  auto& slot = snr04_live_frames[frame][size_t(family)];
+  if (slot.bytes || slot.procedural) return;
+  slot.procedural = std::move(scene);
   slot.sequences = std::move(sequences);
 }
 #endif
@@ -566,6 +582,56 @@ struct Snr02ItemPayloadState {
   size_t draw_bytes = 0;
   bool rejected = false;
 };
+#if defined(_WIN32)
+std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene>
+BuildSnr04ItemScene(const Snr02ItemScene& title,
+                    const Snr02ItemPayloadState& payload) {
+  using pinyon_shift::native_renderer::Snr04ProceduralScene;
+  using pinyon_shift::native_renderer::Snr04ProceduralItem;
+  auto scene = std::make_shared<Snr04ProceduralScene>();
+  scene->frame = title.source_frame;
+  scene->sha = "typed";
+  scene->items.reserve(title.items.size());
+  std::set<uint64_t> sequences;
+  for (const auto& title_item : title.items) {
+    const auto found = payload.by_packet.find(title_item.packet);
+    if (found == payload.by_packet.end())
+      throw std::runtime_error("missing typed procedural item");
+    const auto& source = found->second;
+    Snr04ProceduralItem item;
+    item.packet = title_item.packet;
+    item.vertices.assign(source.vertex_bytes.begin(),
+                         source.vertex_bytes.end());
+    if (item.vertices.size() != source.length || source.draws.empty())
+      throw std::runtime_error("invalid typed procedural geometry");
+    for (const auto& [sequence, state] : source.draws) {
+      if (!sequence || !sequences.insert(sequence).second || !state.final_seen ||
+          state.index_count * 10 != source.length)
+        throw std::runtime_error("invalid typed procedural draw");
+      std::vector<uint32_t> packed;
+      packed.reserve(state.vertex_constant_count * 4);
+      for (uint32_t reg = 0; reg < 256; ++reg)
+        if (state.vertex_bitmap[reg / 64] & (uint64_t(1) << (reg % 64)))
+          packed.insert(packed.end(),
+                        state.vertex_constants.begin() + reg * 4,
+                        state.vertex_constants.begin() + reg * 4 + 4);
+      if (packed.size() != state.vertex_constant_count * 4)
+        throw std::runtime_error("invalid typed procedural constants");
+      if (item.draws.empty()) {
+        item.constants = std::move(packed);
+        item.fetch = state.fetch47;
+      } else if (packed != item.constants || state.fetch47 != item.fetch) {
+        throw std::runtime_error("typed procedural input changed");
+      }
+      item.draws.push_back({sequence, state.vertex_shader,
+                            state.index_count, state.system_constants, {}, {}});
+    }
+    item.fetch[2] &= 3;
+    scene->items.push_back(std::move(item));
+  }
+  return scene;
+}
+#endif
 std::vector<char> EncodeSnr03Fixture(const Snr03OwnedScene& scene) {
   std::vector<char> bytes;
   auto write = [&](const auto& value) {
@@ -2993,6 +3059,32 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
                 payload.rejected);
     return;
   }
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+#if defined(_WIN32)
+  if (live) {
+    try {
+      auto typed = BuildSnr04ItemScene(*scene, payload);
+      std::vector<uint64_t> sequences;
+      for (const auto& item : typed->items)
+        for (const auto& draw : item.draws)
+          sequences.push_back(draw.sequence);
+      const auto selected_draws = sequences.size();
+      CollectSnr04LiveProcedural(scene->source_frame, Snr04LiveFamily::items,
+                                 typed, std::move(sequences));
+      if (!Snr04LiveVerifyFixtures()) {
+        REXGPU_INFO("FH1 SNR02 item typed scene output_frame={} source_frame={} "
+                    "calls={} draws={} vertex_bytes={}", output_frame,
+                    scene->source_frame, scene->items.size(),
+                    selected_draws, payload.bytes);
+        return;
+      }
+    } catch (const std::exception& error) {
+      REXGPU_INFO("FH1 SNR02 item typed scene rejected output_frame={} reason={}",
+                  output_frame, error.what());
+      return;
+    }
+  }
+#endif
   std::vector<char> encoded;
   auto write = [&](const auto& value) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
@@ -3041,7 +3133,6 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
     draws += uint32_t(geometry.draws.size());
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
   const bool written = (!live || Snr04LiveVerifyFixtures()) &&
       !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), scene->source_frame,
@@ -3069,17 +3160,6 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
                     "source_frame={} reason={}", scene->source_frame, error.what());
       }
     }
-  }
-#endif
-#if defined(_WIN32)
-  if (live) {
-    std::vector<uint64_t> sequences;
-    sequences.reserve(draws);
-    for (const auto& [packet, geometry] : payload.by_packet)
-      for (const auto& [sequence, state] : geometry.draws)
-        sequences.push_back(sequence);
-    CollectSnr04LiveFixture(scene->source_frame, Snr04LiveFamily::items,
-                            std::move(encoded), std::move(sequences));
   }
 #endif
 }
@@ -3608,7 +3688,9 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
       std::array<std::filesystem::path, 6> shaders;
       for (size_t i = 0; i < fixtures.size(); ++i) {
         if (!(i == size_t(Snr04LiveFamily::vegetation)
-                  ? bool(fixtures[i].vegetation) : bool(fixtures[i].bytes)))
+                  ? bool(fixtures[i].vegetation)
+                  : i == size_t(Snr04LiveFamily::items)
+                  ? bool(fixtures[i].procedural) : bool(fixtures[i].bytes)))
           throw std::runtime_error("incomplete live selected frame family=" +
                                    std::to_string(i));
         const char* name = i == size_t(Snr04LiveFamily::track)
@@ -3643,6 +3725,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
       Snr04LiveJob job;
       job.input.source_frame = output_frame - 1;
       job.vegetation = fixtures[size_t(Snr04LiveFamily::vegetation)].vegetation;
+      job.items = fixtures[size_t(Snr04LiveFamily::items)].procedural;
       // Live bytes differ per frame; shader keys and bytecode digests still
       // have to match the checked directory manifest.
       job.input.require_shader_fixture_digest = false;
@@ -3657,6 +3740,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
         while (i < order.size() && order[i].family == family) ++i;
         Snr04BatchSegmentInput segment;
         segment.fixture = fixtures[family].bytes;
+        segment.family = uint8_t(family);
         segment.shader = shaders[family];
         segment.output = *output /
             ("source-" + std::to_string(job.input.source_frame)) /
@@ -3716,7 +3800,14 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
               try {
                 auto vegetation = BuildSnr04VegetationScene(*job.vegetation);
                 for (auto& segment : job.input.segments)
-                  if (!segment.fixture) segment.vegetation = vegetation;
+                  if (!segment.fixture) {
+                    if (segment.family == uint8_t(Snr04LiveFamily::vegetation))
+                      segment.vegetation = vegetation;
+                    else if (segment.family == uint8_t(Snr04LiveFamily::items))
+                      segment.procedural = job.items;
+                    else
+                      throw std::runtime_error("unknown typed segment family");
+                  }
                 const auto result = RunSnr04BatchDiagnosticFromBytes(
                     job.input, job.device.Get(), job.samples,
                     job.input.segments.back().output / "batch-timing.json");

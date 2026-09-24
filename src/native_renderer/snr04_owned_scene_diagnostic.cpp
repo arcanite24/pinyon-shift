@@ -1521,32 +1521,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
 }
 
 namespace {
-struct ProceduralDraw {
-  uint64_t sequence = 0;
-  uint64_t vertex_shader = 0;
-  uint32_t vertex_count = 0;
-  std::array<uint32_t, 64> system{};
-  std::array<float, 6> viewport{};
-  std::array<int32_t, 4> scissor{};
-};
-struct ProceduralItem {
-  uint32_t packet = 0;
-  std::vector<char> vertices;
-  std::array<uint32_t, 4> fetch{};
-  std::vector<uint32_t> constants;
-  std::vector<ProceduralDraw> draws;
-};
-struct ProceduralScene {
-  uint64_t frame = 0;
-  std::string sha;
-  std::vector<ProceduralItem> items;
-};
+using ProceduralDraw = pinyon_shift::native_renderer::Snr04ProceduralDraw;
+using ProceduralItem = pinyon_shift::native_renderer::Snr04ProceduralItem;
+using ProceduralScene = pinyon_shift::native_renderer::Snr04ProceduralScene;
 ProceduralScene load_character(std::span<const char> bytes) {
   Reader reader{bytes};
   require(reader.take<std::array<char, 8>>() ==
               (std::array<char, 8>{'S','N','R','0','3','C','1','\0'}),
           "wrong character fixture");
   ProceduralScene scene;
+  scene.character = true;
   scene.sha = sha256(bytes);
   scene.frame = reader.take<uint64_t>();
   reader.take<uint32_t>();  // View.
@@ -1729,8 +1713,8 @@ ProceduralScene load_procedural(std::span<const char> bytes) {
 }
 }  // namespace
 
-uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
-    std::span<const char> fixture,
+uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
+    const Snr04ProceduralScene& scene,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -1743,10 +1727,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid procedural segment");
   const auto begin = std::chrono::steady_clock::now();
-  const auto source = fixture;
-  const bool character = source.size() >= 8 &&
-      std::memcmp(source.data(), "SNR03C1", 7) == 0;
-  const auto scene = character ? load_character(source) : load_procedural(source);
+  require(scene.frame && !scene.items.empty(), "invalid typed procedural scene");
+  const bool character = scene.character;
   struct ShaderSpec { uint64_t hash; const char* file; const char* sha; };
   constexpr std::array<ShaderSpec, 4> shaders{{
       {0x3BC346726C1C2535ull, "vertex_3BC346726C1C2535_000000000000000F.dxil",
@@ -2221,6 +2203,19 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
   summary.close();
   require(bool(summary), "procedural summary write failed");
   return covered;
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
+    std::span<const char> fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  const bool character = fixture.size() >= 8 &&
+      std::memcmp(fixture.data(), "SNR03C1", 7) == 0;
+  return RunSnr04ProceduralDiagnostic(
+      character ? load_character(fixture) : load_procedural(fixture),
+      shader_directory, output_directory, device, samples, segment);
 }
 
 uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
@@ -3962,7 +3957,8 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
   uint32_t next_id = 1, covered = 0;
   for (size_t i = 0; i < count; ++i) {
     const auto& entry = input.segments[i];
-    require(bool(entry.fixture) != bool(entry.vegetation),
+    require(int(bool(entry.fixture)) + int(bool(entry.vegetation)) +
+                int(bool(entry.procedural)) == 1,
             "invalid shared-target source");
     const std::span<const char> fixture = entry.fixture
         ? std::span<const char>(*entry.fixture) : std::span<const char>{};
@@ -3979,7 +3975,12 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
             "invalid shared-target segment");
     std::array<char, 8> magic{};
     uint64_t frame = 0;
-    if (entry.vegetation) {
+    if (entry.procedural) {
+      magic = entry.procedural->character
+          ? std::array<char, 8>{'S','N','R','0','3','C','1','\0'}
+          : std::array<char, 8>{'S','N','R','0','2','I','3','\0'};
+      frame = entry.procedural->frame;
+    } else if (entry.vegetation) {
       magic = {'S', 'N', 'R', '0', '3', 'F', '4', '\0'};
       frame = entry.vegetation->source_frame;
     } else {
@@ -4000,7 +4001,10 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
         upload_cross_frame_reused_bytes = 0;
     const auto stage_begin = std::chrono::steady_clock::now();
     const auto kind = std::string_view(magic.data(), 7);
-    if (kind == "SNR02I3" || kind == "SNR03C1")
+    if (entry.procedural)
+      covered = RunSnr04ProceduralDiagnostic(*entry.procedural, shader, output,
+                                             borrowed_device, samples, &segment);
+    else if (kind == "SNR02I3" || kind == "SNR03C1")
       covered = RunSnr04ProceduralDiagnosticFromBytes(fixture, shader, output,
                                              borrowed_device, samples, &segment);
     else if (kind == "SNR02T3" || kind == "SNR02T4")

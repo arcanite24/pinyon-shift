@@ -1363,3 +1363,21 @@ normally. Verification fixture writes inflated output-callback capture to
 normal live path still builds shader/PSO state per segment, waits per family
 and reads back its final private target. Five-family fixture serialization,
 resource generations and a net gain remain open.
+
+### Typed procedural-item handoff — 2026-09-24
+
+The SNR-02 procedural-item owner now publishes a typed scene rather than
+encoding its fixture in the ordinary live path. The same procedural renderer
+still accepts fixture input for sampled verification. A no-dump run rendered
+both adjacent source frames with 1,990/1,888 total selected draws; output
+callback capture took 10.989/10.088 ms. In a separate sampled run, source
+5000/5001 carried 1,528/1,651 draws. The standalone fixture batch replayed
+the exact same-run manifests and matched the live target byte-for-byte for
+final coverage, sample-zero depth, four-sample depth and four-sample identity
+on **both** frames. Final identity SHA-256 values were
+`A718ACFD9354E8874C9280406D612E63977A0F90E6872A415462AFD20A6FDDB4`
+and `7B7904F012F93B9E450585CA7999E60DE596C90EBE3F7E80AE947B47AFDCD737`.
+The route exited normally. The sampled run wrote fixtures and is not a
+performance comparison. Four selected families still serialize fixtures;
+the native worker still uses per-segment waits, shader/PSO setup and final
+debug readback.
