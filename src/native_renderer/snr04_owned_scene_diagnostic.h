@@ -32,6 +32,7 @@ struct Snr04BatchResult {
   uint64_t cache_key_bytes = 0;
   uint32_t cache_entries = 0;
   uint64_t gpu_draw_us = 0, stage_wall_us = 0;
+  uint64_t queue_wait_us = 0;
 };
 Snr04BatchResult RunSnr04BatchDiagnostic(
     const std::filesystem::path& manifest, ID3D12Device* device,

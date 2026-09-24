@@ -38,6 +38,7 @@ using Microsoft::WRL::ComPtr;
 
 struct pinyon_shift::native_renderer::Snr04SharedTarget {
   ComPtr<ID3D12Device> device;
+  ComPtr<ID3D12CommandQueue> queue;
   ComPtr<ID3D12Resource> color, depth;
   uint32_t samples = 1;
 };
@@ -45,6 +46,7 @@ struct pinyon_shift::native_renderer::Snr04SharedTarget {
 namespace {
 constexpr uint32_t width = 1280, height = 720;
 thread_local uint64_t upload_cpu_ns = 0, upload_bytes = 0;
+thread_local uint64_t queue_wait_ns = 0;
 struct CachedUpload {
   ComPtr<ID3D12Resource> resource;
   uint64_t epoch;
@@ -261,6 +263,16 @@ ComPtr<ID3D12Resource> buffer(ID3D12Device* device, uint64_t size,
                                         &description, state, nullptr,
                                         IID_PPV_ARGS(&resource)));
   return resource;
+}
+ComPtr<ID3D12CommandQueue> command_queue(
+    ID3D12Device* device,
+    const pinyon_shift::native_renderer::Snr04SegmentOptions* segment) {
+  if (segment && segment->shared_target)
+    return segment->shared_target->queue;
+  ComPtr<ID3D12CommandQueue> queue;
+  D3D12_COMMAND_QUEUE_DESC desc{};
+  check(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&queue)));
+  return queue;
 }
 ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t size) {
   std::string key;
@@ -739,6 +751,7 @@ pinyon_shift::native_renderer::CreateSnr04SharedTarget(
     check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
                             IID_PPV_ARGS(&target->device)));
   }
+  target->queue = command_queue(target->device.Get(), nullptr);
   D3D12_CLEAR_VALUE color_clear{};
   color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
   D3D12_CLEAR_VALUE depth_clear{};
@@ -1136,9 +1149,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                                   D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
   const std::vector<char> zero_positions(position_allocation);
   auto position_zero = upload(device.Get(), zero_positions.data(), zero_positions.size());
-  ComPtr<ID3D12CommandQueue> queue;
-  D3D12_COMMAND_QUEUE_DESC queue_description{};
-  check(device->CreateCommandQueue(&queue_description, IID_PPV_ARGS(&queue)));
+  auto queue = command_queue(device.Get(), segment);
   ComPtr<ID3D12CommandAllocator> allocator;
   check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                        IID_PPV_ARGS(&allocator)));
@@ -1316,7 +1327,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   require(event != nullptr, "CreateEvent failed");
   auto wait_result = fence->SetEventOnCompletion(1, event);
+  const auto wait_begin = std::chrono::steady_clock::now();
   auto waited = SUCCEEDED(wait_result) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  queue_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - wait_begin).count();
   CloseHandle(event);
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "GPU wait failed");
@@ -1963,9 +1977,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
   } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
-  ComPtr<ID3D12CommandQueue> queue;
-  D3D12_COMMAND_QUEUE_DESC queue_desc{};
-  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  auto queue = command_queue(device.Get(), segment);
   ComPtr<ID3D12CommandAllocator> allocator;
   check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                        IID_PPV_ARGS(&allocator)));
@@ -2103,7 +2115,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
   HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   require(event != nullptr, "CreateEvent failed");
   auto wait_result = fence->SetEventOnCompletion(1, event);
+  const auto wait_begin = std::chrono::steady_clock::now();
   auto waited = SUCCEEDED(wait_result) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  queue_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - wait_begin).count();
   CloseHandle(event);
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "procedural GPU wait failed");
@@ -2556,9 +2571,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
   } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
-  ComPtr<ID3D12CommandQueue> queue;
-  D3D12_COMMAND_QUEUE_DESC queue_desc{};
-  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  auto queue = command_queue(device.Get(), segment);
   ComPtr<ID3D12CommandAllocator> allocator;
   check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                        IID_PPV_ARGS(&allocator)));
@@ -2662,7 +2675,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
   HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   require(event != nullptr, "CreateEvent failed");
   const auto wait = fence->SetEventOnCompletion(1, event);
+  const auto wait_begin = std::chrono::steady_clock::now();
   const auto waited = SUCCEEDED(wait) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  queue_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - wait_begin).count();
   CloseHandle(event);
   check(wait);
   require(waited == WAIT_OBJECT_0, "track GPU wait failed");
@@ -3080,9 +3096,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnosticFromBytes(
   } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
-  ComPtr<ID3D12CommandQueue> queue;
-  D3D12_COMMAND_QUEUE_DESC queue_desc{};
-  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  auto queue = command_queue(device.Get(), segment);
   ComPtr<ID3D12CommandAllocator> allocator;
   check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                        IID_PPV_ARGS(&allocator)));
@@ -3163,7 +3177,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnosticFromBytes(
   HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   require(event != nullptr, "CreateEvent failed");
   const auto wait = fence->SetEventOnCompletion(1, event);
+  const auto wait_begin = std::chrono::steady_clock::now();
   const auto waited = SUCCEEDED(wait) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  queue_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - wait_begin).count();
   CloseHandle(event);
   check(wait);
   require(waited == WAIT_OBJECT_0, "manager GPU wait failed");
@@ -3675,9 +3692,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
   } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
-  ComPtr<ID3D12CommandQueue> queue;
-  D3D12_COMMAND_QUEUE_DESC queue_desc{};
-  check(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
+  auto queue = command_queue(device.Get(), segment);
   ComPtr<ID3D12CommandAllocator> allocator;
   check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                        IID_PPV_ARGS(&allocator)));
@@ -3764,7 +3779,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
   HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   require(event != nullptr, "CreateEvent failed");
   const auto wait = fence->SetEventOnCompletion(1, event);
+  const auto wait_begin = std::chrono::steady_clock::now();
   const auto waited = SUCCEEDED(wait) ? WaitForSingleObject(event, 30000) : WAIT_FAILED;
+  queue_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - wait_begin).count();
   CloseHandle(event);
   check(wait);
   require(waited == WAIT_OBJECT_0, "remainder GPU wait failed");
@@ -3980,6 +3998,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     segment.require_shader_fixture_digest = input.require_shader_fixture_digest;
     uint64_t gpu_draw_us = 0;
     segment.gpu_draw_us = &gpu_draw_us;
+    queue_wait_ns = 0;
     upload_cpu_ns = upload_bytes = upload_cache_hits = upload_reused_bytes =
         upload_cross_frame_reused_bytes = 0;
     const auto stage_begin = std::chrono::steady_clock::now();
@@ -4016,7 +4035,9 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
            << ",\"upload_reused_bytes\":" << upload_reused_bytes
            << ",\"upload_cross_frame_reused_bytes\":"
            << upload_cross_frame_reused_bytes
+           << ",\"queue_wait_us\":" << queue_wait_ns / 1000
            << ",\"gpu_draw_us\":" << gpu_draw_us << '}';
+    result.queue_wait_us += queue_wait_ns / 1000;
     upload_ns_total += upload_cpu_ns;
     result.upload_bytes += upload_bytes;
     result.upload_reused_bytes += upload_reused_bytes;
@@ -4046,6 +4067,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
          << result.upload_cross_frame_reused_bytes
          << ",\"cache_entries\":" << result.cache_entries
          << ",\"cache_key_bytes\":" << result.cache_key_bytes
+         << ",\"queue_wait_us\":" << result.queue_wait_us
          << ",\"gpu_draw_us\":" << result.gpu_draw_us
          << ",\"stage_wall_us\":" << result.stage_wall_us
          << ",\"intermediate_target_readbacks\":0,\"stages\":["

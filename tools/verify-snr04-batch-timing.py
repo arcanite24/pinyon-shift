@@ -22,6 +22,9 @@ def verify(timing_path: Path, order_path: Path):
                                        ("gpu_draw_us", "gpu_draw_us"),
                                        ("wall_us", "stage_wall_us")):
         assert sum(stage[stage_metric] for stage in stages) == timing[total_metric]
+    if "queue_wait_us" in timing:
+        assert sum(stage["queue_wait_us"] for stage in stages) == timing["queue_wait_us"]
+        assert timing["queue_wait_us"] < timing["stage_wall_us"]
     assert all(stage["draws"] > 0 and stage["gpu_draw_us"] > 0 and
                stage["upload_cpu_us"] <= stage["wall_us"] for stage in stages)
     stage_upload_us = sum(stage["upload_cpu_us"] for stage in stages)

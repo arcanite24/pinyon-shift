@@ -80,6 +80,9 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_track_payload_probe, false,
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_handoff, false, "Pinyon Shift",
                     "Hand the selected frame to the in-game diagnostic worker")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_worker, true, "Pinyon Shift",
+                    "Run the in-game selected-frame diagnostic worker")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
 
@@ -3545,6 +3548,12 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
         if (!order[i].sequence ||
             (i && order[i].sequence == order[i - 1].sequence))
           throw std::runtime_error("duplicate live draw sequence");
+      if (!REXCVAR_GET(pinyon_shift_snr04_live_worker)) {
+        REXGPU_INFO("FH1 SNR04 live capture only output_frame={} "
+                    "source_frame={} draws={} capture_us={}", output_frame,
+                    output_frame - 1, order.size(), capture_us);
+        return;
+      }
       Snr04LiveJob job;
       job.input.source_frame = output_frame - 1;
       // Live bytes differ per frame; shader keys and bytecode digests still
@@ -3596,7 +3605,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                             "upload_bytes={} upload_reused_bytes={} "
                             "upload_cross_frame_reused_bytes={} "
                             "cache_entries={} cache_key_bytes={} gpu_draw_us={} "
-                            "stage_wall_us={}",
+                            "queue_wait_us={} stage_wall_us={}",
                             result.source_frame, result.draws,
                             result.covered_pixels, job.samples,
                             result.upload_cpu_us, result.upload_bytes,
@@ -3604,7 +3613,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                             result.upload_cross_frame_reused_bytes,
                             result.cache_entries,
                             result.cache_key_bytes, result.gpu_draw_us,
-                            result.stage_wall_us);
+                            result.queue_wait_us, result.stage_wall_us);
               } catch (const std::exception& error) {
                 REXGPU_INFO("FH1 SNR04 live rejected source_frame={} reason={}",
                             job.input.source_frame, error.what());
