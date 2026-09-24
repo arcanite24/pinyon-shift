@@ -430,6 +430,12 @@ A selective-frame check without the SNR-01 trace target still measured a
 frames but retained SNR-02/03 probes and in-memory fixture encoding. See the
 [SNR-04 cost evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#shared-queue-and-legacy-capture-cost-decision--2026-09-24).
 
+The SDK draw-order counter has now been decoupled from the broad GPU corpus
+for live handoff. A corpus-off run reduced the probe median to 26.044 ms,
+but fixed source frames 5000/5001 did not both meet six-family admission.
+The direct producer must account for scene-dependent missing families and
+publish only complete frames; this sensitivity run does not close SNR-04.
+
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
 do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**

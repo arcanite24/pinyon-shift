@@ -1313,3 +1313,26 @@ not the direct typed-scene handoff or a production native-renderer benchmark.
 The CSV/JSONL pair is kept under the local feasibility-cadence evidence
 directory as `selective-capture-n.*`. The decision remains to remove those
 probe/serialization costs before making a native speed claim.
+
+The SDK's draw-order counter was tied to `pinyon_shift_fh1_gpu_corpus`.
+Without that flag, every prepared draw reported sequence zero and the live
+worker correctly rejected both frames as incomplete. A one-condition SDK
+change now increments the counter for `pinyon_shift_snr04_live_handoff` too,
+without enabling the broad GPU corpus. In the corpus-enabled worker run,
+frames 5000/5001 submitted 1,544/1,621 draws to one private 4× target and
+passed the final MSAA target checker. Draw GPU spans were 3.091/3.194 ms,
+while stage wall time was 2.811/2.258 s, including 23.932/25.043 ms of
+queue waits. The matched drive window was 29.621/61.237/71.060 ms
+median/p95/p99 over 372.1 m; the worker ran alongside compatibility.
+
+With the counter decoupled and GPU corpus disabled, the capture-only route
+exited normally and draw-order sequences were nonzero. Its 30-second window
+was 26.044/51.565/63.853 ms over 371.8 m. This indicates the broad corpus
+was a material part of the earlier overhead, but the selected source frames
+did **not** pass six-family admission: source 5000 rejected the character
+family, and source 5001 rejected the manager family. Both frames retained
+valid item/track payloads. The failure makes this an overhead sensitivity
+sample, not a valid two-frame native output or parity result. Fixed source
+ordinal 5000 is not a safe admission rule as scene content shifts between
+runs. A direct scene producer must gate each current frame on complete owned
+families, then publish only admitted frames and count every rejection.
