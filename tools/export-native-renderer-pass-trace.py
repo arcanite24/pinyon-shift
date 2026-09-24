@@ -234,9 +234,11 @@ def main():
                 "suppression_allowed": False,
             },
         }
-        with open(report_path, "w") as output:
+        temporary_report_path = report_path + ".tmp"
+        with open(temporary_report_path, "w") as output:
             json.dump(report, output, indent=2, sort_keys=True)
             output.write("\n")
+        os.replace(temporary_report_path, report_path)
         print(report_path)
         return 0
     finally:

@@ -42,20 +42,35 @@ if ([string]$signature.Status -ne 'Valid') {
 $script = Join-Path $PSScriptRoot 'export-native-renderer-pass-trace.py'
 $parent = Split-Path $resolvedOutput -Parent
 [void](New-Item -ItemType Directory -Path $parent -Force)
-$savedCapture = $env:PINYON_SHIFT_RENDERDOC_CAPTURE
-$savedOutput = $env:PINYON_SHIFT_RENDERDOC_PASS_TRACE
+$wrapper = Join-Path $parent ("pass-trace-" + [guid]::NewGuid().ToString('N') + '.py')
+$process = $null
 try {
-    $env:PINYON_SHIFT_RENDERDOC_CAPTURE = $resolvedCapture
-    $env:PINYON_SHIFT_RENDERDOC_PASS_TRACE = $resolvedOutput
+    @(
+        'import os'
+        'import runpy'
+        'os.environ["PINYON_SHIFT_RENDERDOC_CAPTURE"] = ' + (ConvertTo-Json -Compress $resolvedCapture)
+        'os.environ["PINYON_SHIFT_RENDERDOC_PASS_TRACE"] = ' + (ConvertTo-Json -Compress $resolvedOutput)
+        'runpy.run_path(' + (ConvertTo-Json -Compress $script) + ', run_name="__main__")'
+    ) | Set-Content -LiteralPath $wrapper -Encoding utf8
+    $relativeWrapper = [IO.Path]::GetRelativePath($repoRoot, $wrapper).Replace('\', '/')
     $process = Start-Process -FilePath $qrenderdoc `
-        -ArgumentList @('--python', $script) -PassThru -Wait
-    if ($process.ExitCode) {
-        throw "qrenderdoc pass trace exited with code $($process.ExitCode)"
+        -ArgumentList @('--python', $relativeWrapper) `
+        -WorkingDirectory $repoRoot -PassThru
+    $deadline = [DateTime]::UtcNow.AddMinutes(15)
+    while (-not (Test-Path -LiteralPath $resolvedOutput -PathType Leaf) -and
+           -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $process.Refresh()
+    }
+    if (-not (Test-Path -LiteralPath $resolvedOutput -PathType Leaf)) {
+        throw "qrenderdoc exited or timed out without producing the pass trace."
     }
 }
 finally {
-    $env:PINYON_SHIFT_RENDERDOC_CAPTURE = $savedCapture
-    $env:PINYON_SHIFT_RENDERDOC_PASS_TRACE = $savedOutput
+    if ($process -and -not $process.HasExited) {
+        Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+    }
+    Remove-Item -LiteralPath $wrapper -ErrorAction SilentlyContinue
 }
 if (-not (Test-Path -LiteralPath $resolvedOutput -PathType Leaf)) {
     throw 'qrenderdoc exited without producing the pass trace.'

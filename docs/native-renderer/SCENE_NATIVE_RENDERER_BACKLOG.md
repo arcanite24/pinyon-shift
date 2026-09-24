@@ -490,6 +490,19 @@ fails on `race-paused` (3,215 native sky pixels); free roam and title also
 fail (153,162 and 286,127). Keep this check red until a proven mode gate or
 retained-pass bridge fixes the presented frame.
 
+**Final-pass boundary check (2026-09-24):** the existing race RenderDoc
+capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
+`277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
+was exported with `tools/export-native-renderer-pass-trace.py`. It records
+170 late draws to one `R10G10B10A2_UNORM` target (events 20948–22044),
+followed by one `B8G8R8A8_UNORM` presentation draw (event 22104). The trace
+proves a late guest-output pass, not which individual draws are HUD. In the
+SDK, `IssueSwap` invokes the native callback before copying that completed
+guest frontbuffer to the presenter; a successful callback returns early and
+skips the guest copy. Therefore the current output seam cannot preserve the
+guest's final UI by itself. Identify the HUD/UI draws and their inputs before
+attempting a retained-pass bridge; the current takeover remains experimental.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
