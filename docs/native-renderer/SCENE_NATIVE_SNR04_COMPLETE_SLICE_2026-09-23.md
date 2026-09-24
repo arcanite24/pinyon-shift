@@ -754,3 +754,32 @@ Both final stages also passed the independent `verify-snr04-msaa.py` mask,
 identity and depth check. The all-sample census prevents valid edge-only
 selected draws from being mislabeled invisible; it is still an identity
 diagnostic, not material or compatibility pixel parity.
+
+### Family visibility in the complete 4× replay
+
+The final identity buffer also reports selected versus visible draw IDs by
+family. Both checked frames contain visible samples from every selected
+family:
+
+| Selected family | Source 5001 visible / selected | Source 5000 visible / selected |
+| --- | ---: | ---: |
+| Animated scene | 2 / 23 | 3 / 15 |
+| Car presentation | 3 / 9 | 7 / 63 |
+| Car scene-list | 10 / 292 | 9 / 946 |
+| Character manager | 29 / 93 | 70 / 297 |
+| Procedural character | 2 / 17 | 3 / 11 |
+| Procedural item | 6 / 281 | 6 / 209 |
+| Shared track procedural | 72 / 668 | 140 / 631 |
+| Vegetation | 20 / 179 | 19 / 135 |
+
+The per-family covered-sample totals sum exactly to 3,617,256 and
+2,778,635, matching the independent final-target checks. The source-5001
+ledger is `renderdoc-gatea-full-msaa4-family-c/summary.json` (SHA-256
+`A08C21B2006192294EACFEAE7FF49719E74A1CA1ACFCD54EC0FD5A5445810591`);
+the source-5000 ledger is
+`f4-final-bound-live-c/complete-msaa4-family-d/summary.json` (SHA-256
+`A55F0FB073EBDC99CF99412BA2BB48290EACD2BC5DE2E3952237792D1632F270`).
+The visible count is the surviving final-target identity, not proof that
+every selected draw produced pixels: occlusion and later depth writes can
+hide a valid earlier draw. Fixture ownership and final bound-state checks
+remain required for all selected draws.

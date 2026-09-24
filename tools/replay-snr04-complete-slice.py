@@ -91,7 +91,7 @@ def replay(args):
         masks = (previous / "coverage.u8").read_bytes()
         assert len(ids) == len(sample_depths) == 1280 * 720 * 4
         assert len(masks) == 1280 * 720
-        all_sample_ids = set()
+        all_sample_counts = collections.Counter()
         sample_covered = [0] * 4
         covered_any = covered_samples = zero_depth_samples = 0
         for pixel in range(1280 * 720):
@@ -102,7 +102,7 @@ def replay(args):
                 if identity:
                     assert 1 <= identity <= len(draws)
                     mask |= 1 << sample
-                    all_sample_ids.add(identity)
+                    all_sample_counts[identity] += 1
                     sample_covered[sample] += 1
                     covered_samples += 1
                     zero_depth_samples += z == 0
@@ -112,6 +112,8 @@ def replay(args):
             assert mask == masks[pixel]
             covered_any += mask != 0
         assert covered_samples == sum(sample_covered)
+        assert covered_samples == sum(all_sample_counts.values())
+        all_sample_ids = all_sample_counts.keys()
     else:
         color = (previous / "color.rgba").read_bytes()
         for pixel, value in zip(struct.iter_unpack("<I", color),
@@ -132,6 +134,14 @@ def replay(args):
               "depth_sha256": sha(previous / "depth.f32")}
     if args.msaa4:
         sample_only = sorted(all_sample_ids - identities.keys())
+        selected_by_family = collections.Counter(row["family"] for row in draws)
+        visible_by_family = collections.Counter(
+            draws[identity - 1]["family"] for identity in all_sample_ids)
+        samples_by_family = collections.Counter()
+        for identity, count in all_sample_counts.items():
+            samples_by_family[draws[identity - 1]["family"]] += count
+        assert sum(visible_by_family.values()) == len(all_sample_ids)
+        assert sum(samples_by_family.values()) == covered_samples
         result.update(samples=4,
                       covered_any_pixels=covered_any,
                       covered_samples=covered_samples,
@@ -141,6 +151,11 @@ def replay(args):
                           {"id": identity, "family": draws[identity - 1]["family"],
                            "sequence": draws[identity - 1]["sequence"]}
                           for identity in sample_only],
+                      family_visibility={family: {
+                          "selected_draws": selected,
+                          "visible_draws": visible_by_family[family],
+                          "covered_samples": samples_by_family[family]}
+                          for family, selected in sorted(selected_by_family.items())},
                       zero_depth_samples=zero_depth_samples,
                       coverage_sha256=sha(previous / "coverage.u8"),
                       sample_identity_sha256=sha(previous / "identity.u16x4"),
