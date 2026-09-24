@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <rex/input/device_assignment.h>
+#include <rex/cvar.h>
 #include <rex/input/input.h>
 #include <rex/input/input_driver.h>
 #include <rex/input/input_system.h>
@@ -43,6 +44,11 @@ struct InputStep {
   rex::input::X_INPUT_GAMEPAD state{};
 };
 
+struct NativeRaceStep {
+  uint64_t frame = 0;
+  bool enabled = false;
+};
+
 struct Capture {
   uint64_t frame = 0;
   std::string name;
@@ -55,6 +61,8 @@ struct TestState {
   bool enabled = false;
   std::filesystem::path output;
   std::vector<InputStep> inputs;
+  std::vector<NativeRaceStep> native_race_steps;
+  size_t next_native_race_step = 0;
   std::vector<Capture> captures;
   uint64_t stop_frame = 0;
   uint32_t clock_hz = 0;
@@ -134,6 +142,7 @@ void LoadScript(const std::filesystem::path& path) {
   }
   uint64_t previous_input_frame = 0;
   uint64_t previous_capture_frame = 0;
+  uint64_t previous_native_race_frame = 0;
   bool have_input = false;
   while (std::getline(input, line)) {
     if (line.starts_with("# clock-hz ")) {
@@ -187,6 +196,17 @@ void LoadScript(const std::filesystem::path& path) {
       g_test.inputs.push_back(step);
       previous_input_frame = step.frame;
       have_input = true;
+    } else if (command == "native-race") {
+      std::string frame, value, extra;
+      if (!(row >> frame >> value) || row >> extra ||
+          (value != "true" && value != "false")) {
+        Fail("script_native_race_columns");
+      }
+      const uint64_t at = ParseUnsigned(frame, 10, "native_race_frame");
+      if (!at || at <= previous_native_race_frame)
+        Fail("script_native_race_order");
+      g_test.native_race_steps.push_back({at, value == "true"});
+      previous_native_race_frame = at;
     } else if (command == "capture") {
       std::string frame, name, extra;
       if (!(row >> frame >> name) || row >> extra || name.empty() ||
@@ -478,6 +498,14 @@ bool ObserveOutput(
         g_test.clock_hz / 1000;
   }
   g_test.frame.store(frame, std::memory_order_release);
+  while (g_test.next_native_race_step < g_test.native_race_steps.size() &&
+         context.frame_sequence >=
+             g_test.native_race_steps[g_test.next_native_race_step].frame) {
+    const auto& step = g_test.native_race_steps[g_test.next_native_race_step++];
+    if (!rex::cvar::SetFlagByName("pinyon_shift_native_race",
+                                  step.enabled ? "true" : "false"))
+      Fail("native_race_flag_rejected");
+  }
   std::unique_lock lock(g_test.mutex);
   if (!g_test.clock_hz && g_test.next_capture < g_test.captures.size() &&
       context.frame_sequence > g_test.captures[g_test.next_capture].frame + 1) {

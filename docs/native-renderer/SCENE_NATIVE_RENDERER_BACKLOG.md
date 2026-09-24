@@ -456,8 +456,17 @@ new race settings, the short route presented native outputs 5001 and 5002,
 and the sustained route passed twenty changing, upright native frames plus
 the no-scene compatibility control. Both routes exited normally. The old R2
 fixture still replays with 136,308 covered pixels and passes its ledger
-verifier. A live settings-UI switch and broader L1 gameplay/transition checks
-remain open.
+verifier. Direct settings-UI interaction and broader L1 gameplay/transition
+checks remain open.
+
+**Live-switch checkpoint (2026-09-24):** the dedicated
+`fh1-native-race-toggle.fh1test` route uses the same runtime flag setter as
+the settings checkbox. With scene capture starting at frame 5000 and the
+output setting initially off, it captured compatibility → native →
+compatibility → native images in one AppData race run. The game exited
+normally and `verify-native-race-toggle.py` passed all six boundary captures.
+This validates hot switching through the settings setter; direct user input
+in the overlay, reload/resize, and longer unscripted gameplay remain open.
 
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
