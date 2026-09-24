@@ -4370,6 +4370,8 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
     const uint32_t manager_object = manager_table
         ? SnrM02ReadU32(manager_table + bucket.vegetation_candidate_key * 4)
         : 0;
+    const uint32_t resource36 = manager_object ? SnrM02ReadU32(manager_object + 36) : 0;
+    const uint32_t resource40 = manager_object ? SnrM02ReadU32(manager_object + 40) : 0;
     REXGPU_INFO("FH1 SNR02 vegetation resource resolved {{\"frame\":{},"
                 "\"bucket_entry\":{},\"record\":{},\"key\":{},"
                 "\"object\":{},\"word0\":{},\"word4\":{},"
@@ -4377,7 +4379,8 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 "\"manager_table\":{},"
                 "\"manager_object\":{},\"manager_vtable\":{},"
                 "\"manager_flags\":{},\"resource32\":{},"
-                "\"resource36\":{},\"resource40\":{}}}",
+                "\"resource36\":{},\"resource40\":{},"
+                "\"resource36_vtable\":{},\"resource40_vtable\":{}}}",
                 rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
                 bucket.ordinal, bucket.vegetation_candidate_record,
                 bucket.vegetation_candidate_key, object,
@@ -4389,8 +4392,8 @@ void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
                 manager_object ? SnrM02ReadU32(manager_object) : 0,
                 manager_object ? SnrM02ReadU32(manager_object + 8) : 0,
                 manager_object ? SnrM02ReadU32(manager_object + 32) : 0,
-                manager_object ? SnrM02ReadU32(manager_object + 36) : 0,
-                manager_object ? SnrM02ReadU32(manager_object + 40) : 0);
+                resource36, resource40,
+                SnrM02ReadU32(resource36), SnrM02ReadU32(resource40));
   }
 }
 

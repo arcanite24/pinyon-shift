@@ -22,6 +22,9 @@ The selected foliage keys join through the title manager table to five
 distinct manager objects, returned records and byte-matched live BC3 chains;
 host-cache allocation and completed-load generations are now sampled, while
 title owner/payload generations and unload behavior remain unproven.
+The two provider references are identified by live vtables and title RTTI as
+`CBixTextureChainResource` and `CBixTextureBaseResource`; their ownership
+generation still needs a validated lifecycle rule.
 The [shared-track geometry handoff](SCENE_NATIVE_SNR02_TRACK_GEOMETRY_2026-09-23.md)
 owns the selected track vertex/index bytes and final bound draw state at the
 exact output frame. An 813-draw replay passed the full 4,438-draw partition;

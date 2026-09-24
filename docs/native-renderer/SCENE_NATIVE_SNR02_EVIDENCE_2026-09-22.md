@@ -1244,3 +1244,34 @@ streaming unload/reload, or validity of an asynchronous native texture handoff.
 Those remain SNR-02/SNR-03 admission requirements. A preceding replay
 `20260924T042223Z-p9488` used an older staged graphics DLL and is excluded
 from this generation result.
+
+### Concrete types of the two foliage provider resources
+
+The generated provider copy path calls virtual retain on the pointers at
+`+36` and `+40`, and its destructor calls virtual release on both. A new
+default-off selected-frame observation records each pointed-to vtable.
+In the qualified frame-6000 race replay, all five selected providers have
+`0x8224368C` at `+36` and `0x822436F4` at `+40`; the latter pointer is 140
+bytes after the former for every key. The verified base-image RTTI maps
+these vtables to `CBixTextureChainResource` and
+`CBixTextureBaseResource`, respectively. Both derive through
+`TCommonTrackTextureResource`, `TCacheableResource`, `CCacheableResource`,
+`CResource` and `IRefCountedObject`. This identifies two concrete,
+reference-counted title resource objects, not a generic texture descriptor.
+
+The combined replay `20260924T044147Z-p44040` exited normally with seven
+route images. Its strict frame-6000 state join checked 47 selected records,
+102 prepared executions, 46 resolver calls and all five provider resource
+pairs. The same process's output-frame-6001 BC3 source join checked five
+fenced nine-mip chains against the independent RenderDoc reference. The
+process-scoped `evidence.log`, `state-join.json` and `source-join.json` are
+under `.local/native-renderer/snr02/foliage-resource-vtables-live-d`.
+Their SHA-256 values are `ABF329C6ECDBE7DE7865E7CCD49DAE560E41B6F47364D0E65E86A2E792694F91`,
+`95D7859F4794DD9BDE8DF40587B023FE22C3A268DB2C4A8582BB64755DA87366`
+and `7AF6D13F3FB0C71DE529C7754A0EB26EE4957A0E624C03798C94EEE83626DFB3`.
+The title image used for RTTI has SHA-256
+`6014727FA7B0B79727FD5F32A2E2377533DC8E29679E8D2462BD764D331FA305`.
+
+This narrows the title ownership work to the chain/base resource pair and
+its parent provider. Constant pointer spacing suggests contiguous storage
+but does not prove one allocation, generation or streaming lifetime.

@@ -170,6 +170,13 @@ def verify(log: Path, frame: int):
                         {'key': candidate, 'resource36': next(iter(values))[0],
                          'resource40': next(iter(values))[1]}
                         for candidate, values in sorted(resources.items())]
+                    if any('resource36_vtable' in row for row in resolved):
+                        assert all(row.get('resource36_vtable') == 0x8224368C and
+                                   row.get('resource40_vtable') == 0x822436F4 and
+                                   row['resource40'] - row['resource36'] == 140
+                                   for row in resolved)
+                        report['provider_resource_vtables'] = {
+                            'chain': '8224368C', 'base': '822436F4'}
     return report
 
 
