@@ -80,6 +80,9 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_track_payload_probe, false,
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_handoff, false, "Pinyon Shift",
                     "Hand the selected frame to the in-game diagnostic worker")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(pinyon_shift_snr04_live_source_frame, 0, "Pinyon Shift",
+                    "Select the SNR-02 live owner frame without SNR-01 trace")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_worker, true, "Pinyon Shift",
                     "Run the in-game selected-frame diagnostic worker")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
@@ -967,14 +970,18 @@ std::array<uint64_t, 7> Snr02ResourceGenerations(uint32_t chain, uint32_t base) 
 
 int32_t Snr02ItemTargetFrame() {
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_item_payload_probe)
-                                    ? REXCVAR_GET(pinyon_shift_snr01_trace_source_frame)
+                                    ? (REXCVAR_GET(pinyon_shift_snr04_live_handoff)
+                                           ? REXCVAR_GET(pinyon_shift_snr04_live_source_frame)
+                                           : REXCVAR_GET(pinyon_shift_snr01_trace_source_frame))
                                     : 0;
   return target;
 }
 
 int32_t Snr02TrackTargetFrame() {
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr02_track_payload_probe)
-                                    ? REXCVAR_GET(pinyon_shift_snr01_trace_source_frame)
+                                    ? (REXCVAR_GET(pinyon_shift_snr04_live_handoff)
+                                           ? REXCVAR_GET(pinyon_shift_snr04_live_source_frame)
+                                           : REXCVAR_GET(pinyon_shift_snr01_trace_source_frame))
                                     : 0;
   return target;
 }

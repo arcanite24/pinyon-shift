@@ -1299,3 +1299,17 @@ probes are not the requested direct typed-scene handoff. The next cut must
 publish only the required owned scene and final draw state without the
 SNR-01 census/logging and fixture serialization, then measure that path
 continuously at production settings before estimating a net saving.
+
+The next selective-frame check decoupled the SNR-02 item/track owner frame
+from the SNR-01 trace target. With `pinyon_shift_snr04_live_source_frame=5000`
+and no SNR-01 trace target, the same six-family capture completed on source
+frames 5000/5001 with 1,628/1,623 selected draws and 8.290/8.816 ms of
+callback capture work. The route exited normally. Its matched 30-second drive
+window had 772 consumed swaps over 371.9 m, with 29.490/57.905/67.099 ms
+median/p95/p99 frame time. This is lower than the 31.801 ms legacy capture
+median but still well above both 21.829/22.119 ms controls. It continues to
+run SNR-03 and SNR-02 probes and encodes all six fixtures in memory, so it is
+not the direct typed-scene handoff or a production native-renderer benchmark.
+The CSV/JSONL pair is kept under the local feasibility-cadence evidence
+directory as `selective-capture-n.*`. The decision remains to remove those
+probe/serialization costs before making a native speed claim.

@@ -425,6 +425,11 @@ implementing this cut. Re-run the paired production-settings benchmark only
 after the direct path can sustain adjacent moving frames without debug
 readback or per-family waits. This is the next action, not a completed gate.
 
+A selective-frame check without the SNR-01 trace target still measured a
+29.490 ms median against 21.829/22.119 ms controls; it captured both adjacent
+frames but retained SNR-02/03 probes and in-memory fixture encoding. See the
+[SNR-04 cost evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#shared-queue-and-legacy-capture-cost-decision--2026-09-24).
+
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
 do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**
