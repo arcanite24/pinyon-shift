@@ -1031,3 +1031,64 @@ and its checked `source-join.json` has SHA-256
 Reproduce with `extract-snr01-run-log.py SESSION OUTPUT
 --include-bc3-source` and `verify-snr04-bc3-source-join.py LOG LIVE_DIR
 REFERENCE_DIR OUTPUT --frame 5001`. Both probes default off.
+
+## Title vegetation texture key to sampled BC3 payload
+
+Generated `sub_824136F0` selects a vegetation record and reads an owner-local
+control table before submitting it. The table's secondary slot indexes an
+eight-byte owner-local entry; its first word is passed as `r4` to
+`sub_82415BF8`. That function compares the word against a five-slot cache,
+resolves a changed key through `sub_82415AD0` and binds the resulting object
+through the graphics context's vtable slot 88. A default-off hook at
+`0x824139B8` records the selected record, the global 28-byte graphics-state
+entry, the owner-local slot and the candidate key before the draw.
+
+The first AppData-backed source-5000/output-5001 run exited normally with
+seven compatibility captures. Its 55 selected title records joined 115
+prepared fetch-0 executions and five fenced BC3 sources. All 55 selected
+records used **global state index 0 and the same 28-byte entry**. The global
+entry therefore cannot distinguish the five foliage textures. The filtered
+log is `.local/native-renderer/snr02/foliage-title-state-a/evidence.log`
+(SHA-256 `BB2750C72F59AEED6E897D61B2876732FC034BCB7862D35B71F59C9C6F10D57C`);
+its checked `state-join.json` has SHA-256
+`EA7BC544A8F84817BCAFBE2A30A1CA62D6EDAD4784A4A234DB7C0876F180E70B`.
+
+The expanded hook captured the owner-local lookup in a second normal-exit
+run (`20260924T024907Z-p42428`) with seven compatibility captures. Its 60
+selected title records from eight owners joined all 120 prepared fetch-0
+executions, stable per packet, and five live SRVs. Each selected slot was
+within the title's bound. The candidate key partition was one-to-one with
+the five sampled guest BC3 ranges:
+
+| Title key | Guest base / mips | Selected items | Live SRV |
+| --- | --- | ---: | ---: |
+| `0x4C78` | `0FD84000` / `0EFAE000` | 14 | 667 |
+| `0x4C79` | `1075A000` / `0E4DA000` | 11 | 866 |
+| `0x4C7B` | `0F358000` / `0ECBD000` | 12 | 585 |
+| `0x4C7C` | `0F348000` / `0ECB0000` | 11 | 587 |
+| `0x4C7D` | `0F368000` / `0ECCA000` | 12 | 589 |
+
+The five same-run fenced nine-mip chains also match the independent
+RenderDoc chains byte for byte. `verify-snr02-vegetation-state-entry.py`
+checks title record → owner-local key → prepared BC3 fetch → live SRV and
+cache source for every selected item; `verify-snr04-bc3-source-join.py`
+checks the mip bytes. The filtered log is
+`.local/native-renderer/snr02/foliage-owner-candidate-b/evidence.log`
+(SHA-256 `6CFC577BD3908EF89101B99BA1CC1007E578085046DE6CC4906016F113187D3C`),
+the state join is `state-join.json` (SHA-256
+`3E77866476278BED57FC5C6805E84B6DAE3B49AEED4B1BFDFC2D1344AD836524`),
+and the payload join is `bc3-source-join.json` (SHA-256
+`4F980D4F79D51F0EB524139F53D7B868D86DA2B10CAE17F91E78F847B935F9E6`).
+The RelWithDebInfo executable SHA-256 was
+`C59DFEF7EC3F3AB0391E41A793D0FC4ABF0B3F83391E7DC2EED34E182BCDAB70`.
+
+Reproduce the process-filtered log with `extract-snr01-run-log.py SESSION
+OUTPUT --include-scene --include-bc3-source`, then run
+`verify-snr02-vegetation-state-entry.py LOG OUTPUT --frame 5000` and
+`verify-snr04-bc3-source-join.py LOG LIVE_DIR REFERENCE_DIR OUTPUT --frame
+5001`. The new hook is diagnostic-only and default off. The title key is a
+bounded texture selector for this foliage slice, **not** yet a material-object
+identity or a durable allocation generation. The next trace should join
+`sub_82415AD0`'s resolved object to the key, follow its upload and unload,
+and establish how its payload generation changes when guest addresses are
+reused.

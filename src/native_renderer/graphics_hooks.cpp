@@ -4931,6 +4931,37 @@ void PinyonShiftObserveSecondStateBind(
   }
 }
 
+void PinyonShiftObserveVegetationStateEntry(
+    PPCRegister& r17, PPCRegister& r22, PPCRegister& r23,
+    PPCRegister& r25, PPCRegister& r27) {
+  const uint64_t frame = rex::perf::GetTotalCounter(
+      rex::perf::CounterId::kSourceFrameCount);
+  if (Snr03TargetFrame() <= 0 || frame != uint64_t(Snr03TargetFrame()) ||
+      snr01_view_scopes.empty() || snr01_view_scopes.back().ordinal != 8 ||
+      snr01_track_bucket_scopes.empty() || r22.u32 >= 256) {
+    return;
+  }
+  const uint32_t entry = r17.u32 + r22.u32 * 28;
+  std::array<uint32_t, 7> words{};
+  for (uint32_t i = 0; i < words.size(); ++i)
+    words[i] = SnrM02ReadU32(entry + i * 4);
+  const uint32_t control = SnrM02ReadU32(r23.u32 + 124);
+  const uint32_t slots = control ? SnrM02ReadU32(control + 28) : 0;
+  const uint32_t object = SnrM02ReadU32(r23.u32 + 4);
+  const uint32_t limit = object ? SnrM02ReadU32(object + 64) : 0;
+  const uint32_t slot = slots ? SnrM02ReadU32(slots + r25.u32 + 4) : 0;
+  const uint32_t table = SnrM02ReadU32(r23.u32 + 8);
+  const bool eligible = slots && table && slot < limit;
+  const uint32_t candidate = eligible ? SnrM02ReadU32(table + slot * 8) : 0;
+  REXGPU_INFO("FH1 SNR02 vegetation state entry {{\"frame\":{},"
+              "\"bucket_entry\":{},\"owner\":{},\"record\":{},"
+              "\"index\":{},\"entry\":{},\"words\":[{},{},{},{},{},{},{}],"
+              "\"slot\":{},\"limit\":{},\"candidate\":{}}}",
+              frame, snr01_track_bucket_scopes.back().ordinal, r23.u32,
+              r27.u32, r22.u32, entry, words[0], words[1], words[2],
+              words[3], words[4], words[5], words[6], slot, limit, candidate);
+}
+
 void PinyonShiftObserveVegetationStateBind(
     PPCRegister& r3, PPCRegister& r4, PPCRegister& r5, PPCRegister& r11,
     PPCRegister& r23, PPCRegister& r24, PPCRegister& r26, PPCRegister& r27) {

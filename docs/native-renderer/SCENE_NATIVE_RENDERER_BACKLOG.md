@@ -273,6 +273,9 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    three CPU-triggered invalidations/reload attempts before the sample;
    a second run confirmed two invalidation → attempt → completed-load chains
    on the same sampled cache object before its fenced copy;
+   an owner-local vegetation key now joins all 60 selected title records in
+   one run to five distinct BC3 ranges and fenced payloads, while the shared
+   global state entry is ruled out as the per-texture key;
    title material ownership and allocation/payload generations still need
    proof (see the [live BC3 join](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#live-foliage-bc3-source-and-invalidation-join)).
    Six scalar draws have a retained skid-presentation
