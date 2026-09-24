@@ -386,6 +386,66 @@ then run `extract-snr01-run-log.py --include-scene`,
 Extract each frame's exact track/remainder shaders from the installed pack
 and run `replay-snr04-complete-slice.py --msaa4 --gpu-shared` for each order.
 
+### Adjacent compatibility scene-target capture — 2026-09-24
+
+The opt-in SDK RenderDoc window now spans output frames 5001 **and** 5002
+when `pinyon_shift_snr03_probe_following_frame=true`; its normal one-frame
+behavior is unchanged. A normal-exit AppData-backed run captured both frames
+in one RDC (`.local/native-renderer/snr04/adjacent-renderdoc-k-capture/
+adjacent_capture.rdc`, SHA-256
+`0FB734C6D61EFCCC07A4BAF82A500EB3D6D8CD6C2CD6B7F6793EA843A9CFC944`).
+RenderDoc has 179 foliage markers labeled output 5001 and 189 labeled
+output 5002, matching the selected foliage fixture counts. The unmodified
+strict SNR-01 census and six-family fixture verifier pass **1,574/1,574**
+selected draws for source 5000 and **1,584/1,584** for source 5001, with
+no unattributed candidate writer. Exact track/remainder shader translations
+were extracted from the installed pack (20 and 53 per frame). Both complete
+orders replayed into one private 4× target per source frame with zero
+intermediate target readbacks; `verify-snr04-msaa.py` passed both outputs.
+
+For this instrumented RenderDoc run, the local capture route copied
+`fh1-snr04-adjacent.fh1test` and extended only its idle tail to `stop 9500`:
+with RenderDoc and GPU-corpus tracing, the tracked route's `stop 7000`
+ended while the backend was still at output frame 4714. The run enabled
+`pinyon_shift_fh1_gpu_corpus`, `pinyon_shift_fh1_scene_dump`,
+`pinyon_shift_fh1_clear_producer_trace`, the SNR-01 following-frame trace,
+both SNR-02 payload probes, and the SNR-03 following-frame probe. Keep
+capture and render-test output in separate directories because the
+render-test runner must create its own output path.
+
+The six final compatibility scene-target events are 11901, 15678, 19770
+for output 5001 and 32817, 36621, 40740 for output 5002. Each binds the
+same 1280×512 R16G16B16A16_FLOAT 4× EDRAM color target and D32S8 4× depth
+target, with active scissors 256, 256, 208 rows respectively. The target
+export is `.local/native-renderer/snr04/adjacent-renderdoc-k-target-export.json`
+(SHA-256 `2C991BA407C2B35FD853CD1D75D68E93E1EF623C3A459004BEE1C25D3CDE7516`).
+The active bands and same-fixture private identity outputs, rotated to
+presentation orientation, are paired in
+`adjacent-renderdoc-k-compat-left-identity-right-5000.png` and
+`adjacent-renderdoc-k-compat-left-identity-right-5001.png` (SHA-256
+`85DA4E87FDA5A6215E0BD58D300BD7317665DEB8E4852F658938550B1BE95E44`
+and `C5319CCCECD2235EF98D7112F013B3FD303F9839007635F13DE7A40AAD00EDD5`).
+These are scene targets before HUD/presentation, not final-output parity.
+
+Sample-0 target-space depth coverage overlaps by **99.78%** in both frames:
+902,997 reference pixels overlap 904,992 private-covered pixels at source
+5000, and 902,960 overlap 904,983 at source 5001. Median overlapping
+depth error is zero; p90 is 0.004795 and 0.004800 respectively. The
+local comparison reports are `adjacent-renderdoc-k-depth-compare-5000.json`
+and `adjacent-renderdoc-k-depth-compare-5001.json` (SHA-256
+`D537CC43419CE240AA32286965879A2A9C0BE60CC23136448480E1B54780EB59`
+and `F11FFCBB07D854A344D3D5CCCE827C7BDCBAD817F5606B2B59423D065DEB40B4`).
+Coverage alignment does not prove alpha, color or stencil parity. The
+side-by-side scene targets show that identity shading lacks terrain and
+foliage materials, car paint/glass, crowd detail, lighting and shadows in
+both moving frames. Color error against identity IDs would be meaningless;
+the approximately 90% qualitative visual bar **fails**. The current
+file-backed diagnostic also fails the net-speed case described below.
+**Gate A is no-go for replacement or SNR-06–10 expansion:** keep
+compatibility authoritative, add material-aware shading and retained-pass
+composition, then compare the resulting color/alpha/stencil target and
+paired net frame time before reconsidering admission.
+
 ### Compatibility target-space orientation
 
 A separate race run captured RenderDoc frame 5001. Selected-scene vertex

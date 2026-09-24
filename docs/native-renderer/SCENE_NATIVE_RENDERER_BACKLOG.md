@@ -323,10 +323,16 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    one-run complete-slice source-frame-5000/5001 capture is recorded in the
    [SNR-04 evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#one-run-adjacent-source-frames--2026-09-24):
    both strict ledgers and six-family joins pass, but identity shading fails
-   the predeclared visual regions. Next obtain target-space color/alpha/depth
+   the predeclared visual regions. Next obtain target-space color/alpha/stencil
    comparison in these adjacent frames with material-aware shading and
    retained-pass composition; presented screenshots do not establish
-   final-output parity.
+   final-output parity. A two-output-frame RenderDoc capture now exports the
+   six final compatibility scene-target bands across those adjacent frames.
+   Both strict censuses and six-family fixture joins pass, and sample-0
+   target-space depth coverage overlaps by 99.78% in each frame; see the
+   [target-space evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#adjacent-compatibility-scene-target-capture--2026-09-24).
+   The approximately 90% visual bar remains failed for identity shading,
+   and material-aware color/alpha/stencil parity remains unmeasured.
    Investigate an isolated sample/byte mismatch only when it suggests a
    general rendering error or visible defect. Draw identity and freshness
    must remain exact even when image appearance is approximate.
