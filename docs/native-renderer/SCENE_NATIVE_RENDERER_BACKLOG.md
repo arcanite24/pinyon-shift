@@ -5,6 +5,10 @@ diagnostic are proved for sampled race frames, including adjacent moving
 frames. The file-backed path fails the visual bar and is no-go as a speed
 candidate; no net renderer performance gain is claimed. Material coverage,
 other-family lifetimes and retained-pass bridges remain open.
+**Delivery priority changed on 2026-09-24:** get an opt-in live native frame,
+then a usable race renderer. Performance and the approximately 90% visual
+target are later optimization/qualification goals, not blockers to those
+first two milestones. See the [Skate 3 development sequence](SKATE3_NATIVE_RENDERER_MILESTONES_2026-09-24.md).
 An opt-in in-process six-family handoff now preserves the exact diagnostic
 target on two adjacent checked frames, but still serializes fixture bytes and
 uses stage waits and readback. It is a correctness step, not the production
@@ -141,6 +145,9 @@ particles, HUD/video, shadows, reflections and post-processing may initially sta
 compatible only where their producers, consumers and composition are preserved.
 If that boundary is not separable, revise the slice explicitly before suppression.
 One easy mesh or a subset selected by shader hash cannot complete this milestone.
+That complete-slice rule applies to the later supported renderer, not the
+first opt-in live-output pilot. The pilot may render a bounded subset if its
+missing content is explicit and compatibility can be restored immediately.
 
 For the race pilot, the **Gate A diagnostic slice is explicitly revised** to
 the title-linked scene-list, character-manager, procedural-character,
@@ -229,21 +236,40 @@ reported speedup on FH1. The following findings change the execution plan:
   file permissions. Implement FH1 behavior independently; review applicable
   per-file terms before any source transplant.
 
-## Milestones and qualification gates
+## Delivery milestones
 
-| Gate | Required result | What it does not claim |
+The [Skate 3 history](SKATE3_NATIVE_RENDERER_MILESTONES_2026-09-24.md)
+shows a rough live world renderer before texture/character coverage, parity
+work, performance overhaul or native-by-default release. Follow that order
+for FH1 while preserving exact-frame ownership and whole-frame fallback.
+The existing SNR tickets below remain the technical ledger; parts of SNR-08
+and SNR-09 move forward for the first live output.
+
+| Milestone | Required result | Explicitly deferred |
 | --- | --- | --- |
-| A — Authoritative scene, SNR-00–04 | Same-frame full-resolution diagnostic color/identity and depth from an immutable scene; every item in the selected slice accounted for, with exact view/material/resource ownership | Faithful shading, removed compatibility work or higher FPS |
-| B — Useful renderer, SNR-05–11 | Complete supported slice integrated with retained passes; early paired draw/resolve suppression; safe admission/fallback; measured improvement at the agreed visual-quality bar | Pixel-perfect output, all cameras/modes, complete Xenos retirement or removal of original title preparation |
-| C — Earlier bypass, SNR-12 | A measured original preparation path removed without changing authoritative state, side effects or gameplay | Permission to skip all guest rendering functions |
+| L0 — Owned scene diagnostic (current evidence) | Strict selected-draw census, immutable same-frame geometry and one private GPU target on sampled race frames | Presented native output, materials and continuous gameplay |
+| L1 — First live native frame | In-memory current-frame scene on the existing D3D12 queue; an opt-in early output callback presents native race geometry with a visible native/compatibility toggle and whole-frame fallback | Complete scene, HUD, accurate materials, FPS gain |
+| L2 — Usable race renderer | Continuous sustained-race gameplay with road, vehicles, vegetation, basic colors/textures and alpha, stable motion, and readable HUD/gameplay cues; unsupported modes yield entirely to compatibility | 90% visual score, 15% speedup, all modes and exact material ports |
+| L3 — Efficient replacement | Proved retained-pass bridges and safe early suppression remove replaced compatibility work; measure net frame cost and fix the critical path | Default-native release or pixel-perfect parity |
+| L4 — Qualify and expand | Optimize and compare against the declared performance/visual targets, extend modes as needed, then consider native-by-default | Complete Xenos retirement without the separate migration checklist |
 
-Gate B's initial retention target is **at least 15% lower median frame time**
+**L1/L2 safety floor:** the current output frame must use current scene and
+resource data; invalid scene/resource or output failure selects a complete
+compatibility frame. Keep original UI/cues readable at L2 and do not change
+game speed or hide repeated/dropped frames. An L1 flat-shaded image is a
+development milestone, not a claim that the game is usable. A rough but
+playable L2 image is allowed; document unsupported content and visible
+shortcomings. Do not promote a diagnostic screenshot or double rendering to
+a speed result.
+
+The later optimization target remains **at least 15% lower median frame time**
 at equal output settings, also exceeding twice the observed control-to-control
 median variation. Predeclare the comparison and tail-noise envelope in SNR-00;
 p95/p99 must not regress beyond that envelope. This is a go/no-go target, not a
-forecast. The visual target is approximately **90% acceptable fidelity** in
-predeclared representative scene regions and motion, judged side by side with
-the compatibility renderer. Bit-identical pixels, depth, sample masks and
+forecast or a prerequisite for L1/L2. The later visual target is approximately
+**90% acceptable fidelity** in predeclared representative scene regions and
+motion, judged side by side with the compatibility renderer. Bit-identical
+pixels, depth, sample masks and
 shader arithmetic are not required. Record visible differences, including
 minor approximations or omissions, and accept them when they do not materially
 impair the scene or gameplay. Every selected submission must still be
@@ -256,29 +282,69 @@ whether another bounded change is justified.
 
 ## Work order
 
-All checkboxes are intentionally open. Research findings above are inputs, not
-completed implementation tickets. Effort is relative scope, not a time estimate.
+Ticket checkboxes remain open until their full acceptance checks pass. L1 and
+L2 deliberately use bounded parts of later tickets; the full SNR-00–12 list
+is no longer a serial prerequisite chain for the first usable renderer.
+Effort is relative scope, not a time estimate.
 
 | ID | Task | Prerequisites | Effort / owner area |
 | --- | --- | --- | --- |
 | SNR-00 | Freeze slice, controls and success criteria | None | Small / tooling + renderer |
 | SNR-01 | Recover live view and submission ownership | SNR-00 | Large / title reverse engineering |
-| SNR-02 | Recover materials, resources and dynamic identities | SNR-01 | Large / title + resources |
-| SNR-03 | Publish an immutable FH1 frame scene | SNR-01, SNR-02 | Medium / title + renderer |
-| SNR-04 | Render authoritative full-resolution diagnostics | SNR-03 | Medium / D3D12; closes A |
-| SNR-05 | Prove the pass/dependency cut and bridges | SNR-01, SNR-02; bridge implementation after A | Large / title + SDK |
-| SNR-06 | Establish native shader ABI and material coverage | A, SNR-05 | Large / shaders |
-| SNR-07 | Render the complete slice with native resources | SNR-06 | Large / D3D12 |
-| SNR-08 | Implement native output and retained-pass composition | A, SNR-05 | Medium / SDK output |
-| SNR-09 | Establish per-frame admission and recovery | SNR-07, SNR-08 | Medium / title + SDK |
-| SNR-10 | Suppress replaced compatibility work early | SNR-05, SNR-09 | Medium / SDK commands |
-| SNR-11 | Qualify images, streaming and net performance | SNR-10 | Large / validation; closes B |
-| SNR-12 | Remove a proven upstream preparation path | B, new critical-path evidence | Large / title; closes C |
+| SNR-02 | Recover materials, resources and dynamic identities | Basic current inputs for L1; expand for L2 | Large / title + resources |
+| SNR-03 | Publish an immutable FH1 frame scene | In-memory current-frame subset for L1 | Medium / title + renderer |
+| SNR-04 | Render authoritative full-resolution diagnostics | Existing GPU diagnostic feeds L1 | Medium / D3D12 |
+| SNR-05 | Prove the pass/dependency cut and bridges | Minimal HUD/retained-pass bridge for L2; full cut for L3 | Large / title + SDK |
+| SNR-06 | Establish native shader ABI and material coverage | Basic color/alpha for L2; broad coverage later | Large / shaders |
+| SNR-07 | Render the supported native slice | L1 geometry; L2 recognizable scene | Large / D3D12 |
+| SNR-08 | Implement native output and retained-pass composition | **Early takeover for L1**; retained composition for L2 | Medium / SDK output |
+| SNR-09 | Establish per-frame admission and recovery | **Whole-frame fallback for L1**; full recovery before L3 | Medium / title + SDK |
+| SNR-10 | Suppress replaced compatibility work early | L2 usable output and complete SNR-05 cut; L3 | Medium / SDK commands |
+| SNR-11 | Qualify images, streaming and net performance | L3 replacement; L4 | Large / validation |
+| SNR-12 | Remove a proven upstream preparation path | New post-L3 critical-path evidence | Large / title |
 
-### Immediate priority and stop/go checks
+### Active delivery path — L1, then L2
 
-Treat **Gate A (SNR-00–04)** as the active execution phase. SNR-05–12 remain
-the roadmap, not simultaneous implementation work. A process-bounded replay
+1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
+   callback is an observer after compatibility output processing; it cannot
+   replace the presented image. Let an opt-in native callback draw to the
+   presented output and signal success before compatibility gamma/FXAA,
+   while retaining the final render-test observer after either path. Keep
+   compatibility rendering available and do not suppress its draws yet.
+2. Feed that callback a bounded immutable scene directly from the current
+   title/output frame. Reuse the six-family ordered GPU diagnostic and
+   existing device/queue; eliminate fixture files, external manifest polling,
+   inter-family readback and worker waits from the live path. Use owned
+   current-frame bytes where a persistent generation is not proved.
+3. Deliver an opt-in **live native frame** and a manual native/compatibility
+   toggle. Prove continuous moving-frame presentation, no stale frame, safe
+   fallback on missing scene/resource/resize, normal route exit and unchanged
+   save/gameplay. Flat colors and missing HUD are acceptable only for L1;
+   label the mode experimental and keep compatibility as the default.
+4. Make the sustained race **usable**: add basic road/terrain, car and foliage
+   color/texture/alpha, sky or an intentional approximation, stable dynamic
+   transforms, and readable original HUD/gameplay cues via a proved retained
+   bridge or a native equivalent. Unsupported menus, photo/mirror/video and
+   other modes select a complete compatibility frame. Validate several
+   minutes of driving, transitions and a title reload without stale content.
+
+L1 is complete when the player can toggle to a continuously presented native
+race view and back without a crash or stale frame. L2 is complete when the
+player can drive the selected race using native scene output and readable
+gameplay cues, with documented visual gaps and clean fallback for unsupported
+modes. **Neither milestone requires a 15% gain or 90% visual score.**
+Those are L4 qualification targets. Preserve exact-frame ownership, resource
+freshness and safe fallback throughout.
+
+### Prior Gate A preflight (retained as evidence)
+
+The following census and stop/go notes explain why the file-backed identity
+diagnostic is not a production renderer. They no longer block L1's live-output
+pilot or L2's basic material work. Do not restart broad reverse engineering
+before the first in-game native frame.
+
+Earlier work treated **Gate A (SNR-00–04)** as the active execution phase.
+That ordering is superseded by L1/L2 above. A process-bounded replay
 now attributes all 4,605 prepared draws and 131 root buffers in backend frame
 6001; both candidate color groups account for 2,705 draws, with no
 unattributed attachment writer. This proves the title view/pass boundary for
@@ -372,18 +438,17 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    22.2 ms debug capture alone exceeds the illustrative 15% frame-time
    saving; external fixture handoff adds latency even after batch-local
    reuse. This does not measure a production
-   native replacement. Keep
-   compatibility authoritative and defer material expansion/suppression until
-   a persistent resource cache, in-memory immutable handoff, SNR-05 dependency
-   census and paired net benchmark support the case.
+   native replacement. Keep compatibility authoritative. This rejects the
+   diagnostic capture path, but no longer defers basic L2 material work until
+   a paired net benchmark.
 
-### Next execution goal — production-shaped feasibility
+### Current direct-scene handoff (supports L1)
 
 The previous Gate A continuation proved one-run adjacent ownership,
 selected foliage unload/rebind and current-run private-target execution. Its
 stop/go result rejects the **file-backed diagnostic**, not native rendering
-itself. Before broad shader/material work, replace only the measured debug
-costs and test whether a useful renderer can plausibly clear Gate B:
+itself. Items 1–3 below support the live-output pilot; the cost qualification
+in item 4 belongs after usable gameplay:
 
 1. Hand the checked current-frame immutable scene directly to the in-game
    worker. Remove fixture-file encoding, external manifest polling and debug
@@ -399,7 +464,8 @@ costs and test whether a useful renderer can plausibly clear Gate B:
    per family. Capture two adjacent moving frames in one run; verify their
    draw census and compare the opt-in target with the existing offline
    diagnostic. Keep compatibility output authoritative.
-4. Run matched control/probe-off/probe-on measurements at production settings,
+4. **After L2**, run matched control/probe-off/probe-on measurements at
+   production settings,
    separately reporting capture CPU, uploads, native GPU work, retained work,
    memory, frame cadence and any critical-path stall. Estimate removable
    compatibility work only from the SNR-05 dependency cut, never from draw
@@ -407,12 +473,10 @@ costs and test whether a useful renderer can plausibly clear Gate B:
    frame-time gain** with the roughly 90% visual bar. This diagnostic cannot
    claim net speedup while compatibility draws still run.
 
-**Decision:** if the production-shaped path is still too costly, revise the
-slice or identify a proven upstream preparation saving before implementing
-the full material system. If the cost case is plausible, implement the
-highest-impact material/alpha and retained-pass composition needed for the
-predeclared visual regions, then remeasure. Do not spend this phase chasing
-isolated float/sample differences that are not visible.
+**Later decision:** if a usable L2 renderer misses the speed target, revise
+the slice or identify a proven upstream preparation saving during L3/L4.
+Do not withhold basic material/alpha and HUD work merely because the current
+identity diagnostic is slow or visually rough.
 
 **Current implementation cut:** stop treating the SNR-04 fixture encoder and
 SNR-01 census as a candidate frame path. Publish the six already owned typed
@@ -444,14 +508,11 @@ Convert the remaining five families before repeating the production-settings
 cost gate; the current worker still reparses their fixtures and waits after
 each segment.
 
-**Stop/go after the boundary census:** if view/pass membership or retained-pass
-inputs cannot be established, revise the slice explicitly and rerun the census;
-do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**
-if same-frame coverage, resource freshness, agreed visual quality or the
-in-game dependency/cost case fails,
-keep compatibility as the default and revise the boundary or renderer approach
-before starting SNR-06–10. Preserve Gate B's 15% net-speed threshold and
-the predeclared approximate visual-quality bar.
+The prior Gate A quality/cost stop-go is superseded for L1/L2. Unknown scene
+identity, stale resources and unsafe fallback still reject a native frame;
+visual roughness or poor speed does not block the opt-in pilot. Apply the
+15% net-speed and approximate 90% visual targets at L4, after L2 is usable
+and L3 removes paired compatibility work.
 
 ### [ ] SNR-00 — Freeze the experiment
 
@@ -694,15 +755,16 @@ the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before
 claiming parity; see the complete-slice evidence.
 
-**Done when / Gate A:** every selected item is accounted for and the diagnostic
-scene is stable at reference resolution, with no silent missing, duplicated,
-stale or misattributed objects. Small documented rendering approximations may
+**Full SNR-04 acceptance (later than L1/L2):** every selected item is
+accounted for and the diagnostic scene is stable at reference resolution,
+with no silent missing, duplicated, stale or misattributed objects. Small
+documented rendering approximations may
 pass the visual bar; stale or wrong-owner data cannot.
 The in-memory in-game private-target path and moving-frame comparison meet the
 predeclared visual bar, and an unload/reload check validates resource
 freshness. Unknown authoritative relationships stop this gate; isolated
-byte/sample differences do not. Publish the measured in-game cost and a
-stop/go decision against the 15% net-speed target before production expansion.
+byte/sample differences do not. Publish the measured in-game cost for L3/L4
+optimization without using it to block the first live or playable renderer.
 
 ### [ ] SNR-05 — Prove the dependency boundary
 
@@ -845,8 +907,8 @@ A native image alongside the original renderer cannot close this ticket.
   inclusive samples, asynchronous frame-domain spans or means and medians.
   Compare diagnostic-on overhead separately from production-settings behavior.
 
-**Done when / Gate B:** the predeclared approximate visual bar and gameplay
-checks pass, the entire supported slice is admitted without concealed
+**Done when / L4 qualification:** the predeclared approximate visual bar and
+gameplay checks pass, the entire supported slice is admitted without concealed
 omissions, memory/tails meet the frozen limits, and median improvement clears
 both the 15% target and control noise. Do not require byte-identical output.
 Publish results with scope, rejected cases, remaining work and exact artifacts.
