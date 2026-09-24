@@ -13,6 +13,8 @@ MARKERS = {
     'fetch': 'FH1 SNR01 prepared texture fetch ',
     'bound': 'FH1 SNR04 bound pixel ',
     'source': 'FH1 SNR04 BC3 source ',
+    'resolved': 'FH1 SNR02 vegetation resource resolved ',
+    'resource_bound': 'FH1 SNR02 vegetation resource bound ',
 }
 
 
@@ -102,6 +104,31 @@ def verify(log: Path, frame: int):
             {'key': candidate, 'base': next(iter(textures))[0],
              'mips': next(iter(textures))[1], 'items': candidate_counts[candidate]}
             for candidate, textures in sorted(candidate_textures.items())]
+        resolved = [r for r in rows['resolved'] if r['frame'] == frame]
+        resource_bound = [r for r in rows['resource_bound'] if r['frame'] == frame]
+        if resolved or resource_bound:
+            assert len(resolved) == len(resource_bound) > 0
+            state_keys = {(r['bucket_entry'], r['record'], r['candidate'])
+                          for r in states}
+            resource_key = lambda r: (r['bucket_entry'], r['record'], r['key'])
+            resolved_by_key = {resource_key(r): r for r in resolved}
+            bound_by_key = {resource_key(r): r for r in resource_bound}
+            assert len(resolved_by_key) == len(resolved)
+            assert len(bound_by_key) == len(resource_bound)
+            assert set(resolved_by_key) == set(bound_by_key) <= state_keys
+            objects = defaultdict(set)
+            for selected, row in resolved_by_key.items():
+                bound = bound_by_key[selected]
+                assert row['object'] == bound['object'] != 0
+                assert bound['slot'] == 0
+                objects[row['key']].add(row['object'])
+            assert set(objects) == set(candidate_textures)
+            assert all(len(values) == 1 for values in objects.values())
+            assert len({next(iter(values)) for values in objects.values()}) == 5
+            report['resource_resolutions'] = len(resolved)
+            report['resource_objects'] = [
+                {'key': candidate, 'object': next(iter(values))}
+                for candidate, values in sorted(objects.items())]
     return report
 
 
@@ -116,4 +143,5 @@ if __name__ == '__main__':
     print(json.dumps({'items': report['items'], 'executions': report['executions'],
                       'bc3': len(report['bc3']),
                       'candidates': len(report.get('candidates', [])),
+                      'resolved': report.get('resource_resolutions', 0),
                       'state_index': report['state_index']}))

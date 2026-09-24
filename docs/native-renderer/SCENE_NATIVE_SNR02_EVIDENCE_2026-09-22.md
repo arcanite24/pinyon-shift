@@ -1082,13 +1082,47 @@ and the payload join is `bc3-source-join.json` (SHA-256
 The RelWithDebInfo executable SHA-256 was
 `C59DFEF7EC3F3AB0391E41A793D0FC4ABF0B3F83391E7DC2EED34E182BCDAB70`.
 
+A third normal-exit run (`20260924T025739Z-p44980`) added the existing
+`sub_82415AD0` resolver-return and vtable-bind boundaries to the bounded
+trace. It completed seven compatibility captures. All 65 selected records
+joined 135 prepared executions and the five same-frame BC3 sources. For 64
+selected records, the resolver returned a nonzero object and the following
+bind call received the **same object** in slot 0. Each key resolved to one
+distinct title object in this run:
+
+| Title key | Resolved and bound title object |
+| --- | --- |
+| `0x4C78` | `0xAAEC4BC0` |
+| `0x4C79` | `0xAAEC4C20` |
+| `0x4C7B` | `0xAAEC4CE0` |
+| `0x4C7C` | `0xAAEC4D40` |
+| `0x4C7D` | `0xAAEC4DA0` |
+
+One selected record did not take the resolver/bind path; the generated
+five-slot key cache can skip it when its key is already current. The verifier
+requires exact record/key/object agreement for all 64 observed resolutions,
+five distinct objects and a complete five-key prepared-fetch/SRV join for
+all 65 selected records. The five fenced nine-mip chains again match the
+independent RenderDoc payloads. The filtered log is
+`.local/native-renderer/snr02/foliage-resolved-object-c/evidence.log`
+(SHA-256 `86AC69C0AE45CC3247F4AB412F1B0DD4529D558F3C0E737DC0305DDA68A5E4CD`),
+its `state-join.json` has SHA-256
+`51A930246D48CB6E36401D8140E1100DD020F976C6CF8668442876D78146B612`,
+and its `bc3-source-join.json` has SHA-256
+`DA4CC1792F4B5881D7C24D2D4FD723A0847829F9882471E0296C1E5CAC1856F4`.
+The executable SHA-256 was
+`1DB22A17FEEE66AA03CB539CDAE46D02828EA8A60F2CA68C8B5024AD054119F0`.
+A probe-off replay of that build (`20260924T030139Z-p240`) exited normally
+at frame 6920 with all seven compatibility captures; its process session
+SHA-256 was
+`1DEEF31FA6CD2E810851E2A51D085BB91CB43266590B71C8DDEE95E61E956B7F`.
+
 Reproduce the process-filtered log with `extract-snr01-run-log.py SESSION
 OUTPUT --include-scene --include-bc3-source`, then run
 `verify-snr02-vegetation-state-entry.py LOG OUTPUT --frame 5000` and
 `verify-snr04-bc3-source-join.py LOG LIVE_DIR REFERENCE_DIR OUTPUT --frame
-5001`. The new hook is diagnostic-only and default off. The title key is a
-bounded texture selector for this foliage slice, **not** yet a material-object
-identity or a durable allocation generation. The next trace should join
-`sub_82415AD0`'s resolved object to the key, follow its upload and unload,
-and establish how its payload generation changes when guest addresses are
-reused.
+5001`. The hooks are diagnostic-only and default off. The title key and
+resolved object identify the bounded foliage texture resource in these
+runs, but neither pointer nor key yet proves allocation or payload
+generation. The next trace must follow resource creation, upload and unload,
+including guest-address reuse and streaming mutation.

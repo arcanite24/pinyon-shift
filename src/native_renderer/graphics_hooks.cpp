@@ -267,6 +267,8 @@ struct Snr01TrackBucketScope {
   uint32_t vegetation_stream_offset = 0;
   uint32_t vegetation_record_base = 0;
   uint32_t vegetation_selected_record = 0;
+  uint32_t vegetation_candidate_key = 0;
+  uint32_t vegetation_candidate_record = 0;
   uint64_t track_call = 0;
 };
 struct Snr01SecondDrawScope {
@@ -4345,33 +4347,55 @@ void PinyonShiftObserveProceduralResourceCandidate(
 }
 
 void PinyonShiftObserveProceduralResourceResolution(PPCRegister& r3) {
-  if (!Snr01TraceCurrentFrame() || snr01_procedural_scopes.empty()) {
+  if (!Snr01TraceCurrentFrame()) {
     return;
   }
-  const auto& scope = snr01_procedural_scopes.back();
-  if (scope.ordinal <= kSnr01ProceduralLimit) {
+  if (!snr01_procedural_scopes.empty() &&
+      snr01_procedural_scopes.back().ordinal <= kSnr01ProceduralLimit) {
+    const auto& scope = snr01_procedural_scopes.back();
     REXGPU_INFO(
         "FH1 SNR01 resource resolution {{\"frame\":{},\"call\":{},"
         "\"object\":{}}}",
         rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
         scope.ordinal, r3.u32);
   }
+  if (Snr03TargetFrame() > 0 && !snr01_track_bucket_scopes.empty() &&
+      snr01_track_bucket_scopes.back().vegetation_candidate_key) {
+    const auto& bucket = snr01_track_bucket_scopes.back();
+    REXGPU_INFO("FH1 SNR02 vegetation resource resolved {{\"frame\":{},"
+                "\"bucket_entry\":{},\"record\":{},\"key\":{},"
+                "\"object\":{}}}",
+                rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
+                bucket.ordinal, bucket.vegetation_candidate_record,
+                bucket.vegetation_candidate_key, r3.u32);
+  }
 }
 
 void PinyonShiftObserveProceduralResourceBind(
     PPCRegister& r3, PPCRegister& r4, PPCRegister& r5,
     PPCRegister& r11) {
-  if (!Snr01TraceCurrentFrame() || snr01_procedural_scopes.empty()) {
+  if (!Snr01TraceCurrentFrame()) {
     return;
   }
-  const auto& scope = snr01_procedural_scopes.back();
-  if (scope.ordinal <= kSnr01ProceduralLimit) {
+  if (!snr01_procedural_scopes.empty() &&
+      snr01_procedural_scopes.back().ordinal <= kSnr01ProceduralLimit) {
+    const auto& scope = snr01_procedural_scopes.back();
     REXGPU_INFO(
         "FH1 SNR01 resource bind {{\"frame\":{},\"call\":{},"
         "\"context\":{},\"slot\":{},\"object\":{},"
         "\"target\":{}}}",
         rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
         scope.ordinal, r3.u32, r4.u32, r5.u32, r11.u32);
+  }
+  if (Snr03TargetFrame() > 0 && !snr01_track_bucket_scopes.empty() &&
+      snr01_track_bucket_scopes.back().vegetation_candidate_key) {
+    const auto& bucket = snr01_track_bucket_scopes.back();
+    REXGPU_INFO("FH1 SNR02 vegetation resource bound {{\"frame\":{},"
+                "\"bucket_entry\":{},\"record\":{},\"key\":{},"
+                "\"slot\":{},\"object\":{},\"target\":{}}}",
+                rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
+                bucket.ordinal, bucket.vegetation_candidate_record,
+                bucket.vegetation_candidate_key, r4.u32, r5.u32, r11.u32);
   }
 }
 
@@ -4953,11 +4977,14 @@ void PinyonShiftObserveVegetationStateEntry(
   const uint32_t table = SnrM02ReadU32(r23.u32 + 8);
   const bool eligible = slots && table && slot < limit;
   const uint32_t candidate = eligible ? SnrM02ReadU32(table + slot * 8) : 0;
+  auto& bucket = snr01_track_bucket_scopes.back();
+  bucket.vegetation_candidate_key = candidate;
+  bucket.vegetation_candidate_record = r27.u32;
   REXGPU_INFO("FH1 SNR02 vegetation state entry {{\"frame\":{},"
               "\"bucket_entry\":{},\"owner\":{},\"record\":{},"
               "\"index\":{},\"entry\":{},\"words\":[{},{},{},{},{},{},{}],"
               "\"slot\":{},\"limit\":{},\"candidate\":{}}}",
-              frame, snr01_track_bucket_scopes.back().ordinal, r23.u32,
+              frame, bucket.ordinal, r23.u32,
               r27.u32, r22.u32, entry, words[0], words[1], words[2],
               words[3], words[4], words[5], words[6], slot, limit, candidate);
 }
@@ -4966,6 +4993,10 @@ void PinyonShiftObserveVegetationStateBind(
     PPCRegister& r3, PPCRegister& r4, PPCRegister& r5, PPCRegister& r11,
     PPCRegister& r23, PPCRegister& r24, PPCRegister& r26, PPCRegister& r27) {
   PinyonShiftObserveSecondStateBind(r3, r4, r5, r11);
+  if (!snr01_track_bucket_scopes.empty()) {
+    snr01_track_bucket_scopes.back().vegetation_candidate_key = 0;
+    snr01_track_bucket_scopes.back().vegetation_candidate_record = 0;
+  }
   if (!Snr01TraceCurrentFrame() || snr01_track_bucket_scopes.empty()) {
     return;
   }
