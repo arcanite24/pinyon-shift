@@ -21,6 +21,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <span>
 #include <source_location>
@@ -42,6 +43,7 @@ struct pinyon_shift::native_renderer::Snr04SharedTarget {
 
 namespace {
 constexpr uint32_t width = 1280, height = 720;
+thread_local uint64_t upload_cpu_ns = 0, upload_bytes = 0;
 constexpr char expected_vs_sha[] =
     "2adfe080228c468ce9aec7e21d19798fc8aaa32cdba5d7325c4fac4070f21faa";
 
@@ -248,6 +250,7 @@ ComPtr<ID3D12Resource> buffer(ID3D12Device* device, uint64_t size,
   return resource;
 }
 ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t size) {
+  const auto begin = std::chrono::steady_clock::now();
   auto resource = buffer(device, (size + 255) & ~uint64_t(255),
                          D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
   void* mapping = nullptr;
@@ -255,8 +258,45 @@ ComPtr<ID3D12Resource> upload(ID3D12Device* device, const void* bytes, size_t si
   check(resource->Map(0, &empty, &mapping));
   std::memcpy(mapping, bytes, size);
   resource->Unmap(0, nullptr);
+  upload_cpu_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - begin).count();
+  upload_bytes += size;
   return resource;
 }
+struct Snr04GpuDrawTimer {
+  ComPtr<ID3D12QueryHeap> queries;
+  ComPtr<ID3D12Resource> result;
+  uint64_t frequency = 0;
+
+  Snr04GpuDrawTimer(ID3D12Device* device, ID3D12CommandQueue* queue) {
+    D3D12_QUERY_HEAP_DESC description{};
+    description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    description.Count = 2;
+    check(device->CreateQueryHeap(&description, IID_PPV_ARGS(&queries)));
+    result = buffer(device, 16, D3D12_HEAP_TYPE_READBACK,
+                    D3D12_RESOURCE_STATE_COPY_DEST);
+    check(queue->GetTimestampFrequency(&frequency));
+    require(frequency != 0, "GPU timestamp frequency unavailable");
+  }
+  void begin(ID3D12GraphicsCommandList* commands) {
+    commands->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+  }
+  void end(ID3D12GraphicsCommandList* commands) {
+    commands->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+    commands->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+                               0, 2, result.Get(), 0);
+  }
+  uint64_t microseconds() {
+    D3D12_RANGE range{0, 16};
+    uint64_t* ticks = nullptr;
+    check(result->Map(0, &range, reinterpret_cast<void**>(&ticks)));
+    require(ticks[1] >= ticks[0], "GPU timestamps reversed");
+    const uint64_t elapsed = (ticks[1] - ticks[0]) * 1000000 / frequency;
+    D3D12_RANGE empty{};
+    result->Unmap(0, &empty);
+    return elapsed;
+  }
+};
 ComPtr<ID3D12Resource> texture(ID3D12Device* device, DXGI_FORMAT format,
                                D3D12_RESOURCE_FLAGS flags,
                                D3D12_RESOURCE_STATES initial,
@@ -1111,6 +1151,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                 return a.sequence < b.sequence;
               });
   require(!segment || scene.sequenced, "vegetation segment needs draw sequences");
+  std::optional<Snr04GpuDrawTimer> gpu_timer;
+  if (segment && segment->gpu_draw_us) {
+    gpu_timer.emplace(device.Get(), queue.Get());
+    gpu_timer->begin(commands.Get());
+  }
   uint32_t segment_draws = 0;
   for (const auto& draw : draws) {
     if (segment && (draw.sequence < segment->first_sequence ||
@@ -1147,6 +1192,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     commands->DrawIndexedInstanced(item.vertex_count / 4 * 6, 1, 0, 0, 0);
     ++segment_draws;
   }
+  if (gpu_timer) gpu_timer->end(commands.Get());
   require(!segment || segment_draws == segment->draw_count,
           "vegetation segment draw count mismatch");
   if (alpha_probe) {
@@ -1242,6 +1288,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (gpu_timer) *segment->gpu_draw_us = gpu_timer->microseconds();
   if (segment && segment->shared_target && !segment->shared_final)
     return 0;
   ComPtr<ID3D12InfoQueue> messages;
@@ -1933,6 +1980,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   const std::vector<char> zero_positions(position_allocation);
   auto position_zero = upload(device.Get(), zero_positions.data(), zero_positions.size());
   const auto built = std::chrono::steady_clock::now();
+  std::optional<Snr04GpuDrawTimer> gpu_timer;
+  if (segment && segment->gpu_draw_us) {
+    gpu_timer.emplace(device.Get(), queue.Get());
+    gpu_timer->begin(commands.Get());
+  }
   uint32_t segment_draws = 0;
   for (const auto& ref : draws) {
     const auto& draw = scene.items[ref.item].draws[ref.variant];
@@ -1961,6 +2013,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
     commands->DrawIndexedInstanced(draw.vertex_count / 4 * 6, 1, 0, 0, 0);
     ++segment_draws;
   }
+  if (gpu_timer) gpu_timer->end(commands.Get());
   require(!segment || segment_draws == segment->draw_count,
           "procedural segment draw count mismatch");
   commands->CopyBufferRegion(position_output.Get(), 0, position_zero.Get(), 0,
@@ -2022,6 +2075,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "procedural GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (gpu_timer) *segment->gpu_draw_us = gpu_timer->microseconds();
   if (segment && segment->shared_target && !segment->shared_final)
     return 0;
   const auto drawn = std::chrono::steady_clock::now();
@@ -2487,6 +2541,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   commands->RSSetViewports(1, &viewport);
   commands->RSSetScissorRects(1, &scissor);
   commands->SetGraphicsRootSignature(root.Get());
+  std::optional<Snr04GpuDrawTimer> gpu_timer;
+  if (segment && segment->gpu_draw_us) {
+    gpu_timer.emplace(device.Get(), queue.Get());
+    gpu_timer->begin(commands.Get());
+  }
   uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
@@ -2535,6 +2594,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     commands->DrawIndexedInstanced(draw.count, 1, 0, 0, 0);
     ++segment_draws;
   }
+  if (gpu_timer) gpu_timer->end(commands.Get());
   require(!segment || segment_draws == segment->draw_count,
           "track segment draw count mismatch");
   if (segment && segment->shared_target && !segment->shared_final) {
@@ -2572,6 +2632,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "track GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (gpu_timer) *segment->gpu_draw_us = gpu_timer->microseconds();
   if (segment && segment->shared_target && !segment->shared_final)
     return 0;
   std::filesystem::create_directories(output_directory);
@@ -3001,6 +3062,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  std::optional<Snr04GpuDrawTimer> gpu_timer;
+  if (segment && segment->gpu_draw_us) {
+    gpu_timer.emplace(device.Get(), queue.Get());
+    gpu_timer->begin(commands.Get());
+  }
   uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
@@ -3031,6 +3097,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "manager segment draw count mismatch");
+  if (gpu_timer) gpu_timer->end(commands.Get());
   if (segment && segment->shared_target && !segment->shared_final) {
     // The next family draws directly into these GPU resources.
   } else if (samples == 1) {
@@ -3066,6 +3133,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "manager GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (gpu_timer) *segment->gpu_draw_us = gpu_timer->microseconds();
   if (segment && segment->shared_target && !segment->shared_final)
     return 0;
   std::filesystem::create_directories(output_directory);
@@ -3586,6 +3654,11 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
       depth_layout, rtv_handle, dsv_handle, segment, samples);
   commands->OMSetRenderTargets(1, &rtv_handle, FALSE, &dsv_handle);
   commands->SetGraphicsRootSignature(root.Get());
+  std::optional<Snr04GpuDrawTimer> gpu_timer;
+  if (segment && segment->gpu_draw_us) {
+    gpu_timer.emplace(device.Get(), queue.Get());
+    gpu_timer->begin(commands.Get());
+  }
   uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
@@ -3623,6 +3696,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "remainder segment draw count mismatch");
+  if (gpu_timer) gpu_timer->end(commands.Get());
   if (segment && segment->shared_target && !segment->shared_final) {
     // The next family draws directly into these GPU resources.
   } else if (samples == 1) {
@@ -3658,6 +3732,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "remainder GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (gpu_timer) *segment->gpu_draw_us = gpu_timer->microseconds();
   if (segment && segment->shared_target && !segment->shared_final)
     return 0;
   std::filesystem::create_directories(output_directory);
@@ -3755,6 +3830,7 @@ pinyon_shift::native_renderer::Snr04BatchResult
 pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     const std::filesystem::path& manifest_path, ID3D12Device* borrowed_device,
     uint32_t samples) {
+  const auto batch_begin = std::chrono::steady_clock::now();
   std::ifstream manifest(manifest_path);
   std::string header;
   uint64_t source_frame = 0;
@@ -3763,6 +3839,13 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
               header == "SNR04B1" && source_frame && count && count <= 4096,
           "invalid shared-target manifest");
   auto target = CreateSnr04SharedTarget(borrowed_device, samples);
+  const auto target_ready = std::chrono::steady_clock::now();
+  Snr04BatchResult result{};
+  result.source_frame = source_frame;
+  result.target_setup_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      target_ready - batch_begin).count();
+  std::ostringstream stages;
+  uint64_t upload_ns_total = 0;
   uint64_t previous_sequence = 0;
   uint32_t next_id = 1, covered = 0;
   for (uint32_t i = 0; i < count; ++i) {
@@ -3786,6 +3869,10 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     segment.shared_target = target;
     segment.shared_first = i == 0;
     segment.shared_final = i + 1 == count;
+    uint64_t gpu_draw_us = 0;
+    segment.gpu_draw_us = &gpu_draw_us;
+    upload_cpu_ns = upload_bytes = 0;
+    const auto stage_begin = std::chrono::steady_clock::now();
     const auto kind = std::string_view(magic.data(), 7);
     if (kind == "SNR02I3" || kind == "SNR03C1")
       covered = RunSnr04ProceduralDiagnostic(fixture, shader, output,
@@ -3805,10 +3892,43 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
                                              borrowed_device, samples, &segment);
     else
       throw std::runtime_error("unsupported shared-target fixture");
+    const auto stage_end = std::chrono::steady_clock::now();
+    require(gpu_draw_us != 0, "missing selected draw GPU timestamp");
+    const auto stage_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        stage_end - stage_begin).count();
+    if (i) stages << ',';
+    stages << "{\"kind\":\"" << kind << "\",\"first_id\":"
+           << segment.first_id << ",\"draws\":" << segment.draw_count
+           << ",\"wall_us\":" << stage_us
+           << ",\"upload_cpu_us\":" << upload_cpu_ns / 1000
+           << ",\"upload_bytes\":" << upload_bytes
+           << ",\"gpu_draw_us\":" << gpu_draw_us << '}';
+    upload_ns_total += upload_cpu_ns;
+    result.upload_bytes += upload_bytes;
+    result.gpu_draw_us += gpu_draw_us;
+    result.stage_wall_us += stage_us;
     previous_sequence = segment.last_sequence;
     next_id += segment.draw_count;
   }
   std::string trailing;
   require(!(manifest >> trailing), "trailing shared-target manifest data");
-  return {source_frame, next_id - 1, covered};
+  result.draws = next_id - 1;
+  result.covered_pixels = covered;
+  result.upload_cpu_us = upload_ns_total / 1000;
+  auto timing_path = manifest_path;
+  timing_path.replace_extension(".timing.json");
+  std::ofstream timing(timing_path);
+  timing << "{\"schema\":\"pinyon-shift.snr04-batch-timing.v1\","
+         << "\"source_frame\":" << source_frame
+         << ",\"draws\":" << result.draws
+         << ",\"target_setup_us\":" << result.target_setup_us
+         << ",\"upload_cpu_us\":" << result.upload_cpu_us
+         << ",\"upload_bytes\":" << result.upload_bytes
+         << ",\"gpu_draw_us\":" << result.gpu_draw_us
+         << ",\"stage_wall_us\":" << result.stage_wall_us
+         << ",\"intermediate_target_readbacks\":0,\"stages\":["
+         << stages.str() << "]}\n";
+  timing.close();
+  require(bool(timing), "batch timing write failed");
+  return result;
 }

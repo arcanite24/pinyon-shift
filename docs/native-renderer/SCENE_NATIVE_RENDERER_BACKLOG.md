@@ -330,12 +330,16 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    game device, matched a same-fixture staged control byte for byte and let
    the game exit normally; see the
    [live private-target evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#current-run-private-target-on-the-game-device--2026-09-24).
-   Measure
-   capture, resource update, native draw and bridge costs separately with
-   compatibility still authoritative. Use the
-   existing control and SNR-05 dependency census to decide whether the 15%
-   *net* target remains plausible. Defer production material expansion and
-   suppression until this cost and dependency checkpoint passes.
+   The next current-run measurement separates selected-frame capture, CPU
+   upload calls, GPU timestamped draw loops, stage wall time and zero
+   inter-family CPU target bridges; see the
+   [cost evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#separated-current-run-diagnostic-costs--2026-09-24).
+   **No-go for the present file-backed diagnostic as a speed candidate:** its
+   debug capture and repeated resource uploads dwarf the 15% frame-time
+   budget. This does not measure a production native replacement. Keep
+   compatibility authoritative and defer material expansion/suppression until
+   a persistent resource cache, in-memory immutable handoff, SNR-05 dependency
+   census and paired net benchmark support the case.
 
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;

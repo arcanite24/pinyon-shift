@@ -1,5 +1,59 @@
 # SNR-04 complete selected-slice diagnostic — 2026-09-23
 
+## Separated current-run diagnostic costs — 2026-09-24
+
+The opt-in callback now times its three owned-scene capture observers before
+the compatibility screenshot callback. The shared-target batch records CPU
+upload calls and bytes, GPU timestamp queries bracketing only the selected
+draw loops, per-stage wall time and private-target setup. It records zero
+intermediate target readbacks by construction. The timestamp span excludes
+the diagnostic's post-VS stream-out and final target readback; stage wall time
+includes fixture/shader loading, PSO creation, repeated uploads, 36 queue
+submissions and waits, and final debug output. These measurements are separate
+categories, **not additive per-frame costs**.
+
+The AppData-backed, extended-route current-run capture at
+`.local/native-renderer/snr04/live-shared-timing-c` exited normally. The
+independent ledger joined all **2,036** selected draws in six fixtures and
+the borrowed-device worker completed 36 stages on one private 4× target.
+`live-shared-timing-c.timing.json` (SHA-256
+`E3E02AFCE29108ABFC0063319F409B63AA8C957273CF270E06CFD78134D108AF`)
+records:
+
+| Measured part | Value | Scope |
+| --- | ---: | --- |
+| Capture callback | 22.232 ms | one selected output frame; includes fixture encoding and file writes |
+| Manifest wait | 17.109 s | external strict census and shader extraction; off game thread |
+| Private target setup | 2.545 ms | borrowed-device resource creation |
+| CPU upload calls | 12.241 s / 185.322 MB | all 36 stages; six fixture files total 15.066 MB |
+| Selected GPU draw loops | 3.143 ms | sum of 36 queue timestamp spans |
+| Stage wall | 23.527 s | all stage preparation, submissions, waits and final debug output |
+| Inter-family CPU target bridges | 0 | no intermediate target readback or upload |
+
+Twelve track and twelve remainder stages account for 20.925 seconds of stage
+wall time and 11.050 seconds of CPU upload calls. The same underlying fixture
+ranges are uploaded again for each disjoint family stage. The independent MSAA
+verifier passed: 691,263 pixels covered in any sample and 2,756,539 covered
+samples. A separate staged replay of these exact fixtures matched the live
+target byte for byte: coverage
+`b082b38ad798f5180beac4befa90e11ba83d6984ffd7f7a5745d7a1eea2088ac`,
+per-sample identity
+`3bff1f4dd35229b1817df910dfe31aab0178880f84acee8e9b7b60322f3a4f45`,
+and per-sample depth
+`1d60ff46123d1bbfd31dbcad38cbe65f05644159b41e56af959b380ddefc5aab`.
+
+**Stop/go:** the present file-backed diagnostic is no-go as a production
+renderer or a 15% net-speed candidate. Its 22.2 ms selected-frame capture
+alone exceeds the illustrative 2.84 ms saving implied by the earlier
+18.922 ms control median; the runs are not paired, and the capture includes
+debug file work, so this comparison is a warning rather than a net regression
+measurement. The 185 MB of repeated per-stage uploads and queue waits also
+make its 23.5-second batch unsuitable for FPS inference. A credible speed
+case requires a persistent resource cache and an immutable in-memory scene
+handoff, followed by a paired control/suppression benchmark with retained
+passes. Material/color fidelity, adjacent moving frames and selected
+unload/reload are still unproved; compatibility remains authoritative.
+
 ## Current-run private target on the game device — 2026-09-24
 
 The output callback can now queue a borrowed-device worker before a current-run

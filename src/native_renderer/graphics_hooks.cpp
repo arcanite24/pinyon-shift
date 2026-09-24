@@ -3346,8 +3346,13 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
   }
 }
 
-void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
+void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
+                                 uint64_t capture_us) {
 #if defined(_WIN32)
+  if (Snr03ProbeEnabled() &&
+      output_frame == uint64_t(Snr03TargetFrame()) + 1)
+    REXGPU_INFO("FH1 SNR04 capture cost output_frame={} source_frame={} "
+                "capture_us={}", output_frame, output_frame - 1, capture_us);
   const auto manifest = diagnostics::EnvironmentPath(
       "PINYON_SHIFT_SNR04_SHARED_MANIFEST");
   if (!manifest || !device || !Snr03ProbeEnabled() ||
@@ -3375,15 +3380,25 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
           if (!(input >> magic >> source_frame) || magic != "SNR04B1" ||
               source_frame != output_frame - 1)
             throw std::runtime_error("manifest_frame_mismatch_or_timeout");
+          const auto manifest_ready = std::chrono::steady_clock::now();
           const auto result = RunSnr04BatchDiagnostic(
               manifest, held.Get(), samples);
           const auto elapsed_us =
               std::chrono::duration_cast<std::chrono::microseconds>(
                   std::chrono::steady_clock::now() - begin).count();
+          const auto manifest_wait_us =
+              std::chrono::duration_cast<std::chrono::microseconds>(
+                  manifest_ready - begin).count();
           REXGPU_INFO("FH1 SNR04 shared target consumed output_frame={} "
                       "source_frame={} draws={} covered_pixels={} samples={} "
-                      "elapsed_us={}", output_frame, result.source_frame,
-                      result.draws, result.covered_pixels, samples, elapsed_us);
+                      "elapsed_us={} manifest_wait_us={} target_setup_us={} "
+                      "upload_cpu_us={} "
+                      "upload_bytes={} gpu_draw_us={} stage_wall_us={} "
+                      "intermediate_target_readbacks=0", output_frame,
+                      result.source_frame, result.draws, result.covered_pixels,
+                      samples, elapsed_us, manifest_wait_us, result.target_setup_us,
+                      result.upload_cpu_us, result.upload_bytes,
+                      result.gpu_draw_us, result.stage_wall_us);
         } catch (const std::exception& error) {
           REXGPU_INFO("FH1 SNR04 shared target rejected output_frame={} "
                       "reason={}", output_frame, error.what());
@@ -3395,6 +3410,7 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
 #else
   (void)output_frame;
   (void)device;
+  (void)capture_us;
 #endif
 }
 

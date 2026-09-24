@@ -1,5 +1,7 @@
 #include <rex/system/interfaces/graphics.h>
 
+#include <chrono>
+
 #include "fh1_render_test.h"
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
@@ -8,14 +10,17 @@ namespace {
 
 bool ObserveRenderTestOutput(
     const rex::system::NativeGuestOutputRenderContext& context) {
+  const auto capture_begin = std::chrono::steady_clock::now();
   pinyon_shift::native_renderer::ObserveSnr03OutputFrame(context.frame_sequence,
                                                         context.device);
   pinyon_shift::native_renderer::ObserveSnr02ItemOutputFrame(context.frame_sequence,
                                                             context.device);
   pinyon_shift::native_renderer::ObserveSnr02TrackOutputFrame(context.frame_sequence);
+  const auto capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - capture_begin).count();
   const bool observed = pinyon_shift::fh1_render_test::ObserveOutput(context);
   pinyon_shift::native_renderer::ObserveSnr04BatchOutputFrame(
-      context.frame_sequence, context.device);
+      context.frame_sequence, context.device, capture_us);
   return observed;
 }
 

@@ -15,6 +15,8 @@ std::shared_ptr<Snr04SharedTarget> CreateSnr04SharedTarget(
 struct Snr04BatchResult {
   uint64_t source_frame = 0;
   uint32_t draws = 0, covered_pixels = 0;
+  uint64_t target_setup_us = 0, upload_cpu_us = 0, upload_bytes = 0;
+  uint64_t gpu_draw_us = 0, stage_wall_us = 0;
 };
 Snr04BatchResult RunSnr04BatchDiagnostic(
     const std::filesystem::path& manifest, ID3D12Device* device,
@@ -27,6 +29,7 @@ struct Snr04SegmentOptions {
   std::filesystem::path alpha_bc3;
   std::shared_ptr<Snr04SharedTarget> shared_target;
   bool shared_first = false, shared_final = false;
+  uint64_t* gpu_draw_us = nullptr;
 };
 
 uint32_t RunSnr04OwnedSceneDiagnostic(
