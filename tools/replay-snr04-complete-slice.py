@@ -88,13 +88,30 @@ def replay(args):
         ids.frombytes((previous / "identity.u16x4").read_bytes())
         sample_depths = array("f")
         sample_depths.frombytes((previous / "depth.f32x4").read_bytes())
+        masks = (previous / "coverage.u8").read_bytes()
         assert len(ids) == len(sample_depths) == 1280 * 720 * 4
+        assert len(masks) == 1280 * 720
+        all_sample_ids = set()
+        sample_covered = [0] * 4
+        covered_any = covered_samples = zero_depth_samples = 0
         for pixel in range(1280 * 720):
-            identity, z = ids[pixel * 4], sample_depths[pixel * 4]
-            if identity:
-                assert 1 <= identity <= len(draws) and 0 <= z <= 1
-                identities[identity] += 1
-                zero_depth += z == 0
+            mask = 0
+            for sample in range(4):
+                identity, z = ids[pixel * 4 + sample], sample_depths[pixel * 4 + sample]
+                assert 0 <= z <= 1
+                if identity:
+                    assert 1 <= identity <= len(draws)
+                    mask |= 1 << sample
+                    all_sample_ids.add(identity)
+                    sample_covered[sample] += 1
+                    covered_samples += 1
+                    zero_depth_samples += z == 0
+                    if sample == 0:
+                        identities[identity] += 1
+                        zero_depth += z == 0
+            assert mask == masks[pixel]
+            covered_any += mask != 0
+        assert covered_samples == sum(sample_covered)
     else:
         color = (previous / "color.rgba").read_bytes()
         for pixel, value in zip(struct.iter_unpack("<I", color),
@@ -114,7 +131,17 @@ def replay(args):
               "identity_sha256": sha(previous / "identity.ppm"),
               "depth_sha256": sha(previous / "depth.f32")}
     if args.msaa4:
+        sample_only = sorted(all_sample_ids - identities.keys())
         result.update(samples=4,
+                      covered_any_pixels=covered_any,
+                      covered_samples=covered_samples,
+                      sample_covered_pixels=sample_covered,
+                      visible_draws_any_sample=len(all_sample_ids),
+                      draws_visible_only_off_sample0=[
+                          {"id": identity, "family": draws[identity - 1]["family"],
+                           "sequence": draws[identity - 1]["sequence"]}
+                          for identity in sample_only],
+                      zero_depth_samples=zero_depth_samples,
                       coverage_sha256=sha(previous / "coverage.u8"),
                       sample_identity_sha256=sha(previous / "identity.u16x4"),
                       sample_depth_sha256=sha(previous / "depth.f32x4"))

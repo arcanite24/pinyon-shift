@@ -730,3 +730,27 @@ distinguish the writing fragment's alpha/sample mask from a sample-specific
 depth or raster decision. The next trace should inspect that fragment in the
 captured and private pixel shaders; a single final per-pixel alpha observation
 is ambiguous where fragments overlap.
+
+### Complete-slice visibility across all four samples
+
+The carried 4× replay now checks every final identity/depth sample against
+`coverage.u8` and reports visibility across all samples, while preserving
+the earlier sample-0 fields. A repeat of the 1,562-draw same-run capture
+retained its previous coverage, identity and depth hashes. It has 905,192
+pixels covered in any sample, 3,617,256 covered samples and 144 visible draw
+IDs across all samples, versus 140 visible in sample 0. The four additional
+IDs are car scene-list 41 and shared-track 964, 1217 and 1222. The checked
+summary is `renderdoc-gatea-full-msaa4-metrics-b/summary.json` (SHA-256
+`CE03B396021D5F46EBD5698FC7D1ECD29FE2D5DCC25094C87F65DBA275CBF16B`).
+
+The independent 2,307-draw F4 fixture also retained its prior final
+coverage and depth hashes. It has 697,154 pixels covered in any sample,
+2,778,635 covered samples and 257 visible IDs across all samples, versus
+249 in sample 0. Eight additional IDs span shared track (four), procedural
+character (one), vegetation (one) and character manager (two). Its checked
+summary is `f4-final-bound-live-c/complete-msaa4-metrics-c/summary.json`
+(SHA-256 `39E97ED52C2585D314D360EB4441C103624E8FAE0F6DDD7F0628EF6469EE4EB0`).
+Both final stages also passed the independent `verify-snr04-msaa.py` mask,
+identity and depth check. The all-sample census prevents valid edge-only
+selected draws from being mislabeled invisible; it is still an identity
+diagnostic, not material or compatibility pixel parity.

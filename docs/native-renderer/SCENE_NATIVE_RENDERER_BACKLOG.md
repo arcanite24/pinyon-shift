@@ -60,6 +60,9 @@ RenderDoc/fixture capture compares all 1,562 selected draws with sample-0
 compatibility depth at the final draw of each EDRAM band; its 99.46% nonzero
 depth-mask overlap is a coordinate diagnostic, not parity. Material,
 resource-lifetime and pixel-aligned moving-frame parity checks remain open.
+The carried 4× diagnostic now counts every sample: 144 of 1,562 selected
+draws are visible in one capture, including four missed by sample-0-only
+accounting; a second 2,307-draw capture has eight such edge-only IDs.
 The [procedural-character handoff](SCENE_NATIVE_SNR03_CHARACTER_2026-09-23.md)
 adds an exact same-frame fixture for that separate family. Its new strict
 replay owns 1,069 of 2,662 selected draws across four fixture families; the
