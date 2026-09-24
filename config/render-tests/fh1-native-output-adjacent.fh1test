@@ -1,0 +1,5 @@
+pinyon-shift-fh1-render-test-v1
+input 0 0000 0 0 0 0 0 0
+capture 300 first
+capture 301 second
+stop 330

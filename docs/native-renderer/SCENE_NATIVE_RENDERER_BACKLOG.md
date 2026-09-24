@@ -305,6 +305,19 @@ Effort is relative scope, not a time estimate.
 
 ### Active delivery path — L1, then L2
 
+**Output-seam checkpoint (2026-09-24):** the D3D12 refresh now asks an
+opt-in native callback before compatibility gamma/FXAA and retains the final
+render-test observation after either choice. Returning false leaves the
+compatibility frame intact. A render-test-only clear probe claimed the output
+at 1280×720: adjacent captured frames had uniform RGB (32, 96, 64) and
+(32, 96, 191), while the same-route probe-off capture contained the game
+image. All three runs exited normally with the AppData save. This validates
+selection, exact-frame advancement and basic fallback; it does **not** close
+L1, because the callback does not yet consume or render the owned race scene.
+Repeat with `fh1-native-output-adjacent.fh1test` once without and once with
+`--pinyon_shift_native_output_clear_probe=true`, then run
+`tools/verify-native-output-seam.py <control-dir> <probe-dir>`.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
