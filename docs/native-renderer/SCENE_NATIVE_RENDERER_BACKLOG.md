@@ -20,7 +20,8 @@ have live packed-register maps. Material roles, texture generations and
 private render coverage remain open.
 The selected foliage keys join through the title manager table to five
 distinct manager objects, returned records and byte-matched live BC3 chains;
-allocation/payload generations and unload behavior are still unproven.
+host-cache allocation and completed-load generations are now sampled, while
+title owner/payload generations and unload behavior remain unproven.
 The [shared-track geometry handoff](SCENE_NATIVE_SNR02_TRACK_GEOMETRY_2026-09-23.md)
 owns the selected track vertex/index bytes and final bound draw state at the
 exact output frame. An 813-draw replay passed the full 4,438-draw partition;
@@ -286,8 +287,9 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    global state entry is ruled out as the per-texture key;
    a further run joins five keys to five distinct resolved title objects
    and all 65 selected records to five BC3 payloads;
-   title material ownership and allocation/payload generations still need
-   proof (see the [live BC3 join](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#live-foliage-bc3-source-and-invalidation-join)).
+   distinct host-cache allocation and completed-load generations now label
+   the five sampled BC3 sources, but title material ownership and its own
+   generations still need proof (see the [cache generation evidence](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#cache-allocation-and-completed-load-generations-at-the-sampled-draw)).
    Six scalar draws have a retained skid-presentation
    path. Resolve scene membership and resource ownership before freezing
    the slice.

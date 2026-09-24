@@ -1210,3 +1210,37 @@ Generation tracking must therefore observe the owning array's relocation
 and the actual resource mutation path; pointer equality by itself remains
 insufficient. The state verifier now checks the 96-byte stride in both the
 52-record and 67-record captures.
+
+### Cache allocation and completed-load generations at the sampled draw
+
+The SDK texture cache now assigns a process-unique allocation ID when it
+constructs a host texture and increments a separate payload generation only
+when `CompleteLoad` clears a watched dirty range. The opt-in reload probe and
+SNR-04 BC3 source row carry both values. The source row also records the
+dirty mask, guest base/mip ranges and host resource pointer; the existing
+readback follows the compatibility draw on its command list and is mapped
+after its submission fence. These IDs describe **host cache objects and
+completed cache loads**, not title allocations or title-side payload versions.
+
+The AppData-backed sustained-race replay `20260924T042530Z-p48772` exited
+normally and produced seven route images. At output frame 5001, its five
+sampled unsigned fetch-0 BC3 sources had distinct cache allocation IDs
+`523`, `448`, `447`, `446`, and `572` (in SRV order `629`, `714`, `716`,
+`718`, `720`). Four reported payload generation 1; the last reported 2.
+All had `outdated=0`, and all five fenced nine-mip readbacks again matched
+the independent RenderDoc byte hashes. The checked report is
+`.local/native-renderer/snr02/bc3-generations-live-b/source-join.json`;
+the process-scoped log is `evidence.log` in the same directory. Recheck with
+`verify-snr04-bc3-source-join.py LOG LIVE_DIR
+.local/native-renderer/snr04/renderdoc-gatea-full-b-bc3 OUTPUT --frame 5001`.
+The built/staged graphics DLL SHA-256 was
+`26091598A2D5EE4DB2795D9B680EB72C4B285333527746C959E996C43E092499`.
+
+The rotating process log starts after these five textures were created, so
+it cannot reconstruct their full earlier reload sequence in this run. The
+counter distinguishes a cache reload from a reused pointer at the sampled
+source, but it does not establish the `CTrackTexture_Unified` owner generation,
+streaming unload/reload, or validity of an asynchronous native texture handoff.
+Those remain SNR-02/SNR-03 admission requirements. A preceding replay
+`20260924T042223Z-p9488` used an older staged graphics DLL and is excluded
+from this generation result.

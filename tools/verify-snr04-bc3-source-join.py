@@ -51,12 +51,17 @@ def verify(args):
     assert len(sources) == len(chains) == 5
     assert len({row['srv'] for row in sources}) == 5
     assert len({row['texture'] for row in sources}) == 5
+    if all('allocation_id' in row for row in sources):
+        assert len({row['allocation_id'] for row in sources}) == 5
     rows = []
     for source in sorted(sources, key=lambda row: row['srv']):
         srv = source['srv']
         assert source['base'] % 4096 == source['mips'] % 4096 == 0
         assert source['base_bytes'] == source['mips_bytes'] == 65536
         assert source['outdated'] == 0
+        if 'allocation_id' in source:
+            assert source['allocation_id'] > 0
+            assert source['payload_generation'] > 0
         path = args.live / chains[srv]
         payload = path.read_bytes()
         assert len(payload) == 87408
@@ -69,11 +74,20 @@ def verify(args):
                    'mips_dirty': row.get('mips_dirty'),
                    'load_base': row.get('load_base'),
                    'load_mips': row.get('load_mips'),
-                   'outdated': row.get('outdated')}
+                   'outdated': row.get('outdated'),
+                   'payload_generation': row.get('payload_generation')}
                   for kind, timestamp, index, row in changes
                   if row['base'] == base and row['mips'] == mips
                   and row.get('texture', source['texture']) == source['texture']
+                  and row.get('allocation_id', source.get('allocation_id')) ==
+                  source.get('allocation_id')
                   and index < source['line_index']]
+        generations = [event['payload_generation'] for event in events
+                       if event['kind'] == 'complete' and
+                       event['payload_generation'] is not None]
+        if generations:
+            assert generations == sorted(generations)
+            assert generations[-1] == source['payload_generation']
         if any(event['kind'] == 'complete' for event in events):
             for invalidation in (event for event in events
                                  if event['kind'] == 'invalidated'):
@@ -87,6 +101,8 @@ def verify(args):
         rows.append({'srv': srv, 'packet': source['packet'],
                      'texture': source['texture'], 'resource': source['resource'],
                      'base': base, 'mips': mips, 'outdated': source['outdated'],
+                     'allocation_id': source.get('allocation_id'),
+                     'payload_generation': source.get('payload_generation'),
                      'sample_time': source['timestamp'],
                      'payload_sha256': digest, 'reference': reference[digest],
                      'events': events})
