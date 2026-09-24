@@ -587,8 +587,22 @@ struct Snr02TrackPayload {
   std::vector<Snr02TrackDraw> draws;
   uint32_t bytes = 0;
   bool rejected = false;
+  uint64_t first_rejected_sequence = 0;
+  uint32_t first_rejected_packet = 0;
+  const char* first_rejection_reason = "none";
+  uint32_t first_vertex_status = 0, first_index_status = 0;
+  uint32_t first_fetch_count = 0, first_constant_count = 0;
 };
 Snr02TrackPayload snr02_track_payload;
+void Snr02RejectTrackPayload(Snr02TrackPayload& payload, uint64_t sequence,
+                             uint32_t packet, const char* reason) {
+  if (!payload.rejected) {
+    payload.first_rejected_sequence = sequence;
+    payload.first_rejected_packet = packet;
+    payload.first_rejection_reason = reason;
+  }
+  payload.rejected = true;
+}
 struct Snr03ManagerDraw {
   uint64_t sequence = 0, shader = 0, pixel_shader = 0;
   uint64_t specialization = 0, dynamic = 0;
@@ -1725,7 +1739,8 @@ void ObserveSnr02TrackFinalDrawState(
       !observation.viewport || !observation.scissor ||
       observation.bound_vertex_float_constant_count * 4 !=
           draw.vertex_packed.size()) {
-    payload.rejected = true;
+    Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
+                            "final_state_missing_input");
     return;
   }
   uint32_t word = 0;
@@ -1742,7 +1757,10 @@ void ObserveSnr02TrackFinalDrawState(
   const bool bound_changed = !std::equal(
       draw.vertex_packed.begin(), draw.vertex_packed.end(),
       observation.bound_vertex_float_constant_words);
-  if (vertex_changed || bound_changed) payload.rejected = true;
+  if (vertex_changed || bound_changed)
+    Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
+                            vertex_changed ? "final_vertex_changed"
+                                           : "final_bound_changed");
   draw.dynamic_state = observation.dynamic_state;
   std::copy_n(observation.system_constant_words, 64,
               draw.system_constants.begin());
@@ -2226,7 +2244,9 @@ void ObservePreparedDraw(
       std::lock_guard lock(snr02_track_targets_mutex);
       auto& payload = snr02_track_payload;
       if (!payload.rejected && payload.draws.size() < 4096 &&
-          observation.draw_sequence && observation.guest_primitive_type == 6 &&
+          observation.draw_sequence &&
+          (observation.guest_primitive_type == 4 ||
+           observation.guest_primitive_type == 6) &&
           observation.index_buffer_type == 1 &&
           observation.vertex_fetch_count == 1 && observation.vertex_fetches &&
           observation.vertex_fetch_capacity >= 1 &&
@@ -2281,7 +2301,17 @@ void ObservePreparedDraw(
           }
         }
       }
-      if (!captured) payload.rejected = true;
+      if (!captured && !payload.rejected) {
+        Snr02RejectTrackPayload(payload, observation.draw_sequence,
+                                observation.draw_packet_physical_address,
+                                "geometry_snapshot");
+        payload.first_vertex_status =
+            observation.vertex_fetch_count && observation.vertex_fetches
+                ? observation.vertex_fetches[0].cpu_snapshot_status : 0;
+        payload.first_index_status = observation.index_cpu_snapshot_status;
+        payload.first_fetch_count = observation.vertex_fetch_count;
+        payload.first_constant_count = observation.vertex_float_constant_count;
+      }
     }
     REXGPU_INFO("FH1 SNR02 track geometry {{\"frame\":{},\"packet\":{},"
                 "\"command_buffer\":{},\"sequence\":{},"
@@ -2666,15 +2696,26 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
   std::set<uint64_t> sequences;
   for (const auto& draw : payload.draws) {
     seen_targets.insert(draw.command_buffer);
-    if (!sequences.insert(draw.sequence).second) payload.rejected = true;
-    if (!draw.final_seen) payload.rejected = true;
+    if (!sequences.insert(draw.sequence).second)
+      Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
+                              "duplicate_sequence");
+    if (!draw.final_seen)
+      Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
+                              "missing_final_state");
   }
   if (!ready || payload.rejected || payload.draws.empty() ||
       seen_targets != targets) {
     REXGPU_INFO("FH1 SNR02 track owned scene rejected output_frame={} "
-                "ready={} rejected={} targets={} seen={} draws={} bytes={}",
+                "ready={} rejected={} targets={} seen={} draws={} bytes={} "
+                "first_sequence={} first_packet={} reason={} "
+                "vertex_status={} index_status={} fetch_count={} "
+                "constant_count={}",
                 output_frame, ready, payload.rejected, targets.size(),
-                seen_targets.size(), payload.draws.size(), payload.bytes);
+                seen_targets.size(), payload.draws.size(), payload.bytes,
+                payload.first_rejected_sequence, payload.first_rejected_packet,
+                payload.first_rejection_reason, payload.first_vertex_status,
+                payload.first_index_status, payload.first_fetch_count,
+                payload.first_constant_count);
     return;
   }
   std::ranges::sort(payload.draws, {}, &Snr02TrackDraw::sequence);

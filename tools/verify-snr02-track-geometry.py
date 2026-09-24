@@ -165,7 +165,8 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
         assert draw["command_buffer"] == row["execution_command_buffer"]
         assert draw["index_buffer_guest_base"] == index["index_base"]
         assert draw["index_buffer_length"] == index["index_length"]
-        assert draw["guest_primitive_type"] == 6 and draw["index_buffer_type"] == 1
+        assert draw["guest_primitive_type"] in (4, 6) and \
+            draw["index_buffer_type"] == 1
         assert 4 <= vertex["stride_words"] <= 9 and draw["vertex_fetch_count"] == 1
         record, final = records[draw["sequence"]]
         assert record[1:7] == (draw["vertex_shader"], draw["pixel_shader"],
@@ -184,6 +185,8 @@ def verify(log_path: Path, ledger_path: Path, fixture_path: Path) -> dict:
                 assert (host_primitive, host_restart, index_endianness) == (
                     index["host_primitive"], index["host_restart"],
                     index["index_endianness"])
+                assert host_primitive == draw["guest_primitive_type"]
+                assert host_restart == (host_primitive == 6)
                 assert system[4] == index_endianness
             if raster:
                 mode, clip, depth = raster[:3]

@@ -322,9 +322,11 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    in-game private target on the existing D3D12 device, without per-family
    CPU readback/upload. A one-target offline batch now matches both verified
    staged 4× targets byte for byte, and an asynchronous archived-fixture batch
-   completed on the borrowed in-game device with normal game exit. The first
-   current-run batch correctly rejected a changed shader fixture and missing
-   track fixture, so same-frame full-slice admission is still open. Measure
+   completed on the borrowed in-game device with normal game exit. A later
+   fresh capture joined all 2,367 selected draws in six fixtures and its
+   offline one-target replay matched its staged control exactly; see the
+   [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#fresh-six-family-source-frame-5000-admission--2026-09-24).
+   Same-frame in-game admission is still open. Measure
    capture, resource update, native draw and bridge costs separately with
    compatibility still authoritative. Use the
    existing control and SNR-05 dependency census to decide whether the 15%

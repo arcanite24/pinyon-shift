@@ -1,5 +1,42 @@
 # SNR-04 complete selected-slice diagnostic — 2026-09-23
 
+## Fresh six-family source-frame-5000 admission — 2026-09-24
+
+The first current-run borrowed-device attempt could not admit its track
+fixture. A bounded failure report located the first rejected selected draw at
+sequence `10176131`: its geometry snapshots succeeded, but it used guest
+primitive 4 (triangle list), while the track fixture only accepted primitive
+6 (triangle strip). A later diagnostic run also exhausted the 64 MiB track
+snapshot budget on a selected draw. The capture now accepts both observed
+topologies, records the per-draw primitive, and retains a bounded 128 MiB
+snapshot budget. The private raster sets its input-assembler topology per
+draw. These are capture and diagnostic corrections, not a claim of material
+parity.
+
+The fresh AppData-backed route at
+`.local/native-renderer/snr04/track-fixed-live-d` exited normally and wrote
+all six fixtures for source frame 5000/output frame 5001. The independent
+frame-wide census attributed 4,603 backend draws and passed the candidate
+boundary. The complete-slice verifier joined **2,367/2,367** selected draws:
+884 track, 170 items, 128 vegetation, 264 manager, 10 procedural character,
+and 911 remaining-family draws. Exact translations from the installed shader
+pack were validated against this capture (19 track and 68 remainder shaders).
+
+The 36-stage 4× replay on one private D3D12 target produced 821,425 pixels
+covered in any sample, 3,281,514 covered samples, and 181 final visible draw
+IDs across all samples. The independent MSAA mask/identity/depth verifier
+passed. A staged replay of the *same fixture* produced byte-identical final
+coverage (`1e7edb5fb16914819d8f00fb95d47bf2ffb99853f7da55ce14b6bc1c2ddaa58a`),
+per-sample identity (`d3c530a882df15a52c431057916ba8766537dadcbdf536485f835bb6d2b56e9c`),
+and per-sample depth (`a4e70d570170dbba3aff990b466dd95d9012a49afb447c79a4b72e2be3ebc355`).
+The shared path performed zero intermediate target readbacks; the staged
+control performed 35. This proves current-run fixture admission and offline
+one-target replay, not same-frame **in-game** admission. The present diagnostic
+still uses identity shading, so it cannot be scored against compatibility at
+the approximate 90% visual bar. Selected resource unload/reload generations
+and net frame-time cost remain unproved; Gate A stays no-go for production
+expansion.
+
 The source-frame-5000/output-frame-5001 capture owns all 2,192 selected draws
 in six independently verified fixtures. The complete-slice verifier joins
 each selected packet to its final backend sequence and rejects missing or

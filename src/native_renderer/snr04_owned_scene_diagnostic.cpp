@@ -2184,7 +2184,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   auto indices = read_ranges(index_count, 64 * 1024);
   struct TrackDraw {
     uint64_t sequence, shader, specialization;
-    uint32_t packet, count;
+    uint32_t packet, count, primitive;
     Range vertex, index;
     std::vector<uint32_t> packed;
     std::array<uint32_t, 64> system;
@@ -2239,8 +2239,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
     }
     require(draw.sequence && (!i || draw.sequence > draws.back().sequence) &&
                 target_addresses.contains(target) && vertices.contains(draw.vertex) &&
-                indices.contains(draw.index) && format == 0 && primitive == 6 &&
-                restart == 1 && endian == 1 && draw.system[4] == endian &&
+                indices.contains(draw.index) && format == 0 &&
+                ((primitive == 6 && restart == 1) ||
+                 (primitive == 4 && restart == 0 && draw.count % 3 == 0)) &&
+                endian == 1 && draw.system[4] == endian &&
                 draw.count > 0 && draw.index.second == draw.count * 2 &&
                 stride >= 4 && stride <= 9 &&
                 (draw.fetch[2] & 0x1FFFFFFC) ==
@@ -2263,6 +2265,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                 std::abs((offset + 1) / scale - 1 + 1.f / height) < 1e-5f,
             "unsupported track viewport");
     seen_targets.insert(target);
+    draw.primitive = primitive;
     draws.push_back(std::move(draw));
   }
   require(reader.position == source.size() && seen_targets == target_addresses,
@@ -2484,7 +2487,6 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   commands->RSSetViewports(1, &viewport);
   commands->RSSetScissorRects(1, &scissor);
   commands->SetGraphicsRootSignature(root.Get());
-  commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
   uint32_t segment_draws = 0;
   for (size_t ordinal = 0; ordinal < draws.size(); ++ordinal) {
     const auto& draw = draws[ordinal];
@@ -2514,6 +2516,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
       commands->RSSetScissorRects(1, &clip);
     }
     const auto& index = index_buffers.at(draw.index);
+    commands->IASetPrimitiveTopology(draw.primitive == 4
+        ? D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST
+        : D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     D3D12_INDEX_BUFFER_VIEW index_view{index->GetGPUVirtualAddress(),
                                        draw.index.second, DXGI_FORMAT_R16_UINT};
     commands->IASetIndexBuffer(&index_view);
