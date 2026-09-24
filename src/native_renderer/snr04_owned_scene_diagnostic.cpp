@@ -3272,7 +3272,10 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
     std::span<const char> fixture) {
   const auto source = fixture;
   Reader reader{source};
-  require(reader.take<std::array<char, 8>>() ==
+  const auto magic = reader.take<std::array<char, 8>>();
+  const bool versioned = magic ==
+      (std::array<char, 8>{'S','N','R','0','3','R','3','\0'});
+  require(versioned || magic ==
               (std::array<char, 8>{'S','N','R','0','3','R','2','\0'}),
           "wrong remainder fixture");
   const auto frame = reader.take<uint64_t>();
@@ -3303,18 +3306,26 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
     require(words[0] && scalar_keys.insert(words[0]).second,
             "duplicate scalar title record");
   }
-  using Range = std::pair<uint32_t, uint32_t>;
+  using Range = Snr04RemainderRange;
   std::map<Range, std::vector<char>> vertices, indices;
   size_t owned_bytes = 0;
   for (auto* ranges : {&vertices, &indices}) {
     const uint32_t count = ranges == &vertices ? vertex_count : index_count;
     for (uint32_t i = 0; i < count; ++i) {
-      Range key{reader.take<uint32_t>(), reader.take<uint32_t>()};
+      Range key{reader.take<uint32_t>(), reader.take<uint32_t>(),
+                versioned ? reader.take<uint64_t>() : 0};
       require(key.second && key.second <= (ranges == &vertices ? 3u << 20 : 128u << 10) &&
                   owned_bytes <= (32u << 20) - key.second,
               "unsupported remainder byte range");
       owned_bytes += key.second;
-      require(ranges->emplace(key, reader.bytes(key.second)).second,
+      auto bytes = reader.bytes(key.second);
+      if (versioned) {
+        uint64_t hash = 14695981039346656037ull;
+        for (unsigned char byte : bytes)
+          hash = (hash ^ byte) * 1099511628211ull;
+        require(hash == key.version, "changed remainder byte version");
+      }
+      require(ranges->emplace(key, std::move(bytes)).second,
               "duplicate remainder byte range");
     }
   }
@@ -3347,13 +3358,15 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
     require(fetch_count && fetch_count <= 3, "unsupported fetch count");
     for (uint32_t slot = 0; slot < fetch_count; ++slot) {
       Fetch fetch{reader.take<uint32_t>(), reader.take<uint32_t>(),
-                  {reader.take<uint32_t>(), reader.take<uint32_t>()}};
+                  {reader.take<uint32_t>(), reader.take<uint32_t>(),
+                   versioned ? reader.take<uint64_t>() : 0}};
       require(fetch.constant < 96 && fetch.stride &&
                   vertices.contains(fetch.range), "missing remainder fetch");
       used_vertices.insert(fetch.range);
       draw.fetches.push_back(fetch);
     }
-    draw.index = {reader.take<uint32_t>(), reader.take<uint32_t>()};
+    draw.index = {reader.take<uint32_t>(), reader.take<uint32_t>(),
+                  versioned ? reader.take<uint64_t>() : 0};
     require(indices.contains(draw.index), "missing remainder indices");
     used_indices.insert(draw.index);
     const auto texture_count = reader.take<uint32_t>();
@@ -4028,7 +4041,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     else if (kind == "SNR03M1")
       covered = RunSnr04ManagerDiagnosticFromBytes(fixture, shader, output,
                                           borrowed_device, samples, &segment);
-    else if (kind == "SNR03R2")
+    else if (kind == "SNR03R2" || kind == "SNR03R3")
       covered = RunSnr04RemainderDiagnosticFromBytes(fixture, shader, output,
                                             borrowed_device, samples, &segment);
     else if (entry.vegetation)

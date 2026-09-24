@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <compare>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -78,20 +79,25 @@ struct Snr04TrackScene {
 };
 Snr04TrackScene ParseSnr04TrackScene(std::span<const char> fixture);
 
+struct Snr04RemainderRange {
+  uint32_t first = 0, second = 0;
+  uint64_t version = 0;
+  auto operator<=>(const Snr04RemainderRange&) const = default;
+};
 using Snr04RemainderIndexKey =
-    std::tuple<Snr04TrackRange, uint32_t, uint32_t, uint32_t, uint32_t,
+    std::tuple<Snr04RemainderRange, uint32_t, uint32_t, uint32_t, uint32_t,
                uint32_t>;
 struct Snr04RemainderDraw {
   struct Fetch {
     uint32_t constant = 0, stride = 0;
-    Snr04TrackRange range{};
+    Snr04RemainderRange range{};
   };
   uint32_t family = 0, title_key = 0, packet = 0, count = 0;
   uint64_t sequence = 0, shader = 0, specialization = 0;
   uint32_t primitive = 0, index_type = 0, format = 0, endian = 0;
   uint32_t shader_endian = 0, restart = 0, reset_index = 0;
   std::vector<Fetch> fetches;
-  Snr04TrackRange index{};
+  Snr04RemainderRange index{};
   std::vector<uint32_t> packed;
   std::array<uint32_t, 64> system{};
   std::array<uint32_t, 192> bound_fetch{};

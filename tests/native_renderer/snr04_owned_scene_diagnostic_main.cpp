@@ -26,7 +26,7 @@ uint32_t run(const std::string& fixture, const std::string& shader,
   if (kind == "SNR03M1")
     return RunSnr04ManagerDiagnostic(fixture, shader, output, nullptr,
                                      samples, segment);
-  if (kind == "SNR03R2")
+  if (kind == "SNR03R2" || kind == "SNR03R3")
     return RunSnr04RemainderDiagnostic(fixture, shader, output, nullptr,
                                        samples, segment);
   return RunSnr04OwnedSceneDiagnostic(std::filesystem::path(fixture), shader,

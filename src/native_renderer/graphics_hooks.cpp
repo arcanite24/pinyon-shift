@@ -5,6 +5,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <compare>
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
@@ -885,9 +886,14 @@ struct Snr03ScalarScene {
 thread_local std::vector<Snr03ScalarRecord> snr03_scalar_title_records;
 thread_local bool snr03_scalar_title_rejected = false;
 std::map<uint64_t, std::shared_ptr<const Snr03ScalarScene>> snr03_scalar_scenes;
+struct Snr03RemainderRange {
+  uint32_t first = 0, second = 0;
+  uint64_t version = 0;
+  auto operator<=>(const Snr03RemainderRange&) const = default;
+};
 struct Snr03RemainderFetch {
   uint32_t constant = 0, stride_words = 0;
-  Snr02TrackRange range{};
+  Snr03RemainderRange range{};
 };
 struct Snr03RemainderDraw {
   uint64_t sequence = 0, shader = 0, pixel_shader = 0;
@@ -898,7 +904,7 @@ struct Snr03RemainderDraw {
   uint32_t host_shader_index_endianness = 0, host_primitive_reset = 0;
   uint32_t guest_primitive_reset_index = 0;
   std::vector<Snr03RemainderFetch> fetches;
-  Snr02TrackRange indices{};
+  Snr03RemainderRange indices{};
   std::vector<rex::system::GraphicsPreparedDrawTextureFetch> textures;
   std::array<uint64_t, 4> bitmap{};
   std::vector<uint32_t> packed;
@@ -910,7 +916,7 @@ struct Snr03RemainderDraw {
   bool final_seen = false;
 };
 struct Snr03RemainderPayload {
-  std::map<Snr02TrackRange, std::vector<uint8_t>> vertices, indices;
+  std::map<Snr03RemainderRange, std::vector<uint8_t>> vertices, indices;
   std::vector<Snr03RemainderDraw> draws;
   size_t bytes = 0;
   bool rejected = false;
@@ -1250,6 +1256,22 @@ bool Snr03OwnRange(
     ranges.erase(key);
     return false;
   }
+  owned_bytes += key.second;
+  return true;
+}
+
+bool Snr03OwnRemainderRange(
+    std::map<Snr03RemainderRange, std::vector<uint8_t>>& ranges,
+    Snr03RemainderRange key, const uint8_t* bytes, uint32_t status,
+    size_t& owned_bytes, size_t limit) {
+  if (status != 1 || !bytes || !key.second) return false;
+  if (const auto existing = ranges.find(key); existing != ranges.end())
+    return existing->second.size() == key.second &&
+           std::equal(existing->second.begin(), existing->second.end(), bytes);
+  if (owned_bytes > limit || key.second > limit - owned_bytes) return false;
+  std::vector<uint8_t> snapshot(bytes, bytes + key.second);
+  if (Snr03HashBytes(snapshot) != key.version) return false;
+  ranges.emplace(key, std::move(snapshot));
   owned_bytes += key.second;
   return true;
 }
@@ -1885,10 +1907,12 @@ void ObserveSnr03RemainderPayloadLocked(
       observation.guest_primitive_reset_index;
   for (uint32_t slot = 0; slot < observation.vertex_fetch_count; ++slot) {
     const auto& fetch = observation.vertex_fetches[slot];
-    const Snr02TrackRange range{fetch.guest_base, fetch.length};
-    if (!Snr03OwnRange(payload.vertices, range, fetch.cpu_snapshot_bytes,
-                       fetch.cpu_snapshot_status, fetch.cpu_snapshot_hash,
-                       payload.bytes, 32 * 1024 * 1024)) {
+    const Snr03RemainderRange range{fetch.guest_base, fetch.length,
+                                    fetch.cpu_snapshot_hash};
+    if (!Snr03OwnRemainderRange(payload.vertices, range,
+                               fetch.cpu_snapshot_bytes,
+                               fetch.cpu_snapshot_status, payload.bytes,
+                               32 * 1024 * 1024)) {
       REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=vertex_range slot={} base={} length={} status={}",
                   observation.frame_sequence, observation.draw_sequence, slot,
                   fetch.guest_base, fetch.length, fetch.cpu_snapshot_status);
@@ -1898,12 +1922,12 @@ void ObserveSnr03RemainderPayloadLocked(
     draw.fetches.push_back({fetch.fetch_constant, fetch.stride_words, range});
   }
   draw.indices = {observation.index_buffer_guest_base,
-                  observation.index_buffer_length};
-  if (!Snr03OwnRange(payload.indices, draw.indices,
-                     observation.index_cpu_snapshot_bytes,
-                     observation.index_cpu_snapshot_status,
-                     observation.index_cpu_snapshot_hash, payload.bytes,
-                     32 * 1024 * 1024)) {
+                  observation.index_buffer_length,
+                  observation.index_cpu_snapshot_hash};
+  if (!Snr03OwnRemainderRange(payload.indices, draw.indices,
+                             observation.index_cpu_snapshot_bytes,
+                             observation.index_cpu_snapshot_status,
+                             payload.bytes, 32 * 1024 * 1024)) {
     REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=index_range base={} length={} status={}",
                 observation.frame_sequence, observation.draw_sequence,
                 observation.index_buffer_guest_base,
@@ -3397,7 +3421,7 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
       const auto* bytes = reinterpret_cast<const char*>(&value);
       encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
     };
-    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','2','\0'};
+    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','3','\0'};
     write(magic);
     write(car->source_frame);
     write(car->view);
@@ -3421,7 +3445,7 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
     }
     for (const auto* ranges : {&payload.vertices, &payload.indices}) {
       for (const auto& [key, bytes] : *ranges) {
-        write(key.first); write(key.second);
+        write(key.first); write(key.second); write(key.version);
         encoded.insert(encoded.end(), bytes.begin(), bytes.end());
       }
     }
@@ -3439,8 +3463,10 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
       for (const auto& fetch : draw.fetches) {
         write(fetch.constant); write(fetch.stride_words);
         write(fetch.range.first); write(fetch.range.second);
+        write(fetch.range.version);
       }
       write(draw.indices.first); write(draw.indices.second);
+      write(draw.indices.version);
       write(uint32_t(draw.textures.size()));
       for (const auto& texture : draw.textures) {
         write(texture.fetch_constant); write(texture.type);

@@ -449,8 +449,15 @@ The follow-up capture identified the rejection at output 5002: a car draw
 reused vertex address 330616832 and length 32000 with changed contents
 (source frame 5001, draw sequence 11828734). The current remainder snapshot
 map keys by address and length, then correctly rejects the second version.
-The next fix must retain both immutable versions and bind each draw to its
-own bytes; weakening the check would silently draw stale geometry.
+The renderer now retains both immutable versions and binds each draw to the
+captured one. `SNR03R3` records a content hash with each range; the parser
+verifies it and still accepts existing `SNR03R2` fixtures. With only the two
+new race settings, the short route presented native outputs 5001 and 5002,
+and the sustained route passed twenty changing, upright native frames plus
+the no-scene compatibility control. Both routes exited normally. The old R2
+fixture still replays with 136,308 covered pixels and passes its ledger
+verifier. A live settings-UI switch and broader L1 gameplay/transition checks
+remain open.
 
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot

@@ -37,7 +37,8 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         return result
 
     magic = take("<8s")[0]
-    assert magic in (b"SNR03R1\0", b"SNR03R2\0")
+    assert magic in (b"SNR03R1\0", b"SNR03R2\0", b"SNR03R3\0")
+    versioned = magic == b"SNR03R3\0"
     frame, view, camera, car_count, scalar_count, draw_count, vertex_count, index_count = \
         take("<Q7I")
     assert view and camera and 0 < car_count <= 512 and 0 < scalar_count <= 512
@@ -76,9 +77,11 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
     for count in (vertex_count, index_count):
         owned = {}
         for _ in range(count):
-            key = take("<2I")
+            key = take("<2IQ") if versioned else (*take("<2I"), 0)
             assert 0 < key[1] <= 3 * 1024 * 1024 and key not in owned
             owned[key] = data(key[1])
+            if versioned:
+                assert fnv(owned[key]) == key[2]
         ranges.append(owned)
     range_hashes = [{key: fnv(value) for key, value in owned.items()}
                     for owned in ranges]
@@ -167,13 +170,14 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         count, guest_primitive, host_primitive, index_type, host_format, endian = \
             take("<6I")
         host_shader_endian = host_reset = guest_reset_index = None
-        if magic == b"SNR03R2\0":
+        if magic != b"SNR03R1\0":
             host_shader_endian, host_reset, guest_reset_index = take("<3I")
             assert host_shader_endian <= 3 and host_reset <= 1
         fetch_count = take("<I")[0]
         assert 0 < fetch_count <= 3
-        owned_fetches = [take("<4I") for _ in range(fetch_count)]
-        index_range = take("<2I")
+        owned_fetches = [take("<4IQ") if versioned else (*take("<4I"), 0)
+                         for _ in range(fetch_count)]
+        index_range = take("<2IQ") if versioned else (*take("<2I"), 0)
         texture_count = take("<I")[0]
         assert texture_count <= 16
         owned_textures = [take("<9I") for _ in range(texture_count)]
@@ -196,18 +200,18 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert guest_primitive == draw["guest_primitive_type"]
         assert fetch_count == draw["vertex_fetch_count"]
         assert texture_count == draw["texture_fetch_count"]
-        assert index_range == (draw["index_buffer_guest_base"],
-                               draw["index_buffer_length"])
+        assert index_range[:2] == (draw["index_buffer_guest_base"],
+                                   draw["index_buffer_length"])
         assert 0 <= host_primitive <= 32 and host_format <= 2 and endian <= 3
         assert title_key in (car if family == 1 else scalar)
         assert title_key == (draw["dispatch_packet_physical"] if family == 1
                              else packet)
-        for slot, (constant, stride, base, length) in enumerate(owned_fetches):
+        for slot, (constant, stride, base, length, version) in enumerate(owned_fetches):
             logged = fetches[ordinal][slot]
             assert (constant, stride, base, length) == (
                 logged["fetch_constant"], logged["stride_words"],
                 logged["guest_base"], logged["length"])
-            key = (base, length)
+            key = (base, length, version)
             assert range_hashes[0].get(key) == logged["cpu_snapshot_hash"]
             assert bound_fetch[constant * 2] & 0x1FFFFFFC == base
             assert bound_fetch[constant * 2 + 1] & 0x03FFFFFC == length
@@ -216,7 +220,7 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert index["packet"] == packet and index["status"] == 1
         assert range_hashes[1].get(index_range) == index["hash"]
         used_indices.add(index_range)
-        if magic == b"SNR03R2\0" and index_type == 2:
+        if magic != b"SNR03R1\0" and index_type == 2:
             mode = (host_format, endian, host_shader_endian, host_reset,
                     guest_primitive, host_primitive)
             assert mode in ((1, 2, 0, 1, 6, 6),
@@ -247,7 +251,7 @@ def verify(fixture: Path, log_path: Path, ledger_path: Path):
         assert before[sequence]["packet"] == packet
         assert before[sequence]["family"] == family
         assert before[sequence]["packed_hash"] == fnv(packed)
-        if magic == b"SNR03R2\0":
+        if magic != b"SNR03R1\0":
             assert (host_format, host_shader_endian, host_reset,
                     guest_reset_index) == tuple(before[sequence][key] for key in (
                         "host_index_format", "host_shader_index_endian",
