@@ -639,3 +639,24 @@ alpha/sample-mask work as the next bounded test, while retained draws,
 stencil and material behavior remain confounders. The local depth comparison
 is `f4-direct-depth-comparison.json` (SHA-256
 `6F17C69FA04830BD89FF0A8ACC608DC52174E3E84164CFD761C1CDC4ED55DC8C`).
+
+The opt-in BC3 alpha probe now accepts any one sequenced foliage draw with
+the checked captured system state and a compatibility prior. For the same
+source-5000/backend-5001 capture, event 10089 (sequence 10100754, private
+ID 291, BC3 resource 7929) reproduced **all** 60,826 reference-changed
+pixels. Its four sample write counts were exactly 27,579, 55,674, 44,169
+and 8,341 on both sides; there were no reference-only or private-only
+writes, and every overlapping depth value was identical. The unmasked
+private draw had written 97,903 pixels. Reproduce with
+`tools/check-snr04-matched-vegetation-draw.py` using
+`f4-direct-vegetation-10089-depth.json`, the F4 scene fixture, the verified
+foliage vertex DXIL, `--frame 5000 --sequence 10100754 --draw-id 291
+--rows 256`, and `--alpha-bc3
+f4-direct-vegetation-bc3/ResourceId-7929.bc3mips`. The local comparison
+JSON is `f4-direct-vegetation-10089-alpha/comparison.json` (SHA-256
+`692DAAB5FF7559AB96D7968829FD6EE09FD5B45E4987286AFD05814E9FC550E2`).
+This isolates the per-draw depth discrepancy to the missing alpha/sample
+mask for this draw. The diagnostic still uses an opt-in reconstructed pixel
+shader, not the original material path; one exact draw does not establish
+full-slice material parity, resource-generation ownership, stencil behavior,
+or stability across moving frames and unloads.

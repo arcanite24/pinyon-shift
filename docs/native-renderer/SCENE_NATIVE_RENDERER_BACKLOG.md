@@ -495,6 +495,14 @@ and resource lifetime before broadening native admission; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous
 moving-frame/unload checks remain open.
+A direct backend-frame capture now joins all 1,559 selected draws, including
+189 foliage actions, to source-5000/output-5001 fixtures with exact foliage
+vertex inputs and constants. A same-frame four-sample replay of matched
+foliage event 10089 with its captured BC3 alpha path and exact compatibility
+prior reproduces all 60,826 changed pixels, every per-sample write and depth
+value. This resolves that draw's earlier unmasked depth discrepancy but does
+not prove the original material path, all alpha draws, semantic resource
+lifetimes or full-slice image parity. See the complete-slice evidence.
 A paired RenderDoc target check explains the apparent 180° mismatch against
 the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before

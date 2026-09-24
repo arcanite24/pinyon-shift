@@ -649,11 +649,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
             "invalid vegetation segment");
   const bool alpha_probe = segment && !segment->alpha_bc3.empty();
   if (alpha_probe)
-    require(samples == 4 && segment->first_sequence == 10125747 &&
-                segment->last_sequence == 10125747 &&
-                segment->first_id == 290 && segment->draw_count == 1 &&
-                !segment->prior_output.empty(),
-            "alpha probe requires matched event 11204 and compatibility prior");
+    require(samples == 4 &&
+                segment->first_sequence == segment->last_sequence &&
+                segment->draw_count == 1 && !segment->prior_output.empty(),
+            "alpha probe requires one draw and compatibility prior");
   const auto begin = std::chrono::steady_clock::now();
   auto scene = load_scene(fixture);
   auto vs = read(vertex_shader);
@@ -684,7 +683,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   ComPtr<ID3DBlob> ps, errors;
   check(D3DCompile(ps_source, sizeof(ps_source) - 1, nullptr, nullptr, nullptr,
                    "main", "ps_5_1", 0, 0, &ps, &errors));
-  // Event 11204's captured BC3 alpha path and four SV_Coverage thresholds.
+  // Captured foliage BC3 alpha path and four SV_Coverage thresholds.
   // Record three pixels with exactly one reference fragment for UV comparison.
   constexpr char alpha_source[] =
       "cbuffer Item : register(b2) { uint id; };"
@@ -1059,8 +1058,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     const auto& resource = owned[draw.item];
     if (alpha_probe) {
       const auto& system = item.variants[draw.variant].system;
-      require(item.packet == 317998104 && system[0] == 984 &&
-                  system[44] == 16191 && system[54] == 1 &&
+      require(system[0] == 984 && system[44] == 16191 && system[54] == 1 &&
                   system[55] == 1 && system[57] == 426,
               "matched foliage alpha state changed");
       ID3D12DescriptorHeap* heaps[]{alpha_texture.views.Get(),
