@@ -621,3 +621,21 @@ the earlier independent RenderDoc capture. The local JSON report is
 `E2C86691CD600CDF8DC9CE1E3F97DDDC662088CFE61744A03C8A188DBF811B90`).
 This owns the captured alpha inputs for this frame but does not yet prove
 their source generations, alpha coverage or private-pixel parity.
+
+The same 1,559 draws also completed the carried 4× private replay. Its
+sample-0 output has 906,050 covered pixels. A RenderDoc target-state census
+located the final compatibility draws for the three reused depth tiles at
+events 10715, 14310 and 18468. The sample-0 target-space comparison has
+904,117 reference-covered pixels, all overlapping private coverage, and
+99.79% coverage intersection-over-union. This overlap is weak for the first
+two fully covered tiles; the 208-row tile has 99.23% overlap. Overlap depth
+error has median zero but p90 `0.00469`; 74,349 large errors (threshold
+`0.005`) fall on private vegetation IDs, and all have the private depth
+nearer. A per-draw check of matched foliage event 10089 / private ID 291
+found 60,826 reference-changed pixels against 97,903 from the unmasked
+private draw, with no reference-only sample changes. The reference's
+27,579 changed sample-0 texels all overlap the private draw. This supports
+alpha/sample-mask work as the next bounded test, while retained draws,
+stencil and material behavior remain confounders. The local depth comparison
+is `f4-direct-depth-comparison.json` (SHA-256
+`6F17C69FA04830BD89FF0A8ACC608DC52174E3E84164CFD761C1CDC4ED55DC8C`).
