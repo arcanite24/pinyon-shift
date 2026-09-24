@@ -468,6 +468,22 @@ normally and `verify-native-race-toggle.py` passed all six boundary captures.
 This validates hot switching through the settings setter; direct user input
 in the overlay, reload/resize, and longer unscripted gameplay remain open.
 
+**Unsupported-mode admission failure (2026-09-24):** the same-process
+`fh1-snr02-title-reload.fh1test` route with native capture from source 5000
+and native output enabled exited normally, but the native-only sky color
+remained in the pause, free-roam and title captures. The settled title image
+contained 214,910 such pixels, and the reentered race also rendered natively.
+A bounded follow-up through the title transition repeated the failure
+(286,127 native sky pixels at `title-settled`). Its scene log kept the same
+view `1144779840` and camera `776835584` from source frame 5000 through the
+title capture at source frame 5039. UI tracing showed pause-button construction
+before the race and no corresponding active-scene event at pause, so neither
+view identity nor that constructor is a valid mode gate. L1 is not complete:
+the native callback must reject unsupported UI/mode frames before takeover,
+using a proven active title state or final-pass boundary. The 1080p guest
+video-mode flag still produced 1280×720 guest captures, so that run did not
+validate resize fallback.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
