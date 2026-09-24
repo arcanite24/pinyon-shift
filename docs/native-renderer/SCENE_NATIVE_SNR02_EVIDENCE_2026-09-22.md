@@ -1309,3 +1309,34 @@ This proves title allocation identity for the sampled frame and confirms
 pool reuse elsewhere in the process. It does not yet prove the selected
 resources' payload generations or an unload/reload transition for those
 resources; SNR-02 remains open.
+
+### Retiring the race does not unload the sampled foliage resources
+
+`config/render-tests/fh1-race-retire.fh1test` extends the qualified route:
+after the sustained race it pauses, selects **Quit Race**, confirms **Retire
+from Event**, and captures the return to free roam. The menu-selection and
+post-retire captures were visually checked; the final image shows the car in
+free roam at the event signup marker. This is a real event transition, not
+just a process restart.
+
+The replay `20260924T051205Z-p41788` exited normally with 12 route images.
+Its frame-6000 strict join checked 47 selected records, 102 prepared
+executions, 46 resolver calls, ten live title allocation generations and
+five fenced BC3 chains. The selected-resource destructor probe logged **no
+destruction** of those ten chain/base objects through the return to free
+roam. Thus retiring this event is not an adequate selected-resource
+unload/reload test. It does not imply that the objects can be kept as native
+references indefinitely; map transitions or streaming may still replace
+them. The process-scoped `evidence.log`, `state-join.json` and
+`source-join.json` under
+`.local/native-renderer/snr02/foliage-unload-retire-live-a` have SHA-256
+`019B09F1DF6998A936B11F357F18A5FB1837607754D0FDCC24D1FE3BAD44C4D5`,
+`23B101BEC7BCCFD0164AE67424533424A86660E7B5359E3D5F571368B64C9EA8`
+and `71EA92A97A8F334F0D5FD5528D6168A341D9122F95E9167AAE105D504FE4E2AF`.
+The final free-roam PPM has SHA-256
+`9378F763952DBDBD99068DE73E0A8B90FE3E3C37575804C97E0353F5681D3F09`.
+
+The selected destructor/reconstruction markers stay default-off with the
+selected-frame probe. A subsequent route must move far enough to evict the
+sampled resources or cross a map boundary, then revisit and rebind them; a
+new allocation ID and current payload at the second binding are required.

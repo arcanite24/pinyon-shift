@@ -24,6 +24,9 @@ host-cache allocation and completed-load generations are now sampled. The
 selected title chain/base resources have constructor/destructor allocation
 generations in one race frame; payload generations and selected unload/reload
 behavior remain unproven.
+The checked race-retire route returns to free roam without destroying those
+ten selected resource objects; use a real streaming eviction or map change
+for the required unload/reload test.
 The two provider references are identified by live vtables and title RTTI as
 `CBixTextureChainResource` and `CBixTextureBaseResource`; their ownership
 generation still needs a validated lifecycle rule.

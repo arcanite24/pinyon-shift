@@ -797,6 +797,7 @@ struct Snr02ResourceGeneration {
   bool alive = false;
 };
 std::map<uint32_t, Snr02ResourceGeneration> snr02_resource_generations;
+std::set<uint32_t> snr02_selected_resource_addresses;
 uint64_t snr02_next_resource_generation = 0;
 uint64_t snr02_resource_reuses = 0;
 uint64_t snr02_resource_destructions = 0;
@@ -806,36 +807,62 @@ void Snr02ConstructResource(uint32_t address, uint32_t vtable) {
   if (Snr03TargetFrame() <= 0 || !address) {
     return;
   }
-  std::lock_guard lock(snr02_resource_generation_mutex);
-  if (snr02_resource_generation_overflow) {
-    return;
+  uint64_t previous = 0, current = 0;
+  bool selected = false;
+  {
+    std::lock_guard lock(snr02_resource_generation_mutex);
+    if (snr02_resource_generation_overflow) {
+      return;
+    }
+    if (!snr02_resource_generations.contains(address) &&
+        snr02_resource_generations.size() == 65536) {
+      snr02_resource_generation_overflow = true;
+      snr02_resource_generations.clear();
+      snr02_selected_resource_addresses.clear();
+      return;
+    }
+    auto& slot = snr02_resource_generations[address];
+    if (slot.current && !slot.alive) {
+      ++snr02_resource_reuses;
+    }
+    previous = slot.current;
+    slot.previous = previous;
+    current = slot.current = ++snr02_next_resource_generation;
+    slot.vtable = vtable;
+    slot.alive = true;
+    selected = snr02_selected_resource_addresses.contains(address);
   }
-  if (!snr02_resource_generations.contains(address) &&
-      snr02_resource_generations.size() == 65536) {
-    snr02_resource_generation_overflow = true;
-    snr02_resource_generations.clear();
-    return;
+  if (selected) {
+    REXGPU_INFO("FH1 SNR02 selected resource constructed {{\"frame\":{},"
+                "\"address\":{},\"vtable\":{},\"previous\":{},"
+                "\"generation\":{}}}",
+                rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
+                address, vtable, previous, current);
   }
-  auto& slot = snr02_resource_generations[address];
-  if (slot.current && !slot.alive) {
-    ++snr02_resource_reuses;
-  }
-  slot.previous = slot.current;
-  slot.current = ++snr02_next_resource_generation;
-  slot.vtable = vtable;
-  slot.alive = true;
 }
 
 void Snr02DestructResource(uint32_t address, uint32_t vtable) {
   if (Snr03TargetFrame() <= 0 || !address) {
     return;
   }
-  std::lock_guard lock(snr02_resource_generation_mutex);
-  const auto it = snr02_resource_generations.find(address);
-  if (it != snr02_resource_generations.end() && it->second.vtable == vtable &&
-      it->second.alive) {
-    it->second.alive = false;
-    ++snr02_resource_destructions;
+  uint64_t generation = 0;
+  bool selected = false;
+  {
+    std::lock_guard lock(snr02_resource_generation_mutex);
+    const auto it = snr02_resource_generations.find(address);
+    if (it != snr02_resource_generations.end() && it->second.vtable == vtable &&
+        it->second.alive) {
+      generation = it->second.current;
+      it->second.alive = false;
+      ++snr02_resource_destructions;
+      selected = snr02_selected_resource_addresses.contains(address);
+    }
+  }
+  if (selected) {
+    REXGPU_INFO("FH1 SNR02 selected resource destroyed {{\"frame\":{},"
+                "\"address\":{},\"vtable\":{},\"generation\":{}}}",
+                rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount),
+                address, vtable, generation);
   }
 }
 
@@ -850,6 +877,12 @@ std::array<uint64_t, 7> Snr02ResourceGenerations(uint32_t chain, uint32_t base) 
   };
   const auto chain_generations = generation(chain, 0x8224368C);
   const auto base_generations = generation(base, 0x822436F4);
+  if (chain_generations[0]) {
+    snr02_selected_resource_addresses.insert(chain);
+  }
+  if (base_generations[0]) {
+    snr02_selected_resource_addresses.insert(base);
+  }
   return {chain_generations[0], base_generations[0], chain_generations[1],
           base_generations[1], snr02_resource_reuses, snr02_resource_destructions,
           snr02_resource_generation_overflow ? uint64_t(1) : uint64_t(0)};
