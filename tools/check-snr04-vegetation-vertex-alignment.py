@@ -1,4 +1,4 @@
-"""Census captured versus owned vertex inputs for all 179 foliage actions.
+"""Census captured versus owned vertex inputs for one foliage output frame.
 
 Run with qrenderdoc --python. Set SNR04_CAPTURE, SNR04_FIXTURE,
 SNR04_EVENTS_JSON and SNR04_OUTPUT. The event/sequence join uses ordered draws
@@ -43,8 +43,9 @@ def fixture_draws(data):
                            if final_bound else words[:92])
             if final_bound:
                 position += 368
-            draws.append((sequence, item, size, vertex_hash, final_words, system))
-    assert position == len(data) and len(draws) == 179
+            draws.append((sequence, item, size, vertex_hash, final_words,
+                          words[:92], system))
+    assert position == len(data) and 0 < len(draws) <= 512
     return sorted(draws)
 
 
@@ -57,17 +58,18 @@ try:
     draws = fixture_draws(fixture)
     events = sorted(row["event"] for row in json.loads(Path(
         os.environ["SNR04_EVENTS_JSON"]).read_text())["matches"])
-    assert len(events) == len(draws) == 179
+    assert len(events) == len(draws)
     cap = rd.OpenCaptureFile()
     result = cap.OpenFile(os.environ["SNR04_CAPTURE"], "rdc", None)
     assert "Success" in str(result), result
     result, replay = cap.OpenCapture(rd.ReplayOptions(), None)
     assert "Success" in str(result), result
     constant_patterns = Counter()
+    prepared_patterns = Counter()
     system_patterns = Counter()
     vertex_mismatches = []
     captured_by_item = {}
-    for event, (sequence, item, size, vertex_hash, words, system) in zip(events, draws):
+    for event, (sequence, item, size, vertex_hash, words, prepared, system) in zip(events, draws):
         replay.SetFrameEvent(event, True)
         pipeline = replay.GetPipelineState()
         blocks = []
@@ -89,6 +91,8 @@ try:
         captured_by_item.setdefault(item, set()).add(blocks[1][:92])
         constant_patterns[tuple(i for i, (a, b) in enumerate(
             zip(words, blocks[1][:92])) if a != b)] += 1
+        prepared_patterns[tuple(i for i, (a, b) in enumerate(
+            zip(prepared, blocks[1][:92])) if a != b)] += 1
         system_patterns[tuple(i for i, (a, b) in enumerate(
             zip(system, blocks[0])) if a != b)] += 1
     assert not vertex_mismatches, vertex_mismatches
@@ -97,6 +101,8 @@ try:
              "vertex_ranges_exact": len(events),
              "constant_patterns": [dict(words=list(key), draws=value)
                                    for key, value in constant_patterns.items()],
+             "prepared_patterns": [dict(words=list(key), draws=value)
+                                   for key, value in prepared_patterns.items()],
              "system_patterns": [dict(words=list(key), draws=value)
                                  for key, value in system_patterns.items()],
              "captured_constant_variants_per_item": dict(sorted(Counter(

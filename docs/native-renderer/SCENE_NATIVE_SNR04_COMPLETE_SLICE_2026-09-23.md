@@ -549,3 +549,29 @@ its `order.json`, `track-shaders`, `remainder-shaders`, the existing
 procedural DXIL directory and the captured vegetation VS DXIL. The route
 was `track-frame-reference.fh1test` with
 `pinyon_shift_snr03_probe_frame=5000`; compatibility remained authoritative.
+
+### Paired RenderDoc capture: vertex inputs align, frame identity does not
+
+Two further AppData-backed runs captured an `SNR03F4` fixture and RenderDoc
+actions in the same process. Both passed the strict six-family draw join:
+1,533 selected draws for capture `f4-paired-capture-b_frame5000.rdc` and
+1,554 for `f4-paired-capture-c_frame5001.rdc`. The exact vegetation shader
+scan found 189 actions in each capture. All 189 fetched vertex ranges and
+all 64 vertex-system words per action matched their ordered fixture draws.
+The captured vertex-float constants, however, differed from the fixture's
+actually bound constants at the same 32 of 92 words in the first run and
+30 of 92 words in the second. They also differed from the prepared constants
+at those same 30 positions in the second run. Each of its 72 items had one
+captured constant variant and one owned variant, so missing tile variants
+do not explain this mismatch. The comparison remains an ordered diagnostic,
+not a proved same-frame RenderDoc/fixture join or pixel parity result.
+
+Probing source frames 4999 and 4998 while queuing capture 5000 did not
+produce an owned scene fixture, although RenderDoc captured a populated
+frame. Frame 4999 had preparation activity but no selected main-view call;
+the capture filename is therefore insufficient to infer its source-frame
+identity. The next check must tag backend output-frame identity at the
+captured draw boundary, then join each RenderDoc action to the matching
+immutable fixture before comparing material, stencil or pixels. The updated
+`check-snr04-vegetation-vertex-alignment.py` accepts the frame's actual
+foliage draw count and reports prepared as well as final-bound differences.
