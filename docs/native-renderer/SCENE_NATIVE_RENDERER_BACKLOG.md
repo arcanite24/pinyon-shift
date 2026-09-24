@@ -504,9 +504,13 @@ The vegetation family now uses a direct immutable-scene queue entry in the
 ordinary live path. A same-run verification dump replayed both adjacent
 frames through the fixture oracle and matched all final coverage, depth and
 4× identity bytes; see the [typed-family evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#first-typed-family-handoff--2026-09-24).
-Convert the remaining five families before repeating the production-settings
-cost gate; the current worker still reparses their fixtures and waits after
-each segment.
+The current diagnostic worker still reparses the other four families and
+waits after each segment. Convert them before repeating the later cost gate;
+this is not a prerequisite to L1's bounded live-output pilot.
+
+The procedural-item family now also uses a typed live handoff and matched
+same-run fixture replay on both adjacent frames; see the
+[typed-item evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#typed-procedural-item-handoff--2026-09-24).
 
 The prior Gate A quality/cost stop-go is superseded for L1/L2. Unknown scene
 identity, stale resources and unsafe fallback still reject a native frame;
