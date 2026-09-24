@@ -561,6 +561,18 @@ The next bridge probe must identify the first retained UI draw from guest
 semantics, then prove that native world injection before that draw preserves
 the complete original HUD without overwriting title, pause or free-roam UI.
 
+**Race draw-order cross-check (2026-09-24):** replaying the earlier race frame
+shows the world alone at event 21023. The next guest-output draw, 21047,
+begins the minimap; HUD panels are visible by 21123, and `LAPS` text is
+visible by 21178. The four preceding output draws have the same shader/count
+sequence as the title capture's four preceding output draws. This makes the
+boundary between postprocess and UI a concrete injection candidate in both
+captured frames. It is still a *candidate*: the capture does not prove that
+all supported gameplay, pause, map, or title frames have the same ordering,
+and the shared sequence supplies no game-mode admission signal. A production
+bridge must derive the boundary from validated draw/target semantics and keep
+the complete compatibility frame available when those checks fail.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
