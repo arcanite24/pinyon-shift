@@ -1187,3 +1187,45 @@ The visible count is the surviving final-target identity, not proof that
 every selected draw produced pixels: occlusion and later depth writes can
 hide a valid earlier draw. Fixture ownership and final bound-state checks
 remain required for all selected draws.
+
+### In-process exact-frame diagnostic handoff — 2026-09-24
+
+An opt-in output callback now moves the six owned fixture byte vectors into a
+bounded in-process queue. It sorts their final draw sequences and submits the
+contiguous family runs to a worker using the current game's D3D12 device and
+one private 4× target. The ordinary live path does not write fixture files or
+poll an external manifest. The worker verifies every used shader against a
+checked 1×1 vertex corpus; a checked but unused shader is allowed because the
+contents of adjacent frames differ. The corpus comes from the installed pack,
+verified by `native-shader-pack.py`, and can be regenerated with
+`tools/extract-snr04-live-shaders.py`. This is still a **diagnostic**, not the
+production-shaped path: the callback serializes fixtures in memory, and the
+worker still reads shader files, builds stage resources, waits after each
+family run and reads back the final target.
+
+The no-fixture-dump run completed source frames 5000 and 5001 with 2,087 and
+1,856 selected draws. The output callback reported 11.051 and 10.715 ms of
+selected capture work; the worker reported 30.281 and 28.091 MB of uploads,
+3.157 and 3.036 ms of timestamped draw work, and 4.574 and 4.154 seconds of
+stage wall time. These are opt-in probe costs with compatibility still active,
+not a frame-time comparison or a speedup. A second run enabled
+`PINYON_SHIFT_SNR04_LIVE_VERIFY_FIXTURES=1` to write the exact same-run
+fixtures. Its frame-wide census and all six fixture verifiers passed for
+1,679 and 1,642 selected draws. Both live targets were byte-identical to
+independent checked offline replays for final `coverage.u8`, `depth.f32`,
+`depth.f32x4`, and `identity.u16x4`:
+
+| Source frame | Covered sample-0 pixels | Coverage SHA-256 | Four-sample identity SHA-256 |
+| --- | ---: | --- | --- |
+| 5000 | 648,759 | `7389219A61124A641C6819E8B95B12591962535F78DAFD0F2DD329A41C2247D0` | `128AD0C24114FAFE357138EE8F61913F1A4315D10C15777BD2F5334739789761` |
+| 5001 | 671,733 | `4C05AB10D551FB47126D90A5031619C13F919F342BD05113EDAC9EC8400BBF87` | `9424DF62EE041809AA29B7171E0B4332FD03434CEF6F2A4C049557265801990D` |
+
+The verification dump inflated callback capture to 365 and 489 ms; it must
+stay outside any measured performance path. The worker timing for that run
+was 4.039 and 3.893 seconds, with only 4.403 and 2.819 ms of timestamped
+draw work. Track stages used about half of the worker wall time; final full
+target readback and repeated stage setup remain entangled in that number.
+The result proves the in-process handoff preserves the checked diagnostic
+output. It does not establish resource-generation-safe reuse, a single GPU
+submission without per-family waits, production cadence, retained-pass
+composition, material fidelity or the 15% net speed case.

@@ -5,6 +5,10 @@ diagnostic are proved for sampled race frames, including adjacent moving
 frames. The file-backed path fails the visual bar and is no-go as a speed
 candidate; no net renderer performance gain is claimed. Material coverage,
 other-family lifetimes and retained-pass bridges remain open.
+An opt-in in-process six-family handoff now preserves the exact diagnostic
+target on two adjacent checked frames, but still serializes fixture bytes and
+uses stage waits and readback. It is a correctness step, not the production
+feasibility measurement; see the [in-process evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#in-process-exact-frame-diagnostic-handoff--2026-09-24).
 This is the primary execution roadmap for new renderer architecture. The
 [performance backlog](PERFORMANCE_BACKLOG.md) remains the record of previous
 experiments; the [resource migration checklist](NATIVE_RESOURCE_MIGRATION_CHECKLIST.md)
