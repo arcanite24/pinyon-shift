@@ -41,17 +41,19 @@ try:
             state["skipped"].append({"event": event, "pixel_textures": len(used)})
             continue
         resources = [textures[binding.descriptor.resource] for binding in used]
-        if [resource.format.Name() for resource in resources] != [
-                "BC3_UNORM", "R8G8B8A8_TYPELESS"]:
+        formats = [resource.format.Name() for resource in resources]
+        if set(formats) != {"BC3_UNORM", "R8G8B8A8_TYPELESS"}:
             state["skipped"].append({"event": event,
-                                     "pixel_formats": [resource.format.Name()
-                                                       for resource in resources]})
+                                     "pixel_formats": formats})
             continue
+        bc3_resource = resources[formats.index("BC3_UNORM")]
+        full_view_resource = resources[formats.index("R8G8B8A8_TYPELESS")]
         cb = pipeline.GetConstantBlock(rd.ShaderStage.Pixel, 3, 0).descriptor
         words = struct.unpack("<8I", bytes(replay.GetBufferData(
             cb.resource, cb.byteOffset, 32)))
-        assert [binding.access.arrayElement for binding in used] == [
-            words[2], words[5]], (event, "descriptor indices")
+        indices = [binding.access.arrayElement for binding in used]
+        assert sorted(indices) == sorted([words[2], words[5]]), (
+            event, indices, [words[2], words[5]])
         shader = pipeline.GetShaderReflection(rd.ShaderStage.Pixel)
         shader_hash = hashlib.sha256(bytes(shader.rawBytes)).hexdigest()
         if shader_hash not in shaders:
@@ -64,20 +66,20 @@ try:
                 "sample_four_channels": bool(re.search(r"sample_d .*\.xyzw,", assembly)),
                 "sample_first_channel": bool(re.search(r"sample_d .*\.x,", assembly)),
             }
-        bc3 = str(resources[0].resourceId)
+        bc3 = str(bc3_resource.resourceId)
         if bc3 not in state["bc3_payloads"]:
             subresource = rd.Subresource()
             subresource.mip = subresource.slice = subresource.sample = 0
-            payload = bytes(replay.GetTextureData(resources[0].resourceId, subresource))
-            assert len(payload) == resources[0].width * resources[0].height
+            payload = bytes(replay.GetTextureData(bc3_resource.resourceId, subresource))
+            assert len(payload) == bc3_resource.width * bc3_resource.height
             mip_payloads = []
             if bc3_dir:
-                for mip in range(resources[0].mips):
+                for mip in range(bc3_resource.mips):
                     subresource.mip = mip
                     mip_bytes = bytes(replay.GetTextureData(
-                        resources[0].resourceId, subresource))
-                    blocks_x = (max(1, resources[0].width >> mip) + 3) // 4
-                    blocks_y = (max(1, resources[0].height >> mip) + 3) // 4
+                        bc3_resource.resourceId, subresource))
+                    blocks_x = (max(1, bc3_resource.width >> mip) + 3) // 4
+                    blocks_y = (max(1, bc3_resource.height >> mip) + 3) // 4
                     assert len(mip_bytes) == blocks_x * blocks_y * 16
                     mip_payloads.append(mip_bytes)
             if bc3_dir:
@@ -89,7 +91,7 @@ try:
                 "bytes": len(payload),
                 "sha256": hashlib.sha256(payload).hexdigest(),
                 "prior_uses": [usage.eventId for usage in replay.GetUsage(
-                    resources[0].resourceId) if usage.eventId < event],
+                    bc3_resource.resourceId) if usage.eventId < event],
             }
             if mip_payloads:
                 state["bc3_payloads"][bc3]["mips"] = [
@@ -99,7 +101,8 @@ try:
             "event": event,
             "shader_sha256": shader_hash,
             "bc3": bc3,
-            "full_view": str(resources[1].resourceId),
+            "full_view": str(full_view_resource.resourceId),
+            "resource_formats": formats,
             "descriptor_indices": [words[2], words[5]],
         })
         if (len(state["draws"]) + len(state["skipped"])) % 20 == 0:

@@ -608,3 +608,16 @@ and `SNR04_OUTPUT`, then run
 `stage=done` JSON on success. This proves the foliage geometry input join;
 pixel shader/material, stencil, resource lifetime and full selected-slice
 image parity remain open.
+
+The same-frame pixel-input census classified all 189 marked foliage draws:
+135 use no pixel shader SRVs, and 54 use the same translated alpha-discard
+pixel shader with one BC3 texture and one full-view resource. Nine of those
+54 list BC3 first; 45 list the full-view resource first. The census now
+identifies roles by resource format and checks the two descriptor indices
+without assuming binding order. It exported five complete nine-mip BC3
+chains (87,408 bytes each); their SHA-256 hashes match all five chains from
+the earlier independent RenderDoc capture. The local JSON report is
+`f4-direct-vegetation-pixel-census-final.json` (SHA-256
+`E2C86691CD600CDF8DC9CE1E3F97DDDC662088CFE61744A03C8A188DBF811B90`).
+This owns the captured alpha inputs for this frame but does not yet prove
+their source generations, alpha coverage or private-pixel parity.
