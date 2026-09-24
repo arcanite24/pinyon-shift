@@ -318,6 +318,19 @@ Repeat with `fh1-native-output-adjacent.fh1test` once without and once with
 `--pinyon_shift_native_output_clear_probe=true`, then run
 `tools/verify-native-output-seam.py <control-dir> <probe-dir>`.
 
+**Early scene-boundary checkpoint (2026-09-24):** SNR-02/03 owned-frame
+consumption now runs before native output admission; final image observation
+still runs after presentation. The adjacent AppData race replay exited normally
+and the output-seam check still passed. With the live handoff enabled and its
+worker disabled, source frames 5000/5001 reached the early boundary with
+track, procedural items, vegetation, manager and remainder payloads. The
+character payload was incomplete on both frames (0 and 1 captured draws for
+13 and 14 character records), and six-family admission correctly rejected
+them. This is evidence that a fixed source-frame number cannot be an L1
+admission rule. The first visual pilot may omit the character family, as in
+Skate's first live frame, but must declare its required subset and yield a
+whole compatibility frame whenever that subset is incomplete.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

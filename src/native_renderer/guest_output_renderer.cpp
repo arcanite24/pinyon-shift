@@ -16,7 +16,19 @@ namespace {
 
 bool ObserveRenderTestOutput(
     const rex::system::NativeGuestOutputRenderContext& context) {
+  static thread_local uint64_t captured_frame = 0;
+  static thread_local uint64_t capture_us = 0;
   if (context.phase == rex::system::NativeGuestOutputPhase::kNativeAttempt) {
+    const auto capture_begin = std::chrono::steady_clock::now();
+    pinyon_shift::native_renderer::ObserveSnr03OutputFrame(
+        context.frame_sequence, context.device);
+    pinyon_shift::native_renderer::ObserveSnr02ItemOutputFrame(
+        context.frame_sequence, context.device);
+    pinyon_shift::native_renderer::ObserveSnr02TrackOutputFrame(
+        context.frame_sequence);
+    captured_frame = context.frame_sequence;
+    capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - capture_begin).count();
     if (!REXCVAR_GET(pinyon_shift_native_output_clear_probe) ||
         !pinyon_shift::fh1_render_test::Enabled() ||
         context.guest_output_width != 1280 ||
@@ -26,17 +38,10 @@ bool ObserveRenderTestOutput(
                          (context.frame_sequence & 1) ? 0.75f : 0.25f, 1.f};
     return context.clear_color(context, color);
   }
-  const auto capture_begin = std::chrono::steady_clock::now();
-  pinyon_shift::native_renderer::ObserveSnr03OutputFrame(context.frame_sequence,
-                                                        context.device);
-  pinyon_shift::native_renderer::ObserveSnr02ItemOutputFrame(context.frame_sequence,
-                                                            context.device);
-  pinyon_shift::native_renderer::ObserveSnr02TrackOutputFrame(context.frame_sequence);
-  const auto capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now() - capture_begin).count();
   pinyon_shift::fh1_render_test::ObserveOutput(context);
   pinyon_shift::native_renderer::ObserveSnr04BatchOutputFrame(
-      context.frame_sequence, context.device, capture_us);
+      context.frame_sequence, context.device,
+      captured_frame == context.frame_sequence ? capture_us : 0);
   return false;
 }
 
