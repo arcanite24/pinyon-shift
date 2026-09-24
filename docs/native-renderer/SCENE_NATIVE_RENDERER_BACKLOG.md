@@ -548,6 +548,19 @@ before native scene collection began at 5000; it is evidence for the title
 pass and UI boundary, not a new race-continuity qualification. The settled
 title capture still contained 26,740 native-only sky pixels.
 
+**Title draw-order probe (2026-09-24):** replaying that capture at individual
+draws shows the compatibility car/festival world without menu UI at events
+21400 and 21430. The menu's dark backing is visible by event 21489, prompt
+text starts at 21500, and the final event 21853 contains the full title menu.
+All are draws into the same guest output target. This confirms the title UI is
+composited after the world image, but the menu starts with several translucent
+draws before the text; a cut at the first text draw would omit its backing.
+The race HUD uses the same UI shader families, so this trace does not establish
+a mode-independent split event or a reliable race/title admission signal.
+The next bridge probe must identify the first retained UI draw from guest
+semantics, then prove that native world injection before that draw preserves
+the complete original HUD without overwriting title, pause or free-roam UI.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
