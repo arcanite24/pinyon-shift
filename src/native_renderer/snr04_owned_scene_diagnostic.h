@@ -14,7 +14,7 @@ struct Snr04SharedTarget;
 std::shared_ptr<Snr04SharedTarget> CreateSnr04SharedTarget(
     ID3D12Device* device, uint32_t samples);
 struct Snr04BatchSegmentInput {
-  std::vector<char> fixture;
+  std::shared_ptr<const std::vector<char>> fixture;
   std::filesystem::path shader, output;
   uint64_t first_sequence = 0, last_sequence = 0;
   uint32_t first_id = 0, draw_count = 0;
@@ -22,6 +22,7 @@ struct Snr04BatchSegmentInput {
 struct Snr04BatchInput {
   uint64_t source_frame = 0;
   std::vector<Snr04BatchSegmentInput> segments;
+  bool require_shader_fixture_digest = true;
 };
 struct Snr04BatchResult {
   uint64_t source_frame = 0;
@@ -43,6 +44,7 @@ struct Snr04SegmentOptions {
   std::filesystem::path alpha_bc3;
   std::shared_ptr<Snr04SharedTarget> shared_target;
   bool shared_first = false, shared_final = false;
+  bool require_shader_fixture_digest = true;
   uint64_t* gpu_draw_us = nullptr;
 };
 

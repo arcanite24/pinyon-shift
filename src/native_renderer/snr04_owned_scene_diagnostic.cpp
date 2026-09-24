@@ -62,7 +62,7 @@ void require(bool value, const char* message) {
 }
 std::vector<char> read(const std::filesystem::path& path) {
   std::ifstream file(path, std::ios::binary);
-  require(bool(file), "missing input");
+  if (!file) throw std::runtime_error("missing input: " + path.string());
   return {std::istreambuf_iterator<char>(file), {}};
 }
 std::string sha256(std::span<const char> data) {
@@ -2345,7 +2345,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
   require(bool(digest_file), "missing verified track shader manifest");
   std::string label, fixture_digest;
   require(bool(digest_file >> label >> fixture_digest) && label == "fixture" &&
-              fixture_digest == sha256(source), "wrong track shader fixture");
+              (!segment || !segment->require_shader_fixture_digest ||
+               fixture_digest == sha256(source)), "wrong track shader fixture");
   std::map<std::string, std::string> shader_digests;
   std::string digest, filename_entry;
   while (digest_file >> digest >> filename_entry)
@@ -2368,8 +2369,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
             "changed track vertex shader");
     shaders.emplace(key, std::move(bytes));
   }
-  require(shaders.size() == shader_digests.size(),
-          "track shader manifest has unused entries");
+  if (!segment || segment->require_shader_fixture_digest)
+    require(shaders.size() == shader_digests.size(),
+            "track shader manifest has unused entries");
 
   ComPtr<ID3D12Device> device;
   if (segment && segment->shared_target) {
@@ -3431,7 +3433,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
   require(bool(manifest), "missing remainder shader manifest");
   std::string label, fixture_digest;
   require(bool(manifest >> label >> fixture_digest) && label == "fixture" &&
-              fixture_digest == sha256(source), "wrong remainder shader fixture");
+              (!segment || !segment->require_shader_fixture_digest ||
+               fixture_digest == sha256(source)), "wrong remainder shader fixture");
   std::map<std::string, std::string> shader_digests;
   std::string digest, filename;
   while (manifest >> digest >> filename)
@@ -3453,8 +3456,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
             "missing or changed remainder vertex shader");
     shaders.emplace(key, std::move(bytes));
   }
-  require(shaders.size() == shader_digests.size(),
-          "remainder shader manifest has unused entries");
+  if (!segment || segment->require_shader_fixture_digest)
+    require(shaders.size() == shader_digests.size(),
+            "remainder shader manifest has unused entries");
 
   std::map<Range, uint32_t> vertex_offsets;
   std::vector<char> vertex_bytes;
@@ -3914,7 +3918,8 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
   uint32_t next_id = 1, covered = 0;
   for (size_t i = 0; i < count; ++i) {
     const auto& entry = input.segments[i];
-    const auto& fixture = entry.fixture;
+    require(bool(entry.fixture), "missing shared-target fixture");
+    const auto& fixture = *entry.fixture;
     const auto& shader = entry.shader;
     const auto& output = entry.output;
     Snr04SegmentOptions segment;
@@ -3936,6 +3941,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     segment.shared_target = target;
     segment.shared_first = i == 0;
     segment.shared_final = i + 1 == count;
+    segment.require_shader_fixture_digest = input.require_shader_fixture_digest;
     uint64_t gpu_draw_us = 0;
     segment.gpu_draw_us = &gpu_draw_us;
     upload_cpu_ns = upload_bytes = upload_cache_hits = upload_reused_bytes = 0;
@@ -4011,6 +4017,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
               header == "SNR04B1" && input.source_frame && count && count <= 4096,
           "invalid shared-target manifest");
   input.segments.reserve(count);
+  std::map<std::string, std::shared_ptr<const std::vector<char>>> fixtures;
   for (uint32_t i = 0; i < count; ++i) {
     Snr04BatchSegmentInput entry;
     std::string fixture, shader, output;
@@ -4018,7 +4025,12 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
                      std::quoted(output) >> entry.first_sequence >>
                      entry.last_sequence >> entry.first_id >> entry.draw_count),
             "invalid shared-target segment");
-    entry.fixture = read(fixture);
+    if (const auto found = fixtures.find(fixture); found != fixtures.end()) {
+      entry.fixture = found->second;
+    } else {
+      entry.fixture = std::make_shared<const std::vector<char>>(read(fixture));
+      fixtures.emplace(fixture, entry.fixture);
+    }
     entry.shader = shader;
     entry.output = output;
     input.segments.push_back(std::move(entry));

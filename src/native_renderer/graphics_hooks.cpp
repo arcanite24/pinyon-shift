@@ -5,6 +5,8 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -75,12 +77,59 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_item_payload_probe, false,
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_track_payload_probe, false,
                     "Pinyon Shift", "Snapshot selected view-8 track geometry")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_handoff, false, "Pinyon Shift",
+                    "Hand the selected frame to the in-game diagnostic worker")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
 
 #if defined(_WIN32)
 std::mutex snr04_batch_worker_mutex;
 std::thread snr04_batch_worker;
+enum class Snr04LiveFamily : uint8_t {
+  track, items, vegetation, characters, manager, remainder
+};
+struct Snr04LiveFixture {
+  std::shared_ptr<const std::vector<char>> bytes;
+  std::vector<uint64_t> sequences;
+};
+struct Snr04LiveJob {
+  pinyon_shift::native_renderer::Snr04BatchInput input;
+  Microsoft::WRL::ComPtr<ID3D12Device> device;
+  uint32_t samples = 4;
+};
+std::mutex snr04_live_mutex;
+std::condition_variable snr04_live_ready;
+std::map<uint64_t, std::array<Snr04LiveFixture, 6>> snr04_live_frames;
+std::deque<Snr04LiveJob> snr04_live_jobs;
+std::thread snr04_live_worker;
+bool snr04_live_stopping = false;
+
+void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
+                             std::vector<char>&& bytes,
+                             std::vector<uint64_t>&& sequences) {
+  if (!REXCVAR_GET(pinyon_shift_snr04_live_handoff)) return;
+  if (bytes.size() < 16 || bytes.size() > 32 * 1024 * 1024 ||
+      sequences.empty() || sequences.size() > 4096) {
+    REXGPU_INFO("FH1 SNR04 live fixture rejected frame={} family={} bytes={} "
+                "sequences={}", frame, int(family), bytes.size(),
+                sequences.size());
+    return;
+  }
+  std::lock_guard lock(snr04_live_mutex);
+  if (!snr04_live_frames.contains(frame) && snr04_live_frames.size() >= 2) {
+    REXGPU_INFO("FH1 SNR04 live fixture queue full frame={}", frame);
+    return;
+  }
+  auto& slot = snr04_live_frames[frame][size_t(family)];
+  if (slot.bytes) {
+    REXGPU_INFO("FH1 SNR04 live fixture duplicate frame={} family={}",
+                frame, int(family));
+    return;
+  }
+  slot.bytes = std::make_shared<const std::vector<char>>(std::move(bytes));
+  slot.sequences = std::move(sequences);
+}
 #endif
 
 using ClearClock = std::chrono::steady_clock;
@@ -1320,6 +1369,11 @@ bool ClearProducerTraceEnabled() {
 
 namespace pinyon_shift::native_renderer {
 namespace {
+
+bool Snr04LiveVerifyFixtures() {
+  return diagnostics::EnvironmentPath(
+      "PINYON_SHIFT_SNR04_LIVE_VERIFY_FIXTURES").has_value();
+}
 
 void ObserveSnr03VertexPayload(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
@@ -2802,7 +2856,9 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     write(draw.scissor);
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool written = !directory.empty() &&
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool written = (!live || Snr04LiveVerifyFixtures()) &&
+      !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), output_frame - 1,
                         directory, "snr02-track-");
   REXGPU_INFO("FH1 SNR02 track owned scene consumed output_frame={} "
@@ -2811,6 +2867,15 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
               output_frame, output_frame - 1, targets.size(), payload.draws.size(),
               payload.vertices.size(), payload.indices.size(), payload.bytes,
               encoded.size(), written);
+#if defined(_WIN32)
+  if (live) {
+    std::vector<uint64_t> sequences;
+    sequences.reserve(payload.draws.size());
+    for (const auto& draw : payload.draws) sequences.push_back(draw.sequence);
+    CollectSnr04LiveFixture(output_frame - 1, Snr04LiveFamily::track,
+                            std::move(encoded), std::move(sequences));
+  }
+#endif
 }
 
 void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
@@ -2886,7 +2951,9 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
     draws += uint32_t(geometry.draws.size());
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool written = !directory.empty() &&
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool written = (!live || Snr04LiveVerifyFixtures()) &&
+      !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), scene->source_frame,
                         directory, "snr02-items-");
   REXGPU_INFO("FH1 SNR02 item owned scene consumed output_frame={} "
@@ -2912,6 +2979,17 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
                     "source_frame={} reason={}", scene->source_frame, error.what());
       }
     }
+  }
+#endif
+#if defined(_WIN32)
+  if (live) {
+    std::vector<uint64_t> sequences;
+    sequences.reserve(draws);
+    for (const auto& [packet, geometry] : payload.by_packet)
+      for (const auto& [sequence, state] : geometry.draws)
+        sequences.push_back(sequence);
+    CollectSnr04LiveFixture(scene->source_frame, Snr04LiveFamily::items,
+                            std::move(encoded), std::move(sequences));
   }
 #endif
 }
@@ -3022,13 +3100,25 @@ void ObserveSnr03ManagerOutputFrame(uint64_t output_frame) {
     write(draw.scissor);
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool written = valid && !directory.empty() &&
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool written = valid &&
+      (!live || Snr04LiveVerifyFixtures()) &&
+      !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), scene->source_frame,
                         directory, "snr03-manager-");
   REXGPU_INFO("FH1 SNR03 manager owned scene output_frame={} source_frame={} "
               "records={} draws={} bytes={} rejected={} written={}",
               output_frame, scene->source_frame, scene->records.size(),
               payload.draws.size(), payload.bytes, payload.rejected, written);
+#if defined(_WIN32)
+  if (live && valid) {
+    std::vector<uint64_t> sequences;
+    sequences.reserve(payload.draws.size());
+    for (const auto& draw : payload.draws) sequences.push_back(draw.sequence);
+    CollectSnr04LiveFixture(scene->source_frame, Snr04LiveFamily::manager,
+                            std::move(encoded), std::move(sequences));
+  }
+#endif
 }
 
 void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
@@ -3146,7 +3236,10 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
     }
   }
   const auto directory = fh1_render_test::OutputDirectory();
-  const bool written = valid && !directory.empty() &&
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  const bool written = valid &&
+      (!live || Snr04LiveVerifyFixtures()) &&
+      !directory.empty() &&
       WriteSceneFixture(std::span<const char>(encoded), output_frame - 1,
                         directory, "snr03-remainder-");
   REXGPU_INFO("FH1 SNR03 remainder owned scene output_frame={} "
@@ -3156,6 +3249,15 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
               scalar ? scalar->records.size() : 0,
               payload.draws.size(), payload.bytes, payload.rejected,
               encoded.size(), written);
+#if defined(_WIN32)
+  if (live && valid) {
+    std::vector<uint64_t> sequences;
+    sequences.reserve(payload.draws.size());
+    for (const auto& draw : payload.draws) sequences.push_back(draw.sequence);
+    CollectSnr04LiveFixture(output_frame - 1, Snr04LiveFamily::remainder,
+                            std::move(encoded), std::move(sequences));
+  }
+#endif
 }
 
 void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
@@ -3257,13 +3359,23 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
     }
     complete &= sequences.size() == draw_count;
     const auto directory = fh1_render_test::OutputDirectory();
-    const bool written = complete && !directory.empty() &&
+    const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+    const bool written = complete &&
+        (!live || Snr04LiveVerifyFixtures()) &&
+        !directory.empty() &&
         WriteSceneFixture(std::span<const char>(encoded), scene->source_frame,
                           directory, "snr03-characters-");
     REXGPU_INFO("FH1 SNR03 character owned scene output_frame={} source_frame={} "
                 "items={} draws={} vertex_bytes={} rejected={} written={}",
                 output_frame, scene->source_frame, scene->characters.size(),
                 draw_count, characters.bytes, characters.rejected, written);
+#if defined(_WIN32)
+    if (live && complete)
+      CollectSnr04LiveFixture(
+          scene->source_frame, Snr04LiveFamily::characters,
+          std::move(encoded),
+          std::vector<uint64_t>(sequences.begin(), sequences.end()));
+#endif
   }
   if (payload.rejected || payload.by_packet.size() != scene->items.size()) {
     REXGPU_INFO("FH1 SNR03 geometry rejected output_frame={} items={} "
@@ -3332,10 +3444,12 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
               owned->title->source_frame, owned->items.size(), payload.bytes,
               final_variants, fingerprint);
   const auto directory = fh1_render_test::OutputDirectory();
-  if (!directory.empty()) {
-    const auto encoded = EncodeSnr03Fixture(*owned);
+  const bool live = REXCVAR_GET(pinyon_shift_snr04_live_handoff);
+  if (live || !directory.empty()) {
+    auto encoded = EncodeSnr03Fixture(*owned);
     const auto begin = std::chrono::steady_clock::now();
-    const bool written = WriteSceneFixture(std::span<const char>(encoded),
+    const bool written = (!live || Snr04LiveVerifyFixtures()) &&
+        WriteSceneFixture(std::span<const char>(encoded),
                                            owned->title->source_frame, directory,
                                            "snr03-scene-");
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3343,7 +3457,7 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
     REXGPU_INFO("FH1 SNR03 fixture output_frame={} written={} write_us={}",
                 output_frame, written, elapsed);
 #if defined(_WIN32)
-    if (device) {
+    if (!live && written && device) {
       const auto shader = diagnostics::EnvironmentPath("PINYON_SHIFT_SNR04_VS");
       if (shader) {
         const auto private_output = directory /
@@ -3369,12 +3483,141 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
       }
     }
 #endif
+#if defined(_WIN32)
+    if (live) {
+      std::vector<uint64_t> sequences;
+      sequences.reserve(final_variants);
+      for (const auto& item : owned->items)
+        for (const auto& [dynamic, state] : item.final_states)
+          sequences.push_back(state.draw_sequence);
+      CollectSnr04LiveFixture(owned->title->source_frame,
+                              Snr04LiveFamily::vegetation,
+                              std::move(encoded), std::move(sequences));
+    }
+#endif
   }
 }
 
 void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                                  uint64_t capture_us) {
 #if defined(_WIN32)
+  if (REXCVAR_GET(pinyon_shift_snr04_live_handoff) &&
+      Snr03ProbeOutputFrame(output_frame)) {
+    std::array<Snr04LiveFixture, 6> fixtures;
+    {
+      std::lock_guard lock(snr04_live_mutex);
+      if (const auto found = snr04_live_frames.find(output_frame - 1);
+          found != snr04_live_frames.end()) {
+        fixtures = std::move(found->second);
+        snr04_live_frames.erase(found);
+      }
+    }
+    try {
+      if (!device) throw std::runtime_error("missing live D3D12 device");
+      const auto output = diagnostics::EnvironmentPath(
+          "PINYON_SHIFT_SNR04_LIVE_OUTPUT_DIR");
+      if (!output) throw std::runtime_error("missing live output directory");
+      std::array<std::filesystem::path, 6> shaders;
+      for (size_t i = 0; i < fixtures.size(); ++i) {
+        if (!fixtures[i].bytes)
+          throw std::runtime_error("incomplete live selected frame family=" +
+                                   std::to_string(i));
+        const char* name = i == size_t(Snr04LiveFamily::track)
+            ? "PINYON_SHIFT_SNR04_TRACK_VS_DIR"
+            : i == size_t(Snr04LiveFamily::remainder)
+                ? "PINYON_SHIFT_SNR04_REMAINDER_VS_DIR"
+                : i == size_t(Snr04LiveFamily::vegetation)
+                    ? "PINYON_SHIFT_SNR04_VS"
+                    : "PINYON_SHIFT_SNR04_PROCEDURAL_VS_DIR";
+        const auto shader = diagnostics::EnvironmentPath(name);
+        if (!shader) throw std::runtime_error("missing live shader path");
+        shaders[i] = *shader;
+      }
+      struct Draw { uint64_t sequence; size_t family; };
+      std::vector<Draw> order;
+      for (size_t i = 0; i < fixtures.size(); ++i)
+        for (const auto sequence : fixtures[i].sequences)
+          order.push_back({sequence, i});
+      if (order.empty() || order.size() > 4096)
+        throw std::runtime_error("invalid live draw count");
+      std::ranges::sort(order, {}, &Draw::sequence);
+      for (size_t i = 0; i < order.size(); ++i)
+        if (!order[i].sequence ||
+            (i && order[i].sequence == order[i - 1].sequence))
+          throw std::runtime_error("duplicate live draw sequence");
+      Snr04LiveJob job;
+      job.input.source_frame = output_frame - 1;
+      // Live bytes differ per frame; shader keys and bytecode digests still
+      // have to match the checked directory manifest.
+      job.input.require_shader_fixture_digest = false;
+      job.device = static_cast<ID3D12Device*>(device);
+      job.samples = GetEnvironmentVariableA("PINYON_SHIFT_SNR04_MSAA4", nullptr, 0)
+          ? 4 : 1;
+      for (size_t i = 0; i < order.size();) {
+        const size_t first = i;
+        const size_t family = order[i].family;
+        while (i < order.size() && order[i].family == family) ++i;
+        Snr04BatchSegmentInput segment;
+        segment.fixture = fixtures[family].bytes;
+        segment.shader = shaders[family];
+        segment.output = *output /
+            ("source-" + std::to_string(job.input.source_frame)) /
+            ("step-" + std::to_string(job.input.segments.size()));
+        segment.first_sequence = order[first].sequence;
+        segment.last_sequence = order[i - 1].sequence;
+        segment.first_id = uint32_t(first + 1);
+        segment.draw_count = uint32_t(i - first);
+        job.input.segments.push_back(std::move(segment));
+      }
+      const auto segment_count = job.input.segments.size();
+      {
+        std::lock_guard lock(snr04_live_mutex);
+        if (snr04_live_stopping || snr04_live_jobs.size() >= 2)
+          throw std::runtime_error("live worker queue full");
+        if (!snr04_live_worker.joinable()) {
+          snr04_live_worker = std::thread([] {
+            for (;;) {
+              Snr04LiveJob job;
+              {
+                std::unique_lock lock(snr04_live_mutex);
+                snr04_live_ready.wait(lock, [] {
+                  return snr04_live_stopping || !snr04_live_jobs.empty();
+                });
+                if (snr04_live_jobs.empty() && snr04_live_stopping) return;
+                job = std::move(snr04_live_jobs.front());
+                snr04_live_jobs.pop_front();
+              }
+              try {
+                const auto result = RunSnr04BatchDiagnosticFromBytes(
+                    job.input, job.device.Get(), job.samples,
+                    job.input.segments.back().output / "batch-timing.json");
+                REXGPU_INFO("FH1 SNR04 live consumed source_frame={} draws={} "
+                            "covered_pixels={} samples={} upload_cpu_us={} "
+                            "upload_bytes={} gpu_draw_us={} stage_wall_us={}",
+                            result.source_frame, result.draws,
+                            result.covered_pixels, job.samples,
+                            result.upload_cpu_us, result.upload_bytes,
+                            result.gpu_draw_us, result.stage_wall_us);
+              } catch (const std::exception& error) {
+                REXGPU_INFO("FH1 SNR04 live rejected source_frame={} reason={}",
+                            job.input.source_frame, error.what());
+              }
+            }
+          });
+        }
+        snr04_live_jobs.push_back(std::move(job));
+      }
+      snr04_live_ready.notify_one();
+      REXGPU_INFO("FH1 SNR04 live queued output_frame={} source_frame={} "
+                  "draws={} segments={} capture_us={}", output_frame,
+                  output_frame - 1, order.size(), segment_count,
+                  capture_us);
+    } catch (const std::exception& error) {
+      REXGPU_INFO("FH1 SNR04 live rejected output_frame={} reason={}",
+                  output_frame, error.what());
+    }
+    return;
+  }
   if (Snr03ProbeEnabled() &&
       output_frame == uint64_t(Snr03TargetFrame()) + 1)
     REXGPU_INFO("FH1 SNR04 capture cost output_frame={} source_frame={} "
@@ -3447,6 +3690,13 @@ void FinishSnr04BatchDiagnostic() {
     std::lock_guard lock(snr04_batch_worker_mutex);
     worker = std::move(snr04_batch_worker);
   }
+  if (worker.joinable()) worker.join();
+  {
+    std::lock_guard lock(snr04_live_mutex);
+    snr04_live_stopping = true;
+    worker = std::move(snr04_live_worker);
+  }
+  snr04_live_ready.notify_all();
   if (worker.joinable()) worker.join();
 #endif
 }
