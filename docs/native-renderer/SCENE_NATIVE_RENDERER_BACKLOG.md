@@ -368,6 +368,21 @@ reach the presented image; the triangle is generated diagnostic geometry,
 not FH1 mesh content. L1 still needs the owned road/terrain and other scene
 draws, continuous frame capture, and a player toggle.
 
+**Continuous capture checkpoint (2026-09-24):** an opt-in, worker-free live
+collector and the SDK's prepared-draw snapshot gate now follow the same
+source-frame range. The `fh1-native-scene-continuous.fh1test` AppData race
+route exited normally; `verify-native-scene-handoff.py <output-dir>
+--triangle --continuous` confirmed ten consecutive scene-gated graphics
+frames (sources 5000–5009) and a whole compatibility frame immediately
+afterward. The source-5010 track inventory had zero targets even though the
+fallback image still showed the road, car and HUD. That is a real coverage
+gap: the current three-family core cannot be treated as a continuously
+complete race scene. The generated triangle still proves only output
+submission, not FH1 geometry. Resolve the changing track ownership or
+alternate draw path before claiming L1; keep whole-frame fallback at this
+boundary. This capture mode emits extensive diagnostic logs and is not yet
+a performance-qualified player mode.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

@@ -1,7 +1,6 @@
-"""Check exact-output fallback and two adjacent scene-gated probe frames."""
+"""Check exact-output scene probes, including a bounded continuous run."""
 
 import sys
-from collections import Counter
 from pathlib import Path
 
 
@@ -16,19 +15,24 @@ def pixels(path: Path) -> bytes:
 
 if __name__ == "__main__":
     output = Path(sys.argv[1])
-    triangle = len(sys.argv) > 2 and sys.argv[2] == "--triangle"
+    triangle = "--triangle" in sys.argv[2:]
+    continuous = "--continuous" in sys.argv[2:]
+    assert not continuous or triangle, "continuous capture requires --triangle"
     images = [pixels(output / f"track-source-{frame}.ppm")
-              for frame in (5000, 5001, 5002)]
+              for frame in (range(5000, 5012) if continuous else (5000, 5001, 5002))]
     assert images[0] != images[0][:3] * (1280 * 720), "missing compatibility frame"
-    for image, blue in zip(images[1:], (64, 191)):
+    if continuous:
+        assert images[-1] != images[-1][:3] * (1280 * 720), "missing whole-frame fallback"
+    for frame, image in enumerate(images[1:-1] if continuous else images[1:], 5001):
+        blue = 64 if frame % 2 else 191
         if triangle:
-            colors = Counter(image[i:i + 3] for i in range(0, len(image), 3))
-            assert len(colors) == 2 and bytes((28, 56, 110)) in colors, colors
-            triangle_color = next(color for color in colors if color != bytes((28, 56, 110)))
-            assert triangle_color[1:] == bytes((204, 51 if blue == 64 else 204)), colors
-            assert 0 < triangle_color[0] < 255, colors
+            sky = bytes((28, 56, 110))
+            triangle_color = image[(360 * 1280 + 640) * 3:(360 * 1280 + 641) * 3]
+            assert triangle_color[1:] == bytes((204, 51 if blue == 64 else 204)), frame
+            assert 0 < triangle_color[0] < 255, frame
+            assert image.count(sky) == 699494 and image.count(triangle_color) == 222106, frame
         else:
             color = image[:3]
             assert 0 < color[0] < 255 and color[1:] == bytes((96, blue)), color
             assert image == color * (1280 * 720), "scene output was not claimed"
-    print("native scene handoff: fallback and two adjacent source frames passed")
+    print(f"native scene handoff: fallback and {len(images) - (2 if continuous else 1)} claimed frames passed")

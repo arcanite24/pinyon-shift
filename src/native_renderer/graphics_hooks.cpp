@@ -89,6 +89,9 @@ REXCVAR_DEFINE_INT32(pinyon_shift_snr04_live_source_frame, 0, "Pinyon Shift",
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_worker, true, "Pinyon Shift",
                     "Run the in-game selected-frame diagnostic worker")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_snr04_live_continuous, false, "Pinyon Shift",
+                    "Capture every source frame from the selected live frame")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
 
@@ -1140,16 +1143,26 @@ bool SnrProbeSourceFrame(int32_t target, uint64_t frame) {
            frame == uint64_t(target) + 1));
 }
 
+bool Snr04ContinuousSourceFrame(int32_t target, uint64_t frame) {
+  return target > 0 && frame >= uint64_t(target) &&
+         REXCVAR_GET(pinyon_shift_snr04_live_handoff) &&
+         REXCVAR_GET(pinyon_shift_snr04_live_continuous) &&
+         !REXCVAR_GET(pinyon_shift_snr04_live_worker);
+}
+
 bool Snr03ProbeSourceFrame(uint64_t frame) {
-  return SnrProbeSourceFrame(Snr03TargetFrame(), frame);
+  return SnrProbeSourceFrame(Snr03TargetFrame(), frame) ||
+         Snr04ContinuousSourceFrame(Snr03TargetFrame(), frame);
 }
 
 bool Snr02TrackProbeSourceFrame(uint64_t frame) {
-  return SnrProbeSourceFrame(Snr02TrackTargetFrame(), frame);
+  return SnrProbeSourceFrame(Snr02TrackTargetFrame(), frame) ||
+         Snr04ContinuousSourceFrame(Snr02TrackTargetFrame(), frame);
 }
 
 bool Snr02ItemProbeSourceFrame(uint64_t frame) {
-  return SnrProbeSourceFrame(Snr02ItemTargetFrame(), frame);
+  return SnrProbeSourceFrame(Snr02ItemTargetFrame(), frame) ||
+         Snr04ContinuousSourceFrame(Snr02ItemTargetFrame(), frame);
 }
 
 bool Snr03ProbeOutputFrame(uint64_t frame) {
@@ -3764,6 +3777,10 @@ void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
         fixtures = std::move(found->second);
         snr04_live_frames.erase(found);
       }
+    }
+    if (REXCVAR_GET(pinyon_shift_snr04_live_continuous) &&
+        !REXCVAR_GET(pinyon_shift_snr04_live_worker)) {
+      return;
     }
     try {
       if (!device) throw std::runtime_error("missing live D3D12 device");
