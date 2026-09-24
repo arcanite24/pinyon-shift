@@ -710,3 +710,23 @@ The checker rejects any coverage or depth difference and records each one;
 it exits nonzero for the nine observed near-matches. These comparisons do
 not establish title material ownership, payload generation, stencil output,
 or continuous moving-frame parity.
+
+### Exact location of the remaining foliage coverage miss
+
+The per-draw checker now reports the first reference-only/private-only sample
+and the first nonexact overlapping depth per sample in screen coordinates.
+Replaying event 13512 (sequence 10101271, private ID 794, BC3 resource
+7929) against its captured prior again found exactly one reference-only
+write: sample 2 at `(362, 384)` in the middle EDRAM band. Reference depth
+changed from `0.01260471623390913` to `0.016353676095604897`; private
+depth remained at the prior value. The other three sample-write counts
+still match. Of the overlapping writes, 230, 658, 497 and 34 respectively
+have non-bit-exact depth, with the same maximum error
+`1.30385160446167e-08`. The local comparison is
+`.local/native-renderer/snr04/event13512-located/comparison.json` (SHA-256
+`D741BE4BA3F9AA12CB0AAF2AD2B80F6720111DD0D9B5F5F7C8E5068A2388E0B0`).
+This localizes the remaining coverage discrepancy but does not yet
+distinguish the writing fragment's alpha/sample mask from a sample-specific
+depth or raster decision. The next trace should inspect that fragment in the
+captured and private pixel shaders; a single final per-pixel alpha observation
+is ambiguous where fragments overlap.

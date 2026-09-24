@@ -66,7 +66,8 @@ def check(args):
     assert (summary["source_frame"], summary["draws"], summary["first_id"]) == (
         args.frame, 1, args.draw_id)
     assert summary.get("alpha_probe", False) == bool(args.alpha_bc3)
-    totals = [dict(reference=0, private=0, overlap=0) for _ in range(4)]
+    totals = [dict(reference=0, private=0, overlap=0, nonexact_depth=0)
+              for _ in range(4)]
     errors = [[] for _ in range(4)]
     any_reference = any_private = any_overlap = 0
     for pixel in range(WIDTH * args.rows):
@@ -82,9 +83,17 @@ def check(args):
             count["reference"] += ref_changed
             count["private"] += private_changed
             count["overlap"] += ref_changed and private_changed
+            if ref_changed != private_changed:
+                key = "first_reference_only" if ref_changed else "first_private_only"
+                count.setdefault(key, [pixel % WIDTH, pixel // WIDTH + args.tile_y])
             if ref_changed and private_changed:
-                errors[sample].append(abs(reference_after[sample][pixel] -
-                                          private_after[private_index]))
+                error = abs(reference_after[sample][pixel] -
+                            private_after[private_index])
+                errors[sample].append(error)
+                if error:
+                    count["nonexact_depth"] += 1
+                    count.setdefault("first_nonexact_depth",
+                                     [pixel % WIDTH, pixel // WIDTH + args.tile_y])
         any_reference += bool(reference_mask)
         any_private += bool(private_mask)
         any_overlap += bool(reference_mask) and bool(private_mask)
