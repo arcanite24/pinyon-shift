@@ -417,6 +417,22 @@ restored normal short and continuous route exits, visibly added foliage
 geometry, and passed the twenty-frame moving-output check. The current flat
 opaque foliage still needs captured alpha and material state.
 
+**Upright car-scene checkpoint (2026-09-24):** the existing strict SNR-03
+remainder parser now returns owned host vertex/index streams for the live
+callback. Its private diagnostic still reports 880 draws and 136,308 covered
+pixels, with the same summary as before extraction. The live callback draws
+that family in the same depth target, including both index widths and strip
+restart. It then rotates the private scene target 180° into the presented
+output, matching the compatibility resolve's known orientation. Visual
+review shows an upright trackside scene and moving player-car silhouette.
+The AppData continuous route exited normally; the strengthened
+`verify-native-track-output.py` passed twenty changing native frames with
+sky in the top half and car pixels in the bottom half. The checker rejects
+the prior inverted capture. A missing-scene route still exited normally and
+presented complete compatibility frames. These are flat-color geometry
+frames without materials, alpha, original HUD or a player toggle, so L1/L2
+remain open.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

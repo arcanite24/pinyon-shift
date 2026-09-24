@@ -1,4 +1,4 @@
-"""Check moving owned track geometry in exact-output race captures."""
+"""Check moving, upright owned race geometry in exact-output captures."""
 
 import sys
 from pathlib import Path
@@ -16,12 +16,16 @@ def pixels(path: Path) -> bytes:
 if __name__ == "__main__":
     output = Path(sys.argv[1])
     sky = bytes((28, 56, 110))
+    car = bytes((166, 41, 31))
+    half = 1280 * 360 * 3
     previous = pixels(output / "track-source-5000.ppm")
     assert previous.count(sky) < 1000, "missing compatibility control"
     for frame in range(5001, 5021):
         image = pixels(output / f"track-source-{frame}.ppm")
         sky_pixels = image.count(sky)
         assert 1000 < sky_pixels < 900000, f"missing native track geometry: {frame}"
+        assert image[:half].count(sky) == sky_pixels, f"inverted scene: {frame}"
+        assert image[half:].count(car) > 10000, f"missing native car: {frame}"
         assert image != previous, f"stale output frame: {frame}"
         previous = image
     if len(sys.argv) > 2:
@@ -30,4 +34,4 @@ if __name__ == "__main__":
             image = pixels(fallback / f"{name}.ppm")
             assert image != image[:3] * (1280 * 720), f"missing fallback: {name}"
             assert image.count(sky) < 1000, f"native output claimed without scene: {name}"
-    print("native track output: 20 moving owned-geometry frames passed")
+    print("native race output: 20 moving upright scene and car frames passed")
