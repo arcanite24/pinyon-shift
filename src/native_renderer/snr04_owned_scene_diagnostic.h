@@ -55,6 +55,17 @@ struct Snr04ProceduralScene {
   std::vector<Snr04ProceduralItem> items;
 };
 
+// Immutable ownership of one source frame at the output decision boundary.
+// The first live pilot requires track, items and vegetation; other families
+// remain available when complete, without making characters an L1 gate.
+struct Snr04LiveScene {
+  uint64_t source_frame = 0;
+  std::shared_ptr<const std::vector<char>> track, characters, manager, remainder;
+  std::shared_ptr<const Snr04ProceduralScene> items;
+  std::shared_ptr<const Snr04VegetationScene> vegetation;
+  uint32_t core_draws = 0;
+};
+
 struct Snr04SharedTarget;
 std::shared_ptr<Snr04SharedTarget> CreateSnr04SharedTarget(
     ID3D12Device* device, uint32_t samples);

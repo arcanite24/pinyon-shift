@@ -331,6 +331,27 @@ admission rule. The first visual pilot may omit the character family, as in
 Skate's first live frame, but must declare its required subset and yield a
 whole compatibility frame whenever that subset is incomplete.
 
+**Core-scene handoff checkpoint (2026-09-24):** the early callback can now
+borrow an immutable exact-source-frame snapshot with owned track bytes,
+typed procedural items and typed vegetation, plus optional character,
+manager and remainder payloads. Admission checks source-frame tags and
+unique nonzero draw sequences across the required core. A render-test-only
+scene-gated clear probe returns to compatibility when that core is missing.
+An exact-output-frame replay (the usual `# clock-hz 60` line was removed)
+admitted source frames 5000/5001 with 1,168/1,181 core draws and exited
+normally. The first PPM was the preceding compatibility image; the next two
+were distinct scene-coded RGB (73, 96, 64) and (74, 96, 191). The presenter's
+readback is one output behind the admission callback, so three captures
+are needed to observe two adjacent claimed frames. Reproduce with
+`fh1-native-scene-exact.fh1test`, the opt-in live-handoff and scene-clear
+probe flags, and `tools/verify-native-scene-handoff.py <output-dir>`.
+An otherwise identical short run with the scene-clear probe but no live
+scene handoff exited normally and retained nonuniform compatibility images.
+This proves direct current-frame ownership and output selection, **not**
+geometry presentation or continuous L1 gameplay. Track, manager and
+remainder still pass in-memory fixture bytes, and collection remains limited
+to selected source frames.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

@@ -6,10 +6,15 @@
 #include "fh1_render_test.h"
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
+#include "native_renderer/snr04_owned_scene_diagnostic.h"
 
 REXCVAR_DEFINE_BOOL(pinyon_shift_native_output_clear_probe, false,
                     "Pinyon Shift",
                     "Exercise opt-in early native output selection during render tests")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_native_scene_clear_probe, false,
+                    "Pinyon Shift",
+                    "Claim render-test output only with a current owned race scene")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
@@ -29,6 +34,18 @@ bool ObserveRenderTestOutput(
     captured_frame = context.frame_sequence;
     capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - capture_begin).count();
+    if (REXCVAR_GET(pinyon_shift_native_scene_clear_probe) &&
+        pinyon_shift::fh1_render_test::Enabled() &&
+        context.guest_output_width == 1280 &&
+        context.guest_output_height == 720 && context.clear_color) {
+      auto scene = pinyon_shift::native_renderer::SnapshotSnr04LiveScene(
+          context.frame_sequence);
+      if (scene) {
+        const float color[4]{float(scene->core_draws) / 4096.f, 0.375f,
+                             (scene->source_frame & 1) ? 0.75f : 0.25f, 1.f};
+        return context.clear_color(context, color);
+      }
+    }
     if (!REXCVAR_GET(pinyon_shift_native_output_clear_probe) ||
         !pinyon_shift::fh1_render_test::Enabled() ||
         context.guest_output_width != 1280 ||
@@ -53,7 +70,8 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem* graphics_system) {
   if (graphics_system) {
     graphics_system->SetNativeGuestOutputRenderer(
         fh1_render_test::Enabled() || Snr03ProbeEnabled() || Snr02ItemProbeEnabled() ||
-                REXCVAR_GET(pinyon_shift_native_output_clear_probe)
+                REXCVAR_GET(pinyon_shift_native_output_clear_probe) ||
+                REXCVAR_GET(pinyon_shift_native_scene_clear_probe)
             ? &ObserveRenderTestOutput : nullptr);
   }
 }

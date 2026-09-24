@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstring>
 #include <deque>
 #include <exception>
 #include <filesystem>
@@ -3664,6 +3665,90 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
     }
 #endif
   }
+}
+
+std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
+    uint64_t output_frame) {
+#if defined(_WIN32)
+  if (!output_frame || !REXCVAR_GET(pinyon_shift_snr04_live_handoff))
+    return {};
+  const uint64_t source_frame = output_frame - 1;
+  std::array<Snr04LiveFixture, 6> families;
+  {
+    std::lock_guard lock(snr04_live_mutex);
+    const auto found = snr04_live_frames.find(source_frame);
+    if (found == snr04_live_frames.end()) return {};
+    families = found->second;
+  }
+  const auto& track = families[size_t(Snr04LiveFamily::track)];
+  const auto& items = families[size_t(Snr04LiveFamily::items)];
+  const auto& vegetation = families[size_t(Snr04LiveFamily::vegetation)];
+  if (!track.bytes || !items.procedural || !vegetation.vegetation ||
+      items.procedural->frame != source_frame ||
+      vegetation.vegetation->title->source_frame != source_frame) {
+    REXGPU_INFO("FH1 native scene unavailable source_frame={} track={} items={} "
+                "vegetation={}", source_frame, bool(track.bytes),
+                bool(items.procedural), bool(vegetation.vegetation));
+    return {};
+  }
+  auto matches_frame = [source_frame](
+                           const std::shared_ptr<const std::vector<char>>& bytes) {
+    if (!bytes) return true;
+    if (bytes->size() < 16) return false;
+    uint64_t frame;
+    std::memcpy(&frame, bytes->data() + 8, sizeof(frame));
+    return frame == source_frame;
+  };
+  for (size_t family : {size_t(Snr04LiveFamily::track),
+                        size_t(Snr04LiveFamily::characters),
+                        size_t(Snr04LiveFamily::manager),
+                        size_t(Snr04LiveFamily::remainder)})
+    if (!matches_frame(families[family].bytes)) {
+      REXGPU_INFO("FH1 native scene frame mismatch source_frame={} family={}",
+                  source_frame, family);
+      return {};
+    }
+  std::set<uint64_t> sequences;
+  for (size_t family : {size_t(Snr04LiveFamily::track),
+                        size_t(Snr04LiveFamily::items),
+                        size_t(Snr04LiveFamily::vegetation)}) {
+    const auto& owned = families[family].sequences;
+    if (owned.empty() || owned.size() > 4096) {
+      REXGPU_INFO("FH1 native scene sequence count rejected source_frame={} "
+                  "family={} count={}", source_frame, family, owned.size());
+      return {};
+    }
+    for (uint64_t sequence : owned)
+      if (!sequence || !sequences.insert(sequence).second ||
+          sequences.size() > 4096) {
+        REXGPU_INFO("FH1 native scene sequence rejected source_frame={} "
+                    "family={} sequence={}", source_frame, family, sequence);
+        return {};
+      }
+  }
+  try {
+    auto scene = std::make_shared<Snr04LiveScene>();
+    scene->source_frame = source_frame;
+    scene->track = track.bytes;
+    scene->items = items.procedural;
+    scene->vegetation = BuildSnr04VegetationScene(*vegetation.vegetation);
+    scene->characters = families[size_t(Snr04LiveFamily::characters)].bytes;
+    scene->manager = families[size_t(Snr04LiveFamily::manager)].bytes;
+    scene->remainder = families[size_t(Snr04LiveFamily::remainder)].bytes;
+    scene->core_draws = uint32_t(sequences.size());
+    REXGPU_INFO("FH1 native scene admitted source_frame={} core_draws={} "
+                "characters={} manager={} remainder={}", source_frame,
+                scene->core_draws, bool(scene->characters),
+                bool(scene->manager), bool(scene->remainder));
+    return scene;
+  } catch (const std::exception& error) {
+    REXGPU_INFO("FH1 native scene rejected source_frame={} reason={}",
+                source_frame, error.what());
+  }
+#else
+  (void)output_frame;
+#endif
+  return {};
 }
 
 void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
