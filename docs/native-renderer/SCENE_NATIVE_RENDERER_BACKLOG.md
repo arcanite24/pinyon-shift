@@ -503,6 +503,8 @@ prior reproduces all 60,826 changed pixels, every per-sample write and depth
 value. This resolves that draw's earlier unmasked depth discrepancy but does
 not prove the original material path, all alpha draws, semantic resource
 lifetimes or full-slice image parity. See the complete-slice evidence.
+A second same-frame draw using a different captured BC3 chain also matches
+all four sample masks and written depth values exactly.
 A paired RenderDoc target check explains the apparent 180° mismatch against
 the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before

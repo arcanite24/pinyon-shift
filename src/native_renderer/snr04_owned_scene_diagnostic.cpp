@@ -553,10 +553,17 @@ struct AlphaTexture {
 AlphaTexture make_alpha_texture(ID3D12Device* device,
                                 const std::filesystem::path& path) {
   const auto bytes = read(path);
+  constexpr std::array known_bc3_hashes{
+      "5fd7960d163d3069b17664f3a22cf1c7f3f48bd1cd879f278a9ae43a2565f62e",
+      "fc250e284c8d2411dd1684eb25486a533c6a5ad1d9de0bdde70cba49f67b3df2",
+      "c4c1c61bb4a279c6c08be106aa6ce53cf7c8b3366ab5bba6ae7b71f7de3c8368",
+      "1513cba8f46f4707338e04a772310974c43cb990804eabae76ca31083d7cc57d",
+      "812af0dc0bcfe510207bab31eb22ff7e55693fbe65f109b3a19a0d7c25d5478e"};
+  const auto hash = sha256(bytes);
   require(bytes.size() == 87408 &&
-              sha256(bytes) ==
-                  "812af0dc0bcfe510207bab31eb22ff7e55693fbe65f109b3a19a0d7c25d5478e",
-          "wrong matched-event BC3 mip chain");
+              std::any_of(known_bc3_hashes.begin(), known_bc3_hashes.end(),
+                          [&](const char* known) { return hash == known; }),
+          "wrong captured BC3 mip chain");
   D3D12_RESOURCE_DESC description{};
   description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   description.Width = description.Height = 256;

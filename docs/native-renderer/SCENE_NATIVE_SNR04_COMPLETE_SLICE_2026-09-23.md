@@ -660,3 +660,11 @@ mask for this draw. The diagnostic still uses an opt-in reconstructed pixel
 shader, not the original material path; one exact draw does not establish
 full-slice material parity, resource-generation ownership, stencil behavior,
 or stability across moving frames and unloads.
+
+A second same-frame draw, event 10084 (sequence 10100753, private ID 290),
+uses a different captured BC3 chain (resource 7849). Its 3,582 changed
+pixels, all four sample-write counts (1,029, 3,120, 2,388 and 103), and
+every written depth also match exactly. The opt-in diagnostic accepts only
+the five SHA-256-checked BC3 chains in this capture. The local comparison is
+`f4-direct-vegetation-10084-alpha/comparison.json` (SHA-256
+`9CB4528396EFF87229E319D697D3083E107E179A4920C2F60997B9229D3FE15A`).
