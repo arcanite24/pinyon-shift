@@ -1,8 +1,10 @@
 # Scene-native renderer backlog
 
-Status: in progress; SNR-00/01 have pilot controls and a passing frame-wide
-view/pass boundary census. Exact full-slice mesh/material/lifetime ownership
-and retained-pass bridges remain open. No performance result is claimed.
+Status: in progress. The frame-wide boundary and complete selected-draw
+diagnostic are proved for sampled race frames, including adjacent moving
+frames. The file-backed path fails the visual bar and is no-go as a speed
+candidate; no net renderer performance gain is claimed. Material coverage,
+other-family lifetimes and retained-pass bridges remain open.
 This is the primary execution roadmap for new renderer architecture. The
 [performance backlog](PERFORMANCE_BACKLOG.md) remains the record of previous
 experiments; the [resource migration checklist](NATIVE_RESOURCE_MIGRATION_CHECKLIST.md)
@@ -366,6 +368,43 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    a persistent resource cache, in-memory immutable handoff, SNR-05 dependency
    census and paired net benchmark support the case.
 
+### Next execution goal — production-shaped feasibility
+
+The previous Gate A continuation proved one-run adjacent ownership,
+selected foliage unload/rebind and current-run private-target execution. Its
+stop/go result rejects the **file-backed diagnostic**, not native rendering
+itself. Before broad shader/material work, replace only the measured debug
+costs and test whether a useful renderer can plausibly clear Gate B:
+
+1. Hand the checked current-frame immutable scene directly to the in-game
+   worker. Remove fixture-file encoding, external manifest polling and debug
+   readback from this path; keep them as opt-in verification tools. Preserve
+   exact source/output-frame joins and bounded queues.
+2. Reuse GPU geometry, shaders and PSOs across frames only where identity and
+   allocation/payload generations are proved; retire them after fences.
+   Upload owned current-frame bytes for unresolved dynamic inputs and measure
+   those misses. Validate a reload/rebind; never cache by guest address alone
+   or reuse stale data. Reuse the existing D3D12 device and batch code,
+   without a new scene framework.
+3. Submit the selected draw order to one private target without a queue wait
+   per family. Capture two adjacent moving frames in one run; verify their
+   draw census and compare the opt-in target with the existing offline
+   diagnostic. Keep compatibility output authoritative.
+4. Run matched control/probe-off/probe-on measurements at production settings,
+   separately reporting capture CPU, uploads, native GPU work, retained work,
+   memory, frame cadence and any critical-path stall. Estimate removable
+   compatibility work only from the SNR-05 dependency cut, never from draw
+   counts or overlapping CPU/GPU spans. State a go/no-go for a **15% net median
+   frame-time gain** with the roughly 90% visual bar. This diagnostic cannot
+   claim net speedup while compatibility draws still run.
+
+**Decision:** if the production-shaped path is still too costly, revise the
+slice or identify a proven upstream preparation saving before implementing
+the full material system. If the cost case is plausible, implement the
+highest-impact material/alpha and retained-pass composition needed for the
+predeclared visual regions, then remeasure. Do not spend this phase chasing
+isolated float/sample differences that are not visible.
+
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
 do not hide unknown draws in admission. **Stop/go after the Gate A diagnostic:**
@@ -482,11 +521,12 @@ scene copies, unbounded queues or waits that cycle between title and GPU threads
   by missing content, pose, alpha/material, stencil, lighting and retained-pass
   composition; an isolated sample or float-bit mismatch is a diagnostic, not
   an automatic gate failure under the agreed visual bar.
-- Move the owned diagnostic to one in-game private target on the existing
-  D3D12 device. The staged offline replay's inter-family readback/upload is
-  evidence, not the execution shape to benchmark. Record extraction, update,
-  draw, bridge and presentation cost separately. Keep compatibility output
-  authoritative until admission; double rendering is not an FPS result.
+- Keep the selected order on one in-game private D3D12 target, then replace
+  the current file-backed handoff and per-stage submissions with in-memory
+  publication, persistent resources and bounded GPU work. The staged replay
+  and borrowed-device worker remain verification tools, not frame-time
+  evidence. Record extraction, update, draw, bridge and presentation costs
+  separately; double rendering is not a net FPS result.
 
 First bounded implementation cut (not Gate A completion):
 
@@ -619,7 +659,7 @@ claiming parity; see the complete-slice evidence.
 scene is stable at reference resolution, with no silent missing, duplicated,
 stale or misattributed objects. Small documented rendering approximations may
 pass the visual bar; stale or wrong-owner data cannot.
-The in-game private-target path and moving-frame comparison meet the
+The in-memory in-game private-target path and moving-frame comparison meet the
 predeclared visual bar, and an unload/reload check validates resource
 freshness. Unknown authoritative relationships stop this gate; isolated
 byte/sample differences do not. Publish the measured in-game cost and a
