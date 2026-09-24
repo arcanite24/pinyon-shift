@@ -144,9 +144,12 @@ def verify(log: Path, frame: int):
                 assert set(managers) == set(objects)
                 assert all(len(values) == 1 for values in managers.values())
                 assert len({next(iter(values)) for values in managers.values()}) == 5
+                assert len({next(iter(values)) - candidate * 96
+                            for candidate, values in managers.items()}) == 1
                 report['manager_context'] = next(iter(contexts))
                 report['manager_table'] = next(iter(tables))
                 report['manager_vtable'] = next(iter(vtables))
+                report['manager_stride'] = 96
                 report['manager_objects'] = [
                     {'key': candidate, 'object': next(iter(values))}
                     for candidate, values in sorted(managers.items())]

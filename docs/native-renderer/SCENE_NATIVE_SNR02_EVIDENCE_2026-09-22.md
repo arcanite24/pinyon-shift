@@ -1196,3 +1196,17 @@ The updated verifier also passes the earlier manager-lookup capture without
 these optional fields. The next evidence must classify the two resource
 objects, their creation/destruction and any streaming changes before using
 them as durable scene references.
+
+The five sampled `CTrackTexture_Unified` providers occupy 96-byte slots:
+for any two sampled keys, the object-address difference is the key
+difference times 96. The generated `sub_82DF2F40` array-growth path uses
+96-byte elements and `sub_82DF1C00` copy-constructs the provider, including
+the three resource references and the 52-byte record at offset `+44`.
+`sub_82DF0AA8` initializes a temporary provider used by that path, while
+the deleting destructor `sub_82DF13C8` releases its references through
+`sub_82DEEA80`. These are array ownership and object-lifetime paths, not
+evidence that the five sampled providers were reset during the race.
+Generation tracking must therefore observe the owning array's relocation
+and the actual resource mutation path; pointer equality by itself remains
+insufficient. The state verifier now checks the 96-byte stride in both the
+52-record and 67-record captures.
