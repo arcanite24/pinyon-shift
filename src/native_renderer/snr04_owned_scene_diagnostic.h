@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct ID3D12Device;
@@ -54,6 +56,26 @@ struct Snr04ProceduralScene {
   std::string sha;
   std::vector<Snr04ProceduralItem> items;
 };
+
+using Snr04TrackRange = std::pair<uint32_t, uint32_t>;
+struct Snr04TrackDraw {
+  uint64_t sequence = 0, shader = 0, pixel_shader = 0, specialization = 0;
+  uint32_t packet = 0, count = 0, primitive = 0;
+  Snr04TrackRange vertex{}, index{};
+  std::vector<uint32_t> packed;
+  std::array<uint32_t, 64> system{};
+  std::array<uint32_t, 4> fetch{};
+  uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;
+  std::array<float, 6> viewport{};
+  std::array<int32_t, 4> scissor{};
+};
+struct Snr04TrackScene {
+  uint64_t source_frame = 0;
+  bool raster_captured = false;
+  std::map<Snr04TrackRange, std::vector<char>> vertices, indices;
+  std::vector<Snr04TrackDraw> draws;
+};
+Snr04TrackScene ParseSnr04TrackScene(std::span<const char> fixture);
 
 // Immutable ownership of one source frame at the output decision boundary.
 // The first live pilot requires track, items and vegetation; other families

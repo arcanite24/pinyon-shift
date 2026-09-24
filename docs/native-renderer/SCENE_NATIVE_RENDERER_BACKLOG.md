@@ -382,6 +382,27 @@ still proves only output submission, not FH1 geometry. This capture mode
 emits extensive diagnostic logs and is not yet a performance-qualified
 player mode.
 
+**Live track-raster checkpoint (2026-09-24):** the early callback can now
+look up validated vertex bytecode from the installed FH1 shader pack, parse
+the same owned track fixture used by the private diagnostic, and record its
+indexed draws directly on the presentation submission. It builds an owned
+upload buffer and depth target before claiming the frame, uses captured
+viewport/scissor/depth state, and retains GPU resources until submission
+completion. The refactored private diagnostic still covered 700,053 pixels.
+The AppData race route exited normally; `tools/verify-native-track-output.py
+<race-output> <missing-scene-output>` confirmed twenty consecutive changing
+track-geometry frames plus complete compatibility output when no scene was
+available. The material color is currently a flat hash-derived placeholder.
+Visual review shows partial buildings and trackside structures, with road,
+vehicles, foliage and HUD absent. This is the first in-game FH1 mesh draw,
+not a usable L1 native race view. It still depends on expensive diagnostic
+capture hooks and remains render-test-only and default-off.
+Repeat with `fh1-native-scene-continuous.fh1test` and the live handoff,
+continuous, worker-off, SNR-02 item/track, SNR-03 frame-5000 and
+`--pinyon_shift_native_track_probe=true` flags. The short
+`fh1-native-output-adjacent.fh1test` route with only the track flag checks
+no-scene compatibility fallback.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

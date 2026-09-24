@@ -28,6 +28,7 @@ if(WIN32)
         src/native_renderer/fh1_gpu_corpus.cpp
         src/native_renderer/fh1_pass_tracker.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/native_output_track.cpp
         src/native_renderer/native_output_triangle.cpp
         src/native_renderer/snr04_owned_scene_diagnostic.cpp
         src/native_renderer/shader_capture.cpp

@@ -7,6 +7,7 @@
 #include "native_renderer/graphics_hooks.h"
 #include "native_renderer/guest_output_renderer.h"
 #if defined(_WIN32)
+#include "native_renderer/native_output_track.h"
 #include "native_renderer/native_output_triangle.h"
 #endif
 #include "native_renderer/snr04_owned_scene_diagnostic.h"
@@ -23,6 +24,10 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_native_scene_clear_probe, false,
 REXCVAR_DEFINE_BOOL(pinyon_shift_native_scene_triangle_probe, false,
                     "Pinyon Shift",
                     "Exercise scene-gated D3D12 native graphics output")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_native_track_probe, false,
+                    "Pinyon Shift",
+                    "Draw owned track geometry into the native output")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 #endif
 
@@ -44,6 +49,16 @@ bool ObserveRenderTestOutput(
     capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - capture_begin).count();
 #if defined(_WIN32)
+    if (REXCVAR_GET(pinyon_shift_native_track_probe) &&
+        pinyon_shift::fh1_render_test::Enabled() &&
+        context.guest_output_width == 1280 &&
+        context.guest_output_height == 720) {
+      auto scene = pinyon_shift::native_renderer::SnapshotSnr04LiveScene(
+          context.frame_sequence);
+      if (scene)
+        return pinyon_shift::native_renderer::DrawNativeOutputTrack(
+            context, *scene);
+    }
     if (REXCVAR_GET(pinyon_shift_native_scene_triangle_probe) &&
         pinyon_shift::fh1_render_test::Enabled() &&
         context.guest_output_width == 1280 &&
@@ -95,6 +110,7 @@ void InstallGuestOutputRenderer(rex::system::IGraphicsSystem* graphics_system) {
                 REXCVAR_GET(pinyon_shift_native_scene_clear_probe)
 #if defined(_WIN32)
                 || REXCVAR_GET(pinyon_shift_native_scene_triangle_probe)
+                || REXCVAR_GET(pinyon_shift_native_track_probe)
 #endif
             ? &ObserveRenderTestOutput : nullptr);
   }

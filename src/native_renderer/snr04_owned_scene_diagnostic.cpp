@@ -2218,19 +2218,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
       shader_directory, output_directory, device, samples, segment);
 }
 
-uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
-    std::span<const char> fixture,
-    const std::filesystem::path& shader_directory,
-    const std::filesystem::path& output_directory,
-    ID3D12Device* borrowed_device, uint32_t samples,
-    const Snr04SegmentOptions* segment) {
-  require(samples == 1 || samples == 4, "unsupported track sample count");
-  if (segment)
-    require(segment->first_sequence &&
-                segment->first_sequence <= segment->last_sequence &&
-                segment->first_id && segment->draw_count &&
-                segment->first_id + uint64_t(segment->draw_count) <= 65536,
-            "invalid track segment");
+pinyon_shift::native_renderer::Snr04TrackScene pinyon_shift::native_renderer::ParseSnr04TrackScene(
+    std::span<const char> fixture) {
   const auto source = fixture;
   Reader reader{source};
   const auto magic = reader.take<std::array<char, 8>>();
@@ -2269,17 +2258,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
   };
   auto vertices = read_ranges(vertex_count, 512 * 1024);
   auto indices = read_ranges(index_count, 64 * 1024);
-  struct TrackDraw {
-    uint64_t sequence, shader, specialization;
-    uint32_t packet, count, primitive;
-    Range vertex, index;
-    std::vector<uint32_t> packed;
-    std::array<uint32_t, 64> system;
-    std::array<uint32_t, 4> fetch;
-    uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;
-    std::array<float, 6> viewport{};
-    std::array<int32_t, 4> scissor{};
-  };
+  using TrackDraw = pinyon_shift::native_renderer::Snr04TrackDraw;
   std::vector<TrackDraw> draws;
   draws.reserve(draw_count);
   std::set<uint32_t> seen_targets;
@@ -2287,7 +2266,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
     TrackDraw draw{};
     draw.sequence = reader.take<uint64_t>();
     draw.shader = reader.take<uint64_t>();
-    reader.take<uint64_t>();  // Pixel shader: private identity shader replaces it.
+    draw.pixel_shader = reader.take<uint64_t>();
     draw.packet = reader.take<uint32_t>();
     const auto target = reader.take<uint32_t>();
     draw.count = reader.take<uint32_t>();
@@ -2357,6 +2336,37 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
   }
   require(reader.position == source.size() && seen_targets == target_addresses,
           "incomplete track fixture");
+
+  pinyon_shift::native_renderer::Snr04TrackScene scene;
+  scene.source_frame = frame;
+  scene.raster_captured = raster_captured;
+  scene.vertices = std::move(vertices);
+  scene.indices = std::move(indices);
+  scene.draws = std::move(draws);
+  return scene;
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
+    std::span<const char> fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* borrowed_device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  require(samples == 1 || samples == 4, "unsupported track sample count");
+  if (segment)
+    require(segment->first_sequence &&
+                segment->first_sequence <= segment->last_sequence &&
+                segment->first_id && segment->draw_count &&
+                segment->first_id + uint64_t(segment->draw_count) <= 65536,
+            "invalid track segment");
+  auto scene = ParseSnr04TrackScene(fixture);
+  const auto source = fixture;
+  const auto frame = scene.source_frame;
+  const bool raster_captured = scene.raster_captured;
+  using Range = Snr04TrackRange;
+  const auto& vertices = scene.vertices;
+  const auto& indices = scene.indices;
+  const auto& draws = scene.draws;
 
   std::ifstream digest_file(shader_directory / "manifest.sha256");
   require(bool(digest_file), "missing verified track shader manifest");
