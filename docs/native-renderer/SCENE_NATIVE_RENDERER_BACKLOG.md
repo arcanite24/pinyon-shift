@@ -403,6 +403,17 @@ continuous, worker-off, SNR-02 item/track, SNR-03 frame-5000 and
 `fh1-native-output-adjacent.fh1test` route with only the track flag checks
 no-scene compatibility fallback.
 
+**Live item-geometry checkpoint (2026-09-24):** the same native submission
+now also draws the owned SNR-02 procedural items against the track depth
+target, using their validated vertex shaders and shared upload arena. The
+AppData continuous route exited normally and the twenty-frame moving-output
+check passed; a matching source-frame capture changed 226,638 RGB bytes
+compared with the track-only checkpoint. This remains a partial, flat-color
+scene. A first attempt to append opaque SNR-03 vegetation caused a D3D12
+`DEVICE_HUNG` during the first native capture; that path was removed. Before
+foliage can enter the live path, isolate the GPU hang and add the captured
+alpha/material state so foliage quads cannot turn into opaque occluders.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

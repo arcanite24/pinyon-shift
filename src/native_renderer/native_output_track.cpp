@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -51,17 +52,25 @@ struct TrackDrawBinding {
   D3D12_RECT scissor{};
 };
 
+struct ItemDrawBinding {
+  uint64_t sequence = 0, shader = 0, specialization = 0;
+  uint32_t count = 0;
+  uint64_t vertex = 0, b0 = 0, b1 = 0, b3 = 0;
+};
+
 struct TrackGraphics {
   ComPtr<ID3D12Device> device;
   ComPtr<ID3D12RootSignature> root;
   ComPtr<ID3DBlob> pixel;
   std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
+  std::map<std::pair<uint64_t, uint64_t>, ComPtr<ID3D12PipelineState>> item_pipelines;
   std::deque<std::pair<uint64_t, TrackFrame>> submitted;
 
   bool Ready(ID3D12Device* current) {
     if (device.Get() != current) {
       submitted.clear();
       pipelines.clear();
+      item_pipelines.clear();
       root.Reset();
       pixel.Reset();
       device = current;
@@ -146,7 +155,102 @@ struct TrackGraphics {
     pipelines.emplace(key, std::move(pipeline));
     return true;
   }
+
+  bool ItemPipeline(const rex::system::NativeGuestOutputRenderContext& context,
+                    uint64_t hash, uint64_t specialization) {
+    const auto key = std::pair{hash, specialization};
+    if (item_pipelines.contains(key)) return true;
+    const uint8_t* vertex = nullptr;
+    size_t size = 0;
+    if (!context.shader ||
+        !context.shader(context, 0, hash, specialization, &vertex, &size) ||
+        !vertex || size < 4 || std::memcmp(vertex, "DXBC", 4))
+      return false;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = root.Get();
+    desc.VS = {vertex, size};
+    desc.PS = {pixel->GetBufferPointer(), pixel->GetBufferSize()};
+    desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_ALL;
+    desc.SampleMask = UINT_MAX;
+    desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    desc.RasterizerState.DepthClipEnable = TRUE;
+    desc.DepthStencilState.DepthEnable = TRUE;
+    desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+    desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    desc.NumRenderTargets = 1;
+    desc.RTVFormats[0] = DXGI_FORMAT_R10G10B10A2_UNORM;
+    desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    desc.SampleDesc.Count = 1;
+    ComPtr<ID3D12PipelineState> pipeline;
+    if (FAILED(device->CreateGraphicsPipelineState(&desc,
+                                                  IID_PPV_ARGS(&pipeline))))
+      return false;
+    item_pipelines.emplace(key, std::move(pipeline));
+    return true;
+  }
 };
+
+bool PrepareItems(const rex::system::NativeGuestOutputRenderContext& context,
+                  const Snr04ProceduralScene& scene, TrackGraphics& graphics,
+                  UploadArena& arena, std::vector<ItemDrawBinding>& bindings,
+                  uint64_t& index_offset, uint32_t& index_bytes) {
+  if (scene.character || scene.items.empty() || scene.items.size() > 512)
+    return false;
+  uint32_t max_vertices = 0;
+  for (const auto& item : scene.items)
+    for (const auto& draw : item.draws)
+      max_vertices = (std::max)(max_vertices, draw.vertex_count);
+  if (!max_vertices || max_vertices > UINT16_MAX || max_vertices % 4)
+    return false;
+  std::vector<uint16_t> indices;
+  indices.reserve(max_vertices / 4 * 6);
+  for (uint32_t first = 0; first < max_vertices; first += 4)
+    for (uint32_t corner : {0u, 1u, 3u, 1u, 2u, 3u})
+      indices.push_back(uint16_t(first + corner));
+  index_bytes = uint32_t(indices.size() * sizeof(uint16_t));
+  index_offset = arena.Add(indices.data(), index_bytes);
+  for (const auto& item : scene.items) {
+    if (item.vertices.empty() || item.constants.empty() ||
+        item.draws.empty() || item.fetch[2] > 3)
+      return false;
+    const auto vertex = arena.Add(item.vertices.data(), item.vertices.size());
+    const auto b1 = arena.Add(item.constants.data(),
+                              item.constants.size() * sizeof(uint32_t));
+    std::array<uint32_t, 192> fetch{};
+    std::copy(item.fetch.begin(), item.fetch.end(), fetch.begin() + 188);
+    const auto b3 = arena.Add(fetch.data(), sizeof(fetch));
+    for (const auto& draw : item.draws) {
+      const bool known_shader =
+          draw.vertex_shader == 0x3BC346726C1C2535ull ||
+          draw.vertex_shader == 0xBDFD2AD68464101Aull ||
+          draw.vertex_shader == 0xCB8AC98467C0C283ull ||
+          draw.vertex_shader == 0xA715C815EDB8EEE8ull;
+      const uint64_t specialization =
+          draw.vertex_shader == 0xCB8AC98467C0C283ull ||
+          draw.vertex_shader == 0xA715C815EDB8EEE8ull ? 127 : 15;
+      if (!known_shader || !draw.sequence || !draw.vertex_count ||
+          draw.vertex_count % 4 ||
+          draw.vertex_count * 10 != item.vertices.size() ||
+          !graphics.ItemPipeline(context, draw.vertex_shader, specialization))
+        return false;
+      std::array<uint32_t, 120> system{};
+      std::copy(draw.system.begin(), draw.system.end(), system.begin());
+      system[33] = std::bit_cast<uint32_t>(1.f);
+      system[37] = std::bit_cast<uint32_t>(-1.f / 720.f);
+      bindings.push_back({draw.sequence, draw.vertex_shader, specialization,
+                          draw.vertex_count / 4 * 6, vertex,
+                          arena.Add(system.data(), sizeof(system)), b1, b3});
+    }
+  }
+  std::sort(bindings.begin(), bindings.end(),
+            [](const auto& a, const auto& b) { return a.sequence < b.sequence; });
+  for (size_t i = 1; i < bindings.size(); ++i)
+    if (bindings[i - 1].sequence == bindings[i].sequence) return false;
+  return !bindings.empty();
+}
 
 bool CreateFrame(ID3D12Device* device, ID3D12Resource* output,
                  const UploadArena& arena, TrackFrame& frame) {
@@ -214,13 +318,13 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   auto* output = static_cast<ID3D12Resource*>(context.guest_output);
   auto* list = static_cast<rex::graphics::d3d12::DeferredCommandList*>(
       context.deferred_command_list);
-  if (!device || !output || !list || !live.track ||
+  if (!device || !output || !list || !live.track || !live.items ||
       output->GetDesc().Format != DXGI_FORMAT_R10G10B10A2_UNORM ||
       !graphics.Ready(device))
     return false;
   auto scene = ParseSnr04TrackScene(*live.track);
   if (scene.source_frame != live.source_frame || !scene.raster_captured ||
-      scene.draws.empty())
+      scene.draws.empty() || live.items->frame != live.source_frame)
     return false;
   while (!graphics.submitted.empty() &&
          graphics.submitted.front().first <= context.completed_submission)
@@ -268,9 +372,16 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
                        LONG(draw.scissor[3] + tile_offset)};
     bindings.push_back(binding);
   }
+  std::vector<ItemDrawBinding> item_bindings;
+  uint64_t item_index = 0;
+  uint32_t item_index_bytes = 0;
+  if (!PrepareItems(context, *live.items, graphics, arena, item_bindings,
+                    item_index, item_index_bytes))
+    return false;
   TrackFrame frame;
   if (!CreateFrame(device, output, arena, frame)) return false;
-  list->ReserveAdditionalBytes(scene.draws.size() * 512 + 4096);
+  list->ReserveAdditionalBytes(
+      (scene.draws.size() + item_bindings.size()) * 512 + 4096);
   const auto base = frame.upload->GetGPUVirtualAddress();
   const auto rtv = frame.rtv->GetCPUDescriptorHandleForHeapStart();
   const auto dsv = frame.dsv->GetCPUDescriptorHandleForHeapStart();
@@ -312,6 +423,23 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
                         0.17f + float((hash >> 16) & 255) / 1024.f, 1.f};
     list->D3DSetGraphicsRoot32BitConstants(4, 4, color, 0);
     list->D3DDrawIndexedInstanced(draw.count, 1, 0, 0, 0);
+  }
+  list->RSSetViewport({0, 0, 1280, 720, 0, 0.5f});
+  list->RSSetScissorRect({0, 0, 1280, 720});
+  list->D3DIASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  D3D12_INDEX_BUFFER_VIEW item_view{base + item_index, item_index_bytes,
+                                     DXGI_FORMAT_R16_UINT};
+  list->D3DIASetIndexBuffer(&item_view);
+  for (const auto& binding : item_bindings) {
+    list->D3DSetPipelineState(graphics.item_pipelines.at(
+        {binding.shader, binding.specialization}).Get());
+    list->D3DSetGraphicsRootConstantBufferView(0, base + binding.b0);
+    list->D3DSetGraphicsRootConstantBufferView(1, base + binding.b1);
+    list->D3DSetGraphicsRootConstantBufferView(2, base + binding.b3);
+    list->D3DSetGraphicsRootShaderResourceView(3, base + binding.vertex);
+    const float color[]{0.47f, 0.40f, 0.31f, 1.f};
+    list->D3DSetGraphicsRoot32BitConstants(4, 4, color, 0);
+    list->D3DDrawIndexedInstanced(binding.count, 1, 0, 0, 0);
   }
   std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
   list->D3DResourceBarrier(1, &barrier);
