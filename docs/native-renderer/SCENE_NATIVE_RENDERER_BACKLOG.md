@@ -271,6 +271,8 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    The selected foliage BC3 probe now joins five live cache objects and
    clean-at-copy payloads to independently captured mip chains. One key had
    three CPU-triggered invalidations/reload attempts before the sample;
+   a second run confirmed two invalidation → attempt → completed-load chains
+   on the same sampled cache object before its fenced copy;
    title material ownership and allocation/payload generations still need
    proof (see the [live BC3 join](SCENE_NATIVE_SNR02_EVIDENCE_2026-09-22.md#live-foliage-bc3-source-and-invalidation-join)).
    Six scalar draws have a retained skid-presentation

@@ -24,7 +24,8 @@ def extract(session: Path, output: Path, include_scene: bool = False,
         markers += ("FH1 SNR03 ", "FH1 scene binding ")
     if include_bc3_source:
         markers += ("FH1 SNR04 BC3 ", "FH1 SNR04 bound pixel ",
-                    "FH1 texture reload attempt ", "FH1 texture invalidated ")
+                    "FH1 texture reload attempt ", "FH1 texture reload complete ",
+                    "FH1 texture invalidated ")
     count = 0
     with output.open("w", encoding="utf-8") as destination:
         for path in paths:

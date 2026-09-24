@@ -52,11 +52,12 @@ class ExtractSnr01RunLogTest(unittest.TestCase):
                 f"[{stamp}.001] FH1 SNR03 final\n"
                 f"[{stamp}.002] FH1 scene binding pixel\n"
                 f"[{stamp}.003] FH1 SNR04 BC3 source {{}}\n"
+                f"[{stamp}.004] FH1 texture reload complete {{}}\n"
             )
             output = root / "filtered.log"
             assert module.extract(session, output) == 1
             assert module.extract(session, output, include_scene=True) == 3
-            assert module.extract(session, output, include_bc3_source=True) == 2
+            assert module.extract(session, output, include_bc3_source=True) == 3
 
 
 if __name__ == "__main__":

@@ -982,7 +982,8 @@ The local process-filtered log is
 `.local/native-renderer/snr02/bc3-source-live-a/evidence.log` (SHA-256
 `72882BF5AB7B0FEAA53AD4070DCD1B14D5DD3009E66A653472264BF1F3AFA431`),
 and its checked source join is `source-join.json` (SHA-256
-`3392E990DFDBDBE3973684647238BF08A77C373493AFACADFDC2EE8B5800BF0E`).
+`22B049068BB96C3290948B2331E7A7F8D39632F61EA5CCEA01CC214180E59552`
+after rechecking with the completion-aware verifier).
 
 Reproduce the process-scoped evidence with `extract-snr01-run-log.py
 SESSION OUTPUT --include-bc3-source` using session
@@ -996,3 +997,37 @@ row and readback are diagnostic-only and default off. The next ownership
 check must follow the title material object into these guest ranges and
 distinguish cache object creation from subsequent payload changes; address
 equality alone is insufficient.
+
+### Completed reloads on the sampled cache object
+
+A second normal-exit sustained-race run (`20260924T021813Z-p22028`) made the
+existing opt-in texture reload probe log the cache object on invalidation and
+reload attempt, plus each completed cache load. It produced seven route
+captures and five fenced frame-5001 BC3 mip chains. The completion-aware
+source verifier again matched all five chains byte for byte to the independent
+RenderDoc reference. The same five guest base/mip pairs appeared with
+different run-local SRV indices (524, 528, 531, 600 and 769).
+
+The sampled object for base `1075A000` / mips `0E4DA000` had one CPU mip
+invalidation and one CPU base invalidation in this run. Each was followed,
+in process-log order, by a reload attempt and a completed load of that part
+on the **same cache object** before its `outdated=0` readback copy. The other
+four sampled objects had no observed invalidation before their copy. This
+closes the earlier uncertainty about whether those observed reload attempts
+completed for the second run. It does not establish a title material owner,
+guest allocation generation, or an unload/reload lifecycle. A completed
+cache load is not itself a native GPU submission fence; the subsequent BC3
+readback is fenced for the sampled frame.
+
+The executable SHA-256 was
+`0C91E84B8BB6C8ECFEB90E3A24E6F1A42B93A4CB92C4D5F0554458AE39CB2E16`;
+the staged graphics DLL SHA-256 was
+`F552FB1233CFFC712E111BCC881D0E6C4DAA6A167D0BB9746C88F1EB65F8724D`.
+The process-filtered log is
+`.local/native-renderer/snr02/bc3-complete-live-b/evidence.log` (SHA-256
+`E8E53AE03EA7C286BFD382D10DC490D92B7FC406E30A50FC49F38E0465DD3AA6`),
+and its checked `source-join.json` has SHA-256
+`BB94BB2AC55195B01B76A633CA0BA021E4349EAEFAF35C403224F1F4579E0A97`.
+Reproduce with `extract-snr01-run-log.py SESSION OUTPUT
+--include-bc3-source` and `verify-snr04-bc3-source-join.py LOG LIVE_DIR
+REFERENCE_DIR OUTPUT --frame 5001`. Both probes default off.

@@ -20,7 +20,7 @@ def verify(args):
     assert len(reference) == 5
     bound = None
     sources, chains, changes = [], {}, []
-    for line in args.log.open(encoding='utf-8'):
+    for line_index, line in enumerate(args.log.open(encoding='utf-8')):
         timestamp = line[1:24]
         if 'FH1 SNR04 bound pixel ' in line:
             row = json.loads(line.split('FH1 SNR04 bound pixel ', 1)[1])
@@ -30,14 +30,17 @@ def verify(args):
             row = json.loads(line.split('FH1 SNR04 BC3 source ', 1)[1])
             assert bound and row['fetch'] == bound['fetch']
             row.update(srv=bound['absolute'], packet=bound['packet'],
-                       timestamp=timestamp)
+                       timestamp=timestamp, line_index=line_index)
             sources.append(row)
             bound = None
         elif 'FH1 texture reload attempt ' in line:
-            changes.append(('reload', timestamp, json.loads(
+            changes.append(('reload', timestamp, line_index, json.loads(
                 line.split('FH1 texture reload attempt ', 1)[1])))
+        elif 'FH1 texture reload complete ' in line:
+            changes.append(('complete', timestamp, line_index, json.loads(
+                line.split('FH1 texture reload complete ', 1)[1])))
         elif 'FH1 texture invalidated ' in line:
-            changes.append(('invalidated', timestamp, json.loads(
+            changes.append(('invalidated', timestamp, line_index, json.loads(
                 line.split('FH1 texture invalidated ', 1)[1])))
         else:
             match = MIP_LINE.search(line)
@@ -60,12 +63,27 @@ def verify(args):
         digest = hashlib.sha256(payload).hexdigest()
         assert digest in reference
         base, mips = f"{source['base']:08X}", f"{source['mips']:08X}"
-        events = [{'kind': kind, 'timestamp': timestamp,
+        events = [{'kind': kind, 'timestamp': timestamp, 'line_index': index,
                    'part': row.get('part'), 'gpu': row.get('gpu'),
                    'base_dirty': row.get('base_dirty'),
-                   'mips_dirty': row.get('mips_dirty')}
-                  for kind, timestamp, row in changes
-                  if row['base'] == base and row['mips'] == mips]
+                   'mips_dirty': row.get('mips_dirty'),
+                   'load_base': row.get('load_base'),
+                   'load_mips': row.get('load_mips'),
+                   'outdated': row.get('outdated')}
+                  for kind, timestamp, index, row in changes
+                  if row['base'] == base and row['mips'] == mips
+                  and row.get('texture', source['texture']) == source['texture']
+                  and index < source['line_index']]
+        if any(event['kind'] == 'complete' for event in events):
+            for invalidation in (event for event in events
+                                 if event['kind'] == 'invalidated'):
+                part, start = invalidation['part'], invalidation['line_index']
+                assert any(attempt['kind'] == 'reload' and attempt[f'{part}_dirty']
+                           and attempt['line_index'] > start
+                           and any(done['kind'] == 'complete' and done[f'load_{part}']
+                                   and done['line_index'] > attempt['line_index']
+                                   for done in events)
+                           for attempt in events)
         rows.append({'srv': srv, 'packet': source['packet'],
                      'texture': source['texture'], 'resource': source['resource'],
                      'base': base, 'mips': mips, 'outdated': source['outdated'],
