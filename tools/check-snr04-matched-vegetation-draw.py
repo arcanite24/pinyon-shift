@@ -39,6 +39,7 @@ def check(args):
     output = args.output.resolve()
     assert ".local" in output.parts, "diagnostic output must stay under .local"
     probe, reference_before, reference_after = reference_depths(args.probe, args.rows)
+    assert 0 <= args.tile_y and args.tile_y + args.rows <= HEIGHT
     prior, result = output / "compat-before", output / "private-after"
     prior.mkdir(parents=True, exist_ok=True)
     result.mkdir(parents=True, exist_ok=True)
@@ -46,7 +47,8 @@ def check(args):
     depths = array("f", [0]) * (WIDTH * HEIGHT * 4)
     for pixel in range(WIDTH * args.rows):
         for sample in range(4):
-            depths[pixel * 4 + sample] = reference_before[sample][pixel]
+            depths[(pixel + WIDTH * args.tile_y) * 4 + sample] = (
+                reference_before[sample][pixel])
     (prior / "depth.f32x4").write_bytes(depths.tobytes())
     command = [str(args.executable.resolve()), str(args.fixture.resolve()),
                str(args.shader.resolve()), str(result), "--msaa4", "--segment",
@@ -70,10 +72,10 @@ def check(args):
     for pixel in range(WIDTH * args.rows):
         reference_mask = private_mask = 0
         for sample in range(4):
+            private_index = (pixel + WIDTH * args.tile_y) * 4 + sample
             ref_changed = (reference_before[sample][pixel] !=
                            reference_after[sample][pixel])
-            private_changed = (depths[pixel * 4 + sample] !=
-                               private_after[pixel * 4 + sample])
+            private_changed = depths[private_index] != private_after[private_index]
             reference_mask |= ref_changed << sample
             private_mask |= private_changed << sample
             count = totals[sample]
@@ -82,7 +84,7 @@ def check(args):
             count["overlap"] += ref_changed and private_changed
             if ref_changed and private_changed:
                 errors[sample].append(abs(reference_after[sample][pixel] -
-                                          private_after[pixel * 4 + sample]))
+                                          private_after[private_index]))
         any_reference += bool(reference_mask)
         any_private += bool(private_mask)
         any_overlap += bool(reference_mask) and bool(private_mask)
@@ -96,9 +98,11 @@ def check(args):
         count["depth_max"] = values[-1] if values else None
     report = {"event": probe["event"], "source_frame": args.frame,
               "draw_id": args.draw_id, "rows": args.rows,
+              "tile_y": args.tile_y,
               "reference_any": any_reference, "private_any": any_private,
               "overlap_any": any_overlap,
-              "any_iou": any_overlap / (any_reference + any_private - any_overlap),
+              "any_iou": any_overlap / (any_reference + any_private - any_overlap)
+              if any_reference + any_private - any_overlap else 1.0,
               "alpha_bc3": bool(args.alpha_bc3), "samples": totals}
     (output / "comparison.json").write_text(json.dumps(report, indent=2) + "\n",
                                             encoding="utf-8")
@@ -113,5 +117,6 @@ if __name__ == "__main__":
     parser.add_argument("--sequence", type=int, required=True)
     parser.add_argument("--draw-id", type=int, required=True)
     parser.add_argument("--rows", type=int, required=True)
+    parser.add_argument("--tile-y", type=int, default=0)
     parser.add_argument("--alpha-bc3", type=Path)
     print(json.dumps(check(parser.parse_args()), sort_keys=True))

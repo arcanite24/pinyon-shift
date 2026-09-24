@@ -655,11 +655,13 @@ foliage vertex DXIL, `--frame 5000 --sequence 10100754 --draw-id 291
 f4-direct-vegetation-bc3/ResourceId-7929.bc3mips`. The local comparison
 JSON is `f4-direct-vegetation-10089-alpha/comparison.json` (SHA-256
 `692DAAB5FF7559AB96D7968829FD6EE09FD5B45E4987286AFD05814E9FC550E2`).
-This isolates the per-draw depth discrepancy to the missing alpha/sample
-mask for this draw. The diagnostic still uses an opt-in reconstructed pixel
-shader, not the original material path; one exact draw does not establish
-full-slice material parity, resource-generation ownership, stencil behavior,
-or stability across moving frames and unloads.
+This isolates the per-draw depth discrepancy within the first active 256-row
+EDRAM tile to the missing alpha/sample mask. The private full-screen draw
+also writes below that tile; those writes cannot be compared to this reused
+reference tile without mapping the next band. The diagnostic still uses an
+opt-in reconstructed pixel shader, not the original material path; this
+one-tile match does not establish full-slice material parity,
+resource-generation ownership or stability across moving frames and unloads.
 
 A second same-frame draw, event 10084 (sequence 10100753, private ID 290),
 uses a different captured BC3 chain (resource 7849). Its 3,582 changed
@@ -668,3 +670,43 @@ every written depth also match exactly. The opt-in diagnostic accepts only
 the five SHA-256-checked BC3 chains in this capture. The local comparison is
 `f4-direct-vegetation-10084-alpha/comparison.json` (SHA-256
 `9CB4528396EFF87229E319D697D3083E107E179A4920C2F60997B9229D3FE15A`).
+
+### Same-frame foliage alpha census across all EDRAM bands
+
+The batch depth exporter read the exact before/after four-sample reference
+depth for **all 54** textured foliage actions in the direct backend-frame
+capture. Its single-event mode was rechecked against the earlier independent
+event-10084 export: all four before/after sample hashes and coverage match.
+The captured viewport heights of 720, 464 and 208 imply tile origins at
+screen rows 0, 256 and 512 respectively. The comparison places each tile's
+reference prior at that origin in the private 720-row target and compares
+only the active 256, 256 or 208 rows. Comparing the whole 512-row EDRAM
+resource without this mapping falsely counts private writes outside the
+current tile and misaligns the later bands.
+
+Of 54 draws, **28 have no reference or private depth writes** in the active
+tile. The remaining 26 contribute 323,566 reference-changed pixels and
+618,694 sample writes in total. Twenty-five have exact per-sample coverage;
+event 13512 misses one reference sample (54,637 versus 54,636 on sample 2).
+All other sample writes overlap, with no private-only writes in the active
+tiles. Forty-five draws have bit-identical overlapping depth; nine differ
+at float precision, with maximum absolute error `1.30385160446167e-08`
+(event 13512). Thus the reconstructed BC3 alpha path matches the captured
+active-tile coverage almost exactly, but **is not bit-exact for the whole
+family**. No-writing draws are counted separately, not as positive parity
+evidence. The local depth-export ledger is
+`f4-direct-alpha-depth-batch/census.json` (SHA-256
+`7FA10A33607E019422B1B9428A8DFA25201CA6DCF7C211DE51D5EDFFBC821C54`);
+the replay ledger is `f4-direct-alpha-replay-final/census.json` (SHA-256
+`1D918B9C584D2E2F948FCE93BC50BA03A06A50F6C25C36F5B74DB50C7F242ECF`).
+
+Reproduce the depth export with `probe-snr04-renderdoc-depth.py` in
+`qrenderdoc --python`, setting `SNR04_CAPTURE` to the direct capture,
+`SNR04_EVENTS_JSON` to the final pixel census and `SNR04_OUTPUT` to a local
+ledger path. Then run `check-snr04-foliage-alpha-census.py` with that ledger,
+the pixel census, marked action list, selected-slice order, F4 fixture,
+verified foliage VS DXIL, five BC3 chains and the diagnostic executable.
+The checker rejects any coverage or depth difference and records each one;
+it exits nonzero for the nine observed near-matches. These comparisons do
+not establish title material ownership, payload generation, stencil output,
+or continuous moving-frame parity.

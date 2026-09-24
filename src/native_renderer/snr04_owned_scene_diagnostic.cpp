@@ -1065,7 +1065,10 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     const auto& resource = owned[draw.item];
     if (alpha_probe) {
       const auto& system = item.variants[draw.variant].system;
-      require(system[0] == 984 && system[44] == 16191 && system[54] == 1 &&
+      require(system[0] == 984 &&
+                  (system[44] == 0x3F3F ||
+                   system[44] == 0x3F003F3F) &&
+                  system[54] == 1 &&
                   system[55] == 1 && system[57] == 426,
               "matched foliage alpha state changed");
       ID3D12DescriptorHeap* heaps[]{alpha_texture.views.Get(),

@@ -460,21 +460,20 @@ Attribution to each tile's private draw IDs puts 69,490/85,908 depth
 differences of at least `0.005` on vegetation; 99.0% write nearer private
 depth. The five leading foliage draws all bind two pixel textures. The
 same-run capture matches all 179 foliage actions and exports their five BC3
-mip chains. Bind the captured alpha/sample-mask state against preceding
-scene depth first; the current private identity shader ignores it.
+mip chains. This motivated the captured alpha/sample-mask diagnostic below;
+the ordinary private identity shader still ignores it.
 The vegetation diagnostic now restores four-sample identity/depth from a
 prior private segment. A 45/67/67 split matches an uninterrupted 179-draw
 four-sample replay byte for byte. All selected families now carry this
 four-sample target across the 35-stage same-run slice; two complete replays
 match byte for byte at every stage. Sample-0 compatibility mask overlap is
 99.50%, but p90 absolute depth error is still `0.00488`. Vegetation still
-accounts for 70,082/85,659 large depth errors. Replay captured
-alpha/sample-mask, stencil and per-draw state before claiming parity. An
+accounts for 70,082/85,659 large depth errors. The same-frame alpha census
+below tests one part of this gap; stencil and per-draw state remain. An
 exact-prior single-draw check for matched event 11204 explains the immediate
 next step: 133,449/133,488 compatibility depth writes also occur in the
-private draw, but the unmasked private draw adds 222,835 samples. Bind its
-captured BC3 alpha/sample-mask path, then expand to all 53 textured foliage
-actions. An opt-in event-11204 probe matches each compatibility per-sample
+private draw, but the unmasked private draw adds 222,835 samples. An opt-in
+event-11204 probe matches each compatibility per-sample
 write count within 0.8% using the verified BC3 mip chain, but the original
 fixture's spatial pixel overlap is only 73.67%. Its vertex bytes and 64
 system words match RenderDoc; 35/92 bound vertex constant words do not. Replacing
@@ -488,9 +487,8 @@ bound words per final draw; a real output-frame fixture passed log/hash
 verification for 135 draws, and a synthetic same-capture F4 fixture has
 zero bound-constant differences across 179 draws. The live F4 frame also
 passed the six-family verifier for all 2,307 selected draws; two complete
-4× replays matched at all 35 stages. Repeat a paired live capture and
-compare complete-slice state before attributing remaining
-errors to materials. Then test the original pixel shader, stencil
+4× replays matched at all 35 stages. The direct backend-frame capture below
+resolves the frame mismatch. Test the original pixel shader, stencil
 and resource lifetime before broadening native admission; see
 the [complete-slice evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md).
 Semantic material admission, resource freshness and continuous
@@ -500,11 +498,19 @@ A direct backend-frame capture now joins all 1,559 selected draws, including
 vertex inputs and constants. A same-frame four-sample replay of matched
 foliage event 10089 with its captured BC3 alpha path and exact compatibility
 prior reproduces all 60,826 changed pixels, every per-sample write and depth
-value. This resolves that draw's earlier unmasked depth discrepancy but does
-not prove the original material path, all alpha draws, semantic resource
+value within its active EDRAM tile. This resolves that draw's earlier
+unmasked depth discrepancy but does not prove the original material path,
+full-family alpha parity, semantic resource
 lifetimes or full-slice image parity. See the complete-slice evidence.
 A second same-frame draw using a different captured BC3 chain also matches
 all four sample masks and written depth values exactly.
+The complete same-frame BC3 depth census covers all 54 textured foliage
+actions in their active EDRAM tiles: 28 make no depth writes, 25 visible
+draws have exact per-sample coverage, and one visible draw misses one sample.
+The largest overlapping depth error is `1.3e-08`; nine draws are not
+bit-exact. The tile mapping is explicit and reproducible in the
+complete-slice evidence. This is a diagnostic alpha-path result, not
+semantic material, lifetime or full-slice parity admission.
 A paired RenderDoc target check explains the apparent 180° mismatch against
 the presented screenshot: the compatibility scene attachment is itself
 inverted and reused in EDRAM bands. Compare target-space coverage/depth before
