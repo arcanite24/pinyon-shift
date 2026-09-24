@@ -409,10 +409,13 @@ target, using their validated vertex shaders and shared upload arena. The
 AppData continuous route exited normally and the twenty-frame moving-output
 check passed; a matching source-frame capture changed 226,638 RGB bytes
 compared with the track-only checkpoint. This remains a partial, flat-color
-scene. A first attempt to append opaque SNR-03 vegetation caused a D3D12
-`DEVICE_HUNG` during the first native capture; that path was removed. Before
-foliage can enter the live path, isolate the GPU hang and add the captured
-alpha/material state so foliage quads cannot turn into opaque occluders.
+scene. A first vegetation attempt caused `DEVICE_HUNG`: it accidentally
+selected the manager vertex shader `B8489164D5A86043` for foliage vertex
+data. The installed pack confirms that foliage uses `5834939992FFC765`,
+matching the private diagnostic's shader digest. Correcting that binding
+restored normal short and continuous route exits, visibly added foliage
+geometry, and passed the twenty-frame moving-output check. The current flat
+opaque foliage still needs captured alpha and material state.
 
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot

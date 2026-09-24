@@ -252,6 +252,54 @@ bool PrepareItems(const rex::system::NativeGuestOutputRenderContext& context,
   return !bindings.empty();
 }
 
+bool PrepareVegetation(
+    const rex::system::NativeGuestOutputRenderContext& context,
+    const Snr04VegetationScene& scene, TrackGraphics& graphics,
+    UploadArena& arena, std::vector<ItemDrawBinding>& bindings,
+    uint64_t& index_offset, uint32_t& index_bytes) {
+  constexpr uint64_t shader = 0x5834939992FFC765ull;
+  if (!scene.sequenced || scene.items.empty() || scene.items.size() > 512 ||
+      !graphics.ItemPipeline(context, shader, 31))
+    return false;
+  uint32_t max_vertices = 0;
+  for (const auto& item : scene.items)
+    max_vertices = (std::max)(max_vertices, item.vertex_count);
+  if (!max_vertices || max_vertices > UINT16_MAX || max_vertices % 4)
+    return false;
+  std::vector<uint16_t> indices;
+  indices.reserve(max_vertices / 4 * 6);
+  for (uint32_t first = 0; first < max_vertices; first += 4)
+    for (uint32_t corner : {0u, 1u, 3u, 1u, 2u, 3u})
+      indices.push_back(uint16_t(first + corner));
+  index_bytes = uint32_t(indices.size() * sizeof(uint16_t));
+  index_offset = arena.Add(indices.data(), index_bytes);
+  for (const auto& item : scene.items) {
+    if (!item.vertex_count || item.vertex_count % 4 ||
+        item.vertices.size() != item.vertex_count * 4 ||
+        item.variants.empty() || item.fetch[2] > 3)
+      return false;
+    const auto vertex = arena.Add(item.vertices.data(), item.vertices.size());
+    std::array<uint32_t, 192> fetch{};
+    std::copy(item.fetch.begin(), item.fetch.end(), fetch.begin() + 188);
+    const auto b3 = arena.Add(fetch.data(), sizeof(fetch));
+    for (const auto& variant : item.variants) {
+      if (!variant.sequence) return false;
+      std::array<uint32_t, 120> system{};
+      std::copy(variant.system.begin(), variant.system.end(), system.begin());
+      bindings.push_back({variant.sequence, shader, 31,
+                          item.vertex_count / 4 * 6, vertex,
+                          arena.Add(system.data(), sizeof(system)),
+                          arena.Add(variant.vertex_constants.data(), 23 * 16),
+                          b3});
+    }
+  }
+  std::sort(bindings.begin(), bindings.end(),
+            [](const auto& a, const auto& b) { return a.sequence < b.sequence; });
+  for (size_t i = 1; i < bindings.size(); ++i)
+    if (bindings[i - 1].sequence == bindings[i].sequence) return false;
+  return !bindings.empty();
+}
+
 bool CreateFrame(ID3D12Device* device, ID3D12Resource* output,
                  const UploadArena& arena, TrackFrame& frame) {
   D3D12_HEAP_PROPERTIES upload_heap{};
@@ -319,12 +367,14 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   auto* list = static_cast<rex::graphics::d3d12::DeferredCommandList*>(
       context.deferred_command_list);
   if (!device || !output || !list || !live.track || !live.items ||
+      !live.vegetation ||
       output->GetDesc().Format != DXGI_FORMAT_R10G10B10A2_UNORM ||
       !graphics.Ready(device))
     return false;
   auto scene = ParseSnr04TrackScene(*live.track);
   if (scene.source_frame != live.source_frame || !scene.raster_captured ||
-      scene.draws.empty() || live.items->frame != live.source_frame)
+      scene.draws.empty() || live.items->frame != live.source_frame ||
+      live.vegetation->source_frame != live.source_frame)
     return false;
   while (!graphics.submitted.empty() &&
          graphics.submitted.front().first <= context.completed_submission)
@@ -378,10 +428,18 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   if (!PrepareItems(context, *live.items, graphics, arena, item_bindings,
                     item_index, item_index_bytes))
     return false;
+  std::vector<ItemDrawBinding> vegetation_bindings;
+  uint64_t vegetation_index = 0;
+  uint32_t vegetation_index_bytes = 0;
+  if (!PrepareVegetation(context, *live.vegetation, graphics, arena,
+                         vegetation_bindings, vegetation_index,
+                         vegetation_index_bytes))
+    return false;
   TrackFrame frame;
   if (!CreateFrame(device, output, arena, frame)) return false;
   list->ReserveAdditionalBytes(
-      (scene.draws.size() + item_bindings.size()) * 512 + 4096);
+      (scene.draws.size() + item_bindings.size() +
+       vegetation_bindings.size()) * 512 + 4096);
   const auto base = frame.upload->GetGPUVirtualAddress();
   const auto rtv = frame.rtv->GetCPUDescriptorHandleForHeapStart();
   const auto dsv = frame.dsv->GetCPUDescriptorHandleForHeapStart();
@@ -438,6 +496,20 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
     list->D3DSetGraphicsRootConstantBufferView(2, base + binding.b3);
     list->D3DSetGraphicsRootShaderResourceView(3, base + binding.vertex);
     const float color[]{0.47f, 0.40f, 0.31f, 1.f};
+    list->D3DSetGraphicsRoot32BitConstants(4, 4, color, 0);
+    list->D3DDrawIndexedInstanced(binding.count, 1, 0, 0, 0);
+  }
+  D3D12_INDEX_BUFFER_VIEW vegetation_view{
+      base + vegetation_index, vegetation_index_bytes, DXGI_FORMAT_R16_UINT};
+  list->D3DIASetIndexBuffer(&vegetation_view);
+  for (const auto& binding : vegetation_bindings) {
+    list->D3DSetPipelineState(graphics.item_pipelines.at(
+        {binding.shader, binding.specialization}).Get());
+    list->D3DSetGraphicsRootConstantBufferView(0, base + binding.b0);
+    list->D3DSetGraphicsRootConstantBufferView(1, base + binding.b1);
+    list->D3DSetGraphicsRootConstantBufferView(2, base + binding.b3);
+    list->D3DSetGraphicsRootShaderResourceView(3, base + binding.vertex);
+    const float color[]{0.18f, 0.36f, 0.19f, 1.f};
     list->D3DSetGraphicsRoot32BitConstants(4, 4, color, 0);
     list->D3DDrawIndexedInstanced(binding.count, 1, 0, 0, 0);
   }
