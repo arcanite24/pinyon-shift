@@ -1250,3 +1250,52 @@ no target parity claim is made for that cached second frame. The cache's
 construction. These figures still contain per-stage waits, shader-file and
 pipeline setup, and final debug readback; they are not a production-speed
 estimate.
+
+### Shared queue and legacy-capture cost decision — 2026-09-24
+
+The batch now creates one direct D3D12 queue with its private target and uses
+it for all selected-family stages. Each stage still submits and waits for its
+own fence. On the **same checked source-5000 fixture**, the prior per-stage
+queue replay took 3.760 s of stage wall time; two one-queue runs took 2.262
+and 2.162 s. Final coverage, depth and 4× identity hashes stayed unchanged.
+A further one-queue replay measured only **13.6 ms** in the 33 CPU queue waits,
+2.8 ms of timestamped draw work and 337.7 ms in resource creation/map/copy
+within 2.161 s of stage wall time. The unaccounted time includes fixture
+parsing, shader and pipeline setup, cache lookup, submission and final
+readback. Eliminating family waits is still required, but it cannot by
+itself make this diagnostic suitable for every frame.
+
+The borrowed-device worker also completed adjacent frames with the shared
+queue (2,561/2,501 selected draws). Its stages took 3.138/2.714 s; measured
+queue waits were 18.9/28.5 ms and draw work 3.4/3.3 ms. The route exited
+normally. A `pinyon_shift_snr04_live_worker=false` mode was added so the
+same title/GPU capture can be measured without creating the native worker;
+it collected both adjacent frames without writing fixture files.
+
+The existing `summarize-drive-window.py` compared the same 30-second
+`race-moving` to `race-sustained` simulation interval on the same
+RelWithDebInfo build and render settings. The first four rows traveled
+372–374 m; their local CSV/JSONL evidence is under
+`.local/native-renderer/snr04/feasibility-cadence-2026-09-24/`.
+
+| Mode | Consumed swaps | Median / p95 / p99 (ms) | Worker |
+| --- | ---: | ---: | --- |
+| Control K | 1,194 | 22.119 / 38.708 / 53.073 | off |
+| Control M | 1,220 | 21.829 / 36.691 / 46.332 | off |
+| Legacy capture J | 715 | 31.801 / 59.087 / 70.779 | off |
+| Legacy capture + native diagnostic I | 549 | 41.185 / 62.947 / 94.770 | on |
+
+The controls differ by 0.290 ms at the median, so this first pair gives a
+0.580 ms twice-control median noise floor. The legacy capture path already
+misses the 15% improvement target before native rendering starts. Disabling
+INFO logging in a separate capture-only sensitivity run still gave a
+31.713 ms median, though that run traveled 390.9 m and is not a strict
+matched comparison. The legacy probes emitted about 45 MB of logs during
+the target minute, but suppressed logging alone did not remove the capture
+cost. **No-go for adapting the SNR-01/full-fixture probe pipeline into the
+production renderer.** This is not a no-go on native rendering: the run still
+executes the entire compatibility path and does not replace it, and these
+probes are not the requested direct typed-scene handoff. The next cut must
+publish only the required owned scene and final draw state without the
+SNR-01 census/logging and fixture serialization, then measure that path
+continuously at production settings before estimating a net saving.

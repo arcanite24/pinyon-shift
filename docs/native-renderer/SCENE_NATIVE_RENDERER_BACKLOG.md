@@ -9,6 +9,11 @@ An opt-in in-process six-family handoff now preserves the exact diagnostic
 target on two adjacent checked frames, but still serializes fixture bytes and
 uses stage waits and readback. It is a correctness step, not the production
 feasibility measurement; see the [in-process evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#in-process-exact-frame-diagnostic-handoff--2026-09-24).
+The diagnostic now shares one queue. Paired capture-only and worker route
+measurements reject reuse of the SNR-01/full-fixture probe pipeline for
+production: capture-only drops the matched 30-second interval from roughly
+1,200 to 715 consumed swaps. This is a path-level no-go, not a decision on
+the native architecture; see the [cost decision](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#shared-queue-and-legacy-capture-cost-decision--2026-09-24).
 This is the primary execution roadmap for new renderer architecture. The
 [performance backlog](PERFORMANCE_BACKLOG.md) remains the record of previous
 experiments; the [resource migration checklist](NATIVE_RESOURCE_MIGRATION_CHECKLIST.md)
@@ -408,6 +413,17 @@ the full material system. If the cost case is plausible, implement the
 highest-impact material/alpha and retained-pass composition needed for the
 predeclared visual regions, then remeasure. Do not spend this phase chasing
 isolated float/sample differences that are not visible.
+
+**Current implementation cut:** stop treating the SNR-04 fixture encoder and
+SNR-01 census as a candidate frame path. Publish the six already owned typed
+family payloads and their exact sequence order directly to a bounded worker;
+keep fixture generation only for sampled verification. The worker must build
+and retain its own native render inputs once per frame, with proven resource
+identity/generations, rather than reparsing each family fixture for every
+contiguous run. Keep the shared-queue diagnostic as an output oracle while
+implementing this cut. Re-run the paired production-settings benchmark only
+after the direct path can sustain adjacent moving frames without debug
+readback or per-family waits. This is the next action, not a completed gate.
 
 **Stop/go after the boundary census:** if view/pass membership or retained-pass
 inputs cannot be established, revise the slice explicitly and rerun the census;
