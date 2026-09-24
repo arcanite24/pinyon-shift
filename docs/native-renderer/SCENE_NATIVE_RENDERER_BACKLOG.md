@@ -503,6 +503,28 @@ skips the guest copy. Therefore the current output seam cannot preserve the
 guest's final UI by itself. Identify the HUD/UI draws and their inputs before
 attempting a retained-pass bridge; the current takeover remains experimental.
 
+**View-state mode probe (2026-09-24):** a bounded read-only run sampled the
+selected view's first 256 bytes on source frames 5000–5049 and exited
+normally. Captures mapped race, pause, free roam and settled title to output
+frames 5019, 5020, 5030 and 5048. The selected view stayed at `0x41D1F910`
+with selected context `0x2E02E000`; of its 64 sampled words, only the two
+copies of camera translation at offsets `0x40–0x48` and `0x80–0x88` changed.
+Render-call flags also stayed constant. Native sky remained in the pause,
+free-roam and title images (116,772, 2,035 and 13,860 pixels), so the
+mode-boundary regression still fails. The temporary probe was removed after
+this result. Do not gate on view contents or selected context; locate the
+active UI/game-state owner or a pass boundary with explicit mode semantics.
+
+A second bounded run sampled 512 bytes of the UI4 bootstrap owner previously
+seen by `PinyonShiftTraceUiSceneDispatch`, after verifying its vtable
+`0x820038DC`. Across source frames 5000–5042, the owner stayed at
+`0x2E163D20`; only words `+0x130` and `+0x144` changed. Captures mapped
+race, pause, free roam and title to output frames 5011, 5013, 5027 and 5041,
+and native sky was still present in all four. Generated `sub_82E729F8`
+attaches a scene argument at owner `+56`; it does not expose current screen
+activation. This temporary probe was also removed. The bootstrap owner is
+not a safe substitute for a per-frame UI/game-mode transition signal.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the
