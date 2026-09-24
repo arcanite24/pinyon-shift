@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <vector>
 
 struct ID3D12Device;
 
@@ -12,6 +13,16 @@ namespace pinyon_shift::native_renderer {
 struct Snr04SharedTarget;
 std::shared_ptr<Snr04SharedTarget> CreateSnr04SharedTarget(
     ID3D12Device* device, uint32_t samples);
+struct Snr04BatchSegmentInput {
+  std::vector<char> fixture;
+  std::filesystem::path shader, output;
+  uint64_t first_sequence = 0, last_sequence = 0;
+  uint32_t first_id = 0, draw_count = 0;
+};
+struct Snr04BatchInput {
+  uint64_t source_frame = 0;
+  std::vector<Snr04BatchSegmentInput> segments;
+};
 struct Snr04BatchResult {
   uint64_t source_frame = 0;
   uint32_t draws = 0, covered_pixels = 0;
@@ -21,6 +32,9 @@ struct Snr04BatchResult {
 Snr04BatchResult RunSnr04BatchDiagnostic(
     const std::filesystem::path& manifest, ID3D12Device* device,
     uint32_t samples);
+Snr04BatchResult RunSnr04BatchDiagnosticFromBytes(
+    const Snr04BatchInput& input, ID3D12Device* device, uint32_t samples,
+    const std::filesystem::path& timing_path = {});
 
 struct Snr04SegmentOptions {
   uint64_t first_sequence = 0, last_sequence = 0;
@@ -53,8 +67,22 @@ uint32_t RunSnr04ProceduralDiagnostic(
     ID3D12Device* device = nullptr, uint32_t samples = 1,
     const Snr04SegmentOptions* segment = nullptr);
 
+uint32_t RunSnr04ProceduralDiagnosticFromBytes(
+    std::span<const char> fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device = nullptr, uint32_t samples = 1,
+    const Snr04SegmentOptions* segment = nullptr);
+
 uint32_t RunSnr04TrackDiagnostic(
     const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device = nullptr, uint32_t samples = 1,
+    const Snr04SegmentOptions* segment = nullptr);
+
+uint32_t RunSnr04TrackDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* device = nullptr, uint32_t samples = 1,
@@ -67,8 +95,22 @@ uint32_t RunSnr04ManagerDiagnostic(
     ID3D12Device* device = nullptr, uint32_t samples = 1,
     const Snr04SegmentOptions* segment = nullptr);
 
+uint32_t RunSnr04ManagerDiagnosticFromBytes(
+    std::span<const char> fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device = nullptr, uint32_t samples = 1,
+    const Snr04SegmentOptions* segment = nullptr);
+
 uint32_t RunSnr04RemainderDiagnostic(
     const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device = nullptr, uint32_t samples = 1,
+    const Snr04SegmentOptions* segment = nullptr);
+
+uint32_t RunSnr04RemainderDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* device = nullptr, uint32_t samples = 1,

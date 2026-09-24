@@ -1708,8 +1708,8 @@ ProceduralScene load_procedural(std::span<const char> bytes) {
 }
 }  // namespace
 
-uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
-    const std::filesystem::path& fixture,
+uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -1722,7 +1722,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid procedural segment");
   const auto begin = std::chrono::steady_clock::now();
-  const auto source = read(fixture);
+  const auto source = fixture;
   const bool character = source.size() >= 8 &&
       std::memcmp(source.data(), "SNR03C1", 7) == 0;
   const auto scene = character ? load_character(source) : load_procedural(source);
@@ -2201,8 +2201,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   return covered;
 }
 
-uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
-    const std::filesystem::path& fixture,
+uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -2214,7 +2214,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                 segment->first_id && segment->draw_count &&
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid track segment");
-  const auto source = read(fixture);
+  const auto source = fixture;
   Reader reader{source};
   const auto magic = reader.take<std::array<char, 8>>();
   const bool raster_captured = magic ==
@@ -2742,8 +2742,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   return covered;
 }
 
-uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
-    const std::filesystem::path& fixture,
+uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -2755,7 +2755,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
                 segment->first_id && segment->draw_count &&
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid manager segment");
-  const auto source = read(fixture);
+  const auto source = fixture;
   Reader reader{source};
   require(reader.take<std::array<char, 8>>() ==
               (std::array<char, 8>{'S','N','R','0','3','M','1','\0'}),
@@ -3236,8 +3236,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   return covered;
 }
 
-uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
-    const std::filesystem::path& fixture,
+uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnosticFromBytes(
+    std::span<const char> fixture,
     const std::filesystem::path& shader_directory,
     const std::filesystem::path& output_directory,
     ID3D12Device* borrowed_device, uint32_t samples,
@@ -3249,7 +3249,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
                 segment->first_id && segment->draw_count &&
                 segment->first_id + uint64_t(segment->draw_count) <= 65536,
             "invalid remainder segment");
-  const auto source = read(fixture);
+  const auto source = fixture;
   Reader reader{source};
   require(reader.take<std::array<char, 8>>() ==
               (std::array<char, 8>{'S','N','R','0','3','R','2','\0'}),
@@ -3842,18 +3842,61 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   return covered;
 }
 
+uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  const auto bytes = read(fixture);
+  return RunSnr04ProceduralDiagnosticFromBytes(std::span<const char>(bytes),
+                                     shader_directory, output_directory,
+                                     device, samples, segment);
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  const auto bytes = read(fixture);
+  return RunSnr04TrackDiagnosticFromBytes(std::span<const char>(bytes), shader_directory,
+                                 output_directory, device, samples, segment);
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  const auto bytes = read(fixture);
+  return RunSnr04ManagerDiagnosticFromBytes(std::span<const char>(bytes), shader_directory,
+                                   output_directory, device, samples, segment);
+}
+
+uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
+    const std::filesystem::path& fixture,
+    const std::filesystem::path& shader_directory,
+    const std::filesystem::path& output_directory,
+    ID3D12Device* device, uint32_t samples,
+    const Snr04SegmentOptions* segment) {
+  const auto bytes = read(fixture);
+  return RunSnr04RemainderDiagnosticFromBytes(std::span<const char>(bytes),
+                                    shader_directory, output_directory,
+                                    device, samples, segment);
+}
+
 pinyon_shift::native_renderer::Snr04BatchResult
-pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
-    const std::filesystem::path& manifest_path, ID3D12Device* borrowed_device,
-    uint32_t samples) {
+pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
+    const Snr04BatchInput& input, ID3D12Device* borrowed_device,
+    uint32_t samples, const std::filesystem::path& timing_path) {
   const auto batch_begin = std::chrono::steady_clock::now();
-  std::ifstream manifest(manifest_path);
-  std::string header;
-  uint64_t source_frame = 0;
-  uint32_t count = 0;
-  require(bool(manifest >> header >> source_frame >> count) &&
-              header == "SNR04B1" && source_frame && count && count <= 4096,
-          "invalid shared-target manifest");
+  const auto source_frame = input.source_frame;
+  const auto count = input.segments.size();
+  require(source_frame && count && count <= 4096,
+          "invalid shared-target batch");
   auto target = CreateSnr04SharedTarget(borrowed_device, samples);
   UploadCache upload_cache;
   struct CacheScope {
@@ -3869,23 +3912,26 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
   uint64_t upload_ns_total = 0;
   uint64_t previous_sequence = 0;
   uint32_t next_id = 1, covered = 0;
-  for (uint32_t i = 0; i < count; ++i) {
-    std::string fixture, shader, output;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& entry = input.segments[i];
+    const auto& fixture = entry.fixture;
+    const auto& shader = entry.shader;
+    const auto& output = entry.output;
     Snr04SegmentOptions segment;
-    require(bool(manifest >> std::quoted(fixture) >> std::quoted(shader) >>
-                     std::quoted(output) >> segment.first_sequence >>
-                     segment.last_sequence >> segment.first_id >>
-                     segment.draw_count) &&
-                segment.first_sequence > previous_sequence &&
+    segment.first_sequence = entry.first_sequence;
+    segment.last_sequence = entry.last_sequence;
+    segment.first_id = entry.first_id;
+    segment.draw_count = entry.draw_count;
+    require(segment.first_sequence > previous_sequence &&
                 segment.first_sequence <= segment.last_sequence &&
                 segment.first_id == next_id && segment.draw_count,
             "invalid shared-target segment");
-    std::ifstream input(fixture, std::ios::binary);
+    require(fixture.size() >= 16, "short shared-target fixture");
     std::array<char, 8> magic{};
     uint64_t frame = 0;
-    input.read(magic.data(), magic.size());
-    input.read(reinterpret_cast<char*>(&frame), sizeof(frame));
-    require(bool(input) && frame == source_frame,
+    std::memcpy(magic.data(), fixture.data(), magic.size());
+    std::memcpy(&frame, fixture.data() + magic.size(), sizeof(frame));
+    require(frame == source_frame,
             "shared-target fixture frame mismatch");
     segment.shared_target = target;
     segment.shared_first = i == 0;
@@ -3896,19 +3942,19 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     const auto stage_begin = std::chrono::steady_clock::now();
     const auto kind = std::string_view(magic.data(), 7);
     if (kind == "SNR02I3" || kind == "SNR03C1")
-      covered = RunSnr04ProceduralDiagnostic(fixture, shader, output,
+      covered = RunSnr04ProceduralDiagnosticFromBytes(fixture, shader, output,
                                              borrowed_device, samples, &segment);
     else if (kind == "SNR02T3" || kind == "SNR02T4")
-      covered = RunSnr04TrackDiagnostic(fixture, shader, output,
+      covered = RunSnr04TrackDiagnosticFromBytes(fixture, shader, output,
                                         borrowed_device, samples, &segment);
     else if (kind == "SNR03M1")
-      covered = RunSnr04ManagerDiagnostic(fixture, shader, output,
+      covered = RunSnr04ManagerDiagnosticFromBytes(fixture, shader, output,
                                           borrowed_device, samples, &segment);
     else if (kind == "SNR03R2")
-      covered = RunSnr04RemainderDiagnostic(fixture, shader, output,
+      covered = RunSnr04RemainderDiagnosticFromBytes(fixture, shader, output,
                                             borrowed_device, samples, &segment);
     else if (kind == "SNR03F3" || kind == "SNR03F4")
-      covered = RunSnr04OwnedSceneDiagnostic(std::filesystem::path(fixture),
+      covered = RunSnr04OwnedSceneDiagnostic(std::span<const char>(fixture),
                                              shader, output,
                                              borrowed_device, samples, &segment);
     else
@@ -3933,13 +3979,10 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
     previous_sequence = segment.last_sequence;
     next_id += segment.draw_count;
   }
-  std::string trailing;
-  require(!(manifest >> trailing), "trailing shared-target manifest data");
   result.draws = next_id - 1;
   result.covered_pixels = covered;
   result.upload_cpu_us = upload_ns_total / 1000;
-  auto timing_path = manifest_path;
-  timing_path.replace_extension(".timing.json");
+  if (timing_path.empty()) return result;
   std::ofstream timing(timing_path);
   timing << "{\"schema\":\"pinyon-shift.snr04-batch-timing.v1\","
          << "\"source_frame\":" << source_frame
@@ -3954,4 +3997,36 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
   timing.close();
   require(bool(timing), "batch timing write failed");
   return result;
+}
+
+pinyon_shift::native_renderer::Snr04BatchResult
+pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
+    const std::filesystem::path& manifest_path, ID3D12Device* borrowed_device,
+    uint32_t samples) {
+  std::ifstream manifest(manifest_path);
+  std::string header;
+  Snr04BatchInput input;
+  uint32_t count = 0;
+  require(bool(manifest >> header >> input.source_frame >> count) &&
+              header == "SNR04B1" && input.source_frame && count && count <= 4096,
+          "invalid shared-target manifest");
+  input.segments.reserve(count);
+  for (uint32_t i = 0; i < count; ++i) {
+    Snr04BatchSegmentInput entry;
+    std::string fixture, shader, output;
+    require(bool(manifest >> std::quoted(fixture) >> std::quoted(shader) >>
+                     std::quoted(output) >> entry.first_sequence >>
+                     entry.last_sequence >> entry.first_id >> entry.draw_count),
+            "invalid shared-target segment");
+    entry.fixture = read(fixture);
+    entry.shader = shader;
+    entry.output = output;
+    input.segments.push_back(std::move(entry));
+  }
+  std::string trailing;
+  require(!(manifest >> trailing), "trailing shared-target manifest data");
+  auto timing_path = manifest_path;
+  timing_path.replace_extension(".timing.json");
+  return RunSnr04BatchDiagnosticFromBytes(input, borrowed_device, samples,
+                                          timing_path);
 }
