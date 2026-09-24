@@ -445,6 +445,12 @@ two captured outputs also remained complete compatibility frames. Output 5002
 in the on run fell back because its remainder payload was rejected, so this
 does not yet establish continuous native presentation or complete L1. The
 underlying remainder rejection and a live UI switch still need validation.
+The follow-up capture identified the rejection at output 5002: a car draw
+reused vertex address 330616832 and length 32000 with changed contents
+(source frame 5001, draw sequence 11828734). The current remainder snapshot
+map keys by address and length, then correctly rejects the second version.
+The next fix must retain both immutable versions and bind each draw to its
+own bytes; weakening the check would silently draw stale geometry.
 
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot

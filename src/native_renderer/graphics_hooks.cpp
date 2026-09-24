@@ -1859,6 +1859,8 @@ void ObserveSnr03RemainderPayloadLocked(
       payload.draws.size() >= 4096 ||
       (!payload.draws.empty() &&
        observation.draw_sequence <= payload.draws.back().sequence)) {
+    REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=draw_shape",
+                observation.frame_sequence, observation.draw_sequence);
     payload.rejected = true;
     return;
   }
@@ -1887,6 +1889,9 @@ void ObserveSnr03RemainderPayloadLocked(
     if (!Snr03OwnRange(payload.vertices, range, fetch.cpu_snapshot_bytes,
                        fetch.cpu_snapshot_status, fetch.cpu_snapshot_hash,
                        payload.bytes, 32 * 1024 * 1024)) {
+      REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=vertex_range slot={} base={} length={} status={}",
+                  observation.frame_sequence, observation.draw_sequence, slot,
+                  fetch.guest_base, fetch.length, fetch.cpu_snapshot_status);
       payload.rejected = true;
       return;
     }
@@ -1899,6 +1904,11 @@ void ObserveSnr03RemainderPayloadLocked(
                      observation.index_cpu_snapshot_status,
                      observation.index_cpu_snapshot_hash, payload.bytes,
                      32 * 1024 * 1024)) {
+    REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=index_range base={} length={} status={}",
+                observation.frame_sequence, observation.draw_sequence,
+                observation.index_buffer_guest_base,
+                observation.index_buffer_length,
+                observation.index_cpu_snapshot_status);
     payload.rejected = true;
     return;
   }
@@ -1915,6 +1925,9 @@ void ObserveSnr03RemainderPayloadLocked(
     }
   }
   if (draw.packed.size() != observation.vertex_float_constant_count * 4) {
+    REXGPU_INFO("FH1 SNR03 remainder reject frame={} sequence={} reason=packed_constants actual={} expected={}",
+                observation.frame_sequence, observation.draw_sequence,
+                draw.packed.size(), observation.vertex_float_constant_count * 4);
     payload.rejected = true;
     return;
   }
