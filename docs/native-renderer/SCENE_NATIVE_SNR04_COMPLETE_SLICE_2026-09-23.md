@@ -224,6 +224,48 @@ the adjacent fixtures, the diagnostic executable and the extracted shaders.
 Both `track-source-5001.ppm` and the owned fixtures are in
 `.local/native-renderer/snr04/complete-slice-adjacent-live-a`.
 
+### Presented visual review of the adjacent diagnostic frames
+
+The two complete-slice fixtures can be reviewed against compatibility at
+their own source frame. Frame 5000 pairs
+`remainder-index-live-b/track-source-5000.ppm` with
+`complete-slice-staged-c/step-34/identity.ppm` (2,192 selected draws).
+Frame 5001 pairs
+`complete-slice-adjacent-live-a/track-source-5001.ppm` with
+`complete-slice-adjacent-staged-b/step-35/identity.ppm` (2,442 selected
+draws). Each pair comes from one capture run; the two frame pairs come from
+separate runs, so they do not prove a continuous owned-scene stream.
+Side-by-side review images are local at
+`.local/native-renderer/snr04/visual-gate-a/frame-5000-compat-left-identity-right.png`
+and `frame-5001-compat-left-identity-right.png` in the same directory
+(SHA-256 `65996B2398EE505DA339AE9301C016D0017B2350C3D8E26789F77248F6E3D69F`
+and `C567813CB5A2F7DC90BD17BC5D593A4E3C38A8BA82A14D4E19C077F59543A3C1`).
+The right image is rotated 180° solely for presented-image inspection;
+the raw scene attachment has the same orientation as compatibility's
+scene target, as checked below.
+
+Against the regions frozen in
+[SNR-00](SCENE_NATIVE_SNR00_01_EVIDENCE_2026-09-22.md#frozen-pilot-visual-reference-regions),
+the paired review gives this result:
+
+| Region | Observed in frames 5000 and 5001 | Visual-bar result |
+| --- | --- | --- |
+| Road/terrain, barriers, buildings | Broad geometry and the changing view are recognizable; identity colors omit road texture, terrain material and lighting. | Fail |
+| Grass/crowd and foliage edges | Some silhouettes are present; the private identity pixel shader does not apply the captured foliage alpha mask. | Fail |
+| Player/traffic body and glass | Vehicle positions and body shapes are recognizable; paint, glass and reflections are absent. | Fail |
+| Shadows and exposure | The selected-only identity target does not reproduce shadowing, sky or exposure. | Fail |
+| HUD and gameplay cues | Readable in the compatibility screenshots; the private scene target excludes retained UI, so these pairs cannot score final composition. | Unscored |
+
+This is a **qualitative failure** of the approximately 90% appearance bar,
+not a numeric percentage: no material-aware native candidate or final
+composition exists to score. The screenshot and private attachment also
+sit on opposite sides of the EDRAM resolve/presentation boundary, so a
+pixel-difference metric between these files would be misleading. The
+same-run target-space depth check below supports coordinate alignment for
+one separate frame, but does not establish target-space color, alpha,
+stencil or moving-frame parity. Keep compatibility authoritative and do
+not admit this diagnostic as the native renderer.
+
 The raw identity image appears turned 180° relative to the paired **presented**
 screenshot. That comparison crosses the scene-target/presentation boundary;
 the RenderDoc check below shows why it must not be counted as a raster
