@@ -104,9 +104,9 @@ measurement. The 185 MB of repeated per-stage uploads and queue waits also
 make this 23.5-second baseline batch unsuitable for FPS inference. A credible speed
 case requires a persistent resource cache and an immutable in-memory scene
 handoff, followed by a paired control/suppression benchmark with retained
-passes. Material/color fidelity and continuous adjacent owned frames remain
-unproved; the selected foliage unload/reload proof appears in the SNR-02
-evidence. Compatibility remains authoritative.
+passes. Material/color fidelity and continuous in-game native rendering of
+adjacent frames remain unproved; the selected foliage unload/reload proof
+appears in the SNR-02 evidence. Compatibility remains authoritative.
 
 ## Current-run private target on the game device — 2026-09-24
 
@@ -326,6 +326,65 @@ the RenderDoc check below shows why it must not be counted as a raster
 orientation failure. Neither this sample nor frame 5000 qualifies pixel/depth
 parity. These are two independently captured source frames, not a continuous
 owned scene stream or an unload/reload test.
+
+### One-run adjacent source frames — 2026-09-24
+
+The earlier frame-5000 and frame-5001 pairs above came from separate race
+runs. The opt-in `pinyon_shift_snr03_probe_following_frame` now captures
+both consecutive source frames in **one normal-exit AppData-backed run**.
+The track owner state is keyed by source frame because source 5001 enters
+view 8 before the backend consumes output frame 5001 from source 5000.
+The SDK copies bounded item, vegetation, manager and remainder inputs for
+both output frames; a third title trace frame supplies the strict census
+boundary for source 5001. The checked route is
+`config/render-tests/fh1-snr04-adjacent.fh1test` and the local run is
+`.local/native-renderer/snr04/adjacent-one-run-e`.
+
+The independent frame-wide census passed the candidate boundary at both
+source frames. The complete-slice verifier joined every selected draw to
+one of six immutable fixtures and its final backend sequence:
+
+| Source → output | Selected / owned | Track | Items | Vegetation | Characters | Manager | Remainder |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5000 → 5001 | 1,926 / 1,926 | 760 | 164 | 125 | 12 | 318 | 547 |
+| 5001 → 5002 | 1,992 / 1,992 | 762 | 171 | 125 | 12 | 375 | 547 |
+
+Both complete orders replayed into one private 4× target per source frame
+with **zero inter-family target readbacks**. Independent staged controls of
+these exact fixtures matched each final 4× coverage, identity and depth
+file byte for byte, and `verify-snr04-msaa.py` passed on both final targets.
+There were no covered samples at depth zero; all eight selected family
+labels had visible samples. Six selected draws in each frame survived only
+outside sample 0, so a sample-0-only census would miss valid edge content.
+
+| Source | Covered pixels, any sample / samples | Final coverage / 4× identity / 4× depth SHA-256 |
+| --- | ---: | --- |
+| 5000 | 649,942 / 2,590,739 | `8a293c126c73ac63956186bde994a32b7fcd78b659b62b06ae9219c64b30b37a` / `85f06b80feb7ecd951ca6b99928f13abab79ab08645f5684f63caeeafa703afd` / `ad4b833c76f776af97558020e75b29719373ba775b6edf91de8794ffa67e4f4a` |
+| 5001 | 657,738 / 2,620,408 | `c266180461328a8e2a11c330491fcd3f392f3ce8e356b08c3129c997e986df90` / `11c4170ba290453dfcdb0efa892f4d5594a8f6b749c534767a3124c1af00b97d` / `7465d1cf6e9beb2f8815a656276a8375ebbcd93b3798f55715eb2fcce248c10a` |
+
+The paired **same-run, same-source-frame** presented screenshots and upright
+identity outputs are local at
+`.local/native-renderer/snr04/adjacent-one-run-e-visual/frame-5000-compat-left-identity-right.png`
+and `frame-5001-compat-left-identity-right.png` in the same directory
+(SHA-256 `df71d94596f0e215cf173be00507c47ce5ae5643264fad6c182000ba45236701`
+and `55a03aa04da340cddbc04f0d2f2860d6e4156d3aa06e16bbf44fadf5f0d41b2b`).
+Car, road edge, buildings and crowd are recognizable as the view changes,
+but all predeclared material, alpha, shadow and exposure regions still fail
+the visual bar. HUD is readable in compatibility and absent from the
+selected-only private target. This closes the *one-run adjacent ownership
+and motion capture* gap, not target-space color/alpha/stencil parity or a
+continuous in-game native renderer. The identity diagnostic remains no-go
+for the approximately 90% appearance bar and compatibility stays authoritative.
+
+The extracted log, checked orders and replay outputs are under
+`.local/native-renderer/snr04/adjacent-one-run-e-*`. Reproduce with the
+route above, source frame 5000, the SNR-01 following-frame trace, both
+SNR-02 payload probes, and the SNR-03 following-frame probe enabled;
+then run `extract-snr01-run-log.py --include-scene`,
+`summarize-snr01-frame-wide-census.py --require-candidate-boundary` and
+`verify-snr04-complete-slice.py` separately for source frames 5000 and 5001.
+Extract each frame's exact track/remainder shaders from the installed pack
+and run `replay-snr04-complete-slice.py --msaa4 --gpu-shared` for each order.
 
 ### Compatibility target-space orientation
 

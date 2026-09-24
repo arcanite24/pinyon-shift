@@ -68,10 +68,12 @@ RenderDoc/fixture capture compares all 1,562 selected draws with sample-0
 compatibility depth at the final draw of each EDRAM band; its 99.46% nonzero
 depth-mask overlap is a coordinate diagnostic, not parity. Material,
 other-family resource-lifetime and pixel-aligned moving-frame parity checks
-remain open. A presented side-by-side review of the two complete-slice
-source-frame pairs now records recognizable moving geometry but fails the
-visual bar on materials, foliage alpha and shadows; it is not a target-space
-color-parity or continuous-stream result.
+remain open. A later **one-run adjacent** capture owns all 1,926 and 1,992
+selected draws from source frames 5000 and 5001, respectively, with both
+single-target 4× replays matching staged controls. Its same-run presented
+side-by-side review records recognizable moving geometry but fails the
+visual bar on materials, foliage alpha and shadows; it is not target-space
+color parity or continuous in-game native rendering.
 The carried 4× diagnostic now counts every sample: 144 of 1,562 selected
 draws are visible in one capture, including four missed by sample-0-only
 accounting; a second 2,307-draw capture has eight such edge-only IDs.
@@ -318,13 +320,13 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
 2. **Finish the Gate A diagnostic (SNR-02–04):** the staged offline replay now
    owns the selected draw order and private depth. The sampled foliage
    allocation/payload generations now pass an unload/rebind replay. The
-   complete-slice source-frame-5000/5001 presented comparison is recorded in
-   the [SNR-04 evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#presented-visual-review-of-the-adjacent-diagnostic-frames):
-   geometry moves consistently, but identity shading fails the predeclared
-   visual regions. Next obtain same-run, target-space color/alpha/depth
-   comparison in adjacent moving frames with material-aware shading and
-   retained-pass composition; do not treat separate-run screenshot pairs as
-   continuous-frame or final-output parity.
+   one-run complete-slice source-frame-5000/5001 capture is recorded in the
+   [SNR-04 evidence](SCENE_NATIVE_SNR04_COMPLETE_SLICE_2026-09-23.md#one-run-adjacent-source-frames--2026-09-24):
+   both strict ledgers and six-family joins pass, but identity shading fails
+   the predeclared visual regions. Next obtain target-space color/alpha/depth
+   comparison in these adjacent frames with material-aware shading and
+   retained-pass composition; presented screenshots do not establish
+   final-output parity.
    Investigate an isolated sample/byte mismatch only when it suggests a
    general rendering error or visible defect. Draw identity and freshness
    must remain exact even when image appearance is approximate.

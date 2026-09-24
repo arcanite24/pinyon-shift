@@ -52,14 +52,18 @@ def verify(fixture: Path, log: Path, ledger_path: Path):
                 continue
             row = json.loads(line.split(marker, 1)[1])
             if marker == "FH1 SNR03 character item ":
-                assert row["frame"] == frame and row["packet_physical"] not in destination
+                if row["frame"] != frame:
+                    break
+                assert row["packet_physical"] not in destination
                 destination[row["packet_physical"]] = row
             elif marker == "FH1 SNR01 prepared draw ":
                 if row["frame"] == frame + 1 and row["ordinal"] in selected:
                     assert row["ordinal"] not in destination
                     destination[row["ordinal"]] = row
             else:
-                assert row["frame"] == frame + 1 and row["sequence"] not in destination
+                if row["frame"] != frame + 1:
+                    break
+                assert row["sequence"] not in destination
                 destination[row["sequence"]] = row
             break
     assert len(title) == count and len(backend) == len(prepared) == len(final) == draws

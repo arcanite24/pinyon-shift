@@ -75,7 +75,8 @@ def verify(path, log_path):
     assert len({item["packet_physical"] for item in items}) == count
 
     published = [json.loads(line.split("FH1 SNR03 item ", 1)[1])
-                 for line in lines if "FH1 SNR03 item {" in line]
+                 for line in lines if "FH1 SNR03 item {" in line
+                 and f'"frame":{source_frame},' in line]
     assert len(published) == count
     for index, (actual, expected) in enumerate(zip(items, published), 1):
         assert expected["frame"] == source_frame and expected["ordinal"] == index
@@ -87,7 +88,8 @@ def verify(path, log_path):
                  253, 254, 255, 256)
     by_packet = {item["packet_physical"]: item for item in items}
     bindings = [json.loads(line.split("FH1 scene binding ", 1)[1])
-                for line in lines if "FH1 scene binding {" in line]
+                for line in lines if "FH1 scene binding {" in line
+                and f'"frame":{source_frame + 1},' in line]
     selected = [row for row in bindings if row["packet_physical"] in by_packet]
     assert selected
     for row in selected:
@@ -107,7 +109,8 @@ def verify(path, log_path):
                     int(raw[i:i + 8], 16) for i in range(0, 32, 8))
     if extended:
         pixel_rows = [json.loads(line.split("FH1 SNR03 pixel constant ", 1)[1])
-                      for line in lines if "FH1 SNR03 pixel constant {" in line]
+                      for line in lines if "FH1 SNR03 pixel constant {" in line
+                      and f'"frame":{source_frame + 1},' in line]
         expected_pixels = {
             (item["packet_physical"], register):
             item["pixel_constants"][index * 4:index * 4 + 4]
@@ -121,7 +124,8 @@ def verify(path, log_path):
                 (row["packet"], row["register"]))
         assert not expected_pixels
     final = [json.loads(line.split("FH1 SNR03 final draw state ", 1)[1])
-             for line in lines if "FH1 SNR03 final draw state {" in line]
+             for line in lines if "FH1 SNR03 final draw state {" in line
+             and f'"frame":{source_frame + 1},' in line]
     assert len(final) == len(states)
     assert {(row["packet"], row["dynamic"]) for row in final} == set(states)
     for row in final:
@@ -148,14 +152,16 @@ def verify(path, log_path):
                     (packet, dynamic, state[0])
                     for (packet, dynamic), state in states.items()}
         assert len({state[0] for state in states.values()}) == len(states)
-    rows = [json.loads(line.split("FH1 SNR03 camera row ", 1)[1])
-            for line in lines if "FH1 SNR03 camera row {" in line]
+        rows = [json.loads(line.split("FH1 SNR03 camera row ", 1)[1])
+            for line in lines if "FH1 SNR03 camera row {" in line
+            and f'"frame":{source_frame},' in line]
     assert len(rows) == 8
     for offset, words in ((80, camera80), (144, camera144)):
         assert tuple(word for row in sorted(
             (row for row in rows if row["offset"] == offset),
             key=lambda row: row["row"]) for word in row["words"]) == words
-    consumed = [line for line in lines if "FH1 SNR03 geometry consumed " in line]
+    consumed = [line for line in lines if "FH1 SNR03 geometry consumed " in line
+                and f"source_frame={source_frame} " in line]
     assert len(consumed) == 1
     assert all(token in consumed[0] for token in (
         f"source_frame={source_frame}", f"items={count}",

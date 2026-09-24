@@ -66,6 +66,9 @@ REXCVAR_DEFINE_INT32(pinyon_shift_snr_m02_trace_source_frame, 0, "Pinyon Shift",
 REXCVAR_DEFINE_INT32(pinyon_shift_snr03_probe_frame, 0, "Pinyon Shift",
                      "Publish one read-only view-8 vegetation scene snapshot")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_snr03_probe_following_frame, false,
+                    "Pinyon Shift", "Also capture the next source frame")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_item_payload_probe, false,
                     "Pinyon Shift", "Read selected procedural descriptor/runtime records")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
@@ -561,11 +564,6 @@ thread_local uint64_t snr01_render_thread_request_count = 0;
 thread_local uint64_t snr01_scene_indirect_count = 0;
 thread_local std::vector<uint32_t> snr01_scene_indirect_callers;
 std::mutex snr02_track_targets_mutex;
-std::set<uint32_t> snr02_track_targets;
-bool snr02_track_targets_overflow = false;
-bool snr02_track_title_ready = false;
-std::array<uint32_t, 16> snr02_track_camera80{};
-std::array<uint32_t, 16> snr02_track_camera144{};
 using Snr02TrackRange = std::pair<uint32_t, uint32_t>;
 struct Snr02TrackDraw {
   uint64_t sequence, vertex_shader, pixel_shader, vertex_specialization;
@@ -593,7 +591,13 @@ struct Snr02TrackPayload {
   uint32_t first_vertex_status = 0, first_index_status = 0;
   uint32_t first_fetch_count = 0, first_constant_count = 0;
 };
-Snr02TrackPayload snr02_track_payload;
+struct Snr02TrackFrame {
+  std::set<uint32_t> targets;
+  bool overflow = false, title_ready = false;
+  std::array<uint32_t, 16> camera80{}, camera144{};
+  Snr02TrackPayload payload;
+};
+std::map<uint64_t, Snr02TrackFrame> snr02_track_frames;
 void Snr02RejectTrackPayload(Snr02TrackPayload& payload, uint64_t sequence,
                              uint32_t packet, const char* reason) {
   if (!payload.rejected) {
@@ -923,14 +927,45 @@ int32_t Snr02TrackTargetFrame() {
   return target;
 }
 
+bool SnrProbeSourceFrame(int32_t target, uint64_t frame) {
+  return target > 0 &&
+         (frame == uint64_t(target) ||
+          (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) &&
+           frame == uint64_t(target) + 1));
+}
+
+bool Snr03ProbeSourceFrame(uint64_t frame) {
+  return SnrProbeSourceFrame(Snr03TargetFrame(), frame);
+}
+
+bool Snr02TrackProbeSourceFrame(uint64_t frame) {
+  return SnrProbeSourceFrame(Snr02TrackTargetFrame(), frame);
+}
+
+bool Snr02ItemProbeSourceFrame(uint64_t frame) {
+  return SnrProbeSourceFrame(Snr02ItemTargetFrame(), frame);
+}
+
+bool Snr03ProbeOutputFrame(uint64_t frame) {
+  return frame && Snr03ProbeSourceFrame(frame - 1);
+}
+
+bool Snr02TrackProbeOutputFrame(uint64_t frame) {
+  return frame && Snr02TrackProbeSourceFrame(frame - 1);
+}
+
+bool Snr02ItemProbeOutputFrame(uint64_t frame) {
+  return frame && Snr02ItemProbeSourceFrame(frame - 1);
+}
+
 uint64_t Snr03HashBytes(const std::vector<uint8_t>& bytes);
 
 bool Snr02SelectTrackSnapshot(uint64_t frame, uint32_t command_buffer) {
-  if (Snr02TrackTargetFrame() <= 0 ||
-      frame != uint64_t(Snr02TrackTargetFrame()) + 1) return false;
+  if (!Snr02TrackProbeOutputFrame(frame)) return false;
   std::lock_guard lock(snr02_track_targets_mutex);
-  return !snr02_track_targets_overflow &&
-         snr02_track_targets.contains(command_buffer);
+  const auto state = snr02_track_frames.find(frame - 1);
+  return state != snr02_track_frames.end() && !state->second.overflow &&
+         state->second.targets.contains(command_buffer);
 }
 
 bool Snr02OwnTrackRange(
@@ -1094,8 +1129,10 @@ bool Snr01TraceCurrentFrame() {
   return (target > 0 &&
           (frame == uint64_t(target) ||
            (REXCVAR_GET(pinyon_shift_snr01_trace_following_frame) &&
-            frame == uint64_t(target) + 1))) ||
-         (Snr03TargetFrame() > 0 && frame == uint64_t(Snr03TargetFrame()));
+            (frame == uint64_t(target) + 1 ||
+             (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) &&
+              frame == uint64_t(target) + 2))))) ||
+         Snr03ProbeSourceFrame(frame);
 }
 
 bool Snr02TraceCapturedFrame() {
@@ -1110,7 +1147,8 @@ bool Snr01TracePrimaryIndirectFrame() {
   const uint64_t frame = rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount);
   return target > 0 && frame >= uint64_t(target) &&
-         frame <= uint64_t(target) + 1;
+         frame <= uint64_t(target) +
+             (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) ? 2 : 1);
 }
 
 bool Snr01TraceLinkedWriteFrame() {
@@ -1118,7 +1156,8 @@ bool Snr01TraceLinkedWriteFrame() {
   const uint64_t frame = rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount);
   return target > 0 && frame + 12 >= uint64_t(target) &&
-         frame <= uint64_t(target) + 1;
+         frame <= uint64_t(target) +
+             (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) ? 2 : 1);
 }
 
 uint64_t Snr01CameraMatrixHash(uint32_t camera, uint32_t offset) {
@@ -1171,17 +1210,15 @@ void RecordSnr01SemanticPacket(const char* path, uint32_t previous_word,
     return;
   }
   const uint32_t guest_address = previous_word + 4;
-  if (Snr02ItemTargetFrame() > 0 &&
-      rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount) ==
-          uint64_t(Snr02ItemTargetFrame()) &&
+  if (Snr02ItemProbeSourceFrame(rex::perf::GetTotalCounter(
+          rex::perf::CounterId::kSourceFrameCount)) &&
       !snr01_procedural_scopes.empty() && !snr01_view_scopes.empty() &&
       snr01_view_scopes.back().ordinal == 8) {
     auto& item = snr01_procedural_scopes.back();
     item.snapshot_packet = guest_address & 0x1FFFFFFF;
     ++item.snapshot_packet_count;
   }
-  if (Snr03TargetFrame() > 0 &&
-      uint64_t(Snr03TargetFrame()) == uint64_t(rex::perf::GetTotalCounter(
+  if (Snr03ProbeSourceFrame(rex::perf::GetTotalCounter(
           rex::perf::CounterId::kSourceFrameCount)) &&
       !snr01_second_draw_scopes.empty()) {
     auto& draw = snr01_second_draw_scopes.back();
@@ -1224,8 +1261,7 @@ void RecordSnr01DirectPacket(const char* path, uint32_t previous_word,
     return;
   }
   const uint64_t ordinal = ++snr01_direct_packet_count;
-  if (Snr03TargetFrame() > 0 &&
-      uint64_t(Snr03TargetFrame()) == uint64_t(rex::perf::GetTotalCounter(
+  if (Snr03ProbeSourceFrame(rex::perf::GetTotalCounter(
           rex::perf::CounterId::kSourceFrameCount))) {
     for (auto& record : snr03_manager_title_records) {
       if (record.next_direct == ordinal) {
@@ -1287,10 +1323,8 @@ namespace {
 
 void ObserveSnr03VertexPayload(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
-  const int32_t target = Snr03TargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) {
-    return;
-  }
+  if (!Snr03ProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr03_scene_mutex);
   const auto scene_it = snr03_scenes.find(uint64_t(target));
   if (scene_it == snr03_scenes.end()) {
@@ -1384,8 +1418,8 @@ void ObserveSnr03VertexPayload(
 
 void ObserveSnr03CharacterPayload(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
-  const int32_t target = Snr03TargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) return;
+  if (!Snr03ProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr03_scene_mutex);
   const auto scene = snr03_scenes.find(uint64_t(target));
   if (scene == snr03_scenes.end()) return;
@@ -1469,8 +1503,8 @@ void ObserveSnr03CharacterPayload(
 
 void ObserveSnr03ManagerPayload(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
-  const int32_t target = Snr03TargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) return;
+  if (!Snr03ProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr03_scene_mutex);
   const auto scene = snr03_manager_scenes.find(uint64_t(target));
   if (scene == snr03_manager_scenes.end()) return;
@@ -1559,7 +1593,7 @@ void ObserveSnr03ManagerPayload(
 void ObserveSnr03RemainderPayloadLocked(
     const rex::system::GraphicsPreparedDrawObservation& observation,
     uint32_t family, uint32_t title_key) {
-  auto& payload = snr03_remainder_payloads[uint64_t(Snr03TargetFrame())];
+  auto& payload = snr03_remainder_payloads[observation.frame_sequence - 1];
   if (payload.rejected) return;
   if (!observation.draw_sequence || !observation.vertex_fetches ||
       !observation.vertex_float_constant_bitmap ||
@@ -1651,8 +1685,8 @@ void ObserveSnr03RemainderPayloadLocked(
 
 void ObserveSnr02ItemFinalDrawState(
     const rex::system::GraphicsFinalDrawStateObservation& observation) {
-  const int32_t target = Snr02ItemTargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) return;
+  if (!Snr02ItemProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr02_item_scene_mutex);
   const auto scene = snr02_item_scenes.find(uint64_t(target));
   if (scene == snr02_item_scenes.end()) return;
@@ -1720,10 +1754,11 @@ void ObserveSnr02ItemFinalDrawState(
 
 void ObserveSnr02TrackFinalDrawState(
     const rex::system::GraphicsFinalDrawStateObservation& observation) {
-  if (Snr02TrackTargetFrame() <= 0 ||
-      observation.frame_sequence != uint64_t(Snr02TrackTargetFrame()) + 1) return;
+  if (!Snr02TrackProbeOutputFrame(observation.frame_sequence)) return;
   std::lock_guard lock(snr02_track_targets_mutex);
-  auto& payload = snr02_track_payload;
+  const auto frame = snr02_track_frames.find(observation.frame_sequence - 1);
+  if (frame == snr02_track_frames.end()) return;
+  auto& payload = frame->second.payload;
   const auto found = std::find_if(payload.draws.begin(), payload.draws.end(),
                                   [&](const auto& draw) {
     return draw.sequence == observation.draw_sequence;
@@ -1800,10 +1835,8 @@ void ObserveSnr03FinalDrawState(
     const rex::system::GraphicsFinalDrawStateObservation& observation) {
   ObserveSnr02TrackFinalDrawState(observation);
   ObserveSnr02ItemFinalDrawState(observation);
-  const int32_t target = Snr03TargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) {
-    return;
-  }
+  if (!Snr03ProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr03_scene_mutex);
   if (const auto manager_scene = snr03_manager_scenes.find(uint64_t(target));
       manager_scene != snr03_manager_scenes.end()) {
@@ -2027,8 +2060,8 @@ void ObserveSnr03FinalDrawState(
 
 void ObserveSnr02ItemVertexPayload(
     const rex::system::GraphicsPreparedDrawObservation& observation) {
-  const int32_t target = Snr02ItemTargetFrame();
-  if (target <= 0 || observation.frame_sequence != uint64_t(target) + 1) return;
+  if (!Snr02ItemProbeOutputFrame(observation.frame_sequence)) return;
+  const uint64_t target = observation.frame_sequence - 1;
   std::lock_guard lock(snr02_item_scene_mutex);
   const auto scene = snr02_item_scenes.find(uint64_t(target));
   if (scene == snr02_item_scenes.end()) return;
@@ -2127,8 +2160,7 @@ void ObservePreparedDraw(
   ObserveSnr03VertexPayload(observation);
   ObserveSnr03CharacterPayload(observation);
   ObserveSnr03ManagerPayload(observation);
-  if (Snr03TargetFrame() > 0 &&
-      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+  if (Snr03ProbeOutputFrame(observation.frame_sequence) &&
       observation.surface_info == 0x14020500 &&
       (observation.color_info[0] == 0x00030000 ||
        observation.color_info[0] == 0x000C0000) &&
@@ -2136,7 +2168,7 @@ void ObservePreparedDraw(
       observation.bound_render_target_bits == 3) {
     std::lock_guard lock(snr03_scene_mutex);
     uint32_t family = 0, title_key = 0;
-    if (const auto scene = snr03_car_scenes.find(uint64_t(Snr03TargetFrame()));
+    if (const auto scene = snr03_car_scenes.find(observation.frame_sequence - 1);
         scene != snr03_car_scenes.end()) {
       const auto record = std::find_if(scene->second->records.begin(),
                                        scene->second->records.end(),
@@ -2172,7 +2204,7 @@ void ObservePreparedDraw(
         }
       }
     }
-    if (const auto scene = snr03_scalar_scenes.find(uint64_t(Snr03TargetFrame()));
+    if (const auto scene = snr03_scalar_scenes.find(observation.frame_sequence - 1);
         scene != snr03_scalar_scenes.end()) {
       const auto record = std::find_if(scene->second->records.begin(),
                                        scene->second->records.end(),
@@ -2206,8 +2238,7 @@ void ObservePreparedDraw(
     if (family)
       ObserveSnr03RemainderPayloadLocked(observation, family, title_key);
   }
-  if (Snr03TargetFrame() > 0 &&
-      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+  if (Snr03ProbeOutputFrame(observation.frame_sequence) &&
       observation.vertex_shader_hash == 0xB8489164D5A86043ull) {
     REXGPU_INFO("FH1 SNR03 manager snapshot {{\"frame\":{},\"sequence\":{},"
                 "\"packet\":{},\"fetches\":{},\"index_status\":{},"
@@ -2219,8 +2250,7 @@ void ObservePreparedDraw(
                 observation.index_cpu_snapshot_hash,
                 observation.index_buffer_length);
   }
-  if (Snr03TargetFrame() > 0 &&
-      observation.frame_sequence == uint64_t(Snr03TargetFrame()) + 1 &&
+  if (Snr03ProbeOutputFrame(observation.frame_sequence) &&
       observation.index_cpu_snapshot_status &&
       observation.vertex_shader_hash != 0xB8489164D5A86043ull &&
       !Snr02SelectTrackSnapshot(observation.frame_sequence,
@@ -2242,7 +2272,7 @@ void ObservePreparedDraw(
     std::array<uint64_t, 4> bitmap{};
     {
       std::lock_guard lock(snr02_track_targets_mutex);
-      auto& payload = snr02_track_payload;
+      auto& payload = snr02_track_frames.at(observation.frame_sequence - 1).payload;
       if (!payload.rejected && payload.draws.size() < 4096 &&
           observation.draw_sequence &&
           (observation.guest_primitive_type == 4 ||
@@ -2395,7 +2425,8 @@ void ObservePreparedDraw(
   }
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr01_trace_source_frame);
   if (target <= 0 || observation.frame_sequence + 1 < uint64_t(target) ||
-      observation.frame_sequence > uint64_t(target) + 1) {
+      observation.frame_sequence > uint64_t(target) +
+          (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) ? 2 : 1)) {
     return;
   }
   static thread_local uint64_t logged_frame = 0;
@@ -2468,7 +2499,7 @@ void ObservePreparedDraw(
     Snr01ArmPacketPage(observation.draw_packet_physical_address);
   }
   if (observation.frame_sequence == uint64_t(target) ||
-      observation.frame_sequence == uint64_t(target) + 1) {
+      SnrProbeSourceFrame(target, observation.frame_sequence - 1)) {
     for (uint32_t i = 0; i < observation.texture_fetch_count; ++i) {
       const auto& fetch = observation.texture_fetches[i];
       REXGPU_INFO(
@@ -2484,7 +2515,7 @@ void ObservePreparedDraw(
           fetch.dimension, fetch.width, fetch.height, fetch.stack_depth);
     }
   }
-  if (observation.frame_sequence == uint64_t(target) + 1) {
+  if (SnrProbeSourceFrame(target, observation.frame_sequence - 1)) {
     for (uint32_t i = 0;
          i < observation.vertex_fetch_count &&
          i < observation.vertex_fetch_capacity; ++i) {
@@ -2524,7 +2555,8 @@ void ObserveIndirectBuffer(
   }
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr01_trace_source_frame);
   if (target <= 0 || observation.frame_sequence + 1 < uint64_t(target) ||
-      observation.frame_sequence > uint64_t(target) + 1) {
+      observation.frame_sequence > uint64_t(target) +
+          (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) ? 2 : 1)) {
     return;
   }
   static thread_local uint64_t logged_frame = 0;
@@ -2551,7 +2583,8 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
   RecordFh1GpuCopy(observation);
   static const int32_t target = REXCVAR_GET(pinyon_shift_snr01_trace_source_frame);
   if (target <= 0 || observation.frame_sequence + 1 < uint64_t(target) ||
-      observation.frame_sequence > uint64_t(target) + 1) {
+      observation.frame_sequence > uint64_t(target) +
+          (REXCVAR_GET(pinyon_shift_snr03_probe_following_frame) ? 2 : 1)) {
     return;
   }
   static thread_local uint64_t logged_frame = 0;
@@ -2665,12 +2698,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
   }
   {
     std::lock_guard lock(snr02_track_targets_mutex);
-    snr02_track_targets.clear();
-    snr02_track_targets_overflow = false;
-    snr02_track_title_ready = false;
-    snr02_track_camera80 = {};
-    snr02_track_camera144 = {};
-    snr02_track_payload = {};
+    snr02_track_frames.clear();
   }
 }
 
@@ -2678,20 +2706,21 @@ bool Snr03ProbeEnabled() { return Snr03TargetFrame() > 0; }
 bool Snr02ItemProbeEnabled() { return Snr02ItemTargetFrame() > 0; }
 
 void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
-  if (Snr02TrackTargetFrame() <= 0 ||
-      output_frame != uint64_t(Snr02TrackTargetFrame()) + 1) return;
-  Snr02TrackPayload payload;
-  std::set<uint32_t> targets;
-  std::array<uint32_t, 16> camera80{}, camera144{};
-  bool ready = false;
+  if (!Snr02TrackProbeOutputFrame(output_frame)) return;
+  Snr02TrackFrame state;
   {
     std::lock_guard lock(snr02_track_targets_mutex);
-    ready = snr02_track_title_ready && !snr02_track_targets_overflow;
-    targets = snr02_track_targets;
-    camera80 = snr02_track_camera80;
-    camera144 = snr02_track_camera144;
-    payload = std::move(snr02_track_payload);
+    const auto found = snr02_track_frames.find(output_frame - 1);
+    if (found != snr02_track_frames.end()) {
+      state = std::move(found->second);
+      snr02_track_frames.erase(found);
+    }
   }
+  auto& payload = state.payload;
+  const auto& targets = state.targets;
+  const auto& camera80 = state.camera80;
+  const auto& camera144 = state.camera144;
+  const bool ready = state.title_ready && !state.overflow;
   std::set<uint32_t> seen_targets;
   std::set<uint64_t> sequences;
   for (const auto& draw : payload.draws) {
@@ -2785,8 +2814,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
 }
 
 void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device) {
-  if (!Snr02ItemProbeEnabled() ||
-      output_frame != uint64_t(Snr02ItemTargetFrame()) + 1) return;
+  if (!Snr02ItemProbeOutputFrame(output_frame)) return;
   std::shared_ptr<const Snr02ItemScene> scene;
   Snr02ItemPayloadState payload;
   {
@@ -3131,9 +3159,7 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
 }
 
 void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
-  if (!Snr03ProbeEnabled() || output_frame != uint64_t(Snr03TargetFrame()) + 1) {
-    return;
-  }
+  if (!Snr03ProbeOutputFrame(output_frame)) return;
   ObserveSnr03RemainderOutputFrame(output_frame);
   ObserveSnr03ManagerOutputFrame(output_frame);
   std::shared_ptr<const Snr03SceneSnapshot> scene;
@@ -3705,21 +3731,15 @@ void PinyonShiftObservePresentationViewBegin(
   const uint64_t ordinal = ++snr01_view_begin_count;
   if (ordinal == 8) {
     snr01_view8_flush_owners.clear();
-    if (Snr02TrackTargetFrame() > 0 &&
-        frame == uint64_t(Snr02TrackTargetFrame())) {
+    if (Snr02TrackProbeSourceFrame(frame)) {
       std::lock_guard lock(snr02_track_targets_mutex);
-      snr02_track_targets.clear();
-      snr02_track_targets_overflow = false;
-      snr02_track_title_ready = false;
-      snr02_track_camera80 = {};
-      snr02_track_camera144 = {};
-      snr02_track_payload = {};
+      snr02_track_frames[frame] = {};
     }
-    if (Snr02ItemTargetFrame() > 0 && frame == uint64_t(Snr02ItemTargetFrame())) {
+    if (Snr02ItemProbeSourceFrame(frame)) {
       snr02_item_title_items.clear();
       snr02_item_title_rejected = false;
     }
-    if (Snr03TargetFrame() > 0 && frame == uint64_t(Snr03TargetFrame())) {
+    if (Snr03ProbeSourceFrame(frame)) {
       snr03_vegetation_items.clear();
       snr03_character_items.clear();
       snr03_scene_overflow = false;
@@ -3757,23 +3777,21 @@ void PinyonShiftObservePresentationViewEnd() {
   snr01_view_scopes.pop_back();
   const uint64_t frame = uint64_t(rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount));
-  if (scope.ordinal == 8 && Snr02TrackTargetFrame() > 0 &&
-      frame == uint64_t(Snr02TrackTargetFrame())) {
+  if (scope.ordinal == 8 && Snr02TrackProbeSourceFrame(frame)) {
     std::lock_guard lock(snr02_track_targets_mutex);
-    if (!snr02_track_targets_overflow && !snr02_track_targets.empty() &&
+    auto& state = snr02_track_frames.at(frame);
+    if (!state.overflow && !state.targets.empty() &&
         scope.camera) {
       for (uint32_t i = 0; i < 16; ++i) {
-        snr02_track_camera80[i] = SnrM02ReadU32(scope.camera + 80 + i * 4);
-        snr02_track_camera144[i] = SnrM02ReadU32(scope.camera + 144 + i * 4);
+        state.camera80[i] = SnrM02ReadU32(scope.camera + 80 + i * 4);
+        state.camera144[i] = SnrM02ReadU32(scope.camera + 144 + i * 4);
       }
-      snr02_track_title_ready = true;
+      state.title_ready = true;
     }
     REXGPU_INFO("FH1 SNR02 track title scene frame={} targets={} ready={} overflow={}",
-                frame, snr02_track_targets.size(), snr02_track_title_ready,
-                snr02_track_targets_overflow);
+                frame, state.targets.size(), state.title_ready, state.overflow);
   }
-  if (scope.ordinal == 8 && Snr02ItemTargetFrame() > 0 &&
-      frame == uint64_t(Snr02ItemTargetFrame())) {
+  if (scope.ordinal == 8 && Snr02ItemProbeSourceFrame(frame)) {
     std::set<uint32_t> packets;
     for (const auto& item : snr02_item_title_items) {
       if (!packets.insert(item.packet).second) snr02_item_title_rejected = true;
@@ -3804,8 +3822,7 @@ void PinyonShiftObservePresentationViewEnd() {
                   frame, scene->items.size());
     }
   }
-  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
-      frame == uint64_t(Snr03TargetFrame())) {
+  if (scope.ordinal == 8 && Snr03ProbeSourceFrame(frame)) {
     if (snr03_scene_overflow || snr03_vegetation_items.empty() ||
         !scope.camera) {
       REXGPU_INFO("FH1 SNR03 scene rejected frame={} overflow={} items={} camera={}",
@@ -3876,8 +3893,7 @@ void PinyonShiftObservePresentationViewEnd() {
       }
     }
   }
-  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
-      frame == uint64_t(Snr03TargetFrame())) {
+  if (scope.ordinal == 8 && Snr03ProbeSourceFrame(frame)) {
     std::set<uint32_t> packets;
     bool valid = !snr03_manager_title_rejected &&
                  !snr03_manager_title_records.empty() && scope.camera;
@@ -3913,8 +3929,7 @@ void PinyonShiftObservePresentationViewEnd() {
                   snr03_manager_title_rejected);
     }
   }
-  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
-      frame == uint64_t(Snr03TargetFrame())) {
+  if (scope.ordinal == 8 && Snr03ProbeSourceFrame(frame)) {
     if (!snr03_car_title_rejected && !snr03_car_title_records.empty() &&
         scope.camera) {
       Snr03CarScene snapshot{};
@@ -3944,8 +3959,7 @@ void PinyonShiftObservePresentationViewEnd() {
                   snr03_car_title_rejected);
     }
   }
-  if (scope.ordinal == 8 && Snr03TargetFrame() > 0 &&
-      frame == uint64_t(Snr03TargetFrame())) {
+  if (scope.ordinal == 8 && Snr03ProbeSourceFrame(frame)) {
     if (!snr03_scalar_title_rejected && !snr03_scalar_title_records.empty() &&
         scope.camera) {
       Snr03ScalarScene snapshot{};
@@ -5238,7 +5252,7 @@ void PinyonShiftObserveVegetationStateEntry(
       rex::perf::CounterId::kSourceFrameCount);
   const int32_t trace_frame = REXCVAR_GET(pinyon_shift_snr01_trace_source_frame);
   if (Snr03TargetFrame() <= 0 ||
-      (frame != uint64_t(Snr03TargetFrame()) &&
+      (!Snr03ProbeSourceFrame(frame) &&
        (trace_frame <= 0 || frame != uint64_t(trace_frame))) ||
       snr01_view_scopes.empty() || snr01_view_scopes.back().ordinal != 8 ||
       snr01_track_bucket_scopes.empty() || r22.u32 >= 256) {
@@ -5304,8 +5318,8 @@ void PinyonShiftObserveSecondDrawEnd() {
       snr01_track_bucket_scopes.back().ordinal != scope.bucket_entry) {
     ++snr01_unmatched_second_draw_exits;
   }
-  if (Snr03TargetFrame() > 0 && scope.vegetation_owner &&
-      uint64_t(Snr03TargetFrame()) == uint64_t(rex::perf::GetTotalCounter(
+  if (scope.vegetation_owner &&
+      Snr03ProbeSourceFrame(rex::perf::GetTotalCounter(
           rex::perf::CounterId::kSourceFrameCount)) &&
       !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8) {
     if (scope.packet_count != 1 || !scope.packet_physical ||
@@ -5321,8 +5335,8 @@ void PinyonShiftObserveSecondDrawEnd() {
           scope.bucket_entry});
     }
   }
-  if (Snr03TargetFrame() > 0 && scope.target == 0x8245AB88 &&
-      uint64_t(Snr03TargetFrame()) == uint64_t(rex::perf::GetTotalCounter(
+  if (scope.target == 0x8245AB88 &&
+      Snr03ProbeSourceFrame(rex::perf::GetTotalCounter(
           rex::perf::CounterId::kSourceFrameCount)) &&
       !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8) {
     if (scope.packet_count != 1 || !scope.packet_physical ||
@@ -5388,9 +5402,8 @@ void PinyonShiftObserveProceduralItemEnd() {
   }
   const auto scope = snr01_procedural_scopes.back();
   snr01_procedural_scopes.pop_back();
-  const bool snapshot_view = Snr02ItemTargetFrame() > 0 &&
-      rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount) ==
-          uint64_t(Snr02ItemTargetFrame()) &&
+  const bool snapshot_view = Snr02ItemProbeSourceFrame(
+      rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount)) &&
       !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8;
   if (snapshot_view && (scope.ordinal > 512 || !scope.descriptor_seen ||
                         !scope.runtime_seen || !scope.descriptor_address ||
@@ -6188,8 +6201,7 @@ void PinyonShiftObserveSnr01DirectFamilyRecord(
     return;
   }
   const auto& scope = snr01_direct_family_scopes.back();
-  if (Snr03TargetFrame() > 0 &&
-      scope.frame == uint64_t(Snr03TargetFrame()) && scope.view_call == 8) {
+  if (Snr03ProbeSourceFrame(scope.frame) && scope.view_call == 8) {
     const uint64_t next_direct = snr01_direct_packet_count + 1;
     if (!r29.u32 || !r27.u32 ||
         snr03_manager_title_records.size() >= 256 ||
@@ -6345,19 +6357,20 @@ void PinyonShiftObserveSceneCommandBuffer(PPCRegister& r24, PPCRegister& r10,
                                          PPCRegister& r28, PPCRegister& r29) {
   if (Snr01TraceCurrentFrame() &&
       ++snr01_scene_indirect_count <= kSnr01PacketLimit) {
-    if (Snr02TrackTargetFrame() > 0 &&
-        uint64_t(Snr02TrackTargetFrame()) ==
-            rex::perf::GetTotalCounter(rex::perf::CounterId::kSourceFrameCount) &&
+    if (Snr02TrackProbeSourceFrame(rex::perf::GetTotalCounter(
+            rex::perf::CounterId::kSourceFrameCount)) &&
         !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8 &&
         !snr01_scene_list_flushes.empty() &&
         snr01_scene_list_flushes.back().caller == 0x824170BC && r10.u32) {
       std::lock_guard lock(snr02_track_targets_mutex);
+      auto& state = snr02_track_frames.at(rex::perf::GetTotalCounter(
+          rex::perf::CounterId::kSourceFrameCount));
       const uint32_t target = r10.u32 & 0x1FFFFFFF;
-      if (snr02_track_targets.size() == 256 &&
-          !snr02_track_targets.contains(target)) {
-        snr02_track_targets_overflow = true;
+      if (state.targets.size() == 256 &&
+          !state.targets.contains(target)) {
+        state.overflow = true;
       } else {
-        snr02_track_targets.insert(target);
+        state.targets.insert(target);
       }
     }
     if (!snr01_view_scopes.empty() &&
@@ -6366,9 +6379,8 @@ void PinyonShiftObserveSceneCommandBuffer(PPCRegister& r24, PPCRegister& r10,
         snr01_scene_list_flushes.back().owner) {
       snr01_view8_flush_owners.insert(snr01_scene_list_flushes.back().owner);
     }
-    if (Snr03TargetFrame() > 0 &&
-        uint64_t(Snr03TargetFrame()) == rex::perf::GetTotalCounter(
-            rex::perf::CounterId::kSourceFrameCount) &&
+    if (Snr03ProbeSourceFrame(rex::perf::GetTotalCounter(
+            rex::perf::CounterId::kSourceFrameCount)) &&
         !snr01_view_scopes.empty() && snr01_view_scopes.back().ordinal == 8 &&
         !snr01_scene_list_flushes.empty()) {
       const auto& flush = snr01_scene_list_flushes.back();
