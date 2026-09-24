@@ -483,6 +483,12 @@ the native callback must reject unsupported UI/mode frames before takeover,
 using a proven active title state or final-pass boundary. The 1080p guest
 video-mode flag still produced 1280×720 guest captures, so that run did not
 validate resize fallback.
+`python tools/verify-native-race-mode-boundary.py <capture-directory>` is the
+regression check for this route: race output must be native, while pause,
+free roam and settled title must use compatibility output. It currently
+fails on `race-paused` (3,215 native sky pixels); free roam and title also
+fail (153,162 and 286,127). Keep this check red until a proven mode gate or
+retained-pass bridge fixes the presented frame.
 
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
