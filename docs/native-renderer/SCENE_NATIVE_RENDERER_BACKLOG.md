@@ -352,6 +352,22 @@ geometry presentation or continuous L1 gameplay. Track, manager and
 remainder still pass in-memory fixture bytes, and collection remains limited
 to selected source frames.
 
+**Live graphics-command checkpoint (2026-09-24):** the D3D12 callback now
+exposes its frame-scoped deferred list, output state and completed submission;
+the guest-output resource accepts an RTV. A scene-gated diagnostic records a
+clear and a rasterized triangle into that same presentation submission, then
+restores the output state. It retains the per-frame RTV descriptor until its
+submission completes. The exact-output race route exited normally and its
+two admitted captures each contained precisely the sky color plus a distinct
+triangle color (222,106 triangle pixels); the preceding capture remained the
+game image. The compatibility and earlier clear-probe routes still passed,
+and an absent-scene triangle run yielded complete compatibility images.
+`tools/verify-native-scene-handoff.py <output-dir> --triangle` checks the
+scene-gated graphics captures. This proves a real native graphics draw can
+reach the presented image; the triangle is generated diagnostic geometry,
+not FH1 mesh content. L1 still needs the owned road/terrain and other scene
+draws, continuous frame capture, and a player toggle.
+
 1. Add the narrow D3D12 output-takeover seam first. The current FH1 output
    callback is an observer after compatibility output processing; it cannot
    replace the presented image. Let an opt-in native callback draw to the

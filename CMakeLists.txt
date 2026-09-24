@@ -28,6 +28,7 @@ if(WIN32)
         src/native_renderer/fh1_gpu_corpus.cpp
         src/native_renderer/fh1_pass_tracker.cpp
         src/native_renderer/guest_output_renderer.cpp
+        src/native_renderer/native_output_triangle.cpp
         src/native_renderer/snr04_owned_scene_diagnostic.cpp
         src/native_renderer/shader_capture.cpp
     )
@@ -122,5 +123,5 @@ add_custom_target(pinyon_shift_stage_controller_mappings ALL
     VERBATIM)
 
 if(WIN32)
-    target_link_libraries(pinyon_shift PRIVATE bcrypt d3d12 d3dcompiler dbghelp dxgi)
+    target_link_libraries(pinyon_shift PRIVATE bcrypt d3d12 d3dcompiler dbghelp dxgi rex::gpu-fh1)
 endif()
