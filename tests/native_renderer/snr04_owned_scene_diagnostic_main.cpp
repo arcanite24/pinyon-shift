@@ -2,11 +2,57 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include "native_renderer/snr04_owned_scene_diagnostic.h"
 
+namespace {
+uint32_t run(const std::string& fixture, const std::string& shader,
+             const std::string& output, uint32_t samples,
+             const pinyon_shift::native_renderer::Snr04SegmentOptions* segment) {
+  std::ifstream input(fixture, std::ios::binary);
+  char magic[8]{};
+  input.read(magic, sizeof(magic));
+  if (!input) throw std::runtime_error("missing fixture");
+  const auto kind = std::string_view(magic, 7);
+  using namespace pinyon_shift::native_renderer;
+  if (kind == "SNR02I3" || kind == "SNR03C1")
+    return RunSnr04ProceduralDiagnostic(fixture, shader, output, nullptr,
+                                       samples, segment);
+  if (kind == "SNR02T3" || kind == "SNR02T4")
+    return RunSnr04TrackDiagnostic(fixture, shader, output, nullptr,
+                                   samples, segment);
+  if (kind == "SNR03M1")
+    return RunSnr04ManagerDiagnostic(fixture, shader, output, nullptr,
+                                     samples, segment);
+  if (kind == "SNR03R2")
+    return RunSnr04RemainderDiagnostic(fixture, shader, output, nullptr,
+                                       samples, segment);
+  return RunSnr04OwnedSceneDiagnostic(std::filesystem::path(fixture), shader,
+                                      output, nullptr,
+                                      samples, segment);
+}
+}  // namespace
+
 int main(int argc, char** argv) {
+  if ((argc == 3 || argc == 4) &&
+      std::string_view(argv[1]) == "--batch") {
+    try {
+      const uint32_t samples = argc == 4 &&
+          std::string_view(argv[3]) == "--msaa4" ? 4 : 1;
+      if (argc == 4 && samples != 4)
+        throw std::runtime_error("invalid batch sample flag");
+      const auto result = pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
+          argv[2], nullptr, samples);
+      std::cout << "SNR04 shared target draws=" << result.draws
+                << " covered_pixels=" << result.covered_pixels << '\n';
+      return 0;
+    } catch (const std::exception& error) {
+      std::cerr << error.what() << '\n';
+      return 1;
+    }
+  }
   const bool msaa4 = argc >= 5 && std::string_view(argv[4]) == "--msaa4";
   const bool alpha = argc == 13 && msaa4 &&
       std::string_view(argv[11]) == "--alpha-bc3";
@@ -38,36 +84,8 @@ int main(int argc, char** argv) {
     if (alpha && std::string_view(magic, 7) != "SNR03F3" &&
         std::string_view(magic, 7) != "SNR03F4")
       throw std::runtime_error("alpha probe requires sequenced vegetation fixture");
-    if (input && (std::string_view(magic, 7) == "SNR02I3" ||
-                  std::string_view(magic, 7) == "SNR03C1")) {
-      const auto covered = pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
-      std::cout << "SNR04 " << (std::string_view(magic, 7) == "SNR03C1"
-                                   ? "character" : "procedural")
-                << " covered_pixels=" << covered << '\n';
-      return 0;
-    }
-    if (input && (std::string_view(magic, 7) == "SNR02T3" ||
-                  std::string_view(magic, 7) == "SNR02T4")) {
-      const auto covered = pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
-      std::cout << "SNR04 track covered_pixels=" << covered << '\n';
-      return 0;
-    }
-    if (input && std::string_view(magic, 7) == "SNR03M1") {
-      const auto covered = pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
-      std::cout << "SNR04 manager covered_pixels=" << covered << '\n';
-      return 0;
-    }
-    if (input && std::string_view(magic, 7) == "SNR03R2") {
-      const auto covered = pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
-          argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
-      std::cout << "SNR04 remainder covered_pixels=" << covered << '\n';
-      return 0;
-    }
-    const auto covered = pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
-        argv[1], argv[2], argv[3], nullptr, msaa4 ? 4 : 1, selected);
+    const auto covered = run(argv[1], argv[2], argv[3], msaa4 ? 4 : 1,
+                             selected);
     std::cout << "SNR04 diagnostic covered_pixels=" << covered << '\n';
     return 0;
   } catch (const std::exception& error) {

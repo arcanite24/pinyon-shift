@@ -34,6 +34,12 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct pinyon_shift::native_renderer::Snr04SharedTarget {
+  ComPtr<ID3D12Device> device;
+  ComPtr<ID3D12Resource> color, depth;
+  uint32_t samples = 1;
+};
+
 namespace {
 constexpr uint32_t width = 1280, height = 720;
 constexpr char expected_vs_sha[] =
@@ -273,6 +279,7 @@ ComPtr<ID3D12Resource> texture(ID3D12Device* device, DXGI_FORMAT format,
                                         IID_PPV_ARGS(&resource)));
   return resource;
 }
+
 void transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
                 D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
   D3D12_RESOURCE_BARRIER barrier{};
@@ -294,6 +301,8 @@ SegmentUploads initialize_segment_targets(
     const pinyon_shift::native_renderer::Snr04SegmentOptions* segment,
     uint32_t samples = 1) {
   SegmentUploads uploads;
+  if (segment && segment->shared_target && !segment->shared_first)
+    return uploads;
   if (segment && !segment->prior_output.empty()) {
     if (samples == 4) {
       const auto ids = read(segment->prior_output / "identity.u16x4");
@@ -641,6 +650,37 @@ void upload_alpha_texture(ID3D12GraphicsCommandList* commands,
 }
 }  // namespace
 
+std::shared_ptr<pinyon_shift::native_renderer::Snr04SharedTarget>
+pinyon_shift::native_renderer::CreateSnr04SharedTarget(
+    ID3D12Device* borrowed_device, uint32_t samples) {
+  require(samples == 1 || samples == 4, "unsupported shared sample count");
+  auto target = std::make_shared<Snr04SharedTarget>();
+  target->samples = samples;
+  if (borrowed_device) target->device = borrowed_device;
+  else {
+    ComPtr<IDXGIFactory6> factory;
+    check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
+    ComPtr<IDXGIAdapter1> adapter;
+    check(factory->EnumAdapterByGpuPreference(
+        0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)));
+    check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
+                            IID_PPV_ARGS(&target->device)));
+  }
+  D3D12_CLEAR_VALUE color_clear{};
+  color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  D3D12_CLEAR_VALUE depth_clear{};
+  depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+  target->color = texture(target->device.Get(), color_clear.Format,
+                          D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                          D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear,
+                          samples);
+  target->depth = texture(target->device.Get(), depth_clear.Format,
+                          D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                          D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear,
+                          samples);
+  return target;
+}
+
 uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
     std::span<const char> fixture,
     const std::filesystem::path& vertex_shader,
@@ -669,7 +709,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   const auto extracted = std::chrono::steady_clock::now();
 
   ComPtr<ID3D12Device> device;
-  if (borrowed_device) {
+  if (segment && segment->shared_target) {
+    require(!borrowed_device ||
+                borrowed_device == segment->shared_target->device.Get(),
+            "shared target device mismatch");
+    require(samples == segment->shared_target->samples &&
+                segment->prior_output.empty(),
+            "invalid shared target segment");
+    device = segment->shared_target->device;
+  } else if (borrowed_device) {
     device = borrowed_device;
   } else {
     ComPtr<ID3D12Debug> debug;
@@ -844,12 +892,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   D3D12_CLEAR_VALUE depth_clear{};
   depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
   depth_clear.DepthStencil.Depth = 0;
-  auto color = texture(device.Get(), color_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
-  auto depth = texture(device.Get(), depth_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
+  auto color = segment && segment->shared_target
+      ? segment->shared_target->color
+      : texture(device.Get(), color_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
+  auto depth = segment && segment->shared_target
+      ? segment->shared_target->depth
+      : texture(device.Get(), depth_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC rtv_description{};
   rtv_description.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   rtv_description.NumDescriptors = 1;
@@ -928,7 +980,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   ComPtr<ID3D12DescriptorHeap> sample_heap;
   ComPtr<ID3D12RootSignature> sample_root;
   ComPtr<ID3D12PipelineState> sample_pipeline;
-  if (samples == 1) {
+  const bool capture_target = !segment || !segment->shared_target ||
+                              segment->shared_final;
+  if (capture_target && samples == 1) {
     auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
     device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
                                   nullptr, nullptr, &color_bytes);
@@ -938,7 +992,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
                             D3D12_RESOURCE_STATE_COPY_DEST);
     depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-  } else {
+  } else if (capture_target) {
     constexpr char sample_source[] =
         "Texture2DMS<float4> colors : register(t0);"
         "Texture2DMS<float> depths : register(t1);"
@@ -1123,7 +1177,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_STREAM_OUT,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   commands->CopyResource(position_readback.Get(), position_output.Get());
-  if (samples == 1) {
+  if (segment && segment->shared_target && !segment->shared_final) {
+    // The next family draws directly into these GPU resources.
+  } else if (samples == 1) {
     transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -1186,6 +1242,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04OwnedSceneDiagnostic(
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (segment && segment->shared_target && !segment->shared_final)
+    return 0;
   ComPtr<ID3D12InfoQueue> messages;
   if (SUCCEEDED(device.As(&messages))) {
     for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
@@ -1632,7 +1690,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   }
   const auto extracted = std::chrono::steady_clock::now();
   ComPtr<ID3D12Device> device;
-  if (borrowed_device) device = borrowed_device;
+  if (segment && segment->shared_target) {
+    require(!borrowed_device ||
+                borrowed_device == segment->shared_target->device.Get(),
+            "shared target device mismatch");
+    require(samples == segment->shared_target->samples &&
+                segment->prior_output.empty(),
+            "invalid shared target segment");
+    device = segment->shared_target->device;
+  } else if (borrowed_device) device = borrowed_device;
   else {
     ComPtr<ID3D12Debug> debug;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
@@ -1738,12 +1804,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   D3D12_CLEAR_VALUE depth_clear{};
   depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
   depth_clear.DepthStencil.Depth = 0;
-  auto color = texture(device.Get(), color_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
-  auto depth = texture(device.Get(), depth_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
+  auto color = segment && segment->shared_target
+      ? segment->shared_target->color
+      : texture(device.Get(), color_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
+  auto depth = segment && segment->shared_target
+      ? segment->shared_target->depth
+      : texture(device.Get(), depth_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -1798,7 +1868,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   uint64_t color_bytes = 0, depth_bytes = 0;
   ComPtr<ID3D12Resource> color_readback, depth_readback;
   SampleCapture sample_capture;
-  if (samples == 1) {
+  const bool capture_target = !segment || !segment->shared_target ||
+                              segment->shared_final;
+  if (capture_target && samples == 1) {
     auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
     device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
                                   nullptr, nullptr, &color_bytes);
@@ -1808,7 +1880,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
                             D3D12_RESOURCE_STATE_COPY_DEST);
     depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-  } else {
+  } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
   ComPtr<ID3D12CommandQueue> queue;
@@ -1915,7 +1987,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   transition(commands.Get(), position_output.Get(), D3D12_RESOURCE_STATE_STREAM_OUT,
              D3D12_RESOURCE_STATE_COPY_SOURCE);
   commands->CopyResource(position_readback.Get(), position_output.Get());
-  if (samples == 1) {
+  if (segment && segment->shared_target && !segment->shared_final) {
+    // The next family draws directly into these GPU resources.
+  } else if (samples == 1) {
     transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -1948,6 +2022,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ProceduralDiagnostic(
   check(wait_result);
   require(waited == WAIT_OBJECT_0, "procedural GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (segment && segment->shared_target && !segment->shared_final)
+    return 0;
   const auto drawn = std::chrono::steady_clock::now();
   std::filesystem::create_directories(output_directory);
   std::ofstream positions_file(output_directory / "postvs.f32x4", std::ios::binary);
@@ -2223,7 +2299,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
           "track shader manifest has unused entries");
 
   ComPtr<ID3D12Device> device;
-  if (borrowed_device) device = borrowed_device;
+  if (segment && segment->shared_target) {
+    require(!borrowed_device ||
+                borrowed_device == segment->shared_target->device.Get(),
+            "shared target device mismatch");
+    require(samples == segment->shared_target->samples &&
+                segment->prior_output.empty(),
+            "invalid shared target segment");
+    device = segment->shared_target->device;
+  } else if (borrowed_device) device = borrowed_device;
   else {
     ComPtr<IDXGIFactory6> factory;
     check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
@@ -2312,12 +2396,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   D3D12_CLEAR_VALUE depth_clear{};
   depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
   depth_clear.DepthStencil.Depth = 0;
-  auto color = texture(device.Get(), color_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
-  auto depth = texture(device.Get(), depth_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
+  auto color = segment && segment->shared_target
+      ? segment->shared_target->color
+      : texture(device.Get(), color_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
+  auto depth = segment && segment->shared_target
+      ? segment->shared_target->depth
+      : texture(device.Get(), depth_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -2361,7 +2449,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   uint64_t color_bytes = 0, depth_bytes = 0;
   ComPtr<ID3D12Resource> color_readback, depth_readback;
   SampleCapture sample_capture;
-  if (samples == 1) {
+  const bool capture_target = !segment || !segment->shared_target ||
+                              segment->shared_final;
+  if (capture_target && samples == 1) {
     auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
     device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
                                   nullptr, nullptr, &color_bytes);
@@ -2371,7 +2461,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
                             D3D12_RESOURCE_STATE_COPY_DEST);
     depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-  } else {
+  } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
   ComPtr<ID3D12CommandQueue> queue;
@@ -2442,7 +2532,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "track segment draw count mismatch");
-  if (samples == 1) {
+  if (segment && segment->shared_target && !segment->shared_final) {
+    // The next family draws directly into these GPU resources.
+  } else if (samples == 1) {
     transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -2475,6 +2567,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04TrackDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "track GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (segment && segment->shared_target && !segment->shared_final)
+    return 0;
   std::filesystem::create_directories(output_directory);
   uint32_t covered = 0;
   std::vector<uint32_t> draw_pixels(draws.size());
@@ -2746,7 +2840,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
           "wrong manager vertex shader");
 
   ComPtr<ID3D12Device> device;
-  if (borrowed_device) device = borrowed_device;
+  if (segment && segment->shared_target) {
+    require(!borrowed_device ||
+                borrowed_device == segment->shared_target->device.Get(),
+            "shared target device mismatch");
+    require(samples == segment->shared_target->samples &&
+                segment->prior_output.empty(),
+            "invalid shared target segment");
+    device = segment->shared_target->device;
+  } else if (borrowed_device) device = borrowed_device;
   else {
     ComPtr<IDXGIFactory6> factory;
     check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
@@ -2815,12 +2917,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   D3D12_CLEAR_VALUE depth_clear{};
   depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
   depth_clear.DepthStencil.Depth = 0;
-  auto color = texture(device.Get(), color_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
-  auto depth = texture(device.Get(), depth_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
+  auto color = segment && segment->shared_target
+      ? segment->shared_target->color
+      : texture(device.Get(), color_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
+  auto depth = segment && segment->shared_target
+      ? segment->shared_target->depth
+      : texture(device.Get(), depth_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -2858,7 +2964,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   uint64_t color_bytes = 0, depth_bytes = 0;
   ComPtr<ID3D12Resource> color_readback, depth_readback;
   SampleCapture sample_capture;
-  if (samples == 1) {
+  const bool capture_target = !segment || !segment->shared_target ||
+                              segment->shared_final;
+  if (capture_target && samples == 1) {
     auto color_desc = color->GetDesc(), depth_desc = depth->GetDesc();
     device->GetCopyableFootprints(&color_desc, 0, 1, 0, &color_layout,
                                   nullptr, nullptr, &color_bytes);
@@ -2868,7 +2976,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
                             D3D12_RESOURCE_STATE_COPY_DEST);
     depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-  } else {
+  } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
   ComPtr<ID3D12CommandQueue> queue;
@@ -2918,7 +3026,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "manager segment draw count mismatch");
-  if (samples == 1) {
+  if (segment && segment->shared_target && !segment->shared_final) {
+    // The next family draws directly into these GPU resources.
+  } else if (samples == 1) {
     transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -2951,6 +3061,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04ManagerDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "manager GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (segment && segment->shared_target && !segment->shared_final)
+    return 0;
   std::filesystem::create_directories(output_directory);
   uint32_t covered = 0;
   std::vector<uint32_t> draw_pixels(draws.size());
@@ -3298,7 +3410,15 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   }
 
   ComPtr<ID3D12Device> device;
-  if (borrowed_device) device = borrowed_device;
+  if (segment && segment->shared_target) {
+    require(!borrowed_device ||
+                borrowed_device == segment->shared_target->device.Get(),
+            "shared target device mismatch");
+    require(samples == segment->shared_target->samples &&
+                segment->prior_output.empty(),
+            "invalid shared target segment");
+    device = segment->shared_target->device;
+  } else if (borrowed_device) device = borrowed_device;
   else {
     ComPtr<IDXGIFactory6> factory;
     check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
@@ -3384,12 +3504,16 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   D3D12_CLEAR_VALUE depth_clear{};
   depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
   depth_clear.DepthStencil.Depth = 0;
-  auto color = texture(device.Get(), color_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
-  auto depth = texture(device.Get(), depth_clear.Format,
-                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
-                       D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
+  auto color = segment && segment->shared_target
+      ? segment->shared_target->color
+      : texture(device.Get(), color_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, color_clear, samples);
+  auto depth = segment && segment->shared_target
+      ? segment->shared_target->depth
+      : texture(device.Get(), depth_clear.Format,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, depth_clear, samples);
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heap_desc.NumDescriptors = 1;
@@ -3426,7 +3550,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   uint64_t color_bytes = 0, depth_bytes = 0;
   ComPtr<ID3D12Resource> color_readback, depth_readback;
   SampleCapture sample_capture;
-  if (samples == 1) {
+  const bool capture_target = !segment || !segment->shared_target ||
+                              segment->shared_final;
+  if (capture_target && samples == 1) {
     auto color_description = color->GetDesc(), depth_description = depth->GetDesc();
     device->GetCopyableFootprints(&color_description, 0, 1, 0, &color_layout,
                                   nullptr, nullptr, &color_bytes);
@@ -3436,7 +3562,7 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
                             D3D12_RESOURCE_STATE_COPY_DEST);
     depth_readback = buffer(device.Get(), depth_bytes, D3D12_HEAP_TYPE_READBACK,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-  } else {
+  } else if (capture_target) {
     sample_capture = make_sample_capture(device.Get(), color.Get(), depth.Get());
   }
   ComPtr<ID3D12CommandQueue> queue;
@@ -3492,7 +3618,9 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   }
   require(!segment || segment_draws == segment->draw_count,
           "remainder segment draw count mismatch");
-  if (samples == 1) {
+  if (segment && segment->shared_target && !segment->shared_final) {
+    // The next family draws directly into these GPU resources.
+  } else if (samples == 1) {
     transition(commands.Get(), color.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(commands.Get(), depth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
@@ -3525,6 +3653,8 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   check(wait);
   require(waited == WAIT_OBJECT_0, "remainder GPU wait failed");
   check(device->GetDeviceRemovedReason());
+  if (segment && segment->shared_target && !segment->shared_final)
+    return 0;
   std::filesystem::create_directories(output_directory);
   uint32_t covered = 0;
   uint32_t zero_depth_pixels = 0;
@@ -3614,4 +3744,66 @@ uint32_t pinyon_shift::native_renderer::RunSnr04RemainderDiagnostic(
   summary.close();
   require(bool(summary), "remainder summary write failed");
   return covered;
+}
+
+pinyon_shift::native_renderer::Snr04BatchResult
+pinyon_shift::native_renderer::RunSnr04BatchDiagnostic(
+    const std::filesystem::path& manifest_path, ID3D12Device* borrowed_device,
+    uint32_t samples) {
+  std::ifstream manifest(manifest_path);
+  std::string header;
+  uint64_t source_frame = 0;
+  uint32_t count = 0;
+  require(bool(manifest >> header >> source_frame >> count) &&
+              header == "SNR04B1" && source_frame && count && count <= 4096,
+          "invalid shared-target manifest");
+  auto target = CreateSnr04SharedTarget(borrowed_device, samples);
+  uint64_t previous_sequence = 0;
+  uint32_t next_id = 1, covered = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    std::string fixture, shader, output;
+    Snr04SegmentOptions segment;
+    require(bool(manifest >> std::quoted(fixture) >> std::quoted(shader) >>
+                     std::quoted(output) >> segment.first_sequence >>
+                     segment.last_sequence >> segment.first_id >>
+                     segment.draw_count) &&
+                segment.first_sequence > previous_sequence &&
+                segment.first_sequence <= segment.last_sequence &&
+                segment.first_id == next_id && segment.draw_count,
+            "invalid shared-target segment");
+    std::ifstream input(fixture, std::ios::binary);
+    std::array<char, 8> magic{};
+    uint64_t frame = 0;
+    input.read(magic.data(), magic.size());
+    input.read(reinterpret_cast<char*>(&frame), sizeof(frame));
+    require(bool(input) && frame == source_frame,
+            "shared-target fixture frame mismatch");
+    segment.shared_target = target;
+    segment.shared_first = i == 0;
+    segment.shared_final = i + 1 == count;
+    const auto kind = std::string_view(magic.data(), 7);
+    if (kind == "SNR02I3" || kind == "SNR03C1")
+      covered = RunSnr04ProceduralDiagnostic(fixture, shader, output,
+                                             borrowed_device, samples, &segment);
+    else if (kind == "SNR02T3" || kind == "SNR02T4")
+      covered = RunSnr04TrackDiagnostic(fixture, shader, output,
+                                        borrowed_device, samples, &segment);
+    else if (kind == "SNR03M1")
+      covered = RunSnr04ManagerDiagnostic(fixture, shader, output,
+                                          borrowed_device, samples, &segment);
+    else if (kind == "SNR03R2")
+      covered = RunSnr04RemainderDiagnostic(fixture, shader, output,
+                                            borrowed_device, samples, &segment);
+    else if (kind == "SNR03F3" || kind == "SNR03F4")
+      covered = RunSnr04OwnedSceneDiagnostic(std::filesystem::path(fixture),
+                                             shader, output,
+                                             borrowed_device, samples, &segment);
+    else
+      throw std::runtime_error("unsupported shared-target fixture");
+    previous_sequence = segment.last_sequence;
+    next_id += segment.draw_count;
+  }
+  std::string trailing;
+  require(!(manifest >> trailing), "trailing shared-target manifest data");
+  return {source_frame, next_id - 1, covered};
 }

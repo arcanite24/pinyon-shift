@@ -2,17 +2,31 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <span>
 
 struct ID3D12Device;
 
 namespace pinyon_shift::native_renderer {
 
+struct Snr04SharedTarget;
+std::shared_ptr<Snr04SharedTarget> CreateSnr04SharedTarget(
+    ID3D12Device* device, uint32_t samples);
+struct Snr04BatchResult {
+  uint64_t source_frame = 0;
+  uint32_t draws = 0, covered_pixels = 0;
+};
+Snr04BatchResult RunSnr04BatchDiagnostic(
+    const std::filesystem::path& manifest, ID3D12Device* device,
+    uint32_t samples);
+
 struct Snr04SegmentOptions {
   uint64_t first_sequence = 0, last_sequence = 0;
   uint32_t first_id = 0, draw_count = 0;
   std::filesystem::path prior_output;
   std::filesystem::path alpha_bc3;
+  std::shared_ptr<Snr04SharedTarget> shared_target;
+  bool shared_first = false, shared_final = false;
 };
 
 uint32_t RunSnr04OwnedSceneDiagnostic(

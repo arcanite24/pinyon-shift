@@ -320,8 +320,13 @@ and [Gate A preflight](SCENE_NATIVE_GATE_A_PREFLIGHT_2026-09-22.md#exact-view-8-
    must remain exact even when image appearance is approximate.
 3. **Test the real execution shape:** render the owned diagnostic into an
    in-game private target on the existing D3D12 device, without per-family
-   CPU readback/upload. Measure capture, resource update, native draw and
-   bridge costs separately with compatibility still authoritative. Use the
+   CPU readback/upload. A one-target offline batch now matches both verified
+   staged 4× targets byte for byte, and an asynchronous archived-fixture batch
+   completed on the borrowed in-game device with normal game exit. The first
+   current-run batch correctly rejected a changed shader fixture and missing
+   track fixture, so same-frame full-slice admission is still open. Measure
+   capture, resource update, native draw and bridge costs separately with
+   compatibility still authoritative. Use the
    existing control and SNR-05 dependency census to decide whether the 15%
    *net* target remains plausible. Defer production material expansion and
    suppression until this cost and dependency checkpoint passes.

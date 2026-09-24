@@ -755,6 +755,55 @@ identity and depth check. The all-sample census prevents valid edge-only
 selected draws from being mislabeled invisible; it is still an identity
 diagnostic, not material or compatibility pixel parity.
 
+### One GPU target across the selected draw order
+
+The diagnostic now accepts a checked batch manifest and keeps one private
+color/depth target on a single D3D12 device across every consecutive family
+stage. Intermediate stages leave those GPU resources in render/depth-write
+state and produce no target readback files; only the last stage reads back the
+final target. Each stage still owns its queue, waits for completion and builds
+its upload resources, so this removes the inter-family CPU target bridge but
+does not yet represent a production renderer or its frame cost.
+
+The source-5001, 1,562-draw, 35-stage replay at
+`.local/native-renderer/snr04/renderdoc-gatea-full-gpu-shared-d` matches the
+verified staged replay byte for byte: coverage
+`26327663E4489F8D4A8A67954261DCAA34632D1B2A24BFB28A4AACE2BA3FB5D0`,
+per-sample identity
+`685A356C5601B23BF0438E633CCB3F852B05DAA83E7C2019750ECB762A3CA0F8`,
+and per-sample depth
+`27E4EE345B6D12F8C04ACA37CFE7AA9F2EFE609E156250FD26CE48D09DD3EAFA`.
+The independent source-5000, 2,307-draw replay also matches its old staged
+summary for draw count, the three final hashes, covered samples and all eight
+family visibility ledgers. `replay-snr04-complete-slice.py --msaa4
+--gpu-shared` generates the manifest, enforces consecutive sequence/ID ranges,
+and rejects any intermediate target file. `verify-snr04-msaa.py` passes on the
+final target.
+
+An opt-in game hook uses the borrowed in-game D3D12 device after the normal
+compatibility output callback. A one-draw, 4× archived-fixture smoke test
+completed in 0.52 seconds and the render test exited normally at frame 5100.
+A synchronous 2,307-draw archived-fixture test rendered the correct final
+pixels in 27.44 seconds but then stopped advancing at frame 5001; that test
+process was terminated. Moving the diagnostic to a worker let the same
+archived 2,307-draw batch finish in 27.85 seconds while the render test
+advanced to frame 5600 and exited normally. Its final files at
+`.local/native-renderer/snr04/shared-device-smoke-private-c/step-34` match
+the staged source-5000 coverage, identity and depth hashes exactly. This is
+a borrowed-device execution check, **not** a same-run scene join or a speed
+measurement: the archived fixtures and shader manifests were captured earlier.
+
+The first attempted current-run hook rejected `wrong remainder shader fixture`
+and the track owner rejected its current capture (`targets=91`, `seen=81`,
+`draws=592`), leaving no track fixture. That run exited normally. The guards
+correctly prevent a stale shader manifest and incomplete selected family from
+being called a live full-slice replay. The next admission cut needs a reliable
+six-fixture current-frame capture, current-frame ordered manifest and shader
+validation before the worker starts. Resource lifetime, material/color parity,
+moving-frame image comparison, separate capture/resource/draw/bridge costs and
+a net 15% speed case remain unproved. Gate A therefore remains **no-go for
+production expansion** on this evidence.
+
 ### Family visibility in the complete 4× replay
 
 The final identity buffer also reports selected versus visible draw IDs by

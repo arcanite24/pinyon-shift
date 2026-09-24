@@ -37,12 +37,15 @@ def replay(args):
     output = args.output.resolve()
     assert ".local" in output.parts, "diagnostic output must stay under .local"
     output.mkdir(parents=True, exist_ok=True)
+    if args.gpu_shared:
+        assert not any(output.iterdir()), "shared diagnostic output must be empty"
     shaders = {"remainder": args.remainder_shaders,
                "track": args.track_shaders,
                "procedural": args.procedural_shaders,
                "vegetation": args.vegetation_shader}
     previous = None
     runs = []
+    batch = []
     next_id = 1
     for number, (family, group) in enumerate(groupby(draws, key=lambda r: r["family"])):
         rows = list(group)
@@ -57,29 +60,63 @@ def replay(args):
         command += ["--segment", str(rows[0]["sequence"]),
                    str(rows[-1]["sequence"]), str(next_id), str(len(rows)),
                    str(previous) if previous else "-"]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode:
-            raise RuntimeError(f"{family} run {number}: {result.stderr.strip()}")
-        summary = json.loads((directory / "summary.json").read_text())
-        assert summary["schema"] == "pinyon-shift.snr04-segment.v1"
-        assert (summary["source_frame"], summary["first_sequence"],
-                summary["last_sequence"], summary["first_id"],
-                summary["draws"], summary["fixture_sha256"]) == (
-                    order["source_frame"], rows[0]["sequence"],
-                    rows[-1]["sequence"], next_id, len(rows), sha(fixture))
-        if args.msaa4:
-            assert (directory / "identity.u16x4").stat().st_size == 1280 * 720 * 8
-            assert (directory / "depth.f32x4").stat().st_size == 1280 * 720 * 16
-            assert (directory / "coverage.u8").stat().st_size == 1280 * 720
+        if args.gpu_shared:
+            batch.append((fixture.resolve(), Path(shaders[shader]).resolve(),
+                          directory.resolve(),
+                          rows[0]["sequence"], rows[-1]["sequence"],
+                          next_id, len(rows)))
         else:
-            assert (directory / "color.rgba").stat().st_size == 1280 * 720 * 4
-        assert (directory / "depth.f32").stat().st_size == 1280 * 720 * 4
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError(f"{family} run {number}: {result.stderr.strip()}")
+            summary = json.loads((directory / "summary.json").read_text())
+            assert summary["schema"] == "pinyon-shift.snr04-segment.v1"
+            assert (summary["source_frame"], summary["first_sequence"],
+                    summary["last_sequence"], summary["first_id"],
+                    summary["draws"], summary["fixture_sha256"]) == (
+                        order["source_frame"], rows[0]["sequence"],
+                        rows[-1]["sequence"], next_id, len(rows), sha(fixture))
+            if args.msaa4:
+                assert (directory / "identity.u16x4").stat().st_size == 1280 * 720 * 8
+                assert (directory / "depth.f32x4").stat().st_size == 1280 * 720 * 16
+                assert (directory / "coverage.u8").stat().st_size == 1280 * 720
+            else:
+                assert (directory / "color.rgba").stat().st_size == 1280 * 720 * 4
+            assert (directory / "depth.f32").stat().st_size == 1280 * 720 * 4
         runs.append({"family": family, "draws": len(rows),
                      "first_id": next_id,
-                     "covered_pixels_after": summary["covered_pixels"]})
+                     "covered_pixels_after": None if args.gpu_shared else
+                     summary["covered_pixels"]})
         previous = directory
         next_id += len(rows)
     assert next_id - 1 == len(draws)
+    if args.gpu_shared:
+        manifest = output / "gpu-shared.manifest"
+        manifest.write_text("SNR04B1 " + str(order["source_frame"]) + " " +
+                            str(len(batch)) + "\n" + "".join(
+            " ".join((json.dumps(str(fixture)), json.dumps(str(shader)),
+                      json.dumps(str(directory)), str(first), str(last),
+                      str(first_id), str(count))) + "\n"
+            for fixture, shader, directory, first, last, first_id, count in batch),
+            encoding="utf-8")
+        if args.manifest_only:
+            return {"source_frame": order["source_frame"], "draws": len(draws),
+                    "manifest": str(manifest)}
+        command = [str(args.executable.resolve()), "--batch", str(manifest)]
+        if args.msaa4:
+            command.append("--msaa4")
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError(f"shared target: {result.stderr.strip()}")
+        summary = json.loads((previous / "summary.json").read_text())
+        assert (summary["source_frame"], summary["first_sequence"],
+                summary["last_sequence"], summary["first_id"],
+                summary["draws"]) == (
+                    order["source_frame"], batch[-1][3], batch[-1][4],
+                    batch[-1][5], batch[-1][6])
+        runs[-1]["covered_pixels_after"] = summary["covered_pixels"]
+        assert all(not any((output / f"step-{i:02d}").iterdir())
+                   for i in range(len(batch) - 1)), "intermediate readback"
     depth = (previous / "depth.f32").read_bytes()
     identities = collections.Counter()
     zero_depth = 0
@@ -126,6 +163,8 @@ def replay(args):
                 zero_depth += z == 0
     result = {"schema": "pinyon-shift.snr04-complete-slice.v1",
               "source_frame": order["source_frame"],
+              "gpu_shared": args.gpu_shared,
+              "intermediate_target_readbacks": 0 if args.gpu_shared else len(runs) - 1,
               "draws": len(draws), "runs": runs,
               "covered_pixels": sum(identities.values()),
               "visible_draws": len(identities),
@@ -170,8 +209,12 @@ def replay(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--msaa4", action="store_true")
+    parser.add_argument("--gpu-shared", action="store_true")
+    parser.add_argument("--manifest-only", action="store_true")
     for name in ("order", "fixtures", "executable", "remainder_shaders",
                  "track_shaders", "procedural_shaders", "vegetation_shader",
                  "output"):
         parser.add_argument(name, type=Path)
-    print(json.dumps(replay(parser.parse_args()), sort_keys=True))
+    args = parser.parse_args()
+    assert not args.manifest_only or args.gpu_shared
+    print(json.dumps(replay(args), sort_keys=True))

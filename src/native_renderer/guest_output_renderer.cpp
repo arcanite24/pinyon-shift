@@ -13,7 +13,10 @@ bool ObserveRenderTestOutput(
   pinyon_shift::native_renderer::ObserveSnr02ItemOutputFrame(context.frame_sequence,
                                                             context.device);
   pinyon_shift::native_renderer::ObserveSnr02TrackOutputFrame(context.frame_sequence);
-  return pinyon_shift::fh1_render_test::ObserveOutput(context);
+  const bool observed = pinyon_shift::fh1_render_test::ObserveOutput(context);
+  pinyon_shift::native_renderer::ObserveSnr04BatchOutputFrame(
+      context.frame_sequence, context.device);
+  return observed;
 }
 
 }  // namespace
@@ -33,6 +36,7 @@ void UninstallGuestOutputRenderer(
   if (graphics_system) {
     graphics_system->SetNativeGuestOutputRenderer(nullptr);
   }
+  FinishSnr04BatchDiagnostic();
 }
 
 }  // namespace pinyon_shift::native_renderer

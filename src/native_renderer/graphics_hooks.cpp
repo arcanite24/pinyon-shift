@@ -19,6 +19,8 @@
 
 #if defined(_WIN32)
 #include <Windows.h>
+#include <d3d12.h>
+#include <wrl/client.h>
 #endif
 
 #include <rex/cvar.h>
@@ -72,6 +74,11 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_snr02_track_payload_probe, false,
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
+
+#if defined(_WIN32)
+std::mutex snr04_batch_worker_mutex;
+std::thread snr04_batch_worker;
+#endif
 
 using ClearClock = std::chrono::steady_clock;
 struct ClearProducerSample {
@@ -3296,6 +3303,66 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
     }
 #endif
   }
+}
+
+void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device) {
+#if defined(_WIN32)
+  const auto manifest = diagnostics::EnvironmentPath(
+      "PINYON_SHIFT_SNR04_SHARED_MANIFEST");
+  if (!manifest || !device || !Snr03ProbeEnabled() ||
+      output_frame != uint64_t(Snr03TargetFrame()) + 1) return;
+  std::ifstream input(*manifest);
+  std::string magic;
+  uint64_t source_frame = 0;
+  if (!(input >> magic >> source_frame) || magic != "SNR04B1" ||
+      source_frame != output_frame - 1) {
+    REXGPU_INFO("FH1 SNR04 shared target rejected output_frame={} "
+                "reason=manifest_frame_mismatch", output_frame);
+    return;
+  }
+  const uint32_t samples =
+      GetEnvironmentVariableA("PINYON_SHIFT_SNR04_MSAA4", nullptr, 0)
+          ? 4 : 1;
+  Microsoft::WRL::ComPtr<ID3D12Device> held(
+      static_cast<ID3D12Device*>(device));
+  std::lock_guard lock(snr04_batch_worker_mutex);
+  if (snr04_batch_worker.joinable()) return;
+  snr04_batch_worker = std::thread(
+      [manifest = *manifest, held, samples, output_frame] {
+        const auto begin = std::chrono::steady_clock::now();
+        try {
+          const auto result = RunSnr04BatchDiagnostic(
+              manifest, held.Get(), samples);
+          const auto elapsed_us =
+              std::chrono::duration_cast<std::chrono::microseconds>(
+                  std::chrono::steady_clock::now() - begin).count();
+          REXGPU_INFO("FH1 SNR04 shared target consumed output_frame={} "
+                      "source_frame={} draws={} covered_pixels={} samples={} "
+                      "elapsed_us={}", output_frame, result.source_frame,
+                      result.draws, result.covered_pixels, samples, elapsed_us);
+        } catch (const std::exception& error) {
+          REXGPU_INFO("FH1 SNR04 shared target rejected output_frame={} "
+                      "reason={}", output_frame, error.what());
+        }
+      });
+  REXGPU_INFO("FH1 SNR04 shared target queued output_frame={} "
+              "source_frame={} samples={}", output_frame, source_frame,
+              samples);
+#else
+  (void)output_frame;
+  (void)device;
+#endif
+}
+
+void FinishSnr04BatchDiagnostic() {
+#if defined(_WIN32)
+  std::thread worker;
+  {
+    std::lock_guard lock(snr04_batch_worker_mutex);
+    worker = std::move(snr04_batch_worker);
+  }
+  if (worker.joinable()) worker.join();
+#endif
 }
 
 }  // namespace pinyon_shift::native_renderer
