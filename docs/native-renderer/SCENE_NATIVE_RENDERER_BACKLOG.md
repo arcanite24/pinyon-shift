@@ -508,6 +508,17 @@ work is earlier in per-draw/title snapshot preparation or its SDK handoff;
 instrument that path before changing serialization or GPU rendering. The
 timers were removed after the measurement. This capture pace still prevents
 L2 from being a usable driving mode.
+An isolated A/B then disabled the prepared-draw observer while leaving the
+other capture hooks installed: the same five-frame interval fell to 1.04
+seconds. Reinstalling the observer with an immediate-return body took 6.34
+seconds, nearly the full 6.69-second path. The SDK constructs prepared-draw
+observations, copies selected vertex/index ranges and hashes snapshot bytes
+before invoking that callback; the callback's own work is not the main cost.
+The next measurement should split `CopyCpuSnapshot` time, byte hashing and
+snapshot volume by family inside the SDK. Any reuse must preserve multiple
+same-address versions within one frame, already observed for a car range.
+Both A/B code changes were reverted; these runs only establish the cost
+boundary, not a usable native frame.
 
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
