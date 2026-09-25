@@ -178,7 +178,9 @@ void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
 }
 void CollectSnr04LiveVegetation(
     uint64_t frame, std::shared_ptr<const Snr03OwnedScene> scene,
-    std::vector<uint64_t>&& sequences) {
+    std::vector<uint64_t>&& sequences,
+    std::shared_ptr<const std::vector<
+        pinyon_shift::native_renderer::Snr04TrackTextureIdentity>> textures) {
   if (!Snr04LiveCaptureEnabled()) return;
   if (!scene || sequences.empty() || sequences.size() > 4096) return;
   std::lock_guard lock(snr04_live_mutex);
@@ -188,6 +190,7 @@ void CollectSnr04LiveVegetation(
   if (slot.bytes || slot.vegetation) return;
   slot.vegetation = std::move(scene);
   slot.sequences = std::move(sequences);
+  slot.textures = std::move(textures);
 }
 void CollectSnr04LiveProcedural(
     uint64_t frame, Snr04LiveFamily family,
@@ -464,7 +467,7 @@ struct Snr03FinalState {
   std::array<uint32_t, 64> system_constants;
   std::array<uint32_t, 4> fetch_47;
   std::array<uint32_t, 92> vertex_constants;
-  bool operator==(const Snr03FinalState&) const = default;
+  std::vector<pinyon_shift::native_renderer::Snr04TrackTextureIdentity> textures;
 };
 struct Snr03PayloadState {
   struct Draw {
@@ -472,6 +475,7 @@ struct Snr03PayloadState {
     std::array<std::array<uint32_t, 4>, 24> vertex_constants;
     std::array<uint32_t, 3> pixel_registers;
     std::array<std::array<uint32_t, 4>, 3> pixel_constants;
+    uint64_t pixel_specialization = 0;
     uint32_t guest_vertex_count;
     std::map<uint64_t, Snr03FinalState> final_states;
   };
@@ -507,6 +511,7 @@ struct Snr03OwnedItem {
   std::array<std::array<uint32_t, 4>, 24> vertex_constants;
   std::array<uint32_t, 3> pixel_registers;
   std::array<std::array<uint32_t, 4>, 3> pixel_constants;
+  uint64_t pixel_specialization = 0;
   uint32_t guest_vertex_count;
   std::map<uint64_t, Snr03FinalState> final_states;
 };
@@ -539,6 +544,7 @@ BuildSnr04VegetationScene(const Snr03OwnedScene& owned) {
                 source.vertex_constants[row].end(),
                 item.constants.begin() + row * 4);
     item.pixel_registers = source.pixel_registers;
+    item.pixel_specialization = source.pixel_specialization;
     for (size_t row = 0; row < source.pixel_constants.size(); ++row)
       std::copy(source.pixel_constants[row].begin(),
                 source.pixel_constants[row].end(),
@@ -1654,6 +1660,7 @@ void ObserveSnr03VertexPayload(
   const auto* begin = fetch[0].cpu_snapshot_bytes;
   Snr03PayloadState::Draw draw{};
   draw.guest_vertex_count = observation.index_count;
+  draw.pixel_specialization = observation.pixel_specialization_mask;
   for (size_t i = 0; i < kVertexConstants.size(); ++i) {
     const auto* words = observation.vertex_float_constant_words +
                         kVertexConstants[i] * 4;
@@ -1686,6 +1693,7 @@ void ObserveSnr03VertexPayload(
         existing->second.vertex_constants != draw.vertex_constants ||
         existing->second.pixel_registers != draw.pixel_registers ||
         existing->second.pixel_constants != draw.pixel_constants ||
+        existing->second.pixel_specialization != draw.pixel_specialization ||
         existing->second.guest_vertex_count != draw.guest_vertex_count) {
       payload.rejected = true;
     }
@@ -2334,7 +2342,12 @@ void ObserveSnr03FinalDrawState(
       observation.system_constant_word_count < 64 ||
       !observation.fetch_47_words ||
       !observation.bound_vertex_float_constant_words ||
-      observation.bound_vertex_float_constant_count != 23) {
+      observation.bound_vertex_float_constant_count != 23 ||
+      (observation.texture_count != 0 && observation.texture_count != 2) ||
+      (observation.texture_count &&
+       (!observation.textures ||
+        observation.textures[0].fetch_constant != 0 ||
+        observation.textures[1].fetch_constant != 13))) {
     if (!payload.rejected)
       REXGPU_INFO("FH1 SNR03 final vertex state rejected packet={} "
                   "bound_count={} bound_present={} system_present={} "
@@ -2356,6 +2369,17 @@ void ObserveSnr03FinalDrawState(
   std::copy_n(observation.fetch_47_words, fetch.size(), fetch.begin());
   std::copy_n(observation.bound_vertex_float_constant_words,
               state.vertex_constants.size(), state.vertex_constants.begin());
+  for (uint32_t i = 0; i < observation.texture_count; ++i) {
+    const auto& source = observation.textures[i];
+    pinyon_shift::native_renderer::Snr04TrackTextureIdentity identity;
+    identity.sequence = observation.draw_sequence;
+    identity.fetch_constant = source.fetch_constant;
+    std::copy_n(source.fetch_words, 6, identity.fetch_words.begin());
+    identity.allocation_id = source.allocation_id;
+    identity.payload_generation = source.payload_generation;
+    identity.outdated_mask = source.outdated_mask;
+    state.textures.push_back(identity);
+  }
   auto& variants = draw->second.final_states;
   const auto existing = variants.find(observation.dynamic_state);
   if (existing != variants.end()) {
@@ -3775,6 +3799,8 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
         fingerprint = (fingerprint ^ word) * 1099511628211ull;
       }
     }
+    fingerprint = (fingerprint ^ it->second.pixel_specialization) *
+                  1099511628211ull;
     fingerprint = (fingerprint ^ it->second.guest_vertex_count) * 1099511628211ull;
     final_variants += it->second.final_states.size();
     for (const auto& [dynamic, state] : it->second.final_states) {
@@ -3793,6 +3819,7 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
                                    it->second.vertex_constants,
                                    it->second.pixel_registers,
                                    it->second.pixel_constants,
+                                   it->second.pixel_specialization,
                                    it->second.guest_vertex_count,
                                    std::move(it->second.final_states)});
   }
@@ -3809,12 +3836,19 @@ void ObserveSnr03OutputFrame(uint64_t output_frame, void* device) {
 #if defined(_WIN32)
   if (live) {
     std::vector<uint64_t> sequences;
+    std::vector<pinyon_shift::native_renderer::Snr04TrackTextureIdentity> textures;
     sequences.reserve(final_variants);
     for (const auto& item : owned->items)
-      for (const auto& entry : item.final_states)
+      for (const auto& entry : item.final_states) {
         sequences.push_back(entry.second.draw_sequence);
+        textures.insert(textures.end(), entry.second.textures.begin(),
+                        entry.second.textures.end());
+      }
     CollectSnr04LiveVegetation(owned->title->source_frame, owned,
-                               std::move(sequences));
+                               std::move(sequences),
+                               std::make_shared<const std::vector<
+                                   pinyon_shift::native_renderer::Snr04TrackTextureIdentity>>(
+                                   std::move(textures)));
   }
 #endif
   if (!directory.empty() && (!live || Snr04LiveVerifyFixtures())) {
@@ -3923,6 +3957,7 @@ std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
     scene->track_textures = track.textures;
     scene->items = items.procedural;
     scene->vegetation = BuildSnr04VegetationScene(*vegetation.vegetation);
+    scene->vegetation_textures = vegetation.textures;
     scene->characters = families[size_t(Snr04LiveFamily::characters)].bytes;
     scene->manager = families[size_t(Snr04LiveFamily::manager)].bytes;
     scene->remainder = families[size_t(Snr04LiveFamily::remainder)].bytes;

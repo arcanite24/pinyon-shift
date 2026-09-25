@@ -620,6 +620,27 @@ the car, terrain, props and opaque foliage remain placeholder shaded. This
 is one proven material family, not a general guest-shader translation.
 Evidence: `.local/native-renderer/material-road-continuous-run1`.
 
+**Foliage alpha checkpoint (2026-09-25):** the selected foliage vertex
+family `5834939992FFC765` now carries final-draw texture identities into the
+live scene. For pixel specialization `1A001F`, the native output samples the
+current BC3 fetch-0 alpha with a clamp sampler, applies the captured varying
+alpha, and discards below 0.5. The borrowed resource must pass the same
+allocation/generation/dirty checks as the road texture before any native
+output is submitted; unavailable input yields a whole-frame compatibility
+fallback. A short source-4203 capture found 135 foliage draws with fresh
+fetch-0 identities, and the sustained run found 174 at source 5130. The
+20-frame continuous route passed `verify-native-track-output.py`; visual
+review shows grass/hedge cutouts while road, car and HUD remain present.
+The longer sustained route exited normally, and
+`verify-native-race-mode-boundary.py` confirmed native race output switches
+to compatibility on pause, free roam and title. Evidence:
+`.local/native-renderer/foliage-alpha-continuous-run1`,
+`.local/native-renderer/foliage-alpha-sustained-run1`, and
+`.local/native-renderer/foliage-alpha-mode-boundary-run1`. This is a basic
+one-sample alpha threshold; the guest's four-sample coverage, remaining
+foliage variants, vehicle paint/glass, terrain and props still need material
+work. L2 remains open.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)

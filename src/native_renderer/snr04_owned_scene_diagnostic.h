@@ -26,6 +26,7 @@ struct Snr04VegetationItem {
   std::array<uint32_t, 96> constants{};
   std::array<uint32_t, 3> pixel_registers{};
   std::array<uint32_t, 12> pixel_constants{};
+  uint64_t pixel_specialization = 0;
   std::array<uint32_t, 64> system{}, original_system{};
   std::array<uint32_t, 4> fetch{};
   std::vector<Variant> variants;
@@ -134,6 +135,7 @@ struct Snr04LiveScene {
   std::shared_ptr<const Snr04ProceduralScene> items;
   std::shared_ptr<const Snr04VegetationScene> vegetation;
   std::shared_ptr<const std::vector<Snr04TrackTextureIdentity>> track_textures;
+  std::shared_ptr<const std::vector<Snr04TrackTextureIdentity>> vegetation_textures;
   uint32_t core_draws = 0;
 };
 
