@@ -1586,6 +1586,8 @@ bool ClearProducerTraceEnabled() {
 namespace pinyon_shift::native_renderer {
 namespace {
 
+std::array<std::atomic<uint64_t>, 16> native_race_admission{};
+
 bool Snr04LiveVerifyFixtures() {
   return diagnostics::EnvironmentPath(
       "PINYON_SHIFT_SNR04_LIVE_VERIFY_FIXTURES").has_value();
@@ -2904,6 +2906,19 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
 }
 
 }  // namespace
+
+void PublishNativeRaceAdmission(uint64_t source_frame, bool admitted) {
+  native_race_admission[source_frame & 15].store(
+      (source_frame << 1) | uint64_t(admitted), std::memory_order_release);
+}
+
+bool NativeRaceAdmittedForOutput(uint64_t output_frame) {
+  if (!output_frame) return false;
+  const uint64_t source_frame = output_frame - 1;
+  const uint64_t tagged = native_race_admission[source_frame & 15].load(
+      std::memory_order_acquire);
+  return (tagged >> 1) == source_frame && (tagged & 1);
+}
 
 void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
                            rex::memory::Memory* memory) {

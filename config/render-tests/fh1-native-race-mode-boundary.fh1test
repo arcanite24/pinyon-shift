@@ -1,0 +1,83 @@
+pinyon-shift-fh1-render-test-v1
+# Output-frame paced: do not add clock-hz while native scene capture slows output.
+# AppData save: enter Recaro race, pause/retire to free roam, quit to title.
+# Run with native race capture from source frame 5000 and native output on.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+capture 2220 event-step-1
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2760 1000 0 0 0 0 0 0
+input 2766 0000 0 0 0 0 0 0
+capture 2940 event-step-3
+input 3120 1000 0 0 0 0 0 0
+input 3126 0000 0 0 0 0 0 0
+input 3480 1000 0 0 0 0 0 0
+input 3486 0000 0 0 0 0 0 0
+input 3600 1000 0 0 0 0 0 0
+input 3606 0000 0 0 0 0 0 0
+input 3720 1000 0 0 0 0 0 0
+input 3726 0000 0 0 0 0 0 0
+input 3840 1000 0 0 0 0 0 0
+input 3846 0000 0 0 0 0 0 0
+capture 4080 race-ready
+input 4200 0000 0 255 0 0 0 0
+capture 5020 race-sustained
+input 5060 0010 0 0 0 0 0 0
+input 5066 0000 0 0 0 0 0 0
+capture 5140 race-paused
+input 5160 0002 0 0 0 0 0 0
+input 5166 0000 0 0 0 0 0 0
+input 5180 0002 0 0 0 0 0 0
+input 5186 0000 0 0 0 0 0 0
+input 5200 0002 0 0 0 0 0 0
+input 5206 0000 0 0 0 0 0 0
+input 5220 0002 0 0 0 0 0 0
+input 5226 0000 0 0 0 0 0 0
+input 5240 0002 0 0 0 0 0 0
+input 5246 0000 0 0 0 0 0 0
+capture 5260 quit-selected
+input 5280 1000 0 0 0 0 0 0
+input 5286 0000 0 0 0 0 0 0
+capture 5310 after-quit
+input 5330 1000 0 0 0 0 0 0
+input 5336 0000 0 0 0 0 0 0
+capture 5600 after-retire
+capture 5810 free-roam-after-retire
+input 5840 0010 0 0 0 0 0 0
+input 5846 0000 0 0 0 0 0 0
+capture 5880 pause-after-retire
+input 5900 0002 0 0 0 0 0 0
+input 5906 0000 0 0 0 0 0 0
+input 5920 0002 0 0 0 0 0 0
+input 5926 0000 0 0 0 0 0 0
+input 5940 0002 0 0 0 0 0 0
+input 5946 0000 0 0 0 0 0 0
+input 5960 0002 0 0 0 0 0 0
+input 5966 0000 0 0 0 0 0 0
+input 5980 0002 0 0 0 0 0 0
+input 5986 0000 0 0 0 0 0 0
+input 6000 0002 0 0 0 0 0 0
+input 6006 0000 0 0 0 0 0 0
+capture 6040 quit-highlighted
+input 6060 1000 0 0 0 0 0 0
+input 6066 0000 0 0 0 0 0 0
+capture 6100 quit-dialog
+input 6120 1000 0 0 0 0 0 0
+input 6126 0000 0 0 0 0 0 0
+capture 6180 after-title-return
+capture 7000 title-settled
+stop 7040

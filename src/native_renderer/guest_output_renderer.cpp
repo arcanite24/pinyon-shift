@@ -1,5 +1,6 @@
 #include <rex/system/interfaces/graphics.h>
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 #include <chrono>
 #include <atomic>
@@ -58,7 +59,21 @@ bool ObserveRenderTestOutput(
     capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - capture_begin).count();
 #if defined(_WIN32)
-    if ((native_race_enabled.load(std::memory_order_acquire) ||
+    const bool native_race_requested =
+        native_race_enabled.load(std::memory_order_acquire);
+    const bool native_race_admitted =
+        native_race_requested &&
+        pinyon_shift::native_renderer::NativeRaceAdmittedForOutput(
+            context.frame_sequence);
+    if (native_race_requested) {
+      static thread_local bool previous_admission = false;
+      if (native_race_admitted != previous_admission) {
+        REXGPU_INFO("FH1 native race admission output_frame={} admitted={}",
+                    context.frame_sequence, native_race_admitted);
+        previous_admission = native_race_admitted;
+      }
+    }
+    if ((native_race_admitted ||
          (REXCVAR_GET(pinyon_shift_native_track_probe) &&
           pinyon_shift::fh1_render_test::Enabled())) &&
         context.guest_output_width == 1280 &&

@@ -24,6 +24,8 @@ void ObserveSnr02ItemOutputFrame(uint64_t output_frame, void* device);
 void ObserveSnr02TrackOutputFrame(uint64_t output_frame);
 std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
     uint64_t output_frame);
+void PublishNativeRaceAdmission(uint64_t source_frame, bool admitted);
+bool NativeRaceAdmittedForOutput(uint64_t output_frame);
 void ObserveSnr04BatchOutputFrame(uint64_t output_frame, void* device,
                                  uint64_t capture_us);
 void FinishSnr04BatchDiagnostic();

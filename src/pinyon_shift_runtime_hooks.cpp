@@ -3801,6 +3801,22 @@ void ApplyUiMutationExperiment() {
 void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   PROFILE_SIMULATION_TICK();
   ApplyUiMutationExperiment();
+  bool native_race_admitted = false;
+  if (PinyonShiftGuestRangeReadable(r31.u32 + 4u, 4u)) {
+    const uint32_t native_race_active = LoadGuestU32(r31.u32 + 4u);
+    if (PinyonShiftGuestRangeReadable(native_race_active, 16u) &&
+        LoadGuestU32(native_race_active) == 0x820148A0u) {
+      const uint32_t activity = LoadGuestU32(native_race_active + 8u);
+      native_race_admitted = LoadGuestU32(native_race_active + 12u) ==
+                                 0x00010174u &&
+                             PinyonShiftGuestRangeReadable(activity, 4u) &&
+                             LoadGuestU32(activity) == 0x8202A344u;
+    }
+  }
+  const uint64_t native_race_source_frame = rex::perf::GetTotalCounter(
+      rex::perf::CounterId::kSourceFrameCount);
+  pinyon_shift::native_renderer::PublishNativeRaceAdmission(
+      native_race_source_frame, native_race_admitted);
   if (r28.u32 == 0) {
     return;
   }

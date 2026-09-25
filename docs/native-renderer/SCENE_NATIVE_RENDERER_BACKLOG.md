@@ -468,27 +468,36 @@ normally and `verify-native-race-toggle.py` passed all six boundary captures.
 This validates hot switching through the settings setter; direct user input
 in the overlay, reload/resize, and longer unscripted gameplay remain open.
 
-**Unsupported-mode admission failure (2026-09-24):** the same-process
-`fh1-snr02-title-reload.fh1test` route with native capture from source 5000
-and native output enabled exited normally, but the native-only sky color
-remained in the pause, free-roam and title captures. The settled title image
-contained 214,910 such pixels, and the reentered race also rendered natively.
-A bounded follow-up through the title transition repeated the failure
-(286,127 native sky pixels at `title-settled`). Its scene log kept the same
-view `1144779840` and camera `776835584` from source frame 5000 through the
-title capture at source frame 5039. UI tracing showed pause-button construction
-before the race and no corresponding active-scene event at pause, so neither
-view identity nor that constructor is a valid mode gate. L1 is not complete:
-the native callback must reject unsupported UI/mode frames before takeover,
-using a proven active title state or final-pass boundary. The 1080p guest
-video-mode flag still produced 1280×720 guest captures, so that run did not
-validate resize fallback.
-`python tools/verify-native-race-mode-boundary.py <capture-directory>` is the
-regression check for this route: race output must be native, while pause,
-free roam and settled title must use compatibility output. It currently
-fails on `race-paused` (3,215 native sky pixels); free roam and title also
-fail (153,162 and 286,127). Keep this check red until a proven mode gate or
-retained-pass bridge fixes the presented frame.
+**Unsupported-mode admission checkpoint (2026-09-25):** the earlier
+`fh1-snr02-title-reload.fh1test` route uses `# clock-hz 60`, which the test
+runner interprets as wall-clock pacing. Continuous native scene capture slows
+output substantially, so its supposed pause, free-roam and title screenshots
+were actually taken during the same unpaused race. Their native sky color did
+not prove a mode leak. The unchanged view/camera and pause-button construction
+were insufficient mode signals, but the old capture labels were also invalid.
+
+A read-only title-state probe followed `r31+4` from the frame telemetry hook.
+The active object's vtable is `0x820148A0`; its flags are `0x00010174` in
+unpaused gameplay and `0x01010174` while paused. Its activity at `active+8`
+has vtable `0x8202A344` in the race and `0x8202A3AC` in free roam; the active
+pointer is null at title. Native output now requires the exact unpaused-race
+state tagged with its source frame. A 16-slot atomic frame ring tolerates the
+observed title/output thread lead while failing closed if the matching source
+frame is absent. The callback then selects a whole compatibility output for
+pause, free roam and title, before attempting a native scene.
+
+`fh1-native-race-mode-boundary.fh1test` uses output-frame pacing and the
+AppData race save to retire the race, enter free roam, and quit to title in
+one process. With native capture from source 5000 and native output enabled,
+the route exited normally. `verify-native-race-mode-boundary.py` found native
+sky in the sustained race and none in the actual pause, free-roam or title
+captures; it also rejects blank/loading frames for the latter two. Visual
+inspection confirmed the pause menus, free-roam driving view and title menu.
+The title's noisy background is **not** caused by native presentation: the
+capture-only control produced a byte-identical title frame, and a separate
+no-capture compatibility run showed the same noise. Its cause remains an
+independent compatibility/title issue. The 1080p guest video-mode flag still
+produced 1280×720 guest captures, so resize fallback remains unvalidated.
 
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
