@@ -499,6 +499,16 @@ no-capture compatibility run showed the same noise. Its cause remains an
 independent compatibility/title issue. The 1080p guest video-mode flag still
 produced 1280×720 guest captures, so resize fallback remains unvalidated.
 
+**Live-capture cost triage (2026-09-25):** the toggle route took 6.69 seconds
+from output frame 5000 to 5005 at `INFO` logging and 6.61 seconds with
+`--log-level=warn`. Temporary timers placed around the three output-stage
+scene consumers measured roughly 6–9 ms total per frame. Neither logging nor
+those consumers explain the approximately 1.3-second live frame. The costly
+work is earlier in per-draw/title snapshot preparation or its SDK handoff;
+instrument that path before changing serialization or GPU rendering. The
+timers were removed after the measurement. This capture pace still prevents
+L2 from being a usable driving mode.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
