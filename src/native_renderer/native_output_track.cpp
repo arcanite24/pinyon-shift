@@ -26,7 +26,8 @@
 namespace pinyon_shift::native_renderer {
 namespace {
 using Microsoft::WRL::ComPtr;
-using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t, uint32_t>;
+using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t, uint32_t,
+    bool>;
 using RemainderPipelineKey = std::tuple<uint64_t, uint64_t, uint32_t,
     uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>;
 
@@ -45,13 +46,15 @@ struct UploadArena {
 };
 
 struct TrackFrame {
-  ComPtr<ID3D12Resource> upload, depth, color;
-  ComPtr<ID3D12DescriptorHeap> rtv, dsv, srv;
+  ComPtr<ID3D12Resource> upload, depth, color, hud;
+  ComPtr<ID3D12DescriptorHeap> rtv, dsv, srv, materials;
+  std::vector<ComPtr<ID3D12Resource>> material_resources;
 };
 
 struct TrackDrawBinding {
   PipelineKey pipeline;
   uint64_t vertex = 0, index = 0, b0 = 0, b1 = 0, b3 = 0;
+  uint32_t material_index = UINT32_MAX;
   D3D12_VIEWPORT viewport{};
   D3D12_RECT scissor{};
 };
@@ -74,7 +77,7 @@ struct RemainderDrawBinding {
 struct TrackGraphics {
   ComPtr<ID3D12Device> device;
   ComPtr<ID3D12RootSignature> root;
-  ComPtr<ID3DBlob> pixel;
+  ComPtr<ID3DBlob> pixel, pixel_textured;
   ComPtr<ID3D12RootSignature> blit_root;
   ComPtr<ID3D12PipelineState> blit_pipeline;
   std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
@@ -90,11 +93,12 @@ struct TrackGraphics {
       remainder_pipelines.clear();
       root.Reset();
       pixel.Reset();
+      pixel_textured.Reset();
       blit_root.Reset();
       blit_pipeline.Reset();
       device = current;
     }
-    if (root && pixel) return true;
+    if (root && pixel && pixel_textured) return true;
     constexpr char shader[] =
         "cbuffer Color : register(b2) { float4 flat; };"
         "float4 main() : SV_Target0 { return flat; }";
@@ -102,7 +106,16 @@ struct TrackGraphics {
     if (FAILED(D3DCompile(shader, sizeof(shader) - 1, nullptr, nullptr,
                           nullptr, "main", "ps_5_1", 0, 0, &pixel, &errors)))
       return false;
-    D3D12_ROOT_PARAMETER parameters[6]{};
+    constexpr char textured_shader[] =
+        "Texture2D<float4> albedo : register(t1);"
+        "SamplerState linear_wrap : register(s0);"
+        "float4 main(float4 uv[5] : TEXCOORD0) : SV_Target0 {"
+        " return float4(albedo.Sample(linear_wrap, uv[4].xy).rgb, 1); }";
+    if (FAILED(D3DCompile(textured_shader, sizeof(textured_shader) - 1,
+                          nullptr, nullptr, nullptr, "main", "ps_5_1", 0, 0,
+                          &pixel_textured, &errors)))
+      return false;
+    D3D12_ROOT_PARAMETER parameters[7]{};
     for (uint32_t i = 0; i < 4; ++i) {
       parameters[i].ParameterType = i == 3 ? D3D12_ROOT_PARAMETER_TYPE_SRV
                                            : D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -116,8 +129,24 @@ struct TrackGraphics {
     parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[5].Descriptor.ShaderRegister = 0;
     parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    D3D12_DESCRIPTOR_RANGE material_range{};
+    material_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    material_range.NumDescriptors = 1;
+    material_range.BaseShaderRegister = 1;
+    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[6].DescriptorTable = {1, &material_range};
+    parameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    D3D12_STATIC_SAMPLER_DESC sampler{};
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.MaxAnisotropy = 1;
+    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_ROOT_SIGNATURE_DESC description{
-        6, parameters, 0, nullptr,
+        7, parameters, 1, &sampler,
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT};
     if (FAILED(D3D12SerializeRootSignature(
             &description, D3D_ROOT_SIGNATURE_VERSION_1, &serialized,
@@ -130,8 +159,11 @@ struct TrackGraphics {
 
   bool Pipeline(const rex::system::NativeGuestOutputRenderContext& context,
                 const Snr04TrackDraw& draw) {
+    const bool textured = draw.pixel_shader == 0x6F7CDE74CDACCB08ull &&
+        draw.shader == 0x07425D208E8BD688ull &&
+        draw.specialization == 0x7Full;
     const PipelineKey key{draw.shader, draw.specialization, draw.raster_mode,
-                          draw.clip_control, draw.depth_control};
+                          draw.clip_control, draw.depth_control, textured};
     if (pipelines.contains(key)) return true;
     const uint8_t* vertex = nullptr;
     size_t vertex_size = 0;
@@ -143,7 +175,8 @@ struct TrackGraphics {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC description{};
     description.pRootSignature = root.Get();
     description.VS = {vertex, vertex_size};
-    description.PS = {pixel->GetBufferPointer(), pixel->GetBufferSize()};
+    ID3DBlob* fragment = textured ? pixel_textured.Get() : pixel.Get();
+    description.PS = {fragment->GetBufferPointer(), fragment->GetBufferSize()};
     description.BlendState.RenderTarget[0].RenderTargetWriteMask =
         D3D12_COLOR_WRITE_ENABLE_ALL;
     description.SampleMask = UINT_MAX;
@@ -168,9 +201,15 @@ struct TrackGraphics {
     description.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     description.SampleDesc.Count = 1;
     ComPtr<ID3D12PipelineState> pipeline;
-    if (FAILED(device->CreateGraphicsPipelineState(
-            &description, IID_PPV_ARGS(&pipeline))))
+    const HRESULT pipeline_result = device->CreateGraphicsPipelineState(
+        &description, IID_PPV_ARGS(&pipeline));
+    if (FAILED(pipeline_result)) {
+      REXGPU_INFO("FH1 native track pipeline rejected shader={:016X} "
+                  "specialization={:X} textured={} hresult={:08X}",
+                  draw.shader, draw.specialization, textured,
+                  uint32_t(pipeline_result));
       return false;
+    }
     pipelines.emplace(key, std::move(pipeline));
     return true;
   }
@@ -268,8 +307,20 @@ struct TrackGraphics {
         " return float4(p[id],0,1); }";
     constexpr char fragment[] =
         "Texture2D<float4> scene : register(t0);"
+        "Texture2D<float4> guest : register(t1);"
         "float4 main(float4 p : SV_Position) : SV_Target0 {"
-        " return scene.Load(int3(1279-int(p.x),719-int(p.y),0)); }";
+        " float2 q=p.xy;"
+        " float4 s=scene.Load(int3(1279-int(q.x),719-int(q.y),0));"
+        " float4 g=guest.Load(int3(int(q.x),int(q.y),0));"
+        " float lo=min(g.r,min(g.g,g.b));"
+        " float white=(lo>0.78)?1:0;"
+        " float text=(q.x>55 && q.x<255 && q.y>22 && q.y<90)?white:0;"
+        " text=max(text,(q.x>1015 && q.x<1240 && q.y>20 && q.y<90)?white:0);"
+        " text=max(text,(q.x>1000 && q.y>=105 && q.y<230)?1:0);"
+        " text=max(text,(q.x>60 && q.x<225 && q.y>107 && q.y<138)?1:0);"
+        " float map=1-smoothstep(68,78,length(q-float2(135,540)));"
+        " float speed=1-smoothstep(96,108,length(q-float2(1128,592)));"
+        " return lerp(s,g,max(text,max(map,speed))); }";
     ComPtr<ID3DBlob> vs, ps, errors, serialized;
     if (FAILED(D3DCompile(vertex, sizeof(vertex) - 1, nullptr, nullptr,
                           nullptr, "main", "vs_5_1", 0, 0, &vs, &errors)) ||
@@ -278,7 +329,7 @@ struct TrackGraphics {
       return false;
     D3D12_DESCRIPTOR_RANGE range{};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    range.NumDescriptors = 1;
+    range.NumDescriptors = 2;
     D3D12_ROOT_PARAMETER parameter{};
     parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameter.DescriptorTable = {1, &range};
@@ -511,6 +562,12 @@ bool CreateFrame(ID3D12Device* device, ID3D12Resource* output,
           D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
           IID_PPV_ARGS(&frame.color))))
     return false;
+  color_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+  if (FAILED(device->CreateCommittedResource(
+          &default_heap, D3D12_HEAP_FLAG_NONE, &color_desc,
+          D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+          IID_PPV_ARGS(&frame.hud))))
+    return false;
 
   D3D12_HEAP_PROPERTIES depth_heap{};
   depth_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -555,6 +612,7 @@ bool CreateFrame(ID3D12Device* device, ID3D12Resource* output,
       frame.dsv->GetCPUDescriptorHandleForHeapStart());
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
   heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  heap_desc.NumDescriptors = 2;
   if (FAILED(device->CreateDescriptorHeap(&heap_desc,
                                           IID_PPV_ARGS(&frame.srv))))
     return false;
@@ -566,6 +624,10 @@ bool CreateFrame(ID3D12Device* device, ID3D12Resource* output,
   device->CreateShaderResourceView(
       frame.color.Get(), &view,
       frame.srv->GetCPUDescriptorHandleForHeapStart());
+  auto hud_view = frame.srv->GetCPUDescriptorHandleForHeapStart();
+  hud_view.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+  device->CreateShaderResourceView(frame.hud.Get(), &view, hud_view);
   return true;
 }
 
@@ -593,6 +655,22 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   if (graphics.submitted.size() >= 8) return false;
 
   UploadArena arena;
+  struct Material {
+    ComPtr<ID3D12Resource> resource;
+    D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+  };
+  std::vector<Material> materials;
+  std::map<std::tuple<std::array<uint32_t, 6>, uint64_t, uint64_t>,
+           uint32_t> material_indices;
+  std::map<std::pair<uint64_t, uint32_t>,
+           const Snr04TrackTextureIdentity*> texture_identities;
+  if (live.track_textures) {
+    for (const auto& identity : *live.track_textures)
+      if (!texture_identities.emplace(
+              std::pair{identity.sequence, identity.fetch_constant},
+              &identity).second)
+        return false;
+  }
   std::map<Snr04TrackRange, uint64_t> vertices, indices;
   for (const auto& [range, bytes] : scene.vertices)
     vertices.emplace(range, arena.Add(bytes.data(), bytes.size()));
@@ -601,7 +679,12 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   std::vector<TrackDrawBinding> bindings;
   bindings.reserve(scene.draws.size());
   for (const auto& draw : scene.draws) {
-    if (!graphics.Pipeline(context, draw)) return false;
+    if (!graphics.Pipeline(context, draw)) {
+      REXGPU_INFO("FH1 native track shader unavailable frame={} sequence={} "
+                  "shader={:016X}", live.source_frame, draw.sequence,
+                  draw.shader);
+      return false;
+    }
     const float tile_offset = 720.f - draw.viewport[3];
     if (tile_offset < 0 || tile_offset != std::floor(tile_offset) ||
         draw.viewport[0] != 0 || draw.viewport[1] != 0 ||
@@ -611,8 +694,55 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
         tile_offset + draw.scissor[3] > 720)
       return false;
     TrackDrawBinding binding;
+    const bool textured = draw.pixel_shader == 0x6F7CDE74CDACCB08ull &&
+        draw.shader == 0x07425D208E8BD688ull &&
+        draw.specialization == 0x7Full;
+    if (textured) {
+      const auto found = texture_identities.find({draw.sequence, 0});
+      if (found == texture_identities.end() || !context.texture ||
+          !found->second->allocation_id ||
+          !found->second->payload_generation ||
+          found->second->outdated_mask) {
+        REXGPU_INFO("FH1 native track texture identity missing frame={} "
+                    "sequence={} found={} allocation={} generation={} dirty={}",
+                    live.source_frame, draw.sequence,
+                    found != texture_identities.end(),
+                    found != texture_identities.end()
+                        ? found->second->allocation_id : 0,
+                    found != texture_identities.end()
+                        ? found->second->payload_generation : 0,
+                    found != texture_identities.end()
+                        ? found->second->outdated_mask : 0);
+        return false;
+      }
+      const auto& identity = *found->second;
+      const auto key = std::tuple{identity.fetch_words,
+                                  identity.allocation_id,
+                                  identity.payload_generation};
+      if (auto existing = material_indices.find(key);
+          existing != material_indices.end()) {
+        binding.material_index = existing->second;
+      } else {
+        void* resource = nullptr;
+        Material material;
+        if (!context.texture(context, identity.fetch_words.data(),
+                             identity.allocation_id,
+                             identity.payload_generation, &resource,
+                             &material.view) || !resource) {
+          REXGPU_INFO("FH1 native track texture unavailable frame={} "
+                      "sequence={} allocation={} generation={}",
+                      live.source_frame, draw.sequence,
+                      identity.allocation_id, identity.payload_generation);
+          return false;
+        }
+        material.resource = static_cast<ID3D12Resource*>(resource);
+        binding.material_index = uint32_t(materials.size());
+        material_indices.emplace(key, binding.material_index);
+        materials.push_back(std::move(material));
+      }
+    }
     binding.pipeline = {draw.shader, draw.specialization, draw.raster_mode,
-                        draw.clip_control, draw.depth_control};
+                        draw.clip_control, draw.depth_control, textured};
     binding.vertex = vertices.at(draw.vertex);
     binding.index = indices.at(draw.index);
     std::array<uint32_t, 120> system{};
@@ -653,9 +783,26 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
     return false;
   TrackFrame frame;
   if (!CreateFrame(device, output, arena, frame)) return false;
+  if (!materials.empty()) {
+    D3D12_DESCRIPTOR_HEAP_DESC heap{};
+    heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap.NumDescriptors = UINT(materials.size());
+    heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(device->CreateDescriptorHeap(
+            &heap, IID_PPV_ARGS(&frame.materials))))
+      return false;
+    auto handle = frame.materials->GetCPUDescriptorHandleForHeapStart();
+    const auto stride = device->GetDescriptorHandleIncrementSize(heap.Type);
+    for (auto& material : materials) {
+      device->CreateShaderResourceView(material.resource.Get(),
+                                       &material.view, handle);
+      frame.material_resources.push_back(std::move(material.resource));
+      handle.ptr += stride;
+    }
+  }
   list->ReserveAdditionalBytes(
       (scene.draws.size() + item_bindings.size() +
-       vegetation_bindings.size() + remainder_bindings.size()) * 512 + 5120);
+       vegetation_bindings.size() + remainder_bindings.size()) * 512 + 8192);
   const auto base = frame.upload->GetGPUVirtualAddress();
   const auto rtv = frame.rtv->GetCPUDescriptorHandleForHeapStart();
   auto output_rtv = rtv;
@@ -663,18 +810,34 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
       D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
   const auto dsv = frame.dsv->GetCPUDescriptorHandleForHeapStart();
   auto* scene_color = frame.color.Get();
+  auto* hud = frame.hud.Get();
   auto* scene_srv = frame.srv.Get();
+  auto* material_heap = frame.materials.Get();
+  const auto material_gpu_start = material_heap
+      ? material_heap->GetGPUDescriptorHandleForHeapStart()
+      : D3D12_GPU_DESCRIPTOR_HANDLE{};
+  const auto material_stride = device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
   const auto scene_srv_gpu = frame.srv->GetGPUDescriptorHandleForHeapStart();
   graphics.submitted.emplace_back(context.submission, std::move(frame));
 
   D3D12_RESOURCE_BARRIER barrier{};
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
   barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  barrier.Transition.pResource = output;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATES(
+      context.guest_output_state);
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+  list->D3DResourceBarrier(1, &barrier);
+  list->D3DCopyResource(hud, output);
+  std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+  list->D3DResourceBarrier(1, &barrier);
   const float sky[]{0.11f, 0.22f, 0.43f, 1.f};
   list->D3DClearRenderTargetView(rtv, sky, 0, nullptr);
   list->D3DClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0, 0, 0,
                                  nullptr);
   list->D3DOMSetRenderTargets(1, &rtv, FALSE, &dsv);
+  if (material_heap) list->SetDescriptorHeaps(material_heap, nullptr);
   list->D3DSetGraphicsRootSignature(graphics.root.Get());
   for (size_t i = 0; i < scene.draws.size(); ++i) {
     const auto& draw = scene.draws[i];
@@ -692,6 +855,11 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
     list->D3DSetGraphicsRootConstantBufferView(1, base + binding.b1);
     list->D3DSetGraphicsRootConstantBufferView(2, base + binding.b3);
     list->D3DSetGraphicsRootShaderResourceView(3, base + binding.vertex);
+    if (binding.material_index != UINT32_MAX) {
+      auto handle = material_gpu_start;
+      handle.ptr += SIZE_T(binding.material_index) * material_stride;
+      list->D3DSetGraphicsRootDescriptorTable(6, handle);
+    }
     const uint64_t hash = draw.pixel_shader;
     const float color[]{0.19f + float(hash & 255) / 1024.f,
                         0.23f + float((hash >> 8) & 255) / 1024.f,
@@ -762,6 +930,10 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
       context.guest_output_state);
   barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
   list->D3DResourceBarrier(1, &barrier);
+  barrier.Transition.pResource = hud;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+  list->D3DResourceBarrier(1, &barrier);
   list->D3DOMSetRenderTargets(1, &output_rtv, FALSE, nullptr);
   list->RSSetViewport({0, 0, 1280, 720, 0, 1});
   list->RSSetScissorRect({0, 0, 1280, 720});
@@ -771,7 +943,10 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
   list->D3DSetGraphicsRootDescriptorTable(0, scene_srv_gpu);
   list->D3DIASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   list->D3DDrawInstanced(3, 1, 0, 0);
-  std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+  barrier.Transition.pResource = output;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATES(
+      context.guest_output_state);
   list->D3DResourceBarrier(1, &barrier);
   return true;
 }

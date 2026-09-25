@@ -579,6 +579,35 @@ remains exhaustive. After this fix, the sustained route exited normally and
 its verifier passed twenty upright moving native frames with `SNR02T5`
 fixtures enabled.
 
+**Borrowed-material and HUD bridge checkpoint (2026-09-25):** SDK revision
+`cb775da` makes the final track-draw observer record each used fetch's raw
+descriptor and live texture allocation, payload generation and dirty state.
+The early D3D12 output callback may borrow a two-dimensional texture only
+when those
+identities still match; the renderer retains the resource through submission
+and otherwise falls back for the whole frame. A first shader family
+(`6F7CDE74CDACCB08`, 102 draws in the source-5000 fixture) samples fetch 0.
+The translated vertex shader's fourth varying requires a declared array of
+varyings 0–4 for this pipeline to link; requesting only `TEXCOORD4` was
+rejected by the device. This family currently affects a narrow roadside
+strip, so it proves the resource bridge rather than broad material coverage.
+
+The native blit now snapshots the completed guest output on the same frame
+and composites lap/place text, the leaderboard, map and speedometer over the
+native scene. The map and speedometer have feathered circular bounds; this
+is a bounded 1280×720 race-HUD bridge, not arbitrary UI or a pass cut.
+`fh1-native-scene-continuous.fh1test` with the native toggle and capture
+start at 5000 exited normally, and `verify-native-track-output.py` passed
+20 consecutive moving native frames (5001–5020). The longer sustained race
+route also exited normally. Visual review shows readable changing gameplay
+cues but flat opaque foliage/vehicles, crude road and terrain colors, a
+thin sampled texture strip and no accurate alpha. L2 remains open. The SDK
+texture identity is valid only for the current cached payload; other fetch
+dimensions, formats, shader families and stale resources need measured
+coverage before expansion. Run evidence is under
+`.local/native-renderer/material-hud-continuous-run2` and
+`.local/native-renderer/material-bridge-run12`.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)

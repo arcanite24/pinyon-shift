@@ -127,6 +127,8 @@ enum class Snr04LiveFamily : uint8_t {
 struct Snr03OwnedScene;
 struct Snr04LiveFixture {
   std::shared_ptr<const std::vector<char>> bytes;
+  std::shared_ptr<const std::vector<
+      pinyon_shift::native_renderer::Snr04TrackTextureIdentity>> textures;
   std::shared_ptr<const Snr03OwnedScene> vegetation;
   std::shared_ptr<const pinyon_shift::native_renderer::Snr04ProceduralScene> procedural;
   std::vector<uint64_t> sequences;
@@ -147,7 +149,10 @@ bool snr04_live_stopping = false;
 
 void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
                              std::vector<char>&& bytes,
-                             std::vector<uint64_t>&& sequences) {
+                             std::vector<uint64_t>&& sequences,
+                             std::shared_ptr<const std::vector<
+                                 pinyon_shift::native_renderer::Snr04TrackTextureIdentity>>
+                                 textures = {}) {
   if (!Snr04LiveCaptureEnabled()) return;
   if (bytes.size() < 16 || bytes.size() > 32 * 1024 * 1024 ||
       sequences.empty() || sequences.size() > 4096) {
@@ -169,6 +174,7 @@ void CollectSnr04LiveFixture(uint64_t frame, Snr04LiveFamily family,
   }
   slot.bytes = std::make_shared<const std::vector<char>>(std::move(bytes));
   slot.sequences = std::move(sequences);
+  slot.textures = std::move(textures);
 }
 void CollectSnr04LiveVegetation(
     uint64_t frame, std::shared_ptr<const Snr03OwnedScene> scene,
@@ -805,6 +811,7 @@ struct Snr02TrackDraw {
   std::array<uint64_t, 4> pixel_bitmap{};
   std::vector<uint32_t> pixel_packed;
   std::vector<std::array<uint32_t, 9>> textures;
+  std::vector<rex::system::GraphicsFinalDrawTextureIdentity> texture_identities;
   std::array<uint32_t, 64> system_constants{};
   std::array<uint32_t, 4> fetch47{};
   uint32_t raster_mode_control = 0, clip_control = 0, depth_control = 0;
@@ -2073,7 +2080,9 @@ void ObserveSnr02TrackFinalDrawState(
       !observation.bound_vertex_float_constant_words ||
       !observation.viewport || !observation.scissor ||
       observation.bound_vertex_float_constant_count * 4 !=
-          draw.vertex_packed.size()) {
+          draw.vertex_packed.size() ||
+      observation.texture_count != draw.textures.size() ||
+      (observation.texture_count && !observation.textures)) {
     Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
                             "final_state_missing_input");
     return;
@@ -2108,6 +2117,15 @@ void ObserveSnr02TrackFinalDrawState(
                             vertex_changed ? "final_vertex_changed"
                                 : bound_changed ? "final_bound_changed"
                                                 : "final_pixel_changed");
+  for (uint32_t i = 0; i < observation.texture_count; ++i) {
+    if (observation.textures[i].fetch_constant != draw.textures[i][0]) {
+      Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
+                              "final_texture_binding_changed");
+      return;
+    }
+  }
+  draw.texture_identities.assign(observation.textures,
+                                 observation.textures + observation.texture_count);
   draw.dynamic_state = observation.dynamic_state;
   std::copy_n(observation.system_constant_words, 64,
               draw.system_constants.begin());
@@ -3182,8 +3200,23 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     std::vector<uint64_t> sequences;
     sequences.reserve(payload.draws.size());
     for (const auto& draw : payload.draws) sequences.push_back(draw.sequence);
+    auto texture_identities = std::make_shared<
+        std::vector<Snr04TrackTextureIdentity>>();
+    for (const auto& draw : payload.draws) {
+      for (const auto& identity : draw.texture_identities) {
+        Snr04TrackTextureIdentity owned;
+        owned.sequence = draw.sequence;
+        owned.fetch_constant = identity.fetch_constant;
+        std::copy_n(identity.fetch_words, 6, owned.fetch_words.begin());
+        owned.allocation_id = identity.allocation_id;
+        owned.payload_generation = identity.payload_generation;
+        owned.outdated_mask = identity.outdated_mask;
+        texture_identities->push_back(owned);
+      }
+    }
     CollectSnr04LiveFixture(output_frame - 1, Snr04LiveFamily::track,
-                            std::move(encoded), std::move(sequences));
+                            std::move(encoded), std::move(sequences),
+                            std::move(texture_identities));
   }
 #endif
 }
@@ -3887,6 +3920,7 @@ std::shared_ptr<const Snr04LiveScene> SnapshotSnr04LiveScene(
     auto scene = std::make_shared<Snr04LiveScene>();
     scene->source_frame = source_frame;
     scene->track = track.bytes;
+    scene->track_textures = track.textures;
     scene->items = items.procedural;
     scene->vegetation = BuildSnr04VegetationScene(*vegetation.vegetation);
     scene->characters = families[size_t(Snr04LiveFamily::characters)].bytes;

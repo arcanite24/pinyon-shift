@@ -83,6 +83,14 @@ struct Snr04TrackScene {
 };
 Snr04TrackScene ParseSnr04TrackScene(std::span<const char> fixture);
 
+struct Snr04TrackTextureIdentity {
+  uint64_t sequence = 0;
+  uint32_t fetch_constant = 0;
+  std::array<uint32_t, 6> fetch_words{};
+  uint64_t allocation_id = 0, payload_generation = 0;
+  uint32_t outdated_mask = 0;
+};
+
 struct Snr04RemainderRange {
   uint32_t first = 0, second = 0;
   uint64_t version = 0;
@@ -125,6 +133,7 @@ struct Snr04LiveScene {
   std::shared_ptr<const std::vector<char>> track, characters, manager, remainder;
   std::shared_ptr<const Snr04ProceduralScene> items;
   std::shared_ptr<const Snr04VegetationScene> vegetation;
+  std::shared_ptr<const std::vector<Snr04TrackTextureIdentity>> track_textures;
   uint32_t core_draws = 0;
 };
 
