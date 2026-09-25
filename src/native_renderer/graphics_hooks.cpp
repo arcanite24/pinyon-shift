@@ -1595,7 +1595,7 @@ bool ClearProducerTraceEnabled() {
 namespace pinyon_shift::native_renderer {
 namespace {
 
-std::array<std::atomic<uint64_t>, 16> native_race_admission{};
+std::array<std::atomic<uint64_t>, 4096> native_race_admission{};
 
 bool Snr04LiveVerifyFixtures() {
   return diagnostics::EnvironmentPath(
@@ -2917,16 +2917,24 @@ void ObserveCopy(const rex::system::GraphicsCopyObservation& observation) {
 }  // namespace
 
 void PublishNativeRaceAdmission(uint64_t source_frame, bool admitted) {
-  native_race_admission[source_frame & 15].store(
+  native_race_admission[source_frame & (native_race_admission.size() - 1)].store(
       (source_frame << 1) | uint64_t(admitted), std::memory_order_release);
 }
 
 bool NativeRaceAdmittedForOutput(uint64_t output_frame) {
   if (!output_frame) return false;
   const uint64_t source_frame = output_frame - 1;
-  const uint64_t tagged = native_race_admission[source_frame & 15].load(
+  const uint64_t tagged = native_race_admission[
+      source_frame & (native_race_admission.size() - 1)].load(
       std::memory_order_acquire);
   return (tagged >> 1) == source_frame && (tagged & 1);
+}
+
+bool NativeRaceCaptureEligibleForOutput(uint64_t output_frame) {
+  // Draw preparation can race with title-state updates for its own frame.
+  // A completed previous frame only warms capture; output still checks the
+  // exact current-frame admission above.
+  return output_frame > 1 && NativeRaceAdmittedForOutput(output_frame - 1);
 }
 
 void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
@@ -2961,6 +2969,9 @@ void InstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system,
           : nullptr);
   graphics_system->SetPreparedDrawSnapshotSelector(
       Snr02TrackTargetFrame() > 0 ? &Snr02SelectTrackSnapshot : nullptr);
+  graphics_system->SetPreparedDrawFrameSelector(
+      NativeRaceCaptureEnabled() ? &NativeRaceCaptureEligibleForOutput
+                                 : nullptr);
   graphics_system->SetFinalDrawStateObserver(
       Snr03ProbeEnabled() || Snr02ItemProbeEnabled() ||
               Snr02TrackTargetFrame() > 0
@@ -2980,6 +2991,7 @@ void UninstallGraphicsCensus(rex::system::IGraphicsSystem* graphics_system) {
   if (graphics_system) {
     graphics_system->SetPreparedDrawObserver(nullptr);
     graphics_system->SetPreparedDrawSnapshotSelector(nullptr);
+    graphics_system->SetPreparedDrawFrameSelector(nullptr);
     graphics_system->SetFinalDrawStateObserver(nullptr);
     graphics_system->SetIndirectBufferObserver(nullptr);
     graphics_system->SetCopyObserver(nullptr);

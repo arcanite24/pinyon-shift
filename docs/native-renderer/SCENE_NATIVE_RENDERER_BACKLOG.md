@@ -547,6 +547,21 @@ whole-frame compatibility fallback outside the race (360-second test timeout).
 This removes unused extraction work, not the remaining L2 material/HUD work
 or the still-slow approximately four-to-five-frame-per-second race pace.
 
+**Capture admission before prepared draws (2026-09-25):** title telemetry
+already publishes a tagged race-active decision. The SDK now asks the title
+to admit a frame before constructing its prepared-draw snapshots. It uses
+the preceding completed source frame to warm capture because title-state
+updates and GPU draws overlap within the current frame; the output callback
+still requires the exact current source-frame tag before claiming native
+presentation. The tagged history grew from 16 to 4,096 entries so an
+asynchronous GPU draw can still find its preceding frame; a missing or
+overwritten entry fails closed. In matched route CSVs, free-roam frames
+5800–5850 fell from 181 to 111 ms median, while race frames stayed within
+run-to-run variation. With the final gate, the saved-race hot-switch route,
+twenty consecutive native race frames, and race/pause/free-roam/title route
+all exited normally and passed their image verifiers. This cuts unsupported
+capture work; it does not yet make native race output playable at L2 speed.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
