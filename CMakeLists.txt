@@ -86,7 +86,7 @@ if(WIN32)
         src/native_renderer/snr04_owned_scene_diagnostic.cpp)
     target_include_directories(pinyon_shift_snr04_owned_scene_diagnostic PRIVATE src)
     target_link_libraries(pinyon_shift_snr04_owned_scene_diagnostic PRIVATE
-        bcrypt d3d12 d3dcompiler dxgi)
+        bcrypt d3d12 d3dcompiler dxgi xxhash)
 endif()
 
 add_executable(pinyon_shift_fh1_archive_extract EXCLUDE_FROM_ALL

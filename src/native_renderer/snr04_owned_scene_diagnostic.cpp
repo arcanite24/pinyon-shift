@@ -32,6 +32,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <xxhash.h>
+
 #include "native_renderer/snr04_owned_scene_diagnostic.h"
 
 using Microsoft::WRL::ComPtr;
@@ -3273,7 +3275,9 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
   const auto source = fixture;
   Reader reader{source};
   const auto magic = reader.take<std::array<char, 8>>();
-  const bool versioned = magic ==
+  const bool fast_hash = magic ==
+      (std::array<char, 8>{'S','N','R','0','3','R','4','\0'});
+  const bool versioned = fast_hash || magic ==
       (std::array<char, 8>{'S','N','R','0','3','R','3','\0'});
   require(versioned || magic ==
               (std::array<char, 8>{'S','N','R','0','3','R','2','\0'}),
@@ -3320,9 +3324,14 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
       owned_bytes += key.second;
       auto bytes = reader.bytes(key.second);
       if (versioned) {
-        uint64_t hash = 14695981039346656037ull;
-        for (unsigned char byte : bytes)
-          hash = (hash ^ byte) * 1099511628211ull;
+        uint64_t hash = 0;
+        if (fast_hash) {
+          hash = XXH3_64bits(bytes.data(), bytes.size());
+        } else {
+          hash = 14695981039346656037ull;
+          for (unsigned char byte : bytes)
+            hash = (hash ^ byte) * 1099511628211ull;
+        }
         require(hash == key.version, "changed remainder byte version");
       }
       require(ranges->emplace(key, std::move(bytes)).second,

@@ -23,6 +23,8 @@
 #include <thread>
 #include <vector>
 
+#include <xxhash.h>
+
 #if defined(_WIN32)
 #include <Windows.h>
 #include <d3d12.h>
@@ -1208,6 +1210,7 @@ bool Snr02ItemProbeOutputFrame(uint64_t frame) {
 }
 
 uint64_t Snr03HashBytes(const std::vector<uint8_t>& bytes);
+uint64_t Snr03SnapshotHashBytes(const std::vector<uint8_t>& bytes);
 
 bool Snr02SelectTrackSnapshot(uint64_t frame, uint32_t command_buffer) {
   if (!Snr02TrackProbeOutputFrame(frame)) return false;
@@ -1231,7 +1234,7 @@ bool Snr02OwnTrackRange(
       key.second > kOwnedBytesLimit - payload.bytes) return false;
   auto& owned = ranges[key];
   owned.assign(bytes, bytes + key.second);
-  if (Snr03HashBytes(owned) != hash) {
+  if (Snr03SnapshotHashBytes(owned) != hash) {
     ranges.erase(key);
     return false;
   }
@@ -1247,12 +1250,12 @@ bool Snr03OwnRange(
   if (const auto existing = ranges.find(key); existing != ranges.end()) {
     return existing->second.size() == key.second &&
            std::equal(existing->second.begin(), existing->second.end(), bytes) &&
-           Snr03HashBytes(existing->second) == hash;
+           Snr03SnapshotHashBytes(existing->second) == hash;
   }
   if (owned_bytes > limit || key.second > limit - owned_bytes) return false;
   auto& owned = ranges[key];
   owned.assign(bytes, bytes + key.second);
-  if (Snr03HashBytes(owned) != hash) {
+  if (Snr03SnapshotHashBytes(owned) != hash) {
     ranges.erase(key);
     return false;
   }
@@ -1270,7 +1273,7 @@ bool Snr03OwnRemainderRange(
            std::equal(existing->second.begin(), existing->second.end(), bytes);
   if (owned_bytes > limit || key.second > limit - owned_bytes) return false;
   std::vector<uint8_t> snapshot(bytes, bytes + key.second);
-  if (Snr03HashBytes(snapshot) != key.version) return false;
+  if (Snr03SnapshotHashBytes(snapshot) != key.version) return false;
   ranges.emplace(key, std::move(snapshot));
   owned_bytes += key.second;
   return true;
@@ -1313,6 +1316,12 @@ uint64_t Snr03HashBytes(const std::vector<uint8_t>& bytes) {
     hash = (hash ^ byte) * 1099511628211ull;
   }
   return hash;
+}
+
+uint64_t Snr03SnapshotHashBytes(const std::vector<uint8_t>& bytes) {
+  return NativeRaceCaptureEnabled()
+             ? XXH3_64bits(bytes.data(), bytes.size())
+             : Snr03HashBytes(bytes);
 }
 
 uint64_t Snr02HashWords(std::span<const uint32_t> words) {
@@ -1738,7 +1747,7 @@ void ObserveSnr03CharacterPayload(
     payload.rejected = true;
     return;
   }
-  if (Snr03HashBytes(owned.vertices) != fetch[0].cpu_snapshot_hash ||
+  if (Snr03SnapshotHashBytes(owned.vertices) != fetch[0].cpu_snapshot_hash ||
       owned.draws.size() >= 8) {
     payload.rejected = true;
     return;
@@ -2394,7 +2403,7 @@ void ObserveSnr02ItemVertexPayload(
     value.length = fetch.length;
     value.vertex_bytes.assign(fetch.cpu_snapshot_bytes,
                               fetch.cpu_snapshot_bytes + fetch.length);
-    if (Snr03HashBytes(value.vertex_bytes) != fetch.cpu_snapshot_hash) {
+    if (Snr03SnapshotHashBytes(value.vertex_bytes) != fetch.cpu_snapshot_hash) {
       state.rejected = true;
       return;
     }
@@ -3436,7 +3445,9 @@ void ObserveSnr03RemainderOutputFrame(uint64_t output_frame) {
       const auto* bytes = reinterpret_cast<const char*>(&value);
       encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
     };
-    constexpr std::array<char, 8> magic{'S','N','R','0','3','R','3','\0'};
+    const std::array<char, 8> magic = NativeRaceCaptureEnabled()
+        ? std::array<char, 8>{'S','N','R','0','3','R','4','\0'}
+        : std::array<char, 8>{'S','N','R','0','3','R','3','\0'};
     write(magic);
     write(car->source_frame);
     write(car->view);

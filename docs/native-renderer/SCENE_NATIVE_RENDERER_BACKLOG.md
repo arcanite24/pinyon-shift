@@ -520,6 +520,19 @@ same-address versions within one frame, already observed for a car range.
 Both A/B code changes were reverted; these runs only establish the cost
 boundary, not a usable native frame.
 
+**Snapshot hash follow-up (2026-09-25):** SDK counters attributed roughly
+0.8–0.93 seconds per race frame to byte-at-a-time FNV hashing of 0.8–1.0 GB
+across approximately 3,800–4,900 vertex/index snapshots; the copies took
+roughly 43–50 ms. Live native capture now uses the already linked XXH3 hash
+for those snapshots, while historical capture modes retain FNV. The live
+remainder fixture is labeled `SNR03R4` so its replay validates the matching
+hash; archived `SNR03R2` and `SNR03R3` remain readable. The same five-frame
+native toggle interval fell from 6.69 to 2.70 seconds, and the full race,
+pause, free-roam and title boundary still passed. This is a substantial
+capture-path gain, but approximately 1.9 output frames per second is still
+far below usable driving. Next, measure remaining snapshot preparation and
+remove redundant per-draw copying without breaking exact-frame ownership.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
