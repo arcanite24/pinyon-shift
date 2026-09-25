@@ -533,6 +533,20 @@ capture-path gain, but approximately 1.9 output frames per second is still
 far below usable driving. Next, measure remaining snapshot preparation and
 remove redundant per-draw copying without breaking exact-frame ownership.
 
+**Unused-manager capture removal (2026-09-25):** the live output renderer
+reads track, procedural items, vegetation and remainder, but never consumes
+the separately owned manager family. The SDK now skips that family's
+vertex/index snapshots only in native race capture; legacy manager probes
+are unchanged. Temporary per-frame timers measured approximately 0.8–1.2 GB
+and 220–366 ms of prepared-draw observation with manager capture, versus
+103–110 MB and 43–71 ms without it. Recent high-draw race-frame medians in
+the perf CSV fell from about 501 to 220–234 ms. The timers were removed.
+The saved-race toggle route passed, twenty consecutive upright moving native
+frames passed, and the race/pause/free-roam/title route exited normally with
+whole-frame compatibility fallback outside the race (360-second test timeout).
+This removes unused extraction work, not the remaining L2 material/HUD work
+or the still-slow approximately four-to-five-frame-per-second race pace.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
