@@ -608,6 +608,18 @@ coverage before expansion. Run evidence is under
 `.local/native-renderer/material-hud-continuous-run2` and
 `.local/native-renderer/material-bridge-run12`.
 
+**Road-surface material checkpoint (2026-09-25):** the large flat road
+surface maps to pixel shader `93961AB9BDF347DD` and vertex shader
+`1193B16753866698`. Its 30 source-5000 draws sample fetch 0 using varying
+2; the captured pixel scale is 1:1 for this family. The same freshness-checked
+texture bridge now renders this family with visible asphalt detail. The
+saved-race adjacent-frame route exited normally, and the native output
+verifier passed all 20 moving frames (5001–5020). Lap text was present in
+all 20 captures. Visual review confirms the broad road is textured while
+the car, terrain, props and opaque foliage remain placeholder shaded. This
+is one proven material family, not a general guest-shader translation.
+Evidence: `.local/native-renderer/material-road-continuous-run1`.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)

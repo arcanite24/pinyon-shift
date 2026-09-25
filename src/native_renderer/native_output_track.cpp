@@ -27,9 +27,19 @@ namespace pinyon_shift::native_renderer {
 namespace {
 using Microsoft::WRL::ComPtr;
 using PipelineKey = std::tuple<uint64_t, uint64_t, uint32_t, uint32_t, uint32_t,
-    bool>;
+    uint32_t>;
 using RemainderPipelineKey = std::tuple<uint64_t, uint64_t, uint32_t,
     uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>;
+
+uint32_t TrackMaterialKind(const Snr04TrackDraw& draw) {
+  if (draw.pixel_shader == 0x6F7CDE74CDACCB08ull &&
+      draw.shader == 0x07425D208E8BD688ull &&
+      draw.specialization == 0x7Full) return 1;
+  if (draw.pixel_shader == 0x93961AB9BDF347DDull &&
+      draw.shader == 0x1193B16753866698ull &&
+      draw.specialization == 0x3FFull) return 2;
+  return 0;
+}
 
 struct UploadArena {
   std::vector<uint8_t> bytes;
@@ -77,7 +87,7 @@ struct RemainderDrawBinding {
 struct TrackGraphics {
   ComPtr<ID3D12Device> device;
   ComPtr<ID3D12RootSignature> root;
-  ComPtr<ID3DBlob> pixel, pixel_textured;
+  ComPtr<ID3DBlob> pixel, pixel_textured, pixel_road;
   ComPtr<ID3D12RootSignature> blit_root;
   ComPtr<ID3D12PipelineState> blit_pipeline;
   std::map<PipelineKey, ComPtr<ID3D12PipelineState>> pipelines;
@@ -94,11 +104,12 @@ struct TrackGraphics {
       root.Reset();
       pixel.Reset();
       pixel_textured.Reset();
+      pixel_road.Reset();
       blit_root.Reset();
       blit_pipeline.Reset();
       device = current;
     }
-    if (root && pixel && pixel_textured) return true;
+    if (root && pixel && pixel_textured && pixel_road) return true;
     constexpr char shader[] =
         "cbuffer Color : register(b2) { float4 flat; };"
         "float4 main() : SV_Target0 { return flat; }";
@@ -114,6 +125,15 @@ struct TrackGraphics {
     if (FAILED(D3DCompile(textured_shader, sizeof(textured_shader) - 1,
                           nullptr, nullptr, nullptr, "main", "ps_5_1", 0, 0,
                           &pixel_textured, &errors)))
+      return false;
+    constexpr char road_shader[] =
+        "Texture2D<float4> albedo : register(t1);"
+        "SamplerState linear_wrap : register(s0);"
+        "float4 main(float4 uv[3] : TEXCOORD0) : SV_Target0 {"
+        " return float4(albedo.Sample(linear_wrap, uv[2].xy).rgb, 1); }";
+    if (FAILED(D3DCompile(road_shader, sizeof(road_shader) - 1,
+                          nullptr, nullptr, nullptr, "main", "ps_5_1", 0, 0,
+                          &pixel_road, &errors)))
       return false;
     D3D12_ROOT_PARAMETER parameters[7]{};
     for (uint32_t i = 0; i < 4; ++i) {
@@ -159,11 +179,9 @@ struct TrackGraphics {
 
   bool Pipeline(const rex::system::NativeGuestOutputRenderContext& context,
                 const Snr04TrackDraw& draw) {
-    const bool textured = draw.pixel_shader == 0x6F7CDE74CDACCB08ull &&
-        draw.shader == 0x07425D208E8BD688ull &&
-        draw.specialization == 0x7Full;
+    const uint32_t material = TrackMaterialKind(draw);
     const PipelineKey key{draw.shader, draw.specialization, draw.raster_mode,
-                          draw.clip_control, draw.depth_control, textured};
+                          draw.clip_control, draw.depth_control, material};
     if (pipelines.contains(key)) return true;
     const uint8_t* vertex = nullptr;
     size_t vertex_size = 0;
@@ -175,7 +193,8 @@ struct TrackGraphics {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC description{};
     description.pRootSignature = root.Get();
     description.VS = {vertex, vertex_size};
-    ID3DBlob* fragment = textured ? pixel_textured.Get() : pixel.Get();
+    ID3DBlob* fragment = material == 1 ? pixel_textured.Get()
+        : material == 2 ? pixel_road.Get() : pixel.Get();
     description.PS = {fragment->GetBufferPointer(), fragment->GetBufferSize()};
     description.BlendState.RenderTarget[0].RenderTargetWriteMask =
         D3D12_COLOR_WRITE_ENABLE_ALL;
@@ -205,8 +224,8 @@ struct TrackGraphics {
         &description, IID_PPV_ARGS(&pipeline));
     if (FAILED(pipeline_result)) {
       REXGPU_INFO("FH1 native track pipeline rejected shader={:016X} "
-                  "specialization={:X} textured={} hresult={:08X}",
-                  draw.shader, draw.specialization, textured,
+                  "specialization={:X} material={} hresult={:08X}",
+                  draw.shader, draw.specialization, material,
                   uint32_t(pipeline_result));
       return false;
     }
@@ -694,10 +713,8 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
         tile_offset + draw.scissor[3] > 720)
       return false;
     TrackDrawBinding binding;
-    const bool textured = draw.pixel_shader == 0x6F7CDE74CDACCB08ull &&
-        draw.shader == 0x07425D208E8BD688ull &&
-        draw.specialization == 0x7Full;
-    if (textured) {
+    const uint32_t material = TrackMaterialKind(draw);
+    if (material) {
       const auto found = texture_identities.find({draw.sequence, 0});
       if (found == texture_identities.end() || !context.texture ||
           !found->second->allocation_id ||
@@ -742,7 +759,7 @@ bool DrawTrack(const rex::system::NativeGuestOutputRenderContext& context,
       }
     }
     binding.pipeline = {draw.shader, draw.specialization, draw.raster_mode,
-                        draw.clip_control, draw.depth_control, textured};
+                        draw.clip_control, draw.depth_control, material};
     binding.vertex = vertices.at(draw.vertex);
     binding.index = indices.at(draw.index);
     std::array<uint32_t, 120> system{};
