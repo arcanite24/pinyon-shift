@@ -2225,7 +2225,9 @@ pinyon_shift::native_renderer::Snr04TrackScene pinyon_shift::native_renderer::Pa
   const auto source = fixture;
   Reader reader{source};
   const auto magic = reader.take<std::array<char, 8>>();
-  const bool raster_captured = magic ==
+  const bool materials_captured = magic ==
+      (std::array<char, 8>{'S','N','R','0','2','T','5','\0'});
+  const bool raster_captured = materials_captured || magic ==
       (std::array<char, 8>{'S','N','R','0','2','T','4','\0'});
   require(raster_captured || magic ==
               (std::array<char, 8>{'S','N','R','0','2','T','3','\0'}),
@@ -2304,6 +2306,30 @@ pinyon_shift::native_renderer::Snr04TrackScene pinyon_shift::native_renderer::Pa
                   draw.scissor[0] < draw.scissor[2] &&
                   draw.scissor[1] < draw.scissor[3],
               "invalid captured track raster state");
+    }
+    if (materials_captured) {
+      draw.pixel_specialization = reader.take<uint64_t>();
+      draw.pixel_bitmap = reader.take<std::array<uint64_t, 4>>();
+      const auto pixel_words = reader.take<uint32_t>();
+      require(pixel_words <= 1024 && pixel_words % 4 == 0 &&
+                  std::popcount(draw.pixel_bitmap[0]) +
+                      std::popcount(draw.pixel_bitmap[1]) +
+                      std::popcount(draw.pixel_bitmap[2]) +
+                      std::popcount(draw.pixel_bitmap[3]) == pixel_words / 4,
+              "invalid track pixel constants");
+      draw.pixel_packed.reserve(pixel_words);
+      for (uint32_t word = 0; word < pixel_words; ++word)
+        draw.pixel_packed.push_back(reader.take<uint32_t>());
+      const auto texture_count = reader.take<uint32_t>();
+      require(texture_count <= 32, "invalid track texture count");
+      uint32_t last_fetch = 0;
+      for (uint32_t texture = 0; texture < texture_count; ++texture) {
+        const auto fetch = reader.take<std::array<uint32_t, 9>>();
+        require(fetch[0] < 32 && (!texture || fetch[0] > last_fetch),
+                "invalid track texture fetch");
+        last_fetch = fetch[0];
+        draw.textures.push_back(fetch);
+      }
     }
     require(draw.sequence && (!i || draw.sequence > draws.back().sequence) &&
                 target_addresses.contains(target) && vertices.contains(draw.vertex) &&
@@ -3453,7 +3479,7 @@ pinyon_shift::native_renderer::ParseSnr04RemainderScene(
     draws.push_back(std::move(draw));
   }
   require(reader.position == source.size() && used_vertices.size() == vertices.size() &&
-              used_indices.size() == indices.size() && used_car == car_keys &&
+              used_indices.size() == indices.size() && !used_car.empty() &&
               used_scalar == scalar_keys,
           "incomplete remainder fixture");
 
@@ -4044,7 +4070,7 @@ pinyon_shift::native_renderer::RunSnr04BatchDiagnosticFromBytes(
     else if (kind == "SNR02I3" || kind == "SNR03C1")
       covered = RunSnr04ProceduralDiagnosticFromBytes(fixture, shader, output,
                                              borrowed_device, samples, &segment);
-    else if (kind == "SNR02T3" || kind == "SNR02T4")
+    else if (kind == "SNR02T3" || kind == "SNR02T4" || kind == "SNR02T5")
       covered = RunSnr04TrackDiagnosticFromBytes(fixture, shader, output,
                                         borrowed_device, samples, &segment);
     else if (kind == "SNR03M1")

@@ -62,9 +62,13 @@ struct Snr04ProceduralScene {
 using Snr04TrackRange = std::pair<uint32_t, uint32_t>;
 struct Snr04TrackDraw {
   uint64_t sequence = 0, shader = 0, pixel_shader = 0, specialization = 0;
+  uint64_t pixel_specialization = 0;
   uint32_t packet = 0, count = 0, primitive = 0;
   Snr04TrackRange vertex{}, index{};
   std::vector<uint32_t> packed;
+  std::array<uint64_t, 4> pixel_bitmap{};
+  std::vector<uint32_t> pixel_packed;
+  std::vector<std::array<uint32_t, 9>> textures;
   std::array<uint32_t, 64> system{};
   std::array<uint32_t, 4> fetch{};
   uint32_t raster_mode = 0, clip_control = 0, depth_control = 0;

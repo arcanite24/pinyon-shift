@@ -795,12 +795,16 @@ std::mutex snr02_track_targets_mutex;
 using Snr02TrackRange = std::pair<uint32_t, uint32_t>;
 struct Snr02TrackDraw {
   uint64_t sequence, vertex_shader, pixel_shader, vertex_specialization;
+  uint64_t pixel_specialization = 0;
   uint64_t dynamic_state = 0;
   uint32_t packet, command_buffer, index_count, stride_words, host_index_format;
   uint32_t host_primitive_type, host_primitive_reset, index_endianness;
   Snr02TrackRange vertex, index;
   std::array<uint64_t, 4> vertex_bitmap{};
   std::vector<uint32_t> vertex_packed;
+  std::array<uint64_t, 4> pixel_bitmap{};
+  std::vector<uint32_t> pixel_packed;
+  std::vector<std::array<uint32_t, 9>> textures;
   std::array<uint32_t, 64> system_constants{};
   std::array<uint32_t, 4> fetch47{};
   uint32_t raster_mode_control = 0, clip_control = 0, depth_control = 0;
@@ -2088,10 +2092,22 @@ void ObserveSnr02TrackFinalDrawState(
   const bool bound_changed = !std::equal(
       draw.vertex_packed.begin(), draw.vertex_packed.end(),
       observation.bound_vertex_float_constant_words);
-  if (vertex_changed || bound_changed)
+  uint32_t pixel_word = 0;
+  bool pixel_changed = false;
+  for (uint32_t reg = 0; reg < 256; ++reg) {
+    if (draw.pixel_bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+      pixel_changed |= !std::equal(
+          draw.pixel_packed.begin() + pixel_word,
+          draw.pixel_packed.begin() + pixel_word + 4,
+          observation.vertex_float_constant_words + (256 + reg) * 4);
+      pixel_word += 4;
+    }
+  }
+  if (vertex_changed || bound_changed || pixel_changed)
     Snr02RejectTrackPayload(payload, draw.sequence, draw.packet,
                             vertex_changed ? "final_vertex_changed"
-                                           : "final_bound_changed");
+                                : bound_changed ? "final_bound_changed"
+                                                : "final_pixel_changed");
   draw.dynamic_state = observation.dynamic_state;
   std::copy_n(observation.system_constant_words, 64,
               draw.system_constants.begin());
@@ -2578,7 +2594,11 @@ void ObservePreparedDraw(
           observation.vertex_fetch_capacity >= 1 &&
           observation.vertex_float_constant_bitmap &&
           observation.vertex_float_constant_words &&
-          observation.vertex_float_constant_count <= 256) {
+          observation.vertex_float_constant_count <= 256 &&
+          observation.pixel_float_constant_bitmap &&
+          observation.pixel_float_constant_count <= 256 &&
+          observation.texture_fetch_count <= 32 &&
+          (!observation.texture_fetch_count || observation.texture_fetches)) {
         const auto& fetch = observation.vertex_fetches[0];
         const Snr02TrackRange vertex{fetch.guest_base, fetch.length};
         const Snr02TrackRange index{observation.index_buffer_guest_base,
@@ -2598,6 +2618,7 @@ void ObservePreparedDraw(
           draw.vertex_shader = observation.vertex_shader_hash;
           draw.pixel_shader = observation.pixel_shader_hash;
           draw.vertex_specialization = observation.vertex_specialization_mask;
+          draw.pixel_specialization = observation.pixel_specialization_mask;
           draw.packet = observation.draw_packet_physical_address;
           draw.command_buffer = observation.command_buffer_physical_address;
           draw.index_count = observation.index_count;
@@ -2610,6 +2631,8 @@ void ObservePreparedDraw(
           draw.index = index;
           std::copy_n(observation.vertex_float_constant_bitmap, 4,
                       draw.vertex_bitmap.begin());
+          std::copy_n(observation.pixel_float_constant_bitmap, 4,
+                      draw.pixel_bitmap.begin());
           bitmap = draw.vertex_bitmap;
           draw.vertex_packed.reserve(observation.vertex_float_constant_count * 4);
           for (uint32_t reg = 0; reg < 256; ++reg) {
@@ -2617,9 +2640,23 @@ void ObservePreparedDraw(
               const auto* words = observation.vertex_float_constant_words + reg * 4;
               draw.vertex_packed.insert(draw.vertex_packed.end(), words, words + 4);
             }
+            if (draw.pixel_bitmap[reg / 64] & (uint64_t(1) << (reg % 64))) {
+              const auto* words = observation.vertex_float_constant_words +
+                                  (256 + reg) * 4;
+              draw.pixel_packed.insert(draw.pixel_packed.end(), words, words + 4);
+            }
+          }
+          for (uint32_t i = 0; i < observation.texture_fetch_count; ++i) {
+            const auto& texture = observation.texture_fetches[i];
+            draw.textures.push_back({texture.fetch_constant, texture.type,
+                texture.base_address, texture.mip_address, texture.format,
+                texture.dimension, texture.width, texture.height,
+                texture.stack_depth});
           }
           if (draw.vertex_packed.size() ==
-              observation.vertex_float_constant_count * 4) {
+                  observation.vertex_float_constant_count * 4 &&
+              draw.pixel_packed.size() ==
+                  observation.pixel_float_constant_count * 4) {
             packed_words = uint32_t(draw.vertex_packed.size());
             packed_hash = Snr02HashWords(draw.vertex_packed);
             payload.draws.push_back(std::move(draw));
@@ -3074,7 +3111,7 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     const auto* bytes = reinterpret_cast<const char*>(&value);
     encoded.insert(encoded.end(), bytes, bytes + sizeof(value));
   };
-  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '4', '\0'};
+  constexpr std::array<char, 8> magic{'S', 'N', 'R', '0', '2', 'T', '5', '\0'};
   write(magic);
   write(output_frame - 1);
   write(uint32_t(targets.size()));
@@ -3121,6 +3158,12 @@ void ObserveSnr02TrackOutputFrame(uint64_t output_frame) {
     write(draw.depth_control);
     write(draw.viewport);
     write(draw.scissor);
+    write(draw.pixel_specialization);
+    write(draw.pixel_bitmap);
+    write(uint32_t(draw.pixel_packed.size()));
+    for (uint32_t word : draw.pixel_packed) write(word);
+    write(uint32_t(draw.textures.size()));
+    for (const auto& texture : draw.textures) write(texture);
   }
   const auto directory = fh1_render_test::OutputDirectory();
   const bool live = Snr04LiveCaptureEnabled();

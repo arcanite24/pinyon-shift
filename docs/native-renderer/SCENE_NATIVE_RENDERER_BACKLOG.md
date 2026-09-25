@@ -562,6 +562,23 @@ twenty consecutive native race frames, and race/pause/free-roam/title route
 all exited normally and passed their image verifiers. This cuts unsupported
 capture work; it does not yet make native race output playable at L2 speed.
 
+**Track material inputs and culled-car admission (2026-09-25):** the owned
+track fixture is now `SNR02T5`. Each draw retains its pixel shader
+specialization, packed pixel constants and used texture fetch descriptors;
+the pixel constants must still match at final draw submission. Archived
+`SNR02T3/T4` fixtures remain readable. In a saved-race source frame, 638 of
+641 track draws used textures (2,447 bindings total), so a vertex-color-only
+or shader-hash palette cannot supply L2 materials. This is the per-draw
+material identity contract, not texture image ownership: the native output
+callback still needs exact source-frame texture resources or immutable copies
+and matching sampler/SRV state before it can sample them. The same run exposed
+an overstrict remainder parser check: 234 owned car title records included
+57 culled records with no draw. It now requires every drawn car to reference
+an owned record while allowing unused title records; vertex/index ownership
+remains exhaustive. After this fix, the sustained route exited normally and
+its verifier passed twenty upright moving native frames with `SNR02T5`
+fixtures enabled.
+
 **Final-pass boundary check (2026-09-24):** the existing race RenderDoc
 capture `renderdoc-gatea-full-b_frame5001.rdc` (SHA-256
 `277c2a371a86038901d845332704574b708f632eab6f427175827bf93660e955`)
