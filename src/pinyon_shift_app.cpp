@@ -137,8 +137,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "pinyon_shift_fh1_source_presentation = true\n"
               "anisotropic_override = 3\n"
               "swap_post_effect = \"none\"\n"
-              "disable_motion_blur = false\n"
-              "disable_depth_of_field = false\n"
+              "disable_motion_blur = true\n"
+              "disable_depth_of_field = true\n"
               "draw_resolution_scale_x = 1\n"
               "draw_resolution_scale_y = 1\n"
               "clear_memory_page_state = false\n";
@@ -335,8 +335,8 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
          "xma_relaxed_padding_admission = false\n"},
         {"anisotropic_override", "anisotropic_override = 3\n"},
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
-        {"disable_motion_blur", "disable_motion_blur = false\n"},
-        {"disable_depth_of_field", "disable_depth_of_field = false\n"},
+        {"disable_motion_blur", "disable_motion_blur = true\n"},
+        {"disable_depth_of_field", "disable_depth_of_field = true\n"},
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
         {"gpu_backend", "gpu_backend = \"vulkan\"\n"},

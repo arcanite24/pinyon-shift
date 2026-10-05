@@ -21,9 +21,9 @@ param(
     [ValidateRange(0, 240)]
     [int]$RenderFps = 0,
     [ValidateSet('true', 'false')]
-    [string]$DisableMotionBlur = 'false',
+    [string]$DisableMotionBlur = 'true',
     [ValidateSet('true', 'false')]
-    [string]$DisableDepthOfField = 'false',
+    [string]$DisableDepthOfField = 'true',
     [string]$StateRoot,
     [switch]$Json
 )
@@ -67,8 +67,8 @@ pinyon_shift_fh1_source_presentation = true
 xma_relaxed_padding_admission = false
 anisotropic_override = 3
 swap_post_effect = "none"
-disable_motion_blur = false
-disable_depth_of_field = false
+disable_motion_blur = true
+disable_depth_of_field = true
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 clear_memory_page_state = false
@@ -178,8 +178,8 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
         settings = [ordered]@{
             anisotropy = $anisotropyValue
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
-            disable_motion_blur = (Get-TomlValue $Text 'disable_motion_blur' 'false') -eq 'true'
-            disable_depth_of_field = (Get-TomlValue $Text 'disable_depth_of_field' 'false') -eq 'true'
+            disable_motion_blur = (Get-TomlValue $Text 'disable_motion_blur' 'true') -eq 'true'
+            disable_depth_of_field = (Get-TomlValue $Text 'disable_depth_of_field' 'true') -eq 'true'
             preset = $presetName
             resolution_scale = $resolutionScale
             graphics_api = $graphicsApi

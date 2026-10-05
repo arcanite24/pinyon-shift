@@ -77,9 +77,9 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_release_late_swaps, true, "Pinyon Shift",
                     "the next guest vblank (4.17 ms later at the 120 limit); frames on time "
                     "keep their vblank alignment")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_BOOL(disable_motion_blur, false, "Pinyon Shift",
+REXCVAR_DEFINE_BOOL(disable_motion_blur, true, "Pinyon Shift",
                     "Disable Forza Horizon motion blur");
-REXCVAR_DEFINE_BOOL(disable_depth_of_field, false, "Pinyon Shift",
+REXCVAR_DEFINE_BOOL(disable_depth_of_field, true, "Pinyon Shift",
                     "Disable Forza Horizon depth of field");
 
 namespace {

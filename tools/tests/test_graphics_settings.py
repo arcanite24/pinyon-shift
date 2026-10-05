@@ -172,6 +172,24 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn("pinyon_shift_dlc_treasure_map = false", config.read_text(encoding="utf-8"))
             self.assertFalse(result["settings"]["treasure_map"])
 
+    def test_post_effect_defaults_and_explicit_choices(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            for action in ("Get", "Apply"):
+                settings = self.run_tool(state, "-Action", action)["settings"]
+                self.assertTrue(settings["disable_motion_blur"])
+                self.assertTrue(settings["disable_depth_of_field"])
+            config = state / "config/pinyon_shift.toml"
+            config.write_text("pinyon_shift_config_schema = 27\n", encoding="utf-8")
+            settings = self.run_tool(state, "-Action", "Get")["settings"]
+            self.assertTrue(settings["disable_motion_blur"])
+            self.assertTrue(settings["disable_depth_of_field"])
+            self.run_tool(state, "-Action", "Apply", "-DisableMotionBlur", "false",
+                          "-DisableDepthOfField", "false")
+            settings = self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "2")["settings"]
+            self.assertFalse(settings["disable_motion_blur"])
+            self.assertFalse(settings["disable_depth_of_field"])
+
     def test_reset_writes_supported_defaults_and_preserves_backup(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
             state = pathlib.Path(temporary)
@@ -181,8 +199,8 @@ class GraphicsSettingsTests(unittest.TestCase):
             result = self.run_tool(state, "-Action", "Reset")
             text = config.read_text(encoding="utf-8")
             self.assertIn("swap_post_effect = \"none\"", text)
-            self.assertIn("disable_motion_blur = false", text)
-            self.assertIn("disable_depth_of_field = false", text)
+            self.assertIn("disable_motion_blur = true", text)
+            self.assertIn("disable_depth_of_field = true", text)
             self.assertIn("draw_resolution_scale_x = 1", text)
             self.assertIn("xma_relaxed_padding_admission = false", text)
             self.assertNotIn('occlusion_query', text)
