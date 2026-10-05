@@ -273,10 +273,16 @@ the launcher for Linux builds. See [Building](docs/BUILDING.md) and
 
 ## Roadmap
 
-Where the project is going; the open items are in no particular order. The
-ordered plan, with vertical slices, sizes, dependencies and acceptance gates,
-is the [native port backlog](docs/NATIVE_PORT_BACKLOG.md); renderer
-performance work is in the [performance backlog](docs/PERFORMANCE_BACKLOG.md).
+Public priorities, updated 2026-10-04 from community feedback and the current
+development work. Gameplay-blocking bugs and save safety take priority within
+each phase. These are priorities, not release dates; ports need validation on
+their target hardware before they are ready for players.
+
+The [community request review](docs/ROADMAP_FEEDBACK.md) explains the demand and
+the proposed additions. Implementation details and acceptance gates are in the
+[native port backlog](docs/NATIVE_PORT_BACKLOG.md),
+[performance backlog](docs/PERFORMANCE_BACKLOG.md) and
+[Android port backlog](docs/ANDROID_PORT_BACKLOG.md).
 
 Done since 0.1:
 
@@ -291,28 +297,60 @@ Done since 0.1:
 - [x] Play in any of the disc's 18 languages
 - [x] Achievements, photo export, save backups and a trainer in game
 - [x] Support portable installs
+- [x] Keep crowd and purchase animations at the right speed above 30 fps
+- [x] Initial Android runtime and local APK build from the launcher
+  ([developer alpha](docs/ANDROID.md))
 
-Next:
+In progress:
 
-- [ ] Lower the hardware requirements and qualify AMD and Intel GPUs
-- [ ] Fix the remaining rendering regressions
-- [ ] Keep crowd and purchase animations at the right speed above 30 fps
-- [ ] Hold 120 fps in every race, and reach 4K at 120 fps on Vulkan
-- [ ] Make the first build faster and fully validated
-- [ ] Update to a new release from inside the launcher
-- [ ] Install, enable and order mods from the launcher
-- [ ] Sign the launcher and preview executables
+- [ ] Native Linux support
+- [ ] FH1 v4 title-update support
+- [ ] DLC support from your own Xbox 360 content, including car packs and
+  the Horizon Rally expansion
+- [ ] Easier Android build, USB installation and game-data transfer
+
+Next, in priority order:
+
+- [ ] Fix remaining crashes, loading failures, rendering regressions and
+  recurring stutter, including intro, showcase and free-roam transitions
+- [ ] Make setup more reliable and the first build faster; validate the
+  toolchain before building and recover from interrupted setup
+- [ ] Qualify AMD and Intel GPUs and publish tested hardware, drivers,
+  settings and performance results
+- [ ] Validate Steam Deck and SteamOS: controls, Steam Input, suspend and
+  resume, and performance presets
+- [ ] Improve sustained Android frame pacing and thermals on supported
+  devices; measure long sessions as well as startup performance
+- [ ] Update from inside the launcher while preserving saves and settings
+- [ ] Safely import saves from Xenia and Xbox 360, and transfer profiles
+  between supported platforms
 - [ ] Support more disc regions
-- [ ] Load the car-pack add-ons from your own Xbox 360 content
-- [ ] Import a save from an Xbox 360
+
+Mid term, in priority order:
+
+- [ ] Better Android performance on lower-end hardware, with published
+  device requirements and sustainable graphics presets
+- [ ] Nintendo Switch support, starting with hardware feasibility and
+  performance validation
+- [ ] macOS support through MoltenVK
+- [ ] Racing wheel, pedal and force feedback support
+- [ ] Install, enable and order mods from the launcher, with compatibility
+  guidance for existing FH1 mods
+- [ ] Custom radio stations and music replacement from local files
+- [ ] Verify DualSense and variable refresh rate displays
+- [ ] Sign the launcher and preview executables
+
+Longer term and research:
+
+- [ ] Hold 120 fps in every race, and pursue 4K at 120 fps on qualified hardware
 - [ ] More trainer options: unlock cars and events, and let any car enter any
   event
-- [ ] Verify DualSense, Steam Input and variable refresh rate displays
 - [ ] Let mods add items to the game's own menus
-- [ ] Build for macOS and Linux
-- [ ] Ship a Steam Deck build
-- [ ] Port the runtime to Android
 - [ ] Import cars from *Forza Horizon 2*
+- [ ] Investigate multiplayer restoration, starting with LAN feasibility
+
+Other *Forza* recompilations would be separate projects; stabilising FH1
+comes first.
 
 Measured findings and validation rules are in
 [development findings and priorities](docs/DEVELOPMENT.md).
