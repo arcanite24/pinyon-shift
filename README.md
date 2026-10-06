@@ -159,6 +159,11 @@ before its first start. Everything else, including the **Performance 120** and
 once; the graphics API and the language are among the few that need a
 restart.
 
+To change the game language, press **F6** at the title screen or during play,
+open **Profile → Language**, and use Left/Right to choose a language and region.
+Close and restart the game to apply it. This is available before the first race;
+the choice stays saved for the next launch.
+
 The preview launcher is not code-signed yet, so Windows may identify it as an
 unrecognized app. Use only the archive attached to this repository's release
 and verify its published SHA-256.
