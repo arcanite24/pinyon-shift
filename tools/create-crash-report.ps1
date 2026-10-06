@@ -61,10 +61,23 @@ function Write-SanitizedTail(
     [string]$Source,
     [string]$Destination,
     [int]$MaximumLines,
-    [hashtable]$Replacements
+    [hashtable]$Replacements,
+    [datetime]$SinceUtc = [datetime]::MinValue
 ) {
     if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return $false }
     $lines = @(Get-Content -LiteralPath $Source -Tail $MaximumLines -ErrorAction Stop)
+    if ($SinceUtc -ne [datetime]::MinValue) {
+        $current = $false
+        $lines = @($lines | ForEach-Object {
+            if ($_ -match '^\[(?<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\]') {
+                $lineTime = [datetime]::ParseExact($Matches.time, 'yyyy-MM-dd HH:mm:ss.fff',
+                    [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeLocal)
+                $current = $lineTime.ToUniversalTime() -ge $SinceUtc.ToUniversalTime()
+            }
+            if ($current) { $_ }
+        })
+        if ($lines.Count -eq 0) { return $false }
+    }
     $content = Protect-ReportText (($lines -join [Environment]::NewLine) + [Environment]::NewLine) $Replacements
     [IO.File]::WriteAllText($Destination, $content, [Text.UTF8Encoding]::new($false))
     return $true
@@ -104,13 +117,31 @@ $replacements = @{
 }
 
 try {
+    # Match the recorded process, not whichever session was modified most recently.
+    $eventLog = $null
+    $sessionEvents = @()
+    foreach ($candidate in Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending) {
+        try {
+            $first = Get-Content -LiteralPath $candidate.FullName -TotalCount 1 | ConvertFrom-Json
+            if ($first.event -ne 'process.start' -or [string]$first.pid -ne [string]$ProcessId -or
+                ([datetime]$first.utc).ToUniversalTime() -lt $StartedUtc.ToUniversalTime().AddSeconds(-2)) { continue }
+            $eventLog = $candidate
+            $sessionEvents = @(Get-Content -LiteralPath $candidate.FullName | Where-Object { $_ -match '"event"\s*:\s*"logging.ready"' } | ForEach-Object {
+                try { $_ | ConvertFrom-Json } catch { }
+            } | Where-Object { [string]$_.pid -eq [string]$ProcessId -and $_.session -eq $first.session })
+            break
+        }
+        catch { $eventLog = $null; $sessionEvents = @(); continue } # A partial JSON line is possible after a crash.
+    }
     $crashDirectory = Join-Path $resolvedStateRoot 'crashes'
     $crashFiles = if (Test-Path -LiteralPath $crashDirectory -PathType Container) {
         @(Get-ChildItem -LiteralPath $crashDirectory -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) })
+            Where-Object { $null -ne $eventLog -and $_.Name.StartsWith($eventLog.BaseName + '-') -and
+                $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) })
     } else { @() }
     $crashTextFile = $crashFiles | Where-Object Extension -eq '.txt' |
-        Sort-Object @{ Expression = { $_.Name -match '-unhandled\.txt$' }; Descending = $true }, LastWriteTimeUtc |
+        Sort-Object @{ Expression = { $_.Name -match '-unhandled\.txt$' }; Descending = $false }, LastWriteTimeUtc |
         Select-Object -Last 1
     $crashText = if ($null -ne $crashTextFile) {
         Get-Content -LiteralPath $crashTextFile.FullName -Raw
@@ -134,11 +165,12 @@ try {
             (Protect-ReportText $crashText $replacements), [Text.UTF8Encoding]::new($false))
     }
 
+    $loggingReady = $sessionEvents | Where-Object event -eq 'logging.ready' | Select-Object -Last 1
     $runtimeLog = Join-Path $resolvedStateRoot 'logs/runtime.log'
-    [void](Write-SanitizedTail $runtimeLog (Join-Path $stagingRoot 'runtime-tail.log') 2500 $replacements)
-    $eventLog = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.jsonl' -File `
-        -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) } |
-        Sort-Object LastWriteTimeUtc | Select-Object -Last 1
+    if ($null -ne $loggingReady -and (Test-Path -LiteralPath $runtimeLog -PathType Leaf) -and
+            (Get-Item -LiteralPath $runtimeLog).LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime()) {
+        [void](Write-SanitizedTail $runtimeLog (Join-Path $stagingRoot 'runtime-tail.log') 2500 $replacements $StartedUtc)
+    }
     if ($null -ne $eventLog) {
         [void](Write-SanitizedTail $eventLog.FullName (Join-Path $stagingRoot 'session-events.jsonl') 1000 $replacements)
     }
@@ -162,9 +194,14 @@ try {
     foreach ($column in $presentationColumns) {
         $presentationCounters[$column] = [uint64]0
     }
-    $perfLog = Get-ChildItem -LiteralPath (Join-Path $resolvedStateRoot 'logs') -Filter '*.perf.csv' -File `
-        -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime().AddSeconds(-2) } |
-        Sort-Object LastWriteTimeUtc | Select-Object -Last 1
+    $perfLog = $null
+    if ($null -ne $loggingReady -and $null -ne $eventLog) {
+        $sessionPerf = [IO.Path]::ChangeExtension($eventLog.FullName, '.perf.csv')
+        if ((Test-Path -LiteralPath $sessionPerf -PathType Leaf) -and
+                (Get-Item -LiteralPath $sessionPerf).LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime()) {
+            $perfLog = Get-Item -LiteralPath $sessionPerf
+        }
+    }
     if ($null -ne $perfLog) {
         $header = @(Get-Content -LiteralPath $perfLog.FullName -TotalCount 1 -ErrorAction SilentlyContinue)
         $columns = if ($header.Count -eq 1) { @($header[0].Split(',')) } else { @() }
@@ -205,7 +242,7 @@ try {
     }
 
     $allowedSettings = @(
-        'pinyon_shift_config_schema', 'input_backend', 'hid_mappings_file',
+        'pinyon_shift_config_schema', 'gpu_backend', 'gpu_record_thread', 'input_backend', 'hid_mappings_file',
         'mnk_mode', 'keybind_start',
         'd3d12_allow_variable_refresh_rate_and_tearing',
         'xma_relaxed_padding_admission',
@@ -268,6 +305,7 @@ try {
         process = [ordered]@{
             process_id = $ProcessId
             started_utc = $StartedUtc.ToUniversalTime().ToString('o')
+            session_id = if ($null -ne $eventLog) { $eventLog.BaseName } else { $null }
             exit_code_signed = $ExitCode
             exit_code_hex = ('0x{0:X8}' -f ([uint32]($ExitCode -band 0xFFFFFFFFL)))
         }
@@ -297,6 +335,8 @@ try {
         graphics = [ordered]@{
             # The native renderer is the only renderer; there is no choice to report.
             renderer = 'native'
+            backend = if ($null -ne $loggingReady) { $loggingReady.renderer } else { $null }
+            logging_initialized = $null -ne $loggingReady
             resolve_readback = $resolveCounters
             presentation = $presentationCounters
         }

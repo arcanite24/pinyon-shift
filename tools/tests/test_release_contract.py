@@ -743,13 +743,16 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
             (state / "crashes").mkdir(parents=True)
             private_path = str(root / "private" / getpass.getuser())
             (state / "logs" / "runtime.log").write_text(
-                f"game path: {private_path}\nlast useful line\n", encoding="utf-8"
+                f"[2099-01-01 00:00:00.000] game path: {private_path}\nlast useful line\n", encoding="utf-8"
             )
-            (state / "logs" / "session.jsonl").write_text(
-                json.dumps({"event": "process.start", "path": private_path}) + "\n",
+            (state / "logs" / "test.jsonl").write_text(
+                json.dumps({"event": "process.start", "path": private_path, "pid": "7",
+                            "utc": "2000-01-01T00:00:00Z", "session": "test"}) + "\n" +
+                json.dumps({"event": "logging.ready", "pid": "7", "session": "test",
+                            "renderer": "vulkan"}) + "\n",
                 encoding="utf-8",
             )
-            (state / "logs" / "session.perf.csv").write_text(
+            (state / "logs" / "test.perf.csv").write_text(
                 "frame_time_us,xma_no_space_stalls,xma_no_progress_stalls,xma_stall_recoveries\n"
                 "10000,2,1,0\n20000,3,0,1\n",
                 encoding="utf-8",
