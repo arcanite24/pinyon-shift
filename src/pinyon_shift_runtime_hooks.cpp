@@ -4861,6 +4861,61 @@ static bool PinyonShiftGuestRangeReadable(uint32_t address, uint32_t size) {
   return true;
 }
 
+// Read-only ownership probe for the shared child dispatch in #359/#368/#373.
+// Capture both sides of the parent virtual call; LR/CTR alone are stale at
+// the failing child method load. Normal runs never allocate or read here.
+namespace {
+struct ChildDispatchSnapshot {
+  uint32_t parent;
+  uint32_t parent_method;
+  std::string child;
+  std::string vtable;
+};
+thread_local std::vector<ChildDispatchSnapshot> g_child_dispatch_snapshots;
+
+bool ChildDispatchTraceEnabled() {
+  static const bool enabled = pinyon_shift::platform::EnvironmentFlag(
+      "PINYON_SHIFT_TRACE_CHILD_DISPATCH");
+  return enabled;
+}
+
+std::string ChildDispatchWord(uint32_t address) {
+  return PinyonShiftGuestRangeReadable(address, 4)
+      ? Hex32(LoadGuestU32(address)) : "unreadable";
+}
+
+std::string ChildDispatchVtable(uint32_t parent) {
+  if (parent > UINT32_MAX - 64u ||
+      !PinyonShiftGuestRangeReadable(parent + 64u, 4)) return "unreadable";
+  const uint32_t child = LoadGuestU32(parent + 64u);
+  return child ? ChildDispatchWord(child) : "none";
+}
+}  // namespace
+
+void PinyonShiftTraceChildDispatchBefore(PPCRegister& r3, PPCRegister& r11) {
+  if (!ChildDispatchTraceEnabled()) return;
+  const uint32_t parent = r3.u32;
+  g_child_dispatch_snapshots.push_back({parent, r11.u32,
+      parent <= UINT32_MAX - 64u ? ChildDispatchWord(parent + 64u) : "unreadable",
+      ChildDispatchVtable(parent)});
+}
+
+void PinyonShiftTraceChildDispatchAfter(PPCRegister& r3, PPCRegister& r30) {
+  if (!ChildDispatchTraceEnabled() || g_child_dispatch_snapshots.empty()) return;
+  const auto before = std::move(g_child_dispatch_snapshots.back());
+  g_child_dispatch_snapshots.pop_back();
+  pinyon_shift::diagnostics::RecordEvent(
+      "object.child_dispatch.parent_return",
+      {{"address", "82C222F0"}, {"parent", Hex32(r30.u32)},
+       {"entry_parent", Hex32(before.parent)},
+       {"parent_method", Hex32(before.parent_method)},
+       {"result", Hex32(r3.u32)}, {"child_before", before.child},
+       {"vtable_before", before.vtable},
+       {"child_after", r30.u32 <= UINT32_MAX - 64u
+                            ? ChildDispatchWord(r30.u32 + 64u) : "unreadable"},
+       {"vtable_after", ChildDispatchVtable(r30.u32)}});
+}
+
 static std::string PinyonShiftReadGuestAscii(uint32_t address,
                                              uint32_t maximum_length) {
   if (maximum_length == 0 || !PinyonShiftGuestRangeReadable(address, 1u)) {

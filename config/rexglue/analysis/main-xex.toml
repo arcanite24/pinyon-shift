@@ -573,6 +573,19 @@ address = 0x826E1B3C
 name = "PinyonShiftTraceRetainVtable"
 registers = ["r4", "r11", "r30", "r31"]
 
+# Default-off read-only #359/#368/#373 ownership comparison. Pair the live
+# child slot/vtable around the parent virtual call, before the wrapper clears
+# parent+64 and dispatches the child. No guest register or memory is changed.
+[[midasm_hook]]
+address = 0x82C222EC
+name = "PinyonShiftTraceChildDispatchBefore"
+registers = ["r3", "r11"]
+
+[[midasm_hook]]
+address = 0x82C222F0
+name = "PinyonShiftTraceChildDispatchAfter"
+registers = ["r3", "r30"]
+
 # M5 persisted-profile diagnostics. These continuations are the first
 # title-owned decision points after the secure ForzaProfile/PlayerDatabase
 # reads complete. The hooks are read-only and emit events only when

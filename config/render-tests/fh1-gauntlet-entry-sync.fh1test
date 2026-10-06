@@ -1,0 +1,38 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Pinned appdata-2026-09-27 seed: MX-5 at the Gauntlet entrance.
+# Wall-time pacing leaves the free-roam and start-race cameras time to finish.
+# A HUD assertion prevents a free-roam/menu-only run from passing as a race.
+# expect-race-hud gauntlet-driving
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+capture 1700 gauntlet-ready
+input 1800 4000 0 0 0 0 0 0
+input 1812 0000 0 0 0 0 0 0
+capture 2100 gauntlet-entry
+input 2200 1000 0 0 0 0 0 0
+input 2212 0000 0 0 0 0 0 0
+capture 2300 gauntlet-choice
+input 2400 1000 0 0 0 0 0 0
+input 2412 0000 0 0 0 0 0 0
+capture 2700 gauntlet-loading
+input 2900 1000 0 0 0 0 0 0
+input 2912 0000 0 0 0 0 0 0
+input 3100 1000 0 0 0 0 0 0
+input 3112 0000 0 0 0 0 0 0
+capture 3500 gauntlet-race
+input 3600 1000 0 0 0 0 0 0
+input 3612 0000 0 0 0 0 0 0
+capture 3900 gauntlet-started
+input 4000 1000 0 0 0 0 0 0
+input 4012 0000 0 0 0 0 0 0
+input 4500 1000 0 0 0 0 0 0
+input 4512 0000 0 0 0 0 0 0
+input 5200 0000 0 255 0 0 0 0
+capture 5700 gauntlet-driving
+stop 5800
