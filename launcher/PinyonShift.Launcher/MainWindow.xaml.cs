@@ -737,12 +737,14 @@ public partial class MainWindow : Window
     private async Task<string> ResolveRepositoryRootAsync(string? selectedInstallRoot = null)
     {
         static bool IsRoot(string path) => File.Exists(Path.Combine(path, "config", "supported-dumps.json"))
-            && File.Exists(Path.Combine(path, "tools", "setup-preview.ps1"));
+            && File.Exists(Path.Combine(path, "tools", "setup-preview.ps1"))
+            && File.Exists(Path.Combine(path, "CMakeLists.txt"))
+            && File.Exists(Path.Combine(path, "src", "main.cpp"));
 
         var directory = AppContext.BaseDirectory;
         for (var i = 0; i < 8; i++)
         {
-            if (IsRoot(directory))
+            if (IsRoot(directory) && !File.Exists(Path.Combine(directory, ".pinyon-source-sha256")))
             {
                 _canChooseInstallRoot = false;
                 _portableRoot = null;
@@ -794,11 +796,19 @@ public partial class MainWindow : Window
         var installedHash = File.Exists(payloadMarker)
             ? (await File.ReadAllTextAsync(payloadMarker)).Trim()
             : string.Empty;
-        if (!IsRoot(destination) || !string.Equals(installedHash, payloadHash,
+        // A matching ZIP hash does not mean its extracted files are still present.
+        // Check only payload-owned files; .local contains game data, settings and saves.
+        using var archive = ZipFile.OpenRead(payload);
+        bool HasPayloadFiles() => archive.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name))
+            .All(entry => File.Exists(Path.Combine(destination, entry.FullName))
+                && new FileInfo(Path.Combine(destination, entry.FullName)).Length == entry.Length);
+        if (!IsRoot(destination) || !HasPayloadFiles() || !string.Equals(installedHash, payloadHash,
                 StringComparison.OrdinalIgnoreCase))
         {
             Directory.CreateDirectory(destination);
             await Task.Run(() => ZipFile.ExtractToDirectory(payload, destination, overwriteFiles: true));
+            if (!IsRoot(destination) || !HasPayloadFiles())
+                throw new InvalidDataException("The release source payload is incomplete. Extract a fresh launcher release and retry.");
             await File.WriteAllTextAsync(payloadMarker, payloadHash + Environment.NewLine);
         }
         if (!IsRoot(destination))

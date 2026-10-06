@@ -42,7 +42,8 @@ class Check {
         bool CanChoose() => (bool)typeof(MainWindow).GetField("_canChooseInstallRoot", flags)!.GetValue(window)!;
         var root = AppContext.BaseDirectory;
         using (var zip = ZipFile.Open(Path.Combine(root, "pinyon-shift-source.zip"), ZipArchiveMode.Create)) {
-            foreach (var name in new[] { "config/supported-dumps.json", "tools/setup-preview.ps1" }) {
+            foreach (var name in new[] { "config/supported-dumps.json", "tools/setup-preview.ps1", "CMakeLists.txt",
+                "src/main.cpp", "src/config/host_config.cpp", "src/ui/settings_menu.cpp", "src/save/profile_body.cpp" }) {
                 using var writer = new StreamWriter(zip.CreateEntry(name).Open());
                 writer.Write("test payload");
             }
@@ -55,6 +56,27 @@ class Check {
         var sentinel = Path.Combine(installed, "user-save-sentinel");
         File.WriteAllText(sentinel, "preserve");
         Require(Resolve(selected) == installed && File.ReadAllText(sentinel) == "preserve", "Existing files changed");
+        var preservedState = Path.Combine(installed, ".local", "preview");
+        Directory.CreateDirectory(Path.Combine(preservedState, "user", "ForzaProfile"));
+        Directory.CreateDirectory(Path.Combine(preservedState, "config"));
+        var save = Path.Combine(preservedState, "user", "ForzaProfile", "ForzaProfile");
+        var config = Path.Combine(preservedState, "config", "settings.toml");
+        File.WriteAllBytes(save, new byte[] { 0, 255, 17, 42 });
+        File.WriteAllText(config, "keep my settings");
+        foreach (var damaged in new[] { "src/main.cpp", "src/config/host_config.cpp",
+                "src/ui/settings_menu.cpp", "src/save/profile_body.cpp" }) {
+            var file = Path.Combine(installed, damaged);
+            File.Delete(file);
+            Require(Resolve(selected) == installed && File.ReadAllText(file) == "test payload",
+                $"Missing source not repaired: {damaged}");
+            Require(Convert.ToHexString(File.ReadAllBytes(save)) == "00FF112A"
+                && File.ReadAllText(config) == "keep my settings"
+                && File.ReadAllText(sentinel) == "preserve", "Source repair changed user files");
+        }
+        File.WriteAllText(Path.Combine(installed, "src/main.cpp"), "truncated");
+        Require(Resolve(selected) == installed
+            && File.ReadAllText(Path.Combine(installed, "src/main.cpp")) == "test payload",
+            "Truncated source accepted");
         var alternate = Path.Combine(root, "second installation");
         Require(Resolve(alternate).StartsWith(alternate), "Switch failed");
         Require(File.ReadAllText(sentinel) == "preserve", "Switch touched old installation");
@@ -196,13 +218,27 @@ class Check {
             Require(button.ActualWidth > 0 && button.ActualHeight >= 24,
                 $"Folder control clipped: {button.ActualWidth} x {button.ActualHeight}");
         }
+        File.Delete(payloadMarker); // This next fixture represents a developer checkout.
         // Checkout detection takes precedence over packaged configuration.
         Directory.CreateDirectory(Path.Combine(root, "config"));
         Directory.CreateDirectory(Path.Combine(root, "tools"));
         File.WriteAllText(Path.Combine(root, "config/supported-dumps.json"), "{}");
         File.WriteAllText(Path.Combine(root, "tools/setup-preview.ps1"), "");
+        Require(Resolve(selected) == installed && CanChoose(), "Partial checkout accepted");
+        Directory.CreateDirectory(Path.Combine(root, "src"));
+        File.WriteAllText(Path.Combine(root, "CMakeLists.txt"), "");
+        File.WriteAllText(Path.Combine(root, "src/main.cpp"), "");
         Require(Path.TrimEndingDirectorySeparator(Resolve(selected)) == Path.TrimEndingDirectorySeparator(root)
             && !CanChoose(), "Checkout relocated");
+        File.WriteAllText(Path.Combine(root, ".pinyon-source-sha256"), "managed source");
+        Require(Resolve(selected) == installed && CanChoose(), "Managed source bypasses payload checks");
+        using (var damagedZip = ZipFile.Open(Path.Combine(root, "pinyon-shift-source.zip"), ZipArchiveMode.Update))
+            damagedZip.GetEntry("src/main.cpp")!.Delete();
+        var brokenRoot = Path.Combine(root, "broken release");
+        try { Resolve(brokenRoot); throw new Exception("Incomplete release ZIP accepted"); }
+        catch (InvalidDataException) { }
+        Require(!File.Exists(Path.Combine(brokenRoot, "source", "0.1.1", ".pinyon-source-sha256")),
+            "Incomplete ZIP marked as installed");
         Console.WriteLine("Launcher folder selection, portable installs, preservation, graphics preparation, progress and layout passed.");
         window.Close();
     }
