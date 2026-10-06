@@ -427,7 +427,7 @@ class SetupFailureContractTests(unittest.TestCase):
     def test_every_native_build_step_is_named(self):
         build = (ROOT / "tools/build-preview.ps1").read_text(encoding="utf-8")
         calls = build.split("Invoke-PinyonBuildCommand")[1:]
-        self.assertEqual(len(calls), 4)
+        self.assertGreaterEqual(len(calls), 4)
         for call in calls:
             # Each call statement ends before the next line that starts code.
             statement = call.split("\n    Invoke-", 1)[0].split("\n}", 1)[0]

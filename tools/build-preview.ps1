@@ -83,6 +83,12 @@ try {
         (Join-Path $logs 'rexglue-build.log') 'ReXGlue code-generator build failed.' -Step 'Build the ReXGlue code generator'
 }
 finally { Pop-Location }
+# The pinned CLI uses narrow argv and file APIs. UTF-8 process code pages keep
+# Unicode installation paths intact on Windows 10 1903 and newer.
+Invoke-PinyonBuildCommand 'mt.exe' @('-nologo', "-inputresource:$rexglueExe;#1",
+    '-manifest', (Join-Path $root 'config/rexglue/codegen-windows.manifest'),
+    "-outputresource:$rexglueExe;#1") (Join-Path $logs 'rexglue-manifest.log') `
+    'Could not enable Unicode paths for the code generator.' -Step 'Configure code generator Unicode paths'
 if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
     throw "The ReXGlue code generator was not produced: $rexglueExe"
 }
@@ -108,7 +114,7 @@ if ($requiresBootstrap) {
     }
     Invoke-PinyonLoggedCommand -FilePath $rexglueExe -Arguments @(
         '--log-level', 'info', '--log-file', $codegenLog, 'codegen', $manifest) `
-        -LogPath $codegenConsoleLog | Out-Host
+        -LogPath $codegenConsoleLog -Utf8Output | Out-Host
     $codegenExit = $LASTEXITCODE
     if ($codegenExit -ne 0) {
         foreach ($tree in $generatedTrees) {

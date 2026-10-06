@@ -197,7 +197,8 @@ function Invoke-PinyonLoggedCommand {
         [Parameter(Mandatory)] [string]$FilePath,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]]$Arguments,
         [Parameter(Mandatory)] [string]$LogPath,
-        [switch]$Append
+        [switch]$Append,
+        [switch]$Utf8Output
     )
     # Windows PowerShell turns redirected native stderr into ErrorRecord
     # objects. Keep streaming them as plain text and decide success from the
@@ -207,7 +208,9 @@ function Invoke-PinyonLoggedCommand {
     if ($parent) { [void](New-Item -ItemType Directory -Force -Path $parent) }
     $writer = [IO.StreamWriter]::new($LogPath, [bool]$Append, [Text.UTF8Encoding]::new($false))
     $writer.AutoFlush = $true
+    $savedOutputEncoding = [Console]::OutputEncoding
     try {
+        if ($Utf8Output) { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
         $writer.WriteLine("> $(Format-PinyonCommandLine -FilePath $FilePath -Arguments $Arguments)")
         if ($null -eq (Get-Command -Name $FilePath -ErrorAction SilentlyContinue)) {
             # With stderr merged, a missing program would only be a log line
@@ -234,7 +237,10 @@ function Invoke-PinyonLoggedCommand {
         $code = $LASTEXITCODE
         $writer.WriteLine("> exit code $code")
     }
-    finally { $writer.Dispose() }
+    finally {
+        $writer.Dispose()
+        if ($Utf8Output) { [Console]::OutputEncoding = $savedOutputEncoding }
+    }
     $global:LASTEXITCODE = $code
 }
 
