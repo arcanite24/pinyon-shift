@@ -528,9 +528,17 @@ function Enter-PinyonBuildEnvironment {
     $vsRoot = Get-PinyonVisualStudioRoot
     $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
     $inheritedPath = $env:PATH
+    $inheritedTemp = $env:TEMP
+    $inheritedTmp = $env:TMP
     try {
         # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
         $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
+        # VsDevCmd expands TEMP unquoted inside a parenthesized block even
+        # when debug logging is disabled. Portable install paths can break it.
+        $buildTemp = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PinyonShift\build-temp'
+        New-Item -ItemType Directory -Path $buildTemp -Force | Out-Null
+        $env:TEMP = $buildTemp
+        $env:TMP = $buildTemp
         $marker = '::pinyon-environment::'
         # Merged stderr arrives as ErrorRecords; under 'Stop' the first one
         # would end the function before the exit code is known.
@@ -543,6 +551,8 @@ function Enter-PinyonBuildEnvironment {
     }
     finally {
         $env:PATH = $inheritedPath
+        $env:TEMP = $inheritedTemp
+        $env:TMP = $inheritedTmp
     }
     $markerIndex = -1
     for ($i = 0; $i -lt $output.Count; $i++) {
@@ -563,7 +573,9 @@ function Enter-PinyonBuildEnvironment {
     foreach ($line in $lines) {
         $separator = $line.IndexOf('=')
         if ($separator -gt 0) {
-            [Environment]::SetEnvironmentVariable($line.Substring(0, $separator),
+            $name = $line.Substring(0, $separator)
+            if ($name -in @('TEMP', 'TMP')) { continue }
+            [Environment]::SetEnvironmentVariable($name,
                 $line.Substring($separator + 1), 'Process')
         }
     }

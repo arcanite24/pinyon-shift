@@ -14,6 +14,50 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_vsdevcmd_uses_safe_temp_and_restores_portable_install_paths(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-vs-temp-") as directory:
+            root = pathlib.Path(directory)
+            batch = root / "Build Tools/Common7/Tools/VsDevCmd.bat"
+            batch.parent.mkdir(parents=True)
+            batch.write_text(
+                '@echo off\n'
+                'if "1" == "0" (\n'
+                '  echo %TEMP%\\dd_vsdevcmd17_preinit_env.log\n'
+                ')\n'
+                'if "%PINYON_TEST_VS_FAIL%" == "1" exit /b 17\n'
+                'set "PINYON_TEST_VS_TEMP=%TEMP%"\n'
+                'exit /b 0\n')
+            environment = os.environ.copy()
+            environment["PINYON_TEST_VS_ROOT"] = str(root / "Build Tools")
+            environment["PINYON_TEST_INSTALL"] = str(root / "Forza (Pinyon Shift)")
+            command = r"""
+. ./tools/release-common.ps1
+$ErrorActionPreference = 'Stop'
+function Get-PinyonVisualStudioRoot { $env:PINYON_TEST_VS_ROOT }
+function Get-PinyonCMake { 'test-cmake' }
+$env:TEMP = Join-Path $env:PINYON_TEST_INSTALL 'data\temp'
+$env:TMP = Join-Path $env:PINYON_TEST_INSTALL 'other (temp)'
+$expectedTemp = $env:TEMP
+$expectedTmp = $env:TMP
+$env:PINYON_TEST_VS_FAIL = '0'
+Enter-PinyonBuildEnvironment | Out-Null
+if ($env:PINYON_TEST_VS_TEMP -match '[ ()]') { throw 'Unsafe child TEMP' }
+if ($env:TEMP -ne $expectedTemp -or $env:TMP -ne $expectedTmp) { throw 'Temp paths changed on success' }
+$env:PINYON_TEST_VS_FAIL = '1'
+try {
+    Enter-PinyonBuildEnvironment | Out-Null
+    throw 'Failed tools were accepted'
+} catch {
+    if ($_.Exception.Data['exit_code'] -ne 17) { throw }
+}
+if ($env:TEMP -ne $expectedTemp -or $env:TMP -ne $expectedTmp) { throw 'Temp paths changed on failure' }
+exit 0
+"""
+            result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
+                                    cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_release_workflow_publishes_only_preview_channels_as_prereleases(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertIn("$release.channel -eq 'preview'", workflow)
