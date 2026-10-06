@@ -18,6 +18,7 @@ POWERSHELL = shutil.which("powershell")
 NATIVE = ROOT / "out/build/win-amd64-release/pinyon_shift_host_config_tests.exe"
 
 CASES = [
+    ("bom_first_setting", "\ufeffvsync = true\r\ncustom_value = 77\r\n", [("vsync", "false")]),
     ("replace_crlf", "pinyon_shift_config_schema = 25\r\nvsync = true\r\nmnk_mode = true\r\n",
      [("vsync", "false")]),
     ("replace_lf_indented_comment", "a = 1\n  vsync=true   # keep in sync\nb = 2\n",

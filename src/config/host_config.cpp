@@ -127,7 +127,13 @@ std::optional<std::string> ReadFile(const std::filesystem::path& path) {
   }
   std::ostringstream contents;
   contents << input.rdbuf();
-  return contents.str();
+  std::string text = contents.str();
+  // Match the TOML loader and Windows text readers: a UTF-8 BOM is an
+  // encoding marker, not part of the first setting's name.
+  if (text.starts_with("\xEF\xBB\xBF")) {
+    text.erase(0, 3);
+  }
+  return text;
 }
 
 bool WriteAtomically(const std::filesystem::path& path, std::string_view text) {

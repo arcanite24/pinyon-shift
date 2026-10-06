@@ -149,14 +149,11 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     return output.good();
   }
 
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
+  const auto config_contents = pinyon_shift::config::ReadFile(path);
+  if (!config_contents) {
     return false;
   }
-  std::ostringstream contents;
-  contents << input.rdbuf();
-  input.close();
-  const std::string config_text = contents.str();
+  const std::string& config_text = *config_contents;
   const std::regex schema_pattern(
       R"((?:^|\n)\s*pinyon_shift_config_schema\s*=\s*([0-9]+)\s*(?:#.*)?(?:\r?\n|$))");
   std::smatch match;
