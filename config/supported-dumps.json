@@ -42,7 +42,8 @@
         "tool": "extract-xiso",
         "skip_system_update": true,
         "file_count": 2400,
-        "size_bytes": 7221319555
+        "size_bytes": 7221319555,
+        "file_catalog": "supported-extracted-ms-2505.json"
       },
       "executables": [
         {

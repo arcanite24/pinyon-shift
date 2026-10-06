@@ -17,7 +17,7 @@ public partial class MainWindow : Window
 {
     private readonly ObservableCollection<RouteStep> _steps =
     [
-        new("VERIFY", "Verify disc", "", "1"),
+        new("VERIFY", "Verify game", "", "1"),
         new("TOOLS", "Get build tools", "", "2"),
         new("EXTRACT", "Extract game", "", "3"),
         new("BUILD", "Build", "", "4"),
@@ -183,6 +183,19 @@ public partial class MainWindow : Window
         UpdatePrimaryButton();
     }
 
+    private void BrowseFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Choose your extracted Forza Horizon game folder",
+            Multiselect = false,
+            AddToRecent = _portableRoot is null
+        };
+        if (dialog.ShowDialog(this) == true)
+            SelectDiscImage(dialog.FolderName);
+        UpdatePrimaryButton();
+    }
+
     private void SelectDiscImage(string path)
     {
         IsoPathTextBox.Text = path;
@@ -193,7 +206,7 @@ public partial class MainWindow : Window
         UpdatePrimaryButton();
     }
 
-    // Dragging a disc image anywhere onto the window selects it.
+    // Dragging a disc image or extracted folder selects the game source.
     private bool CanAcceptDrop(DragEventArgs e, out string? path)
     {
         path = null;
@@ -201,7 +214,7 @@ public partial class MainWindow : Window
             !e.Data.GetDataPresent(DataFormats.FileDrop)) return false;
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: 1 } files) return false;
         path = files[0];
-        return File.Exists(path);
+        return File.Exists(path) || Directory.Exists(path);
     }
 
     private void Window_DragOver(object sender, DragEventArgs e)
@@ -255,6 +268,7 @@ public partial class MainWindow : Window
         AndroidButton.IsEnabled = false;
         _cancellation = new CancellationTokenSource();
         BrowseButton.IsEnabled = false;
+        BrowseFolderButton.IsEnabled = false;
         OwnershipCheckBox.IsEnabled = false;
         PrimaryButton.IsEnabled = false;
         SetPrimaryText("Building…");
@@ -287,7 +301,7 @@ public partial class MainWindow : Window
             startInfo.ArgumentList.Add("Bypass");
             startInfo.ArgumentList.Add("-File");
             startInfo.ArgumentList.Add(script);
-            startInfo.ArgumentList.Add("-IsoPath");
+            startInfo.ArgumentList.Add(Directory.Exists(IsoPathTextBox.Text) ? "-ExtractedPath" : "-IsoPath");
             startInfo.ArgumentList.Add(IsoPathTextBox.Text);
             startInfo.ArgumentList.Add("-JsonEvents");
 
@@ -328,6 +342,7 @@ public partial class MainWindow : Window
             _busy = false;
             GraphicsSettingsButton.IsEnabled = true;
             BrowseButton.IsEnabled = true;
+            BrowseFolderButton.IsEnabled = true;
             OwnershipCheckBox.IsEnabled = true;
             UpdatePrimaryButton();
         }
@@ -913,7 +928,7 @@ public partial class MainWindow : Window
         ChooseInstallRootButton.IsEnabled = !_busy && _canChooseInstallRoot &&
             GraphicsPanel.Visibility != Visibility.Visible;
         PrimaryButton.IsEnabled = !_busy && (_pendingReport is not null || _gameExecutable is not null ||
-            (_repositoryRoot is not null && File.Exists(IsoPathTextBox.Text) && OwnershipCheckBox.IsChecked == true));
+            (_repositoryRoot is not null && (File.Exists(IsoPathTextBox.Text) || Directory.Exists(IsoPathTextBox.Text)) && OwnershipCheckBox.IsChecked == true));
         // The Android package is made from the game this PC built.
         AndroidButton.Visibility = _gameExecutable is not null && _pendingReport is null
             ? Visibility.Visible : Visibility.Collapsed;

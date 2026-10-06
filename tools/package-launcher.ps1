@@ -60,12 +60,14 @@ $release = Get-Content (Join-Path $root 'config/release.json') -Raw | ConvertFro
 $fileVersion = ($release.version -split '-', 2)[0] + '.0'
 & dotnet publish (Join-Path $root 'launcher/PinyonShift.Launcher/PinyonShift.Launcher.csproj') `
     -c $Configuration -r win-x64 --self-contained true -o $publish `
+    "-p:BaseOutputPath=$(Join-Path $artifacts 'build')/" `
     "-p:Version=$($release.version)" "-p:FileVersion=$fileVersion"
 if ($LASTEXITCODE -ne 0) { throw 'Launcher publish failed.' }
 
 $include = @(
     'CMakeLists.txt', 'CMakePresets.json', 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md',
     'cmake', 'config/gamecontrollerdb.txt', 'config/release.json', 'config/release-toolchain.json', 'config/supported-dumps.json',
+    'config/supported-extracted-ms-2505.json', 'tools/verify-extracted-game.ps1', 'docs/EXTRACTED_GAME_INPUT.md',
     'config/rexglue', 'include', 'mods_src', 'src', 'tests/config', 'tests/native_renderer',
     'tests/save', 'tests/ui',
     'tools/fh1_archive_extract.cpp', 'tools/fh1_texture_import.cpp', 'tools/thread_sampler.cpp',

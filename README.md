@@ -134,7 +134,9 @@ Vulkan path got here is in the [performance backlog](docs/PERFORMANCE_BACKLOG.md
 1. Download `PinyonShift-Launcher.zip` from the latest release.
 2. Extract the two files to a folder and run `PinyonShiftLauncher.exe`.
 3. Drop the ISO you personally dumped from a supported original disc onto the
-   launcher, or choose it with **Choose ISO**.
+   launcher, or choose it with **Choose ISO**. You can also use **Choose extracted
+   folder** for an unmodified, complete dump of the supported disc; see
+   [extracted game inputs](docs/EXTRACTED_GAME_INPUT.md).
 4. Confirm ownership, then choose **Verify and build**.
 5. Leave the launcher open while it installs the Windows build tools and builds
    the preview. The first build can take 20–60 minutes and needs roughly 25 GB of

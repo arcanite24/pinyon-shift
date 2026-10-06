@@ -97,6 +97,36 @@ class Check {
         typeof(MainWindow).GetField("_busy", flags)!.SetValue(window, false);
         update.Invoke(window, null);
 
+        // An extracted source uses the same ownership gate as an ISO.
+        var sourceFolder = Path.Combine(root, "owned extracted game");
+        Directory.CreateDirectory(sourceFolder);
+        var sourceField = typeof(MainWindow).GetField("_repositoryRoot", flags)!;
+        var previousSource = sourceField.GetValue(window);
+        sourceField.SetValue(window, installed);
+        typeof(MainWindow).GetMethod("SelectDiscImage", flags)!.Invoke(window, [sourceFolder]);
+        var ownership = (CheckBox)window.FindName("OwnershipCheckBox");
+        ownership.IsChecked = false; update.Invoke(window, null);
+        Require(!((Button)window.FindName("PrimaryButton")).IsEnabled, "Folder bypassed ownership gate");
+        ownership.IsChecked = true; update.Invoke(window, null);
+        Require(((Button)window.FindName("PrimaryButton")).IsEnabled, "Extracted folder cannot start setup");
+        Require(((Button)window.FindName("BrowseFolderButton")).Content.ToString() == "Choose extracted folder",
+            "Extracted folder picker missing");
+        if (args.Length != 0) {
+            Directory.CreateDirectory(args[0]);
+            var setupContent = (FrameworkElement)window.Content;
+            setupContent.Measure(new Size(920, 640));
+            setupContent.Arrange(new Rect(new Size(920, 640)));
+            setupContent.UpdateLayout();
+            var bitmap = new RenderTargetBitmap(920, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(setupContent);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+            using var file = File.Create(Path.Combine(args[0], "launcher-extracted-source-920.png")); png.Save(file);
+        }
+        ownership.IsChecked = false;
+        sourceField.SetValue(window, previousSource);
+        ((TextBox)window.FindName("IsoPathTextBox")).Text = "";
+        update.Invoke(window, null);
+
         // Portable installs: portable.txt beside the launcher keeps everything in its data folder.
         var portableType = typeof(MainWindow).Assembly.GetType("PinyonShift.Launcher.PortableMode")!;
         object Portable(string name, params object[] arguments) {
@@ -257,5 +287,6 @@ if __name__ == "__main__":
   <ItemGroup><ProjectReference Include="{reference}" /></ItemGroup>
 </Project>''')
         (project / "Program.cs").write_text(CHECK)
-        subprocess.run(["dotnet", "run", "--project", str(project), "-c", "Release",
-                        "--", *[str(pathlib.Path(p).resolve()) for p in sys.argv[1:]]], check=True)
+        output = project / "bin"
+        subprocess.run(["dotnet", "build", str(project), "-c", "Release", "-o", str(output)], check=True)
+        subprocess.run([str(output / "Check.exe"), *[str(pathlib.Path(p).resolve()) for p in sys.argv[1:]]], check=True)

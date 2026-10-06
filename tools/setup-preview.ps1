@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string]$IsoPath,
+    [Parameter(Mandatory, ParameterSetName = 'Iso')] [ValidateNotNullOrEmpty()] [string]$IsoPath,
+    [Parameter(Mandatory, ParameterSetName = 'Extracted')] [Alias('GamePath', 'GameDir')]
+    [ValidateNotNullOrEmpty()] [string]$ExtractedPath,
     [switch]$JsonEvents,
     [switch]$VerifyOnly
 )
@@ -21,7 +23,9 @@ if (Test-Path -LiteralPath $errorPath) { Remove-Item -LiteralPath $errorPath -Fo
 
 try {
     $config = Get-PinyonReleaseToolchain
-    $resolvedIso = (Resolve-Path -LiteralPath $IsoPath).Path
+    $folderInput = $PSCmdlet.ParameterSetName -eq 'Extracted'
+    $resolvedIso = if ($folderInput) { $null } else { (Resolve-Path -LiteralPath $IsoPath).Path }
+    $resolvedSource = if ($folderInput) { (Resolve-Path -LiteralPath $ExtractedPath).Path } else { $resolvedIso }
     $gameRoot = Resolve-PinyonLocalPath -RelativePath '.local/game/base'
     $statePath = Resolve-PinyonLocalPath -RelativePath '.local/setup-state.json'
     if (-not [Environment]::Is64BitOperatingSystem) {
@@ -49,10 +53,13 @@ try {
         $names = ($buildTreeProcesses | ForEach-Object { "$($_.ProcessName).exe (PID $($_.Id))" }) -join ', '
         throw "Close $names before building. It was started from the Pinyon Shift build folder and keeps its runtime files locked."
     }
-    Write-PinyonEvent verify 2 'Reading the disc image. Nothing is uploaded.' -JsonEvents:$JsonEvents
-    $verification = & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso -Json |
-        ConvertFrom-Json
-    if (-not $verification.recognized) { throw 'This disc image is not a supported revision.' }
+    Write-PinyonEvent verify 2 'Reading your game source. Nothing is uploaded.' -JsonEvents:$JsonEvents
+    $verification = if ($folderInput) {
+        & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $resolvedSource -Json | ConvertFrom-Json
+    } else {
+        & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso -Json | ConvertFrom-Json
+    }
+    if (-not $verification.recognized) { throw 'This game source is not a supported, complete retail revision.' }
     Write-PinyonEvent verify 15 "Verified $($verification.serial) by exact SHA-256." -JsonEvents:$JsonEvents
     if ($VerifyOnly) { return }
 
@@ -63,23 +70,51 @@ try {
     $extractedValid = $false
     if (Test-Path -LiteralPath (Join-Path $gameRoot 'default.xex') -PathType Leaf) {
         try {
-            $check = & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso `
-                -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+            $check = if ($folderInput) {
+                & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+            } else {
+                & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+            }
             $extractedValid = [bool]$check.extracted_executables_match
         }
         catch { $extractedValid = $false }
     }
     if (-not $extractedValid) {
-        if (Test-Path -LiteralPath $gameRoot) { Remove-Item -LiteralPath $gameRoot -Recurse -Force }
+        $checkedGameRoot = [IO.Path]::GetFullPath($gameRoot).TrimEnd('\', '/')
+        $intendedGameRoot = [IO.Path]::GetFullPath((Join-Path $root '.local/game/base')).TrimEnd('\', '/')
+        if ($checkedGameRoot -ne $intendedGameRoot) { throw 'Unexpected local game destination.' }
+        if ((Test-Path -LiteralPath $checkedGameRoot) -and
+            ((Get-Item -LiteralPath $checkedGameRoot).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'The local game destination must not be a link or junction.'
+        }
+        if ($folderInput) {
+            $sourcePrefix = $resolvedSource.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+            $targetPrefix = $checkedGameRoot + [IO.Path]::DirectorySeparatorChar
+            if ($sourcePrefix.StartsWith($targetPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                $targetPrefix.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'The extracted source must be separate from the local game destination.'
+            }
+        }
+        if (Test-Path -LiteralPath $gameRoot) { Remove-Item -LiteralPath $checkedGameRoot -Recurse -Force }
         [void](New-Item -ItemType Directory -Force -Path $gameRoot)
-        $extractExe = Join-Path (Join-Path $root $config.extract_xiso.install_path) `
-            $config.extract_xiso.executable
-        Write-PinyonEvent extract 46 'Extracting your disc image locally. The original file is not modified.' -JsonEvents:$JsonEvents
-        & $extractExe -q -s -x -d $gameRoot $resolvedIso
-        if ($LASTEXITCODE -ne 0) { throw 'Disc-image extraction failed.' }
-        $check = & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso `
-            -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
-        if (-not $check.extracted_executables_match) {
+        if ($folderInput) {
+            Write-PinyonEvent extract 46 'Copying verified game files locally. The source folder is not modified.' -JsonEvents:$JsonEvents
+            foreach ($item in Get-ChildItem -LiteralPath $resolvedSource -Force) {
+                if ($item.Name -ne '$SystemUpdate') {
+                    Copy-Item -LiteralPath $item.FullName -Destination $gameRoot -Recurse
+                }
+            }
+            $check = & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+        } else {
+            $extractExe = Join-Path (Join-Path $root $config.extract_xiso.install_path) `
+                $config.extract_xiso.executable
+            Write-PinyonEvent extract 46 'Extracting your disc image locally. The original file is not modified.' -JsonEvents:$JsonEvents
+            & $extractExe -q -s -x -d $gameRoot $resolvedIso
+            if ($LASTEXITCODE -ne 0) { throw 'Disc-image extraction failed.' }
+            $check = & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso `
+                -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+        }
+        if (-not $check.recognized -or -not $check.extracted_executables_match) {
             throw 'Extracted game executables failed verification.'
         }
     }
@@ -91,6 +126,7 @@ try {
         schema_version = 1
         completed_utc = [DateTime]::UtcNow.ToString('o')
         dump_id = $verification.dump_id
+        source_kind = if ($folderInput) { 'extracted' } else { 'iso' }
         iso_sha256 = $verification.iso_sha256
         result = 'ready'
     }

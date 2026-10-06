@@ -145,11 +145,14 @@
                                    StrokeDashArray="5 4" IsHitTestVisible="False"/>
                         <StackPanel>
                             <DockPanel>
+                                <Button DockPanel.Dock="Right" x:Name="BrowseFolderButton" Content="Choose extracted folder"
+                                        Style="{StaticResource QuietButton}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                        Click="BrowseFolderButton_Click"/>
                                 <Button DockPanel.Dock="Right" x:Name="BrowseButton" Content="Choose ISO"
                                         Style="{StaticResource QuietButton}" VerticalAlignment="Center"
                                         Click="BrowseButton_Click"/>
                                 <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="DropHintText" Text="Drop your Forza Horizon .iso here"
+                                    <TextBlock x:Name="DropHintText" Text="Drop your Forza Horizon ISO or extracted folder"
                                                FontSize="17" FontFamily="Bahnschrift SemiBold" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="The USA retail disc (MS-2505), dumped from your own copy."
                                                FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/>
