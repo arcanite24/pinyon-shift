@@ -1,14 +1,16 @@
 pinyon-shift-fh1-render-test-v1
 # Output-frame paced, synchronized on game state, from a seed without a
 # profile (fresh-2026-09-28, run with --fresh-profile): the new-player
-# opening. Press Start (after its movie opens), the single-player menu, then,
+# opening. Wait for the title asset (including a recent open), then press Start
+# and enter the single-player menu. Longer bounded waits cover splash/movie
+# wall time even when the renderer outputs frames much faster than 60 Hz. Then,
 # once the opening event's route has loaded (trackroute170.xml), the controls
 # screen, the intro and the opening drive in the Viper: the second race event
 # of the matrix; the intro cinematic runs on wall time, so the drive captures
 # keep a margin after it. A is pressed every 300 frames, as the launcher's shader
 # preparation route does, to pass each screen.
 input 0 0000 0 0 0 0 0 0
-wait 100 1200 movie pressstart
+wait 100 12000 file pressstart
 capture 300 press-start
 input 360 1000 0 0 0 0 0 0
 input 366 0000 0 0 0 0 0 0
@@ -17,7 +19,7 @@ input 666 0000 0 0 0 0 0 0
 capture 900 single-player
 input 960 1000 0 0 0 0 0 0
 input 966 0000 0 0 0 0 0 0
-wait 970 2400 file trackroute170
+wait 970 24000 file trackroute170
 input 1270 1000 0 0 0 0 0 0
 input 1276 0000 0 0 0 0 0 0
 input 1570 1000 0 0 0 0 0 0
