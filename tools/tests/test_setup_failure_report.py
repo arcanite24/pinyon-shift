@@ -163,6 +163,55 @@ class FailureDetailTests(unittest.TestCase):
 
 @unittest.skipUnless(POWERSHELL, "Windows PowerShell is required")
 class BuildCommandFailureTests(unittest.TestCase):
+    def test_missing_or_empty_log_preserves_original_failure(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-empty-log-") as directory:
+            root = pathlib.Path(directory)
+            for contents in (None, "", "single line\n"):
+                with self.subTest(contents=contents):
+                    log = root / "codegen.log"
+                    if contents is not None:
+                        log.write_text(contents, encoding="utf-8")
+                    result = run_powershell(r"""
+try {
+    throw (New-PinyonCommandFailure -FailureMessage 'Original codegen failure' -Step 'Translate the game code' -LogPath $env:PINYON_LOG -ExitCode 9 -CommandLine 'rexglue codegen')
+}
+catch {
+    $record = New-PinyonFailureRecord -ErrorRecord $_
+    [Console]::Out.Write(($record | ConvertTo-Json -Depth 4))
+}
+""", {"PINYON_LOG": str(log)})
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    record = json.loads(result.stdout)
+                    self.assertIn("Original codegen failure", record["message"])
+                    self.assertEqual(record["exit_code"], 9)
+                    self.assertEqual(record["step"], "Translate the game code")
+                    self.assertEqual(record["error_excerpt"], [] if not contents else ["single line"])
+
+    def test_codegen_console_error_survives_missing_native_log(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-codegen-console-") as directory:
+            root = pathlib.Path(directory)
+            fake = root / "fake_codegen.py"
+            fake.write_text("import sys\nprint('Failed: example.toml is not a manifest: no [project] section.')\nsys.exit(3)\n")
+            log = root / "codegen-console.log"
+            report = root / "report.json"
+            result = run_powershell(r"""
+Invoke-PinyonLoggedCommand -FilePath $env:PINYON_PYTHON -Arguments @($env:PINYON_FAKE) -LogPath $env:PINYON_LOG | Out-Null
+$codegenExit = $LASTEXITCODE
+try {
+    throw (New-PinyonCommandFailure -FailureMessage 'Local code generation failed' -Step 'Translate the game code' -LogPath $env:PINYON_LOG -ExitCode $codegenExit)
+}
+catch {
+    $record = New-PinyonFailureRecord -ErrorRecord $_
+    [IO.File]::WriteAllText($env:PINYON_REPORT, ($record | ConvertTo-Json -Depth 4))
+}
+""", {"PINYON_PYTHON": sys.executable, "PINYON_FAKE": str(fake),
+       "PINYON_LOG": str(log), "PINYON_REPORT": str(report)})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(report.read_text(encoding="utf-8-sig"))
+            self.assertEqual(record["exit_code"], 3)
+            self.assertIn("no [project] section", record["error_excerpt"][0])
+            self.assertIn("no [project] section", log.read_text())
+
     def test_failed_native_step_reports_step_exit_code_log_and_error(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-build-failure-") as directory:
             fake = pathlib.Path(directory) / "fake_ninja.py"

@@ -368,9 +368,9 @@ function Get-PinyonCommandFailureDetail {
 
 function Read-PinyonLogLines {
     param([Parameter(Mandatory)] [string]$LogPath)
-    if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) { return [string[]]@() }
-    try { [string[]]@(Get-Content -LiteralPath $LogPath -ErrorAction Stop) }
-    catch { [string[]]@() }
+    if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) { return ,([string[]]@()) }
+    try { ,([string[]]@(Get-Content -LiteralPath $LogPath -ErrorAction Stop)) }
+    catch { ,([string[]]@()) }
 }
 
 # An exception describing a failed native step, with the facts
