@@ -204,6 +204,7 @@ endif()
 target_include_directories(pinyon_shift PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${REXSDK_DIR}/thirdparty/tomlplusplus/include
+    ${REXSDK_DIR}/thirdparty/renderdoc
     ${REXSDK_DIR})
 endif()  # NOT PINYON_SHIFT_HOST_TESTS_ONLY
 

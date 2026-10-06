@@ -21,6 +21,9 @@
 #include <rex/ui/flags.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/presenter.h>
+#if REX_HAS_VULKAN
+#include <rex/ui/vulkan/provider.h>
+#endif
 #include <rex/ui/windowed_app_context.h>
 #include <rex/ui/window.h>
 
@@ -881,6 +884,24 @@ void PinyonShiftApp::OnPostSetup() {
       runtime() ? runtime()->graphics_system() : nullptr);
   pinyon_shift::native_renderer::InstallShaderCapture(
       runtime() ? runtime()->graphics_system() : nullptr);
+#if REX_HAS_VULKAN
+  if (auto* graphics = runtime() ? runtime()->graphics_system() : nullptr) {
+    if (auto* provider = dynamic_cast<rex::ui::vulkan::VulkanProvider*>(
+            graphics->provider())) {
+      if (auto* device = provider->vulkan_device()) {
+        const auto& properties = device->properties();
+        pinyon_shift::diagnostics::RecordEvent(
+            "graphics.device.selected",
+            {{"backend", "vulkan"},
+             {"name", properties.deviceName},
+             {"vendor_id", std::to_string(properties.vendorID)},
+             {"device_id", std::to_string(properties.deviceID)},
+             {"api_version", std::to_string(properties.apiVersion)},
+             {"driver_version", std::to_string(properties.driverVersion)}});
+      }
+    }
+  }
+#endif
   pinyon_shift::diagnostics::RecordEvent(
       "runtime.setup.complete",
       {{"memory", runtime() && runtime()->memory() ? "1" : "0"},

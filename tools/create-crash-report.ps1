@@ -127,7 +127,7 @@ try {
             if ($first.event -ne 'process.start' -or [string]$first.pid -ne [string]$ProcessId -or
                 ([datetime]$first.utc).ToUniversalTime() -lt $StartedUtc.ToUniversalTime().AddSeconds(-2)) { continue }
             $eventLog = $candidate
-            $sessionEvents = @(Get-Content -LiteralPath $candidate.FullName | Where-Object { $_ -match '"event"\s*:\s*"logging.ready"' } | ForEach-Object {
+            $sessionEvents = @(Get-Content -LiteralPath $candidate.FullName | Where-Object { $_ -match '"event"\s*:\s*"(?:logging.ready|graphics.device.selected)"' } | ForEach-Object {
                 try { $_ | ConvertFrom-Json } catch { }
             } | Where-Object { [string]$_.pid -eq [string]$ProcessId -and $_.session -eq $first.session })
             break
@@ -166,6 +166,7 @@ try {
     }
 
     $loggingReady = $sessionEvents | Where-Object event -eq 'logging.ready' | Select-Object -Last 1
+    $selectedGpu = $sessionEvents | Where-Object event -eq 'graphics.device.selected' | Select-Object -Last 1
     $runtimeLog = Join-Path $resolvedStateRoot 'logs/runtime.log'
     if ($null -ne $loggingReady -and (Test-Path -LiteralPath $runtimeLog -PathType Leaf) -and
             (Get-Item -LiteralPath $runtimeLog).LastWriteTimeUtc -ge $StartedUtc.ToUniversalTime()) {
@@ -335,8 +336,19 @@ try {
         graphics = [ordered]@{
             # The native renderer is the only renderer; there is no choice to report.
             renderer = 'native'
-            backend = if ($null -ne $loggingReady) { $loggingReady.renderer } else { $null }
+            backend = if ($null -ne $selectedGpu) { $selectedGpu.backend } else { $null }
+            backend_requested = if ($null -ne $loggingReady) { $loggingReady.renderer } else { $null }
             logging_initialized = $null -ne $loggingReady
+            selected_device = if ($null -ne $selectedGpu) {
+                [ordered]@{
+                    backend = $selectedGpu.backend
+                    name = $selectedGpu.name
+                    vendor_id = $selectedGpu.vendor_id
+                    device_id = $selectedGpu.device_id
+                    api_version = $selectedGpu.api_version
+                    driver_version = $selectedGpu.driver_version
+                }
+            } else { $null }
             resolve_readback = $resolveCounters
             presentation = $presentationCounters
         }
@@ -373,7 +385,8 @@ try {
         "- Exit code: ``$($manifest.process.exit_code_hex)``",
         "- Exception: ``$($details.exception_code)``",
         "- Windows build: ``$($manifest.system.os_build)``",
-        "- GPU: ``$(@($gpus.Name) -join '; ')``",
+        $(if ($null -ne $selectedGpu) { "- GPU selected: ``$($selectedGpu.name)``" }
+          else { "- GPU selected: unknown; installed adapters: ``$(@($gpus.Name) -join '; ')``" }),
         '',
         '### Diagnostic report',
         '',

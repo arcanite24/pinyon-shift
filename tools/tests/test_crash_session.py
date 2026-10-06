@@ -12,7 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 @unittest.skipUnless(shutil.which('powershell'), 'Windows PowerShell required')
 class CrashSessionTests(unittest.TestCase):
     def test_failed_session_excludes_stale_logs_and_retains_current_evidence(self):
-        for logging_ready in (False, True, None):
+        for logging_ready in (False, True, None, 'legacy'):
             with self.subTest(logging_ready=logging_ready), tempfile.TemporaryDirectory(prefix='pinyon-session-') as temporary:
                 root = pathlib.Path(temporary)
                 state = root / 'state'
@@ -26,13 +26,21 @@ class CrashSessionTests(unittest.TestCase):
                 # The reporter runs after both files have been modified. A newer unrelated
                 # process and a stale performance file must not win by filesystem time.
                 events = [dict(event='process.start', pid='7', utc='2020-01-01T00:00:00Z', session='current')]
+                if logging_ready is True:
+                    events.append(dict(event='graphics.device.selected', pid='7', session='current',
+                        backend='vulkan', name='selected adapter', vendor_id='4318', device_id='9988',
+                        api_version='4206592', driver_version='123'))
                 if logging_ready:
                     events.append(dict(event='logging.ready', pid='7', session='current', renderer='vulkan'))
                 else:
                     events.append(dict(event='config.unsupported', pid='7', session='current'))
                 if logging_ready is not None:
                     (logs / 'current.jsonl').write_text('\n'.join(map(json.dumps, events)) + '\n{partial')
-                (logs / 'other.jsonl').write_text(json.dumps(dict(event='process.start', pid='8', utc='2020-01-01T00:00:00Z', session='other')))
+                (logs / 'other.jsonl').write_text('\n'.join(map(json.dumps, [
+                    dict(event='process.start', pid='8', utc='2020-01-01T00:00:00Z', session='other'),
+                    dict(event='graphics.device.selected', pid='8', session='other',
+                        backend='vulkan', name='wrong adapter', vendor_id='1', device_id='2',
+                        api_version='3', driver_version='4')])) + '\n')
                 (logs / 'reused-pid.jsonl').write_text(json.dumps(dict(event='process.start', pid='7', utc='2019-01-01T00:00:00Z', session='old')))
                 (logs / 'runtime.log').write_text('[2019-01-01 00:00:00.000] old successful run\n'
                     '[2099-01-01 00:00:00.000] current runtime evidence\ncontinuation\n')
@@ -56,7 +64,14 @@ class CrashSessionTests(unittest.TestCase):
                     self.assertNotIn('crash.txt', archive.namelist())
                     self.assertIsNone(manifest['exception']['exception_code'])
                     self.assertEqual(manifest['graphics']['logging_initialized'], bool(logging_ready))
-                    self.assertEqual(manifest['graphics']['backend'], 'vulkan' if logging_ready else None)
+                    self.assertEqual(manifest['graphics']['backend'], 'vulkan' if logging_ready is True else None)
+                    self.assertEqual(manifest['graphics']['backend_requested'], 'vulkan' if logging_ready else None)
+                    selected = manifest['graphics']['selected_device']
+                    if logging_ready is True:
+                        self.assertEqual(selected, dict(backend='vulkan', name='selected adapter',
+                            vendor_id='4318', device_id='9988', api_version='4206592', driver_version='123'))
+                    else:
+                        self.assertIsNone(selected)
                     self.assertEqual(manifest['settings']['gpu_backend'], '"vulkan"')
                     self.assertEqual(manifest['process']['session_id'], 'current' if logging_ready is not None else None)
                     self.assertEqual(manifest['audio']['xma_stalls']['available'], bool(logging_ready))
