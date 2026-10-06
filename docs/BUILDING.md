@@ -4,6 +4,14 @@ The supported build environment is 64-bit Windows 10 or 11 with PowerShell 5.1
 or newer, a GPU with Vulkan 1.3 (the default graphics API) or Direct3D 12, an
 internet connection, and about 25 GB of free disk space.
 
+Setup requires Visual Studio 2022 C++ Build Tools 17.1 or newer. Before
+building, the pinned compiler checks the selected C++ library for C++23
+`std::byteswap` and the selected Windows SDK headers for `D3D12_OPTIONS8`.
+The latter is needed to compile the retained SDK backend. An incompatible
+environment stops at this check with compiler diagnostics and update
+instructions. Update the C++ tools or Windows SDK through the Visual Studio
+Installer, then rerun setup; the game and saves are unchanged.
+
 Run:
 
 ```powershell

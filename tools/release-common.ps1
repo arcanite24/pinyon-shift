@@ -138,10 +138,10 @@ function Get-PinyonVisualStudioRoot {
     $root = $null
     if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
         $root = & $vswhere -latest -products * -requires $config.visual_studio.required_component `
-            -property installationPath | Select-Object -First 1
+            -version "[$($config.visual_studio.minimum_version),)" -property installationPath | Select-Object -First 1
     }
     if ([string]::IsNullOrWhiteSpace($root) -and -not $AllowMissing) {
-        throw 'Microsoft C++ Build Tools were not found.'
+        throw "Microsoft C++ Build Tools $($config.visual_studio.minimum_version) or newer were not found. Run tools/provision-toolchain.ps1 to install compatible Visual Studio 2022 Build Tools."
     }
     $root
 }
@@ -522,6 +522,55 @@ function Format-PinyonFailureRecord {
     [string[]]$lines.ToArray()
 }
 
+function Assert-PinyonBuildCapabilities {
+    param([Parameter(Mandatory)] [string]$LlvmRoot)
+    $compiler = Join-Path $LlvmRoot 'bin/clang++.exe'
+    if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+        throw 'The pinned LLVM compiler is missing. Run tools/provision-toolchain.ps1 first.'
+    }
+    $directory = Join-Path ([IO.Path]::GetTempPath()) ('pinyon-capabilities-' + [Guid]::NewGuid().ToString('N'))
+    [void](New-Item -ItemType Directory -Path $directory)
+    $resolvedDirectory = (Resolve-Path -LiteralPath $directory).Path
+    $previousPreference = $ErrorActionPreference
+    try {
+        foreach ($probe in @(
+            @{ Name = 'C++23 standard library'; Source = '#include <bit>
+static_assert(std::byteswap(0x01020304u) == 0x04030201u);';
+               Hint = 'Update the Visual Studio 2022 C++ Build Tools. The selected C++ library must provide std::byteswap.' },
+            @{ Name = 'Windows SDK headers'; Source = '#include <windows.h>
+#include <d3d12.h>
+static_assert(sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS8) > 0);
+constexpr auto feature = D3D12_FEATURE_D3D12_OPTIONS8;';
+               Hint = 'Install an updated Windows SDK through the Visual Studio Installer, then rerun setup. The selected d3d12.h must provide D3D12_OPTIONS8.' }
+        )) {
+            $source = Join-Path $directory 'probe.cpp'
+            [IO.File]::WriteAllText($source, $probe.Source)
+            $ErrorActionPreference = 'Continue'
+            $output = @(& $compiler -std=c++23 -fsyntax-only $source 2>&1 | ForEach-Object { $_.ToString() })
+            $exitCode = $LASTEXITCODE
+            $ErrorActionPreference = $previousPreference
+            if ($exitCode -ne 0) {
+                $failure = [Exception]::new("The selected $($probe.Name) failed its build capability check. $($probe.Hint)")
+                $failure.Data['step'] = "Check $($probe.Name)"
+                $failure.Data['exit_code'] = $exitCode
+                $failure.Data['command'] = "`"$compiler`" -std=c++23 -fsyntax-only `"$source`""
+                $failure.Data['error_kind'] = 'toolchain-capability'
+                $failure.Data['error_excerpt'] = [string[]]$output
+                $failure.Data['hint'] = $probe.Hint
+                throw $failure
+            }
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+        # Delete only the freshly created, resolved probe directory.
+        if ((Resolve-Path -LiteralPath $directory).Path -ne $resolvedDirectory) {
+            throw 'The build capability probe directory changed unexpectedly.'
+        }
+        Remove-Item -LiteralPath $resolvedDirectory -Recurse -Force
+    }
+}
+
 function Enter-PinyonBuildEnvironment {
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
@@ -581,6 +630,7 @@ function Enter-PinyonBuildEnvironment {
     }
     $llvm = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
     $env:PATH = "$(Join-Path $llvm 'bin');$env:PATH"
+    Assert-PinyonBuildCapabilities -LlvmRoot $llvm
     [pscustomobject]@{
         VisualStudioRoot = $vsRoot
         CMake = Get-PinyonCMake -VisualStudioRoot $vsRoot

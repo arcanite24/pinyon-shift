@@ -15,6 +15,41 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 class ReleaseContractTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_visual_studio_selection_excludes_incompatible_standard_library(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-vswhere-") as directory:
+            root = pathlib.Path(directory)
+            executable = root / "Microsoft Visual Studio/Installer/vswhere.exe"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            environment = os.environ.copy()
+            environment["PINYON_TEST_ROOT"] = str(root)
+            command = r"""
+. ./tools/release-common.ps1
+${env:ProgramFiles(x86)} = $env:PINYON_TEST_ROOT
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+Set-Item -Path "Function:$vswhere" -Value {
+    param([Parameter(ValueFromRemainingArguments=$true)] $Arguments)
+    $rangeIndex = [Array]::IndexOf($Arguments, '-version')
+    if ($rangeIndex -lt 0) { return 'incompatible-vs2019' }
+    if ($Arguments[$rangeIndex + 1] -ne '[17.1,)') { throw 'Unexpected supported version range' }
+    if ($env:PINYON_TEST_HAS_SUPPORTED -eq '1') { return 'compatible-vs2022' }
+}
+$env:PINYON_TEST_HAS_SUPPORTED = '0'
+if ($null -ne (Get-PinyonVisualStudioRoot -AllowMissing)) { throw 'Old tools bypass provisioning' }
+try {
+    Get-PinyonVisualStudioRoot | Out-Null
+    throw 'Missing tools were accepted'
+} catch {
+    if ($_.Exception.Message -notmatch 'provision-toolchain.ps1') { throw }
+}
+$env:PINYON_TEST_HAS_SUPPORTED = '1'
+if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported tools were not selected' }
+"""
+            result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
+                                    cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_vsdevcmd_uses_safe_temp_and_restores_portable_install_paths(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-vs-temp-") as directory:
             root = pathlib.Path(directory)
@@ -36,6 +71,7 @@ class ReleaseContractTests(unittest.TestCase):
 $ErrorActionPreference = 'Stop'
 function Get-PinyonVisualStudioRoot { $env:PINYON_TEST_VS_ROOT }
 function Get-PinyonCMake { 'test-cmake' }
+function Assert-PinyonBuildCapabilities { }
 $env:TEMP = Join-Path $env:PINYON_TEST_INSTALL 'data\temp'
 $env:TMP = Join-Path $env:PINYON_TEST_INSTALL 'other (temp)'
 $expectedTemp = $env:TEMP

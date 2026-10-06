@@ -3,6 +3,7 @@
   "platform": "windows-x64",
   "minimum_windows_build": 19041,
   "visual_studio": {
+    "minimum_version": "17.1",
     "bootstrap_url": "https://aka.ms/vs/17/release/vs_BuildTools.exe",
     "bootstrap_signer": "Microsoft Corporation",
     "workload": "Microsoft.VisualStudio.Workload.VCTools",
