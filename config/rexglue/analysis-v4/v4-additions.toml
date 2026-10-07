@@ -1,0 +1,169 @@
+# Hand-maintained analysis facts for code that exists only in the FH1 v4
+# title update (no base-disc counterpart to port). Included by the generated
+# main-xex.toml; record the evidence for every entry.
+
+# New v4 function sub_827611D8: a byte jump table at 0x82051030, scaled by 4
+# from 0x82761230. The bound is `cmplwi cr6, r4, 9` (index copied to r30), but
+# an unrelated `lfd` sits between it and the `bgt`, so the analyzer read past
+# the ten entries into the next table and merged sub_827613E8's code, emitting
+# REX_FATAL stubs for its branches (82761420/82761460 -> 827616FC, etc.).
+[[switch_tables]]
+address = 0x8276122C
+register = 30
+labels = [
+  0x82761230, 0x827612BC, 0x82761230, 0x827612BC, 0x82761230,
+  0x827612BC, 0x82761230, 0x827612BC, 0x82761230, 0x827612BC,
+]
+
+# Function-pointer targets outside .pdata that the v4 analysis did not emit
+# (tools/find-fh1-missing-thunks.py). The first v4 run stopped on an indirect
+# call to 82E55C00 (M3_TRACE indirect.unregistered, lr 82F07AF8). Each is a
+# straight-line sequence referenced by a lis/addi pair in .pdata code:
+# 8276BBA8 and 832074B0 are tail branches, 82788148 stores a zero byte and
+# returns, 82864D70 is an r12 virtual-call thunk, 82E55C00 swaps r3/r4 and
+# tail-branches.
+[functions."8276BBA8"]
+size = 0x04
+
+[functions."82788148"]
+size = 0x0C
+
+[functions."82864D70"]
+size = 0x10
+
+[functions."82E55C00"]
+size = 0x10
+
+[functions."832074B0"]
+size = 0x04
+
+# Code reached only through function pointers or vtable slots that the v4
+# analysis neither registers nor emits anywhere (tools/find-fh1-missing-thunks.py
+# with reachability extents). The second v4 run stopped on 83171338
+# (indirect.unregistered, lr 831717F8). Listed: the 30 v4 addresses whose base
+# counterpart is not equally unregistered in the working base build, and that
+# appear in no generated function, so declaring them splits nothing. 82E7E594
+# is excluded: it lies inside the declared function 82E7E588 (size 0x14).
+
+[functions."824117E0"]
+size = 0x20
+
+[functions."8242A140"]
+size = 0x10
+
+[functions."825FE470"]
+size = 0x28
+
+[functions."82714DB0"]
+size = 0x28
+
+[functions."82A6CA48"]
+size = 0x08
+
+[functions."82A6CB60"]
+size = 0x04
+
+[functions."82C2427C"]
+size = 0x24
+
+[functions."82C40040"]
+size = 0x3C
+
+[functions."82D05D30"]
+size = 0x2C
+
+[functions."82F10000"]
+size = 0x48C
+
+[functions."82F6765C"]
+size = 0x410
+
+[functions."82F6FE80"]
+size = 0x24
+
+[functions."82F85830"]
+size = 0x48
+
+[functions."8300C230"]
+size = 0x98
+
+[functions."83028200"]
+size = 0x1C
+
+[functions."83045798"]
+size = 0x60
+
+[functions."83171308"]
+size = 0x08
+
+[functions."83171338"]
+size = 0x58
+
+[functions."83177730"]
+size = 0x08
+
+[functions."83189568"]
+size = 0x08
+
+[functions."83217720"]
+size = 0x18
+
+[functions."83217770"]
+size = 0x14
+
+[functions."83217938"]
+size = 0x08
+
+[functions."832179B0"]
+size = 0x08
+
+[functions."832179B8"]
+size = 0x10
+
+[functions."832179C8"]
+size = 0x08
+
+[functions."832179D0"]
+size = 0x20
+
+[functions."8329FBD4"]
+size = 0x40
+
+[functions."832A3BE4"]
+size = 0x08
+
+# Diagnostic, default off (pinyon_shift_car_challenge_gate_probe): the v4
+# pause action for 1000 CLUB (case 19 of sub_827EBEE0) checks LIVE sign-in
+# with sub_824CB900 (failure: sub_827EAC98, "not signed in") and the Forza
+# server with sub_824D2090 (failure: sub_82753478(menu, 4, 20), "server not
+# available") before opening the Car Challenge screen (sub_82EAA148). These
+# hooks follow each check at this call site only.
+[[midasm_hook]]
+address = 0x827EC3A8
+name = "PinyonShiftCarChallengeLiveGate"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x827EC3C0
+name = "PinyonShiftCarChallengeServerGate"
+registers = ["r3"]
+
+[[midasm_hook]]
+# Entry of sub_824127B8(service): "is the Forza Horizon server available"
+# ((+9012 == 2 or +13276) and +13205 of [0x833CABB0]). Default-off 1000 Club
+# diagnostic (pinyon_shift_car_challenge_gate_probe) answers yes for every
+# direct caller; otherwise the original body runs.
+address = 0x824127B8
+name = "PinyonShiftServerAvailableProbe"
+registers = ["r3", "lr"]
+return_on_true = true
+
+[[midasm_hook]]
+# Entry of CScoreboardManager::SubmitCarChallenge (r4 car, r5 challenge). With
+# the default-off 1000 Club probe, commit the completion locally instead of
+# waiting for the defunct ChallengeCompleted web service.
+address = 0x829490D8
+name = "PinyonShiftCarChallengeSubmitLocal"
+registers = ["r4", "r5"]
+context = true
+return_on_true = true

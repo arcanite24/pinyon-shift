@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "updates": [
+    {
+      "id": "forza-horizon-world-v4-4000d145",
+      "status": "applies_to_usa_base_native_port_pending",
+      "title_id": "4D5309C9",
+      "media_id": "4000D145",
+      "source_version": "0000000C",
+      "target_version": "0000040C",
+      "package": {
+        "size_bytes": 15728640,
+        "sha256": "CC49029A819EB83C75DA1D188D15CEBDF1CEBE9899B9B5B449D6DF982DCE9112"
+      },
+      "files": [
+        {
+          "guest_path": "default.xexp",
+          "size_bytes": 2850816,
+          "sha256": "C086C2AD79F475A9180BF086F398248E2FC8CEBC71A2653919AEE05E9825686B"
+        },
+        {
+          "guest_path": "media.zip",
+          "size_bytes": 10975642,
+          "sha256": "DFB31D11BF00153CFC5F3634681A41EA7E2A877D470230A148721BA3CCD5BAB3"
+        },
+        {
+          "guest_path": "SpeechFacade_default.xexp",
+          "size_bytes": 876544,
+          "sha256": "05B829730DC73A06BA25A1A222F4901A396B909ACD4E1E6DDA33F90F69264C0C"
+        },
+        {
+          "guest_path": "XMediaFacade_default.xexp",
+          "size_bytes": 876544,
+          "sha256": "0FF34006B5BC842066D061D7CE196DC1CAF3A27BC83983306AF9BD1F96F9BAB5"
+        }
+      ],
+      "verified_bases": [
+        {
+          "media_id": "2DC7007B",
+          "version": "0000000A",
+          "note": "Built for 0.0.0.12, applies exactly to the USA 0.0.0.10 disc; every page verifies (2026-10-06).",
+          "modules": [
+            {
+              "guest_path": "default.xex",
+              "base_sha256": "DB40DF605ADE49A612B35A7A24C38F6004BCB17A88ED6B48288DE16DF9E3987C",
+              "image_sha256": "74B033805AB1BCAA04DF57CD926BB2F584E74E570D7739D2552A1228F8B9DD20",
+              "headers_sha256": "33BE0DA1544C7A7A26E5DD9E9C8DC7159489DD7CD134531EDAD4597371A250E6",
+              "pages": 371
+            },
+            {
+              "guest_path": "SpeechFacade_default.xex",
+              "base_sha256": "D54F6AAE6AE2FD6DA9B8C37D48F0A6BB295CAA18AD82D0D9DF66026141A41594",
+              "image_sha256": "4F86BD1BEF6C47FFDDF3A570F491684266B67BFFF6601DC9A664C1A68003EFA5",
+              "headers_sha256": "5BEED50C7CF6B2B406C1822C93019645FB8EB9236D1CCC6358DADE5F57C48545",
+              "pages": 54
+            },
+            {
+              "guest_path": "XMediaFacade_default.xex",
+              "base_sha256": "ED285BEEFEAFCDC90CF64D6085D19C874E3F1E15072C12CDF9BA2237C88E2CE5",
+              "image_sha256": "199D0EA9DE6C9ADFFE968EFA7B6AA90FE424193DBFAC5C2240245807D52E2F81",
+              "headers_sha256": "B37796D6F4055F2D03284817219183A140D62411417105DAFF790E65A0036096",
+              "pages": 61
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

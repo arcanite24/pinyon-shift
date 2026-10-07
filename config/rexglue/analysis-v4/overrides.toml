@@ -1,0 +1,26 @@
+# Manually researched base -> v4 address pairs for addresses the automatic
+# mapper (tools/map-fh1-v4-addresses.py) cannot place. Each entry records why.
+
+[default]
+# CPauseMenu action switch (base sub_82739D00, v4 sub_827EBEE0). v4 inserts a
+# new action at case 6 and moves to a halfword jump table at 0x82060DD8, so
+# base case 6 (MULTIPLAYER, relabelled SETTINGS) is v4 case 7. Both cases have
+# identical instructions and branch to the same common exit.
+"82739DB0" = "827EC040"
+# Common exit of that switch: `bl; stw r29, 0xD48(r3)` in base becomes
+# `bl; stw r29, 0xD68(r3)` in v4 (the pause object grew by 0x20 bytes).
+"8273A10C" = "827EC3FC"
+# PinyonShiftUiCompanionPauseInputMatch: the pause input handler (base
+# sub_8271CD10, v4 sub_827DADC8) checks resume actions 95/103, which are
+# 96/104 in v4 (input action IDs shifted by one). The `cmplwi r3, 0` after
+# the action query is otherwise identical.
+"8271CD58" = "827DAE1C"
+# PinyonShiftTraceFrontEndStateResult: base sub_827A1CD0 is v4 sub_8285BAA0
+# (all 78 mapped callees match, size 0x7C0 -> 0x7F0); aligned instruction run
+# of 12. Fields moved by 4 (0x168 -> 0x16C, 0x179 -> 0x17D) and the stored
+# register is r29 instead of r30: recheck this trace's register roles on v4.
+"827A1DC4" = "8285BB94"
+# content.mount_marketplace (mod symbol): base sub_82516630 is v4 sub_82580638.
+# All 23 mapped callees match; v4 rewrote the body (0x3E8 -> 0x4E4 bytes,
+# shape ratio 0.69), consistent with its changed DLC handling.
+"82516630" = "82580638"

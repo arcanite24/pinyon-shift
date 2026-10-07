@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "policy": "fail_on_unrecognized_warning_and_missing_expected_warning",
+  "warnings": [
+    {
+      "id": "oversized-function-8244A320",
+      "pattern": "^Function 0x8244A320 is [0-9]+ bytes, exceeds max_file_size_bytes \\([0-9]+\\)$",
+      "reason": "v4 counterpart of the base build's accepted oversized function 0x8241A370 (same body, 2 bytes longer)."
+    },
+    {
+      "id": "bdz-outside-function-82B969C0",
+      "pattern": "^bdz at 82B969C0 branches outside function to 82B96BF4$",
+      "reason": "v4 counterpart of the base build's accepted bdz at 82AD8138 to the inferred function boundary."
+    },
+    {
+      "id": "bdz-outside-function-82B969C4",
+      "pattern": "^bdz at 82B969C4 branches outside function to 82B96BF4$",
+      "reason": "v4 counterpart of the base build's accepted bdz at 82AD813C to the inferred function boundary."
+    }
+  ]
+}

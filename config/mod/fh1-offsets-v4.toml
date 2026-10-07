@@ -1,0 +1,41 @@
+# Field offsets for the FH1 v4 title-update build (docs/TITLE_UPDATE_V4_BACKLOG.md
+# TU-4). Each value was verified on aligned base/v4 instructions whose base
+# register provably holds the object; the comment names one such site
+# (base -> v4). tools/generate-fh1-symbols.py --v4 requires an entry for every
+# offset in fh1-symbols.toml.
+
+[offsets]
+"activity.name" = 16  # activity vtable slot 3: base 828A5258 -> v4 82956980
+"activity.revealed" = 8  # activity.reveal 828A52F0 -> 82956A20
+"activity_manager.begin" = 4  # activities.reveal_all 828AF6F8 -> 829613C8
+"activity_manager.end" = 8  # reveal_all: lwz 8(r29 = r3) 828AF768 -> 82961438
+"barn_find.collected" = 513  # barn_find.show_location 828A5BF8 -> 829573F8
+"barn_find.collected_marker" = 360  # show_location 828A5CD8 -> 829574D8: lwz 360
+"barn_find.discovered" = 44  # sub_828B9448 -> 8296B130
+"barn_find.marker" = 320  # show_location 828A5C34 -> 82957434: lwz 320(r3)
+"barn_find.position" = 112  # addi 112(this) unchanged in a barn-find vtable method
+"barn_find.state" = 424  # barn-find vtable slot 20
+"barn_find_state.status" = 56  # 828BC5E0 -> 8296E2F8: lwz 56([this+424]) 828BC5F8 -> 8296E310
+"collectible_state.found" = 44  # flyer.smash 828C0C80 -> 82972A38
+"collectible_state.revealed" = 40  # activity.reveal 828A52F0 -> 82956A20
+"flyer.collected_marker" = 96  # flyer.smash 828C0CF8 -> 82972AA8: lwz 96(this)
+"flyer.marker" = 56  # flyer.smash: addi r3,56(this) 828C0CE0 -> 82972A90
+"flyer.object" = 136  # flyer.smash: lwz 136(this) 828C0CA4 -> 82972A5C and 828C0CB4 -> 82972A6C
+"flyer.smashed" = 140  # flyer.smash: stb 140(this) 828C0CCC -> 82972A84
+"flyer.state" = 148  # flyer vtable +80 (GetState): 82C74640 -> 829607C8, both lwz r3,148(r3)
+"game.components" = 76  # sub_825F6FB0 -> 8269B4F8
+"game.user" = 108  # user-slot accessor 82880B40 -> 824ABD38, both addi r3,r3,108
+"main_loop.delta" = 448  # hook 823EDB84
+"map_entity.on_map" = 52  # map_marker.show 828E3580 -> 82995330
+"map_marker.entity" = 4  # map_marker.show: lwz 4(r3) 828E3580 -> 82995330
+"profile.loaded" = 44  # was 40; profile.add_value 824F285C -> 8255E5C4: lbz 40(r3) -> lbz 44(r3)
+"profile.values" = 32  # profile.credits 824E4F78 -> 82553558
+"session.game_mode" = 56  # world.game_mode base 824878D0 = v4 824B75E8 = 'lwz r11,124(r3)
+"time_of_day.script_hold" = 10505  # 825B97C4 -> 82643024: lbz 10505 on time_of_day.from_world
+"time_of_day.seconds" = 10488  # time_of_day.request 825C7DD4 -> 82656D44: lfs 10488(r3)
+"vehicle.active_slot" = 1500  # pose writer 82BC58D0 -> 82C842B8: lwz 1500(r31 = r3)
+"vehicle.slot.forward" = 15184  # 82BC5870: li r10,0x3B50 82BC5A08 -> 82C843F0
+"vehicle.slot.position" = 15120  # 82BC5870: li r25,0x3B10 82BC59F4 -> 82C843DC
+"vehicle.slot_stride" = 1056  # 82BC5870: mulli r11,r11,0x420 82BC59F8 -> 82C843E0
+"world.session" = 124  # world.game_mode 824878D0 = v4 824B75E8: lwz r11,124(r3) unchanged
+"world.time_of_day" = 232  # time_of_day.from_world base 82486CF0 = v4 824B6990 = 'lwz r3,232(r3)
