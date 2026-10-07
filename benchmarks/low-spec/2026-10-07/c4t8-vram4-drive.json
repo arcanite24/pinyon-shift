@@ -1,0 +1,103 @@
+{
+  "schema": "pinyon-shift.low-spec-benchmark.v1",
+  "label": "4 cores, 8 threads, 3.5 GB of VRAM free, long drive",
+  "recorded": "2026-10-07T17:05:35+00:00",
+  "commit": "598f4be",
+  "sdk": "258047f",
+  "route": "fh1-long-drive",
+  "machine": {
+    "cpu": "AMD Ryzen 7 5800X 8-Core Processor",
+    "gpu": "NVIDIA GeForce RTX 4080",
+    "driver_version": "2437021696",
+    "os": "Windows-11-10.0.26200-SP0"
+  },
+  "simulation": {
+    "kind": "sensitivity",
+    "host_cpus": "0-7",
+    "sibling_load": null,
+    "vram_balloon": {
+      "device": "NVIDIA GeForce RTX 4080",
+      "requested_mb": 11264,
+      "held_mb": 11264
+    }
+  },
+  "settings": {
+    "renderer": "vulkan",
+    "vsync": "true",
+    "host_present_fps_limit": "0",
+    "fh1_render_fps_limit": "60",
+    "draw_resolution_scale_x": "1",
+    "anisotropic_override": "-1",
+    "swap_post_effect": "none",
+    "disable_bloom": "true",
+    "disable_motion_blur": "true",
+    "disable_depth_of_field": "true",
+    "fh1_msaa_single_sample": "true",
+    "present_effect": "bilinear",
+    "host_cpu_simulation": "0-7"
+  },
+  "bands": {
+    "heavy": {
+      "frames": 1328,
+      "draws_median": 6113.5,
+      "frame_ms_p50": 16.686,
+      "frame_ms_p95": 17.015,
+      "frame_ms_p99": 17.174,
+      "target_fps": 60.0,
+      "over_budget_share": 0.1596,
+      "long_frame_share": 0.0038,
+      "presents_per_second": 59.79,
+      "deadline_misses_per_second": 0.0,
+      "decoder_cpu_ms": 8.658,
+      "recorder_cpu_ms": 8.708,
+      "recorder_busy_ms": 8.599,
+      "title_thread_cpu_ms": 5.097,
+      "reg_mem_wait_ms": 8.783,
+      "title_fence_wait_ms": 9.862,
+      "write_watch_protect_calls": 42.25,
+      "clock_mutex_contentions": 0.0,
+      "reg_mem_waits": 12.02,
+      "measured_threads_cores": 1.332,
+      "gate_cadence": true
+    },
+    "gameplay": {
+      "frames": 9149,
+      "draws_median": 2689.0,
+      "frame_ms_p50": 16.633,
+      "frame_ms_p95": 17.042,
+      "frame_ms_p99": 17.182,
+      "target_fps": 60.0,
+      "over_budget_share": 0.2043,
+      "long_frame_share": 0.003,
+      "presents_per_second": 59.75,
+      "deadline_misses_per_second": 0.0,
+      "decoder_cpu_ms": 5.191,
+      "recorder_cpu_ms": 5.205,
+      "recorder_busy_ms": 5.144,
+      "title_thread_cpu_ms": 4.604,
+      "reg_mem_wait_ms": 12.565,
+      "title_fence_wait_ms": 7.914,
+      "write_watch_protect_calls": 36.2,
+      "clock_mutex_contentions": 0.0,
+      "reg_mem_waits": 12.08,
+      "measured_threads_cores": 0.957,
+      "gate_cadence": true
+    }
+  },
+  "memory": {
+    "memory_device_usage_mb_peak": 1120.0,
+    "memory_device_usage_mb_end": 1120.0,
+    "memory_device_budget_mb_peak": 11896.0,
+    "memory_device_budget_mb_end": 11896.0,
+    "fh1_surface_count_peak": 34.0,
+    "fh1_surface_count_end": 34.0,
+    "fh1_surface_mb_peak": 265.0,
+    "fh1_surface_mb_end": 265.0,
+    "texture_cache_mb_peak": 153.0,
+    "texture_cache_mb_end": 153.0,
+    "process_resident_mb_peak": 2077.0,
+    "process_resident_mb_end": 2077.0,
+    "peak_share_of_budget": 0.094
+  },
+  "capture": "20261007T170030Z-p28100.perf.csv"
+}

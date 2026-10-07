@@ -110,26 +110,53 @@ with only the shader and pipeline caches kept.
 
 ### The race, native renderer
 
-The scripted race (`fh1-race-sync`) is the heaviest route. It is measured over
-the race's last 600 frames with the frame rate limited to 120, in a hidden
-window, from the same save.
+The scripted race (`fh1-race-sync`) is the heaviest route. It is measured on
+2026-10-07 at commit `25eae84` over the race's frames with 5,000 draws or more
+(its busiest part), with the game rate limited to 120, in a hidden window, from
+the same save.
 
-| Internal resolution | Vulkan | Direct3D 12 (legacy) |
-| --- | ---: | ---: |
-| 1x (1280×720) | **110 fps** (9.1 ms) | 79 fps (12.7 ms) |
-| 2x (2560×1440) | **79 fps** (12.7 ms) | 66 fps (15.2 ms) |
-| 3x (3840×2160) | 35 fps (28.7 ms) | **57 fps** (17.5 ms) |
+| Internal resolution | Median frame time | Median frame rate | p95 | Graphics memory |
+| --- | ---: | ---: | ---: | ---: |
+| 1x (1280×720), no MSAA, FSR 1 | 9.18 ms | **109 fps** | 12.26 ms | 0.9 GB |
+| 2x (2560×1440), no MSAA | 9.12 ms | **110 fps** | 11.69 ms | 3.3 GB |
+| 3x (3840×2160), the game's 4x MSAA | 9.79 ms | **102 fps** | 13.40 ms | 4.3 GB |
 
-Median frame rate and frame time over the race's last 600 frames, its busiest
-part.
+At a 60 fps limit, 2x holds a 16.66 ms median (p95 17.04 ms). The records are
+in [benchmarks/low-spec](benchmarks/low-spec). On 2026-09-30 the same race took
+9.1, 12.7 and 28.7 ms at 1x, 2x and 3x, and the retired Direct3D 12 backend
+12.7, 15.2 and 17.5 ms. How the Vulkan path got here is in the
+[performance backlog](docs/PERFORMANCE_BACKLOG.md) and the
+[desktop renderer backlog](docs/DESKTOP_RENDERER_BACKLOG.md).
 
-Direct3D 12 measurements above are historical comparisons; current support and
-qualification target Vulkan only. Vulkan records draws on a second thread,
-which makes it faster at 1x and 2x in these measurements. At 3x and above the
-GPU is the limit: the Vulkan backend spends more GPU time on the
-game's multisampled surfaces. The optional single-sampled surfaces
-(`fh1_scaled_msaa_single_sample`) bring Vulkan at 3x to about 24 ms. How the
-Vulkan path got here is in the [performance backlog](docs/PERFORMANCE_BACKLOG.md).
+### Lower-end hardware (simulated)
+
+The **Low-spec 60** preset (1x, no MSAA, bilinear output, the game's own
+texture filtering, 60 fps) on the heavy start of the race
+(`fh1-race-start-wait`, about 6,200 draws a frame), with this machine limited
+to fewer cores or less free VRAM. These are sensitivity numbers from one
+machine: a real older CPU also has smaller caches, slower memory and lower
+clocks, and the GPU here is still an RTX 4080.
+
+<!-- Generated: tools/summarize-low-spec.py table --compact with the records in benchmarks/low-spec/2026-10-07 (all-sleep, c4t8-auto, c4t4-sleep, c4t4load-sleep, c2t4-sync-auto, c4t4load-fps40, c4t8-pressure). -->
+| Configuration | Game rate | Presents a second | Median | p95 | Long frames | Decoder CPU | Recorder CPU | Title CPU | Peak VRAM |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 16 threads (the reference machine) | 60 fps | 59.7 | 16.65 ms | 17.03 ms | 0.5 % | 7.5 ms | 7.2 ms | 4.3 ms | 1126 MB |
+| 4 cores, 8 threads | 60 fps | 59.7 | 16.67 ms | 17.07 ms | 0.5 % | 8.8 ms | 8.9 ms | 5.0 ms | 1128 MB |
+| 4 cores, 4 threads | 60 fps | 59.7 | 16.66 ms | 17.09 ms | 0.6 % | 7.4 ms | 7.4 ms | 4.3 ms | 1122 MB |
+| 4 slow cores (SMT siblings busy) | 60 fps | 59.2 | 16.69 ms | 17.84 ms | 0.6 % | 11.1 ms | 10.6 ms | 5.8 ms | 1128 MB |
+| 2 cores, 4 threads (`fh1-race-sync`) | 60 fps | 59.3 | 16.68 ms | 18.17 ms | 1.0 % | 10.2 ms | 11.2 ms | 6.0 ms | 1118 MB |
+| 4 slow cores, Balanced 40 | 40 fps | 39.9 | 25.00 ms | 25.48 ms | 0.4 % | 11.4 ms | 10.8 ms | 6.5 ms | 1128 MB |
+| 4 cores, 8 threads, about 1 GB of VRAM free | 60 fps | 59.6 | 16.68 ms | 17.02 ms | 0.6 % | 8.9 ms | 9.0 ms | 5.0 ms | 1130 MB |
+
+Long frames are those over one and a half frame intervals (25 ms at 60 fps).
+The CPU columns are per frame. Every row holds its rate: the CPU work of
+Low-spec 60 fits 4 cores, and 2 cores with 4 threads is the edge. The game
+needs about 1.1 GB of graphics memory at 1x without MSAA (34 native surfaces
+take 265 MB, textures about 150 MB) and stays there over a long drive, so a
+2 GB card has room. Whether a slower GPU keeps up is not simulated: integrated
+GPUs and the Steam Deck need their own runs. The records, with the commit each
+ran, are in [benchmarks/low-spec](benchmarks/low-spec); the plan is in the
+[low-spec backlog](docs/LOW_SPEC_BACKLOG.md).
 
 ## Play
 
@@ -155,10 +182,11 @@ FSR 1), and says what that means on your screen: for example, renders
 1280 × 720, FSR 1 upscales to 3840 × 2160. The Treasure Map toggle is there
 too: on by default, and once a save's map is revealed it stays revealed, as
 after a purchase. Existing Direct3D 12 settings migrate to Vulkan on the next
-start. Everything else, including the **Performance 120** and
-**Quality 60** presets, is in the in-game settings, where most changes apply at
-once; the language is among the few that need a
-restart.
+start. Everything else, including the **Low-spec 60**, **Balanced 40**,
+**Performance 120** and **Quality 60** presets, is in the in-game settings, where
+most changes apply at once; MSAA and the language are among the few that need a
+restart. A new install starts at Low-spec 60, or at Performance 120 on a
+discrete GPU with 6 GB or more, 6 or more CPU threads and a 120 Hz display.
 
 To change the game language, press **F6** at the title screen or during play,
 open **Profile → Language**, and use Left/Right to choose a language and region.
@@ -243,7 +271,12 @@ PC at its next build), the graphics driver's own shader cache, and the files
 - The USA retail base disc, serial `MS-2505`, title ID `4D5309C9`.
 - Windows 10 or 11, x64.
 - A GPU with Vulkan 1.3. Only NVIDIA GPUs are
-  qualified so far; AMD and Intel are untested.
+  qualified so far; AMD and Intel are untested. Low-spec 60 uses about
+  1.1 GB of graphics memory.
+- A CPU with 4 cores for Low-spec 60, by the
+  [simulated runs](#lower-end-hardware-simulated); 2 cores with 4 threads is
+  the edge. Slower GPUs, integrated graphics and the Steam Deck are not
+  measured yet.
 
 This is a public preview, not a finished remaster. Please report reproducible
 problems with the issue template and do not attach game files or generated
