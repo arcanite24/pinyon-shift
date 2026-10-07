@@ -697,14 +697,16 @@ address = 0x82BC5A3C
 name = "PinyonShiftTraceVehiclePose"
 registers = ["r1", "r30", "r31"]
 
-# M4 markerless-exit classification. PID 25180 produced an unhandled read AV
-# in sub_826E1B10 after a readable object yielded vtable 0x0000487C. Observe
-# the object assignment immediately before the vtable+8 read; do not repair or
-# suppress it, so the normal crash dump remains authoritative.
+# sub_826E1B10 assigns an intrusive pointer: AddRef the source object, store
+# it, release the old one. M4 (PID 25180) and #371 reached the AddRef with a
+# source slot that still pointed at freed storage (vtable 0x....487C), and
+# faulted reading vtable+8. When the vtable's AddRef is not recompiled game
+# code, assign null instead of a dangling pointer.
 [[midasm_hook]]
 address = 0x826E1B3C
 name = "PinyonShiftTraceRetainVtable"
 registers = ["r4", "r11", "r30", "r31"]
+jump_address_on_true = 0x826E1B48
 
 # Default-off read-only #359/#368/#373 ownership comparison. Pair the live
 # child slot/vtable around the parent virtual call, before the wrapper clears
@@ -718,6 +720,27 @@ registers = ["r3", "r11"]
 address = 0x82C222F0
 name = "PinyonShiftTraceChildDispatchAfter"
 registers = ["r3", "r30"]
+
+# #327/#359/#366/#368/#373/#376: the wrapper takes the pending child from
+# parent+64 and calls its slot-3 release. In every report that child's
+# storage had already been freed: its "vtable" is heap data (xxxx487C) or its
+# release slot is null, so the call faults. Skip only a release whose target
+# does not resolve to recompiled game code; a valid child is untouched.
+[[midasm_hook]]
+address = 0x82C22308
+name = "PinyonShiftGuardChildDispatch"
+registers = ["r11"]
+jump_address_on_true = 0x82C2231C
+
+# #367: sub_82F9F130 reloads its output handle into r31 and, on this path,
+# reads [r31+68] and then [that+208]. The report reached it with a null
+# handle. Both of the function's other exits return 0 without further work,
+# so take that exit when the handle (or its +68 owner) is not readable.
+[[midasm_hook]]
+address = 0x82F9F338
+name = "PinyonShiftGuardNullOutputHandle"
+registers = ["r31"]
+jump_address_on_true = 0x82F9F36C
 
 # M5 persisted-profile diagnostics. These continuations are the first
 # title-owned decision points after the secure ForzaProfile/PlayerDatabase

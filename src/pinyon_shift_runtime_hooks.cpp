@@ -7107,6 +7107,50 @@ void PinyonShiftTraceChildDispatchBefore(PPCRegister& r3, PPCRegister& r11) {
       ChildDispatchVtable(parent)});
 }
 
+// Recompiled game code and vtables live in the title image (base and v4).
+constexpr uint32_t kGuestImageBegin = 0x82000000u;
+constexpr uint32_t kGuestImageEnd = 0x84000000u;
+
+// Returns true to skip the child release at 82C22318 (v4 82CE2A88). The
+// child pointer was just taken from parent+64; a live child's vtable slot 3
+// is a recompiled function. Anything else is freed or reused storage, and
+// calling through it would fault (or corrupt the new owner of that memory).
+bool PinyonShiftGuardChildDispatch(PPCRegister& r11) {
+  // The generated code is about to load [child] and [vtable+12]; the child
+  // pointer itself came from a live owner. Only image vtables with a
+  // nonzero image method are dispatched; all checks are range tests.
+  const uint32_t child = r11.u32;
+  const uint32_t vtable = LoadGuestU32(child);
+  const bool image_vtable = vtable >= kGuestImageBegin && vtable < kGuestImageEnd;
+  const uint32_t method = image_vtable ? LoadGuestU32(vtable + 12u) : 0;
+  if (method >= kGuestImageBegin && method < kGuestImageEnd) return false;
+  static std::atomic<uint32_t> skipped{};
+  if (skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "object.child_dispatch.stale_child",
+        {{"address", pinyon_shift::fh1::kTitleUpdateV4 ? "82CE2A78" : "82C22308"}, {"child", Hex32(child)},
+         {"vtable", Hex32(vtable)}, {"method", Hex32(method)}});
+  }
+  return true;
+}
+
+// Returns true to leave sub_82F9F130 (v4 sub_830603D8) through its normal
+// "return 0" exit when its output handle is missing (#367).
+bool PinyonShiftGuardNullOutputHandle(PPCRegister& r31) {
+  // Null handle (the report) or null owner; anything else the title reads as
+  // before, without per-call page queries.
+  const uint32_t handle = r31.u32;
+  if (handle >= 0x10000u && LoadGuestU32(handle + 68u) >= 0x10000u) return false;
+  static std::atomic<uint32_t> skipped{};
+  if (skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "object.output_handle.missing",
+        {{"address", pinyon_shift::fh1::kTitleUpdateV4 ? "830605E0" : "82F9F338"},
+         {"handle", Hex32(handle)}});
+  }
+  return true;
+}
+
 void PinyonShiftTraceChildDispatchAfter(PPCRegister& r3, PPCRegister& r30) {
   if (!ChildDispatchTraceEnabled() || g_child_dispatch_snapshots.empty()) return;
   const auto before = std::move(g_child_dispatch_snapshots.back());
@@ -8346,24 +8390,30 @@ void PinyonShiftTraceGeometryIndex(PPCRegister& r9, PPCRegister& r11,
        {"lookup_table", Hex32(r9.u32)}});
 }
 
-void PinyonShiftTraceRetainVtable(PPCRegister& r4, PPCRegister& r11,
+bool PinyonShiftTraceRetainVtable(PPCRegister& r4, PPCRegister& r11,
                                   PPCRegister& r30, PPCRegister& r31) {
   // sub_826E1B10 is a shared/intrusive pointer assignment helper. At
-  // 0x826E1B3C it is about to load the AddRef target from vtable+8. PID 25180
-  // reached this instruction with a readable object whose vtable was 0x487C,
-  // causing the authoritative read AV at guest 0x4884. Keep this hook
-  // observational and narrowly log only pointers outside the title image.
-  if (!FrameTelemetryEnabled() ||
-      (r11.u32 >= 0x82000000u && r11.u32 < 0x84000000u)) {
-    return;
+  // 0x826E1B3C (v4 0x8247184C) it is about to load the AddRef target from
+  // vtable+8. PID 25180 and #371 reached this instruction with a freed source
+  // object whose "vtable" was heap data (0x....487C) and faulted at +8.
+  // A live object's AddRef is recompiled game code; anything else is
+  // dangling, so assign null (returning true skips the AddRef).
+  // Called for nearly every intrusive pointer copy, so keep the common case
+  // to a range test: a live object's vtable is in the title image.
+  const uint32_t vtable = r11.u32;
+  if (vtable >= kGuestImageBegin && vtable < kGuestImageEnd) return false;
+  static std::atomic<uint32_t> skipped{};
+  if (skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
+    pinyon_shift::diagnostics::RecordEvent(
+        "object.retain.stale_source",
+        {{"address", pinyon_shift::fh1::kTitleUpdateV4 ? "8247184C" : "826E1B3C"},
+         {"destination", Hex32(r30.u32)},
+         {"source_slot", Hex32(r4.u32)},
+         {"object", Hex32(r31.u32)},
+         {"vtable", Hex32(vtable)}});
   }
-  pinyon_shift::diagnostics::RecordEvent(
-      "object.retain.invalid_vtable",
-      {{"address", "826E1B3C"},
-       {"destination", Hex32(r30.u32)},
-       {"source_slot", Hex32(r4.u32)},
-       {"object", Hex32(r31.u32)},
-       {"vtable", Hex32(r11.u32)}});
+  r31.u64 = 0;
+  return true;
 }
 
 void PinyonShiftTraceRetainSourceSlot(PPCRegister& r3, PPCRegister& r4,
