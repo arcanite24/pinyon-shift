@@ -393,6 +393,9 @@
                             AutomationProperties.HelpText="Open the Pinyon Shift bug report form on GitHub."/>
                     <Button Content="GitHub" Style="{StaticResource LinkButton}"
                             Click="ProjectButton_Click" AutomationProperties.HelpText="Open the project on GitHub."/>
+                    <Button Content="Support" Style="{StaticResource LinkButton}"
+                            Click="SupportButton_Click"
+                            AutomationProperties.HelpText="Open the optional ways to support development. Pinyon Shift stays free."/>
                 </StackPanel>
             </DockPanel>
 

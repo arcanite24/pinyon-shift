@@ -1122,6 +1122,13 @@ public partial class MainWindow : Window
     private void ProjectButton_Click(object sender, RoutedEventArgs e) =>
         Process.Start(new ProcessStartInfo("https://github.com/arcanite24/pinyon-shift") { UseShellExecute = true });
 
+    // Opens the README section listing GitHub Sponsors and Ko-fi; nothing in
+    // the launcher depends on or changes with support.
+    private void SupportButton_Click(object sender, RoutedEventArgs e) =>
+        Process.Start(new ProcessStartInfo(
+            "https://github.com/arcanite24/pinyon-shift#supporting-the-project")
+        { UseShellExecute = true });
+
     private void OpenStateFolderButton_Click(object sender, RoutedEventArgs e)
     {
         if (_stateRoot is null) return;
