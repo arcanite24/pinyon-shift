@@ -44,6 +44,92 @@ RALLY_SERIES_ROUTES = ((11, 10, 12, 44), (13, 14, 15, 45), (4, 5, 6, 42),
 MARKETPLACE_CONTENT = "0000000000000000"
 
 
+def parse_cpu_list(text: str) -> list[int]:
+    """'0,2,4,6' or '0-7' (or both) as sorted logical processor numbers."""
+    cpus: set[int] = set()
+    for item in text.split(","):
+        first, _, last = item.strip().partition("-")
+        start, end = int(first), int(last or first)
+        if start > end or end >= 64:
+            raise ValueError(f"bad processor list: {text}")
+        cpus.update(range(start, end + 1))
+    return sorted(cpus)
+
+
+# Keeps one logical processor busy; run pinned by its parent.
+BUSY_LOOP = "while True:\n    pass\n"
+
+
+class LowSpecSimulation:
+    """Sibling load and a VRAM balloon around one game run (LS-0.5)."""
+
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.load: list[subprocess.Popen] = []
+        self.balloon: subprocess.Popen | None = None
+        self.balloon_report: dict | None = None
+
+    def __enter__(self) -> "LowSpecSimulation":
+        try:
+            if self.args.sibling_load:
+                self._start_load(parse_cpu_list(self.args.sibling_load))
+            if self.args.vram_balloon_gb:
+                self._start_balloon(self.args.vram_balloon_gb)
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
+        return self
+
+    def _start_load(self, cpus: list[int]) -> None:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.SetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        for cpu in cpus:
+            process = subprocess.Popen([sys.executable, "-c", BUSY_LOOP])
+            self.load.append(process)
+            if not kernel32.SetProcessAffinityMask(int(process._handle), 1 << cpu):
+                raise OSError(f"could not pin the load to processor {cpu}")
+
+    def _start_balloon(self, gigabytes: float) -> None:
+        build = (self.args.build_directory or
+                 Path(__file__).resolve().parents[1] / "out/build/win-amd64-release")
+        executable = Path(build) / "pinyon_shift_vram_balloon.exe"
+        if not executable.is_file():
+            raise ValueError(f"{executable} is missing: build the pinyon_shift_vram_balloon target")
+        self.balloon = subprocess.Popen(
+            [str(executable), f"{gigabytes:g}"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        )
+        line = self.balloon.stdout.readline()
+        if not line:
+            raise RuntimeError("the VRAM balloon exited before holding memory")
+        self.balloon_report = json.loads(line)
+
+    def __exit__(self, *_exc: object) -> None:
+        for process in self.load:
+            process.kill()
+            process.wait()
+        if self.balloon:
+            # The balloon frees its memory when stdin closes.
+            self.balloon.stdin.close()
+            try:
+                self.balloon.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.balloon.kill()
+                self.balloon.wait()
+
+    def summary(self) -> dict | None:
+        if not (self.args.host_cpus or self.args.sibling_load or self.args.vram_balloon_gb):
+            return None
+        return {
+            "kind": "sensitivity",
+            "host_cpus": self.args.host_cpus,
+            "sibling_load": self.args.sibling_load,
+            "vram_balloon": self.balloon_report,
+        }
+
+
 def skip_private_content(directory: str, names: list[str]) -> set[str]:
     """Leave Marketplace content for link_or_copy and drop import scratch."""
     skipped = {name for name in names if name.startswith("staging-")}
@@ -1689,6 +1775,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         game_arguments.append("--pinyon_shift_repair_car_cards=false")
     if args.null_gpu:
         game_arguments.append("--gpu_backend=null")
+    if args.host_cpus:
+        game_arguments.append(f"--host_cpu_simulation={args.host_cpus}")
     command.extend(["-GameArgumentsJson", json.dumps(game_arguments)])
     command.append("-Json")
     environment = dict(os.environ)
@@ -1718,10 +1806,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         else:
             environment["PINYON_SHIFT_RALLY_PACE_PROBE"] = pace_languages[0]
         environment["PINYON_SHIFT_RALLY_AUDIO_PROBE"] = pace_languages[0]
-    process = subprocess.run(
-        command, capture_output=True, text=True, timeout=timeout + 30, check=False,
-        env=environment
-    )
+    with LowSpecSimulation(args) as simulation:
+        process = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout + 30, check=False,
+            env=environment
+        )
     if process.returncode:
         raise RuntimeError(
             f"FH1 render test failed ({process.returncode}):\n"
@@ -2020,6 +2109,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "seeded_vulkan_shader_storage": seeded_vulkan_shader_storage,
         "opening_movies_included": args.include_opening_movies,
         "performance": performance,
+        "low_spec_simulation": simulation.summary(),
+        "game_arguments": game_arguments,
         "comparisons": comparisons,
         "vehicle_pose_comparisons": pose_comparisons,
         "capture_mae": capture_mae,
@@ -2121,6 +2212,24 @@ def main() -> int:
         help="directory holding pinyon_shift.exe (e.g. a saved control build for an A/B)",
     )
     parser.add_argument("--game-argument", action="append", default=[])
+    # Low-end hardware sensitivity runs (LOW_SPEC_BACKLOG LS-0.5). They keep
+    # this machine's caches, memory and driver: label results as sensitivity
+    # data, not another machine's numbers.
+    parser.add_argument(
+        "--host-cpus", metavar="LIST",
+        help="run the game on these logical processors only (host_cpu_simulation), "
+             "such as 0,2,4,6 for 4 cores without SMT or 0-7 for 4 cores with it",
+    )
+    parser.add_argument(
+        "--sibling-load", metavar="LIST",
+        help="keep these logical processors busy (the SMT siblings of --host-cpus) "
+             "to approximate slower cores",
+    )
+    parser.add_argument(
+        "--vram-balloon-gb", type=float,
+        help="hold this much device-local memory in another process during the run "
+             "(pinyon_shift_vram_balloon), shrinking the game's VRAM budget",
+    )
     args = parser.parse_args()
     try:
         result = run(args)

@@ -311,6 +311,31 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
             self.assertTrue((destination / "dlc/PKG.json").is_file())
             self.assertFalse((destination / "dlc/staging-abc").exists())
 
+    def test_cpu_lists_for_low_spec_simulation(self):
+        self.assertEqual(MODULE.parse_cpu_list("0,2,4,6"), [0, 2, 4, 6])
+        self.assertEqual(MODULE.parse_cpu_list("0-3,8"), [0, 1, 2, 3, 8])
+        for invalid in ("3-1", "64", "a", ""):
+            with self.assertRaises(ValueError):
+                MODULE.parse_cpu_list(invalid)
+
+    def test_low_spec_simulation_reports_only_when_requested(self):
+        import argparse
+
+        plain = argparse.Namespace(host_cpus=None, sibling_load=None, vram_balloon_gb=None,
+                                   build_directory=None)
+        with MODULE.LowSpecSimulation(plain) as simulation:
+            self.assertIsNone(simulation.summary())
+        cpus = argparse.Namespace(host_cpus="0-7", sibling_load=None, vram_balloon_gb=None,
+                                  build_directory=None)
+        with MODULE.LowSpecSimulation(cpus) as simulation:
+            self.assertEqual(simulation.summary()["kind"], "sensitivity")
+            self.assertEqual(simulation.summary()["host_cpus"], "0-7")
+        missing = argparse.Namespace(host_cpus=None, sibling_load=None, vram_balloon_gb=1.0,
+                                     build_directory=Path(tempfile.gettempdir()) / "no-build")
+        with self.assertRaises(ValueError):
+            with MODULE.LowSpecSimulation(missing):
+                pass
+
     def test_stage_reload_rejects_metadata_mismatch_and_awards(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

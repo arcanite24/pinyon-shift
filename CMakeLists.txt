@@ -222,6 +222,11 @@ if(WIN32)
     # Non-elevated sampling profiler for named threads (CPU_HOTSPOT_PROFILING.md).
     add_executable(pinyon_shift_thread_sampler EXCLUDE_FROM_ALL tools/thread_sampler.cpp)
     target_link_libraries(pinyon_shift_thread_sampler PRIVATE dbghelp)
+    # Holds device-local memory beside the game to shrink its VRAM budget
+    # (LOW_SPEC_BACKLOG LS-0.5); loads vulkan-1.dll at run time.
+    add_executable(pinyon_shift_vram_balloon EXCLUDE_FROM_ALL tools/vram_balloon.cpp)
+    target_include_directories(pinyon_shift_vram_balloon PRIVATE
+        ${REXSDK_DIR}/thirdparty/vulkan-headers/include)
 endif()
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
