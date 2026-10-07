@@ -1,0 +1,68 @@
+pinyon-shift-fh1-render-test-v1
+# In-run A/B: gpu_buffer_replay alternates false/true every 300 output frames from frame 600 (tools/make-ab-route.py).
+# Output-frame paced, synchronized on game state so it does not drift. From
+# seed appdata-2026-09-27: wait for the car in free roam, sign up for the
+# Gauntlet (X), open car select and wait for the profile thumbnails it loads,
+# pick the car, wait for the race's replay stream (loading done), press A
+# through the intro, start and rival screens (each takes its default), then
+# hold the throttle and capture once the car has moved.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+cvar 600 gpu_buffer_replay false
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+cvar 900 gpu_buffer_replay true
+cvar 1200 gpu_buffer_replay false
+wait 1400 3000 vehicle
+cvar 1500 gpu_buffer_replay true
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+cvar 1800 gpu_buffer_replay false
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+wait 2050 1200 file thumbnail_
+cvar 2100 gpu_buffer_replay true
+capture 2220 car-select
+input 2400 1000 0 0 0 0 0 0
+cvar 2400 gpu_buffer_replay false
+input 2406 0000 0 0 0 0 0 0
+wait 2410 3000 file replay_stream
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+cvar 2700 gpu_buffer_replay true
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+cvar 3000 gpu_buffer_replay false
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+cvar 3300 gpu_buffer_replay true
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+cvar 3600 gpu_buffer_replay false
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+cvar 3900 gpu_buffer_replay true
+wait 3910 2400 vehicle-moved 30
+capture 4030 race-moving
+capture 4150 race-moving-later
+stop 4200

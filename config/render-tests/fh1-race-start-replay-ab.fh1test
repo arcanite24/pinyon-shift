@@ -1,0 +1,54 @@
+pinyon-shift-fh1-render-test-v1
+# In-run A/B: gpu_buffer_replay alternates false/true every 300 output frames from frame 600 (tools/make-ab-route.py).
+# Output-frame paced. From seed appdata-2026-09-27: enter the Recaro event like
+# fh1-native-race-mode-boundary, hold the throttle, and wait until the car has
+# moved before capturing, so the capture never lands on the countdown.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+cvar 600 gpu_buffer_replay false
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+cvar 900 gpu_buffer_replay true
+cvar 1200 gpu_buffer_replay false
+cvar 1500 gpu_buffer_replay true
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+cvar 1800 gpu_buffer_replay false
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+cvar 2100 gpu_buffer_replay true
+capture 2220 event-step-1
+input 2400 1000 0 0 0 0 0 0
+cvar 2400 gpu_buffer_replay false
+input 2406 0000 0 0 0 0 0 0
+cvar 2700 gpu_buffer_replay true
+input 2760 1000 0 0 0 0 0 0
+input 2766 0000 0 0 0 0 0 0
+capture 2940 event-step-3
+cvar 3000 gpu_buffer_replay false
+input 3120 1000 0 0 0 0 0 0
+input 3126 0000 0 0 0 0 0 0
+cvar 3300 gpu_buffer_replay true
+input 3480 1000 0 0 0 0 0 0
+input 3486 0000 0 0 0 0 0 0
+input 3600 1000 0 0 0 0 0 0
+cvar 3600 gpu_buffer_replay false
+input 3606 0000 0 0 0 0 0 0
+input 3720 1000 0 0 0 0 0 0
+input 3726 0000 0 0 0 0 0 0
+input 3840 1000 0 0 0 0 0 0
+input 3846 0000 0 0 0 0 0 0
+cvar 3900 gpu_buffer_replay true
+input 4200 0000 0 255 0 0 0 0
+cvar 4200 gpu_buffer_replay false
+wait 4210 2400 vehicle-moved 30
+capture 4330 race-moving
+capture 4450 race-moving-later
+stop 4500
