@@ -1489,6 +1489,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     # Trace-only: record the native entitlement cache and car rows without
     # the base adapter's Rally assertions (used on the v4 build).
     dlc_car_trace = "# dlc-car-trace" in scenario_lines
+    # Optional car list for that trace: "# dlc-car-ids 1103,1131" (Rally's
+    # roster when absent).
+    dlc_car_ids = ",".join(line.split(None, 2)[2].replace(" ", "") for line in scenario_lines
+                           if line.startswith("# dlc-car-ids "))
     expect_rally_entry_positions = "# expect-rally-entry-positions" in scenario_lines
     expect_rally_service_guard = "# expect-rally-service-entry-guard" in scenario_lines
     expect_rally_test_ai = "# expect-rally-test-ai-driver" in scenario_lines
@@ -1668,6 +1672,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         environment["PINYON_SHIFT_DLC_TRACE"] = "1"
     else:
         environment.pop("PINYON_SHIFT_DLC_TRACE", None)
+    if dlc_car_ids:
+        environment["PINYON_SHIFT_DLC_TRACE_CARS"] = dlc_car_ids
+    else:
+        environment.pop("PINYON_SHIFT_DLC_TRACE_CARS", None)
     if hub_ui_entries or hub_resumes or hub_retirements:
         environment.pop("PINYON_SHIFT_RALLY_HUB_PROBE", None)
     if expect_rally_builtin:

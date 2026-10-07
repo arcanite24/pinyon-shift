@@ -5659,11 +5659,21 @@ static void TraceDlcCars() {
           {"database", Hex32(database)}, {"view_database", Hex32(LoadGuestU32(FH1_ADDR(0x832E5510u)))}});
     }
   }
+  // Rally's roster by default; PINYON_SHIFT_DLC_TRACE_CARS names other car
+  // IDs (digits and commas only, so the text is safe to splice into SQL).
+  std::string car_ids = "346,365,378,1272,1295,1517,1626,1627,1628,1629,1630,1631,1632,1633,1634,1635";
+  if (const auto requested = pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_DLC_TRACE_CARS")) {
+    if (requested->empty() || requested->size() > 2048 ||
+        requested->find_first_not_of("0123456789,") != std::string::npos) {
+      RecordEvent("dlc.car_trace_error", {{"error", "invalid PINYON_SHIFT_DLC_TRACE_CARS"}}); return;
+    }
+    car_ids = *requested;
+  }
   const std::string query = "SELECT Id,IsInstalled,IsPurchased,IsSelectable,IsDrivable,"
       "(SELECT COUNT(*) FROM List_UpgradeTireCompound t WHERE t.Ordinal=c.Id),"
       "(SELECT COUNT(*) FROM List_UpgradeSpringDamper s WHERE s.Ordinal=c.Id),"
       "(SELECT COUNT(*) FROM List_UpgradeEngine e WHERE e.Ordinal=c.Id) FROM Data_Car c "
-      "WHERE Id IN (346,365,378,1272,1295,1517,1626,1627,1628,1629,1630,1631,1632,1633,1634,1635) ORDER BY Id";
+      "WHERE Id IN (" + car_ids + ") ORDER BY Id";
   auto* memory = rex::system::kernel_state()->memory();
   const auto scratch = memory->SystemHeapAlloc(uint32_t(query.size() + 17), 16);
   if (!scratch) {
@@ -5675,7 +5685,7 @@ static void TraceDlcCars() {
   pinyon_shift::mod::CallGuest(query_method, {scratch, database, scratch + 16});
   const auto record = LoadGuestU32(scratch), size = method(record, 184), get = method(record, 80);
   const auto rows = size ? pinyon_shift::mod::CallGuest(size, {record}) : 0;
-  if (size && get && rows <= 128) {
+  if (size && get && rows <= 512) {
     constexpr std::array fields{"car_id", "installed", "purchased", "selectable", "drivable",
                                 "tire_options", "suspension_options", "engine_options"};
     for (uint32_t row = 0; row < rows; ++row) {
