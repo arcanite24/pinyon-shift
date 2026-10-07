@@ -1151,6 +1151,53 @@ public partial class MainWindow : Window
         {
             GraphicsStatusText.Text = $"Settings could not be loaded: {ex.Message}";
         }
+        await ShowHardwareCheckAsync();
+    }
+
+    // LS-1.7: the GPU, its memory and Vulkan version, the CPU and the display,
+    // once per launcher run, with the in-game preset that suits them.
+    private HardwareInfo? _hardware;
+    private Recommendation? _recommendation;
+
+    private async Task ShowHardwareCheckAsync()
+    {
+        try
+        {
+            var refresh = DisplayRefresh(_graphicsSettings?.Monitor ?? 0);
+            _hardware ??= await Task.Run(() => HardwareCheck.Probe(refresh));
+            _recommendation = HardwareCheck.Recommend(_hardware);
+            HardwareText.Text = HardwareCheck.Describe(_hardware);
+            UpdateRecommendationText();
+        }
+        catch (Exception ex)
+        {
+            HardwareText.Text = $"The hardware check failed: {ex.Message}";
+            RecommendationText.Text = string.Empty;
+            UseRecommendedButton.IsEnabled = false;
+        }
+    }
+
+    private void UpdateRecommendationText()
+    {
+        if (_recommendation is not { } recommendation) return;
+        var inUse = string.Equals(_graphicsSettings?.GamePreset, recommendation.Preset, StringComparison.Ordinal);
+        RecommendationText.Text = $"Recommended: {recommendation.Label}. {recommendation.Reason}" +
+            (inUse ? " In use." : string.Empty) +
+            (recommendation.Warning is { } warning ? $" {warning}" : string.Empty);
+        UseRecommendedButton.Content = $"Use {recommendation.Label}";
+        UseRecommendedButton.IsEnabled = !inUse && !_busy;
+        AutomationProperties.SetHelpText(UseRecommendedButton,
+            $"Set the in-game graphics preset to {recommendation.Label}.");
+    }
+
+    private async void UseRecommendedButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_recommendation is not { } recommendation) return;
+        if (await ChangeGraphicsSettingsAsync("Apply", $"{recommendation.Label} saved. Applies at the next start.",
+                gamePreset: recommendation.Preset))
+        {
+            UpdateRecommendationText();
+        }
     }
 
     private async void DlcButton_Click(object sender, RoutedEventArgs e)
@@ -1473,13 +1520,14 @@ public partial class MainWindow : Window
     private async void RestoreGraphicsButton_Click(object sender, RoutedEventArgs e) =>
         await ChangeGraphicsSettingsAsync("Restore", "Backup restored. Applies at the next start.");
 
-    private async Task<bool> ChangeGraphicsSettingsAsync(string action, string success, bool revealBackup = false)
+    private async Task<bool> ChangeGraphicsSettingsAsync(string action, string success, bool revealBackup = false,
+        string? gamePreset = null)
     {
         SetGraphicsControlsEnabled(false);
         GraphicsStatusText.Text = action == "Apply" ? "Saving…" : "Updating…";
         try
         {
-            var result = await RunGraphicsSettingsToolAsync(action);
+            var result = await RunGraphicsSettingsToolAsync(action, gamePreset);
             ApplyGraphicsResult(result);
             GraphicsStatusText.Text = success;
             if (revealBackup && !string.IsNullOrWhiteSpace(result.BackupPath) && File.Exists(result.BackupPath))
@@ -1504,7 +1552,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<GraphicsResult> RunGraphicsSettingsToolAsync(string action)
+    private async Task<GraphicsResult> RunGraphicsSettingsToolAsync(string action, string? gamePreset = null)
     {
         if (_repositoryRoot is null || _stateRoot is null)
             throw new InvalidOperationException("Release source is not ready.");
@@ -1531,6 +1579,12 @@ public partial class MainWindow : Window
             "-TreasureMap", TreasureMapCheckBox.IsChecked == true ? "true" : "false",
             "-Json"
         }) startInfo.ArgumentList.Add(argument);
+        // An in-game preset applies over the panel's choices (LS-1.7).
+        if (gamePreset is not null)
+        {
+            startInfo.ArgumentList.Add("-GamePreset");
+            startInfo.ArgumentList.Add(gamePreset);
+        }
         using var process = Process.Start(startInfo) ??
             throw new InvalidOperationException("Windows could not start the graphics settings tool.");
         var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -1558,6 +1612,7 @@ public partial class MainWindow : Window
             ? "bilinear" : result.Settings.OutputScaling);
         TreasureMapCheckBox.IsChecked = result.Settings.TreasureMap;
         UpdateResolutionLine();
+        UpdateRecommendationText();
     }
 
     private GraphicsSettings? _graphicsSettings;
@@ -1611,7 +1666,7 @@ public partial class MainWindow : Window
 
     // The display mode of the game's monitor: 0 and 1 are the primary, 2 on
     // the other displays in Windows' order.
-    private static (int Width, int Height)? DisplaySize(int monitor)
+    private static DevMode? DisplayMode(int monitor)
     {
         string? deviceName = null;
         if (monitor > 1)
@@ -1626,8 +1681,14 @@ public partial class MainWindow : Window
             if (monitor - 2 < others.Count) deviceName = others[monitor - 2];
         }
         var mode = new DevMode { dmSize = (short)System.Runtime.InteropServices.Marshal.SizeOf<DevMode>() };
-        return EnumDisplaySettings(deviceName, -1, ref mode) ? (mode.dmPelsWidth, mode.dmPelsHeight) : null;
+        return EnumDisplaySettings(deviceName, -1, ref mode) ? mode : null;
     }
+
+    private static (int Width, int Height)? DisplaySize(int monitor) =>
+        DisplayMode(monitor) is { } mode ? (mode.dmPelsWidth, mode.dmPelsHeight) : null;
+
+    // Its refresh rate, or 0 if unknown.
+    private static int DisplayRefresh(int monitor) => DisplayMode(monitor)?.dmDisplayFrequency ?? 0;
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern bool EnumDisplaySettings(string? deviceName, int modeNum, ref DevMode devMode);
@@ -1704,6 +1765,7 @@ public partial class MainWindow : Window
         SaveGraphicsButton.IsEnabled = enabled;
         ResetGraphicsButton.IsEnabled = enabled;
         RestoreGraphicsButton.IsEnabled = enabled;
+        if (!enabled) UseRecommendedButton.IsEnabled = false;
     }
 
     private sealed record ProgressMessage(string? Stage, int Percent, string? Message);
@@ -1735,6 +1797,7 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("disable_motion_blur")] bool DisableMotionBlur,
         [property: JsonPropertyName("disable_depth_of_field")] bool DisableDepthOfField,
         [property: JsonPropertyName("preset")] string Preset,
+        [property: JsonPropertyName("game_preset")] string? GamePreset,
         [property: JsonPropertyName("resolution_scale")] int ResolutionScale,
         [property: JsonPropertyName("graphics_api")] string? GraphicsApi,
         [property: JsonPropertyName("output_scaling")] string? OutputScaling,

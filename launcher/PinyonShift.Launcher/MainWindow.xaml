@@ -302,6 +302,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.3*"/>
@@ -333,7 +334,20 @@
                         <TextBlock Grid.Row="2" Grid.ColumnSpan="5" x:Name="ResolutionLineText" Margin="0,14,0,0"
                                    FontSize="13.5" Foreground="{StaticResource FogBrush}" TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite"/>
-                        <CheckBox Grid.Row="3" Grid.ColumnSpan="5" x:Name="TreasureMapCheckBox" Margin="0,20,0,0"
+                        <!-- LS-1.7: what this PC has and the in-game preset that suits it. -->
+                        <DockPanel Grid.Row="3" Grid.ColumnSpan="5" Margin="0,20,0,0">
+                            <Button DockPanel.Dock="Right" x:Name="UseRecommendedButton" Style="{StaticResource QuietButton}"
+                                    Content="Use recommended" VerticalAlignment="Center" Margin="16,0,0,0"
+                                    IsEnabled="False" Click="UseRecommendedButton_Click"/>
+                            <StackPanel>
+                                <TextBlock Text="This PC" FontSize="13" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="HardwareText" Margin="0,6,0,0" FontSize="13.5" TextWrapping="Wrap"
+                                           Foreground="{StaticResource FogBrush}" Text="Checking the graphics card…"/>
+                                <TextBlock x:Name="RecommendationText" Margin="0,4,0,0" FontSize="12.5" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <CheckBox Grid.Row="4" Grid.ColumnSpan="5" x:Name="TreasureMapCheckBox" Margin="0,20,0,0"
                                   FontFamily="Bahnschrift" FontSize="13" IsChecked="True"
                                   AutomationProperties.Name="Treasure Map">
                             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
@@ -341,7 +355,7 @@
                                      Text=" · Every discount sign and barn find on the map. Once applied, it stays with that save."/>
                             </TextBlock>
                         </CheckBox>
-                        <DockPanel Grid.Row="4" Grid.ColumnSpan="5" Margin="0,22,0,0">
+                        <DockPanel Grid.Row="5" Grid.ColumnSpan="5" Margin="0,22,0,0">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="RestoreGraphicsButton" Content="Restore backup" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Click="RestoreGraphicsButton_Click"/>

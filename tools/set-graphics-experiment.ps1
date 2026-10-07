@@ -17,6 +17,10 @@ param(
     [string]$TreasureMap = 'true',
     [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'experimental_3x')]
     [string]$Preset = 'custom',
+    # The in-game GRAPHICS PRESET rows (src/ui/settings_menu.cpp); applied
+    # after the other choices, which it overrides.
+    [ValidateSet('low_spec_60', 'balanced_40', 'performance_120', 'quality_60')]
+    [string]$GamePreset,
     [ValidateSet(0, 30, 60, 120, 240)]
     [int]$PresentationFps = 0,
     [ValidateRange(0, 240)]
@@ -148,6 +152,39 @@ $retiredSettings = @(
     'zpd_end_fallback'
 )
 
+# The values of each in-game preset, as its row in the settings screen sets
+# them (Vulkan and the recorder thread are always set by Apply).
+$gamePresets = [ordered]@{
+    low_spec_60 = [ordered]@{ draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1'
+        present_effect = '"bilinear"'; fh1_msaa_single_sample = 'true'; host_present_fps_limit = '0'
+        pinyon_shift_fh1_render_fps_limit = '60'; anisotropic_override = '-1'; swap_post_effect = '"none"' }
+    balanced_40 = [ordered]@{ draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1'
+        present_effect = '"bilinear"'; fh1_msaa_single_sample = 'true'; host_present_fps_limit = '0'
+        pinyon_shift_fh1_render_fps_limit = '40'; anisotropic_override = '-1'; swap_post_effect = '"none"' }
+    performance_120 = [ordered]@{ draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1'
+        present_effect = '"fsr"'; fh1_msaa_single_sample = 'true'; host_present_fps_limit = '0'
+        pinyon_shift_fh1_render_fps_limit = '120' }
+    quality_60 = [ordered]@{ draw_resolution_scale_x = '2'; draw_resolution_scale_y = '2'
+        present_effect = '"bilinear"'; fh1_msaa_single_sample = 'false'; host_present_fps_limit = '0'
+        pinyon_shift_fh1_render_fps_limit = '60' }
+}
+
+# The in-game preset the file matches, as the settings screen shows it.
+function Get-GamePreset([string]$Text) {
+    $defaults = @{ present_effect = '"bilinear"'; fh1_msaa_single_sample = 'false'
+        host_present_fps_limit = '0'; anisotropic_override = '-1'; swap_post_effect = '"none"'
+        pinyon_shift_fh1_render_fps_limit = '0'; draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1' }
+    foreach ($name in $gamePresets.Keys) {
+        $all = $true
+        foreach ($setting in $gamePresets[$name].GetEnumerator()) {
+            $value = (Get-TomlValue $Text $setting.Key $defaults[$setting.Key]).Trim('"').ToLowerInvariant()
+            if ($value -ne $setting.Value.Trim('"').ToLowerInvariant()) { $all = $false; break }
+        }
+        if ($all) { return $name }
+    }
+    'custom'
+}
+
 function Get-SchemaVersion([string]$Text) {
     $match = [regex]::Match($Text,
         '(?m)^\s*pinyon_shift_config_schema\s*=\s*(?<value>[0-9]+)\s*(?:#.*)?$')
@@ -186,6 +223,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             disable_motion_blur = (Get-TomlValue $Text 'disable_motion_blur' 'true') -eq 'true'
             disable_depth_of_field = (Get-TomlValue $Text 'disable_depth_of_field' 'true') -eq 'true'
             preset = $presetName
+            game_preset = Get-GamePreset $Text
             resolution_scale = $resolutionScale
             graphics_api = $graphicsApi
             output_scaling = (Get-TomlValue $Text 'present_effect' '"bilinear"').Trim('"').ToLowerInvariant()
@@ -305,6 +343,11 @@ switch ($Action) {
         }
         if ($bound.ContainsKey('RenderFps') -or $hadLegacyVblank) {
             $text = Set-TomlValue $text 'pinyon_shift_fh1_render_fps_limit' ([string]$RenderFps)
+        }
+        if ($GamePreset) {
+            foreach ($setting in $gamePresets[$GamePreset].GetEnumerator()) {
+                $text = Set-TomlValue $text $setting.Key $setting.Value
+            }
         }
         $text = Set-TomlValue $text 'host_present_sleep_spin' 'true'
         Write-HostConfig $configPath $text

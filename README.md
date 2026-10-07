@@ -184,7 +184,11 @@ and the output scaling (bilinear, CAS or
 FSR 1), and says what that means on your screen: for example, renders
 1280 × 720, FSR 1 upscales to 3840 × 2160. The Treasure Map toggle is there
 too: on by default, and once a save's map is revealed it stays revealed, as
-after a purchase. Existing Direct3D 12 settings migrate to Vulkan on the next
+after a purchase. **This PC** lists the graphics card, its memory and Vulkan
+version, the CPU's cores and the display's refresh rate, recommends the
+in-game preset that suits them (the same rule a new install uses, and
+Balanced 40 below 4 CPU cores) and sets it with one click. It warns when no
+Vulkan 1.3 driver is found. Existing Direct3D 12 settings migrate to Vulkan on the next
 start. Everything else, including the **Low-spec 60**, **Balanced 40**,
 **Performance 120** and **Quality 60** presets, is in the in-game settings, where
 most changes apply at once; MSAA and the language are among the few that need a

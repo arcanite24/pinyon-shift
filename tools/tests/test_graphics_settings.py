@@ -22,6 +22,27 @@ class GraphicsSettingsTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         return json.loads(completed.stdout)
 
+    def test_game_presets_apply_over_the_panel_choices_and_are_recognised(self):
+        # LS-1.7: the launcher applies the recommended in-game preset, and the
+        # defaults of a new config read as LOW-SPEC 60.
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            self.assertEqual(self.run_tool(state, "-Action", "Get")["settings"]["game_preset"],
+                             "low_spec_60")
+            result = self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "3",
+                                   "-OutputScaling", "cas", "-GamePreset", "performance_120")
+            text = (state / "config/pinyon_shift.toml").read_text(encoding="utf-8")
+            self.assertEqual(result["settings"]["game_preset"], "performance_120")
+            for line in ("draw_resolution_scale_x = 1", 'present_effect = "fsr"',
+                         "fh1_msaa_single_sample = true", "host_present_fps_limit = 0",
+                         "pinyon_shift_fh1_render_fps_limit = 120"):
+                self.assertIn(line, text)
+            result = self.run_tool(state, "-Action", "Apply", "-GamePreset", "balanced_40")
+            self.assertEqual(result["settings"]["game_preset"], "balanced_40")
+            self.assertEqual(result["settings"]["fh1_render_fps_limit"], 40)
+            result = self.run_tool(state, "-Action", "Apply", "-RenderFps", "30")
+            self.assertEqual(result["settings"]["game_preset"], "custom")
+
     def test_apply_migrates_schema_and_restore_recovers_previous_file(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
             state = pathlib.Path(temporary)
