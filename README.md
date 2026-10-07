@@ -111,17 +111,17 @@ with only the shader and pipeline caches kept.
 ### The race, native renderer
 
 The scripted race (`fh1-race-sync`) is the heaviest route. It is measured on
-2026-10-07 at commit `25eae84` over the race's frames with 5,000 draws or more
+2026-10-07 at commit `e561680` over the race's frames with 5,000 draws or more
 (its busiest part), with the game rate limited to 120, in a hidden window, from
 the same save.
 
 | Internal resolution | Median frame time | Median frame rate | p95 | Graphics memory |
 | --- | ---: | ---: | ---: | ---: |
-| 1x (1280×720), no MSAA, FSR 1 | 9.18 ms | **109 fps** | 12.26 ms | 0.9 GB |
-| 2x (2560×1440), no MSAA | 9.12 ms | **110 fps** | 11.69 ms | 3.3 GB |
-| 3x (3840×2160), the game's 4x MSAA | 9.79 ms | **102 fps** | 13.40 ms | 4.3 GB |
+| 1x (1280×720), no MSAA, FSR 1 | 8.41 ms | **119 fps** | 10.75 ms | 0.9 GB |
+| 2x (2560×1440), the game's 4x MSAA | 8.43 ms | **119 fps** | 11.71 ms | 3.3 GB |
+| 3x (3840×2160), no MSAA | 9.82 ms | **102 fps** | 13.58 ms | 4.3 GB |
 
-At a 60 fps limit, 2x holds a 16.66 ms median (p95 17.04 ms). The records are
+At a 60 fps limit, 2x with MSAA holds a 16.66 ms median (p95 17.04 ms). The records are
 in [benchmarks/low-spec](benchmarks/low-spec). On 2026-09-30 the same race took
 9.1, 12.7 and 28.7 ms at 1x, 2x and 3x, and the retired Direct3D 12 backend
 12.7, 15.2 and 17.5 ms. How the Vulkan path got here is in the
@@ -150,7 +150,10 @@ clocks, and the GPU here is still an RTX 4080.
 
 Long frames are those over one and a half frame intervals (25 ms at 60 fps).
 The CPU columns are per frame. Every row holds its rate: the CPU work of
-Low-spec 60 fits 4 cores, and 2 cores with 4 threads is the edge. The game
+Low-spec 60 fits 4 cores, and 2 cores with 4 threads is the edge. Four slow
+cores sit at it too: eight runs gave 58.9 to 59.3 presents a second, against
+59.6 to 59.7 for four ordinary cores, so they meet the 59 a second gate only
+in some runs; there, Balanced 40 leaves a wide margin. The game
 needs about 1.1 GB of graphics memory at 1x without MSAA (34 native surfaces
 take 265 MB, textures about 150 MB) and stays there over a long drive, so a
 2 GB card has room. Whether a slower GPU keeps up is not simulated: integrated

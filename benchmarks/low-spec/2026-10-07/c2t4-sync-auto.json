@@ -2,8 +2,8 @@
   "schema": "pinyon-shift.low-spec-benchmark.v1",
   "label": "2 cores, 4 threads (`fh1-race-sync`)",
   "recorded": "2026-10-07T17:11:42+00:00",
-  "commit": "25eae84",
-  "sdk": "82d6775",
+  "commit": "598f4be",
+  "sdk": "258047f",
   "route": "fh1-race-sync",
   "machine": {
     "cpu": "AMD Ryzen 7 5800X 8-Core Processor",
