@@ -6805,23 +6805,34 @@ namespace {
 std::atomic<uint64_t> g_title_frames{0};
 std::atomic<uint64_t> g_map_view_frame{0};
 std::atomic<uint64_t> g_game_view_frame{0};
+std::atomic<bool> g_narrow_view{false};
 std::mutex g_map_view_mutex;
 std::function<void(bool)> g_map_view_callback;
 
 }  // namespace
 
 static void UpdateMapView() {
-  static bool open = false;
+  // Hor+ widens only the gameplay camera's view. Without it (title, menus,
+  // Autoshow, loading, pause map) the frame is the title's own 16:9 layers,
+  // which a widened, stretched presentation squeezes beside garbage (#363);
+  // those frames are shown 16:9 instead. The pause map switches at once; the
+  // rest after half a second without the gameplay view, so brief gaps (a
+  // dialog, a camera cut) do not flicker.
+  static bool narrow = false;
   const uint64_t frame = g_title_frames.fetch_add(1, std::memory_order_relaxed) + 1;
-  const uint64_t seen = g_map_view_frame.load(std::memory_order_relaxed);
+  const uint64_t map = g_map_view_frame.load(std::memory_order_relaxed);
   const uint64_t game = g_game_view_frame.load(std::memory_order_relaxed);
-  // The map view also runs under loading screens and after a fast travel, but
-  // the gameplay camera's view stops only while the pause map is up. Dialogs
-  // over the map can skip its view for a few frames; close only after half a
-  // second without it so the presentation does not flicker.
-  const bool now_open = seen != 0 && frame - seen <= 30 && (game == 0 || frame - game > 3);
-  if (now_open == open) return;
-  open = now_open;
+  const bool game_recent = game != 0 && frame - game <= 2;
+  const bool map_recent = map != 0 && frame - map <= 3;
+  const bool game_gone = game == 0 || frame - game > 30;
+  // The map's view keeps running in free roam once opened, so only the
+  // gameplay view decides; the map just makes the switch immediate.
+  const bool now_narrow = narrow ? !game_recent
+                                 : (game_gone || (map_recent && frame - game > 3));
+  if (now_narrow == narrow) return;
+  narrow = now_narrow;
+  g_narrow_view.store(narrow, std::memory_order_relaxed);
+  const bool open = narrow;
   std::function<void(bool)> callback;
   {
     std::lock_guard lock(g_map_view_mutex);
@@ -6848,8 +6859,7 @@ void PinyonShiftViewportAspect(PPCContext& context, [[maybe_unused]] uint8_t* ba
                                PPCRegister& r3, PPCRegister& f1) {
   // The pause map projects through the same main view (from sub_8263AB90,
   // v4 sub_826E2E20). Its image is a 16:9 layer, so a widened view shows
-  // smeared clamped texture beside it (#363); seeing this caller marks the
-  // map open, and the presentation shows it 16:9 (UpdateMapView).
+  // smeared clamped texture beside it (#363); see UpdateMapView.
   constexpr uint32_t kMapProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x826E30A8u : 0x8263AE18u;
   // The gameplay camera's view (sub_829A4860, v4 sub_82A58DA0).
   constexpr uint32_t kGameProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x82A58E34u : 0x829A48F4u;
@@ -6862,8 +6872,8 @@ void PinyonShiftViewportAspect(PPCContext& context, [[maybe_unused]] uint8_t* ba
     return;
   }
   // Only the title's main view: render-to-texture views (car thumbnails,
-  // reflections) keep their own aspect.
-  if (scale == 1.0f ||
+  // reflections) keep their own aspect. Frames shown 16:9 are not widened.
+  if (scale == 1.0f || g_narrow_view.load(std::memory_order_relaxed) ||
       LoadGuestU32(r3.u32 + 8u) != 1280u || LoadGuestU32(r3.u32 + 12u) != 720u) {
     return;
   }

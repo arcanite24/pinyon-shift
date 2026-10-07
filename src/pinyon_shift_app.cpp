@@ -767,7 +767,7 @@ void PinyonShiftApp::UpdateHorPlus() {
     }
   }
   PinyonShiftSetViewportAspectScale(scale);
-  // The HUD keeps 16:9 proportions in the stretched image; the map shows 16:9.
+  // The HUD keeps 16:9 proportions in the stretched image; 16:9 screens do not squeeze.
   rex::cvar::SetFlagByName("fh1_hud_squeeze",
                            fmt::format("{:.6f}", map_view_open_ ? 1.0f : scale));
   pinyon_shift::diagnostics::RecordEvent("display.hor_plus",
@@ -775,14 +775,13 @@ void PinyonShiftApp::UpdateHorPlus() {
 }
 
 void PinyonShiftApp::ApplyMapView(bool open) {
-  if (open == map_view_open_) return;
   map_view_open_ = open;
   if (!REXCVAR_GET(pinyon_shift_hor_plus)) return;
-  // Wider View stretches the 16:9 frame over the window; the map's 16:9 layer
-  // is shown letterboxed instead, then the stretch returns (#363).
+  // Wider View stretches the widened gameplay frame over the window; the
+  // title's 16:9 screens (menus, Autoshow, map) are letterboxed (#363).
   rex::cvar::SetFlagByName("present_letterbox", open ? "true" : "false");
   UpdateHorPlus();
-  pinyon_shift::diagnostics::RecordEvent("display.map_view", {{"open", open ? "1" : "0"}});
+  pinyon_shift::diagnostics::RecordEvent("display.hor_plus_view", {{"wide", open ? "0" : "1"}});
 }
 
 void PinyonShiftApp::OnPostSetup() {
@@ -798,7 +797,7 @@ void PinyonShiftApp::OnPostSetup() {
                                     [this](std::string_view, std::string_view) {
                                       if (window()) {
                                         window()->app_context().CallInUIThreadDeferred(
-                                            [this] { UpdateHorPlus(); });
+                                            [this] { ApplyMapView(map_view_open_); UpdateHorPlus(); });
                                       }
                                     });
   UpdateHorPlus();
