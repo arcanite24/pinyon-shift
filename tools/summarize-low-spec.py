@@ -200,10 +200,12 @@ def record(arguments: argparse.Namespace) -> int:
     memory["peak_share_of_budget"] = round(peak / budget, 3) if budget else None
     simulation = None
     game_arguments: list[str] = []
+    source: dict = {}
     if arguments.run_result and arguments.run_result.is_file():
         run_result = json.loads(arguments.run_result.read_text(encoding="utf-8"))
         simulation = run_result.get("low_spec_simulation")
         game_arguments = run_result.get("game_arguments") or []
+        source = run_result.get("source_revision") or {}
     device = event_fields(events, "graphics.device.selected")
     # The config file's values as logged, then the command line's overrides
     # (GPU settings register after logging starts and log empty there).
@@ -216,8 +218,10 @@ def record(arguments: argparse.Namespace) -> int:
         "schema": SCHEMA,
         "label": arguments.label,
         "recorded": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "commit": revision(ROOT),
-        "sdk": revision(ROOT / "thirdparty/shiftglue-sdk"),
+        # The source the runner launched from; the repository now only when
+        # the run did not record it.
+        "commit": source.get("commit") or revision(ROOT),
+        "sdk": source.get("sdk") or revision(ROOT / "thirdparty/shiftglue-sdk"),
         "route": arguments.route,
         "machine": {"cpu": cpu_name(), "gpu": device.get("name"),
                     "driver_version": device.get("driver_version"), "os": platform.platform()},
@@ -246,26 +250,43 @@ def cell(value: object, digits: int = 1) -> str:
 def table(arguments: argparse.Namespace) -> int:
     records = [json.loads(path.read_text(encoding="utf-8")) for path in arguments.records]
     band = arguments.band
-    lines = [
-        f"| Configuration | Machine | Median | p95 | Over interval | Over 1.5 intervals | "
-        f"Decoder CPU | Recorder CPU | Title CPU | Peak VRAM | Commit |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
+    machines = {(item["machine"].get("cpu"), item["machine"].get("gpu")) for item in records}
+    compact = arguments.compact
+    lines = []
+    if len(machines) == 1 and not compact:
+        cpu, gpu = next(iter(machines))
+        lines += [f"Measured on {cpu} with {gpu}; simulated rows limit this machine "
+                  "(sensitivity data, not another machine's numbers).", ""]
+    machine_column = len(machines) > 1
+    header = ["Configuration"] + (["Machine"] if machine_column else []) + [
+        "Game rate", "Presents a second", "Median", "p95", "Over 1.5 intervals",
+        "Decoder CPU", "Recorder CPU", "Title CPU", "Peak VRAM"] + (
+            [] if compact else ["Gate", "Commit"])
+    if compact:
+        header[header.index("Over 1.5 intervals")] = "Long frames"
+    lines += ["| " + " | ".join(header) + " |", "|" + " --- |" * len(header)]
     for item in records:
         metrics = (item.get("bands") or {}).get(band) or {}
         memory = item.get("memory") or {}
-        simulated = " (simulated)" if item.get("simulation") else ""
-        vram = memory.get("memory_device_usage_mb_peak")
-        budget = memory.get("memory_device_budget_mb_end")
-        lines.append(
-            f"| {item['label']}{simulated} | {item['machine'].get('cpu')}, "
-            f"{item['machine'].get('gpu')} | {cell(metrics.get('frame_ms_p50'), 2)} ms | "
-            f"{cell(metrics.get('frame_ms_p95'), 2)} ms | "
-            f"{cell(100 * metrics['over_budget_share'] if 'over_budget_share' in metrics else None)} % | "
-            f"{cell(100 * metrics['long_frame_share'] if 'long_frame_share' in metrics else None)} % | "
-            f"{cell(metrics.get('decoder_cpu_ms'), 2)} ms | {cell(metrics.get('recorder_cpu_ms'), 2)} ms | "
-            f"{cell(metrics.get('title_thread_cpu_ms'), 2)} ms | "
-            f"{cell(vram, 0)} of {cell(budget, 0)} MB | `{item['commit']}` |")
+        simulated = " (simulated)" if item.get("simulation") and not compact else ""
+        long_share = metrics.get("long_frame_share")
+        row = [f"{item['label']}{simulated}"]
+        if machine_column:
+            row.append(f"{item['machine'].get('cpu')}, {item['machine'].get('gpu')}")
+        row += [
+            f"{cell(metrics.get('target_fps'), 0)} fps",
+            cell(metrics.get("presents_per_second"), 1),
+            f"{cell(metrics.get('frame_ms_p50'), 2)} ms",
+            f"{cell(metrics.get('frame_ms_p95'), 2)} ms",
+            f"{cell(100 * long_share if long_share is not None else None)} %",
+            f"{cell(metrics.get('decoder_cpu_ms'), 1)} ms",
+            f"{cell(metrics.get('recorder_cpu_ms'), 1)} ms",
+            f"{cell(metrics.get('title_thread_cpu_ms'), 1)} ms",
+            f"{cell(memory.get('memory_device_usage_mb_peak'), 0)} MB",
+        ]
+        if not compact:
+            row += ["pass" if metrics.get("gate_cadence") else "fail", f"`{item['commit']}`"]
+        lines.append("| " + " | ".join(row) + " |")
     print("\n".join(lines))
     return 0
 
@@ -283,6 +304,8 @@ def main() -> int:
     table_parser = commands.add_parser("table", help="markdown table of records")
     table_parser.add_argument("records", type=Path, nargs="+")
     table_parser.add_argument("--band", default="heavy", choices=sorted(BANDS))
+    table_parser.add_argument("--compact", action="store_true",
+                              help="the README's form: no gate, commit or machine line")
     arguments = parser.parse_args()
     return record(arguments) if arguments.command == "record" else table(arguments)
 

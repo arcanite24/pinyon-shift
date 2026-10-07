@@ -44,6 +44,18 @@ RALLY_SERIES_ROUTES = ((11, 10, 12, 44), (13, 14, 15, 45), (4, 5, 6, 42),
 MARKETPLACE_CONTENT = "0000000000000000"
 
 
+def git_revision(path: Path) -> str | None:
+    """HEAD of the checkout at path, with -dirty for uncommitted changes."""
+    try:
+        head = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=path,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                               cwd=path, capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return head + ("-dirty" if dirty.strip() else "")
+
+
 def parse_cpu_list(text: str) -> list[int]:
     """'0,2,4,6' or '0-7' (or both) as sorted logical processor numbers."""
     cpus: set[int] = set()
@@ -1806,6 +1818,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         else:
             environment["PINYON_SHIFT_RALLY_PACE_PROBE"] = pace_languages[0]
         environment["PINYON_SHIFT_RALLY_AUDIO_PROBE"] = pace_languages[0]
+    # The source the build came from, read at launch: a summary written
+    # later must not take the repository's newer state (LS-0.6).
+    source_revision = {name: git_revision(path) for name, path in (
+        ("commit", Path(__file__).resolve().parents[1]),
+        ("sdk", Path(__file__).resolve().parents[1] / "thirdparty/shiftglue-sdk"))}
     with LowSpecSimulation(args) as simulation:
         process = subprocess.run(
             command, capture_output=True, text=True, timeout=timeout + 30, check=False,
@@ -2111,6 +2128,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "performance": performance,
         "low_spec_simulation": simulation.summary(),
         "game_arguments": game_arguments,
+        "source_revision": source_revision,
         "comparisons": comparisons,
         "vehicle_pose_comparisons": pose_comparisons,
         "capture_mae": capture_mae,

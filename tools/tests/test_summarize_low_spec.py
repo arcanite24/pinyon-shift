@@ -73,7 +73,8 @@ class SummarizeLowSpecTests(unittest.TestCase):
             table = subprocess.run([sys.executable, str(SCRIPT), "table", str(output)],
                                    check=True, capture_output=True, text=True).stdout
             self.assertIn("| 4C/8T (simulated) |", table)
-            self.assertIn("1099 of 4000 MB", table)
+            self.assertIn("| 1099 MB | fail |", table)
+            self.assertIn("Measured on", table)
 
     def test_gate_follows_the_target_rate(self):
         rows = [{"frame_time_us": "25000", "draw_calls": "6000", "present_count": "1"}
