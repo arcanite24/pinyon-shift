@@ -6188,6 +6188,16 @@ static void UpdateMapView();
 
 void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   PROFILE_SIMULATION_TICK();
+  // LS-0.3: the CPU time of the title's frame thread (simulation and scene
+  // submission) between its frames; cycle-exact on Windows.
+  {
+    thread_local int64_t title_cpu_ns = 0;
+    const int64_t cpu_ns = rex::perf::CurrentThreadCpuTimeNs();
+    if (title_cpu_ns && cpu_ns >= title_cpu_ns) {
+      PERF_counter_add(kFh1TitleThreadCpuTimeNs, cpu_ns - title_cpu_ns);
+    }
+    title_cpu_ns = cpu_ns;
+  }
   pinyon_shift::stall::NoteFrame();
   ApplyUiMutationExperiment();
   SampleUiPauseControl();
