@@ -249,6 +249,9 @@ package power on T2 and T3.
 
 ### LS-3 Reuse instead of rebuild on the recorder (re-scopes DR-3.1, DR-4.1, DR-4.2; months)
 
+The phased plan for LS-3 is the [recorder replay backlog](RECORDER_REPLAY_BACKLOG.md)
+(RR-0 to RR-6).
+
 Gate: fewer recorder cycles a draw over 5,000+ draw frames, with no
 regression in GPU time or memory, and zero verify mismatches over the route
 matrix. On T1, the heavy race start meets 16.67 ms.
