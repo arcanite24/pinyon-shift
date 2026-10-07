@@ -15,6 +15,8 @@
   <a href="#play">How to play</a>
   ·
   <a href="#roadmap">Roadmap</a>
+  ·
+  <a href="#supporting-the-project">Support development</a>
 </p>
 
 <p align="center">
@@ -334,9 +336,20 @@ and other machine-local material.
 
 ## Supporting the project
 
-Pinyon Shift is and will remain free. If you would like to support its continued
-development, you can [sponsor arcanite24 on GitHub]. Sponsorship is entirely
-optional and does not provide builds, game content, support, or influence over
-the project roadmap.
+Pinyon Shift is and will remain free. Every release, feature and setting is
+public on the same day for everyone. There are no supporter builds, early
+access, paid features or paid mods, and there never will be.
+
+If you would like to support continued development, you can
+[sponsor arcanite24 on GitHub] or [buy me a coffee on Ko-fi]. Contributions
+pay for development time and for test hardware, such as Android phones and
+lower-end GPUs used for the performance work. They do not buy builds, game
+content, priority support or influence over the roadmap. Support is for the
+work on this project, not for *Forza Horizon*, which remains the property of
+its owners.
+
+Sharing the project, reporting bugs with a diagnostic ZIP and contributing
+code help just as much.
 
 [sponsor arcanite24 on GitHub]: https://github.com/sponsors/arcanite24
+[buy me a coffee on Ko-fi]: https://ko-fi.com/nerijs
