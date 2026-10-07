@@ -18,6 +18,9 @@ class SaveBackups;
 namespace pinyon_shift::hostui {
 class HostUi;
 }
+namespace rex::ui::vulkan {
+class VulkanDevice;
+}
 
 class PinyonShiftApp final : public rex::ReXApp {
  public:
@@ -65,6 +68,10 @@ class PinyonShiftApp final : public rex::ReXApp {
   // Under Hor+, present frames without the gameplay view 16:9 letterboxed.
   void ApplyMapView(bool open);
   bool map_view_open_ = false;
+  // LS-1.5: on the launch that created the config, raise LOW-SPEC 60 to
+  // PERFORMANCE 120 on a capable machine.
+  void ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::VulkanDevice& device);
+  bool config_created_ = false;
 
   // Recomputes Hor+ when the window changes size.
   class ResizeListener final : public rex::ui::WindowListener {

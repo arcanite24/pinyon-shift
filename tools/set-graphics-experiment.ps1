@@ -2,8 +2,9 @@
 param(
     [ValidateSet('Get', 'Apply', 'Reset', 'Restore')]
     [string]$Action = 'Get',
-    [ValidateSet(4, 8, 16)]
-    [int]$Anisotropy = 4,
+    # 0 keeps the game's own filtering per texture (anisotropic_override -1).
+    [ValidateSet(0, 4, 8, 16)]
+    [int]$Anisotropy = 0,
     [ValidateSet('none', 'fxaa', 'fxaa_extreme')]
     [string]$PostEffect = 'none',
     [ValidateSet(1, 2, 3, 4)]
@@ -19,7 +20,7 @@ param(
     [ValidateSet(0, 30, 60, 120, 240)]
     [int]$PresentationFps = 0,
     [ValidateRange(0, 240)]
-    [int]$RenderFps = 0,
+    [int]$RenderFps = 60,
     [ValidateSet('true', 'false')]
     [string]$DisableBloom = 'true',
     [ValidateSet('true', 'false')]
@@ -64,10 +65,11 @@ host_present_fps_limit = 0
 host_present_sleep_spin = true
 pinyon_shift_stabilize_vehicle_presentation = false
 pinyon_shift_skip_opening_movies = false
-pinyon_shift_fh1_render_fps_limit = 0
+pinyon_shift_fh1_render_fps_limit = 60
 pinyon_shift_fh1_source_presentation = true
 xma_relaxed_padding_admission = false
-anisotropic_override = 3
+anisotropic_override = -1
+present_effect = "bilinear"
 swap_post_effect = "none"
 disable_bloom = true
 disable_motion_blur = true
@@ -154,8 +156,8 @@ function Get-SchemaVersion([string]$Text) {
 }
 
 function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operation) {
-    $override = [int](Get-TomlValue $Text 'anisotropic_override' '3')
-    $anisotropyValue = switch ($override) { 3 { 4 } 4 { 8 } 5 { 16 } default { 4 } }
+    $override = [int](Get-TomlValue $Text 'anisotropic_override' '-1')
+    $anisotropyValue = switch ($override) { 3 { 4 } 4 { 8 } 5 { 16 } default { 0 } }
     $resolutionScale = [int](Get-TomlValue $Text 'draw_resolution_scale_x' '1')
     $clearPageState = (Get-TomlValue $Text 'clear_memory_page_state' 'false') -eq 'true'
     $vsyncEnabled = (Get-TomlValue $Text 'vsync' 'true') -eq 'true'
@@ -241,8 +243,8 @@ switch ($Action) {
         $schema = Get-SchemaVersion $text
         if ($schema -lt 1 -or $schema -gt 28) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-HostConfigBackup $configPath
-        # The retired guest vblank rate became the render limit, which the
-        # replacement defaults to following the display.
+        # The retired guest vblank rate became the render limit, which now
+        # defaults to 60 (LOW-SPEC 60), not the display's rate.
         $hadLegacyVblank = [regex]::IsMatch($text, '(?m)^[ \t]*pinyon_shift_fh1_guest_vblank_hz[ \t]*=')
         foreach ($retired in $retiredSettings) {
             $text = Remove-TomlValue $text $retired
@@ -283,7 +285,7 @@ switch ($Action) {
             $text = Set-TomlValue $text 'present_effect' ('"' + $OutputScaling + '"')
         }
         if ($bound.ContainsKey('Anisotropy')) {
-            $override = switch ($Anisotropy) { 4 { 3 } 8 { 4 } 16 { 5 } }
+            $override = switch ($Anisotropy) { 0 { -1 } 4 { 3 } 8 { 4 } 16 { 5 } }
             $text = Set-TomlValue $text 'anisotropic_override' ([string]$override)
         }
         if ($bound.ContainsKey('PostEffect')) {

@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/kernel/xboxkrnl/io.h>
@@ -20,6 +21,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xthread.h>
+#include <rex/thread.h>
 #include <rex/input/input_system.h>
 #include <rex/ui/flags.h>
 #include <rex/ui/keybinds.h>
@@ -150,9 +152,14 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "xma_relaxed_padding_admission = false\n"
               "pinyon_shift_stabilize_vehicle_presentation = false\n"
               "pinyon_shift_skip_opening_movies = false\n"
-              "pinyon_shift_fh1_render_fps_limit = 0\n"
+              // LOW-SPEC 60 (LS-1.5): never the display's rate, which on a
+              // 144-240 Hz display renders and simulates that many frames.
+              // A capable machine moves to PERFORMANCE 120 once its GPU is
+              // known (ApplyFirstRunHardwareDefaults).
+              "pinyon_shift_fh1_render_fps_limit = 60\n"
               "pinyon_shift_fh1_source_presentation = true\n"
-              "anisotropic_override = 3\n"
+              "anisotropic_override = -1\n"
+              "present_effect = \"bilinear\"\n"
               "swap_post_effect = \"none\"\n"
               "disable_bloom = true\n"
               "disable_motion_blur = true\n"
@@ -350,7 +357,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
     const std::pair<const char*, const char*> graphics_settings[] = {
         {"xma_relaxed_padding_admission",
          "xma_relaxed_padding_admission = false\n"},
-        {"anisotropic_override", "anisotropic_override = 3\n"},
+        {"anisotropic_override", "anisotropic_override = -1\n"},
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
         {"disable_bloom", "disable_bloom = true\n"},
         {"disable_motion_blur", "disable_motion_blur = true\n"},
@@ -365,7 +372,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         {"host_present_sleep_spin", "host_present_sleep_spin = true\n"},
         {"clear_memory_page_state", "clear_memory_page_state = false\n"},
         {"pinyon_shift_fh1_render_fps_limit",
-         "pinyon_shift_fh1_render_fps_limit = 0\n"},
+         "pinyon_shift_fh1_render_fps_limit = 60\n"},
         {"pinyon_shift_fh1_source_presentation",
          "pinyon_shift_fh1_source_presentation = true\n"},
     };
@@ -489,6 +496,7 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
     pinyon_shift::platform::ExitImmediately(1306);
   }
 
+  config_created_ = config_created;
   if (REXCVAR_GET(log_file).empty()) {
     REXCVAR_SET(log_file, (state_root / "logs" / "runtime.log").string());
   }
@@ -962,6 +970,9 @@ void PinyonShiftApp::OnPostSetup() {
              {"device_id", std::to_string(properties.deviceID)},
              {"api_version", std::to_string(properties.apiVersion)},
              {"driver_version", std::to_string(properties.driverVersion)}});
+        if (config_created_) {
+          ApplyFirstRunHardwareDefaults(*device);
+        }
       }
     }
   }
@@ -975,6 +986,51 @@ void PinyonShiftApp::OnPostSetup() {
        {"audio", runtime() && runtime()->audio_system() ? "1" : "0"},
        {"input", runtime() && runtime()->input_system() ? "1" : "0"}});
 }
+
+#if REX_HAS_VULKAN
+void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::VulkanDevice& device) {
+  // LS-1.5: a new config starts at LOW-SPEC 60. A discrete GPU with 6 GB or
+  // more of its own memory, 6 or more logical cores and a display of 120 Hz
+  // or faster start at PERFORMANCE 120 instead. Only on the launch that
+  // created the config, so a player's own choices are never changed.
+  const auto& functions = device.vulkan_instance()->functions();
+  VkPhysicalDeviceProperties properties = {};
+  functions.vkGetPhysicalDeviceProperties(device.physical_device(), &properties);
+  VkPhysicalDeviceMemoryProperties memory = {};
+  functions.vkGetPhysicalDeviceMemoryProperties(device.physical_device(), &memory);
+  uint64_t device_local = 0;
+  for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+    if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      device_local = std::max(device_local, uint64_t(memory.memoryHeaps[i].size));
+    }
+  }
+  const bool discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+  const unsigned cores = rex::thread::logical_processor_count();
+  const double refresh = REXCVAR_GET(video_mode_refresh_rate);
+  const bool capable = discrete && device_local >= (uint64_t(6) << 30) && cores >= 6 &&
+                       refresh >= 119.0;
+  if (capable && host_config_ && host_config_->Load()) {
+    for (const auto& [name, literal] :
+         {std::pair{"present_effect", "\"fsr\""},
+          std::pair{"pinyon_shift_fh1_render_fps_limit", "120"}}) {
+      host_config_->Set(name, literal);
+      std::string value = literal;
+      std::erase(value, '"');
+      rex::cvar::SetFlagByName(name, value);
+    }
+    if (!host_config_->Save()) {
+      REXLOG_ERROR("Settings: could not write {}", host_config_->path().string());
+    }
+  }
+  pinyon_shift::diagnostics::RecordEvent(
+      "config.first_run.preset",
+      {{"preset", capable ? "performance_120" : "low_spec_60"},
+       {"discrete", discrete ? "1" : "0"},
+       {"device_local_mb", std::to_string(device_local >> 20)},
+       {"logical_cores", std::to_string(cores)},
+       {"refresh_hz", fmt::format("{:.0f}", refresh)}});
+}
+#endif
 
 std::unique_ptr<rex::ui::ImGuiDialog> PinyonShiftApp::CreateAchievementsOverlay() {
   if (host_ui_ && host_ui_->is_open()) {

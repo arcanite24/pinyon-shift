@@ -223,7 +223,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('clear_memory_page_state = false', text)
             self.assertIn('host_present_fps_limit = 0', text)
             self.assertIn('host_present_sleep_spin = true', text)
-            self.assertIn('pinyon_shift_fh1_render_fps_limit = 0', text)
+            self.assertIn('pinyon_shift_fh1_render_fps_limit = 60', text)
             self.assertIn('pinyon_shift_fh1_source_presentation = true', text)
             self.assertIn("pinyon_shift_config_schema = 28", text)
             self.assertIn('gpu_backend = "vulkan"', text)
@@ -253,7 +253,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertNotIn("pinyon_shift_native_renderer =", text)
             self.assertNotIn("pinyon_shift_native_renderer_sky_horizon_suppression", text)
             self.assertNotIn("pinyon_shift_fh1_native_v4", text)
-            self.assertIn("pinyon_shift_fh1_render_fps_limit = 0", text)
+            self.assertIn("pinyon_shift_fh1_render_fps_limit = 60", text)
 
     def test_apply_removes_retired_renderer_settings(self):
         # Schema 24 retires the renderer choice and the Xenos-era and
