@@ -108,6 +108,25 @@ activate the selected item. Pinyon Shift also maps a left click to controller A,
 so clicking while `SIGN IN` or another row is selected activates that row.
 Press Enter for the Xbox Start button.
 
+## A save copied from Xenia crashes the game
+
+Forza Horizon signs its save with the profile's XUID, so a save made in Xenia
+only loads under that Xenia profile's XUID. Copying it over the Pinyon Shift
+save makes the game stop when it loads the profile (#335). Xenia keeps the
+XUID in the folder name: `<Xenia>\content\<XUID>\4D5309C9`.
+
+Close the game, then pass that `4D5309C9` folder to the import tool:
+
+```powershell
+.\tools\import-xenia-save.ps1 -StateRoot .local\preview -Source 'C:\Xenia\content\E030000012345678\4D5309C9'
+```
+
+It copies the save to `user\<XUID>\4D5309C9` and sets `user_xuid` in
+`pinyon_shift.toml`. Your previous Pinyon Shift save stays in its own folder;
+`.\tools\import-xenia-save.ps1 -StateRoot .local\preview -Restore` switches
+back to it. If the folder is not named after the XUID, add `-Xuid` with the
+16-digit name of the Xenia profile folder.
+
 ## The game crashes
 
 Leave the launcher open while playing. It will prepare a sanitized ZIP under
