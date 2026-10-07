@@ -547,19 +547,30 @@ static_assert(std::byteswap(0x01020304u) == 0x04030201u);';
 #include <d3d12.h>
 static_assert(sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS8) > 0);
 constexpr auto feature = D3D12_FEATURE_D3D12_OPTIONS8;';
-               Hint = 'Install an updated Windows SDK through the Visual Studio Installer, then rerun setup. The selected d3d12.h must provide D3D12_OPTIONS8.' }
+               Hint = 'Install an updated Windows SDK through the Visual Studio Installer, then rerun setup. The selected d3d12.h must provide D3D12_OPTIONS8.' },
+            # Headers alone are not enough (#379): CMake's first test program
+            # links kernel32.lib and the other SDK import libraries from LIB.
+            @{ Name = 'Windows SDK libraries'; Link = $true; Source = '#include <windows.h>
+int main() { return GetTickCount() == 0 && GetDesktopWindow() == nullptr; }';
+               Hint = 'Install or repair the Windows 10/11 SDK (including its x64 desktop libraries) through the Visual Studio Installer, then rerun setup. The linker could not find the SDK import libraries such as kernel32.lib.' }
         )) {
             $source = Join-Path $directory 'probe.cpp'
             [IO.File]::WriteAllText($source, $probe.Source)
+            $arguments = if ($probe.ContainsKey('Link')) {
+                @('-std=c++23', '-fuse-ld=lld-link', $source, '-o', (Join-Path $directory 'probe.exe'),
+                  '-lkernel32', '-luser32', '-lgdi32', '-lshell32', '-lole32', '-luuid', '-ladvapi32')
+            } else {
+                @('-std=c++23', '-fsyntax-only', $source)
+            }
             $ErrorActionPreference = 'Continue'
-            $output = @(& $compiler -std=c++23 -fsyntax-only $source 2>&1 | ForEach-Object { $_.ToString() })
+            $output = @(& $compiler @arguments 2>&1 | ForEach-Object { $_.ToString() })
             $exitCode = $LASTEXITCODE
             $ErrorActionPreference = $previousPreference
             if ($exitCode -ne 0) {
                 $failure = [Exception]::new("The selected $($probe.Name) failed its build capability check. $($probe.Hint)")
                 $failure.Data['step'] = "Check $($probe.Name)"
                 $failure.Data['exit_code'] = $exitCode
-                $failure.Data['command'] = "`"$compiler`" -std=c++23 -fsyntax-only `"$source`""
+                $failure.Data['command'] = "`"$compiler`" " + (($arguments | ForEach-Object { "`"$_`"" }) -join ' ')
                 $failure.Data['error_kind'] = 'toolchain-capability'
                 $failure.Data['error_excerpt'] = [string[]]$output
                 $failure.Data['hint'] = $probe.Hint

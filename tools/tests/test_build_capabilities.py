@@ -29,8 +29,9 @@ $expectedInclude = $env:INCLUDE
 $previousTemp = $env:TEMP
 $env:TEMP = Join-Path $env:PINYON_TEST_HEADERS 'temp (ñ)'
 New-Item -ItemType Directory -Path $env:TEMP | Out-Null
+$expectedLib = $env:LIB
 function Expect-CapabilityFailure([string]$Folder, [string]$Step, [string]$Symbol) {
-    $env:INCLUDE = "$(Join-Path $env:PINYON_TEST_HEADERS $Folder);$expectedInclude"
+    if ($Folder) { $env:INCLUDE = "$(Join-Path $env:PINYON_TEST_HEADERS $Folder);$expectedInclude" }
     try {
         Assert-PinyonBuildCapabilities -LlvmRoot $environment.LlvmRoot
         throw 'Incompatible headers were accepted'
@@ -49,12 +50,17 @@ try {
     Expect-CapabilityFailure 'library' 'Check C++23 standard library' 'byteswap'
     Expect-CapabilityFailure 'sdk' 'Check Windows SDK headers' 'D3D12_FEATURE_DATA_D3D12_OPTIONS8'
     $env:INCLUDE = $expectedInclude
+    # #379: SDK headers present, but LIB lacks the SDK import libraries.
+    $env:LIB = (($expectedLib -split ';') | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'kernel32.lib')) }) -join ';'
+    Expect-CapabilityFailure '' 'Check Windows SDK libraries' 'kernel32'
+    $env:LIB = $expectedLib
     Assert-PinyonBuildCapabilities -LlvmRoot $environment.LlvmRoot
     if (@(Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter 'pinyon-capabilities-*').Count) {
         throw 'Successful probe left temporary files'
     }
 } finally {
     $env:INCLUDE = $expectedInclude
+    $env:LIB = $expectedLib
     $env:TEMP = $previousTemp
 }
 '''
