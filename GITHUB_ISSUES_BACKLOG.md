@@ -650,3 +650,27 @@ all three repositories, with matching SHA-256 hashes after the push:
 changes remain uncommitted and are excluded from the push. Live saves, pinned
 seeds and original game files are untouched. Publication receipt:
 `.local/issue-triage/checkpoint-publication-20261006.json`.
+
+
+### Issue work, 2026-10-07
+
+Local commits on `dev` (not pushed; no issue states or comments changed;
+reply drafts in `.local/issue-triage/drafts-20261007.md`):
+
+- `b198631` #379 (GH-1): setup links a probe against the Windows SDK import
+  libraries; a missing kernel32.lib now stops with repair instructions.
+- `9a235f6` #335 (GH-4): root cause found. FH1 signs ForzaProfile with the
+  profile XUID; Xenia Canary profiles use random XUIDs. SDK `user_xuid` plus
+  `tools/import-xenia-save.ps1` load a save under its own XUID. A save made
+  under E030000012345678 loads past Single Player when imported; the same
+  files under the default XUID reproduce the reported 0x80000003.
+- `ac51f5a` #327/#359/#366/#368/#373/#376 (GH-5/GH-11), #371 and #367
+  (GH-12): range-test guards skip calls through freed title objects and a
+  null output handle, with object.* diagnostics. Root causes (who frees the
+  objects) remain unknown; reporters should confirm.
+- `117ebf4`, `5bf0914` #363 (GH-17): Wider View widens only the gameplay
+  camera; map, title, showroom and loading are presented 16:9.
+- Not actionable without reporter data: #374, #377, #378 (no report ZIP),
+  #375 (no scene), #380/#381 (no reproduction yet), #369 (low-end
+  hardware), #352/#357/#361 (affected hardware), #370 (legacy D3D12).
+
