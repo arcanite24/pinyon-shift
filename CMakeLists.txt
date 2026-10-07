@@ -31,6 +31,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/save_backups.cpp
     src/cheats.cpp
     src/cheats_map.cpp
+    src/dlc_token_unlocks.cpp
     src/dlc_treasure_map.cpp
     src/dlc/rally_progress.cpp
     src/dlc/rally_pace_notes.cpp

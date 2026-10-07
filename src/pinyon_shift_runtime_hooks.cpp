@@ -42,6 +42,7 @@
 #include "pinyon_shift_runtime_hooks.h"
 #include "cheats.h"
 #include "cheats_map.h"
+#include "dlc_token_unlocks.h"
 #include "dlc_treasure_map.h"
 #include "dlc/rally_progress.h"
 #include "dlc/rally_audio_probe.h"
@@ -6187,6 +6188,7 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   pinyon_shift::cheats::UpdateCollectibleMarkers();
   // The Treasure Map add-on's reveal, when the setting owns it.
   pinyon_shift::dlc::UpdateTreasureMap();
+  pinyon_shift::dlc::UpdateTokenUnlocks();
   QueueRallyRaceTrace();
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
@@ -6757,8 +6759,9 @@ void PinyonShiftObserveSaveDecrypted(PPCRegister& r24, PPCRegister& r30) {
     pinyon_shift::mod::Dispatch(event);
   }
   auto* kernel_state = rex::system::kernel_state();
-  pinyon_shift::cheats::EditLoadedProfile(
-      kernel_state->memory()->TranslateVirtual<uint8_t*>(address), size);
+  auto* body = kernel_state->memory()->TranslateVirtual<uint8_t*>(address);
+  pinyon_shift::dlc::GrantProfileUnlocks(body, size);
+  pinyon_shift::cheats::EditLoadedProfile(body, size);
 }
 
 void PinyonShiftAcceptModdedBlock(PPCRegister& r3, PPCRegister& r24) {
