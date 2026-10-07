@@ -446,10 +446,8 @@ needs its full-licence copy).
 - [x] VIP Membership & Cars Pack: cars, plus Fast Travel Anywhere on v4
 - [x] Honda Challenge Car Pack (cars; the challenge flow is unqualified)
 - [x] Pre-Order Car Pack
-- [ ] Season Pass: 2006 Lamborghini Miura Concept (owned in the cache; purchase
-  not yet run)
-- [ ] 2013 Ford Shelby GT500 - Rockstar Energy (owned in the cache; purchase
-  not yet run)
+- [x] Season Pass: 2006 Lamborghini Miura Concept
+- [x] 2013 Ford Shelby GT500 - Rockstar Energy
 - [x] Individual promotional cars: Nissan 370Z, Ferrari 458 Italia,
   Mercedes-Benz SLS AMG, Volkswagen Golf R and Aston Martin Virage (they share
   the Pre-Order cars without duplicates)

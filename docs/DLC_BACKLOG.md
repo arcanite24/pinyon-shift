@@ -301,7 +301,8 @@ Depends on DLC-1 and each package's verified update requirement.
 - [x] Pre-Order bundle: its five cars are owned (the five single-car packages
   carry only wheels and strings for the same cars, so they overlap without
   duplicates); the Nissan 370Z was bought, reloaded and driven on v4.
-- [ ] Season Pass Miura Concept and Rockstar Energy Shelby GT500: qualify
+- [x] Season Pass Miura Concept and Rockstar Energy Shelby GT500: both bought,
+  reloaded and driven on v4 with test credits (2026-10-07). Original text: qualify
   assets, entitlement, purchase and persistence without requiring an online store.
 - [ ] Nissan 370Z, Ferrari 458 Italia, Mercedes-Benz SLS AMG, Volkswagen Golf R
   and Aston Martin Virage: verify each individual entitlement and bundle overlap.
@@ -2230,14 +2231,14 @@ every local input file. Rosters come from each package's own merge database
   launch loaded that save, put the car in free roam and drove it: Bowler
   Nemesis EXR, Shelby Cobra 427 S/C, Gumpert Apollo Enraged, AMC Javelin AMX,
   GMC Vandura, Devon GTX, Joss JT1, Koenigsegg Agera, Honda Civic Si (1986),
-  Nissan 370Z and RUF CTR2. Captures were inspected
-  (`D:/horizon1-recomp-v4/runs/dlc-batch{6,7,8}/verify.png`).
+  Nissan 370Z, RUF CTR2, Lamborghini Miura Concept and Shelby GT500
+  Rockstar Energy. Captures were inspected
+  (`D:/horizon1-recomp-v4/runs/dlc-batch{6,7,8,9,10}/verify.png`).
 - **Startup cost.** With 21 packages the title merges every DLC database
   synchronously after Start: a 20.6 s main-thread stall on this machine
   (the runtime's stall watchdog logs it). Routes now wait for the merge's
   final `media\db\patch` open before the remaining title presses.
 
 Not covered: per-car upgrades and tuning for each pack (the Rally Escort's
-upgrade path is the representative qualification), the Miura and Rockstar
-Shelby purchases (owned in the cache, not bought in a route), and the car
-packs on the base build, which were not run.
+upgrade path is the representative qualification) and the car packs on the
+base build, which were not run.
