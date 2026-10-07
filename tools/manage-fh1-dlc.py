@@ -112,6 +112,24 @@ def inspect(stream, size: int, manifest: dict) -> tuple[dict, dict]:
     return package, variant
 
 
+def record_variants(package: dict, shas: list[str]) -> list[dict]:
+    """Catalog variants for these hashes, in catalog order, or ValueError."""
+    variants = [v for v in package["accepted"] if v["sha256"] in shas]
+    if not shas or len(variants) != len(set(shas)):
+        raise ValueError("import record is damaged; import the original package again")
+    return variants
+
+
+def combined_mask(variants: list[dict]) -> str:
+    """Several verified variants of one package share a payload and differ
+    only in the purchase recorded in their licence; owning each grants the
+    union, as the original console would after both purchases."""
+    mask = 0
+    for variant in variants:
+        mask |= int(variant["license_mask"], 16)
+    return f"{mask:08X}"
+
+
 def safe_archive_path(name: str) -> None:
     path = PurePosixPath(name.replace("\\", "/"))
     if path.is_absolute() or ".." in path.parts or ":" in name or "\0" in name:
@@ -138,12 +156,12 @@ def stage_inputs(source: Path, temporary: Path, manifest: dict) -> list[tuple[Pa
             package, variant = inspect(file, size, manifest)
         id = package["package_id"]
         if id in found:
-            previous = found[id][2]
-            if previous["sha256"] != variant["sha256"]:
-                raise ValueError(f'{package["display_name"]}: conflicting package variants; select one input')
+            # Same payload, another licence: keep one copy and both purchases.
+            if all(v["sha256"] != variant["sha256"] for v in found[id][3]):
+                found[id][3].append(variant)
             path.unlink()
             return
-        found[id] = (path, package, variant)
+        found[id] = (path, package, variant, [variant])
 
     inputs = sorted(source.rglob("*")) if source.is_dir() else [source]
     for path in inputs:
@@ -216,14 +234,17 @@ def verified_content(state: Path, id: str, *, require_enabled: bool = False) -> 
         raise ValueError("enable the imported package first")
     record = import_record(state / "dlc" / (id + ".json"))
     package = next((p for p in catalog()["packages"] if p["package_id"] == id), None)
-    variant = next((v for v in package["accepted"] if record and v["sha256"] == record.get("sha256")), None) if package else None
-    if not variant:
+    if not package or not record:
         raise ValueError("import record is damaged; import the original package again")
+    shas = record.get("variants", [record.get("sha256")])
+    if not isinstance(shas, list) or record.get("sha256") not in shas:
+        raise ValueError("import record is damaged; import the original package again")
+    mask = combined_mask(record_variants(package, shas))
     data = header.read_bytes()
     if (len(data) not in (328, 332) or
             record.get("header_sha256") != hashlib.sha256(data).hexdigest().upper() or
-            record.get("license_mask") != variant["license_mask"] or
-            int.from_bytes(data[328:332], "little") != int(variant["license_mask"], 16)):
+            record.get("license_mask") != mask or
+            int.from_bytes(data[328:332], "little") != int(mask, 16)):
         raise ValueError("content header or licence changed; import the original package again")
     _, digest = payload_catalog(content)
     if digest != package["payload_sha256"] or record.get("payload_sha256") != digest:
@@ -284,8 +305,10 @@ def import_content(source: Path, state: Path, extractor: Path) -> list[dict]:
         staging = Path(directory)
         inputs = stage_inputs(source, staging, catalog())
         repair = set()
+        # Licences already imported for each package; a new variant adds to them.
+        previous = {}
         # Reject batch conflicts before publishing any package.
-        for _, package, variant in inputs:
+        for _, package, _, _ in inputs:
             id = package["package_id"]
             enabled, disabled, _ = package_paths(state, id)
             record_path = state / "dlc" / (id + ".json")
@@ -295,19 +318,40 @@ def import_content(source: Path, state: Path, extractor: Path) -> list[dict]:
                 if not record_path.is_file():
                     raise ValueError(f'{package["display_name"]}: existing unmanaged content; leave it in place')
                 record = import_record(record_path)
-                if record and record.get("sha256") and record["sha256"] != variant["sha256"]:
-                    raise ValueError(f'{package["display_name"]}: a different variant is already installed')
+                if record and record.get("sha256"):
+                    try:
+                        previous[id] = (record["sha256"], record_variants(
+                            package, record.get("variants", [record["sha256"]])))
+                    except ValueError:
+                        pass
                 _, digest = payload_catalog(enabled if enabled.exists() else disabled)
                 if digest != package["payload_sha256"]:
                     repair.add(id)
-        for index, (input_path, package, variant) in enumerate(inputs):
+        for index, (input_path, package, variant, variants) in enumerate(inputs):
             id = package["package_id"]
             enabled, disabled, header = package_paths(state, id)
             record_path = state / "dlc" / (id + ".json")
-            if id not in repair and (enabled.exists() or disabled.exists()) and header.is_file():
+            primary, owned = previous.get(id, (variant["sha256"], []))
+            shas = {v["sha256"] for v in owned + variants}
+            variants = [v for v in package["accepted"] if v["sha256"] in shas]
+            mask = combined_mask(variants)
+            installed = enabled if enabled.exists() else disabled
+            if id not in repair and installed.exists() and header.is_file():
                 record = import_record(record_path)
-                if record and record.get("header_sha256") == hashlib.sha256(header.read_bytes()).hexdigest().upper():
-                    continue
+                data = header.read_bytes()
+                if record and record.get("header_sha256") == hashlib.sha256(data).hexdigest().upper():
+                    if record.get("license_mask") == mask and len(variants) == len(owned):
+                        continue
+                    if len(data) in (328, 332):
+                        # Verified payload; only the licence grows.
+                        data = data[:328] + int(mask, 16).to_bytes(4, "little")
+                        staged = staging / f"header-{index}"
+                        staged.write_bytes(data)
+                        staged.replace(header)
+                        write_json(record_path, record | dict(
+                            sha256=primary, variants=[v["sha256"] for v in variants], license_mask=mask,
+                            header_sha256=hashlib.sha256(data).hexdigest().upper()))
+                        continue
             extracted = staging / str(index)
             result = subprocess.run([str(extractor), "--dlc-files", str(input_path), str(extracted), id],
                                     capture_output=True, text=True)
@@ -321,9 +365,11 @@ def import_content(source: Path, state: Path, extractor: Path) -> list[dict]:
             header_data = staged_header.read_bytes()
             if len(header_data) not in (328, 332) or int.from_bytes(header_data[328:332], "little") != int(variant["license_mask"], 16):
                 raise ValueError("content header failed verification")
+            header_data = header_data[:328] + int(mask, 16).to_bytes(4, "little")
+            staged_header.write_bytes(header_data)
             record = dict(package_id=id, display_name=package["display_name"],
-                          sha256=variant["sha256"], payload_sha256=digest,
-                          license_mask=variant["license_mask"], file_count=package["file_count"],
+                          sha256=primary, variants=[v["sha256"] for v in variants], payload_sha256=digest,
+                          license_mask=mask, file_count=package["file_count"],
                           header_sha256=hashlib.sha256(header_data).hexdigest().upper())
             header.parent.mkdir(parents=True, exist_ok=True)
             disabled.parent.mkdir(parents=True, exist_ok=True)

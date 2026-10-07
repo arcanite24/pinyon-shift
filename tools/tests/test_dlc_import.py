@@ -127,6 +127,67 @@ class DlcImportTests(unittest.TestCase):
                     self.assertEqual(retained[0].read_bytes(), b"changed")
                 self.assertEqual(save.read_bytes(), b"preserve this save")
 
+    def test_licence_variants_combine_without_replacing_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, manifest, package = self.fixture(root)
+            # A second purchase of the same payload with another licence bit.
+            other = bytearray(source.read_bytes())
+            other[-1] ^= 1
+            second = root / "second"
+            second.write_bytes(other)
+            package["accepted"].append(dict(sha256=hashlib.sha256(other).hexdigest().upper(),
+                                            size=len(other), license_mask="00000002"))
+            masks = {v["sha256"]: int(v["license_mask"], 16) for v in package["accepted"]}
+            state = root / "state"
+            _, inactive, header = dlc.package_paths(state, package["package_id"])
+            extractions = []
+            def extract(args, **kwargs):
+                extractions.append(args[2])
+                destination = Path(args[3])
+                folder = destination / dlc.CONTENT / "00000002" / package["package_id"]
+                folder.mkdir(parents=True)
+                (folder / "offer.puboffer").write_bytes(b"owned")
+                mask = masks[hashlib.sha256(Path(args[2]).read_bytes()).hexdigest().upper()]
+                sdk_header = destination / dlc.CONTENT / "Headers" / "00000002" / (package["package_id"] + ".header")
+                sdk_header.parent.mkdir(parents=True)
+                sdk_header.write_bytes(bytes(328) + mask.to_bytes(4, "little"))
+                return subprocess.CompletedProcess(args, 0, "", "")
+            with patch.object(dlc, "catalog", return_value=manifest), \
+                    patch.object(dlc.subprocess, "check_output", return_value=b""), \
+                    patch.object(dlc.subprocess, "run", side_effect=extract):
+                rows = dlc.import_content(source, state, root / "extractor")
+                self.assertEqual(rows[0]["license_mask"], "00000001")
+                rows = dlc.import_content(second, state, root / "extractor")
+                # Only the header grows; the verified payload is not re-extracted.
+                self.assertEqual(len(extractions), 1)
+                self.assertEqual(rows[0]["license_mask"], "00000003")
+                self.assertEqual(int.from_bytes(header.read_bytes()[328:332], "little"), 3)
+                self.assertEqual(rows[0]["sha256"], package["accepted"][0]["sha256"])
+                self.assertFalse((state / "dlc/replaced").exists())
+                self.assertTrue(dlc.set_enabled(state, package["package_id"], True)[0]["enabled"])
+                self.assertEqual(dlc.import_content(source, state, root / "extractor")[0]["license_mask"], "00000003")
+                self.assertEqual(len(extractions), 1)
+                # A record naming a variant outside the catalog is rejected.
+                metadata = state / "dlc" / (package["package_id"] + ".json")
+                record = json.loads(metadata.read_text())
+                metadata.write_text(json.dumps(record | dict(variants=record["variants"] + ["F" * 64])))
+                with self.assertRaisesRegex(ValueError, "damaged"):
+                    dlc.verified_content(state, package["package_id"])
+            # Both variants supplied together in one folder import as one package.
+            batch = root / "batch"
+            batch.mkdir()
+            (batch / "a").write_bytes(source.read_bytes())
+            (batch / "b").write_bytes(other)
+            fresh = root / "fresh"
+            with patch.object(dlc, "catalog", return_value=manifest), \
+                    patch.object(dlc.subprocess, "check_output", return_value=b""), \
+                    patch.object(dlc.subprocess, "run", side_effect=extract):
+                rows = dlc.import_content(batch, fresh, root / "extractor")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["license_mask"], "00000003")
+            self.assertEqual(len(rows[0]["variants"]), 2)
+
     def test_damaged_record_does_not_hide_other_packages_or_prevent_disable(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
