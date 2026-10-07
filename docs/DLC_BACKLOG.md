@@ -2235,9 +2235,11 @@ every local input file. Rosters come from each package's own merge database
   Rockstar Energy. Captures were inspected
   (`D:/horizon1-recomp-v4/runs/dlc-batch{6,7,8,9,10}/verify.png`).
 - **Startup cost.** With 21 packages the title merges every DLC database
-  synchronously after Start: a 20.6 s main-thread stall on this machine
-  (the runtime's stall watchdog logs it). Routes now wait for the merge's
-  final `media\db\patch` open before the remaining title presses.
+  after Start. Across 120 runs this normally takes 0.1-0.6 s. Spikes of 3-22 s
+  happened only while the render-test runner was copying the 8 GB DLC tree
+  into each run's state on a nearly full DRAM-less SSD; the runner now
+  hard-links the read-only Marketplace content instead (setup ~2 s, merge
+  0.2 s). Routes still wait for the merge's final `media\db\patch` open.
 
 Base build: the same trace on the base executable reports the same 84 rows
 and entitlements (the Pre-Order and VIP cars carry the base flag because

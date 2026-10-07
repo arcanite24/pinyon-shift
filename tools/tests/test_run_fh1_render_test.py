@@ -1,3 +1,4 @@
+import os
 import importlib.util
 import json
 import shutil
@@ -286,6 +287,29 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
             self.assertEqual((destination / "cache/rally_adapter/game/media/owned.zip").read_bytes(), b'owned')
             self.assertFalse((destination / "cache/ignored.bin").exists())
             self.assertFalse((destination / "mods").exists())
+
+    def test_private_state_links_marketplace_content_and_copies_saves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, destination = root / "seed", root / "run"
+            package = source / "user/0000000000000000/4D5309C9/00000002/PKG/Media"
+            package.mkdir(parents=True)
+            (package / "1100.puboffer").write_bytes(b'offer')
+            profile = source / "user/B13EBABEBABEBABE/4D5309C9/00000001/ForzaProfile"
+            profile.mkdir(parents=True)
+            (profile / "ForzaProfile").write_bytes(b'save')
+            (source / "dlc/staging-abc").mkdir(parents=True)
+            (source / "dlc/staging-abc/input-0.stfs").write_bytes(b'scratch')
+            (source / "dlc/PKG.json").write_bytes(b'record')
+            MODULE.prepare_isolated_state(source, destination)
+            linked = destination / "user/0000000000000000/4D5309C9/00000002/PKG/Media/1100.puboffer"
+            self.assertEqual(linked.read_bytes(), b'offer')
+            self.assertTrue(os.path.samefile(linked, package / "1100.puboffer"))
+            copied = destination / "user/B13EBABEBABEBABE/4D5309C9/00000001/ForzaProfile/ForzaProfile"
+            self.assertEqual(copied.read_bytes(), b'save')
+            self.assertFalse(os.path.samefile(copied, profile / "ForzaProfile"))
+            self.assertTrue((destination / "dlc/PKG.json").is_file())
+            self.assertFalse((destination / "dlc/staging-abc").exists())
 
     def test_stage_reload_rejects_metadata_mismatch_and_awards(self):
         with tempfile.TemporaryDirectory() as directory:

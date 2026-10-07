@@ -41,6 +41,24 @@ RALLY_SERIES_ROUTES = ((11, 10, 12, 44), (13, 14, 15, 45), (4, 5, 6, 42),
                       (19, 20, 21, 47), (7, 8, 9, 43), (16, 17, 18, 46), (1, 2, 3, 41))
 
 
+MARKETPLACE_CONTENT = "0000000000000000"
+
+
+def skip_private_content(directory: str, names: list[str]) -> set[str]:
+    """Leave Marketplace content for link_or_copy and drop import scratch."""
+    skipped = {name for name in names if name.startswith("staging-")}
+    if Path(directory).name == "user" and MARKETPLACE_CONTENT in names:
+        skipped.add(MARKETPLACE_CONTENT)
+    return skipped
+
+
+def link_or_copy(source: str, destination: str) -> None:
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+
+
 def prepare_isolated_state(source: Path, destination: Path) -> None:
     if sys.platform == "win32":
         # Installed Marketplace content has deeply nested localized assets.
@@ -56,7 +74,13 @@ def prepare_isolated_state(source: Path, destination: Path) -> None:
     for name in ("user", "config", "mods", "user-modded", "dlc", "title-update-v4"):
         source_directory = source / name
         if source_directory.is_dir():
-            shutil.copytree(source_directory, destination / name)
+            shutil.copytree(source_directory, destination / name, ignore=skip_private_content)
+    # Marketplace content (gigabytes with every DLC) is mounted read-only, so
+    # hard-link it instead of copying it into every run; copying 8 GB before
+    # each launch also slowed the title's DLC merge to 20 s on a full SSD.
+    content = source / "user" / MARKETPLACE_CONTENT
+    if content.is_dir():
+        shutil.copytree(content, destination / "user" / MARKETPLACE_CONTENT, copy_function=link_or_copy)
     # Prepared owned Rally assets are a game-file overlay, not a shader cache.
     # Copy only this named artifact; other caches remain opt-in below.
     rally = source / "cache/rally_adapter"
