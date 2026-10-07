@@ -101,7 +101,7 @@ function Get-Process { return $null }
                 return (root / "calls.txt").read_text().splitlines()
 
             active = state / "cache/fh1-artifacts.json"
-            # Vulkan, the default (and what any config before schema 27
+            # Vulkan, the default (and what any config before schema 28
             # migrates to), keeps the shaders and pipelines it creates as it
             # runs; its storage is filled once before the first start. A
             # failed preparation is not retried until the build changes.
@@ -118,11 +118,17 @@ function Get-Process { return $null }
             self.assertEqual(calls(), ["vulkan", "vulkan"])
             self.assertFalse(active.exists())
             (root / "calls.txt").unlink()
-            # Direct3D 12 loads prepared packs.
+            # A saved Direct3D 12 choice must not prepare legacy packs during
+            # ordinary launch, even before the game's migration runs.
             (state / "config").mkdir()
             config = state / "config/pinyon_shift.toml"
             d3d12 = 'pinyon_shift_config_schema = 27\ngpu_backend = "d3d12"\n'
             config.write_text(d3d12)
+            run()
+            self.assertFalse(active.exists())
+            self.assertFalse((root / "calls.txt").exists())
+            # The unsupported developer switch retains the legacy tooling.
+            command = command.replace(" -JsonEvents", " -LegacyD3D12 -JsonEvents")
             run()
             self.assertTrue(active.is_file())
             self.assertEqual(calls(), ["1"])

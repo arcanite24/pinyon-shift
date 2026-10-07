@@ -1,0 +1,14 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 30
+# Android only. Use a private state with MSAA initially 4X.
+# Open Graphics and turn MSAA off; inspect the RESTART badge and pending note.
+# Verify the saved choice after exit, then restart to check effective sampling.
+input 0 0000 0 0 0 0 0 0
+hostkey 240 f6
+hostkey 300 down
+hostkey 340 down
+hostkey 380 enter
+hostkey 420 down
+hostkey 460 right
+capture 520 msaa-setting
+stop 3000

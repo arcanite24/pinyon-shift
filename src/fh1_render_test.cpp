@@ -61,7 +61,7 @@ struct InputStep {
 constexpr uint64_t kFileWaitLookbackFrames = 60;
 
 struct WaitStep {
-  enum class Condition { kVehicle, kVehicleMoved, kMovie, kFile };
+  enum class Condition { kVehicle, kVehicleMoved, kMovie, kFile, kRallyStageSaved, kFreeRoam };
   uint64_t frame = 0;
   uint64_t max_frames = 0;
   Condition condition = Condition::kVehicle;
@@ -171,6 +171,9 @@ struct TestState {
   uint64_t wait_start_vehicle_updates = 0;
   uint64_t wait_start_movie_opens = 0;
   uint64_t wait_start_file_opens = 0;
+  std::atomic<uint64_t> rally_stage_saves{};
+  std::atomic<uint32_t> game_mode{};
+  uint64_t consumed_rally_stage_saves = 0;
   std::vector<Capture> captures;
   uint64_t stop_frame = 0;
   uint32_t clock_hz = 0;
@@ -226,7 +229,10 @@ void RequestClose() {
 
 [[noreturn]] void Fail(std::string_view reason) {
   diagnostics::RecordEvent("fh1.render_test.failure", {{"reason", reason}});
-  std::exit(EXIT_FAILURE);
+  // SDK/SDL threads may already be running. Match the application's terminal
+  // shutdown path so static destruction cannot race their remaining work.
+  // RecordEvent flushes the failure receipt before this immediate exit.
+  std::_Exit(EXIT_FAILURE);
 }
 
 uint64_t ParseUnsigned(const std::string& text, int base,
@@ -264,13 +270,16 @@ void LoadScript(const std::filesystem::path& path) {
     Fail("script_unreadable");
   }
   std::string line;
-  if (!std::getline(input, line) || line != "pinyon-shift-fh1-render-test-v1") {
+  if (!std::getline(input, line)) Fail("script_schema");
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  if (line != "pinyon-shift-fh1-render-test-v1") {
     Fail("script_schema");
   }
   uint64_t previous_input_frame = 0;
   uint64_t previous_capture_frame = 0;
   bool have_input = false;
   while (std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.starts_with("# clock-hz ")) {
       if (g_test.clock_hz) {
         Fail("script_clock_duplicate");
@@ -331,6 +340,10 @@ void LoadScript(const std::filesystem::path& path) {
       wait.max_frames = ParseUnsigned(max_frames, 10, "wait_max_frames");
       if (condition == "vehicle") {
         wait.condition = WaitStep::Condition::kVehicle;
+      } else if (condition == "rally-stage-saved") {
+        wait.condition = WaitStep::Condition::kRallyStageSaved;
+      } else if (condition == "freeroam") {
+        wait.condition = WaitStep::Condition::kFreeRoam;
       } else if (condition == "vehicle-moved" && row >> argument) {
         wait.condition = WaitStep::Condition::kVehicleMoved;
         wait.distance = float(ParseUnsigned(argument, 10, "wait_distance"));
@@ -638,6 +651,7 @@ void RecordCaptureEvent(const Capture& capture, uint32_t width, uint32_t height,
        {"source", source},
        {"presenter", PresenterName(capture.presenter)},
        {"session_renderer", "native"},
+       {"game_mode", std::to_string(g_test.game_mode.load(std::memory_order_acquire))},
        {"vehicle_pose_valid", vehicle_pose_valid ? "1" : "0"},
        {"vehicle_x", std::to_string(vehicle_x)},
        {"vehicle_y", std::to_string(vehicle_y)},
@@ -648,6 +662,17 @@ void RecordCaptureEvent(const Capture& capture, uint32_t width, uint32_t height,
 
 bool WaitSatisfied(const WaitStep& wait) {
   switch (wait.condition) {
+    case WaitStep::Condition::kFreeRoam: {
+      std::lock_guard lock(g_test.vehicle_pose_mutex);
+      return g_test.game_mode.load(std::memory_order_acquire) == 17 &&
+          g_test.vehicle_pose_updates > g_test.wait_start_vehicle_updates;
+    }
+    case WaitStep::Condition::kRallyStageSaved: {
+      const auto saved = g_test.rally_stage_saves.load(std::memory_order_acquire);
+      if (saved <= g_test.consumed_rally_stage_saves) return false;
+      g_test.consumed_rally_stage_saves = saved;
+      return true;
+    }
     case WaitStep::Condition::kVehicle: {
       std::lock_guard lock(g_test.vehicle_pose_mutex);
       return g_test.vehicle_pose_updates > g_test.wait_start_vehicle_updates;
@@ -716,12 +741,31 @@ uint64_t ApplyWaits(uint64_t output_frame) {
       continue;
     }
     if (output_frame - g_test.wait_start_output > wait.max_frames) {
+      uint64_t pose_updates;
+      float distance;
+      float vehicle_x, vehicle_y, vehicle_z;
+      {
+        std::lock_guard lock(g_test.vehicle_pose_mutex);
+        pose_updates = g_test.vehicle_pose_updates - g_test.wait_start_vehicle_updates;
+        vehicle_x = g_test.vehicle_x;
+        vehicle_y = g_test.vehicle_y;
+        vehicle_z = g_test.vehicle_z;
+        distance = std::hypot(vehicle_x - g_test.wait_x,
+                              vehicle_y - g_test.wait_y,
+                              vehicle_z - g_test.wait_z);
+      }
       std::lock_guard lock(g_test.mutex);
       if (!g_test.stopping) {
         g_test.stopping = true;
         diagnostics::RecordEvent("fh1.render_test.failure",
                                  {{"reason", "wait_timeout"},
-                                  {"frame", std::to_string(wait.frame)}});
+                                  {"frame", std::to_string(wait.frame)},
+                                  {"game_mode", std::to_string(g_test.game_mode.load())},
+                                  {"vehicle_updates", std::to_string(pose_updates)},
+                                  {"vehicle_x", std::to_string(vehicle_x)},
+                                  {"vehicle_y", std::to_string(vehicle_y)},
+                                  {"vehicle_z", std::to_string(vehicle_z)},
+                                  {"distance", std::to_string(distance)}});
         g_test.condition.notify_all();
         RequestClose();
       }
@@ -1112,6 +1156,16 @@ void ObserveMovieOpened(std::string_view guest_path) {
   std::lock_guard lock(g_test.vehicle_pose_mutex);
   g_test.last_movie.assign(guest_path);
   ++g_test.movie_opens;
+}
+
+void ObserveRallyStageSaved() {
+  if (!g_test.enabled) return;
+  g_test.rally_stage_saves.fetch_add(1, std::memory_order_release);
+}
+
+void ObserveGameMode(uint32_t mode) {
+  if (!g_test.enabled) return;
+  g_test.game_mode.store(mode, std::memory_order_release);
 }
 
 void ObserveFileOpened(std::string_view guest_path) {

@@ -28,7 +28,7 @@ struct SettingsServices {
   std::filesystem::path mods_root;
   // The draw resolution scale the renderer uses (0 when unknown). With it,
   // RESOLUTION SCALE asks for a restart only when the renderer could not
-  // switch (D3D12 without a shader pack for that scale).
+  // switch.
   std::function<uint32_t()> draw_resolution_scale;
   // Where the latest frame reached the window, in pixels (after output
   // scaling and letterboxing); the display and graphics notes give it.

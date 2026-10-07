@@ -94,7 +94,14 @@ rex::filesystem::Entry* OverlayDevice::ResolvePath(std::string_view path) {
       }
     }
   }
-  return base_->ResolvePath(path);
+  if (auto* entry = base_->ResolvePath(path)) return entry;
+  // New assets may introduce directories absent from the disc. VFS file
+  // opens resolve the parent first; keep existing base directories intact,
+  // but expose an overlay directory when it has no base counterpart.
+  for (const auto& overlay : overlays_) {
+    if (auto* entry = overlay->ResolvePath(path)) return entry;
+  }
+  return nullptr;
 }
 
 }  // namespace pinyon_shift::mod

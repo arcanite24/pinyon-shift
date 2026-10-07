@@ -20,8 +20,9 @@ bool IsOverriddenGamePath(std::string_view guest_path);
 
 // The game files with mods' files over them (NP-7.4): a file a mod ships under
 // mods/<name>/game/ replaces the base file with the same path, earlier mods in
-// the load order winning; directories, and every file no mod replaces, come
-// from the base game. Granularity is whole files, because the title reads its
+// the load order winning. Existing directories come from the base; new
+// directories can come from a mod. Granularity is whole files, because the
+// title reads its
 // archives through C FILE* streams.
 class OverlayDevice final : public rex::filesystem::Device {
  public:

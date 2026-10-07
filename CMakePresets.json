@@ -74,6 +74,18 @@
       }
     },
     {
+      "name": "win-amd64-v4",
+      "displayName": "Windows AMD64 Release, FH1 v4 title update",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
+        "PINYON_SHIFT_MANIFEST": "${sourceDir}/config/rexglue/pinyon_shift_v4_manifest.toml",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated-v4",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated-v4/default"
+      }
+    },
+    {
       "name": "linux-amd64-debug",
       "displayName": "Linux AMD64 Debug",
       "inherits": "linux-base",
@@ -152,6 +164,10 @@
     {
       "name": "win-amd64-release",
       "configurePreset": "win-amd64-release"
+    },
+    {
+      "name": "win-amd64-v4",
+      "configurePreset": "win-amd64-v4"
     },
     {
       "name": "linux-amd64-debug",

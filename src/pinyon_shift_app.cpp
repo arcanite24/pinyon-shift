@@ -1,6 +1,8 @@
 #include "pinyon_shift_app.h"
 #include "pinyon_shift_init.h"
 #include "fh1_render_test.h"
+#include "dlc/rally_audio_probe.h"
+#include "dlc/rally_pace_notes.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -16,6 +18,7 @@
 #include <rex/perf/counter.h>
 #include <rex/runtime.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/xam/content_manager.h>
 #include <rex/system/xthread.h>
 #include <rex/input/input_system.h>
 #include <rex/ui/flags.h>
@@ -56,7 +59,7 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_touch_controls, REX_PLATFORM_ANDROID, "Pinyon S
                     "On-screen controls for touch screens: a steering stick, throttle, brake "
                     "and buttons, shown on a touch and hidden after a while without one")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 27, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 28, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_STRING(enabled_mods, "", "Mods",
                       "Mods to load from <state>/mods, in order, separated by commas. With any "
@@ -91,6 +94,17 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 namespace {
 
+std::filesystem::path LongHostPath(std::filesystem::path path) {
+#if REX_PLATFORM_WIN32
+  // DLC localized assets exceed MAX_PATH in installed state roots.
+  path = std::filesystem::absolute(path).make_preferred();
+  if (!path.native().starts_with(L"\\\\?\\"))
+    path = path.native().starts_with(L"\\\\")
+        ? L"\\\\?\\UNC\\" + path.native().substr(2) : L"\\\\?\\" + path.native();
+#endif
+  return path;
+}
+
 // Schema 22 added the renderer choice (fh1_renderer) and schema 23 made the
 // native renderer its default. Schema 24 retires the choice: the native
 // renderer is the only renderer, so migration drops fh1_renderer and the other
@@ -103,9 +117,9 @@ namespace {
 // FMV routes. Schema 27 makes Vulkan the renderer's graphics API, with the
 // GPU commands thread split into a decoder and a recorder: the 1x race runs
 // at 120 fps there against about 55 on Direct3D 12 (docs/PERFORMANCE_BACKLOG.md).
-// Migration moves every earlier configuration to it once; the GRAPHICS page's
-// GRAPHICS API row switches back.
-constexpr uint32_t kConfigSchema = 27;
+// Schema 28 retires Direct3D 12 from player settings and moves its saved
+// selections to Vulkan. The legacy backend remains available to developers.
+constexpr uint32_t kConfigSchema = 28;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -140,8 +154,10 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
               "pinyon_shift_fh1_source_presentation = true\n"
               "anisotropic_override = 3\n"
               "swap_post_effect = \"none\"\n"
+              "disable_bloom = true\n"
               "disable_motion_blur = true\n"
               "disable_depth_of_field = true\n"
+              "fh1_msaa_single_sample = true\n"
               "draw_resolution_scale_x = 1\n"
               "draw_resolution_scale_y = 1\n"
               "clear_memory_page_state = false\n";
@@ -188,11 +204,13 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         std::regex::icase);
     migrated_text = std::regex_replace(migrated_text,
                                        rejected_interpolation_pattern, "\n");
-    migrated_text = std::regex_replace(
-        migrated_text,
-        std::regex(R"((host_present_fps_limit\s*=\s*)\d+)",
-                   std::regex::icase),
-        "$1 0");
+    if (schema < 27) {
+      migrated_text = std::regex_replace(
+          migrated_text,
+          std::regex(R"((host_present_fps_limit\s*=\s*)\d+)",
+                     std::regex::icase),
+          "$1 0");
+    }
     migrated_text = std::regex_replace(
         migrated_text,
         std::regex(
@@ -290,10 +308,9 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
           std::regex(R"((^|\n)(\s*clear_memory_page_state\s*=\s*)true)", std::regex::icase),
           "$1$2false");
     }
-    if (schema < 27) {
-      // Vulkan by default: replace an earlier backend choice (the old QUALITY
-      // preset wrote "any", which meant Direct3D 12). The settings list below
-      // appends both when absent.
+    if (schema < 28) {
+      // Vulkan is the supported backend. Replace old Direct3D 12 selections,
+      // including "any"; the settings list below appends both when absent.
       migrated_text = std::regex_replace(
           migrated_text,
           std::regex(R"re((^|\n)(\s*gpu_backend\s*=\s*)"[^"]*")re", std::regex::icase),
@@ -335,8 +352,10 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
          "xma_relaxed_padding_admission = false\n"},
         {"anisotropic_override", "anisotropic_override = 3\n"},
         {"swap_post_effect", "swap_post_effect = \"none\"\n"},
+        {"disable_bloom", "disable_bloom = true\n"},
         {"disable_motion_blur", "disable_motion_blur = true\n"},
         {"disable_depth_of_field", "disable_depth_of_field = true\n"},
+        {"fh1_msaa_single_sample", "fh1_msaa_single_sample = true\n"},
         {"draw_resolution_scale_x", "draw_resolution_scale_x = 1\n"},
         {"draw_resolution_scale_y", "draw_resolution_scale_y = 1\n"},
         {"gpu_backend", "gpu_backend = \"vulkan\"\n"},
@@ -404,8 +423,16 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   if (auto game_root = diagnostics::EnvironmentPath("PINYON_SHIFT_GAME_ROOT")) {
     paths.game_data_root = *game_root;
   }
-  paths.user_data_root = state_root / "user";
+  paths.user_data_root = LongHostPath(state_root / "user");
+#if defined(PINYON_SHIFT_TITLE_UPDATE_V4) && PINYON_SHIFT_TITLE_UPDATE_V4
+  // The v4 build's code was generated from the patched executables: load the
+  // player's verified title update (its .xexp files and media.zip) from a
+  // folder the base build never mounts, and apply the patches while loading.
+  paths.update_data_root = state_root / "title-update-v4";
+  rex::cvar::SetFlagByName("xex_apply_patches", "true");
+#else
   paths.update_data_root = state_root / "update";
+#endif
   paths.cache_root = state_root / "cache";
   paths.config_path = state_root / "config" / "pinyon_shift.toml";
   host_config_ = std::make_unique<pinyon_shift::config::HostConfig>(paths.config_path);
@@ -431,12 +458,15 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
     cheats = cheats || host_config_->Get("pinyon_shift_cheats").value_or("false") == "true";
   }
   if (!enabled_mods_.empty() || cheats) {
-    const auto modded = state_root / "user-modded";
+    const auto modded = LongHostPath(state_root / "user-modded");
     std::error_code error;
     if (!std::filesystem::exists(modded, error) &&
         std::filesystem::exists(paths.user_data_root, error)) {
-      std::filesystem::copy(paths.user_data_root, modded,
-                            std::filesystem::copy_options::recursive, error);
+      if (!pinyon_shift::SaveBackups::CopyProfile(paths.user_data_root, modded)) {
+        pinyon_shift::platform::ShowFatalError(
+            "Could not create the modded profile", "The player profile could not be copied.");
+        pinyon_shift::platform::ExitImmediately(1);
+      }
       diagnostics::RecordEvent("mod.profile.created", {{"path", modded.string()}});
     }
     paths.user_data_root = modded;
@@ -520,7 +550,7 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"vehicle_presentation_stabilization",
                          rex::cvar::GetFlagByName(
                              "pinyon_shift_stabilize_vehicle_presentation")},
-                        {"renderer", "d3d12"},
+                        {"renderer", rex::cvar::GetFlagByName("gpu_backend")},
                         {"resolution", rex::cvar::GetFlagByName("resolution")},
                         {"vsync", rex::cvar::GetFlagByName("vsync")},
                         {"host_present_fps_limit",
@@ -536,6 +566,7 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"anisotropic_override",
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
+                        {"disable_bloom", rex::cvar::GetFlagByName("disable_bloom")},
                         {"disable_motion_blur",
                          rex::cvar::GetFlagByName("disable_motion_blur")},
                         {"disable_depth_of_field",
@@ -562,6 +593,7 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
           ? "fh1-producer"
           : "fh1";
   pinyon_shift::fh1_render_test::Configure(config);
+  pinyon_shift::rally::ConfigureAudioProbe(config);
   // The on-screen controls feed user 0 beside any controller (AP-4.2);
   // routes keep their scripted pad alone.
   if (REXCVAR_GET(pinyon_shift_touch_controls) && !pinyon_shift::fh1_render_test::Enabled() &&
@@ -632,6 +664,15 @@ bool PinyonShiftApp::EnsureHostUi() {
       });
     }
   });
+  if (PinyonShiftRallyPaceEnabled()) {
+    host_ui_->SetRallyPaceSource(pinyon_shift::rally::ReadPaceHud,
+        PinyonShiftRallyAdapterRoot() / "game/media/UI/Textures/Horizon/Hud/Rally/CoDriverIconSet.xds");
+    pinyon_shift::rally::SetPaceHudChangedCallback([this] {
+      if (window()) window()->app_context().CallInUIThreadDeferred([this] {
+        if (host_ui_) host_ui_->HudChanged();
+      });
+    });
+  }
   if (REXCVAR_GET(pinyon_shift_touch_controls)) {
     auto& pad = pinyon_shift::ui::TouchPad::Get();
     window()->AddInputListener(&pad, 0);
@@ -733,6 +774,10 @@ void PinyonShiftApp::UpdateHorPlus() {
 }
 
 void PinyonShiftApp::OnPostSetup() {
+  // Launcher DLC selection is shared by normal and isolated modded profiles.
+  // Saved games still use the active user root chosen in OnConfigurePaths.
+  runtime()->kernel_state()->content_manager()->SetMarketplaceRoot(
+      LongHostPath(pinyon_shift::diagnostics::StateRoot() / "user"));
   if (window() && !resize_listener_added_) {
     window()->AddListener(&resize_listener_);
     resize_listener_added_ = true;
@@ -831,18 +876,6 @@ void PinyonShiftApp::OnPostSetup() {
     };
     pinyon_shift::mod::LoadMods(pinyon_shift::diagnostics::StateRoot(), enabled_mods_,
                                 std::move(services));
-    // Mods' game/ files over the game's, before the title opens any.
-    if (auto overlays = pinyon_shift::mod::OverlayRoots(); !overlays.empty()) {
-      constexpr const char* kGameMount = "\\Device\\Harddisk0\\Partition1";
-      auto* file_system = runtime()->file_system();
-      auto overlay = std::make_unique<pinyon_shift::mod::OverlayDevice>(
-          kGameMount, game_data_root(), std::move(overlays));
-      if (overlay->Initialize() && file_system->ReplaceDevice(std::move(overlay))) {
-        pinyon_shift::diagnostics::RecordEvent("mod.overlay.mounted");
-      } else {
-        REXLOG_ERROR("Mods: could not mount the mods' game files");
-      }
-    }
     // Mods' texture replacements, ahead of any folders already configured.
     if (auto textures = pinyon_shift::mod::TextureRoots(); !textures.empty()) {
       std::string dirs;
@@ -854,6 +887,24 @@ void PinyonShiftApp::OnPostSetup() {
       }
       rex::cvar::SetFlagByName("texture_replacement_dirs", dirs);
       pinyon_shift::diagnostics::RecordEvent("mod.textures", {{"dirs", dirs}});
+    }
+  }
+  // Owned DLC overlays do not activate mods or select the modded save tree.
+  // Explicit mods remain ahead of the built-in assets in the overlay order.
+  auto overlays = pinyon_shift::mod::OverlayRoots();
+  const bool builtin_rally = PinyonShiftUseBuiltinRallyAdapter();
+  if (builtin_rally) overlays.push_back(PinyonShiftRallyAdapterRoot() / "game");
+  if (!overlays.empty()) {
+    for (auto& root : overlays) root = LongHostPath(root);
+    constexpr const char* kGameMount = "\\Device\\Harddisk0\\Partition1";
+    auto overlay = std::make_unique<pinyon_shift::mod::OverlayDevice>(
+        kGameMount, game_data_root(), std::move(overlays));
+    if (overlay->Initialize() && runtime()->file_system()->ReplaceDevice(std::move(overlay))) {
+      pinyon_shift::diagnostics::RecordEvent(builtin_rally ? "dlc.rally.overlay_mounted" : "mod.overlay.mounted");
+    } else {
+      REXLOG_ERROR("Could not mount the game file overlays");
+      if (builtin_rally) pinyon_shift::diagnostics::RecordEvent("dlc.rally.adapter_error", {
+          {"error", "could not mount the built-in Rally overlay"}});
     }
   }
   if (REXCVAR_GET(pinyon_shift_save_backups)) {
@@ -922,6 +973,8 @@ void PinyonShiftApp::OnPreLaunchModule() {
   pinyon_shift::diagnostics::RefreshCrashReporter();
   pinyon_shift::diagnostics::RecordEvent("guest.launch.begin");
   pinyon_shift::mod::NotifyModuleLaunched();
+  PinyonShiftInstallRallySeriesLoader(runtime()->function_dispatcher());
+  PinyonShiftInstallCarChallengeProbe(runtime()->function_dispatcher());
   // Unlocks arrive on guest threads; the toast is drawn on the UI thread.
   achievement_listener_ = achievements().RegisterNotificationCallback(
       [this](const rex::system::AchievementEvent& event) {
@@ -1005,6 +1058,7 @@ void PinyonShiftApp::OnShutdown() {
   }
   rex::kernel::xam::SetXamUiProvider(nullptr);
   pinyon_shift::mod::SetHudChangedCallback(nullptr);
+  pinyon_shift::rally::SetPaceHudChangedCallback(nullptr);
   xam_dialogs_.reset();
   host_ui_.reset();
   achievement_icons_.reset();

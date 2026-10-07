@@ -1,4 +1,5 @@
 #include "dlc_treasure_map.h"
+#include "fh1_guest_address.h"
 
 #include <algorithm>
 #include <atomic>
@@ -47,22 +48,22 @@ namespace {
 // [[[0x832DF024] + 4] + 76] (sub_825F6FB0), an array indexed by the manager's
 // component index at 0x832FEE8C; the activities are a vector of pointers at
 // +4 (begin) and +8 (end).
-constexpr uint32_t kGameHolder = 0x832DF024u;
+constexpr uint32_t kGameHolder = FH1_ADDR(0x832DF024u);
 constexpr uint32_t kHolderHandle = 4;
 constexpr uint32_t kHandleComponents = 76;
-constexpr uint32_t kActivityManagerIndex = 0x832FEE8Cu;
+constexpr uint32_t kActivityManagerIndex = FH1_ADDR(0x832FEE8Cu);
 constexpr uint32_t kManagerBegin = 4;
 constexpr uint32_t kManagerEnd = 8;
 constexpr uint32_t kActivityRevealed = 8;  // u8, set by an activity's reveal (vtable +72)
 
 // sub_828BC9D8: nonzero while free roam's collectibles are live (free roam,
 // not the first-time career); r3 is ignored.
-constexpr uint32_t kCollectiblesLive = 0x828BC9D8u;
+constexpr uint32_t kCollectiblesLive = FH1_ADDR(0x828BC9D8u);
 // sub_828AF780(manager): 1 when every revealable activity with a saved
 // record is revealed, the state a bought Treasure Map leaves.
-constexpr uint32_t kAllRevealed = 0x828AF780u;
+constexpr uint32_t kAllRevealed = FH1_ADDR(0x828AF780u);
 // sub_828AF6F8(manager): the Treasure Map's reveal.
-constexpr uint32_t kRevealAll = 0x828AF6F8u;
+constexpr uint32_t kRevealAll = FH1_ADDR(0x828AF6F8u);
 
 bool Readable(uint32_t address, uint32_t size) {
   if (address == 0 || size == 0 || address + size - 1u < address) return false;

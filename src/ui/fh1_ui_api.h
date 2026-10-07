@@ -72,6 +72,7 @@ class Api {
   struct SceneState {
     SceneHandle handle;
     std::unordered_set<std::string> component_ids;
+    bool active = true;
   };
 
   Status ValidateSceneLocked(const SceneHandle& handle) const;

@@ -12,7 +12,8 @@
 namespace pinyon_shift {
 
 // In-game save backups (NP-5.5). Saves are plain files under the state's
-// `user` directory, so a backup is a copy of that tree. A background thread
+// `user` directory. Backups exclude Marketplace installations and their headers;
+// restoring preserves the currently installed/enabled DLC. A background thread
 // snapshots it once the title has written it and the files have been still
 // for a few seconds (so a save in progress is never copied half-written),
 // keeping the newest `keep` snapshots under `backup_root`. Restoring is only
@@ -44,6 +45,10 @@ class SaveBackups {
   // At startup, before the title runs: applies a scheduled restore.
   static void ApplyPendingRestore(const std::filesystem::path& user_root,
                                   const std::filesystem::path& backup_root);
+
+  // Create a new isolated profile, excluding shared Marketplace installations.
+  static bool CopyProfile(const std::filesystem::path& from,
+                          const std::filesystem::path& to);
 
  private:
   struct Signature {

@@ -13,28 +13,39 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <toml++/toml.hpp>
 
 #include <fmt/format.h>
 #include <rex/cvar.h>
+#include <rex/kernel/xam/module.h>
 #include <rex/memory.h>
 #include <rex/ppc/context.h>
 #include <rex/perf/counter.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/flags.h>
+#include <rex/system/function_dispatcher.h>
+#include <rex/system/thread_state.h>
 #include <rex/system/xmemory.h>
 
 #include "pinyon_shift_diagnostics.h"
+#include "fh1_guest_address.h"
 #include "platform/host_platform.h"
 #include "fh1_render_test.h"
 #include "pinyon_shift_runtime_hooks.h"
 #include "cheats.h"
 #include "cheats_map.h"
 #include "dlc_treasure_map.h"
+#include "dlc/rally_progress.h"
+#include "dlc/rally_audio_probe.h"
+#include "dlc/rally_pace_notes.h"
 #include "stall_dump.h"
 #include "mod/mod_host.h"
 #include "mod/overlay_device.h"
@@ -45,6 +56,18 @@
 
 REXCVAR_DEFINE_BOOL(pinyon_shift_skip_opening_movies, false, "Pinyon Shift",
                     "Complete the opening splash movies immediately");
+REXCVAR_DEFINE_BOOL(fh1_render_test_rally_ai_driver, false, "Pinyon Shift",
+                    "Use native AI for Rally results/persistence tests; ignored outside render tests")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_car_challenge_gate_probe, false, "Pinyon Shift",
+                    "Diagnostic (v4): pass 1000 Club's LIVE and Forza-server checks to "
+                    "trace what its challenges need offline")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(pinyon_shift_server_probe_callers, "", "Pinyon Shift",
+                      "Diagnostic (v4): comma-separated return addresses (hex) whose "
+                      "server-available query the 1000 Club probe answers, or \"all\"; empty "
+                      "answers only the 1000 Club callers")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_record_file_opens, false, "Pinyon Shift",
                     "Record each distinct game file the title opens as a guest.file.opened "
                     "session event (which files a route needs, for a partial device copy)");
@@ -79,6 +102,8 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_release_late_swaps, true, "Pinyon Shift",
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(disable_motion_blur, true, "Pinyon Shift",
                     "Disable Forza Horizon motion blur");
+REXCVAR_DEFINE_BOOL(disable_bloom, true, "Pinyon Shift",
+                    "Disable Forza Horizon bloom contribution");
 REXCVAR_DEFINE_BOOL(disable_depth_of_field, true, "Pinyon Shift",
                     "Disable Forza Horizon depth of field");
 
@@ -118,6 +143,12 @@ pinyon_shift::ui::SceneHandle g_ui_experiment_scene;
 uint64_t g_ui_experiment_generation = 0;
 uint32_t g_ui_experiment_button = 0;
 bool g_ui_experiment_applied = false;
+pinyon_shift::ui::Api g_ui_companion_api(4u);
+pinyon_shift::ui::SceneHandle g_ui_companion_scene;
+uint64_t g_ui_companion_generation = 0;
+uint32_t g_ui_companion_owner = 0;
+uint32_t g_ui_companion_action = 0;
+uint32_t g_ui_companion_rally_series = 0;
 constexpr uint32_t kUiExperimentTextTargets = 16u;
 // Label-scan window: the observed UI allocations span the 0x2E... and 0x40...
 // regions, so the window covers both. Each frame scans a bounded slice.
@@ -204,6 +235,10 @@ struct VehiclePresentationState {
 };
 
 VehiclePresentationState g_vehicle_presentation_state;
+// The private adapter only schedules in a solo world. The presentation hook
+// then observes its sole car; multi-car player identity still needs qualification.
+VehiclePose g_rally_pace_pose;
+uint64_t g_rally_pace_pose_ms = 0;
 
 std::string Hex32(uint32_t value) { return fmt::format("{:08X}", value); }
 
@@ -308,6 +343,7 @@ enum class UiExperimentMode {
   kInsertItem,
   kSceneProbe,
   kSceneInsert,
+  kSceneCompanions,
 };
 
 UiExperimentMode ComputeUiExperimentMode() {
@@ -338,6 +374,9 @@ UiExperimentMode ComputeUiExperimentMode() {
   }
   if (requested == "scene_insert") {
     return UiExperimentMode::kSceneInsert;
+  }
+  if (requested == "scene_companions") {
+    return UiExperimentMode::kSceneCompanions;
   }
   return UiExperimentMode::kNone;
 }
@@ -415,7 +454,7 @@ void SnapshotSavePayload(std::string_view kind, uint32_t address, uint32_t size,
   // the onboarding state machine is alive. Recording it beside the serialized
   // body lets us distinguish a failed save from an intentionally deferred
   // onboarding checkpoint without changing either state.
-  constexpr uint32_t kFirstTimeCareerStageAddress = 0x833067E0u;
+  constexpr uint32_t kFirstTimeCareerStageAddress = FH1_ADDR(0x833067E0u);
   const uint32_t first_time_career_stage =
       LoadGuestU32(kFirstTimeCareerStageAddress);
   const auto directory =
@@ -558,6 +597,176 @@ static std::string PinyonShiftReadGuestAscii(uint32_t address,
 
 bool PinyonShiftDisableMotionBlur() {
   return REXCVAR_GET(disable_motion_blur);
+}
+
+// sub_82C7E0B0 borrows a decoded buffer and length for its memory stream.
+// Match the whole original member, not a shared BSG header or a live control.
+// The title still creates and owns every cloned native object normally.
+struct UiCompanionPayload {
+  std::string suffix;
+  std::vector<uint8_t> source;
+  std::vector<uint8_t> replacement;
+  uint32_t buffer = 0u;
+  uint32_t substitutions = 0u;
+};
+
+static std::vector<UiCompanionPayload>& UiCompanionPayloads() {
+  static std::vector<UiCompanionPayload> payloads = [] {
+    std::vector<UiCompanionPayload> result;
+    const auto source = pinyon_shift::platform::EnvironmentVariable(
+        "PINYON_SHIFT_UI_COMPANION_SOURCE_DIR");
+    const auto replacement = pinyon_shift::platform::EnvironmentVariable(
+        "PINYON_SHIFT_UI_COMPANION_INSERT_DIR");
+    const auto identity_probe = pinyon_shift::platform::EnvironmentVariable(
+        "PINYON_SHIFT_UI_COMPANION_IDENTITY_PROBE").value_or("");
+    if (!source || source->empty() || !replacement || replacement->empty()) {
+      return result;
+    }
+    auto read = [](const std::filesystem::path& path) {
+      std::ifstream input(path, std::ios::binary | std::ios::ate);
+      if (!input) return std::vector<uint8_t>{};
+      const auto size = input.tellg();
+      if (size <= 0 || size > 4 * 1024 * 1024) return std::vector<uint8_t>{};
+      std::vector<uint8_t> bytes(static_cast<size_t>(size));
+      input.seekg(0);
+      input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+      if (!input) bytes.clear();
+      return bytes;
+    };
+    for (const char* suffix : {"bgf", "fbf", "bsg"}) {
+      const std::string name = std::string("925_PAUSE_MENU.") + suffix;
+      UiCompanionPayload payload{suffix, read(std::filesystem::path(*source) / name),
+                      read(std::filesystem::path(*replacement) / name)};
+      if (payload.source.empty() || payload.replacement.empty()) {
+        pinyon_shift::diagnostics::RecordEvent(
+            "ui.experiment.scene_companions.declined", {{"member", name}});
+        return std::vector<UiCompanionPayload>{};
+      }
+      // Preserve native storage/lifetime for unchanged companions. Compare
+      // once here, rather than comparing whole files on every parser read.
+      if (payload.source != payload.replacement || identity_probe == suffix)
+        result.push_back(std::move(payload));
+    }
+    return result;
+  }();
+  return payloads;
+}
+
+static std::pair<uint32_t, uint32_t> UiCompanionBuffer(
+    uint32_t source_address, uint32_t source_size, std::string_view consumer) {
+  if (UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled()) return {};
+  auto& payloads = UiCompanionPayloads();
+  if (payloads.empty()) return {};
+  static std::mutex mutex;
+  std::lock_guard lock(mutex);
+  for (auto& payload : payloads) {
+    if ((payload.suffix == "fbf") != (consumer == "memory_stream")) continue;
+    if (source_size != payload.source.size() ||
+        !PinyonShiftGuestRangeReadable(source_address, source_size)) continue;
+    auto* memory = rex::system::kernel_state()->memory();
+    auto* base = memory->virtual_membase();
+    if (std::memcmp(base + source_address, payload.source.data(), payload.source.size()) != 0) continue;
+    if (payload.buffer == 0u) {
+      payload.buffer = memory->SystemHeapAlloc(static_cast<uint32_t>(payload.replacement.size()), 16u);
+      if (payload.buffer == 0u) return {};
+      std::memcpy(base + payload.buffer, payload.replacement.data(), payload.replacement.size());
+    }
+    if (payload.substitutions++ < 4u) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "ui.experiment.scene_companions.substituted",
+          {{"member", payload.suffix}, {"consumer", consumer}, {"source_bytes", std::to_string(payload.source.size())},
+           {"replacement_bytes", std::to_string(payload.replacement.size())}, {"buffer", Hex32(payload.buffer)}});
+    }
+    return {payload.buffer, static_cast<uint32_t>(payload.replacement.size())};
+  }
+  return {};
+}
+
+void PinyonShiftUiCompanionMemoryStream(PPCRegister& r4, PPCRegister& r5) {
+  const auto [buffer, size] = UiCompanionBuffer(r4.u32, r5.u32, "memory_stream");
+  if (buffer != 0u) {
+    r4.u64 = buffer;
+    r5.u64 = size;
+  }
+}
+
+// The UI4 fread callback follows cursor -> holder -> resource. It copies
+// resource+112+cursor.position without checking the source's original length.
+// Substitute the decoded copy source only; retain file ownership and cursor
+// updates, and return short reads if a parser asks beyond the replacement.
+void PinyonShiftUiCompanionFileRead(PPCRegister& r4, PPCRegister& r5,
+                                   PPCRegister& r30, PPCRegister& r31) {
+  if (UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  const auto& payloads = UiCompanionPayloads();
+  if (std::none_of(payloads.begin(), payloads.end(), [](const auto& payload) {
+        return payload.suffix != "fbf";
+      })) return;
+  // At 82E614FC the native callback has already dereferenced this exact
+  // cursor -> holder -> resource chain. Filter its length before doing any
+  // host page queries; unrelated UI assets can issue millions of tiny reads.
+  // The complete target source is still range-checked before byte matching.
+  const uint32_t holder = LoadGuestU32(r30.u32);
+  const uint32_t resource = LoadGuestU32(holder);
+  const uint32_t source = LoadGuestU32(resource + 112u);
+  const uint32_t source_size = LoadGuestU32(resource + 116u);
+  if (std::none_of(payloads.begin(), payloads.end(), [source_size](const auto& payload) {
+        return payload.suffix != "fbf" && source_size == payload.source.size();
+      })) return;
+  const uint32_t position = LoadGuestU32(r30.u32 + 4u);
+  struct CursorSelection {
+    uint32_t source = 0u, source_size = 0u, position = 0u;
+    uint32_t buffer = 0u, replacement_size = 0u;
+  };
+  static std::mutex mutex;
+  static std::map<uint32_t, CursorSelection> cursors;
+  std::lock_guard lock(mutex);
+  if (cursors.size() >= 256u) cursors.clear();
+  auto [entry, inserted] = cursors.try_emplace(r30.u32);
+  auto& selected = entry->second;
+  // Cursor reuse starts at zero. Rewinds and source changes also invalidate
+  // the full-byte match; ordinary reads reuse the selection for this lifetime.
+  if (inserted || position == 0u || position < selected.position ||
+      source != selected.source || source_size != selected.source_size) {
+    const auto [buffer, size] = UiCompanionBuffer(source, source_size, "ui_fread");
+    selected = {source, source_size, position, buffer, size};
+  }
+  selected.position = position;
+  const auto buffer = selected.buffer;
+  const auto size = selected.replacement_size;
+  if (buffer == 0u) return;
+  const uint32_t count = position < size ? std::min(r5.u32, size - position) : 0u;
+  if (count != r5.u32) {
+    static std::atomic<uint32_t> clipped{};
+    if (clipped.fetch_add(1, std::memory_order_relaxed) < 4u) {
+      pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.short_read",
+          {{"position", Hex32(position)}, {"requested", Hex32(r5.u32)},
+           {"delivered", Hex32(count)}, {"bytes", Hex32(size)}});
+    }
+  }
+  r4.u64 = buffer + std::min(position, size);
+  r5.u64 = count;
+  r31.u64 = count;
+}
+
+// The title has already copied/interpolated the weather's bloom scale into
+// this frame's stack parameters. Its own debug mode also writes zero here.
+// Leave exposure, tone mapping and the persistent weather settings intact.
+void PinyonShiftBloomScale(PPCRegister& r1) {
+  const uint32_t address = r1.u32 + 264u;
+  const uint32_t original = LoadGuestU32(address);
+  const bool disabled = REXCVAR_GET(disable_bloom);
+  if (disabled) StoreGuestU32(address, 0u);
+  if (pinyon_shift::fh1_render_test::Enabled()) {
+    static std::atomic<uint32_t> traces{};
+    if (traces.fetch_add(1, std::memory_order_relaxed) < 4u) {
+      pinyon_shift::diagnostics::RecordEvent("graphics.bloom_scale", {
+          {"disabled", disabled ? "1" : "0"},
+          {"original", Hex32(original)},
+          {"effective", Hex32(disabled ? 0u : original)}});
+    }
+  }
 }
 
 bool PinyonShiftDisableDepthOfField(PPCRegister& r11) {
@@ -950,7 +1159,7 @@ void TraceUiListMethod(std::string_view address, PPCRegister& r3,
 
   const uint32_t value_vtable =
       PinyonShiftGuestRangeReadable(r5.u32, 4u) ? LoadGuestU32(r5.u32) : 0u;
-  if (value_vtable != 0x8205109Cu && value_vtable != 0x82059E8Cu) {
+  if (value_vtable != FH1_ADDR(0x8205109Cu) && value_vtable != FH1_ADDR(0x82059E8Cu)) {
     return;
   }
   if (g_ui_pause_menu_field_trace_count.fetch_add(
@@ -958,8 +1167,8 @@ void TraceUiListMethod(std::string_view address, PPCRegister& r3,
     return;
   }
   constexpr std::array<uint32_t, 6> kMenuVtables = {
-      0x82063974u, 0x82063A0Cu, 0x8206D3B8u,
-      0x8203363Cu, 0x82026B38u, 0x82063CA4u};
+      FH1_ADDR(0x82063974u), FH1_ADDR(0x82063A0Cu), FH1_ADDR(0x8206D3B8u),
+      FH1_ADDR(0x8203363Cu), FH1_ADDR(0x82026B38u), FH1_ADDR(0x82063CA4u)};
   for (uint32_t offset = 4u; offset <= 768u; offset += 4u) {
     if (!PinyonShiftGuestRangeReadable(r5.u32 + offset, 4u)) {
       break;
@@ -984,14 +1193,14 @@ void TraceUiListMethod(std::string_view address, PPCRegister& r3,
 
   const uint32_t list_vtable =
       PinyonShiftGuestRangeReadable(r3.u32, 4u) ? LoadGuestU32(r3.u32) : 0u;
-  if (list_vtable != 0x8206D3B8u ||
+  if (list_vtable != FH1_ADDR(0x8206D3B8u) ||
       g_ui_menu_field_trace_count.fetch_add(1, std::memory_order_relaxed) >=
           128u) {
     return;
   }
   constexpr std::array<uint32_t, 6> kUiVtables = {
-      0x82063974u, 0x82063A0Cu, 0x8206D3B8u,
-      0x8203363Cu, 0x82026B38u, 0x82063CA4u};
+      FH1_ADDR(0x82063974u), FH1_ADDR(0x82063A0Cu), FH1_ADDR(0x8206D3B8u),
+      FH1_ADDR(0x8203363Cu), FH1_ADDR(0x82026B38u), FH1_ADDR(0x82063CA4u)};
   for (uint32_t offset = 4u; offset <= 512u; offset += 4u) {
     if (!PinyonShiftGuestRangeReadable(r3.u32 + offset, 4u)) {
       break;
@@ -1054,13 +1263,13 @@ void PinyonShiftTraceUiLabelApply(PPCRegister& r3, PPCRegister& r4,
   const uint32_t text = object + 164u;
   if (UiExperimentModeValue() == UiExperimentMode::kSceneInsert &&
       PinyonShiftGuestRangeReadable(text, 12u) &&
-      LoadGuestU32(text) == 0x82026B38u && LoadGuestU32(text + 8u) == 0u) {
+      LoadGuestU32(text) == FH1_ADDR(0x82026B38u) && LoadGuestU32(text + 8u) == 0u) {
     const uint32_t source =
         g_ui_scene_insert_first_button.load(std::memory_order_relaxed);
     const uint32_t source_text = source + 164u;
     if (source != 0u && source != object &&
         PinyonShiftGuestRangeReadable(source_text, 12u) &&
-        LoadGuestU32(source_text) == 0x82026B38u &&
+        LoadGuestU32(source_text) == FH1_ADDR(0x82026B38u) &&
         LoadGuestU32(source_text + 8u) != 0u) {
       StoreGuestU32(text + 4u, LoadGuestU32(source_text + 4u));
       StoreGuestU32(text + 8u, LoadGuestU32(source_text + 8u));
@@ -1247,6 +1456,49 @@ void PinyonShiftTraceUiSceneTreeWalk(PPCRegister& r3, PPCRegister& r4) {
        {"kind", readable ? Hex32(LoadGuestU8(r4.u32 + 30u)) : ""}});
 }
 
+namespace {
+std::atomic<uint32_t> g_ui_path_binding_probe_count{};
+struct UiPathBindingCall { uint32_t root; std::string path; };
+thread_local std::vector<UiPathBindingCall> g_ui_path_binding_calls;
+}  // namespace
+
+void PinyonShiftTraceUiPathBindingEnter(PPCRegister& r4, PPCRegister& r5) {
+  const auto mode = UiExperimentModeValue();
+  if (!UiTraceEnabled() || !pinyon_shift::fh1_render_test::Enabled() ||
+      (mode != UiExperimentMode::kSceneCompanions &&
+       (mode != UiExperimentMode::kSceneInsert ||
+        !g_ui_scene_tree_walk_trace_enabled.load(std::memory_order_relaxed)))) return;
+  bool pause = mode != UiExperimentMode::kSceneCompanions;
+  for (uint32_t node = r4.u32, depth = 0; !pause && depth < 8 &&
+       PinyonShiftGuestRangeReadable(node, 32); ++depth) {
+    const uint32_t name = LoadGuestU32(node);
+    pause = name == 0xBDF05338u || name == 0x223C2AFBu;
+    node = LoadGuestU32(node + 12);
+  }
+  const bool trace = pause &&
+      g_ui_path_binding_probe_count.fetch_add(1, std::memory_order_relaxed) < 2048;
+  g_ui_path_binding_calls.push_back({trace ? r4.u32 : 0,
+      trace ? PinyonShiftReadGuestAscii(r5.u32, 128) : ""});
+}
+
+void PinyonShiftTraceUiPathBindingReturn(PPCRegister& r29) {
+  if (g_ui_path_binding_calls.empty()) return;
+  const auto call = std::move(g_ui_path_binding_calls.back());
+  g_ui_path_binding_calls.pop_back();
+  if (call.root) {
+    pinyon_shift::diagnostics::RecordEvent("ui.scene.path_binding", {
+        {"root", Hex32(call.root)}, {"path", call.path},
+        {"root_name", UiProbeField(call.root, 0)},
+        {"root_value", UiProbeField(call.root, 4)},
+        {"result", Hex32(r29.u32)},
+        {"result_name", UiProbeField(r29.u32, 0)},
+        {"result_value", UiProbeField(r29.u32, 4)},
+        {"result_aux", UiProbeField(r29.u32, 8)},
+        {"result_kind", PinyonShiftGuestRangeReadable(r29.u32 + 30, 1)
+            ? std::to_string(LoadGuestU8(r29.u32 + 30)) : "unreadable"}});
+  }
+}
+
 void PinyonShiftTraceUiAnimationAllocate(PPCRegister& r3, PPCRegister& r4,
                                          PPCRegister& r6, PPCRegister& r7,
                                          PPCRegister& r8, PPCRegister& r31) {
@@ -1276,7 +1528,9 @@ void PinyonShiftTraceUiAnimationAllocate(PPCRegister& r3, PPCRegister& r4,
 bool PinyonShiftGuardUiInvalidRttiCast(PPCRegister& r3, PPCRegister& r4,
                                        PPCRegister& r5, PPCRegister& r6,
                                        PPCRegister& r7, uint64_t& lr) {
-  if (UiExperimentModeValue() != UiExperimentMode::kSceneInsert ||
+  if (!UiTraceEnabled() ||
+      (UiExperimentModeValue() != UiExperimentMode::kSceneInsert &&
+       UiExperimentModeValue() != UiExperimentMode::kSceneCompanions) ||
       r3.u32 == 0u) {
     return false;
   }
@@ -1321,8 +1575,8 @@ void PinyonShiftTraceUiPauseButtonArrayLookup(PPCRegister& r3,
   // optional interface as null so the caller takes its existing skip path.
   const uint32_t candidate_vtable =
       PinyonShiftGuestRangeReadable(r3.u32, 4u) ? LoadGuestU32(r3.u32) : 0u;
-  if (static_cast<uint32_t>(lr) == 0x8281BF4Cu && r3.u32 != 0u &&
-      candidate_vtable != 0x8224B790u) {
+  if (static_cast<uint32_t>(lr) == FH1_ADDR(0x8281BF4Cu) && r3.u32 != 0u &&
+      candidate_vtable != FH1_ADDR(0x8224B790u)) {
     pinyon_shift::diagnostics::RecordEvent(
         "ui.experiment.scene_insert.optional_navigation_absent", {});
     r3.u64 = 0u;
@@ -1384,7 +1638,7 @@ void PinyonShiftTraceUiTextValue(PPCRegister& r3, PPCRegister& r4,
   if (!UiTraceEnabled() || !PinyonShiftGuestRangeReadable(r3.u32, 12u)) {
     return;
   }
-  if (LoadGuestU32(r3.u32) != 0x82026B38u) {
+  if (LoadGuestU32(r3.u32) != FH1_ADDR(0x82026B38u)) {
     return;
   }
   // The receiver may be any of the three verified CUI4TextElement subobjects
@@ -1440,7 +1694,7 @@ void PinyonShiftTraceUiPauseButtonTextGet(PPCRegister& r3,
                                            PPCRegister& r4) {
   if (!UiTraceEnabled() ||
       !PinyonShiftGuestRangeReadable(r3.u32, 116u) ||
-      LoadGuestU32(r3.u32) != 0x8203363Cu ||
+      LoadGuestU32(r3.u32) != FH1_ADDR(0x8203363Cu) ||
       g_ui_pause_button_text_get_trace_count.fetch_add(
           1, std::memory_order_relaxed) >= 256u) {
     return;
@@ -1756,7 +2010,7 @@ namespace {
 // pool of NUL-terminated UTF-16BE strings (tools/fh1-strings.py lists them).
 // IDS_MultiplayerOption, which also reads MULTIPLAYER, is left alone.
 constexpr uint16_t kPauseMultiplayerLabelHash = 0xDD6Bu;
-constexpr uint32_t kPauseMenuVtable = 0x8205109Cu;
+constexpr uint32_t kPauseMenuVtable = FH1_ADDR(0x8205109Cu);
 std::function<void()> g_pause_settings_handler;
 
 uint16_t LoadGuestU16Unaligned(uint32_t address) {
@@ -1871,6 +2125,126 @@ void PinyonShiftSetPauseSettingsHandler(std::function<void()> handler) {
 // the row is SETTINGS the hook opens the settings screen instead and jumps to
 // the switch's common exit (0x8273A10C), which records the row as the last
 // selection, so the pause menu stays open with the row focused.
+// v4 only (analysis-v4/v4-additions.toml): the 1000 CLUB pause action's
+// LIVE sign-in and Forza-server checks. Diagnostic and default off; there is
+// no service, so this only shows what the Car Challenge screens do offline.
+void PinyonShiftCarChallengeLiveGate(PPCRegister& r3) {
+  if (!REXCVAR_GET(pinyon_shift_car_challenge_gate_probe)) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.gate", {
+      {"check", "live"}, {"native", fmt::format("{}", r3.u32 & 0xFF)}});
+  r3.u64 = 1;
+}
+
+void PinyonShiftCarChallengeServerGate(PPCRegister& r3) {
+  if (!REXCVAR_GET(pinyon_shift_car_challenge_gate_probe)) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.gate", {
+      {"check", "server"}, {"native", fmt::format("{}", r3.u32 & 0xFF)}});
+  r3.u64 = 1;
+}
+
+// Entry of v4 sub_824127B8(service), "is the Forza Horizon server available".
+// Recompiled callers reach it directly, so only a codegen hook can answer
+// for all of them. Diagnostic: v4 only, default off.
+// Entry of v4 CScoreboardManager::SubmitCarChallenge (sub_829490D8; r4 = car
+// id, r5 = challenge id). It sends Forza.WebServices.Challenge
+// "ChallengeCompleted" and keeps the completion pending ("UPLOADING") until the
+// server answers; the answer handler (sub_82947DF8, task type 8) then commits
+// it through sub_824D8300(challenge component, car, challenge), which marks the
+// challenge confirmed (+5). Unconfirmed completions are dropped on the next
+// screen change. With the default-off 1000 Club probe the web call is skipped
+// and the completion is committed shortly afterwards, as the server's answer
+// would have done.
+namespace {
+struct PendingChallengeCommit {
+  uint32_t car = 0, challenge = 0, frames = 0;
+};
+std::mutex g_challenge_commit_mutex;
+std::vector<PendingChallengeCommit> g_challenge_commits;
+}  // namespace
+
+bool PinyonShiftCarChallengeSubmitLocal(PPCContext& ctx, uint8_t* base, PPCRegister& r4,
+                                        PPCRegister& r5) {
+  (void)ctx;
+  (void)base;
+  if constexpr (!pinyon_shift::fh1::kTitleUpdateV4) return false;
+  if (!REXCVAR_GET(pinyon_shift_car_challenge_gate_probe)) return false;
+  // The server's answer used to arrive after the HUD had marked the goal
+  // "uploading" (+200 state 1 or 2), and the commit only confirms a goal in
+  // that state, so answer about two seconds later, from the frame pump.
+  std::lock_guard lock(g_challenge_commit_mutex);
+  g_challenge_commits.push_back({r4.u32 & 0xFFFFu, r5.u32, 120});
+  pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.local_submit", {
+      {"car", fmt::format("{}", r4.u32 & 0xFFFFu)}, {"challenge", fmt::format("{}", r5.u32)}});
+  return true;
+}
+
+// Commits due local challenge answers through sub_824D8300(challenge
+// component, car, challenge), the server-answer path of sub_82947DF8.
+static void PumpCarChallengeCommits() {
+  std::vector<PendingChallengeCommit> due;
+  {
+    std::lock_guard lock(g_challenge_commit_mutex);
+    for (auto it = g_challenge_commits.begin(); it != g_challenge_commits.end();) {
+      if (it->frames == 0 || --it->frames == 0) {
+        due.push_back(*it);
+        it = g_challenge_commits.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const auto& commit : due) {
+    pinyon_shift::mod::EnqueueHostGuestTask([commit] {
+      const uint32_t components = pinyon_shift::mod::CallGuest(0x8269B4F8u, {});
+      const uint32_t table = PinyonShiftGuestRangeReadable(components, 4) ? LoadGuestU32(components) : 0;
+      const uint32_t slot = table + LoadGuestU32(0x833CE0ECu) * 4;  // challenge component index
+      const uint32_t component = table && PinyonShiftGuestRangeReadable(slot, 4) ? LoadGuestU32(slot) : 0;
+      if (!component) {
+        pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.local_commit_error", {
+            {"car", fmt::format("{}", commit.car)}, {"challenge", fmt::format("{}", commit.challenge)}});
+        return;
+      }
+      pinyon_shift::mod::CallGuest(0x824D8300u, {component, commit.car, commit.challenge});
+      pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.local_commit", {
+          {"car", fmt::format("{}", commit.car)}, {"challenge", fmt::format("{}", commit.challenge)}});
+    });
+  }
+}
+
+bool PinyonShiftServerAvailableProbe(PPCRegister& r3, uint64_t& lr) {
+  if (!REXCVAR_GET(pinyon_shift_car_challenge_gate_probe)) return false;
+  static std::mutex mutex;
+  static std::set<uint32_t> callers;
+  {
+    std::lock_guard lock(mutex);
+    if (callers.size() < 256 && callers.insert(uint32_t(lr)).second) {
+      pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.server_query", {
+          {"service", Hex32(r3.u32)}, {"caller", Hex32(uint32_t(lr))}});
+    }
+  }
+  // Only 1000 Club's own callers by default: the pause action (sub_827EBEE0)
+  // and its "1000 Club online" status sub_824D20A0, which the home screen
+  // and the free-roam promotion read. The other callers (sub_824A3650,
+  // sub_8253E628, sub_826BFC98, sub_8294EB28/EBA0) keep the offline answer.
+  static const std::set<uint32_t> allowed = [] {
+    std::string value = REXCVAR_GET(pinyon_shift_server_probe_callers);
+    std::erase_if(value, [](char c) { return c == '"' || c == '\'' || c == ' '; });
+    if (value == "all") return std::set<uint32_t>{};
+    std::set<uint32_t> out;
+    std::stringstream list(value);
+    for (std::string item; std::getline(list, item, ',');) {
+      char* end = nullptr;
+      const unsigned long address = std::strtoul(item.c_str(), &end, 16);
+      if (!item.empty() && end && *end == '\0') out.insert(uint32_t(address));
+    }
+    if (out.empty()) out = {0x827EC3C0u, 0x824D20B8u};
+    return out;
+  }();
+  if (!allowed.empty() && !allowed.count(uint32_t(lr))) return false;
+  r3.u64 = 1;
+  return true;
+}
+
 bool PinyonShiftPauseSettingsActivate(PPCRegister& r31) {
   if (!REXCVAR_GET(pinyon_shift_pause_settings) || !g_pause_settings_handler ||
       !PinyonShiftGuestRangeReadable(r31.u32, 4u) ||
@@ -2087,7 +2461,9 @@ void PinyonShiftTraceUiPauseButtonConstructed(PPCRegister& r3,
     pinyon_shift::mod::Dispatch(event);
   }
   const UiExperimentMode experiment = UiExperimentModeValue();
-  if (!UiTraceEnabled() && experiment == UiExperimentMode::kNone) {
+  if (!UiTraceEnabled() && experiment != UiExperimentMode::kHideFirst &&
+      experiment != UiExperimentMode::kTextProbe &&
+      experiment != UiExperimentMode::kLabelPatch) {
     return;
   }
   const uint32_t button = r31.u32;
@@ -2218,7 +2594,7 @@ void PinyonShiftTraceUiItemBuilderEntry(PPCRegister& r3, PPCRegister& r4,
   // the internal return address; only an interior entry keeps the caller's
   // return address here.
   const uint32_t caller = static_cast<uint32_t>(lr);
-  if (caller == 0x82E7A240u) {
+  if (caller == FH1_ADDR(0x82E7A240u)) {
     return;
   }
   if (g_ui_insert_entry_trace_count.fetch_add(1, std::memory_order_relaxed) >=
@@ -2295,6 +2671,26 @@ std::atomic<uint32_t> g_ui_deserialize_trace_count{};
 void PinyonShiftTraceUiItemBuildCall(PPCRegister& r24, PPCRegister& r25,
                                      PPCRegister& r26, PPCRegister& r29,
                                      PPCRegister& r31) {
+  if (UiExperimentModeValue() == UiExperimentMode::kSceneInsert &&
+      pinyon_shift::fh1_render_test::Enabled() &&
+      g_ui_scene_tree_walk_trace_enabled.load(std::memory_order_relaxed) &&
+      PinyonShiftGuestRangeReadable(r26.u32, 32u) &&
+      LoadGuestU8(r26.u32 + 30u) == 5u) {
+    static std::atomic<uint32_t> traces{};
+    if (traces.fetch_add(1, std::memory_order_relaxed) < 128u) {
+      const uint32_t vtable = PinyonShiftGuestRangeReadable(r24.u32, 4u)
+                                  ? LoadGuestU32(r24.u32) : 0u;
+      pinyon_shift::diagnostics::RecordEvent("ui.scene.kind_five.created", {
+          {"document", Hex32(r24.u32)},
+          {"document_vtable", Hex32(vtable)},
+          {"notification_callback", UiProbeField(vtable, 88u)},
+          {"node", Hex32(r26.u32)},
+          {"name", UiProbeField(r26.u32, 0u)},
+          {"value", UiProbeField(r26.u32, 4u)},
+          {"parent", UiProbeField(r26.u32, 12u)},
+          {"has_builder_call", (r29.u32 & 0xFFu) ? "1" : "0"}});
+    }
+  }
   if (UiExperimentModeValue() == UiExperimentMode::kInsertItem) {
     g_ui_insert_document.store(r24.u32, std::memory_order_relaxed);
     g_ui_insert_element.store(r25.u32, std::memory_order_relaxed);
@@ -2376,8 +2772,8 @@ namespace {
 // CPauseMenuButton's primary vtable. The constructor sub_8264FBA0 stores it at
 // +0 (`lis r11,-32253; addi r11,r11,13988` = 0x820336A4); the +8 base at
 // 0x8203363C is a secondary interface table, not the object's first word.
-constexpr uint32_t kUiPauseMenuButtonVtable = 0x820336A4u;
-constexpr uint32_t kUiComponentBuilderAddress = 0x82E7A238u;
+constexpr uint32_t kUiPauseMenuButtonVtable = FH1_ADDR(0x820336A4u);
+constexpr uint32_t kUiComponentBuilderAddress = FH1_ADDR(0x82E7A238u);
 constexpr uint32_t kUiInsertMaximumRecordBytes = 0x800u;
 // Startup builds create dozens of non-button components before the pause items;
 // keep a small generic sample and a separate budget for button creations.
@@ -2430,35 +2826,23 @@ bool UiInsertSharesRecord() {
   return shares;
 }
 
-// Invokes one recompiled guest function from a host hook. The nested context is
-// a copy of the live context, so the callee sees the real thread pointer,
-// nonvolatile registers and stack base, while the outer register state is left
-// untouched. Only the FP control word is restored afterwards: the injected call
-// must not change the mode the interrupted guest code has already committed to.
-uint32_t CallGuestFunction(PPCContext& context, uint8_t* base, uint32_t address,
+// Kernel callbacks use ThreadState's live context. Use the SDK trap frame so
+// nested constructors and callbacks share that context and restore all outer
+// registers, stack and FP state when the injected call returns.
+uint32_t CallGuestFunction(PPCContext& context, [[maybe_unused]] uint8_t* base, uint32_t address,
                            uint32_t argument0, uint32_t argument1,
                            uint32_t argument2 = 0u, uint32_t argument3 = 0u,
                            uint32_t argument4 = 0u, uint32_t argument5 = 0u) {
-  PPCFunc* function = rex::runtime::ResolveIndirectFunction(address);
-  if (function == nullptr) {
+  auto* thread = rex::runtime::ThreadState::Get();
+  auto* kernel = rex::system::kernel_state();
+  if (!thread || thread->context() != &context || !kernel ||
+      !kernel->function_dispatcher()->GetFunction(address)) {
     return 0u;
   }
-  const uint32_t saved_csr = context.fpscr.csr;
-  PPCContext nested = context;
-  nested.dispatch_address = 0;
-  nested.lr = 0;
-  nested.r1.u32 = context.r1.u32 - 0x70u;
-  nested.r3.u64 = argument0;
-  nested.r4.u64 = argument1;
-  nested.r5.u64 = argument2;
-  nested.r6.u64 = argument3;
-  nested.r7.u64 = argument4;
-  nested.r8.u64 = argument5;
-  function(nested, base);
-  const uint32_t result = nested.r3.u32;
-  context.fpscr.csr = saved_csr;
-  context.fpscr.setcsr(saved_csr);
-  return result;
+  uint64_t arguments[] = {argument0, argument1, argument2,
+                          argument3, argument4, argument5};
+  return static_cast<uint32_t>(kernel->function_dispatcher()->ExecuteTrap(
+      thread, address, arguments, 6));
 }
 
 // The authored element record is a variable-size object: a flag word at +28
@@ -2961,11 +3345,11 @@ uint32_t UiFindRecordInChain(uint32_t parent, uint32_t record) {
 // what makes an added item a real member of the authored page: the document's
 // pool, tree links and counters advance exactly as they do for an authored item,
 // so every later pass sees the same structures the stock items produce.
-constexpr uint32_t kUiWrapperRecordAllocator = 0x82F2E870u;
-constexpr uint32_t kUiElementRecordAllocator = 0x82F2DF08u;
-constexpr uint32_t kUiPropertyAppend = 0x82F2E000u;
+constexpr uint32_t kUiWrapperRecordAllocator = FH1_ADDR(0x82F2E870u);
+constexpr uint32_t kUiElementRecordAllocator = FH1_ADDR(0x82F2DF08u);
+constexpr uint32_t kUiPropertyAppend = FH1_ADDR(0x82F2E000u);
 // The section record pool append the deserializer calls after creating a record.
-constexpr uint32_t kUiSectionRecordPush = 0x82F2EA38u;
+constexpr uint32_t kUiSectionRecordPush = FH1_ADDR(0x82F2EA38u);
 
 // 1 = replay the title's own item construction (default), 0 = only copy the
 // stock record and re-run the builder.
@@ -3185,6 +3569,8 @@ struct UiInsertGuard {
 void PinyonShiftUiPauseItemInsert(PPCContext& context, uint8_t* base,
                                   PPCRegister& r3, PPCRegister& r28,
                                   PPCRegister& r30, PPCRegister& r31) {
+  const auto experiment = UiExperimentModeValue();
+  if (!UiTraceEnabled() && experiment != UiExperimentMode::kInsertItem) return;
   const uint32_t component = r3.u32;
   const uint32_t record = r28.u32;
   const uint32_t descriptor = r30.u32;
@@ -3223,11 +3609,11 @@ void PinyonShiftUiPauseItemInsert(PPCContext& context, uint8_t* base,
          {"component", Hex32(component)},
          {"component_vtable", Hex32(component_vtable)},
          {"menu_item", is_menu_item ? "1" : "0"},
-         {"registry_global", read_word(0x834B53D4u)},
+         {"registry_global", read_word(FH1_ADDR(0x834B53D4u))},
          {"frame_saved_owner", read_word(context.r1.u32 + 160u)},
          {"frame_saved_lr", read_word(context.r1.u32 + 168u)}});
   }
-  if (is_menu_item) {
+  if (is_menu_item && UiTraceEnabled()) {
     const uint32_t dump_ordinal =
         g_ui_record_dump_count.fetch_add(1, std::memory_order_relaxed) + 1u;
     if (dump_ordinal <= 8u) {
@@ -3237,7 +3623,7 @@ void PinyonShiftUiPauseItemInsert(PPCContext& context, uint8_t* base,
       DumpUiElementOwner(context, base, owner);
     }
   }
-  if (UiExperimentModeValue() != UiExperimentMode::kInsertItem) {
+  if (experiment != UiExperimentMode::kInsertItem) {
     return;
   }
   if (g_ui_insert_active.exchange(true, std::memory_order_acq_rel)) {
@@ -3636,6 +4022,364 @@ void PinyonShiftTraceUiPauseOwnerInit(PPCRegister& r1, PPCRegister& r3,
        {"caller", Hex32(static_cast<uint32_t>(lr))}});
 }
 
+// Qualify the title's data-model capacity separately from its authored widgets.
+// Use a retained stock label or the private API's owned caption through native
+// constructors; never alias a model row.
+// Action 17 uses an existing stock dispatch path during this probe.
+void PinyonShiftUiCompanionPauseModel(PPCContext& context, uint8_t* base,
+                                     PPCRegister& r3) {
+  if (UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled() ||
+      pinyon_shift::platform::EnvironmentVariable(
+          "PINYON_SHIFT_UI_COMPANION_APPEND_MODEL") != "1" ||
+      !PinyonShiftGuestRangeReadable(r3.u32, 420) ||
+      LoadGuestU32(r3.u32) != kPauseMenuVtable) return;
+  const uint32_t owner = r3.u32;
+  const uint32_t begin = LoadGuestU32(owner + 408);
+  const uint32_t end = LoadGuestU32(owner + 412);
+  if (end < begin || end - begin != 7 * 4 ||
+      !PinyonShiftGuestRangeReadable(begin, 28)) return;
+  const uint32_t first = LoadGuestU32(begin);
+  if (!PinyonShiftGuestRangeReadable(first, 52) ||
+      !LoadGuestU32(first + 12)) return;
+  auto* memory = rex::system::kernel_state()->memory();
+  const bool menu_api = pinyon_shift::platform::EnvironmentVariable(
+      "PINYON_SHIFT_UI_COMPANION_MENU_API").value_or("") == "1";
+  std::string label;
+  const auto reject_menu = [&] {
+    if (!menu_api) return;
+    g_ui_companion_api.SceneClosing(g_ui_companion_scene);
+    g_ui_companion_owner = 0;
+    g_ui_companion_action = 0;
+    g_ui_companion_rally_series = 0;
+    pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.menu_item_applied",
+        {{"owner", Hex32(owner)}, {"generation", std::to_string(g_ui_companion_scene.generation)},
+         {"component", "rally.entry"}, {"label", label}, {"status", "failed"}});
+  };
+  if (menu_api) {
+    if (g_ui_companion_api.SceneReady("pause_menu", ++g_ui_companion_generation,
+                                     &g_ui_companion_scene) != pinyon_shift::ui::Status::kOk ||
+        g_ui_companion_api.AddMenuItem(g_ui_companion_scene, "rally.entry",
+                                      "HORIZON RALLY", 7) != pinyon_shift::ui::Status::kOk) {
+      reject_menu();
+      return;
+    }
+    g_ui_companion_owner = owner;
+    for (const auto& operation : g_ui_companion_api.Drain()) {
+      if (operation.kind == pinyon_shift::ui::Operation::Kind::kAddMenuItem &&
+          operation.scene.generation == g_ui_companion_scene.generation &&
+          operation.component_id == "rally.entry" && operation.insertion_index == 7)
+        label = operation.value;
+    }
+    if (label.empty()) { reject_menu(); return; }
+  }
+  const uint32_t scratch = memory->SystemHeapAlloc(16 + label.size() + 1, 16);
+  if (!scratch) { reject_menu(); return; }
+  StoreGuestU32(scratch, 0);
+  if (menu_api) {
+    // 824984C8 owns a copy of the ASCII caption in its native string object;
+    // the temporary input bytes may be freed once the model retains the string.
+    std::memcpy(base + scratch + 16, label.data(), label.size());
+    StoreGuestU8(scratch + 16 + static_cast<uint32_t>(label.size()), 0);
+    CallGuestFunction(context, base, FH1_ADDR(0x824984C8u), scratch, scratch + 16, UINT32_MAX);
+  } else {
+    CallGuestFunction(context, base, FH1_ADDR(0x824AFB20u), scratch, first + 12);
+  }
+  const uint32_t label_object = LoadGuestU32(scratch);
+  uint32_t action = 17;
+  if (menu_api) {
+    const auto rally_entry = pinyon_shift::platform::EnvironmentVariable(
+        "PINYON_SHIFT_UI_COMPANION_RALLY_ENTRY").value_or("");
+    if (rally_entry.size() == 1 && rally_entry[0] >= '1' && rally_entry[0] <= '7' &&
+        g_ui_companion_generation <= UINT32_MAX - 18u) {
+      g_ui_companion_rally_series = uint32_t(rally_entry[0] - '0');
+      action = 18u + static_cast<uint32_t>(g_ui_companion_generation);
+    } else {
+      g_ui_companion_rally_series = 0;
+    }
+    g_ui_companion_action = action;
+  }
+  if (label_object)
+    CallGuestFunction(context, base, FH1_ADDR(0x8283AE80u),
+                      owner + 368, scratch, action, 1, 0);
+  CallGuestFunction(context, base, FH1_ADDR(0x82DE7330u), scratch, 0);
+  memory->SystemHeapFree(scratch);
+  std::string actions;
+  const uint32_t updated_begin = LoadGuestU32(owner + 408);
+  const uint32_t updated_end = LoadGuestU32(owner + 412);
+  if (menu_api) {
+    const bool applied = updated_end - updated_begin == 32 &&
+        PinyonShiftGuestRangeReadable(updated_begin, 32) &&
+        PinyonShiftGuestRangeReadable(LoadGuestU32(updated_begin + 28) + 12, 4) &&
+        LoadGuestU32(LoadGuestU32(updated_begin + 28) + 12) == label_object &&
+        label_object != LoadGuestU32(first + 12);
+    pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.menu_item_applied",
+        {{"owner", Hex32(owner)}, {"generation", std::to_string(g_ui_companion_scene.generation)},
+         {"component", "rally.entry"}, {"label", label},
+         {"label_object", Hex32(label_object)}, {"status", applied ? "applied" : "failed"}});
+    if (!applied) {
+      g_ui_companion_api.SceneClosing(g_ui_companion_scene);
+      g_ui_companion_owner = 0;
+      g_ui_companion_action = 0;
+      g_ui_companion_rally_series = 0;
+    }
+  }
+  for (uint32_t entry = updated_begin; entry < updated_end; entry += 4) {
+    const uint32_t row = LoadGuestU32(entry);
+    if (!actions.empty()) actions += ',';
+    actions += UiProbeField(row, 8);
+  }
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.model_append",
+      {{"owner", Hex32(owner)}, {"action", std::to_string(action)}, {"model_actions", actions},
+       {"count", std::to_string((LoadGuestU32(owner + 412) -
+                                 LoadGuestU32(owner + 408)) / 4)}});
+}
+
+void PinyonShiftUiCompanionPauseAction(PPCRegister& r3, PPCRegister& r4,
+                                      PPCRegister& r6) {
+  if (UiExperimentModeValue() == UiExperimentMode::kSceneCompanions &&
+      pinyon_shift::fh1_render_test::Enabled() && r4.u32 == 2 &&
+      g_ui_companion_owner == r3.u32 && g_ui_companion_rally_series &&
+      r6.u32 == g_ui_companion_action) {
+    const bool queued = PinyonShiftStartRallySeries(g_ui_companion_rally_series);
+    pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.menu_activation",
+        {{"owner", Hex32(r3.u32)}, {"generation", std::to_string(g_ui_companion_scene.generation)},
+         {"component", "rally.entry"}, {"action", std::to_string(r6.u32)},
+         {"series_id", std::to_string(g_ui_companion_rally_series)},
+         {"status", queued ? "queued" : "unavailable"}});
+    // Action 3 is the native Resume path, including its activation sound and
+    // done callback. An unavailable request leaves this private menu open.
+    if (queued) r6.u64 = 3;
+    else r4.u64 = 0;
+  }
+  if (!UiTraceEnabled() ||
+      UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.pause_action",
+      {{"owner", Hex32(r3.u32)}, {"notification", std::to_string(r4.u32)},
+       {"action", std::to_string(r6.u32)}});
+}
+
+// Read-only qualification of the authored button's actual constructor and
+// deleting destructor. Log after the native free without touching freed memory.
+static void TraceUiCompanionButtonLifetime(std::string_view phase,
+                                            uint32_t button, uint32_t flags) {
+  static const bool enabled = pinyon_shift::platform::EnvironmentVariable(
+      "PINYON_SHIFT_UI_LIFETIME_TRACE").value_or("") == "1";
+  if (!enabled || UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  static std::atomic<uint32_t> records{0};
+  if (records.fetch_add(1, std::memory_order_relaxed) >= 128) return;
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.button_lifetime",
+      {{"phase", std::string(phase)}, {"button", Hex32(button)},
+       {"flags", Hex32(flags)},
+       {"frame", std::to_string(pinyon_shift::fh1_render_test::CurrentFrame())}});
+}
+
+void PinyonShiftUiCompanionButtonConstruct(PPCRegister& r3) {
+  TraceUiCompanionButtonLifetime("construct", r3.u32, 0);
+}
+
+void PinyonShiftUiCompanionButtonDestroy(PPCRegister& r3, PPCRegister& r4) {
+  TraceUiCompanionButtonLifetime("destroy", r3.u32, r4.u32);
+}
+
+void PinyonShiftUiCompanionButtonRelease(PPCRegister& r31, PPCRegister& r30) {
+  TraceUiCompanionButtonLifetime("release", r31.u32, r30.u32);
+}
+
+static void TraceUiCompanionPauseLifetime(std::string_view phase, uint32_t owner,
+                                         uint32_t flags) {
+  static const bool enabled = pinyon_shift::platform::EnvironmentVariable(
+      "PINYON_SHIFT_UI_LIFETIME_TRACE").value_or("") == "1";
+  if (!enabled || UiExperimentModeValue() != UiExperimentMode::kSceneCompanions ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  static std::atomic<uint32_t> records{0};
+  if (records.fetch_add(1, std::memory_order_relaxed) >= 32) return;
+  // The owner is native-valid until the deleting destructor's free. At the
+  // release boundary log register values only, never dereference the owner.
+  const bool readable = phase != "release" &&
+      PinyonShiftGuestRangeReadable(owner + 408, 12);
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.pause_lifetime",
+      {{"phase", std::string(phase)}, {"owner", Hex32(owner)},
+       {"flags", Hex32(flags)},
+       {"begin", readable ? Hex32(LoadGuestU32(owner + 408)) : "unread"},
+       {"end", readable ? Hex32(LoadGuestU32(owner + 412)) : "unread"},
+       {"capacity", readable ? Hex32(LoadGuestU32(owner + 416)) : "unread"},
+       {"frame", std::to_string(pinyon_shift::fh1_render_test::CurrentFrame())}});
+}
+
+void PinyonShiftUiCompanionPauseDestroy(PPCRegister& r3) {
+  if (UiExperimentModeValue() == UiExperimentMode::kSceneCompanions &&
+      pinyon_shift::fh1_render_test::Enabled() && g_ui_companion_owner == r3.u32) {
+    const auto status = g_ui_companion_api.SceneClosing(g_ui_companion_scene);
+    g_ui_companion_owner = 0;
+    g_ui_companion_action = 0;
+    g_ui_companion_rally_series = 0;
+    pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.menu_scene_closed",
+        {{"owner", Hex32(r3.u32)}, {"generation", std::to_string(g_ui_companion_scene.generation)},
+         {"status", status == pinyon_shift::ui::Status::kOk ? "closed" : "failed"}});
+  }
+  TraceUiCompanionPauseLifetime("destroy", r3.u32, 0);
+}
+
+void PinyonShiftUiCompanionPauseModelCleared(PPCRegister& r31) {
+  TraceUiCompanionPauseLifetime("model_cleared", r31.u32, 0);
+}
+
+void PinyonShiftUiCompanionPauseRelease(PPCRegister& r31, PPCRegister& r30) {
+  TraceUiCompanionPauseLifetime("release", r31.u32, r30.u32);
+}
+
+void PinyonShiftUiCompanionPauseInputMatch(PPCRegister& r3, PPCRegister& r30,
+                                          PPCRegister& r31) {
+  static const bool trace_stock = pinyon_shift::platform::EnvironmentVariable(
+      "PINYON_SHIFT_UI_PAUSE_TRACE").value_or("") == "1";
+  if ((UiExperimentModeValue() != UiExperimentMode::kSceneCompanions && !trace_stock) ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  const uint64_t frame = pinyon_shift::fh1_render_test::CurrentFrame();
+  static uint64_t last_bucket = UINT64_MAX;
+  static uint32_t records = 0;
+  if (records >= 256 || (!r3.u32 && last_bucket == frame / 60)) return;
+  last_bucket = frame / 60;
+  ++records;
+  std::string resume_bindings;
+  const uint32_t list = PinyonShiftGuestRangeReadable(r31.u32 + 364, 4) ?
+      LoadGuestU32(r31.u32 + 364) : 0;
+  std::string list_words, frame_words, visual_list_words, visual_rows, visual_targets;
+  // 828116C8 constructs this list through byte 328. Its selector interface
+  // starts at +108; 82811670 writes the selected index in the first 20-byte
+  // frame at list+300. These are read-only snapshots of title-owned state.
+  if (list && PinyonShiftGuestRangeReadable(list, 329)) {
+    for (uint32_t offset = 0; offset < 328; offset += 4) {
+      if (offset) list_words += ',';
+      list_words += Hex32(LoadGuestU32(list + offset));
+    }
+    // 828090D8 binds the authored selector at +320 and writes its byte 476.
+    const uint32_t visual_list = LoadGuestU32(list + 320);
+    if (visual_list && PinyonShiftGuestRangeReadable(visual_list, 477)) {
+      for (uint32_t offset = 0; offset < 476; offset += 4) {
+        if (offset) visual_list_words += ',';
+        visual_list_words += Hex32(LoadGuestU32(visual_list + offset));
+      }
+      // 827E07A8 enumerates row controllers into this four-byte pointer vector.
+      const uint32_t row_begin = LoadGuestU32(visual_list + 304);
+      const uint32_t row_end = LoadGuestU32(visual_list + 308);
+      if (row_end >= row_begin && row_end - row_begin <= 32 * 4 &&
+          (row_end - row_begin) % 4 == 0 &&
+          PinyonShiftGuestRangeReadable(row_begin, row_end - row_begin)) {
+        for (uint32_t entry = row_begin; entry < row_end; entry += 4) {
+          const uint32_t row = LoadGuestU32(entry);
+          if (!row || !PinyonShiftGuestRangeReadable(row, 108)) continue;
+          if (!visual_rows.empty()) visual_rows += ';';
+          visual_rows += Hex32(row);
+          for (uint32_t offset = 0; offset < 108; offset += 4) {
+            visual_rows += ',';
+            visual_rows += Hex32(LoadGuestU32(row + offset));
+          }
+          // 82E74FC8 dispatches through row+84; 82E739F8 passes its +12 key
+          // to the document at +8. Distinct references can still share a key.
+          const uint32_t target = LoadGuestU32(row + 84);
+          if (target && PinyonShiftGuestRangeReadable(target, 28)) {
+            if (!visual_targets.empty()) visual_targets += ';';
+            visual_targets += Hex32(target);
+            for (uint32_t offset = 0; offset < 28; offset += 4) {
+              visual_targets += ',';
+              visual_targets += Hex32(LoadGuestU32(target + offset));
+            }
+          }
+        }
+      }
+    }
+    const uint32_t begin = LoadGuestU32(list + 300);
+    const uint32_t end = LoadGuestU32(list + 304);
+    if (end >= begin && end - begin <= 32 * 20 && (end - begin) % 20 == 0 &&
+        PinyonShiftGuestRangeReadable(begin, end - begin)) {
+      for (uint32_t entry = begin; entry < end; entry += 20) {
+        if (!frame_words.empty()) frame_words += ';';
+        for (uint32_t offset = 0; offset < 20; offset += 4) {
+          if (offset) frame_words += ',';
+          frame_words += Hex32(LoadGuestU32(entry + offset));
+        }
+      }
+    }
+  }
+  if (PinyonShiftGuestRangeReadable(r30.u32 + 24, 8)) {
+    const uint32_t contexts = LoadGuestU32(r30.u32 + 24);
+    const uint32_t contexts_end = LoadGuestU32(r30.u32 + 28);
+    // 82BFB768/82BFB7D0: 16-byte context vectors, 28-byte action records.
+    if (contexts_end >= contexts && contexts_end - contexts >= 11 * 16 &&
+        PinyonShiftGuestRangeReadable(contexts + 10 * 16, 8)) {
+      const uint32_t begin = LoadGuestU32(contexts + 10 * 16);
+      const uint32_t end = LoadGuestU32(contexts + 10 * 16 + 4);
+      if (end >= begin && end - begin <= 512 * 28 && (end - begin) % 28 == 0 &&
+          PinyonShiftGuestRangeReadable(begin, end - begin)) {
+        for (uint32_t entry = begin; entry < end; entry += 28) {
+          const uint32_t action = LoadGuestU32(entry + 4);
+          if (action != pinyon_shift::fh1::kResumeActionBack &&
+              action != pinyon_shift::fh1::kResumeActionStart) continue;
+          if (!resume_bindings.empty()) resume_bindings += ';';
+          for (uint32_t offset = 0; offset < 28; offset += 4) {
+            if (offset) resume_bindings += ',';
+            resume_bindings += Hex32(LoadGuestU32(entry + offset));
+          }
+        }
+      }
+    }
+  }
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.pause_input",
+      {{"frame", std::to_string(frame)}, {"owner", Hex32(r31.u32)},
+       {"input", Hex32(r30.u32)}, {"matched", Hex32(r3.u32)},
+       {"resume_code", r3.u32 ? UiProbeField(r3.u32, 0) : ""},
+       {"resume_callback", UiProbeField(r31.u32, 472)},
+       {"owner_flags", UiProbeField(r31.u32, 76)},
+       {"input_context", UiProbeField(r30.u32, 52)},
+       {"resume_bindings", resume_bindings},
+       {"list", Hex32(list)}, {"list_words", list_words}, {"list_frames", frame_words},
+       {"visual_list_words", visual_list_words},
+       {"visual_rows", visual_rows},
+       {"visual_targets", visual_targets},
+       {"bindings", UiProbeField(r30.u32, 24)},
+       {"bindings_end", UiProbeField(r30.u32, 28)}});
+}
+
+void SampleUiPauseControl() {
+  static const bool trace_stock = pinyon_shift::platform::EnvironmentVariable(
+      "PINYON_SHIFT_UI_PAUSE_TRACE").value_or("") == "1";
+  if ((UiExperimentModeValue() != UiExperimentMode::kSceneCompanions && !trace_stock) ||
+      !pinyon_shift::fh1_render_test::Enabled()) return;
+  const auto frame = pinyon_shift::fh1_render_test::CurrentFrame();
+  static uint64_t last_bucket = UINT64_MAX;
+  static uint32_t records = 0;
+  if (frame < 6000 || records >= 256 || last_bucket == frame / 60) return;
+  last_bucket = frame / 60;
+  ++records;
+  const uint32_t control = LoadGuestU32(FH1_ADDR(0x832E4A9Cu));
+  if (!control || !PinyonShiftGuestRangeReadable(control, 16)) return;
+  const uint32_t token = LoadGuestU32(control);
+  const uint32_t owner = token >= 48 ? token - 48 : 0;
+  const auto name = owner && PinyonShiftGuestRangeReadable(owner, 8) &&
+      LoadGuestU32(owner) == FH1_ADDR(0x8207F9CCu) ?
+      PinyonShiftReadGuestAscii(LoadGuestU32(owner + 4), 64) : std::string{};
+  std::string events;
+  const uint32_t begin = LoadGuestU32(control + 8);
+  const uint32_t end = LoadGuestU32(control + 12);
+  if (end >= begin && end - begin <= 512 * 4 && (end - begin) % 4 == 0 &&
+      PinyonShiftGuestRangeReadable(begin, end - begin)) {
+    for (uint32_t entry = begin; entry < end; entry += 4) {
+      const uint32_t node = LoadGuestU32(entry);
+      if (!node || !PinyonShiftGuestRangeReadable(node, 9)) continue;
+      if (!events.empty()) events += ';';
+      events += Hex32(node) + ':' +
+          PinyonShiftReadGuestAscii(LoadGuestU32(node + 4), 48) + ':' +
+          std::to_string(LoadGuestU8(node + 8));
+    }
+  }
+  pinyon_shift::diagnostics::RecordEvent("ui.experiment.scene_companions.pause_control",
+      {{"frame", std::to_string(frame)}, {"control", Hex32(control)},
+       {"token", Hex32(token)}, {"owner_name", name}, {"events", events}});
+}
+
 void PinyonShiftTraceUiPauseOwnerBinding(PPCRegister& r1, PPCRegister& r3,
                                          PPCRegister& r28, PPCRegister& r29,
                                          PPCRegister& r30) {
@@ -3690,7 +4434,7 @@ void SampleUiTextPairs() {
       }
       const uint32_t element = button + offset;
       if (!PinyonShiftGuestRangeReadable(element, 12u) ||
-          LoadGuestU32(element) != 0x82026B38u) {
+          LoadGuestU32(element) != FH1_ADDR(0x82026B38u)) {
         continue;
       }
       const uint32_t value = LoadGuestU32(element + 4u);
@@ -3978,15 +4722,1462 @@ void PinyonShiftThrottleRenderJobs(PPCRegister& r1) {
   }
 }
 
+// Observe the same player and finish flag as CWaitForEndCondition
+// (sub_82982870). The timing record belongs to the normal race statistics
+// manager (sub_8262B348); sub_8262B760 writes its end reason at +168.
+// Normal launch verifies owned content/cache before setting RALLY_PREPARED.
+// Private Rally diagnostics are set only by tools/run-fh1-render-test.py, so a
+// stray environment variable never changes a player's game.
+static bool RallyPrivateFlag(const char* name) {
+  return pinyon_shift::fh1_render_test::Enabled() && pinyon_shift::platform::EnvironmentFlag(name);
+}
+
+static std::string RallyPrivateValue(const char* name) {
+  return pinyon_shift::fh1_render_test::Enabled() ?
+      pinyon_shift::platform::EnvironmentVariable(name).value_or("") : std::string{};
+}
+
+// Private diagnostic overlays remain separately opt-in.
+bool PinyonShiftUseBuiltinRallyAdapter() {
+  // The v4 title update runs the expansion's original code; the base-disc
+  // adapter and its prepared overlay never load there.
+  if constexpr (pinyon_shift::fh1::kTitleUpdateV4) return false;
+  static const bool enabled = [] {
+    const bool prepared = pinyon_shift::platform::EnvironmentFlag("PINYON_SHIFT_RALLY_PREPARED");
+    if (!prepared && !RallyPrivateFlag("PINYON_SHIFT_RALLY_BUILTIN_PROBE")) return false;
+    const auto& state = pinyon_shift::diagnostics::StateRoot();
+    const auto title = state / "user/0000000000000000/4D5309C9";
+    constexpr const char* package = "6F6992766050D818245ADD408031E280FB5F4E634D";
+    std::error_code error;
+    if (std::filesystem::is_directory(title / "00000002" / package, error) &&
+        std::filesystem::is_regular_file(title / "Headers/00000002" / (std::string(package) + ".header"), error) &&
+        std::filesystem::is_regular_file(state / "cache/rally_adapter/rally-stage.toml", error) &&
+        std::filesystem::is_directory(state / "cache/rally_adapter/game", error)) {
+      // The overlay rewrites the shared festival race flow to exit through
+      // RALLY_NEXT, which only the series loader can resolve. Mount it only
+      // with a readable stage mapping, or every base festival race would ask
+      // the base loader for a nonexistent event.
+      try {
+        if (!pinyon_shift::rally::ReadStageMapping(state / "cache/rally_adapter/rally-stage.toml")
+                 .has_series()) {
+          throw std::runtime_error("the prepared stage mapping is empty");
+        }
+      } catch (const std::exception& mapping_error) {
+        pinyon_shift::diagnostics::RecordEvent("dlc.rally.adapter_error", {
+            {"error", std::string("built-in Rally overlay not mounted: ") + mapping_error.what()}});
+        return false;
+      }
+      if (prepared) pinyon_shift::diagnostics::RecordEvent("dlc.rally.prepared_entry", {
+          {"verification", "launch_preflight"}});
+      return true;
+    }
+    pinyon_shift::diagnostics::RecordEvent("dlc.rally.adapter_error", {
+        {"error", "built-in Rally requires enabled owned content and a prepared overlay"}});
+    return false;
+  }();
+  return enabled;
+}
+
+std::filesystem::path PinyonShiftRallyAdapterRoot() {
+  return pinyon_shift::diagnostics::StateRoot() /
+      (PinyonShiftUseBuiltinRallyAdapter() ? "cache/rally_adapter" : "mods/rally_stage_probe");
+}
+
+static const pinyon_shift::rally::StageMapping& RallyStageMapping() {
+  static const auto mapping = [] {
+    pinyon_shift::rally::StageMapping result;
+    if (!RallyPrivateFlag("PINYON_SHIFT_RALLY_PROGRESS") &&
+        !PinyonShiftUseBuiltinRallyAdapter()) return result;
+    try {
+      result = pinyon_shift::rally::ReadStageMapping(PinyonShiftRallyAdapterRoot() / "rally-stage.toml");
+    } catch (const std::exception& error) {
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.progress_error", {{"error", error.what()}});
+    }
+    return result;
+  }();
+  return mapping;
+}
+
+static std::atomic<uint32_t> g_rally_saved_event{}, g_rally_next_route{}, g_rally_resume_route{};
+static PPCFunc* g_rally_career_loader = nullptr;
+static PPCFunc* g_rally_free_roam_loader = nullptr;
+static PPCFunc* g_rally_store_restore_position = nullptr;
+static PPCFunc* g_rally_native_hub_enter = nullptr;
+static PPCFunc* g_rally_native_hub_init = nullptr;
+static PPCFunc* g_rally_native_hub_update = nullptr;
+static PPCFunc* g_rally_native_hub_count = nullptr;
+static PPCFunc* g_rally_native_hub_input_event = nullptr;
+static std::array<std::atomic<uint32_t>, 7> g_rally_entry_activities{};
+static std::atomic<uint32_t> g_rally_hub_selection{};
+static std::atomic<bool> g_rally_hub_available{};
+
+uint32_t PinyonShiftRallyResumeStage(uint32_t series_id) {
+  if (series_id < 1 || series_id > 7) return 0;
+  const auto route = g_rally_resume_route.load(std::memory_order_acquire);
+  const auto& routes = pinyon_shift::rally::kSeriesRoutes[series_id - 1];
+  const auto found = std::find(routes.begin(), routes.end(), route);
+  return found == routes.end() ? 0 : uint32_t(found - routes.begin()) + 1;
+}
+
+bool PinyonShiftCanStartRallySeries(uint32_t series_id) {
+  return series_id >= 1 && series_id <= 7 && g_rally_hub_available.load(std::memory_order_acquire) &&
+      !g_rally_hub_selection.load(std::memory_order_acquire) &&
+      (!g_rally_resume_route.load(std::memory_order_acquire) || PinyonShiftRallyResumeStage(series_id));
+}
+
+bool PinyonShiftStartRallySeries(uint32_t series_id) {
+  if (series_id < 1 || series_id > 7 || !PinyonShiftUseBuiltinRallyAdapter() ||
+      !RallyStageMapping().has_series() || !PinyonShiftCanStartRallySeries(series_id)) return false;
+  uint32_t empty = 0;
+  return g_rally_hub_selection.compare_exchange_strong(empty, series_id);
+}
+
+bool PinyonShiftRetireRallySeries() {
+  if (!g_rally_hub_available.load(std::memory_order_acquire) ||
+      !g_rally_resume_route.load(std::memory_order_acquire)) return false;
+  uint32_t empty = 0;
+  return g_rally_hub_selection.compare_exchange_strong(empty, 8);
+}
+
+static uint32_t RallyActivitySeries(uint32_t activity) {
+  if (!PinyonShiftGuestRangeReadable(activity, 416) ||
+      LoadGuestU32(activity) != FH1_ADDR(0x82078E54u)) return 0;
+  const uint32_t length = LoadGuestU32(activity + 32);
+  const uint32_t name = LoadGuestU32(activity + 36) < 16 ? activity + 16 : LoadGuestU32(activity + 16);
+  if (length != 16 || !PinyonShiftGuestRangeReadable(name, length)) return 0;
+  const auto* base = rex::system::kernel_state()->memory()->virtual_membase();
+  const std::string_view entry(reinterpret_cast<const char*>(base + name), length);
+  return entry.starts_with("horizon_rally_0") && entry.back() >= '1' && entry.back() <= '7' ?
+      uint32_t(entry.back() - '0') : 0;
+}
+
+void PinyonShiftReadRallyEntryPosition(PPCRegister& r29, PPCRegister& r31) {
+  if (!PinyonShiftUseBuiltinRallyAdapter()) return;
+  const uint32_t trigger = r29.u32, reader = r31.u32;
+  // CActivityGeneric embeds its trigger at +48. Its base parser only binds
+  // named GameObjs; owned Rally activations instead supply explicit X/Z.
+  if (trigger < 48) return;
+  const uint32_t activity = trigger - 48;
+  if (!PinyonShiftGuestRangeReadable(activity, 260) ||
+      LoadGuestU32(activity) != FH1_ADDR(0x82078E54u)) return;
+  const uint32_t length = LoadGuestU32(activity + 32);
+  const uint32_t name = LoadGuestU32(activity + 36) < 16 ? activity + 16 : LoadGuestU32(activity + 16);
+  if (length != 16 || !PinyonShiftGuestRangeReadable(name, length)) return;
+  auto* kernel = rex::system::kernel_state();
+  const std::string_view entry(reinterpret_cast<const char*>(kernel->memory()->virtual_membase() + name), length);
+  if (!entry.starts_with("horizon_rally_0") || entry.back() < '1' || entry.back() > '7' ||
+      (LoadGuestU8(trigger + 192) & 32) || !PinyonShiftGuestRangeReadable(reader, 4)) return;
+  const uint32_t table = LoadGuestU32(reader);
+  if (!PinyonShiftGuestRangeReadable(table + 180, 4)) return;
+  const uint32_t read_float = LoadGuestU32(table + 180);
+  if (!kernel->function_dispatcher()->GetFunction(read_float)) return;
+  const uint32_t scratch = kernel->memory()->SystemHeapAlloc(16, 16);
+  if (!scratch) return;
+  StoreGuestF32(scratch, NAN); StoreGuestF32(scratch + 4, NAN);
+  try {
+    // The hook runs after the trigger attributes, before object binding reuses
+    // the reader register. The keys are read-only strings in the base image.
+    uint64_t x_args[] = {reader, scratch, FH1_ADDR(0x82137C70u)};
+    uint64_t z_args[] = {reader, scratch + 4, FH1_ADDR(0x82137C88u)};
+    kernel->function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), read_float, x_args, 3);
+    kernel->function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), read_float, z_args, 3);
+    const float x = LoadGuestF32(scratch), z = LoadGuestF32(scratch + 4);
+    if (std::isfinite(x) && std::isfinite(z)) {
+      StoreGuestF32(trigger + 64, x); StoreGuestF32(trigger + 68, 0);
+      StoreGuestF32(trigger + 72, z); StoreGuestF32(trigger + 76, 1);
+      StoreGuestU8(trigger + 192, LoadGuestU8(trigger + 192) | 32);
+      g_rally_entry_activities[entry.back() - '1'].store(activity, std::memory_order_release);
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.entry_position_loaded", {
+          {"name", std::string(entry)}, {"x", fmt::format("{:.6f}", x)},
+          {"z", fmt::format("{:.6f}", z)}});
+    } else {
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.entry_error", {{"error", "invalid Rally entry coordinates"}});
+    }
+  } catch (...) { kernel->memory()->SystemHeapFree(scratch); throw; }
+  kernel->memory()->SystemHeapFree(scratch);
+}
+
+static void RallyStoreRestorePosition(PPCContext& ctx, uint8_t* base) {
+  const uint32_t object = ctx.r3.u32;
+  auto pointer = [](uint32_t field, uint32_t size) -> uint32_t {
+    if (!PinyonShiftGuestRangeReadable(field, 4)) return 0;
+    const uint32_t value = LoadGuestU32(field);
+    return value && PinyonShiftGuestRangeReadable(value, size) ? value : 0;
+  };
+  const uint32_t application = pointer(FH1_ADDR(0x832DF00Cu), 900);
+  const uint32_t event = application ? LoadGuestU32(application + 896) : 0;
+  const uint32_t holder = pointer(FH1_ADDR(0x832DF024u), 8);
+  const uint32_t manager = holder ? pointer(holder + 4, 8) : 0;
+  const uint32_t world = manager ? pointer(manager + 4, 128) : 0;
+  const uint32_t session = world ? pointer(world + 124, 60) : 0;
+  if (!RallyStageMapping().events.contains(event) || !session ||
+      LoadGuestU32(session + 56) != 3 || !PinyonShiftGuestRangeReadable(object, 34) ||
+      !LoadGuestU8(object + 32)) {
+    g_rally_store_restore_position(ctx, base); return;
+  }
+  // The base post-race cleanup may store the Rally finish as a free-roam
+  // return point. Keep the entry already held in the native profile instead.
+  // Retain the behavior's normal Enter/restore work and its original flag.
+  const uint8_t store = LoadGuestU8(object + 32);
+  StoreGuestU8(object + 32, 0);
+  try { g_rally_store_restore_position(ctx, base); }
+  catch (...) { StoreGuestU8(object + 32, store); throw; }
+  StoreGuestU8(object + 32, store);
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.return_anchor_preserved", {
+      {"event_id", fmt::format("{}", event)}});
+}
+
+static void RallySeriesLoader(PPCContext& ctx, uint8_t* base) {
+  const uint32_t object = ctx.r3.u32;
+  const auto& mapping = RallyStageMapping();
+  if (pinyon_shift::fh1_render_test::Enabled() &&
+      pinyon_shift::platform::EnvironmentFlag("PINYON_SHIFT_RALLY_NATIVE_HUB_PROBE") &&
+      PinyonShiftGuestRangeReadable(object, 152)) {
+    const uint32_t application = LoadGuestU32(FH1_ADDR(0x832DF00Cu));
+    pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_selected_loader_probe", {
+        {"object", Hex32(object)}, {"name_length", fmt::format("{}", LoadGuestU32(object + 144))},
+        {"selected_event_id", PinyonShiftGuestRangeReadable(application, 900) ?
+            fmt::format("{}", LoadGuestU32(application + 896)) : "unavailable"}});
+  }
+  if (!PinyonShiftGuestRangeReadable(object, 152) || LoadGuestU32(object + 148) >= 16) {
+    g_rally_career_loader(ctx, base); return;
+  }
+  const auto length = LoadGuestU32(object + 144);
+  const auto* data = reinterpret_cast<const char*>(base + object + 128);
+  std::string_view name(data, std::min(length, 15u));
+  // Native event menus leave the loader name empty and select through the
+  // application. Resolve Rally stage-one tickets before the shared resume
+  // guard, so this entry path cannot replace an unfinished championship.
+  if (name.empty()) {
+    const uint32_t application = LoadGuestU32(FH1_ADDR(0x832DF00Cu));
+    const uint32_t event = PinyonShiftGuestRangeReadable(application, 900) ?
+        LoadGuestU32(application + 896) : 0;
+    const auto found = mapping.events.find(event);
+    if (found != mapping.events.end()) {
+      const uint32_t series = mapping.SeriesForRoute(found->second);
+      const auto* stage = mapping.EventForRoute(found->second);
+      if (series && stage && pinyon_shift::rally::kSeriesRoutes[series - 1][0] == stage->route)
+        name = stage->name;
+    }
+  }
+  bool resuming = name == "RALLY_PROBE";
+  uint32_t route = 0;
+  if (name == "RALLY_PROBE") {
+    route = g_rally_resume_route.load(std::memory_order_acquire);
+  } else if (name == "RALLY_NEXT") {
+    const auto application = LoadGuestU32(FH1_ADDR(0x832DF00Cu));
+    const auto current = PinyonShiftGuestRangeReadable(application, 900) ? LoadGuestU32(application + 896) : 0;
+    if (!mapping.events.contains(current)) {
+      // The private XML shares the festival results flow. Normal events return
+      // through the base free-roam loader rather than entering a Rally stage.
+      g_rally_free_roam_loader(ctx, base); return;
+    }
+    if (g_rally_saved_event.load(std::memory_order_acquire) != current) {
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_error", {{"error", "stage result was not saved"}});
+      g_rally_free_roam_loader(ctx, base); return;
+    }
+    route = g_rally_next_route.load(std::memory_order_acquire);
+    if (!route) {
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_return", {{"event_id", fmt::format("{}", current)}});
+      g_rally_free_roam_loader(ctx, base); return;
+    }
+  } else {
+    // Normal entries name their first stage. Resume only that championship,
+    // and keep another unfinished attempt until the player retires it.
+    for (const auto& [first_route, event] : mapping.stages) {
+      const auto id = mapping.SeriesForRoute(first_route);
+      if (event.name != name || !id || pinyon_shift::rally::kSeriesRoutes[id - 1][0] != first_route) continue;
+      const auto resume = g_rally_resume_route.load(std::memory_order_acquire);
+      if (resume && mapping.SeriesForRoute(resume) != id) {
+        pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_error", {
+            {"error", "retire the unfinished Rally series before selecting another"}});
+        g_rally_free_roam_loader(ctx, base); return;
+      }
+      route = resume;
+      resuming = resume != 0;
+      break;
+    }
+    if (!route) {
+      g_rally_career_loader(ctx, base); return;
+    }
+  }
+  const auto* selected = mapping.EventForRoute(route);
+  if (!selected || selected->name == name) {
+    // Resuming stage one needs no name substitution, but is still a resume.
+    if (selected && resuming) pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_load", {
+        {"route", fmt::format("{}", route)}, {"event_id", fmt::format("{}", selected->event_id)},
+        {"resume", "1"}});
+    g_rally_career_loader(ctx, base); return;
+  }
+  // The base loader reads this SSO string synchronously; its shared loading
+  // behavior survives Enter. Restore it so the next visit sees the sentinel.
+  std::array<uint8_t, 20> saved;
+  std::memcpy(saved.data(), base + object + 128, saved.size());
+  std::memset(base + object + 128, 0, 16);
+  std::memcpy(base + object + 128, selected->name.data(), selected->name.size());
+  StoreGuestU32(object + 144, static_cast<uint32_t>(selected->name.size()));
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_load", {
+      {"route", fmt::format("{}", route)}, {"event_id", fmt::format("{}", selected->event_id)},
+      {"resume", resuming ? "1" : "0"}});
+  // name references the guest buffer, so retain no references across this call.
+  try { g_rally_career_loader(ctx, base); }
+  catch (...) { std::memcpy(base + object + 128, saved.data(), saved.size()); throw; }
+  std::memcpy(base + object + 128, saved.data(), saved.size());
+}
+
+// Experimental owned-content hub, scoped to its active Rally activity. The
+// earlier render-only fixture can also opt in explicitly. Native menu
+// preparation remains optional while original unlocks/eligibility are ported.
+static bool RallyNativeHubProbeEnabled() {
+  return pinyon_shift::fh1_render_test::Enabled() &&
+      pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_RALLY_NATIVE_HUB_PROBE").value_or("") == "1";
+}
+
+static uint32_t RallyNativeHubSeries() {
+  if (!PinyonShiftUseBuiltinRallyAdapter() ||
+      !PinyonShiftGuestRangeReadable(FH1_ADDR(0x832E4A9Cu), 4)) return 0;
+  const uint32_t control = LoadGuestU32(FH1_ADDR(0x832E4A9Cu));
+  if (!PinyonShiftGuestRangeReadable(control, 4)) return 0;
+  const uint32_t owner = LoadGuestU32(control);
+  if (owner < 48 || !PinyonShiftGuestRangeReadable(owner - 48, 52) ||
+      LoadGuestU32(owner - 48) != FH1_ADDR(0x8207F9CCu)) return 0;
+  const auto name = PinyonShiftReadGuestAscii(LoadGuestU32(owner - 44), 17);
+  if (name.size() != 16 || !name.starts_with("horizon_rally_0") ||
+      name.back() < '1' || name.back() > '7') return 0;
+  return uint32_t(name.back() - '0');
+}
+
+static bool RallyNativeHubEnabled() {
+  return RallyNativeHubProbeEnabled() || RallyNativeHubSeries() != 0;
+}
+
+static void RallyNativeHubEnter(PPCContext& ctx, uint8_t* base) {
+  const auto application = LoadGuestU32(FH1_ADDR(0x832DF00Cu));
+  if (RallyNativeHubEnabled() && PinyonShiftGuestRangeReadable(application, 952)) {
+    const uint32_t series = RallyNativeHubSeries();
+    const auto* stage = series ? RallyStageMapping().EventForRoute(
+        pinyon_shift::rally::kSeriesRoutes[series - 1][0]) : nullptr;
+    StoreGuestU32(application + 948, 4);
+    StoreGuestU32(application + 896, stage ? stage->event_id : RallyStageMapping().events.begin()->first);
+    pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_probe", {{"hub_id", "4"}});
+  }
+  g_rally_native_hub_enter(ctx, base);
+}
+
+void PinyonShiftRallyNativeHubListProbe(PPCRegister& r4, PPCRegister& r5) {
+  if (RallyNativeHubEnabled() && r4.u32 == 4) {
+    // Include locked tickets to qualify rendering before porting Rally unlocks.
+    r5.u32 = 0;
+    pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_list_probe", {{"hub_id", "4"}});
+  }
+}
+
+static void RallyNativeHubInit(PPCContext& ctx, uint8_t* base) {
+  const uint32_t screen = ctx.r3.u32;
+  g_rally_native_hub_init(ctx, base);
+  if (!RallyNativeHubEnabled() || !PinyonShiftGuestRangeReadable(screen, 448) ||
+      LoadGuestU32(screen) != FH1_BASE_ONLY_ADDR(0x82041D94u) || LoadGuestU32(screen + 444) != 4) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_init_probe", {{"screen", Hex32(screen)}});
+  // Mirror the native initializer's TEXT_TITLE binding. The text value must
+  // bind first: SetText copies into its bound element's owned wide string.
+  // Keep the temporary caption alive until that copy completes.
+  constexpr char title[] = "HORIZON RALLY";
+  auto* memory = rex::system::kernel_state()->memory();
+  const uint32_t scratch = memory->SystemHeapAlloc(32 + sizeof(title), 16);
+  if (!scratch) return;
+  const PPCContext saved = ctx;
+  StoreGuestU32(scratch, 0);
+  std::memcpy(base + scratch + 32, title, sizeof(title));
+  CallGuestFunction(ctx, base, FH1_ADDR(0x824984C8u), scratch, scratch + 32, UINT32_MAX);
+  CallGuestFunction(ctx, base, FH1_ADDR(0x82E73B88u), scratch + 16, 0);
+  StoreGuestU32(scratch + 16, FH1_ADDR(0x82026B38u));
+  const uint32_t title_hash = CallGuestFunction(
+      ctx, base, FH1_ADDR(0x82E73AB0u), FH1_ADDR(0x8203650Cu), 0); // TEXT_TITLE
+  const bool bound = CallGuestFunction(
+      ctx, base, FH1_ADDR(0x82E5FBD0u), screen, title_hash, scratch + 16) != 0;
+  if (bound && LoadGuestU32(scratch))
+    CallGuestFunction(ctx, base, FH1_ADDR(0x82E78BA0u), scratch + 16, scratch);
+  CallGuestFunction(ctx, base, FH1_ADDR(0x82E73BA8u), scratch + 16, 0);
+  CallGuestFunction(ctx, base, FH1_ADDR(0x82DE7330u), scratch, 0);
+  memory->SystemHeapFree(scratch);
+  ctx = saved;
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_heading_probe", {
+      {"screen", Hex32(screen)}, {"status", bound ? "bound" : "missing"}});
+}
+
+static void RallyNativeHubUpdate(PPCContext& ctx, uint8_t* base) {
+  const uint32_t screen = ctx.r3.u32;
+  g_rally_native_hub_update(ctx, base);
+  if (!RallyNativeHubEnabled() || !PinyonShiftGuestRangeReadable(screen, 456) ||
+      LoadGuestU32(screen) != FH1_BASE_ONLY_ADDR(0x82041D94u) || LoadGuestU32(screen + 444) != 4) return;
+  const uint32_t list = LoadGuestU32(screen + 412);
+  if (!PinyonShiftGuestRangeReadable(list, 4)) return;
+  const uint32_t table = LoadGuestU32(list);
+  if (table != FH1_ADDR(0x82072344u) || !PinyonShiftGuestRangeReadable(table, 8)) return;
+  const uint32_t count_method = LoadGuestU32(table + 4);
+  if (count_method != FH1_ADDR(0x8282D1F8u) || !g_rally_native_hub_count) return;
+  // This callback already runs on the guest thread, outside the host mod
+  // task queue. Preserve its context around the native read-only getter.
+  const PPCContext saved = ctx;
+  ctx.r3.u32 = list;
+  ctx.r4.u32 = 0;
+  g_rally_native_hub_count(ctx, base);
+  const uint32_t count = ctx.r3.u32;
+  ctx = saved;
+  static uint32_t previous = UINT32_MAX;
+  static uint32_t previous_selection = UINT32_MAX;
+  const uint32_t selection = LoadGuestU32(screen + 392);
+  if (count == previous && selection == previous_selection) return;
+  previous = count;
+  previous_selection = selection;
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_rows_probe", {
+      {"rows", fmt::format("{}", count)}, {"screen", Hex32(screen)},
+      {"selected_event_id", fmt::format("{}", selection)}});
+}
+
+static void RallyNativeHubInputEvent(PPCContext& ctx, uint8_t* base) {
+  const uint32_t screen = ctx.r3.u32;
+  const uint32_t input = ctx.r4.u32;
+  g_rally_native_hub_input_event(ctx, base);
+  if (!RallyNativeHubEnabled() || !PinyonShiftGuestRangeReadable(screen, 456) ||
+      LoadGuestU32(screen) != FH1_BASE_ONLY_ADDR(0x82041D94u) || LoadGuestU32(screen + 444) != 4) return;
+  const uint32_t event = ctx.r3.u32;
+  static bool observed = false;
+  if (observed && !event) return;
+  observed = true;
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_input_probe", {
+      {"screen", Hex32(screen)}, {"input", Hex32(input)},
+      {"input_event", PinyonShiftGuestRangeReadable(event, 4) ?
+          fmt::format("{}", LoadGuestU32(event)) : "none"},
+      {"modal", Hex32(LoadGuestU32(screen + 156))},
+      {"callback", Hex32(LoadGuestU32(screen + 372))},
+      {"return_action", Hex32(LoadGuestU32(screen + 380))},
+      {"rivals_open", base[screen + 452] ? "1" : "0"},
+      {"flags", fmt::format("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+          base[screen + 360], base[screen + 361], base[screen + 362],
+          base[screen + 363], base[screen + 364], base[screen + 365],
+          base[screen + 366], base[screen + 367], base[screen + 368], base[screen + 369])}});
+}
+
+void PinyonShiftInstallCarChallengeProbe(rex::runtime::FunctionDispatcher* dispatcher) {
+  if constexpr (!pinyon_shift::fh1::kTitleUpdateV4) return;
+  if (!REXCVAR_GET(pinyon_shift_car_challenge_gate_probe) || !dispatcher) return;
+  // The server answer itself is forced by the PinyonShiftServerAvailableProbe
+  // codegen hook (analysis-v4/v4-additions.toml); record that the probe is on.
+  pinyon_shift::diagnostics::RecordEvent("dlc.car_challenge.server_probe_installed");
+}
+
+void PinyonShiftInstallRallySeriesLoader(rex::runtime::FunctionDispatcher* dispatcher) {
+  if constexpr (pinyon_shift::fh1::kTitleUpdateV4) return;  // native Rally on v4
+  const auto& mapping = RallyStageMapping();
+  if (!mapping.has_series() || !dispatcher) return;
+  // Shared native hub functions are wrapped before title initialization.
+  // Each wrapper validates the owned Rally activity or explicit private
+  // probe before changing the stock screen's context.
+  {
+    g_rally_native_hub_enter = dispatcher->GetFunction(FH1_BASE_ONLY_ADDR(0x829502A8u));
+    g_rally_native_hub_init = dispatcher->GetFunction(FH1_ADDR(0x826AA860u));
+    g_rally_native_hub_update = dispatcher->GetFunction(FH1_BASE_ONLY_ADDR(0x826B4858u));
+    g_rally_native_hub_count = dispatcher->GetFunction(FH1_ADDR(0x8282D1F8u));
+    g_rally_native_hub_input_event = dispatcher->GetFunction(FH1_ADDR(0x8269BCF8u));
+    if (g_rally_native_hub_enter && g_rally_native_hub_init && g_rally_native_hub_update && g_rally_native_hub_count && g_rally_native_hub_input_event &&
+        dispatcher->SetFunction(FH1_BASE_ONLY_ADDR(0x829502A8u), RallyNativeHubEnter) &&
+        dispatcher->SetFunction(FH1_ADDR(0x826AA860u), RallyNativeHubInit) &&
+        dispatcher->SetFunction(FH1_BASE_ONLY_ADDR(0x826B4858u), RallyNativeHubUpdate) &&
+        dispatcher->SetFunction(FH1_ADDR(0x8269BCF8u), RallyNativeHubInputEvent)) {
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_probe_installed");
+    }
+  }
+  g_rally_career_loader = dispatcher->GetFunction(FH1_ADDR(0x8291DD80u));
+  g_rally_free_roam_loader = dispatcher->GetFunction(FH1_ADDR(0x8291DF68u));
+  g_rally_store_restore_position = dispatcher->GetFunction(FH1_ADDR(0x82983A90u));
+  if (!g_rally_career_loader || !g_rally_free_roam_loader || !g_rally_store_restore_position ||
+      !dispatcher->SetFunction(FH1_ADDR(0x8291DD80u), RallySeriesLoader) ||
+      !dispatcher->SetFunction(FH1_ADDR(0x82983A90u), RallyStoreRestorePosition)) {
+    pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_error", {{"error", "base loaders were not registered"}});
+    return;
+  }
+  pinyon_shift::diagnostics::RecordEvent("dlc.rally.series_loader_installed", {
+      {"series_id", fmt::format("{}", mapping.series_id)},
+      {"stage_count", fmt::format("{}", mapping.events.size())}});
+}
+
+// Private playback qualification: reuse the base FMOD managers and their
+// intrusive references, following the normal localized VO loader.
+// This plays one owned cue; route scheduling and audible output remain separate
+// acceptance checks. Only call from the queued guest task below.
+bool PinyonShiftRallyPaceEnabled() {
+  return !RallyPrivateValue("PINYON_SHIFT_RALLY_PACE_PROBE").empty() ||
+         PinyonShiftUseBuiltinRallyAdapter();
+}
+
+static void ProbeRallyAudio() {
+  if (PinyonShiftRallyPaceEnabled()) return;
+  pinyon_shift::rally::FlushAudioProbeCapture();
+  static const auto language = RallyPrivateValue("PINYON_SHIFT_RALLY_AUDIO_PROBE");
+  static bool attempted = false;
+  if (language.empty() || attempted) return;
+  using pinyon_shift::diagnostics::RecordEvent;
+  auto virtual_method = [](uint32_t object, uint32_t offset) -> uint32_t {
+    if (!object || !PinyonShiftGuestRangeReadable(object, 4)) return 0;
+    const uint32_t table = LoadGuestU32(object);
+    if (!table || !PinyonShiftGuestRangeReadable(table + offset, 4)) return 0;
+    const uint32_t method = LoadGuestU32(table + offset);
+    return method && PinyonShiftGuestRangeReadable(method, 4) ? method : 0;
+  };
+  const uint32_t manager = LoadGuestU32(FH1_ADDR(0x83439490u));
+  const uint32_t load = virtual_method(manager, 280);
+  const uint32_t lookup = virtual_method(manager, 304);
+  if (!load || !lookup) return;
+  attempted = true;
+  if (language != "EN" && language != "MX") {
+    RecordEvent("dlc.rally.audio_probe_error", {{"error", "probe language must be EN or MX"}});
+    return;
+  }
+  auto* memory = rex::system::kernel_state()->memory();
+  const uint32_t scratch = memory->SystemHeapAlloc(256, 16);
+  if (!scratch) {
+    RecordEvent("dlc.rally.audio_probe_error", {{"error", "guest allocation failed"}});
+    return;
+  }
+  std::memset(memory->virtual_membase() + scratch, 0, 256);
+  const std::string bank = fmt::format("Game:\\Media\\Audio\\VO\\CoDriver_{}.fev", language);
+  const std::string samples = fmt::format("Game:\\Media\\Audio\\VO\\CoDriver_{}.fsb", language);
+  const std::string group = fmt::format("CoDriver_{}/CoDriver/Turns/Right", language);
+  auto string = [&](uint32_t offset, const std::string& value) {
+    std::memcpy(memory->virtual_membase() + scratch + offset, value.c_str(), value.size() + 1);
+    return scratch + offset;
+  };
+  pinyon_shift::mod::CallGuest(load, {scratch, manager, string(16, bank), 0});
+  const uint32_t project = LoadGuestU32(scratch);
+  RecordEvent("dlc.rally.audio_probe_bank_loaded", {{"language", language},
+      {"bank", bank}, {"project", Hex32(project)}, {"create", Hex32(lookup)}});
+  if (project) pinyon_shift::mod::CallGuest(lookup, {
+      scratch + 4, manager, string(96, group), string(192, "MedRight"), string(144, samples), 1});
+  const uint32_t cue = LoadGuestU32(scratch + 4);
+  RecordEvent("dlc.rally.audio_probe_cue_created", {{"language", language},
+      {"handle", Hex32(cue)}});
+  const uint32_t play = virtual_method(cue, 36);
+  if (play) {
+    // This legacy single-cue probe uses sub_82BADF40: report-missing and a
+    // programmer-sound subsample index. FFFFFFFF is not an owner ID and does
+    // not qualify speech. The pace adapter below uses ordinary named events.
+    // The streaming cue's +32 method configures SSO names.
+    pinyon_shift::rally::BeginAudioProbeCapture();
+    pinyon_shift::mod::CallGuest(play, {cue, 0, 0xFFFFFFFFu});
+    const uint32_t voice = LoadGuestU32(cue + 12);
+    RecordEvent(voice ? "dlc.rally.audio_probe_play" : "dlc.rally.audio_probe_error", {{"language", language},
+        {"bank", bank}, {"group", group}, {"cue", "MedRight"},
+        {"project", Hex32(project)}, {"handle", Hex32(cue)},
+        {"voice", Hex32(voice)}});
+  } else {
+    RecordEvent("dlc.rally.audio_probe_error", {{"language", language},
+        {"error", project ? "native cue lookup failed" : "native bank load failed"}});
+  }
+  // Retain the one bank and cue reference through this process-lifetime probe.
+  // Failed bank loads release their scratch space.
+  if (!project) memory->SystemHeapFree(scratch);
+}
+
+// Owned-data scheduling adapter. No title-update audio code is used.
+// The frame thread publishes observations; CAudioEngine::Update owns cue
+// operations. FMOD's event cleanup clears channel settings used by Update.
+static void ProbeRallyPace(uint32_t route, uint32_t serial, double seconds, uint32_t car) {
+  if (!PinyonShiftRallyPaceEnabled()) return;
+  static const auto probe_language = RallyPrivateValue("PINYON_SHIFT_RALLY_PACE_PROBE");
+  static const std::string language = probe_language.empty() ?
+      std::string(pinyon_shift::rally::CoDriverLanguage(REXCVAR_GET(user_language), REXCVAR_GET(user_country))) : probe_language;
+  using pinyon_shift::diagnostics::RecordEvent;
+  static std::optional<pinyon_shift::rally::PaceNotes> notes;
+  static bool attempted = false;
+  if (!attempted) {
+    attempted = true;
+    try {
+      if (!probe_language.empty() && language != "EN" && language != "MX")
+        throw std::runtime_error("pace probe language must be EN or MX");
+      notes.emplace(pinyon_shift::rally::ReadPaceNotes(PinyonShiftRallyAdapterRoot() / "rally-pace.toml"));
+      RecordEvent("dlc.rally.pace_loaded", {{"language", language},
+          {"source", probe_language.empty() ? "owned_content" : "private_probe"}});
+    } catch (const std::exception& error) {
+      RecordEvent("dlc.rally.pace_error", {{"error", error.what()}});
+    }
+  }
+  if (!notes) return;
+  auto method = [](uint32_t object, uint32_t offset) -> uint32_t {
+    if (!object || !PinyonShiftGuestRangeReadable(object, 4)) return 0;
+    const uint32_t table = LoadGuestU32(object);
+    if (!table || !PinyonShiftGuestRangeReadable(table + offset, 4)) return 0;
+    const uint32_t value = LoadGuestU32(table + offset);
+    return value && PinyonShiftGuestRangeReadable(value, 4) ? value : 0;
+  };
+  static uint32_t scratch = 0, project = 0, cue = 0;
+  static double began = 0;
+  static bool capture_started = false;
+  auto call_guest = [](uint32_t address, std::initializer_list<uint32_t> args) {
+    std::array<uint64_t, 6> values{};
+    std::copy(args.begin(), args.end(), values.begin());
+    return uint32_t(rex::system::kernel_state()->function_dispatcher()->ExecuteTrap(
+        rex::runtime::ThreadState::Get(), address, values.data(), args.size()));
+  };
+  auto clear_voice = [&] {
+    if (!cue) return;
+    if (const auto stop = method(cue, 76)) call_guest(stop, {cue});
+    if (const auto release = method(cue, 12)) call_guest(release, {cue});
+    cue = 0;
+  };
+  std::array<double, 3> position{};
+  bool pose_fresh = false;
+  {
+    std::lock_guard lock(g_vehicle_hook_sample_mutex);
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    pose_fresh = car && g_rally_pace_pose_ms && now - g_rally_pace_pose_ms <= 500;
+    if (pose_fresh) position = {g_rally_pace_pose.x, g_rally_pace_pose.y, g_rally_pace_pose.z};
+  }
+  const bool reset = pose_fresh ? notes->Observe(route, serial, seconds, position) :
+                                 notes->Suspend(route, serial, seconds);
+  static bool suspended = false;
+  if (reset) {
+    if (cue || route) RecordEvent("dlc.rally.pace_cancelled", {
+        {"route", fmt::format("{}", route)}, {"race_serial", fmt::format("{}", serial)},
+        {"seconds", fmt::format("{:.6f}", seconds)}, {"had_voice", cue ? "1" : "0"},
+        {"reason", !route ? "race_exit" : pose_fresh ? "race_reset" : "pose_suspended"}});
+    clear_voice();
+    pinyon_shift::rally::PublishPaceHud({});
+  }
+  if (!route) suspended = false;
+  else if (!pose_fresh) suspended = true;
+  else if (suspended) {
+    RecordEvent("dlc.rally.pace_resumed", {{"route", fmt::format("{}", route)},
+        {"race_serial", fmt::format("{}", serial)}, {"seconds", fmt::format("{:.6f}", seconds)}});
+    suspended = false;
+  }
+  if (!route || !pose_fresh) return;
+  if (cue) {
+    const auto playing = method(cue, 84), channels = method(cue, 88);
+    if (!playing || !channels) {
+      RecordEvent("dlc.rally.pace_error", {{"error", "missing native playback state"}});
+      clear_voice(); notes->Pop();
+    } else if (!call_guest(playing, {cue}) &&
+               !call_guest(channels, {cue})) {
+      RecordEvent("dlc.rally.pace_finished", {
+          {"call_index", fmt::format("{}", notes->call_index())},
+          {"sample_index", fmt::format("{}", notes->sample_index())}});
+      clear_voice(); notes->Pop();
+    } else if (seconds - began > 10) {
+      RecordEvent("dlc.rally.pace_error", {{"error", "native cue exceeded ten seconds"}});
+      clear_voice(); notes->Pop();
+    }
+  }
+  const auto* sample = notes->front();
+  pinyon_shift::rally::PublishPaceHud(notes->hud());
+  if (cue || !sample) return;
+  const uint32_t manager = LoadGuestU32(FH1_ADDR(0x83439490u));
+  // Co-driver FEV events already name their samples. Use the ordinary named
+  // cue factory; +304 creates another programmer-sound FSB stream per cue.
+  const auto load = method(manager, 280), create = method(manager, 300);
+  if (!load || !create) return;
+  auto* memory = rex::system::kernel_state()->memory();
+  if (!scratch) scratch = memory->SystemHeapAlloc(512, 16);
+  if (!scratch) return;
+  auto string = [&](uint32_t offset, const std::string& text) {
+    std::memcpy(memory->virtual_membase() + scratch + offset, text.c_str(), text.size() + 1);
+    return scratch + offset;
+  };
+  if (!project) {
+    StoreGuestU32(scratch, 0);
+    call_guest(load, {scratch, manager,
+        string(16, fmt::format("Game:\\Media\\Audio\\VO\\CoDriver_{}.fev", language)), 0});
+    project = LoadGuestU32(scratch);
+    if (!project) {
+      RecordEvent("dlc.rally.pace_error", {{"error", "native co-driver bank load failed"}});
+      pinyon_shift::rally::PublishPaceHud({});
+      notes.reset(); memory->SystemHeapFree(scratch); scratch = 0; return;
+    }
+  }
+  const auto group = fmt::format("CoDriver_{}/{}", language, sample->group);
+  StoreGuestU32(scratch + 4, 0);
+  call_guest(create, {scratch + 4, manager, string(96, group),
+      string(224, sample->cue), 1});
+  cue = LoadGuestU32(scratch + 4);
+  const auto play = method(cue, 72);
+  if (play) {
+    if (!capture_started) {
+      pinyon_shift::rally::BeginAudioProbeCapture();
+      capture_started = true;
+    }
+    call_guest(play, {cue, 0});
+  }
+  const uint32_t voice = cue && PinyonShiftGuestRangeReadable(cue + 8, 4) ? LoadGuestU32(cue + 8) : 0;
+  if (!voice) {
+    RecordEvent("dlc.rally.pace_error", {{"error", "native cue did not start"}, {"cue", sample->cue}});
+    clear_voice(); notes->Pop(); return;
+  }
+  began = seconds;
+  RecordEvent("dlc.rally.pace_play", {{"language", language}, {"route", fmt::format("{}", route)},
+      {"race_serial", fmt::format("{}", serial)}, {"seconds", fmt::format("{:.6f}", seconds)},
+      {"call_index", fmt::format("{}", notes->call_index())},
+      {"sample_index", fmt::format("{}", notes->sample_index())},
+      {"x", fmt::format("{:.6f}", position[0])}, {"z", fmt::format("{:.6f}", position[2])},
+      {"group", group}, {"cue", sample->cue}, {"icon", sample->icon},
+      {"handle", Hex32(cue)}, {"voice", Hex32(voice)},
+      {"pending", fmt::format("{}", notes->pending())}});
+  // One localized project and the fixed scratch block remain alive for this
+  // diagnostic process. Each completed/cancelled cue releases its own reference.
+}
+
+static PPCFunc* g_rally_audio_update = nullptr;
+static std::mutex g_rally_pace_tick_mutex;
+static struct {
+  uint32_t route = 0, serial = 0, car = 0;
+  double seconds = 0;
+  uint64_t generation = 0, consumed = 0;
+} g_rally_pace_tick;
+
+static void QueueRallyPace(uint32_t route, uint32_t serial, double seconds, uint32_t car) {
+  std::lock_guard lock(g_rally_pace_tick_mutex);
+  g_rally_pace_tick.route = route;
+  g_rally_pace_tick.serial = serial;
+  g_rally_pace_tick.seconds = seconds;
+  g_rally_pace_tick.car = car;
+  ++g_rally_pace_tick.generation;
+}
+
+static void UpdateRallyPace(PPCContext& ctx, uint8_t* base) {
+  decltype(g_rally_pace_tick) tick;
+  bool pending = false;
+  {
+    std::lock_guard lock(g_rally_pace_tick_mutex);
+    pending = g_rally_pace_tick.generation != g_rally_pace_tick.consumed;
+    tick = g_rally_pace_tick;
+    g_rally_pace_tick.consumed = tick.generation;
+  }
+  if (pending) {
+    static bool observed = false;
+    if (!observed) {
+      observed = true;
+      pinyon_shift::diagnostics::RecordEvent("dlc.rally.pace_update", {
+          {"method", "82BB5918"}, {"manager", Hex32(ctx.r3.u32)},
+          {"caller", Hex32(uint32_t(ctx.lr))}});
+    }
+    ProbeRallyPace(tick.route, tick.serial, tick.seconds, tick.car);
+  }
+  g_rally_audio_update(ctx, base);
+}
+
+// Native upgrade views and test-only DLC qualification.
+static PPCFunc* g_dlc_async_query = nullptr;
+static PPCFunc* g_dlc_raw_query = nullptr;
+static std::string ReadDlcSql(uint32_t text, uint8_t* base) {
+  std::string sql;
+  if (text && text <= UINT32_MAX - 65536) {
+    for (uint32_t i = 0; i < 65536 && PinyonShiftGuestRangeReadable(text + i, 1); ++i) {
+      const auto byte = base[text + i];
+      if (!byte) break;
+      sql.push_back(static_cast<char>(byte));
+    }
+  }
+  return sql;
+}
+static bool DlcSqlTraceEnabled() {
+  static const bool enabled = pinyon_shift::fh1_render_test::Enabled() &&
+      pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_DLC_SQL_TRACE").value_or("") == "1";
+  return enabled;
+}
+static bool DlcSqlRelevant(const std::string& sql) {
+  return sql.find("View_Upgrade") != std::string::npos ||
+      sql.find("List_TireCompound WHERE TireCompoundID=9") != std::string::npos;
+}
+void PinyonShiftRequireTyrePhysicsRecord(PPCRegister& r30) {
+  // This constructor immediately dereferences the required native record.
+  // Do not substitute stock tyres or rewrite the player's purchased part.
+  if (!PinyonShiftGuestRangeReadable(r30.u32, 4) || LoadGuestU32(r30.u32)) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.saved_content_unavailable", {
+      {"record", "tyre_physics"}, {"action", "restore_content"}});
+  if (!pinyon_shift::fh1_render_test::Enabled()) {
+    pinyon_shift::platform::ShowFatalError("Saved upgrade unavailable",
+        "A saved car's tyre upgrade is unavailable. Re-enable its DLC in the "
+        "launcher's DLC panel, or import the missing content again, then retry. "
+        "Your saved car and purchased parts have been preserved.");
+  }
+  pinyon_shift::platform::ExitImmediately(1307);
+}
+void PinyonShiftInitializeCarUpgradeViews(PPCRegister& r31) {
+  // The fresh-load branch has cached the native car. Its getter will now
+  // reuse that record when the ordinary change-car routine rebuilds views.
+  if (!PinyonShiftGuestRangeReadable(r31.u32, 64) ||
+      !LoadGuestU32(r31.u32 + 60) || !LoadGuestU32(FH1_ADDR(0x832E5510u))) return;
+  auto* dispatcher = rex::system::kernel_state()->function_dispatcher();
+  uint64_t profile_args[] = {r31.u32};
+  const auto current = dispatcher->ExecuteTrap(rex::runtime::ThreadState::Get(),
+      FH1_ADDR(0x8252A630u), profile_args, 1);
+  if (!current) return;
+  uint64_t view_args[] = {r31.u32, current};
+  dispatcher->ExecuteTrap(rex::runtime::ThreadState::Get(), FH1_ADDR(0x82551648u), view_args, 2);
+  pinyon_shift::diagnostics::RecordEvent("save.upgrade_views.initialized", {
+      {"profile", Hex32(r31.u32)}, {"garage_id", fmt::format("{}", current)}});
+}
+void PinyonShiftTraceUpgradeViewGuard(PPCRegister& r3, PPCRegister& r30, PPCRegister& r31) {
+  static std::atomic<uint32_t> count{};
+  if (!DlcSqlTraceEnabled() || count.fetch_add(1) >= 256) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.upgrade_view_guard", {
+      {"profile", Hex32(r30.u32)}, {"current_garage_id", fmt::format("{}", r3.u32)},
+      {"requested_garage_id", fmt::format("{}", r31.u32)}});
+}
+void PinyonShiftTraceUpgradeViewCar(PPCRegister& r30, PPCRegister& r31) {
+  static std::atomic<uint32_t> count{};
+  if (!DlcSqlTraceEnabled() || count.fetch_add(1) >= 256) return;
+  pinyon_shift::diagnostics::RecordEvent("dlc.upgrade_view_car", {
+      {"profile", Hex32(r30.u32)}, {"car", Hex32(r31.u32)}});
+}
+void PinyonShiftTraceDlcSqlPrepare(PPCRegister& r3, PPCRegister& r15, PPCRegister& r30) {
+  static std::atomic<uint32_t> count{};
+  if (!DlcSqlTraceEnabled()) return;
+  const auto sql = ReadDlcSql(r30.u32, rex::system::kernel_state()->memory()->virtual_membase());
+  const bool relevant = DlcSqlRelevant(sql);
+  if (relevant && count.fetch_add(1) < 512) {
+    pinyon_shift::diagnostics::RecordEvent("dlc.sql_prepare", {
+        {"database", Hex32(r15.u32)}, {"result", fmt::format("{}", r3.s32)},
+        {"sql", sql}});
+  }
+}
+static void TraceDlcRawQuery(PPCContext& ctx, uint8_t* base) {
+  static std::atomic<uint32_t> count{};
+  const auto output = ctx.r3.u32;
+  const auto sql = ReadDlcSql(ctx.r5.u32, base);
+  const bool relevant = DlcSqlRelevant(sql);
+  const auto ordinal = relevant ? count.fetch_add(1) : 512u;
+  if (ordinal < 512) {
+    pinyon_shift::diagnostics::RecordEvent("dlc.raw_query", {
+        {"ordinal", fmt::format("{}", ordinal)}, {"caller", Hex32(uint32_t(ctx.lr))},
+        {"database", Hex32(ctx.r4.u32)}, {"sql", sql}});
+  }
+  g_dlc_raw_query(ctx, base);
+  if (ordinal < 512 && PinyonShiftGuestRangeReadable(output, 4)) {
+    pinyon_shift::diagnostics::RecordEvent("dlc.raw_query_result", {
+        {"ordinal", fmt::format("{}", ordinal)}, {"recordset", Hex32(LoadGuestU32(output))}});
+  }
+}
+
+static void TraceDlcAsyncQuery(PPCContext& ctx, uint8_t* base) {
+  static std::atomic<uint32_t> count{};
+  const auto task = ctx.r3.u32;
+  if (count.fetch_add(1) < 512 && PinyonShiftGuestRangeReadable(task, 52)) {
+    // The native worker copies this 24-byte Xbox std::string before querying.
+    const auto text = task + 16;
+    const auto length = LoadGuestU32(text + 16), capacity = LoadGuestU32(text + 20);
+    const auto data = capacity < 16 ? text : LoadGuestU32(text);
+    if (length && length <= 8192 && PinyonShiftGuestRangeReadable(data, length)) {
+      std::string sql(reinterpret_cast<const char*>(base + data), length);
+      const auto title = sql.find("h.Name HubName");
+      if (RallyNativeHubEnabled() && title != std::string::npos &&
+          sql.find(" WHERE h.Id == 4 ORDER BY ") != std::string::npos) {
+        // This is the worker's owned query copy, not a base image string.
+        // Rally tickets name each championship rather than the shared hub.
+        base[data + title] = 'e';
+        sql[title] = 'e';
+        pinyon_shift::diagnostics::RecordEvent("dlc.rally.native_hub_title_probe");
+      }
+      pinyon_shift::diagnostics::RecordEvent("dlc.async_query", {
+          {"task", Hex32(task)}, {"future", Hex32(LoadGuestU32(task + 4))},
+          {"database", Hex32(LoadGuestU32(task + 8))},
+          {"method", Hex32(LoadGuestU32(task + 44))},
+          {"sql", sql}});
+    }
+  }
+  g_dlc_async_query(ctx, base);
+}
+
+static void TraceDlcCars() {
+  static const bool enabled = pinyon_shift::fh1_render_test::Enabled() &&
+      pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_DLC_TRACE").value_or("") == "1";
+  static bool done = false;
+  if (!enabled || done) return;
+  done = true;
+  using pinyon_shift::diagnostics::RecordEvent;
+  if (pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_DLC_SQL_TRACE").value_or("") == "1") {
+    auto* dispatcher = rex::system::kernel_state()->function_dispatcher();
+    g_dlc_async_query = dispatcher->GetFunction(FH1_ADDR(0x8282DEF0u));
+    if (!g_dlc_async_query || !dispatcher->SetFunction(FH1_ADDR(0x8282DEF0u), TraceDlcAsyncQuery)) {
+      RecordEvent("dlc.sql_trace_error", {{"error", "native async query worker unavailable"}});
+    } else {
+      RecordEvent("dlc.sql_trace_installed", {{"worker", "8282DEF0"}, {"limit", "512"}});
+    }
+  }
+  const auto manager = LoadGuestU32(FH1_ADDR(0x832E4A80u));
+  auto method = [](uint32_t object, uint32_t offset) {
+    if (!PinyonShiftGuestRangeReadable(object, 4)) return 0u;
+    const auto table = LoadGuestU32(object);
+    return PinyonShiftGuestRangeReadable(table + offset, 4) ? LoadGuestU32(table + offset) : 0u;
+  };
+  if (!PinyonShiftGuestRangeReadable(manager, 256)) {
+    RecordEvent("dlc.car_trace_error", {{"error", "native content manager unavailable"}}); return;
+  }
+  {
+    // Layout evidence for other builds: the manager's first 256 bytes.
+    std::string words;
+    for (uint32_t offset = 0; offset < 256; offset += 4)
+      words += fmt::format("{}{:08X}", offset ? " " : "", LoadGuestU32(manager + offset));
+    RecordEvent("dlc.content_manager_words", {{"manager", Hex32(manager)}, {"words", words}});
+  }
+  // v4's manager adds 16 bytes before the category table and 24 before the
+  // entitlement vector (compared from both builds' manager dumps).
+  constexpr uint32_t kCategories = pinyon_shift::fh1::kTitleUpdateV4 ? 140 : 124;
+  constexpr uint32_t kEntitlements = pinyon_shift::fh1::kTitleUpdateV4 ? 204 : 180;
+  const auto begin = LoadGuestU32(manager + kEntitlements), end = LoadGuestU32(manager + kEntitlements + 4);
+  if (end < begin || (end - begin) % 8 || end - begin > 32768 ||
+      (end != begin && !PinyonShiftGuestRangeReadable(begin, end - begin))) {
+    RecordEvent("dlc.car_trace_error", {{"error", "invalid native entitlement cache"}}); return;
+  }
+  for (const uint32_t type : {1u, 3u}) {
+    const auto first = LoadGuestU32(manager + kCategories + type * 8);
+    const auto count = LoadGuestU32(manager + kCategories + 4 + type * 8);
+    if (first > (end - begin) / 8 || count > (end - begin) / 8 - first) {
+      RecordEvent("dlc.car_trace_error", {{"error", "invalid native entitlement category"}}); return;
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      const auto row = begin + (first + i) * 8;
+      RecordEvent("dlc.content_entitlement", {{"content_type", fmt::format("{}", type)},
+          {"content_id", fmt::format("{}", LoadGuestU32(row))},
+          {"installed", fmt::format("{}", LoadGuestU8(row + 4))},
+          {"purchased", fmt::format("{}", LoadGuestU8(row + 5))},
+          {"base", fmt::format("{}", LoadGuestU8(row + 6))},
+          {"visible", fmt::format("{}", LoadGuestU8(row + 7))}});
+    }
+  }
+  const auto database = LoadGuestU32(manager + 8), query_method = method(database, 32);
+  if (!query_method) {
+    RecordEvent("dlc.car_trace_error", {{"error", "native database unavailable"}}); return;
+  }
+  if (g_dlc_async_query) {
+    auto* dispatcher = rex::system::kernel_state()->function_dispatcher();
+    g_dlc_raw_query = dispatcher->GetFunction(query_method);
+    if (!g_dlc_raw_query || !dispatcher->SetFunction(query_method, TraceDlcRawQuery)) {
+      RecordEvent("dlc.sql_trace_error", {{"error", "native raw query unavailable"}});
+    } else {
+      RecordEvent("dlc.sql_trace_installed", {{"raw_query", Hex32(query_method)},
+          {"database", Hex32(database)}, {"view_database", Hex32(LoadGuestU32(FH1_ADDR(0x832E5510u)))}});
+    }
+  }
+  const std::string query = "SELECT Id,IsInstalled,IsPurchased,IsSelectable,IsDrivable,"
+      "(SELECT COUNT(*) FROM List_UpgradeTireCompound t WHERE t.Ordinal=c.Id),"
+      "(SELECT COUNT(*) FROM List_UpgradeSpringDamper s WHERE s.Ordinal=c.Id),"
+      "(SELECT COUNT(*) FROM List_UpgradeEngine e WHERE e.Ordinal=c.Id) FROM Data_Car c "
+      "WHERE Id IN (346,365,378,1272,1295,1517,1626,1627,1628,1629,1630,1631,1632,1633,1634,1635) ORDER BY Id";
+  auto* memory = rex::system::kernel_state()->memory();
+  const auto scratch = memory->SystemHeapAlloc(uint32_t(query.size() + 17), 16);
+  if (!scratch) {
+    RecordEvent("dlc.car_trace_error", {{"error", "guest query allocation failed"}}); return;
+  }
+  std::memset(memory->virtual_membase() + scratch, 0, 16);
+  std::memcpy(memory->virtual_membase() + scratch + 16, query.c_str(), query.size() + 1);
+  // +32 takes a C string; +36 is the title's std::string overload.
+  pinyon_shift::mod::CallGuest(query_method, {scratch, database, scratch + 16});
+  const auto record = LoadGuestU32(scratch), size = method(record, 184), get = method(record, 80);
+  const auto rows = size ? pinyon_shift::mod::CallGuest(size, {record}) : 0;
+  if (size && get && rows <= 128) {
+    constexpr std::array fields{"car_id", "installed", "purchased", "selectable", "drivable",
+                                "tire_options", "suspension_options", "engine_options"};
+    for (uint32_t row = 0; row < rows; ++row) {
+      std::array<std::string, 8> values;
+      for (uint32_t column = 0; column < values.size(); ++column)
+        values[column] = fmt::format("{}", pinyon_shift::mod::CallGuest(get, {record, row, column, 0}));
+      RecordEvent("dlc.car_database", {{fields[0], values[0]}, {fields[1], values[1]},
+          {fields[2], values[2]}, {fields[3], values[3]}, {fields[4], values[4]},
+          {fields[5], values[5]}, {fields[6], values[6]}, {fields[7], values[7]}});
+    }
+    RecordEvent("dlc.car_trace_complete", {{"rows", fmt::format("{}", rows)}});
+  } else RecordEvent("dlc.car_trace_error", {{"error", "native car query failed"},
+      {"database", Hex32(database)}, {"query", Hex32(query_method)}, {"record", Hex32(record)},
+      {"size", Hex32(size)}, {"get", Hex32(get)}, {"rows", fmt::format("{}", rows)}});
+  pinyon_shift::mod::CallGuest(FH1_ADDR(0x82DE7330u), {scratch});
+  memory->SystemHeapFree(scratch);
+}
+
+// v4 builds run the expansion's own Rally code. Render tests still need the
+// native game mode, and may ask the title's AI to drive the player car through
+// a native stage (diagnostic only; manual driving qualifies gameplay). The
+// world/session fields read here are unchanged in v4; the car's own fields
+// moved, so the native setter (which applies v4's layout) does the work.
+static void QueueTitleUpdateRaceTask() {
+  if (!pinyon_shift::fh1_render_test::Enabled()) return;
+  static uint32_t frames = 0;
+  if (++frames < 30) return;
+  frames = 0;
+  pinyon_shift::mod::EnqueueHostGuestTask([] {
+    auto pointer = [](uint32_t field, uint32_t size) -> uint32_t {
+      if (!PinyonShiftGuestRangeReadable(field, 4)) return 0;
+      const uint32_t value = LoadGuestU32(field);
+      return value && PinyonShiftGuestRangeReadable(value, size) ? value : 0;
+    };
+    const uint32_t holder = pointer(FH1_ADDR(0x832DF024u), 8);
+    const uint32_t manager = holder ? pointer(holder + 4, 56) : 0;
+    const uint32_t world = manager ? pointer(manager + 4, 136) : 0;
+    const uint32_t session = world ? pointer(world + 124, 60) : 0;
+    const uint32_t mode = session ? LoadGuestU32(session + 56) : 0;
+    pinyon_shift::fh1_render_test::ObserveGameMode(mode);
+    // Read-only owned-content check (PINYON_SHIFT_DLC_TRACE) once free roam
+    // has settled, since v4 has no adapter hub observer to call it.
+    static uint32_t free_roam_samples = 0;
+    if (mode == 17 && ++free_roam_samples == 20) TraceDlcCars();
+    // Mode 3 is a festival race; v4 adds mode 20 for its Rally stages.
+    static uint32_t ai_car = 0, race_samples = 0;
+    if (mode != 3 && mode != 20) {
+      ai_car = 0;
+      race_samples = 0;
+      return;
+    }
+    // v4's first-run Rally stage opens with a scripted intro that owns the
+    // car; wait about 20 s of race mode before handing it to the AI.
+    if (++race_samples < 40 || !REXCVAR_GET(fh1_render_test_rally_ai_driver)) return;
+    const uint32_t slot = pinyon_shift::mod::CallGuest(FH1_ADDR(0x8248BAE8u), {world});
+    const uint32_t car = slot ? pointer(slot, 4) : 0;
+    if (!car || car == ai_car) return;
+    // The setter's control mode moved from +0x3B78 (base) to +0x3B88 (v4).
+    // Wait until the title itself hands the car to the player (mode 0), so
+    // the AI never competes with a scripted intro.
+    constexpr uint32_t kControlMode = 0x3B88;
+    if (!PinyonShiftGuestRangeReadable(car + kControlMode, 4) ||
+        LoadGuestU32(car + kControlMode) != 0) return;
+    pinyon_shift::mod::CallGuest(FH1_ADDR(0x8249E570u), {car, 0});
+    pinyon_shift::mod::CallGuest(FH1_ADDR(0x8249E570u), {car, 1});
+    ai_car = car;
+    pinyon_shift::diagnostics::RecordEvent("fh1.render_test.ai_driver", {
+        {"car", Hex32(car)}, {"mode", fmt::format("{}", mode)}, {"build", "v4"}});
+  });
+}
+
+static void QueueRallyRaceTrace() {
+  if constexpr (pinyon_shift::fh1::kTitleUpdateV4) {
+    PumpCarChallengeCommits();
+    QueueTitleUpdateRaceTask();
+    return;
+  }
+  static bool pace_update_installed = false;
+  if (PinyonShiftRallyPaceEnabled() && !pace_update_installed) {
+    pace_update_installed = true;
+    auto* dispatcher = rex::system::kernel_state()->function_dispatcher();
+    g_rally_audio_update = dispatcher->GetFunction(FH1_ADDR(0x82BB5918u));
+    const bool installed = g_rally_audio_update && dispatcher->SetFunction(FH1_ADDR(0x82BB5918u), UpdateRallyPace);
+    if (installed) pinyon_shift::diagnostics::RecordEvent("dlc.rally.pace_update_installed", {
+        {"method", "82BB5918"}, {"owner", "native_audio_update"}});
+    else pinyon_shift::diagnostics::RecordEvent("dlc.rally.pace_error", {
+        {"error", "native audio update unavailable"}});
+  }
+  static const bool trace = RallyPrivateFlag("PINYON_SHIFT_RALLY_TRACE");
+  static const bool progress_enabled = RallyPrivateFlag("PINYON_SHIFT_RALLY_PROGRESS") ||
+                                       PinyonShiftUseBuiltinRallyAdapter();
+  static const bool pace_enabled = PinyonShiftRallyPaceEnabled();
+  if (!trace && !progress_enabled && !pinyon_shift::fh1_render_test::Enabled()) return;
+  static uint32_t frames = 0;
+  if (++frames < (pace_enabled ? 12 : 120)) return;
+  frames = 0;
+  pinyon_shift::mod::EnqueueHostGuestTask([] {
+    using pinyon_shift::diagnostics::RecordEvent;
+    static std::filesystem::path progress_path;
+    static std::optional<pinyon_shift::rally::Progress> progress;
+    static std::string last_error;
+    const auto& mapping = RallyStageMapping();
+    const auto& stage = mapping.events;
+    static bool unfinished_series_stage = false;
+    auto cancel = [&] { if (progress) progress->Observe({}); };
+    bool profile_ready = false;
+    if (progress_enabled && !stage.empty()) {
+      auto* kernel = rex::system::kernel_state();
+      const auto profile = kernel->content_manager()->GetOpenPackagePath(
+          fmt::format("{:016X}", kernel->user_profile()->xuid()));
+      if (!profile.empty() && profile.filename() == "ForzaProfile") {
+        profile_ready = true;
+        const auto path = profile / "rally-progress.toml";
+        if (progress_path != path) {
+          progress_path = path;
+          progress.emplace(path, mapping.series_id);
+          if (!mapping.series_id && mapping.has_series() && progress->attempt().active)
+            progress->SelectSeries(progress->attempt().series_id);
+          unfinished_series_stage = false;
+          g_rally_saved_event.store(0, std::memory_order_release);
+          g_rally_next_route.store(0, std::memory_order_release);
+          g_rally_resume_route.store(progress->next_route(), std::memory_order_release);
+          uint32_t completed = 0;
+          for (const auto& saved : progress->stages()) completed += saved.completions != 0;
+          const auto primary_route = stage.begin()->second;
+          const auto& saved = progress->stages()[*pinyon_shift::rally::StageIndex(primary_route)];
+          RecordEvent("dlc.rally.progress_loaded", {{"path", path.string()},
+              {"completed_stages", fmt::format("{}", completed)},
+              {"route", fmt::format("{}", primary_route)},
+              {"completions", fmt::format("{}", saved.completions)},
+              {"best_seconds", fmt::format("{:.6f}", saved.best_seconds)}});
+          // A completed attempt remains loaded even when the hub has no selection.
+          const auto series_id = progress->selected_series() ? progress->selected_series()
+                                                            : progress->attempt().series_id;
+          if (series_id) RecordEvent("dlc.rally.series_loaded", {
+              {"series_id", fmt::format("{}", series_id)},
+              {"completed", fmt::format("{}", progress->attempt().completed)},
+              {"active", progress->attempt().active ? "1" : "0"},
+              {"next_route", fmt::format("{}", progress->next_route())},
+              {"total_seconds", fmt::format("{:.6f}", progress->attempt().total_seconds())},
+              {"series_completions", fmt::format("{}", progress->series()[series_id - 1].completions)},
+              {"best_seconds", fmt::format("{:.6f}", progress->series()[series_id - 1].best_seconds)}});
+        }
+        if (progress->error() != last_error) {
+          last_error = progress->error();
+          if (!last_error.empty()) RecordEvent("dlc.rally.progress_error", {{"error", last_error}});
+        }
+      } else {
+        cancel();
+      }
+    }
+    auto pointer = [](uint32_t field, uint32_t size) -> uint32_t {
+      if (!PinyonShiftGuestRangeReadable(field, 4)) return 0;
+      const uint32_t value = LoadGuestU32(field);
+      return value && PinyonShiftGuestRangeReadable(value, size) ? value : 0;
+    };
+    auto number64 = [](uint32_t field) -> double {
+      const uint64_t bits = (uint64_t(LoadGuestU32(field)) << 32) |
+                            LoadGuestU32(field + 4);
+      return std::bit_cast<double>(bits);
+    };
+    const uint32_t holder = pointer(FH1_ADDR(0x832DF024u), 8);
+    const uint32_t manager = holder ? pointer(holder + 4, 56) : 0;
+    const uint32_t world = manager ? pointer(manager + 4, 136) : 0;
+    if (!world) {
+      g_rally_hub_available.store(false, std::memory_order_release);
+      pinyon_shift::fh1_render_test::ObserveGameMode(0);
+      QueueRallyPace(0, 0, 0, 0);
+      cancel(); return;
+    }
+    const uint32_t session = pointer(world + 124, 60);
+    const uint32_t mode = session ? LoadGuestU32(session + 56) : 0;
+    if (mode != 17 || !profile_ready) g_rally_hub_available.store(false, std::memory_order_release);
+    pinyon_shift::fh1_render_test::ObserveGameMode(mode);
+    if (mode == 17 && profile_ready && unfinished_series_stage && progress->CancelAttempt()) {
+      unfinished_series_stage = false;
+      g_rally_resume_route.store(0, std::memory_order_release);
+      g_rally_saved_event.store(0, std::memory_order_release);
+      RecordEvent("dlc.rally.series_retired");
+    }
+    if (!trace && !progress_enabled) return;
+    const uint32_t application = pointer(FH1_ADDR(0x832DF00Cu), 900);
+    const uint32_t event = application ? LoadGuestU32(application + 896) : 0;
+    const auto selected = stage.find(event);
+    const uint32_t route = mode == 3 && selected != stage.end() ? selected->second : 0;
+    if (trace && mapping.has_series()) {
+      // sub_8251D628 fills the live session's track ID (+60) and MediaName
+      // (+64). sub_824878E0 reaches those descriptors from [world +124].
+      if (PinyonShiftGuestRangeReadable(session, 88)) {
+        const uint32_t track = LoadGuestU32(session + 60);
+        const uint32_t length = LoadGuestU32(session + 80);
+        const uint32_t capacity = LoadGuestU32(session + 84);
+        const uint32_t text = capacity < 16 ? session + 64 : LoadGuestU32(session + 64);
+        static std::pair<uint32_t, uint32_t> previous_world{};
+        if (length && length <= 128 && capacity >= length &&
+            PinyonShiftGuestRangeReadable(text, length + 1) &&
+            previous_world != std::pair{mode, track}) {
+          previous_world = {mode, track};
+          RecordEvent("dlc.rally.world_loaded", {{"mode", fmt::format("{}", mode)},
+              {"track_id", fmt::format("{}", track)},
+              {"media_name", PinyonShiftReadGuestAscii(text, length + 1)}});
+        }
+      }
+      // Follow CStoreRestorePlayerCarPosition (sub_82983A90) to the native
+      // profile's resume data. Observe its flag and vectors; never change it.
+      const uint32_t users = pointer(FH1_ADDR(0x83305CC4u), 4);
+      const uint32_t user = users ? pinyon_shift::mod::CallGuest(FH1_ADDR(0x828653D8u), {users}) : 0;
+      const uint32_t vtable = user ? pointer(user, 92) : 0;
+      const uint32_t getter = vtable ? LoadGuestU32(vtable + 88) : 0;
+      const uint32_t handle = getter && PinyonShiftGuestRangeReadable(getter, 4) ?
+          pinyon_shift::mod::CallGuest(getter, {user}) : 0;
+      const uint32_t profile = handle ? pointer(handle + 36, 60) : 0;
+      const uint32_t resume = profile ? pointer(profile + 56, 80) : 0;
+      if (resume) {
+        std::array<uint32_t, 9> sample{mode, event, LoadGuestU8(resume + 44)};
+        for (uint32_t i = 0; i < 6; ++i)
+          sample[3 + i] = LoadGuestU32(resume + (i < 3 ? 48 + i * 4 : 64 + (i - 3) * 4));
+        static std::array<uint32_t, 9> previous{};
+        if (sample != previous) {
+          previous = sample;
+          RecordEvent("dlc.rally.return_anchor", {
+              {"mode", fmt::format("{}", mode)}, {"event_id", fmt::format("{}", event)},
+              {"valid", fmt::format("{}", sample[2])}, {"resume", Hex32(resume)},
+              {"x", fmt::format("{:.6f}", LoadGuestF32(resume + 48))},
+              {"y", fmt::format("{:.6f}", LoadGuestF32(resume + 52))},
+              {"z", fmt::format("{:.6f}", LoadGuestF32(resume + 56))},
+              {"forward_x", fmt::format("{:.6f}", LoadGuestF32(resume + 64))},
+              {"forward_y", fmt::format("{:.6f}", LoadGuestF32(resume + 68))},
+              {"forward_z", fmt::format("{:.6f}", LoadGuestF32(resume + 72))}});
+        }
+      }
+    }
+    // The getter selects the player from the world's car vector. Calling on
+    // the guest thread also makes its intrusive references safe during loads.
+    const uint32_t slot = pinyon_shift::mod::CallGuest(FH1_ADDR(0x8248BAE8u), {world});
+    const uint32_t car = pointer(slot, 14684);
+    if (!car) { g_rally_hub_available.store(false, std::memory_order_release);
+      QueueRallyPace(0, 0, 0, 0); cancel(); return; }
+    // Read-only diagnostic: use the same collision query as the native
+    // snapToGround camera node, without moving cars or changing triggers.
+    static uint32_t ground_probe_world = 0;
+    if (mode == 17 && profile_ready && g_rally_hub_available.load(std::memory_order_acquire) &&
+        world != ground_probe_world &&
+        pinyon_shift::fh1_render_test::Enabled() &&
+        pinyon_shift::platform::EnvironmentFlag("PINYON_SHIFT_RALLY_GROUND_TRACE")) {
+      auto* kernel = rex::system::kernel_state();
+      auto* thread = rex::runtime::ThreadState::Get();
+      const uint32_t scratch = kernel->memory()->SystemHeapAlloc(48, 16);
+      if (scratch && thread) {
+        StoreGuestU32(scratch, 0);
+        const uint32_t handle = pinyon_shift::mod::CallGuest(FH1_ADDR(0x8247FC10u), {holder, 0});
+        if (handle && PinyonShiftGuestRangeReadable(handle, 4))
+          pinyon_shift::mod::CallGuest(FH1_ADDR(0x824893B0u), {scratch, LoadGuestU32(handle)});
+        const uint32_t scene = LoadGuestU32(scratch);
+        const uint32_t table = scene && PinyonShiftGuestRangeReadable(scene, 4) ? LoadGuestU32(scene) : 0;
+        const uint32_t method = table && PinyonShiftGuestRangeReadable(table + 164, 4) ? LoadGuestU32(table + 164) : 0;
+        const uint32_t collision = method && kernel->function_dispatcher()->GetFunction(method) ?
+            pinyon_shift::mod::CallGuest(method, {scene}) : 0;
+        static std::array<uint32_t, 4> previous_ground_context{UINT32_MAX, 0, 0, 0};
+        const std::array<uint32_t, 4> ground_context{handle, scene, method, collision};
+        if (ground_context != previous_ground_context) {
+          previous_ground_context = ground_context;
+          RecordEvent("dlc.rally.entry_ground_context", {
+              {"handle", Hex32(handle)}, {"scene", Hex32(scene)},
+              {"method", Hex32(method)}, {"collision", Hex32(collision)}});
+        }
+        if (collision) {
+          uint32_t queried = 0;
+          VehiclePose position;
+          { std::lock_guard lock(g_vehicle_hook_sample_mutex); position = g_rally_pace_pose; }
+          for (uint32_t id = 0; id <= 7; ++id) {
+            const uint32_t activity = id ? g_rally_entry_activities[id - 1].load(std::memory_order_acquire) : 0;
+            if (id && RallyActivitySeries(activity) != id) continue;
+            ++queried;
+            const float x = id ? LoadGuestF32(activity + 112) : position.x;
+            const float z = id ? LoadGuestF32(activity + 120) : position.z;
+            const float y = id ? 0 : position.y;
+            for (uint32_t offset : {16u, 32u}) {
+              StoreGuestF32(scratch + offset, x); StoreGuestF32(scratch + offset + 4, y);
+              StoreGuestF32(scratch + offset + 8, z); StoreGuestF32(scratch + offset + 12, 1);
+            }
+            auto* context = thread->context();
+            const auto f1 = context->f1, f2 = context->f2;
+            context->f1.f64 = LoadGuestF32(FH1_ADDR(0x82000D48u));
+            context->f2.f64 = LoadGuestF32(FH1_ADDR(0x82000D68u));
+            const uint32_t hit = pinyon_shift::mod::CallGuest(FH1_ADDR(0x82D10198u),
+                {collision, scratch + 16, scratch + 32});
+            context->f1 = f1; context->f2 = f2;
+            RecordEvent("dlc.rally.entry_ground_probe", {
+                {"series_id", fmt::format("{}", id)}, {"hit", Hex32(hit)},
+                {"x", fmt::format("{:.6f}", x)}, {"z", fmt::format("{:.6f}", z)},
+                {"y", fmt::format("{:.6f}", LoadGuestF32(scratch + 20))}});
+          }
+          if (queried == 8) ground_probe_world = world;
+        }
+        pinyon_shift::mod::CallGuest(FH1_ADDR(0x82DE7330u), {scratch});
+      }
+      if (scratch) kernel->memory()->SystemHeapFree(scratch);
+    }
+    // Rally's authored hub selects map entries without driving to their X/Z.
+    // Reuse the base generic activity's Enter path; it owns loading, game
+    // control and the return anchor. Never synthesize a race or a completion.
+    static uint32_t hub_ready_samples = 0;
+    static bool hub_probe_queued = false;
+    if (mode == 17 && profile_ready && PinyonShiftUseBuiltinRallyAdapter()) {
+      const auto now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count());
+      bool live_presentation = false;
+      {
+        std::lock_guard lock(g_vehicle_hook_sample_mutex);
+        live_presentation = g_rally_pace_pose_ms && now_ms - g_rally_pace_pose_ms <= 500;
+      }
+      hub_ready_samples = live_presentation ? hub_ready_samples + 1 : 0;
+      // Native LoadGame accepts a request only in its idle state (22).
+      // A host menu pauses presentation; keep a previously ready world ready
+      // across that pause instead of waiting for simulation to resume first.
+      const auto loader = pointer(FH1_ADDR(0x832E6364u), 4);
+      const bool loader_idle = loader && LoadGuestU32(loader) == 22;
+      // CIsGameControlInUse (sub_8291D3D0) tests this CGameControl through
+      // sub_828C7770: its first word is the current owner, zero when free.
+      // Garage/service flows retain game mode 17 while holding this control.
+      const auto control = pointer(FH1_ADDR(0x832E4A9Cu), 4);
+      const auto owner = control ? LoadGuestU32(control) : UINT32_MAX;
+      // The host menu signals XN_SYS_UI, whose native "pause" instance owns
+      // control even after the host menu closes. CInstance stores its token
+      // at +48 (sub_82AF59D8) and its state name at +4 (sub_82E4EED8).
+      // Preserve readiness for that pause only; a service keeps its own token.
+      const auto owner_name = owner >= 48 && owner != UINT32_MAX &&
+          PinyonShiftGuestRangeReadable(owner - 48, 52) &&
+          LoadGuestU32(owner - 48) == FH1_ADDR(0x8207F9CCu) ? pointer(owner - 44, 6) : 0;
+      const bool pause_owner = owner_name && LoadGuestU8(manager + 12) &&
+          PinyonShiftReadGuestAscii(owner_name, 6) == "pause";
+      const bool control_available = control && (!owner || pause_owner);
+      if (!loader_idle || !control_available)
+        g_rally_hub_available.store(false, std::memory_order_release);
+      else if (hub_ready_samples >= 10)
+        g_rally_hub_available.store(true, std::memory_order_release);
+      if (trace) {
+        static std::array<uint32_t, 4> previous{};
+        const std::array<uint32_t, 4> current{owner,
+            uint32_t(loader_idle), uint32_t(rex::kernel::xam::xeXamIsUIActive()),
+            uint32_t(g_rally_hub_available.load(std::memory_order_acquire))};
+        if (current != previous) {
+          previous = current;
+          RecordEvent("dlc.rally.hub_context", {{"control_owner", Hex32(current[0])},
+              {"control_available", control_available ? "1" : "0"},
+              {"owner_name", owner_name ? PinyonShiftReadGuestAscii(owner_name, 64) : ""},
+              {"loader_idle", fmt::format("{}", current[1])},
+              {"host_ui", fmt::format("{}", current[2])},
+              {"available", fmt::format("{}", current[3])}});
+        }
+      }
+      if (!control_available && g_rally_hub_selection.exchange(0, std::memory_order_acq_rel))
+        RecordEvent("dlc.rally.hub_error", {{"error", "leave the current service before selecting Rally"}});
+      if (hub_ready_samples >= 10 && loader_idle) TraceDlcCars();
+      if (g_rally_hub_selection.load(std::memory_order_acquire) == 8) {
+        g_rally_hub_selection.store(0, std::memory_order_release);
+        if (progress && progress->CancelAttempt()) {
+          g_rally_resume_route.store(0, std::memory_order_release);
+          g_rally_saved_event.store(0, std::memory_order_release);
+          unfinished_series_stage = false;
+          RecordEvent("dlc.rally.series_retired", {{"source", "player"}});
+        } else {
+          RecordEvent("dlc.rally.hub_error", {{"error", "Rally retirement could not be saved"}});
+        }
+      }
+      if (!hub_probe_queued && hub_ready_samples >= 10 && pinyon_shift::fh1_render_test::Enabled()) {
+        const auto probe = pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_RALLY_HUB_PROBE").value_or("");
+        if (probe.size() == 1 && probe[0] >= '1' && probe[0] <= '7') {
+          hub_probe_queued = PinyonShiftStartRallySeries(uint32_t(probe[0] - '0'));
+        }
+      }
+      // The private native menu closes through Resume before activity entry.
+      // Host F6 entry retains its existing pause handoff; applying this gate
+      // there leaves that pause alive and prevents the queued activity.
+      static const bool native_pause_entry = pinyon_shift::fh1_render_test::Enabled() &&
+          UiExperimentModeValue() == UiExperimentMode::kSceneCompanions &&
+          !pinyon_shift::platform::EnvironmentVariable(
+              "PINYON_SHIFT_UI_COMPANION_RALLY_ENTRY").value_or("").empty();
+      if (g_rally_hub_available.load(std::memory_order_acquire) &&
+          (!native_pause_entry || !owner) &&
+          !rex::kernel::xam::xeXamIsUIActive()) {
+        const auto id = g_rally_hub_selection.exchange(0, std::memory_order_acq_rel);
+        if (id) {
+          const uint32_t activity = g_rally_entry_activities[id - 1].load(std::memory_order_acquire);
+          if (RallyActivitySeries(activity) == id && !LoadGuestU8(activity + 44)) {
+            RecordEvent("dlc.rally.hub_selected", {{"series_id", fmt::format("{}", id)},
+                {"activity", Hex32(activity)}, {"source", hub_probe_queued ? "private_probe" : "player"}});
+            pinyon_shift::mod::CallGuest(FH1_ADDR(0x828BA0C0u), {activity});
+            cancel(); return;
+          }
+          RecordEvent("dlc.rally.hub_error", {{"error", "Rally activity is unavailable"}});
+        }
+      }
+    } else {
+      hub_ready_samples = 0;
+      if (g_rally_hub_selection.exchange(0))
+        RecordEvent("dlc.rally.hub_error", {{"error", "select Rally from free roam"}});
+    }
+    const uint32_t statistics = pointer(FH1_ADDR(0x832FF1D8u), 872);
+    const uint32_t record = statistics ?
+        pinyon_shift::mod::CallGuest(FH1_ADDR(0x8262B348u), {statistics, car}) : 0;
+    if (!record || !PinyonShiftGuestRangeReadable(record, 169)) { QueueRallyPace(0, 0, 0, 0); cancel(); return; }
+    const uint32_t serial = LoadGuestU32(car + 14564);
+    const bool started = LoadGuestU8(manager + 14) != 0;
+    const bool ended = LoadGuestU8(car + 14603) != 0;
+    // Diagnostic driving after normal owned-content entry, without modifying
+    // its verified flow assets. CDisableAIPlayerCarControls uses this same
+    // native setter (sub_828FEAF8); zero restores player control, one enables AI.
+    static uint32_t ai_driver_serial = 0, ai_driver_car = 0;
+    if (!route || !started || ended) {
+      if (ai_driver_serial && ai_driver_serial == serial && ai_driver_car == car &&
+          PinyonShiftGuestRangeReadable(car, 15228) && pointer(car + 15216, 24)) {
+        pinyon_shift::mod::CallGuest(FH1_ADDR(0x8249E570u), {car, 0});
+        RecordEvent("fh1.render_test.rally_ai_released", {
+            {"race_serial", fmt::format("{}", serial)}, {"car", Hex32(car)},
+            {"control_mode", fmt::format("{}", LoadGuestU32(car + 15224))}});
+      }
+      ai_driver_serial = ai_driver_car = 0;
+    }
+    else if (pinyon_shift::fh1_render_test::Enabled() &&
+             REXCVAR_GET(fh1_render_test_rally_ai_driver) && serial != ai_driver_serial &&
+             PinyonShiftGuestRangeReadable(car, 15228) && pointer(car + 15216, 24)) {
+      pinyon_shift::mod::CallGuest(FH1_ADDR(0x8249E570u), {car, 0});
+      pinyon_shift::mod::CallGuest(FH1_ADDR(0x8249E570u), {car, 1});
+      ai_driver_serial = serial;
+      ai_driver_car = car;
+      RecordEvent("fh1.render_test.rally_ai_driver", {{"route", fmt::format("{}", route)},
+          {"race_serial", fmt::format("{}", serial)}, {"car", Hex32(car)},
+          {"control_mode", fmt::format("{}", LoadGuestU32(car + 15224))}});
+    }
+    const uint8_t reason = LoadGuestU8(record + 168);
+    const double seconds = number64(record + 72);
+    const bool solo_world = PinyonShiftGuestRangeReadable(world + 128, 8) &&
+        LoadGuestU32(world + 132) - LoadGuestU32(world + 128) == 4;
+    QueueRallyPace(started && !ended && solo_world ? route : 0, serial, seconds, car);
+    pinyon_shift::rally::FlushAudioProbeCapture();
+    if (mapping.has_series() && route && started && !ended && seconds >= 5.0)
+      ProbeRallyAudio();
+    if (profile_ready) {
+      bool series_ready = true;
+      if (mapping.has_series() && route && started && !ended) {
+        series_ready = progress->SelectSeries(mapping.SeriesForRoute(route));
+        if (series_ready) unfinished_series_stage = true;
+      }
+      // Both finish accumulators must agree before the stable result is saved.
+      const bool valid_finish = !ended || (std::isfinite(seconds) &&
+          std::abs(seconds - number64(record + 88)) < 0.000001);
+      if (series_ready && progress->Observe({route, serial, started, ended,
+                            reason, valid_finish ? seconds : 0.0})) {
+        unfinished_series_stage = false;
+        g_rally_next_route.store(progress->next_route(), std::memory_order_release);
+        g_rally_resume_route.store(progress->next_route(), std::memory_order_release);
+        g_rally_saved_event.store(event, std::memory_order_release);
+        pinyon_shift::fh1_render_test::ObserveRallyStageSaved();
+        const auto& saved = progress->stages()[*pinyon_shift::rally::StageIndex(route)];
+        RecordEvent("dlc.rally.stage_completed", {{"route", fmt::format("{}", route)},
+            {"event_id", fmt::format("{}", event)},
+            {"race_serial", fmt::format("{}", serial)}, {"seconds", fmt::format("{:.6f}", seconds)},
+            {"completions", fmt::format("{}", saved.completions)},
+            {"best_seconds", fmt::format("{:.6f}", saved.best_seconds)}});
+        const auto series_id = progress->selected_series();
+        if (series_id) RecordEvent("dlc.rally.series_stage_saved", {
+            {"series_id", fmt::format("{}", series_id)}, {"route", fmt::format("{}", route)},
+            {"completed", fmt::format("{}", progress->attempt().completed)},
+            {"next_route", fmt::format("{}", progress->next_route())},
+            {"total_seconds", fmt::format("{:.6f}", progress->attempt().total_seconds())},
+            {"series_completions", fmt::format("{}", progress->series()[series_id - 1].completions)}});
+      }
+      if (mapping.has_series())
+        g_rally_resume_route.store(progress->next_route(), std::memory_order_release);
+      if (progress->error() != last_error) {
+        last_error = progress->error();
+        if (!last_error.empty()) RecordEvent("dlc.rally.progress_error", {{"error", last_error}});
+      }
+    }
+    if (trace) RecordEvent(
+        "dlc.rally.race_trace",
+        {{"car", Hex32(car)}, {"race_serial", fmt::format("{}", LoadGuestU32(car + 14564))},
+         {"driver_type", fmt::format("{}", LoadGuestU32(car + 11728))},
+         {"event_id", fmt::format("{}", event)}, {"mode", fmt::format("{}", mode)},
+         {"route", fmt::format("{}", route)},
+         {"started", fmt::format("{}", LoadGuestU8(manager + 14))},
+         {"ended", fmt::format("{}", LoadGuestU8(car + 14603))},
+         {"end_reason", fmt::format("{}", LoadGuestU8(record + 168))},
+         {"manager_time", fmt::format("{:.6f}", number64(manager + 32))},
+         {"time_72", fmt::format("{:.6f}", number64(record + 72))},
+         {"time_88", fmt::format("{:.6f}", number64(record + 88))}});
+  });
+}
+
 void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   PROFILE_SIMULATION_TICK();
   pinyon_shift::stall::NoteFrame();
   ApplyUiMutationExperiment();
+  SampleUiPauseControl();
   // The trainer's collectible markers (NP-8.6) queue their pass here, so it
   // also runs while the pause map is open.
   pinyon_shift::cheats::UpdateCollectibleMarkers();
   // The Treasure Map add-on's reveal, when the setting owns it.
   pinyon_shift::dlc::UpdateTreasureMap();
+  QueueRallyRaceTrace();
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_FRAME_TICK)) {
@@ -4044,7 +6235,7 @@ static void PinyonShiftHoldTimeOfDay() {
   if (seconds < 0.0) {
     return;
   }
-  constexpr uint32_t kWorldHolder = 0x832DF024u;
+  constexpr uint32_t kWorldHolder = FH1_ADDR(0x832DF024u);
   constexpr uint32_t kWorldTimeOfDay = 232;
   constexpr uint32_t kTimeOfDaySeconds = 10488;
   constexpr uint32_t kTimeOfDayScriptHold = 10505;
@@ -4086,7 +6277,7 @@ static void PinyonShiftApplyFreeCamera() {
   }
   applied = wanted;
   pinyon_shift::mod::EnqueueHostGuestTask([wanted] {
-    constexpr uint32_t kWorldHolder = 0x832DF024u;
+    constexpr uint32_t kWorldHolder = FH1_ADDR(0x832DF024u);
     const uint32_t holder = LoadGuestU32(kWorldHolder);
     if (holder == 0 || !PinyonShiftGuestRangeReadable(holder + 4u, 4)) {
       return;
@@ -4099,17 +6290,17 @@ static void PinyonShiftApplyFreeCamera() {
     if (world == 0) {
       return;
     }
-    const uint32_t count = pinyon_shift::mod::CallGuest(0x82486C40u, {world});
+    const uint32_t count = pinyon_shift::mod::CallGuest(FH1_ADDR(0x82486C40u), {world});
     for (uint32_t i = 0; i < count && i < 4; ++i) {
       if (wanted) {
-        const uint32_t controller = pinyon_shift::mod::CallGuest(0x82486C70u, {world, i});
+        const uint32_t controller = pinyon_shift::mod::CallGuest(FH1_ADDR(0x82486C70u), {world, i});
         if (controller != 0) {
-          pinyon_shift::mod::CallGuest(0x82858638u, {controller, 6u});
+          pinyon_shift::mod::CallGuest(FH1_ADDR(0x82858638u), {controller, 6u});
         }
       } else {
-        const uint32_t controller = pinyon_shift::mod::CallGuest(0x82486B40u, {world, i});
+        const uint32_t controller = pinyon_shift::mod::CallGuest(FH1_ADDR(0x82486B40u), {world, i});
         if (controller != 0) {
-          pinyon_shift::mod::CallGuest(0x825A86F8u, {controller});
+          pinyon_shift::mod::CallGuest(FH1_ADDR(0x825A86F8u), {controller});
         }
       }
     }
@@ -4137,12 +6328,12 @@ static void PinyonShiftApplyCredits() {
   }
   queued.store(true, std::memory_order_release);
   pinyon_shift::mod::EnqueueHostGuestTask([] {
-    constexpr uint32_t kUserHolder = 0x832DF024u;
+    constexpr uint32_t kUserHolder = FH1_ADDR(0x832DF024u);
     constexpr uint32_t kHolderUser = 108;
     constexpr uint32_t kProfileLoaded = 40;
-    constexpr uint32_t kProfileFromUser = 0x824F04B0u;
-    constexpr uint32_t kProfileCredits = 0x824E4F78u;
-    constexpr uint32_t kProfileSetCredits = 0x824F2FA0u;
+    constexpr uint32_t kProfileFromUser = FH1_ADDR(0x824F04B0u);
+    constexpr uint32_t kProfileCredits = FH1_ADDR(0x824E4F78u);
+    constexpr uint32_t kProfileSetCredits = FH1_ADDR(0x824F2FA0u);
     constexpr int64_t kMaximumCredits = 999'999'999;
     const pinyon_shift::cheats::CreditsChange change = pinyon_shift::cheats::TakeCredits();
     if (change.set < 0 && change.add == 0) {
@@ -4452,6 +6643,12 @@ void PinyonShiftTraceVehiclePose(PPCRegister& r1, PPCRegister& r30,
 
   pinyon_shift::fh1_render_test::ObserveVehiclePose(effective.x, effective.y,
                                                     effective.z);
+  static const bool pace_probe = PinyonShiftRallyPaceEnabled();
+  if (pace_probe) {
+    std::lock_guard lock(g_vehicle_hook_sample_mutex);
+    g_rally_pace_pose = effective;
+    g_rally_pace_pose_ms = now_ms;
+  }
 
   if (suppressed && FrameTelemetryEnabled()) {
     uint64_t previous_discontinuity_ms =
@@ -4531,7 +6728,7 @@ void PinyonShiftTraceSavePreEncryption(PPCRegister& r4, PPCRegister& r5) {
     pinyon_shift::mod::Dispatch(event);
   }
   pinyon_shift::mod::RecordSave(r4.u32, r5.u32);
-  SnapshotSavePayload("plaintext", r4.u32, r5.u32, 0x82C666D4u);
+  SnapshotSavePayload("plaintext", r4.u32, r5.u32, FH1_ADDR(0x82C666D4u));
   ScanLiveProfile(r4.u32, r5.u32);
 }
 
@@ -4541,7 +6738,7 @@ void PinyonShiftObserveSaveDecrypted(PPCRegister& r24, PPCRegister& r30) {
   if (address == 0 || size == 0 || size > (16u << 20)) {
     return;
   }
-  SnapshotSavePayload("loaded", address, size, 0x82C66594u);
+  SnapshotSavePayload("loaded", address, size, FH1_ADDR(0x82C66594u));
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_SAVE_AFTER_DECRYPT)) {
     PinyonHookEvent event{};
     event.hook = PINYON_HOOK_SAVE_AFTER_DECRYPT;
@@ -5422,6 +7619,7 @@ void UiSceneInsertDeliver(uint32_t stream, uint32_t destination,
     }
     state.decided = true;
     state.ours = matches;
+    if (matches) g_ui_scene_tree_walk_trace_enabled.store(true, std::memory_order_relaxed);
     UiSceneInsertRecord("ui.experiment.scene_insert.stream",
                         {{"stream", Hex32(stream)},
                          {"decision", matches ? "pause_member" : "other"},
@@ -5856,6 +8054,28 @@ void PinyonShiftTraceUiSceneReadStep(PPCRegister& r3, PPCRegister& r28,
 // to the copy helper, so this records where each item byte comes from.
 void PinyonShiftTraceUiSceneStreamRead(PPCRegister& r3, PPCRegister& r4,
                                        PPCRegister& r5) {
+  if (UiExperimentModeValue() == UiExperimentMode::kSceneCompanions &&
+      UiTraceEnabled() &&
+      pinyon_shift::fh1_render_test::Enabled() &&
+      PinyonShiftGuestRangeReadable(r3.u32 + 4u, 4u)) {
+    const uint32_t cursor = LoadGuestU32(r3.u32 + 4u);
+    const uint32_t holder = UiSceneWordOrZero(cursor);
+    const uint32_t resource = UiSceneWordOrZero(holder);
+    const uint32_t data = UiSceneWordOrZero(resource + 112u);
+    const uint32_t size = UiSceneWordOrZero(resource + 116u);
+    static std::mutex mutex;
+    static std::set<std::pair<uint32_t, uint32_t>> seen;
+    std::lock_guard lock(mutex);
+    if (seen.size() < 64u && seen.emplace(resource, size).second) {
+      pinyon_shift::diagnostics::RecordEvent(
+          "ui.experiment.scene_companions.cursor",
+          {{"reader", Hex32(r3.u32)}, {"cursor", Hex32(cursor)},
+           {"resource", Hex32(resource)}, {"resource_words", UiSceneHexWords(resource, 32u)},
+           {"data", Hex32(data)}, {"bytes", Hex32(size)},
+           {"prefix", UiSceneGuestBytes(data, 32u)},
+           {"fread", Hex32(UiSceneWordOrZero(FH1_ADDR(0x832BE9ECu)))}});
+    }
+  }
   if (UiExperimentModeValue() == UiExperimentMode::kSceneInsert) {
     UiSceneInsertCaptureRead(r3.u32, r4.u32, r5.u32);
   }

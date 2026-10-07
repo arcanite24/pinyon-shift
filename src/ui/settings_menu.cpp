@@ -17,6 +17,7 @@
 #include "cheats.h"
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
+#include "pinyon_shift_runtime_hooks.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -68,15 +69,14 @@ bool SameValue(std::string_view a, std::string_view b) {
          });
 }
 
-// Settings the running game cannot take: the graphics API and its recorder
-// thread are chosen when the renderer starts, the language and the cheats'
-// separate profile when the title boots, the save edits when the profile
-// loads, and shader preparation runs before the game starts.
+// SDK lifecycle metadata covers renderer settings, including Android MSAA.
+// Project settings below are consumed when the title or profile loads.
 bool NeedsRestart(std::string_view name) {
+  if (const auto* flag = rex::cvar::GetFlagInfo(name);
+      flag && flag->lifecycle != rex::cvar::Lifecycle::kHotReload) return true;
   static constexpr std::string_view kNames[] = {
-      "gpu_backend",       "gpu_record_thread",        "user_language",
+      "user_language",
       "user_country",      "pinyon_shift_cheats",      "cheat_set_profile_fields",
-      "pinyon_shift_prepare_all_scales",
   };
   return std::find(std::begin(kNames), std::end(kNames), name) != std::end(kNames);
 }
@@ -140,6 +140,8 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   std::unique_ptr<MenuScreen> Mods();
   std::unique_ptr<MenuScreen> Cheats();
   std::unique_ptr<MenuScreen> ModActions();
+  std::unique_ptr<MenuScreen> Rally();
+  std::unique_ptr<MenuScreen> ConfirmRallyRetirement();
 
  public:
   std::unique_ptr<MenuScreen> Trainer();
@@ -337,9 +339,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
                           {"60", {{"host_present_fps_limit", "60"}}},
                           {"120", {{"host_present_fps_limit", "120"}}},
                           {"240", {{"host_present_fps_limit", "240"}}}}));
-#if !defined(__ANDROID__)
-  rows.push_back(Toggle("VARIABLE REFRESH RATE", "d3d12_allow_variable_refresh_rate_and_tearing"));
-#endif
   // How the rendered image is scaled to the window: FSR 1 and CAS keep 2x
   // on a 4K display and 3x on 1440p sharp where bilinear blurs. The page's
   // note gives both sizes.
@@ -364,8 +363,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // PB-5: whole setups at once; any other combination reads CUSTOM. Both
   // render on Vulkan with the split GPU commands thread. The 120 fps preset
   // renders at 1x and scales to the display with FSR 1; at 2x the race's
-  // busiest part runs at a 12.7 ms median (79 fps), so it holds 60. At 3x
-  // Vulkan is GPU-bound at about 29 ms, where Direct3D 12 takes 17.5 ms.
+  // busiest part runs at a 12.7 ms median (79 fps), so it holds 60.
 #if defined(__ANDROID__)
   // AP-7.5: a handheld renders at 1x (AP-2.5) and trades frame rate for
   // battery and heat. BATTERY 30 is the Xbox 360's own rate (the guest
@@ -416,14 +414,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"pinyon_shift_fh1_render_fps_limit", "60"}}}}));
 #endif
-  // Vulkan (the default since config schema 27) records draws on a second
-  // thread; Direct3D 12 loads prebuilt shader packs and keeps one thread.
-#if !defined(__ANDROID__)
-  rows.push_back(Setting("GRAPHICS API",
-                         {{"VULKAN", {{"gpu_backend", "\"vulkan\""}, {"gpu_record_thread", "true"}}},
-                          {"DIRECT3D 12",
-                           {{"gpu_backend", "\"d3d12\""}, {"gpu_record_thread", "false"}}}}));
-#endif
   std::vector<Choice> scales;
   // Android renders at 1x: higher scales need resolve buffers a phone's
   // shared memory cannot hold (AP-2.5).
@@ -437,8 +427,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
     scales.push_back({value + "X",
                       {{"draw_resolution_scale_x", value}, {"draw_resolution_scale_y", value}}});
   }
-  // Both renderers switch between frames; D3D12 only to a scale with a
-  // prepared shader pack, so a restart after preparation is asked for then.
+  // Vulkan switches resolution scale between frames.
   MenuRow resolution = Setting("RESOLUTION SCALE", std::move(scales));
   if (services_.draw_resolution_scale) {
     resolution.restart_pending = [this] {
@@ -447,10 +436,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
     };
   }
   rows.push_back(std::move(resolution));
-  // Read by graphics preparation before the next start.
-#if !defined(__ANDROID__)
-  rows.push_back(Toggle("PREPARE ALL SCALES", "pinyon_shift_prepare_all_scales"));
-#endif
   // anisotropic_override holds the Xenos filter: 3, 4 and 5 are 4x, 8x, 16x;
   // -1 keeps what each of the game's textures asks for.
   rows.push_back(Setting("ANISOTROPIC FILTERING",
@@ -468,6 +453,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                          {{"OFF", {{"swap_post_effect", "\"none\""}}},
                           {"FXAA", {{"swap_post_effect", "\"fxaa\""}}},
                           {"FXAA EXTREME", {{"swap_post_effect", "\"fxaa_extreme\""}}}}));
+  rows.push_back(Toggle("BLOOM", "disable_bloom", true));
   rows.push_back(Toggle("MOTION BLUR", "disable_motion_blur", true));
   rows.push_back(Toggle("DEPTH OF FIELD", "disable_depth_of_field", true));
   auto note = [this, restart = RestartNote(rows)] {
@@ -738,6 +724,7 @@ std::unique_ptr<MenuScreen> SettingsPages::TrainerVehicle() {
 
 std::unique_ptr<MenuScreen> SettingsPages::TrainerGraphics() {
   std::vector<MenuRow> rows;
+  rows.push_back(Toggle("BLOOM", "disable_bloom", true));
   rows.push_back(Toggle("MOTION BLUR", "disable_motion_blur", true));
   rows.push_back(Toggle("DEPTH OF FIELD", "disable_depth_of_field", true));
   rows.push_back(Toggle("TRILINEAR FILTERING", "force_trilinear_filtering"));
@@ -1017,7 +1004,52 @@ std::unique_ptr<MenuScreen> SettingsPages::Root() {
     };
     rows.push_back(std::move(row));
   }
+  if (PinyonShiftUseBuiltinRallyAdapter()) rows.push_back(Page("HORIZON RALLY", &SettingsPages::Rally));
   return std::make_unique<MenuScreen>("SETTINGS", std::move(rows));
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::Rally() {
+  std::vector<MenuRow> rows;
+  for (uint32_t id = 1; id <= 7; ++id) {
+    MenuRow row;
+    row.label = "CHAMPIONSHIP " + std::to_string(id);
+    row.value = [id] {
+      const auto stage = PinyonShiftRallyResumeStage(id);
+      return stage ? "RESUME STAGE " + std::to_string(stage) : std::string("START");
+    };
+    row.enabled = [id] { return PinyonShiftCanStartRallySeries(id); };
+    row.activate = [this, id] { if (PinyonShiftStartRallySeries(id)) host_ui_.Close(); };
+    rows.push_back(std::move(row));
+  }
+  MenuRow retire;
+  retire.label = "RETIRE CURRENT CHAMPIONSHIP";
+  retire.enabled = [] {
+    for (uint32_t id = 1; id <= 7; ++id)
+      if (PinyonShiftRallyResumeStage(id) && PinyonShiftCanStartRallySeries(id)) return true;
+    return false;
+  };
+  retire.activate = [this] { host_ui_.Push(ConfirmRallyRetirement()); };
+  rows.push_back(std::move(retire));
+  return std::make_unique<MenuScreen>("HORIZON RALLY", std::move(rows), [] {
+    return std::string("FOUR STAGES PER CHAMPIONSHIP; LEAVE GARAGE OR SERVICE MENUS TO START");
+  });
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::ConfirmRallyRetirement() {
+  auto self = std::make_shared<const MenuScreen*>(nullptr);
+  std::vector<MenuRow> rows(2);
+  rows[0].label = "RETIRE CHAMPIONSHIP";
+  rows[0].activate = [this, self] {
+    if (PinyonShiftRetireRallySeries()) host_ui_.Finish(*self);
+  };
+  rows[1].label = "KEEP CHAMPIONSHIP";
+  rows[1].activate = [this, self] { host_ui_.Finish(*self); };
+  auto screen = std::make_unique<MenuScreen>("RETIRE CHAMPIONSHIP?", std::move(rows));
+  screen->set_body("End the unfinished championship and discard its current total. "
+                   "Completed stage results and best times are kept.");
+  screen->SetFocus(1);
+  *self = screen.get();
+  return screen;
 }
 
 }  // namespace

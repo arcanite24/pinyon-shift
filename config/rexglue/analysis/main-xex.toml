@@ -4,10 +4,116 @@
 
 includes = ["fh1-post-processing.toml"]
 
-# Microsoft CRT non-local jump pair. These must be semantic codegen hooks so a
+# Microsoft CRT non-local jump pair. Keep these root keys before any table:
 # longjmp restores the host-side PPCContext captured at the setjmp call site.
 setjmp_address = 0x82A81E80
 longjmp_address = 0x82A81950
+
+# Scripted, default-off companion experiment: match the complete original
+# decoded member at the borrowed-buffer stream constructor. This avoids ZIP
+# repacking and does not enable the older scene_insert pointer repairs.
+[[midasm_hook]]
+address = 0x82C7E0B0
+name = "PinyonShiftUiCompanionMemoryStream"
+registers = ["r4", "r5"]
+
+# Private native list-model qualification before CPauseMenu binds its model.
+[[midasm_hook]]
+address = 0x8271B408
+name = "PinyonShiftUiCompanionPauseModel"
+registers = ["r3"]
+context = true
+
+[[midasm_hook]]
+address = 0x82739D00
+name = "PinyonShiftUiCompanionPauseAction"
+registers = ["r3", "r4", "r6"]
+
+# Read-only, opt-in accounting for native pause-button lifetimes. The release
+# boundary follows the deleting destructor's optional free call.
+[[midasm_hook]]
+address = 0x8264FBA0
+name = "PinyonShiftUiCompanionButtonConstruct"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82653938
+name = "PinyonShiftUiCompanionButtonDestroy"
+registers = ["r3", "r4"]
+
+[[midasm_hook]]
+address = 0x8265397C
+name = "PinyonShiftUiCompanionButtonRelease"
+registers = ["r31", "r30"]
+
+[[midasm_hook]]
+address = 0x82720BF8
+name = "PinyonShiftUiCompanionPauseDestroy"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82720CC0
+name = "PinyonShiftUiCompanionPauseModelCleared"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82726350
+name = "PinyonShiftUiCompanionPauseRelease"
+registers = ["r31", "r30"]
+
+# Read-only scripted pause input probe after querying resume actions 95/103.
+[[midasm_hook]]
+address = 0x8271CD58
+name = "PinyonShiftUiCompanionPauseInputMatch"
+registers = ["r3", "r30", "r31"]
+
+# UI4's fread callback: decoded BGF/BSG copy source immediately before memcpy.
+[[midasm_hook]]
+address = 0x82E614FC
+name = "PinyonShiftUiCompanionFileRead"
+registers = ["r4", "r5", "r30", "r31"]
+
+# The active garage car has just been cached after a save reload. The
+# normal change-car initializer can now reuse that record without recursing
+# into this fresh-load branch. Restore its transient upgrade views too.
+[[midasm_hook]]
+address = 0x82551760
+name = "PinyonShiftInitializeCarUpgradeViews"
+registers = ["r31"]
+
+# The tyre physics constructor requires a record. A saved Rally tyre with
+# missing/disabled content leaves it null; stop before its vtable dereference.
+[[midasm_hook]]
+address = 0x82BEFC50
+name = "PinyonShiftRequireTyrePhysicsRecord"
+registers = ["r30"]
+
+# Read-only, render-test-only DLC SQL diagnostics. Direct generated calls do
+# not use the function dispatcher: observe the native view guards and SQLite
+# prepare result at their call sites instead.
+[[midasm_hook]]
+address = 0x82551668
+name = "PinyonShiftTraceUpgradeViewGuard"
+registers = ["r3", "r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82551690
+name = "PinyonShiftTraceUpgradeViewCar"
+registers = ["r30", "r31"]
+
+[[midasm_hook]]
+address = 0x82C18964
+name = "PinyonShiftTraceDlcSqlPrepare"
+registers = ["r3", "r15", "r30"]
+
+# DLC-2: CTriggerZone's base parser reads named world objects, not the owned
+# Rally activation's explicit X/Z. Read those coordinates after its attributes
+# and before object binding can reuse r31. r29 is the trigger; r31 is the XML
+# reader. The runtime guard restricts the extension to the seven owned entries.
+[[midasm_hook]]
+address = 0x828D94FC
+name = "PinyonShiftReadRallyEntryPosition"
+registers = ["r29", "r31"]
 
 # NR-00 graphics-hook owner. This is the sole title call to VdSwap, observed
 # immediately before the import without changing registers or control flow.
@@ -121,6 +227,13 @@ name = "PinyonShiftTraceUiListMethod2"
 registers = ["r3", "r4", "r5"]
 
 [[midasm_hook]]
+# Private native Rally hub rendering fixture. Includes locked tickets only
+# while an explicit render-test probe is active; normal hubs are unchanged.
+address = 0x826A3304
+name = "PinyonShiftRallyNativeHubListProbe"
+registers = ["r4", "r5"]
+
+[[midasm_hook]]
 # Observe calls whose receiver is the verified CUI4TextElement vtable or the
 # text-resource object owned by a verified CPauseMenuButton. This narrows the
 # generic pair helper without mutating guest state.
@@ -163,6 +276,13 @@ registers = ["r3", "r4", "r5"]
 address = 0x828116C8
 name = "PinyonShiftTraceUiListConstructed"
 registers = ["r3", "r4", "r31"]
+
+# Zero only the current frame's bloom scale after the title's debug-mode
+# adjustment. The normal weather state and tone-mapping parameters are retained.
+[[midasm_hook]]
+address = 0x8246554C
+name = "PinyonShiftBloomScale"
+registers = ["r1"]
 
 # Observe the PAUSE_MENU_BUTTON factory entry before it allocates. The contract
 # argument and the return address name the contract-table caller that drives
@@ -348,6 +468,19 @@ registers = ["r3", "r4"]
 address = 0x82F2B230
 name = "PinyonShiftTraceUiAnimationAllocate"
 registers = ["r3", "r4", "r6", "r7", "r8", "r31"]
+
+# Read-only serialized-path resolution probe for the private inserted scene.
+# Direct generated calls bypass dispatcher replacement, so observe its actual
+# entry and common return. The host hooks pair nested calls on each thread.
+[[midasm_hook]]
+address = 0x82E72E68
+name = "PinyonShiftTraceUiPathBindingEnter"
+registers = ["r4", "r5"]
+
+[[midasm_hook]]
+address = 0x82E73008
+name = "PinyonShiftTraceUiPathBindingReturn"
+registers = ["r29"]
 
 [[midasm_hook]]
 address = 0x82E7A4E0

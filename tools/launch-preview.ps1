@@ -22,6 +22,8 @@ param(
     [int]$RenderTestTimeoutSeconds,
     [switch]$CollectFh1PassInventory,
     [switch]$SkipShaderPreparation,
+    # Render tests can exercise the same owned-entry preflight as normal play.
+    [switch]$VerifyRally,
     [switch]$RenderTestIncludeOpeningMovies,
     [switch]$DirectChildProcess,
     [string[]]$GameArguments = @(),
@@ -29,7 +31,12 @@ param(
     [switch]$Json,
     [switch]$JsonEvents,
     [switch]$Hidden,
-    [switch]$CrashSelfTest
+    [switch]$CrashSelfTest,
+    # Developer build of the FH1 v4 title update (TITLE_UPDATE_V4_BACKLOG):
+    # runs out/build/win-amd64-v4 with the verified update in
+    # <state>/title-update-v4. The expansion's own code replaces the
+    # base-disc Rally preparation.
+    [switch]$TitleUpdateV4
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +46,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $resolvedBuildDirectory = if ($BuildDirectory) {
     (Resolve-Path -LiteralPath $BuildDirectory).Path
+} elseif ($TitleUpdateV4) {
+    Join-Path $repoRoot 'out/build/win-amd64-v4'
 } else {
     Join-Path $repoRoot ('out/build/win-amd64-' + $Configuration.ToLowerInvariant())
 }
@@ -54,6 +63,35 @@ $resolvedStateRoot = if ($StateRoot) {
     Join-Path $repoRoot '.local/preview'
 }
 
+if ($TitleUpdateV4) {
+    $titleUpdate = Join-Path $resolvedStateRoot 'title-update-v4'
+    foreach ($name in 'default.xexp', 'SpeechFacade_default.xexp', 'XMediaFacade_default.xexp', 'media.zip') {
+        if (-not (Test-Path -LiteralPath (Join-Path $titleUpdate $name) -PathType Leaf)) {
+            throw "The v4 build needs the verified title update in $titleUpdate. Install it with tools/verify-fh1-title-update.py --install."
+        }
+    }
+    # A v4 save is one-way: the base build cannot load it afterwards. Keep a
+    # verified copy of every base-version profile before its first v4 load;
+    # tools/title-update-profile.py restore brings it back.
+    $profileBackup = & (Get-PinyonPython) (Join-Path $PSScriptRoot 'title-update-profile.py') backup `
+        --state-root $resolvedStateRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not back up the profile before its first v4 load: $profileBackup"
+    }
+    Write-Host 'FH1 v4 title update: saves written by this build cannot be loaded by the base build.'
+    # Optional offline 1000 Club (TITLE_UPDATE_V4_BACKLOG TU-7), chosen in the
+    # launcher: report a LIVE sign-in, answer 1000 Club's server checks and
+    # confirm completed goals locally. Render tests pass these flags explicitly.
+    $choice = Join-Path $resolvedStateRoot 'config/title-update.json'
+    if (-not $RenderTestScript -and (Test-Path -LiteralPath $choice -PathType Leaf)) {
+        $settings = Get-Content -LiteralPath $choice -Raw | ConvertFrom-Json
+        if ($settings.PSObject.Properties['club'] -and [bool]$settings.club) {
+            $GameArguments = @($GameArguments) + @('--pinyon_shift_car_challenge_gate_probe=true',
+                '--xam_report_live_signin=true')
+            Write-Host 'FH1 v4 title update: 1000 Club runs offline.'
+        }
+    }
+}
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw 'The preview has not been built. Run tools/setup-preview.ps1 first.'
 }
@@ -119,6 +157,21 @@ if (Test-Path -LiteralPath (Join-Path $resolvedStateRoot 'mods') -PathType Conta
     if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' archive members.' }
 }
 
+# Verify owned Rally and its generated cache before normal play. Diagnostic
+# scenarios retain their private overlays; no probe flag is needed by players.
+$verifiedRallyEntry = $false
+if (-not $TitleUpdateV4 -and ($VerifyRally -or -not ($RenderTestScript -or $ShaderCaptureDir -or $DiscShaderCorpusDir -or $CrashSelfTest))) {
+    $rallyContent = Join-Path $resolvedStateRoot 'user/0000000000000000/4D5309C9/00000002/6F6992766050D818245ADD408031E280FB5F4E634D'
+    if (Test-Path -LiteralPath $rallyContent -PathType Container) {
+        $rallyResult = & (Get-PinyonPython) (Join-Path $PSScriptRoot 'prepare-fh1-rally.py') `
+            --state-root $resolvedStateRoot --game-root $resolvedGameRoot `
+            --extractor (Join-Path $resolvedBuildDirectory 'pinyon_shift_fh1_archive_extract.exe')
+        if ($LASTEXITCODE -ne 0) { throw 'Could not verify and prepare Rally. Restore or re-import the verified Rally package in the DLC panel. Saved cars with Rally parts require this content.' }
+        $verifiedRallyEntry = (ConvertFrom-Json -InputObject ($rallyResult -join "`n")).entry_ready -eq $true
+    }
+}
+
+$savedRallyPrepared = $env:PINYON_SHIFT_RALLY_PREPARED
 $savedStateRoot = $env:PINYON_SHIFT_STATE_ROOT
 $savedGameRoot = $env:PINYON_SHIFT_GAME_ROOT
 $savedTearing = $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING
@@ -137,6 +190,7 @@ try {
     }
     $env:PINYON_SHIFT_STATE_ROOT = $resolvedStateRoot
     $env:PINYON_SHIFT_GAME_ROOT = $resolvedGameRoot
+    $env:PINYON_SHIFT_RALLY_PREPARED = if ($verifiedRallyEntry) { '1' } else { $null }
     $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING = 'false'
     $env:PINYON_SHIFT_CRASH_SELF_TEST = if ($CrashSelfTest) { '1' } else { $null }
     $env:PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR = if ($ShaderCaptureDir) {
@@ -234,6 +288,7 @@ try {
 finally {
     $env:PINYON_SHIFT_STATE_ROOT = $savedStateRoot
     $env:PINYON_SHIFT_GAME_ROOT = $savedGameRoot
+    $env:PINYON_SHIFT_RALLY_PREPARED = $savedRallyPrepared
     $env:REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING = $savedTearing
     $env:PINYON_SHIFT_CRASH_SELF_TEST = $savedCrashTest
     $env:PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR = $savedShaderCaptureDir
@@ -258,6 +313,17 @@ if ($RenderDocCommand) {
     if ($Json) { $result | ConvertTo-Json -Compress } else { $result }
     if ($exitCode -ne 0) { exit 1 }
     return
+}
+if ($exitCode -eq 1307) {
+    # The game stopped before dereferencing a missing saved tyre record.
+    # This needs the player's content restored, not a crash report.
+    $result = [ordered]@{
+        result = 'saved-content-unavailable'
+        process_id = $process.Id
+        exit_code = $exitCode
+    }
+    if ($Json) { $result | ConvertTo-Json -Compress } else { $result }
+    exit 1
 }
 if ($exitCode -ne 0) {
     $report = & (Join-Path $PSScriptRoot 'create-crash-report.ps1') `

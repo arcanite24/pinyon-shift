@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 import zipfile
 
@@ -14,41 +15,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ReleaseContractTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
-    def test_visual_studio_selection_excludes_incompatible_standard_library(self):
-        with tempfile.TemporaryDirectory(prefix="pinyon-vswhere-") as directory:
-            root = pathlib.Path(directory)
-            executable = root / "Microsoft Visual Studio/Installer/vswhere.exe"
-            executable.parent.mkdir(parents=True)
-            executable.touch()
-            environment = os.environ.copy()
-            environment["PINYON_TEST_ROOT"] = str(root)
-            command = r"""
-. ./tools/release-common.ps1
-${env:ProgramFiles(x86)} = $env:PINYON_TEST_ROOT
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-Set-Item -Path "Function:$vswhere" -Value {
-    param([Parameter(ValueFromRemainingArguments=$true)] $Arguments)
-    $rangeIndex = [Array]::IndexOf($Arguments, '-version')
-    if ($rangeIndex -lt 0) { return 'incompatible-vs2019' }
-    if ($Arguments[$rangeIndex + 1] -ne '[17.1,)') { throw 'Unexpected supported version range' }
-    if ($env:PINYON_TEST_HAS_SUPPORTED -eq '1') { return 'compatible-vs2022' }
-}
-$env:PINYON_TEST_HAS_SUPPORTED = '0'
-if ($null -ne (Get-PinyonVisualStudioRoot -AllowMissing)) { throw 'Old tools bypass provisioning' }
-try {
-    Get-PinyonVisualStudioRoot | Out-Null
-    throw 'Missing tools were accepted'
-} catch {
-    if ($_.Exception.Message -notmatch 'provision-toolchain.ps1') { throw }
-}
-$env:PINYON_TEST_HAS_SUPPORTED = '1'
-if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported tools were not selected' }
-"""
-            result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
-                                    cwd=ROOT, env=environment, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_vsdevcmd_uses_safe_temp_and_restores_portable_install_paths(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-vs-temp-") as directory:
@@ -93,6 +59,46 @@ exit 0
             result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
                                     cwd=ROOT, env=environment, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+    def test_visual_studio_selection_excludes_incompatible_standard_library(self):
+        with tempfile.TemporaryDirectory(prefix="pinyon-vswhere-") as directory:
+            root = pathlib.Path(directory)
+            executable = root / "Microsoft Visual Studio/Installer/vswhere.exe"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            environment = os.environ.copy()
+            environment["PINYON_TEST_ROOT"] = str(root)
+            command = r"""
+. ./tools/release-common.ps1
+${env:ProgramFiles(x86)} = $env:PINYON_TEST_ROOT
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+Set-Item -Path "Function:$vswhere" -Value {
+    param([Parameter(ValueFromRemainingArguments=$true)] $Arguments)
+    $rangeIndex = [Array]::IndexOf($Arguments, '-version')
+    if ($rangeIndex -lt 0) { return 'incompatible-vs2019' }
+    if ($Arguments[$rangeIndex + 1] -ne '[17.1,)') { throw 'Unexpected supported version range' }
+    if ($env:PINYON_TEST_HAS_SUPPORTED -eq '1') { return 'compatible-vs2022' }
+}
+$env:PINYON_TEST_HAS_SUPPORTED = '0'
+if ($null -ne (Get-PinyonVisualStudioRoot -AllowMissing)) { throw 'Old tools bypass provisioning' }
+try {
+    Get-PinyonVisualStudioRoot | Out-Null
+    throw 'Missing tools were accepted'
+} catch {
+    if ($_.Exception.Message -notmatch 'provision-toolchain.ps1') { throw }
+}
+$env:PINYON_TEST_HAS_SUPPORTED = '1'
+if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported tools were not selected' }
+"""
+            result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
+                                    cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_native_jump_addresses_remain_analysis_root_keys(self):
+        analysis = tomllib.loads((ROOT / "config/rexglue/analysis/main-xex.toml").read_text())
+        self.assertEqual(analysis["setjmp_address"], 0x82A81E80)
+        self.assertEqual(analysis["longjmp_address"], 0x82A81950)
 
     def test_release_workflow_publishes_only_preview_channels_as_prereleases(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
@@ -375,7 +381,7 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         }
         self.assertTrue(required.issubset({p.name for p in (ROOT / "tools").glob("*.ps1")}))
         package_script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
-        for shipped in ("host-config.ps1", "set-graphics-experiment.ps1", "verify-codegen-log.ps1"):
+        for shipped in ("host-config.ps1", "set-graphics-experiment.ps1", "verify-codegen-log.ps1", "prepare-fh1-rally.py", "patch-fh1-archive.py", "fh1-strings.py"):
             self.assertIn(shipped, package_script)
 
     def test_launcher_payload_ships_the_android_build(self):
@@ -499,7 +505,7 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 27", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 28", app)
         self.assertIn(".schema", app)
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
@@ -558,8 +564,8 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 27;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*27,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 28;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*28,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         self.assertIn('"keybind_a = \\"LMB,Space\\"\\n"', app)
         # Schemas 1..24 migrate; the current schema is accepted unchanged.
@@ -585,8 +591,8 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         ):
             self.assertIn(f'"{retired}"', retired_block)
         graphics_tool = (ROOT / "tools/set-graphics-experiment.ps1").read_text(encoding="utf-8")
-        self.assertIn("pinyon_shift_config_schema = 27", graphics_tool)
-        self.assertIn("-gt 27", graphics_tool)
+        self.assertIn("pinyon_shift_config_schema = 28", graphics_tool)
+        self.assertIn("-gt 28", graphics_tool)
         self.assertNotIn("-gt 23", graphics_tool)
         # Apply writes the current schema and so bypasses the game's
         # migration: it must drop every setting that migration retires.
@@ -655,9 +661,10 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertNotIn("AnisotropyComboBox", launcher_xaml)
         self.assertNotIn('"-Anisotropy"', launcher)
         self.assertIn('"-ResolutionScale", SelectedTag(ResolutionComboBox)', launcher)
-        # Schema 27: the graphics API (Vulkan by default) is chosen before start.
-        self.assertIn('"-GraphicsApi", SelectedTag(GraphicsApiComboBox)', launcher)
-        self.assertIn("GraphicsApiComboBox", launcher_xaml)
+        # Schema 28: player settings use Vulkan exclusively.
+        self.assertIn('"-GraphicsApi", "vulkan"', launcher)
+        self.assertNotIn("GraphicsApiComboBox", launcher_xaml)
+        self.assertIn('Text="Vulkan"', launcher_xaml)
         # The output scaling, with the rendered and shown sizes beside it.
         self.assertIn('"-OutputScaling", SelectedTag(OutputScalingComboBox)', launcher)
         self.assertIn("ResolutionLineText", launcher_xaml)

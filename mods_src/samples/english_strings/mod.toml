@@ -7,4 +7,5 @@
 name = "english_strings"
 version = "1.0.0"
 abi = 1
-game_version = "DB40DF605ADE49A6"
+# The base disc and the FH1 v4 title update (see docs/MODDING.md).
+game_version = ["DB40DF605ADE49A6", "74B033805AB1BCAA"]

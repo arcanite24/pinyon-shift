@@ -28,5 +28,13 @@ int main() {
   assert(api.Drain().size() == 2);
   assert(api.RemoveComponent(replacement, "remove") == Status::kOk);
   assert(api.SceneClosing(replacement) == Status::kOk);
+  assert(api.Drain().empty());
+  assert(api.SetText(replacement, "title", "closed") == Status::kStaleScene);
+  assert(api.SceneReady("pause_menu", 1, &scene) == Status::kStaleScene);
+  assert(api.SceneReady("pause_menu", 2, &scene) == Status::kStaleScene);
+  assert(api.SceneReady("pause_menu", 3, &scene) == Status::kOk);
+  assert(api.SetText(replacement, "title", "revived") == Status::kStaleScene);
+  assert(api.AddMenuItem(scene, "remove", "fresh scene") == Status::kOk);
+  assert(api.SceneClosing(scene) == Status::kOk);
   return 0;
 }

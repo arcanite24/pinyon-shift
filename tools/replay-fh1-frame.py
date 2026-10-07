@@ -53,7 +53,10 @@ def replay(args: argparse.Namespace) -> dict[str, object]:
             capture_output=True, text=True, check=True)
     # Pipelines are created synchronously: an asynchronous creation drops the
     # draw that requested it, which would make replays nondeterministic.
-    game_arguments = [f"--fh1_frame_replay={dump}", "--async_shader_compilation=false"]
+    # Replay executes packets directly on the GPU thread. A seed that enables
+    # the decoder/recorder split otherwise queues work without executing draws.
+    game_arguments = [f"--fh1_frame_replay={dump}", "--async_shader_compilation=false",
+                      "--gpu_record_thread=false"]
     game_arguments += args.game_argument or []
     command = [
         "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",

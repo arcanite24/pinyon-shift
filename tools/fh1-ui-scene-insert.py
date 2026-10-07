@@ -26,6 +26,12 @@ carries the row's whole contiguous record subtree, its owned identities, and
 its companion records;
 ``--clone pair`` copies only the wrapper and element records and is kept as the
 diagnostic comparison that shares the source row's objects.
+
+This edits BGF only. Its native-object IDs also reference the companion FBF;
+BGF-only subtree remapping does not create those objects and is unqualified
+for gameplay. ``fh1-ui-fbf.py --clone-row`` coordinates experimental BGF/FBF/BSG
+copies with separate ID domains. Check output against FBF with ``--bgf`` before
+interpreting BGF structural checks as native graph validation.
 """
 
 from __future__ import annotations
@@ -42,6 +48,9 @@ from typing import Iterable
 MARKER = b"AnarkBGF"
 MARKER_OFFSET = 6
 HEADER_RECORD_LENGTH = 0x1A
+# sub_82F260C8 reads this packed header word as the native object-ID ceiling.
+# sub_82F248F0 allocates both binding tables for ceiling + 1 entries.
+NATIVE_OBJECT_CEILING_OFFSET = 0x1B
 ITEM_HEADER_BYTES = 14
 WRAPPER_EXTRA_BYTES = 5
 PROPERTY_STRIDE = 8
@@ -219,24 +228,50 @@ def encode_relations(relations: Iterable[Relation]) -> bytes:
 
 
 def clone_companion_sections(data: bytes, start: int,
-                             item_map: dict[int, int]) -> tuple[bytes, dict]:
-    """Clone the three typed-object tables owned by the copied identities."""
+                             item_map: dict[int, int],
+                             shifted_items: dict[int, int] | None = None,
+                             identity_map: dict[int, int] | None = None) -> tuple[bytes, dict]:
+    """Clone row companions and relocate later items' existing references.
+
+    Inserting before the scene's trailing items moves their indexes too; their
+    existing style/track/animation records must still address those same items.
+    Clone from the original records so source and shifted domains stay distinct.
+    """
     cursor = start
+    shifted_items = shifted_items or {}
+    identity_map = identity_map or {}
+
+    def remap_string_keys(record: bytearray, offsets: list[int]) -> None:
+        # sub_82F26D90 and sub_82F284A8 resolve only type 20 key values
+        # through the identity table. Float/integer payloads are literals.
+        for offset in offsets:
+            tag = u32be(record, offset)
+            value = u32be(record, offset + 4)
+            # The loader unpacks the tag before masking type bits 2..4.
+            # Serialized bit 30 is an independent flag (A... and E... both
+            # carry string values); test bits 31, 29 and 28 only.
+            if (tag & 0xB0000000) == 0xA0000000 and value in identity_map:
+                put_u32be(record, offset + 4, identity_map[value])
 
     style_start = cursor
     style_declared = u32be(data, cursor)
     cursor += 4
     styles: list[bytes] = []
     cloned_styles: list[bytes] = []
+    style_map: dict[int, int] = {}
     style_children = 0
     for _ in range(u32be(data, STYLE_COUNT_OFFSET)):
         record_start = cursor
         child_count = struct.unpack_from(">H", data, cursor + 10)[0]
         cursor += 12 + child_count * 24
         record = data[record_start:cursor]
-        styles.append(record)
         owner = u32be(record, 0)
+        relocated = bytearray(record)
+        if owner in shifted_items:
+            put_u32be(relocated, 0, shifted_items[owner])
+        styles.append(bytes(relocated))
         if owner in item_map:
+            style_map[len(styles) - 1] = u32be(data, STYLE_COUNT_OFFSET) + len(cloned_styles)
             copy = bytearray(record)
             put_u32be(copy, 0, item_map[owner])
             cloned_styles.append(bytes(copy))
@@ -250,11 +285,14 @@ def clone_companion_sections(data: bytes, start: int,
     tracks: list[bytes] = []
     cloned_tracks: list[bytes] = []
     track_children = track_keys = 0
+    source_track_keys = 0
+    track_key_map: dict[int, int] = {}
     for _ in range(u32be(data, TRACK_COUNT_OFFSET)):
         record_start = cursor
         owner, child_count = struct.unpack_from(">II", data, cursor)
         cursor += 8
         reference_offsets = []
+        string_key_offsets = []
         keys = 0
         for _ in range(child_count):
             key_count = u32be(data, cursor + 4)
@@ -263,21 +301,33 @@ def clone_companion_sections(data: bytes, start: int,
             for _ in range(key_count):
                 reference_offsets.extend((cursor - record_start,
                                           cursor - record_start + 4))
+                string_key_offsets.append(cursor - record_start + 12)
                 cursor += 20
         record = data[record_start:cursor]
-        tracks.append(record)
+        relocated = bytearray(record)
+        for offset in (0, *reference_offsets):
+            value = u32be(relocated, offset)
+            if value in shifted_items:
+                put_u32be(relocated, offset, shifted_items[value])
+        tracks.append(bytes(relocated))
         if owner in item_map:
+            for index in range(keys):
+                track_key_map[source_track_keys + index] = track_keys + index
             copy = bytearray(record)
             put_u32be(copy, 0, item_map[owner])
             for offset in reference_offsets:
                 value = u32be(copy, offset)
                 if value in item_map:
                     put_u32be(copy, offset, item_map[value])
+            remap_string_keys(copy, string_key_offsets)
             cloned_tracks.append(bytes(copy))
             track_children += child_count
             track_keys += keys
+        source_track_keys += keys
     if cursor != track_start + 4 + track_declared:
         raise SceneInsertError("track records do not consume their declaration")
+    track_key_map = {old: source_track_keys + copied
+                     for old, copied in track_key_map.items()}
 
     empty_declared = u32be(data, cursor)
     empty_section = data[cursor:cursor + 4 + empty_declared]
@@ -301,20 +351,31 @@ def clone_companion_sections(data: bytes, start: int,
         cursor += 4
         keys = events = aux = 0
         track_owner_offsets = []
+        string_key_offsets = []
+        event_offsets = []
         for _ in range(track_count):
             track_owner_offsets.append(cursor - record_start)
             cursor += 5
             key_count = u32be(data, cursor)
             cursor += 4
             keys += key_count
+            string_key_offsets.extend(cursor - record_start + index * 8
+                                      for index in range(key_count))
             cursor += key_count * 8
             event_count = u32be(data, cursor)
             cursor += 4
             events += event_count
             aux += event_count & 1
+            event_offsets.extend(cursor - record_start + index * 4
+                                 for index in range(event_count))
             cursor += event_count * 4
         record = data[record_start:cursor]
-        animations.append(record)
+        relocated = bytearray(record)
+        for offset in (owner_offset, *track_owner_offsets):
+            value = u32be(relocated, offset)
+            if value in shifted_items:
+                put_u32be(relocated, offset, shifted_items[value])
+        animations.append(bytes(relocated))
         if owner in item_map:
             copy = bytearray(record)
             put_u32be(copy, owner_offset, item_map[owner])
@@ -322,6 +383,19 @@ def clone_companion_sections(data: bytes, start: int,
                 value = u32be(copy, offset)
                 if value in item_map:
                     put_u32be(copy, offset, item_map[value])
+            remap_string_keys(copy, string_key_offsets)
+            # 82F284A8 reads each entry as {byte, byte, uint16}; 82F2A380
+            # packs the first byte's inverse into bit 14. Zero selects a
+            # style-record index; nonzero selects a property-track key index.
+            # Leaving these indexes unchanged animates the original row.
+            for offset in event_offsets:
+                index = struct.unpack_from(">H", copy, offset + 2)[0]
+                mapping = track_key_map if copy[offset] else style_map
+                if index in mapping:
+                    target = mapping[index]
+                    if target >= 0x4000:
+                        raise SceneInsertError("cloned animation reference exceeds its 14-bit index")
+                    struct.pack_into(">H", copy, offset + 2, target)
             cloned_animations.append(bytes(copy))
             animation_tracks += track_count
             animation_keys += keys
@@ -504,7 +578,8 @@ def row_subtree(section: Section, wrapper: Item) -> tuple[int, int]:
     return first, last
 
 
-def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
+def encode_subtree(data: bytes, row_index: int,
+                   native_object_map: dict[int, int] | None = None) -> tuple[bytes, dict]:
     """Clone one authored row with its relationship records.
 
     The row-owned graph receives fresh item and property identities. Action
@@ -515,11 +590,6 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
     if not 0 <= row_index < len(pairs):
         raise SceneInsertError(
             f"row index {row_index} is outside the seven authored rows"
-        )
-    if row_index != len(pairs) - 1:
-        raise SceneInsertError(
-            "subtree cloning requires the final authored row so its style, "
-            "track, and animation records can be appended"
         )
     if section.declared != sum(item.size for item in section.items):
         raise SceneInsertError("section length is not the sum of its items")
@@ -565,10 +635,12 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
         range(action_identities[0], action_identities[-1] + 1)
     ):
         raise SceneInsertError("row relationship identities are not contiguous")
-    owned_identity_set = (
-        {item.value for item in block if item.value != 0}
-        | set(block_objects)
-    )
+    # Native object IDs and BGF string indexes are separate domains. Preserve
+    # the old BGF-only experiment as a comparison, but a coordinated clone
+    # copies only the row's authored string slots into the string table.
+    owned_identity_set = set(block_objects)
+    if native_object_map is None:
+        owned_identity_set |= {item.value for item in block if item.value != 0}
     owned_identities = tuple(sorted(owned_identity_set))
     if any(index >= len(identities.records) for index in owned_identities):
         raise SceneInsertError("row references an absent identity")
@@ -595,15 +667,16 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
         parent = item.parent
         if first <= parent <= last:
             put_u32be(record, 4, parent - first + insertion_index)
-        if item.value in identity_map:
-            put_u32be(record, 8, identity_map[item.value])
+        value_map = identity_map if native_object_map is None else native_object_map
+        if item.kind in (1, 4, 5, 6, 7) and item.value in value_map:
+            put_u32be(record, 8, value_map[item.value])
         property_cursor = (
             ITEM_HEADER_BYTES
             + (WRAPPER_EXTRA_BYTES if item.flags & 0x04 else 0)
             + 4
         )
         for index, (_, value) in enumerate(item.properties):
-            if value in identity_map:
+            if value in identity_map and (native_object_map is None or low <= value <= high):
                 put_u32be(
                     record,
                     property_cursor + index * PROPERTY_STRIDE + 4,
@@ -649,6 +722,9 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
             source: source - first + insertion_index
             for source in range(first, last + 1)
         },
+        {source: source + block_length
+         for source in range(insertion_index, len(section.items))},
+        identity_map,
     )
     patched = bytearray(
         data[:identities.end]
@@ -658,6 +734,10 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
         + relation_bytes
         + companion_bytes
     )
+    if native_object_map:
+        put_u32be(patched, NATIVE_OBJECT_CEILING_OFFSET,
+                  max(u32be(data, NATIVE_OBJECT_CEILING_OFFSET),
+                      max(native_object_map.values())))
     bump_section_counts(
         patched,
         data,
@@ -730,6 +810,9 @@ def encode_subtree(data: bytes, row_index: int) -> tuple[bytes, dict]:
         "relationship_action_identities": len(action_identities),
         "item_value_tokens_shared": False,
         "companion_records_copied": companion,
+        "native_object_map": native_object_map,
+        "native_object_ceiling_before": u32be(data, NATIVE_OBJECT_CEILING_OFFSET),
+        "native_object_ceiling_after": u32be(patched, NATIVE_OBJECT_CEILING_OFFSET),
     }
     return bytes(patched), summary
 

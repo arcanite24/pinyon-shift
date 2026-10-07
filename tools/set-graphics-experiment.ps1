@@ -8,7 +8,7 @@ param(
     [string]$PostEffect = 'none',
     [ValidateSet(1, 2, 3, 4)]
     [int]$ResolutionScale = 1,
-    [ValidateSet('vulkan', 'd3d12')]
+    [ValidateSet('vulkan')]
     [string]$GraphicsApi = 'vulkan',
     [ValidateSet('bilinear', 'cas', 'fsr')]
     [string]$OutputScaling = 'bilinear',
@@ -20,6 +20,8 @@ param(
     [int]$PresentationFps = 0,
     [ValidateRange(0, 240)]
     [int]$RenderFps = 0,
+    [ValidateSet('true', 'false')]
+    [string]$DisableBloom = 'true',
     [ValidateSet('true', 'false')]
     [string]$DisableMotionBlur = 'true',
     [ValidateSet('true', 'false')]
@@ -45,10 +47,10 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 27 renders on Vulkan with the split GPU commands thread; schema 26
+# Schema 28 supports only Vulkan with the split GPU commands thread; schema 26
 # stops re-uploading CPU-written memory every frame; schema 25 keeps one
 # occlusion-query path; schema 24 retired the renderer choice.
-pinyon_shift_config_schema = 27
+pinyon_shift_config_schema = 28
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -67,8 +69,10 @@ pinyon_shift_fh1_source_presentation = true
 xma_relaxed_padding_admission = false
 anisotropic_override = 3
 swap_post_effect = "none"
+disable_bloom = true
 disable_motion_blur = true
 disable_depth_of_field = true
+fh1_msaa_single_sample = true
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 clear_memory_page_state = false
@@ -157,10 +161,8 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
     $vsyncEnabled = (Get-TomlValue $Text 'vsync' 'true') -eq 'true'
     $presentationFps = [int](Get-TomlValue $Text 'host_present_fps_limit' '0')
     $renderFps = [int](Get-TomlValue $Text 'pinyon_shift_fh1_render_fps_limit' '0')
-    # Before schema 27 the game moves the file to Vulkan when it starts; "any"
-    # is the plugin's first backend, Direct3D 12.
-    $backend = (Get-TomlValue $Text 'gpu_backend' '"vulkan"').Trim('"').ToLowerInvariant()
-    $graphicsApi = if ((Get-SchemaVersion $Text) -lt 27 -or $backend -eq 'vulkan') { 'vulkan' } else { 'd3d12' }
+    # Player settings use Vulkan; schema 28 migrates legacy backend selections.
+    $graphicsApi = 'vulkan'
     $presetName = if ($resolutionScale -eq 2) {
         'experimental_2x'
     } elseif ($resolutionScale -eq 3) {
@@ -178,6 +180,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
         settings = [ordered]@{
             anisotropy = $anisotropyValue
             post_effect = Get-TomlValue $Text 'swap_post_effect' 'none'
+            disable_bloom = (Get-TomlValue $Text 'disable_bloom' 'true') -eq 'true'
             disable_motion_blur = (Get-TomlValue $Text 'disable_motion_blur' 'true') -eq 'true'
             disable_depth_of_field = (Get-TomlValue $Text 'disable_depth_of_field' 'true') -eq 'true'
             preset = $presetName
@@ -211,7 +214,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 27) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 28) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-HostConfigBackup $configPath
@@ -228,7 +231,7 @@ switch ($Action) {
         $backup = New-HostConfigBackup $configPath
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 27) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 28) { throw "Backup uses unsupported schema: $schema" }
         Write-HostConfig $configPath $text
     }
     'Apply' {
@@ -236,7 +239,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 27) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 28) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-HostConfigBackup $configPath
         # The retired guest vblank rate became the render limit, which the
         # replacement defaults to following the display.
@@ -249,12 +252,10 @@ switch ($Action) {
         if ($schema -lt 24) { $text = Remove-TomlValue $text 'readback_resolve' }
         # Schema 26 turned clear_memory_page_state off (src/pinyon_shift_app.cpp).
         if ($schema -lt 26) { $text = Set-TomlValue $text 'clear_memory_page_state' 'false' }
-        # Schema 27 made Vulkan with the split GPU commands thread the default.
-        if ($schema -lt 27) {
-            $text = Set-TomlValue $text 'gpu_backend' '"vulkan"'
-            $text = Set-TomlValue $text 'gpu_record_thread' 'true'
-        }
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '27'
+        # Schema 28 makes Vulkan the only supported player backend.
+        $text = Set-TomlValue $text 'gpu_backend' '"vulkan"'
+        $text = Set-TomlValue $text 'gpu_record_thread' 'true'
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '28'
         $text = Set-TomlValue $text 'pinyon_shift_fh1_source_presentation' 'true'
         if (-not [regex]::IsMatch($text, '(?m)^[ \t]*xma_relaxed_padding_admission[ \t]*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
@@ -275,11 +276,6 @@ switch ($Action) {
             $text = Set-TomlValue $text 'draw_resolution_scale_x' ([string]$effectiveResolution)
             $text = Set-TomlValue $text 'draw_resolution_scale_y' ([string]$effectiveResolution)
         }
-        if ($bound.ContainsKey('GraphicsApi')) {
-            # Vulkan records draws on a second thread; Direct3D 12 keeps one.
-            $text = Set-TomlValue $text 'gpu_backend' ('"' + $GraphicsApi + '"')
-            $text = Set-TomlValue $text 'gpu_record_thread' ($(if ($GraphicsApi -eq 'vulkan') { 'true' } else { 'false' }))
-        }
         if ($bound.ContainsKey('TreasureMap')) {
             $text = Set-TomlValue $text 'pinyon_shift_dlc_treasure_map' $TreasureMap
         }
@@ -292,6 +288,9 @@ switch ($Action) {
         }
         if ($bound.ContainsKey('PostEffect')) {
             $text = Set-TomlValue $text 'swap_post_effect' ('"' + $PostEffect + '"')
+        }
+        if ($bound.ContainsKey('DisableBloom')) {
+            $text = Set-TomlValue $text 'disable_bloom' $DisableBloom
         }
         if ($bound.ContainsKey('DisableMotionBlur')) {
             $text = Set-TomlValue $text 'disable_motion_blur' $DisableMotionBlur

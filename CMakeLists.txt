@@ -32,6 +32,9 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/cheats.cpp
     src/cheats_map.cpp
     src/dlc_treasure_map.cpp
+    src/dlc/rally_progress.cpp
+    src/dlc/rally_pace_notes.cpp
+    src/dlc/rally_audio_probe.cpp
     src/stall_dump.cpp
     src/save/car_cards.cpp
     src/save/live_profile.cpp
@@ -126,6 +129,19 @@ add_executable(pinyon_shift_profile_body_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(pinyon_shift_profile_body_tests PRIVATE src)
 
+add_executable(pinyon_shift_rally_progress_tests EXCLUDE_FROM_ALL
+    tests/dlc/rally_progress_test.cpp
+    src/dlc/rally_progress.cpp src/platform/host_platform.cpp)
+target_include_directories(pinyon_shift_rally_progress_tests PRIVATE src)
+target_include_directories(pinyon_shift_rally_progress_tests SYSTEM PRIVATE
+    ${REXSDK_DIR}/thirdparty/tomlplusplus/include)
+
+add_executable(pinyon_shift_rally_pace_tests EXCLUDE_FROM_ALL
+    tests/dlc/rally_pace_notes_test.cpp src/dlc/rally_pace_notes.cpp)
+target_include_directories(pinyon_shift_rally_pace_tests PRIVATE src)
+target_include_directories(pinyon_shift_rally_pace_tests SYSTEM PRIVATE
+    ${REXSDK_DIR}/thirdparty/tomlplusplus/include)
+
 add_executable(pinyon_shift_car_cards_tests EXCLUDE_FROM_ALL
     tests/save/car_cards_test.cpp
     src/save/car_cards.cpp
@@ -133,11 +149,25 @@ add_executable(pinyon_shift_car_cards_tests EXCLUDE_FROM_ALL
 target_include_directories(pinyon_shift_car_cards_tests PRIVATE src)
 target_link_libraries(pinyon_shift_car_cards_tests PRIVATE rex::runtime)
 
+add_executable(pinyon_shift_save_backups_tests EXCLUDE_FROM_ALL
+    tests/save/save_backups_test.cpp src/save_backups.cpp)
+target_include_directories(pinyon_shift_save_backups_tests PRIVATE src)
+target_link_libraries(pinyon_shift_save_backups_tests PRIVATE rex::runtime)
+
+add_executable(pinyon_shift_content_roots_tests EXCLUDE_FROM_ALL
+    tests/dlc/content_roots_test.cpp)
+target_link_libraries(pinyon_shift_content_roots_tests PRIVATE rex::runtime)
+
 add_executable(pinyon_shift_fh1_edram_tiles_tests EXCLUDE_FROM_ALL
     tests/native_renderer/fh1_edram_tiles_test.cpp
 )
 target_include_directories(pinyon_shift_fh1_edram_tiles_tests PRIVATE ${REXSDK_DIR}/include)
 target_link_libraries(pinyon_shift_fh1_edram_tiles_tests PRIVATE rex::runtime)
+
+add_executable(pinyon_shift_overlay_device_tests EXCLUDE_FROM_ALL
+    tests/mod/overlay_device_test.cpp src/mod/overlay_device.cpp)
+target_include_directories(pinyon_shift_overlay_device_tests PRIVATE src)
+target_link_libraries(pinyon_shift_overlay_device_tests PRIVATE rex::runtime)
 
 # Every host-side test, for CI (PINYON_SHIFT_HOST_TESTS_ONLY) and local runs.
 add_custom_target(pinyon_shift_host_tests)
@@ -147,9 +177,24 @@ add_dependencies(pinyon_shift_host_tests
     pinyon_shift_hostui_tests
     pinyon_shift_host_config_tests
     pinyon_shift_profile_body_tests
+    pinyon_shift_rally_progress_tests
+    pinyon_shift_rally_pace_tests
     pinyon_shift_car_cards_tests
+    pinyon_shift_save_backups_tests
+    pinyon_shift_content_roots_tests
+    pinyon_shift_overlay_device_tests
     pinyon_shift_fh1_edram_tiles_tests
     pinyon_shift_mod_hello_telemetry)
+
+# These checks use assert; Release must execute them instead of compiling
+# away the test operations themselves.
+get_target_property(pinyon_host_checks pinyon_shift_host_tests MANUALLY_ADDED_DEPENDENCIES)
+foreach(pinyon_host_check IN LISTS pinyon_host_checks)
+    if(pinyon_host_check MATCHES "_tests$")
+        target_compile_options(${pinyon_host_check} PRIVATE
+            $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+    endif()
+endforeach()
 
 add_executable(pinyon_shift_fh1_archive_extract EXCLUDE_FROM_ALL
     tools/fh1_archive_extract.cpp
@@ -180,6 +225,7 @@ endif()
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
 pinyon_shift_attach_rexglue(pinyon_shift)
+add_dependencies(pinyon_shift pinyon_shift_fh1_archive_extract)
 
 # ReXGlue's SDL backend loads project overrides from the executable directory.
 # Keep this as an always-built staging target so mapping-only updates do not

@@ -150,18 +150,34 @@ else()
     set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS rexglue)
 endif()
 
+# TITLE_UPDATE_V4_BACKLOG: build the FH1 v4 title update from the USA disc.
+# Its code is generated from the patched executables in a separate tree.
+option(PINYON_SHIFT_TITLE_UPDATE_V4
+    "Build the FH1 v4 title-update executable (separate generated tree)" OFF)
+set(PINYON_SHIFT_CODEGEN_EXTRA_ARGS)
+if(PINYON_SHIFT_TITLE_UPDATE_V4)
+    set(_pinyon_default_manifest "config/rexglue/pinyon_shift_v4_manifest.toml")
+    set(_pinyon_default_generated ".local/generated-v4")
+    add_compile_definitions(PINYON_SHIFT_TITLE_UPDATE_V4=1)
+    list(APPEND PINYON_SHIFT_CODEGEN_EXTRA_ARGS --xex_apply_patches=true)
+    set(_pinyon_codegen_log_suffix "-v4")
+else()
+    set(_pinyon_codegen_log_suffix "")
+    set(_pinyon_default_manifest "config/rexglue/pinyon_shift_manifest.toml")
+    set(_pinyon_default_generated ".local/generated")
+endif()
 set(PINYON_SHIFT_MANIFEST
-    "${CMAKE_CURRENT_SOURCE_DIR}/config/rexglue/pinyon_shift_manifest.toml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/${_pinyon_default_manifest}"
     CACHE FILEPATH "ReXGlue manifest used by the codegen convenience target")
 set(PINYON_SHIFT_GENERATED_ROOT
-    "${CMAKE_CURRENT_SOURCE_DIR}/.local/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/${_pinyon_default_generated}"
     CACHE PATH "Root containing the user-local generated main and module trees")
 set(PINYON_SHIFT_GENERATED_DIR
     "${PINYON_SHIFT_GENERATED_ROOT}/default"
     CACHE PATH "Generated main-XEX source tree")
 set(REXGLUE_HOST_TARGET pinyon_shift)
 set(PINYON_SHIFT_CODEGEN_LOG
-    "${CMAKE_CURRENT_SOURCE_DIR}/.local/logs/codegen.log"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.local/logs/codegen${_pinyon_codegen_log_suffix}.log"
     CACHE FILEPATH "ReXGlue code-generation log")
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
@@ -248,7 +264,7 @@ add_custom_command(
     COMMAND "${PINYON_SHIFT_REXGLUE_CODEGEN}"
         --log-level info
         --log-file "${PINYON_SHIFT_CODEGEN_LOG}"
-        codegen "${PINYON_SHIFT_MANIFEST}" --ignore-stamp
+        codegen "${PINYON_SHIFT_MANIFEST}" --ignore-stamp ${PINYON_SHIFT_CODEGEN_EXTRA_ARGS}
     DEPENDS ${PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS} "${PINYON_SHIFT_MANIFEST}"
     DEPFILE "${PINYON_SHIFT_GENERATED_DIR}/codegen.d"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

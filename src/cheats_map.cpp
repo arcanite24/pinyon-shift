@@ -1,4 +1,5 @@
 #include "cheats_map.h"
+#include "fh1_guest_address.h"
 
 #include <algorithm>
 #include <atomic>
@@ -58,13 +59,13 @@ namespace {
 
 // The world's component list, as sub_825F6FB0 reaches it:
 // [[[0x832DF024] + 4] + 76], an array indexed by a component type's index.
-constexpr uint32_t kWorldHolder = 0x832DF024u;
+constexpr uint32_t kWorldHolder = FH1_ADDR(0x832DF024u);
 constexpr uint32_t kHolderHandle = 4;
 constexpr uint32_t kHandleComponents = 76;
 // The activity manager's component index (as sub_828AF6F8's callers, e.g.
 // sub_82560B80, look it up); the manager holds its activities as a vector of
 // pointers at +4 (begin) and +8 (end).
-constexpr uint32_t kActivityManagerIndex = 0x832FEE8Cu;
+constexpr uint32_t kActivityManagerIndex = FH1_ADDR(0x832FEE8Cu);
 constexpr uint32_t kManagerBegin = 4;
 constexpr uint32_t kManagerEnd = 8;
 
@@ -76,7 +77,7 @@ constexpr uint32_t kHandleEntity = 4;
 constexpr uint32_t kEntityOnMap = 52;
 
 // CActivityFlyers (vtable 0x82078DE4, set up by sub_828C3460).
-constexpr uint32_t kFlyerVtable = 0x82078DE4u;
+constexpr uint32_t kFlyerVtable = FH1_ADDR(0x82078DE4u);
 constexpr uint32_t kFlyerMarker = 56;       // handle, tag "flyer"
 constexpr uint32_t kFlyerFoundMarker = 96;  // handle, tag "flyer_collected"
 constexpr uint32_t kFlyerObject = 136;      // gameplay object; float4 position at +112
@@ -85,7 +86,7 @@ constexpr uint32_t kFlyerState = 148;       // CFlyerState record
 constexpr uint32_t kFlyerStateSmashed = 44;
 
 // CActivityBarnFind (vtable 0x82078B5C, set up by sub_828B99C8).
-constexpr uint32_t kBarnFindVtable = 0x82078B5Cu;
+constexpr uint32_t kBarnFindVtable = FH1_ADDR(0x82078B5Cu);
 constexpr uint32_t kBarnFindDiscovered = 44;    // u8, set on discovery (sub_828B9448)
 constexpr uint32_t kBarnFindPosition = 112;     // float4
 constexpr uint32_t kBarnFindMarker = 320;       // handle, tag "barnfind"
@@ -103,14 +104,14 @@ constexpr uint32_t kBarnFindSpawnPending = 4;
 
 // sub_828BC9D8: whether free-roam collectibles are live (not during the
 // first-time career, and in free roam); the flyers' reveal checks it.
-constexpr uint32_t kCollectiblesLive = 0x828BC9D8u;
+constexpr uint32_t kCollectiblesLive = FH1_ADDR(0x828BC9D8u);
 // sub_828E3580: puts a handle's entity on the map when it is not (vtable +12
 // of the handle, as the reveal uses it); sub_828E4F58 takes it off.
-constexpr uint32_t kMarkerShow = 0x828E3580u;
-constexpr uint32_t kMarkerRemove = 0x828E4F58u;
+constexpr uint32_t kMarkerShow = FH1_ADDR(0x828E3580u);
+constexpr uint32_t kMarkerRemove = FH1_ADDR(0x828E4F58u);
 // sub_828A5BF8(barn find, show): the barn find's exact-location marker on or
 // off, and its collected marker once found.
-constexpr uint32_t kBarnFindShowLocation = 0x828A5BF8u;
+constexpr uint32_t kBarnFindShowLocation = FH1_ADDR(0x828A5BF8u);
 
 bool Readable(uint32_t address, uint32_t size) {
   if (address == 0 || size == 0 || address + size - 1u < address) return false;

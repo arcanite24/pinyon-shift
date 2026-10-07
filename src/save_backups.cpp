@@ -19,6 +19,16 @@ namespace {
 constexpr auto kPollInterval = std::chrono::seconds(5);
 constexpr const char* kRestoreFile = "restore-pending.txt";
 
+// Marketplace content is immutable installation data. Keep it out of save
+// snapshots and preserve the current installation when restoring an old save.
+bool IsMarketplacePath(const fs::path& relative) {
+  std::vector<std::string> parts;
+  for (const auto& part : relative) parts.push_back(part.string());
+  return parts.size() >= 3 && parts[0] == "0000000000000000" &&
+         (parts[2] == "00000002" || parts[2] == "Disabled" ||
+          (parts[2] == "Headers" && parts.size() >= 4 && parts[3] == "00000002"));
+}
+
 std::string UtcStamp() {
   const auto now = std::chrono::system_clock::now();
   return fmt::format("{:%Y%m%dT%H%M%S}Z", std::chrono::floor<std::chrono::seconds>(now));
@@ -31,17 +41,44 @@ bool CopyTree(const fs::path& from, const fs::path& to) {
   const fs::path staging = to.string() + ".partial";
   fs::remove_all(staging, error);
   fs::create_directories(staging, error);
-  fs::copy(from, staging, fs::copy_options::recursive, error);
+  for (auto it = fs::recursive_directory_iterator(from, error);
+       !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
+    const auto relative = it->path().lexically_relative(from);
+    if (IsMarketplacePath(relative)) {
+      it.disable_recursion_pending();
+      continue;
+    }
+    const auto destination = staging / relative;
+    if (it->is_directory(error)) fs::create_directories(destination, error);
+    else fs::copy_file(it->path(), destination, fs::copy_options::none, error);
+  }
   if (error) {
     REXLOG_ERROR("Save backup: copying {} failed: {}", from.string(), error.message());
     fs::remove_all(staging, error);
     return false;
   }
   fs::rename(staging, to, error);
+#ifdef _WIN32
+  // A newly copied profile can briefly have an open Windows directory handle.
+  // Keep publication atomic, and fail normally if the lock does not clear.
+  for (int retry = 0; error == std::errc::permission_denied && retry < 20; ++retry) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    fs::rename(staging, to, error);
+  }
+#endif
+  if (error) {
+    REXLOG_ERROR("Save backup: publishing {} failed: {}", to.string(), error.message());
+    diagnostics::RecordEvent("save.copy.failed",
+                             {{"path", to.string()}, {"error", error.message()}});
+  }
   return !error;
 }
 
 }  // namespace
+
+bool SaveBackups::CopyProfile(const fs::path& from, const fs::path& to) {
+  return CopyTree(from, to);
+}
 
 SaveBackups::SaveBackups(fs::path user_root, fs::path backup_root, size_t keep)
     : user_root_(std::move(user_root)), backup_root_(std::move(backup_root)), keep_(keep) {}
@@ -70,6 +107,10 @@ SaveBackups::Signature SaveBackups::Scan(const fs::path& root) {
   std::error_code error;
   for (auto it = fs::recursive_directory_iterator(root, error);
        !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
+    if (IsMarketplacePath(it->path().lexically_relative(root))) {
+      it.disable_recursion_pending();
+      continue;
+    }
     if (!it->is_regular_file(error)) {
       continue;
     }
@@ -178,10 +219,40 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
   fs::remove_all(previous, error);
   if (fs::exists(user_root, error)) {
     fs::rename(user_root, previous, error);
+    if (error) {
+      REXLOG_ERROR("Save restore: could not retain current files: {}", error.message());
+      return;
+    }
+  }
+  // Move only content directories, so restoring a small save never copies
+  // gigabytes of DLC or changes which packages the launcher has enabled.
+  std::vector<fs::path> moved_content;
+  const auto common = previous / "0000000000000000";
+  if (fs::exists(common, error)) {
+    for (auto it = fs::recursive_directory_iterator(common, error);
+         !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
+      const auto relative = it->path().lexically_relative(previous);
+      if (!IsMarketplacePath(relative)) continue;
+      it.disable_recursion_pending();
+      fs::create_directories((staging / relative).parent_path(), error);
+      if (error) break;
+      fs::rename(it->path(), staging / relative, error);
+      if (error) break;
+      moved_content.push_back(relative);
+    }
+  }
+  if (error) {
+    REXLOG_ERROR("Save restore: could not preserve installed DLC: {}", error.message());
+    for (auto it = moved_content.rbegin(); it != moved_content.rend(); ++it)
+      fs::rename(staging / *it, previous / *it, error);
+    fs::rename(previous, user_root, error);
+    return;
   }
   fs::rename(staging, user_root, error);
   if (error) {
     REXLOG_ERROR("Save restore: could not put backup {} in place: {}", slot, error.message());
+    for (auto it = moved_content.rbegin(); it != moved_content.rend(); ++it)
+      fs::rename(staging / *it, previous / *it, error);
     fs::rename(previous, user_root, error);
     return;
   }

@@ -1,0 +1,21 @@
+pinyon-shift-fh1-render-test-v1
+# Switch native bloom on, off and back on during private free-roam gameplay.
+# The held left trigger exercises reverse driving; captures are not pixel-matched.
+# clock-hz 60
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 4200 0000 255 0 0 0 0 0
+cvar 4300 disable_bloom false
+capture 4500 bloom-on
+cvar 4700 disable_bloom true
+capture 4900 bloom-off
+cvar 5100 disable_bloom false
+capture 5300 bloom-restored
+stop 5400

@@ -45,6 +45,18 @@
         "size_bytes": 7221319555,
         "file_catalog": "supported-extracted-ms-2505.json"
       },
+      "rally_adapter_inputs": [
+        {
+          "guest_path": "media/db/gamedb.slt",
+          "size_bytes": 2903040,
+          "sha256": "2C2BD8842AFF3799B9275B759A01F290ED3F448E3AA67F36FC2DF3BFA7311AC8"
+        },
+        {
+          "guest_path": "media/gamemodes.zip",
+          "size_bytes": 1032991,
+          "sha256": "DCF5AAAD86AC7A5EEEA4C827FE163AEF34390663B934675056EEE786A075095A"
+        }
+      ],
       "executables": [
         {
           "guest_path": "default.xex",

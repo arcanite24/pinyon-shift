@@ -105,8 +105,11 @@ class GameStorageTests(unittest.TestCase):
 
     def test_every_sdk_storage_root_is_overridden_from_the_state_root(self):
         app = read("src/pinyon_shift_app.cpp")
-        for line in ('paths.user_data_root = state_root / "user";',
+        # The user root is a long (\\?\) path so deep save trees stay under
+        # the Win32 limit; the v4 build mounts its own update root.
+        for line in ('paths.user_data_root = LongHostPath(state_root / "user");',
                      'paths.update_data_root = state_root / "update";',
+                     'paths.update_data_root = state_root / "title-update-v4";',
                      'paths.cache_root = state_root / "cache";',
                      'paths.config_path = state_root / "config" / "pinyon_shift.toml";',
                      'REXCVAR_SET(log_file, (state_root / "logs" / "runtime.log").string());'):

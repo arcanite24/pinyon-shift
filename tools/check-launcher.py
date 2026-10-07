@@ -183,13 +183,14 @@ class Check {
         var game = Path.Combine(root, ".local/game/base/default.xex");
         Directory.CreateDirectory(Path.GetDirectoryName(game)!);
         File.WriteAllText(game, "test game");
-        // Direct3D 12 prepares shader packs before the first start.
+        // An old Direct3D 12 selection migrates to Vulkan on start.
         Directory.CreateDirectory(Path.Combine(state, "config"));
         File.WriteAllText(Path.Combine(state, "config/pinyon_shift.toml"),
             "pinyon_shift_config_schema = 27\ngpu_backend = \"d3d12\"\n");
         typeof(MainWindow).GetMethod("DetectExistingBuild", flags)!.Invoke(window, null);
         var primary = (TextBlock)window.FindName("PrimaryButtonText");
-        Require(primary.Text == "Prepare and play", "Existing build skips graphics preparation");
+        Require(primary.Text == "Play", "Legacy settings still require Direct3D 12 preparation");
+        Require(window.FindName("GraphicsApiComboBox") is null, "Unsupported graphics API is selectable");
         var payloadMarker = Path.Combine(root, ".pinyon-source-sha256");
         File.WriteAllText(payloadMarker, "current payload");
         typeof(MainWindow).GetMethod("DetectExistingBuild", flags)!.Invoke(window, null);
@@ -198,7 +199,34 @@ class Check {
         File.WriteAllText(Path.Combine(root, ".local/build.json"), "{\"pinyon_shift_source_payload_sha256\":\"current payload\"}");
         typeof(MainWindow).GetMethod("DetectExistingBuild", flags)!.Invoke(window, null);
         Require(typeof(MainWindow).GetField("_gameExecutable", flags)!.GetValue(window) is not null,
-            "Matching release build cannot prepare graphics");
+            "Matching release build cannot play");
+        // Exercise the real watcher/result path without starting a game.
+        Directory.CreateDirectory(Path.Combine(root, "tools"));
+        File.WriteAllText(Path.Combine(root, "tools/launch-preview.ps1"),
+            "Write-Output '{\"result\":\"saved-content-unavailable\",\"exit_code\":1307}'\nexit 1\n");
+        var savedConfig = File.ReadAllText(Path.Combine(state, "config/pinyon_shift.toml"));
+        SynchronizationContext.SetSynchronizationContext(
+            new System.Windows.Threading.DispatcherSynchronizationContext(window.Dispatcher));
+        var launch = (Task)typeof(MainWindow).GetMethod("LaunchGameAsync", flags)!.Invoke(window, null)!;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        var timeout = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        timeout.Tick += (_, _) => { timeout.Stop(); frame.Continue = false; };
+        launch.ContinueWith(_ => window.Dispatcher.BeginInvoke(new Action(() => frame.Continue = false)));
+        timeout.Start();
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        timeout.Stop();
+        Require(launch.IsCompleted, "Missing-content watcher did not finish");
+        launch.GetAwaiter().GetResult();
+        SynchronizationContext.SetSynchronizationContext(null);
+        Require(((TextBlock)window.FindName("HeadlineText")).Text == "Restore your saved car's DLC",
+            "Missing saved content is reported as a crash");
+        Require(typeof(MainWindow).GetField("_pendingReport", flags)!.GetValue(window) is null,
+            "Missing content creates a pending crash report");
+        Require(((Button)window.FindName("DlcButton")).IsEnabled &&
+            ((Button)window.FindName("DlcButton")).Visibility == Visibility.Visible,
+            "Missing content cannot be restored from the DLC panel");
+        Require(File.ReadAllText(Path.Combine(state, "config/pinyon_shift.toml")) == savedConfig,
+            "Recovery rewrites the saved configuration");
         var output = typeof(MainWindow).GetMethod("HandleOutput", flags)!;
         output.Invoke(window, ["::pinyon::{\"stage\":\"shaders\",\"percent\":20,\"message\":\"Preparing graphics\"}"]);
         Require(primary.Text == "Preparing…", "Shader progress is not shown");
@@ -248,6 +276,72 @@ class Check {
             Require(button.ActualWidth > 0 && button.ActualHeight >= 24,
                 $"Folder control clipped: {button.ActualWidth} x {button.ActualHeight}");
         }
+        // The fixed Vulkan label and remaining graphics choices fit the panel.
+        typeof(MainWindow).GetMethod("SetComplete", flags)!.Invoke(window, null);
+        typeof(MainWindow).GetMethod("UpdateSummary", flags)!.Invoke(window, null);
+        var viewType = typeof(MainWindow).GetNestedType("View", BindingFlags.NonPublic)!;
+        typeof(MainWindow).GetMethod("ShowPanel", flags)!.Invoke(window, [Enum.Parse(viewType, "Graphics")]);
+        typeof(MainWindow).GetMethod("UpdateResolutionLine", flags)!.Invoke(window, null);
+        foreach (var size in new[] { new Size(1080, 720), new Size(920, 640) }) {
+            content.Measure(size); content.Arrange(new Rect(size)); content.UpdateLayout();
+            foreach (var name in new[] { "ResolutionComboBox", "OutputScalingComboBox", "SaveGraphicsButton" }) {
+                var control = (FrameworkElement)window.FindName(name);
+                Require(control.ActualHeight >= 24 && control.TranslatePoint(new Point(), content).Y +
+                    control.ActualHeight < size.Height, $"Graphics control clipped: {name}");
+            }
+            if (args.Length != 0) {
+                var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(content);
+                var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+                using var file = File.Create(Path.Combine(args[0], $"launcher-graphics-{size.Width}.png")); png.Save(file);
+            }
+        }
+        // DLC rows remain usable with the full catalog, and damaged content
+        // cannot offer an enable button. No real package or save is used.
+        var dlc = new MainWindow.DlcResult();
+        for (var index = 0; index < 21; index++) dlc.Packages.Add(new MainWindow.DlcPackage {
+            PackageId = index.ToString(), DisplayName = index == 0 ? "Rally Expansion Pack" :
+                "Season Pass: 2006 Lamborghini Miura Concept", Status = "gameplay_unverified", Enabled = index == 0
+        });
+        dlc.Packages[1].Status = "missing";
+        Require(dlc.Packages[0].ToggleText == "Disable" && dlc.Packages[0].CanToggle &&
+            !dlc.Packages[1].CanToggle, "DLC status does not control management");
+        Require(dlc.Packages[0].ToggleAccessibleName == "Disable Rally Expansion Pack",
+            "DLC toggle omits its package name for accessibility");
+        dlc.Packages[0].PackageId = "6F6992766050D818245ADD408031E280FB5F4E634D";
+        Require(dlc.Packages[0].StatusText.Contains("Assets not prepared"),
+            "Unprepared Rally assets are not reported");
+        dlc.Packages[0].RallyAssetsCached = true;
+        Require(dlc.Packages[0].StatusText.Contains("Assets cached") &&
+            dlc.Packages[0].StatusText.Contains("Gameplay unverified"),
+            "Rally preparation is mistaken for gameplay qualification");
+        foreach (var damaged in new[] { "missing", "metadata_invalid" }) {
+            dlc.Packages[1].Status = damaged;
+            dlc.Packages[1].Enabled = true;
+            Require(dlc.Packages[1].CanToggle && dlc.Packages[1].ToggleText == "Disable",
+                "Damaged enabled DLC cannot be disabled");
+            dlc.Packages[1].Enabled = false;
+            Require(!dlc.Packages[1].CanToggle, "Damaged disabled DLC offers enable");
+        }
+        typeof(MainWindow).GetMethod("ApplyDlcResult", flags)!.Invoke(window, [dlc]);
+        typeof(MainWindow).GetMethod("ShowPanel", flags)!.Invoke(window, [Enum.Parse(viewType, "Dlc")]);
+        update.Invoke(window, null);
+        Require(!((Button)window.FindName("PrimaryButton")).IsEnabled && !button.IsEnabled,
+            "Launch or relocation remains available during DLC management");
+        Require(((FrameworkElement)window.FindName("DlcEmptyText")).Visibility == Visibility.Collapsed,
+            "Empty DLC message remains over imported content");
+        foreach (var size in new[] { new Size(1080, 720), new Size(940, 640) }) {
+            content.Measure(size); content.Arrange(new Rect(size)); content.UpdateLayout();
+            var controls = (FrameworkElement)window.FindName("DlcControls");
+            Require(controls.ActualHeight >= 30 && controls.TranslatePoint(new Point(), content).Y +
+                controls.ActualHeight < size.Height - 44, "DLC import controls clipped");
+            if (args.Length != 0) {
+                var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(content);
+                var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+                using var file = File.Create(Path.Combine(args[0], $"launcher-dlc-{size.Width}.png")); png.Save(file);
+            }
+        }
         File.Delete(payloadMarker); // This next fixture represents a developer checkout.
         // Checkout detection takes precedence over packaged configuration.
         Directory.CreateDirectory(Path.Combine(root, "config"));
@@ -269,7 +363,7 @@ class Check {
         catch (InvalidDataException) { }
         Require(!File.Exists(Path.Combine(brokenRoot, "source", "0.1.1", ".pinyon-source-sha256")),
             "Incomplete ZIP marked as installed");
-        Console.WriteLine("Launcher folder selection, portable installs, preservation, graphics preparation, progress and layout passed.");
+        Console.WriteLine("Launcher folders, portable installs, preservation, graphics, DLC states, progress and layout passed.");
         window.Close();
     }
 }

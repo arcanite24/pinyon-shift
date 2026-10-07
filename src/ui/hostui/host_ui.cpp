@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <utility>
 
 #include <rex/input/input.h>
@@ -633,6 +634,7 @@ void HostUi::Draw(rex::ui::UIDrawContext& context) {
     }
   } else {
     DrawHud(context);
+    DrawRallyPace(context);
     DrawOverlay(context);
   }
   DrawToasts(context);
@@ -643,7 +645,69 @@ void HostUi::Draw(rex::ui::UIDrawContext& context) {
 
 bool HostUi::HasHud() const {
   return (hud_source_ && !hud_source_().empty()) ||
+         (rally_pace_source_ && !rally_pace_source_().icons.empty()) ||
          (overlay_source_ && !overlay_source_().empty());
+}
+
+void HostUi::DrawRallyPace(rex::ui::UIDrawContext& context) {
+  if (!rally_pace_source_) return;
+  const auto phrase = rally_pace_source_();
+  if (phrase.icons.empty()) {
+    if (!rally_pace_drawn_.icons.empty()) {
+      diagnostics::RecordEvent("dlc.rally.pace_hud", {{"icons", ""}, {"visible", "0"}});
+      rally_pace_drawn_ = {};
+    }
+    return;
+  }
+  if (!PrepareCanvas(context)) return;
+  if (!rally_pace_atlas_attempted_) {
+    rally_pace_atlas_attempted_ = true;
+    // The accepted atlas is 512x64 with five 64-pixel turn tiles. No owned
+    // pixels are shipped with the executable or extracted into the repository.
+    std::ifstream input(rally_pace_atlas_path_, std::ios::binary | std::ios::ate);
+    if (input && input.tellg() == 65588) {
+      std::vector<uint8_t> data(65588);
+      input.seekg(0); input.read(reinterpret_cast<char*>(data.data()), data.size());
+      auto image = input ? DecodeXds(data) : std::nullopt;
+      if (image && image->width == 512 && image->height == 64)
+        rally_pace_atlas_ = drawer_.CreateTexture(512, 64, ImmediateTextureFilter::kLinear,
+                                               false, image->rgba.data());
+    }
+    if (!rally_pace_atlas_) {
+      diagnostics::RecordEvent("dlc.rally.pace_hud_error", {{"error", "owned co-driver atlas unavailable"}});
+      return;
+    }
+  }
+  if (!rally_pace_atlas_) return;
+  // Leave the speedometer, minimap, race timer and central sight line clear.
+  constexpr float size = 64, pitch = 72, top = 76;
+  const size_t count = std::min(phrase.icons.size(), size_t(5));
+  const float left = (kTitleWidth - (float(count - 1) * pitch + size)) / 2;
+  drawer_.Begin(context, float(context.render_target_width()), float(context.render_target_height()));
+  std::string drawn_icons;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& icon = phrase.icons[i];
+    int tile = -1;
+    for (const auto& [name, index] : {std::pair{"Easy", 0}, {"Medium", 1}, {"Hard", 2},
+                                     {"Square", 3}, {"Hairpin", 4}})
+      if (icon == std::string(name) + "Right" || icon == std::string(name) + "Left") tile = index;
+    if (tile < 0) continue;
+    UvRect uv{float(tile) / 8, 0, float(tile + 1) / 8, 1};
+    if (icon.ends_with("Left")) std::swap(uv.u0, uv.u1);
+    DrawRect(left + float(i) * pitch, top, size, size, kWhite, rally_pace_atlas_.get(), 0, uv);
+    if (i == phrase.active) DrawRect(left + float(i) * pitch + 10, top + size + 3, 44, 3, kWhite);
+    if (!drawn_icons.empty()) drawn_icons += ',';
+    drawn_icons += icon;
+  }
+  Flush(); drawer_.End();
+  if (phrase != rally_pace_drawn_ || canvas_.scale != rally_pace_drawn_scale_) {
+    diagnostics::RecordEvent("dlc.rally.pace_hud", {{"icons", drawn_icons}, {"visible", "1"},
+        {"active", phrase.active == size_t(-1) ? "none" : std::to_string(phrase.active)},
+        {"scale", std::to_string(canvas_.scale)},
+        {"width", std::to_string(context.render_target_width())},
+        {"height", std::to_string(context.render_target_height())}});
+    rally_pace_drawn_ = phrase; rally_pace_drawn_scale_ = canvas_.scale;
+  }
 }
 
 void HostUi::DrawOverlay(rex::ui::UIDrawContext& context) {

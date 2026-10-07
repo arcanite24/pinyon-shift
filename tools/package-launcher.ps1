@@ -68,8 +68,9 @@ $include = @(
     'CMakeLists.txt', 'CMakePresets.json', 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md',
     'cmake', 'config/gamecontrollerdb.txt', 'config/release.json', 'config/release-toolchain.json', 'config/supported-dumps.json',
     'config/supported-extracted-ms-2505.json', 'tools/verify-extracted-game.ps1', 'docs/EXTRACTED_GAME_INPUT.md',
+    'config/supported-dlc.json', 'tools/manage-fh1-dlc.py', 'tools/manage-dlc.ps1', 'tools/prepare-fh1-rally.py', 'tools/patch-fh1-archive.py',
     'config/rexglue', 'include', 'mods_src', 'src', 'tests/config', 'tests/native_renderer',
-    'tests/save', 'tests/ui',
+    'tests/save', 'tests/ui', 'tests/dlc', 'tests/mod',
     'tools/fh1_archive_extract.cpp', 'tools/fh1_texture_import.cpp', 'tools/thread_sampler.cpp',
     'tools/extract-fh1-shader-corpus.py', 'tools/build-fh1-gpu-prewarm.py',
     'tools/produce-fh1-artifacts.ps1', 'tools/prepare-fh1-shaders.ps1', 'tools/prepare-fh1-vulkan.ps1',
@@ -83,7 +84,10 @@ $include = @(
     'tools/native-shader-pack.py',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
     'tools/host-config.ps1', 'tools/set-graphics-experiment.ps1', 'tools/setup-preview.ps1',
-    'tools/verify-codegen-log.ps1', 'tools/verify-game.ps1'
+    'tools/verify-codegen-log.ps1', 'tools/verify-game.ps1',
+    # The optional v4 title update (docs/TITLE_UPDATE_V4_BACKLOG.md TU-2).
+    'config/supported-title-updates.json', 'tools/verify-fh1-title-update.py', 'tools/title-update-profile.py',
+    'tools/manage-title-update.ps1', 'tools/build-v4.ps1', 'tools/verify-codegen-log.py'
 )
 foreach ($relative in $include) {
     $source = Join-Path $root $relative

@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -25,7 +26,7 @@ public partial class MainWindow : Window
     ];
 
     // The content area shows one of these at a time.
-    private enum View { Setup, Ready, Log, Crash, Graphics }
+    private enum View { Setup, Ready, Log, Crash, Graphics, Dlc }
 
     private CancellationTokenSource? _cancellation;
     private string? _repositoryRoot;
@@ -42,6 +43,9 @@ public partial class MainWindow : Window
     private readonly List<string> _portableNotes = [];
     private View _panel = View.Setup;
     private View _panelBeforeGraphics = View.Setup;
+    private View _panelBeforeDlc = View.Ready;
+    private TitleUpdateStatus? _titleUpdate;
+    private string _headlineBeforeDlc = "Ready to drive";
 
     private static readonly string InstallRootPreference = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -464,25 +468,6 @@ public partial class MainWindow : Window
             ProgressMessageText.Text = message;
     }
 
-    // What the next start uses, read straight from the settings file.
-    private string ConfiguredGraphicsApi()
-    {
-        if (_stateRoot is null) return "vulkan";
-        var config = Path.Combine(_stateRoot, "config", "pinyon_shift.toml");
-        if (!File.Exists(config)) return "vulkan";
-        try
-        {
-            var text = File.ReadAllText(config);
-            var schema = Regex.Match(text, @"(?m)^\s*pinyon_shift_config_schema\s*=\s*([0-9]+)");
-            var backend = Regex.Match(text, @"(?m)^\s*gpu_backend\s*=\s*""([^""]*)""");
-            // Config schema 27 moves earlier files to Vulkan when the game starts;
-            // "any" is the first backend, Direct3D 12.
-            if (!schema.Success || int.Parse(schema.Groups[1].Value) < 27 || !backend.Success) return "vulkan";
-            return string.Equals(backend.Groups[1].Value, "vulkan", StringComparison.OrdinalIgnoreCase) ? "vulkan" : "d3d12";
-        }
-        catch (IOException) { return "vulkan"; }
-    }
-
     private int ConfiguredResolutionScale()
     {
         if (_stateRoot is null) return 1;
@@ -501,7 +486,7 @@ public partial class MainWindow : Window
     private void UpdateSummary()
     {
         var scale = ConfiguredResolutionScale();
-        SetSubhead($"{(ConfiguredGraphicsApi() == "vulkan" ? "Vulkan" : "Direct3D 12")} · " +
+        SetSubhead("Vulkan · " +
                    $"{scale}× ({1280 * scale} × {720 * scale}) · F6 opens settings in game");
     }
 
@@ -540,16 +525,6 @@ public partial class MainWindow : Window
             }
             _gameExecutable = candidate;
             SetComplete();
-            // Only Direct3D 12 loads prepared shader packs.
-            if (_stateRoot is not null && ConfiguredGraphicsApi() == "d3d12" &&
-                !File.Exists(Path.Combine(_stateRoot, "cache", "fh1-artifacts.json")))
-            {
-                _steps[3].SetState(StepState.Waiting, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
-                _steps[4].SetState(StepState.Waiting, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
-                HeadlineText.Text = "Prepare graphics";
-                SetSubhead("Direct3D 12 prepares its shaders once for this PC before the first start.");
-                SetPrimaryText("Prepare and play");
-            }
         }
     }
 
@@ -591,6 +566,24 @@ public partial class MainWindow : Window
                 "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcher,
                 "-Configuration", "Release", "-StateRoot", _stateRoot, "-Json", "-JsonEvents"
             }) startInfo.ArgumentList.Add(argument);
+            // The optional v4 title update runs its own build; base stays the default.
+            TitleUpdateStatus? titleUpdate = null;
+            if (File.Exists(Path.Combine(_repositoryRoot, "tools", "manage-title-update.ps1")))
+            {
+                try { titleUpdate = await RunTitleUpdateToolAsync("status"); }
+                catch (Exception ex) { AppendLog($"Title update status unavailable, starting the base disc: {ex.Message}"); }
+            }
+            if (titleUpdate is { Use: true })
+            {
+                if (!titleUpdate.Built)
+                {
+                    SetProgress(0, "Building the FH1 v4 title update. This takes a while the first time.");
+                    AppendLog("Building the FH1 v4 title update from your disc and your verified update.");
+                    await RunStreamingToolAsync("build-v4.ps1", ["-StateRoot", _stateRoot], _cancellation.Token);
+                }
+                AppendLog("Starting the FH1 v4 title update. Your profile was backed up before its first v4 save.");
+                startInfo.ArgumentList.Add("-TitleUpdateV4");
+            }
 
             using var watcher = new Process { StartInfo = startInfo };
             var output = new System.Text.StringBuilder();
@@ -622,6 +615,14 @@ public partial class MainWindow : Window
             {
                 AppendLog("The game closed normally.");
                 SetComplete();
+                return;
+            }
+
+            if (string.Equals(result?.Result, "saved-content-unavailable", StringComparison.OrdinalIgnoreCase))
+            {
+                SetFailure("Restore your saved car's DLC",
+                    "Re-enable its DLC in the DLC panel, or import the missing content again, then retry. " +
+                    "Your saved car and purchased parts have been preserved.");
                 return;
             }
 
@@ -853,11 +854,20 @@ public partial class MainWindow : Window
 
     private void ShowPanel(View panel)
     {
+        if (panel == View.Dlc && _panel != View.Dlc)
+        {
+            _headlineBeforeDlc = HeadlineText.Text;
+            HeadlineText.Text = "Downloadable content";
+        }
+        else if (_panel == View.Dlc && panel != View.Dlc) HeadlineText.Text = _headlineBeforeDlc;
         _panel = panel;
+        SubheadText.Visibility = panel == View.Dlc || string.IsNullOrEmpty(SubheadText.Text)
+            ? Visibility.Collapsed : Visibility.Visible;
         SetupPanel.Visibility = panel == View.Setup ? Visibility.Visible : Visibility.Collapsed;
         LogPanel.Visibility = panel == View.Log ? Visibility.Visible : Visibility.Collapsed;
         CrashPanel.Visibility = panel == View.Crash ? Visibility.Visible : Visibility.Collapsed;
         GraphicsPanel.Visibility = panel == View.Graphics ? Visibility.Visible : Visibility.Collapsed;
+        DlcPanel.Visibility = panel == View.Dlc ? Visibility.Visible : Visibility.Collapsed;
         // The route only tells something while there is setup left to do.
         RouteList.Visibility = panel is View.Setup or View.Log ? Visibility.Visible : Visibility.Collapsed;
         if (panel == View.Ready) UpdateSummary();
@@ -926,13 +936,17 @@ public partial class MainWindow : Window
     private void UpdatePrimaryButton()
     {
         ChooseInstallRootButton.IsEnabled = !_busy && _canChooseInstallRoot &&
-            GraphicsPanel.Visibility != Visibility.Visible;
-        PrimaryButton.IsEnabled = !_busy && (_pendingReport is not null || _gameExecutable is not null ||
+            _panel is not (View.Graphics or View.Dlc);
+        PrimaryButton.IsEnabled = !_busy && _panel != View.Dlc && (_pendingReport is not null || _gameExecutable is not null ||
             (_repositoryRoot is not null && (File.Exists(IsoPathTextBox.Text) || Directory.Exists(IsoPathTextBox.Text)) && OwnershipCheckBox.IsChecked == true));
         // The Android package is made from the game this PC built.
         AndroidButton.Visibility = _gameExecutable is not null && _pendingReport is null
             ? Visibility.Visible : Visibility.Collapsed;
-        AndroidButton.IsEnabled = !_busy;
+        AndroidButton.IsEnabled = !_busy && _panel != View.Dlc;
+        DlcButton.Visibility = _gameExecutable is not null && _pendingReport is null
+            ? Visibility.Visible : Visibility.Collapsed;
+        DlcButton.IsEnabled = !_busy;
+        GraphicsSettingsButton.IsEnabled = !_busy && _panel != View.Dlc;
     }
 
     private async void AndroidButton_Click(object sender, RoutedEventArgs e)
@@ -1139,6 +1153,297 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void DlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _repositoryRoot is null || _stateRoot is null) return;
+        if (_panel != View.Dlc) _panelBeforeDlc = _panel;
+        ShowPanel(View.Dlc);
+        await ChangeDlcAsync("list", success: "Changes apply the next time you start the game.");
+        await RefreshTitleUpdateAsync();
+    }
+
+    private async Task RefreshTitleUpdateAsync(string? message = null)
+    {
+        try { ApplyTitleUpdate(await RunTitleUpdateToolAsync("status"), message); }
+        catch (Exception ex) { TitleUpdateStatusText.Text = ex.Message; }
+    }
+
+    private void ApplyTitleUpdate(TitleUpdateStatus status, string? message = null)
+    {
+        _titleUpdate = status;
+        TitleUpdateToggleButton.IsEnabled = status.Installed;
+        TitleUpdateClubCheckBox.IsEnabled = status.Installed;
+        TitleUpdateClubCheckBox.IsChecked = status.Club;
+        TitleUpdateToggleButton.Content = status.Use ? "Use base disc" : "Use v4";
+        AutomationProperties.SetName(TitleUpdateToggleButton,
+            status.Use ? "Use the base disc instead of title update v4" : "Use title update v4");
+        TitleUpdateStatusText.Text = message ?? (!status.Installed
+            ? "Not installed. Import your own update; it is checked against your disc."
+            : status.Use
+                ? "On. v4 saves cannot go back to the base disc; your profile is backed up first."
+                : "Verified and off. The game runs the base disc.");
+    }
+
+    private async void ImportTitleUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var file = new OpenFileDialog { Title = "Choose your FH1 title update package or ZIP", Filter = "Title updates and ZIPs|*.*" };
+        string? source = null;
+        if (file.ShowDialog(this) == true) source = file.FileName;
+        else
+        {
+            var folder = new OpenFolderDialog { Title = "Or choose the folder with your FH1 title update" };
+            if (folder.ShowDialog(this) == true) source = folder.FolderName;
+        }
+        if (source is null) return;
+        await ChangeTitleUpdateAsync("import", source, "Title update verified against your disc. Choose Use v4 to play it.");
+    }
+
+    private async void TitleUpdateClubCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _titleUpdate is null) return;
+        var on = TitleUpdateClubCheckBox.IsChecked == true;
+        await ChangeTitleUpdateAsync(on ? "club-on" : "club-off", null,
+            on ? "1000 Club runs offline the next time you start v4." : "1000 Club needs the Forza server again (offline play is off).");
+    }
+
+    private async void TitleUpdateToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _titleUpdate is null) return;
+        if (!_titleUpdate.Use)
+        {
+            var answer = MessageBox.Show(this,
+                "Title update v4 runs the original Rally and 1000 Club code.\n\n" +
+                "Saves it writes cannot be loaded by the base disc. Your current profile is backed up " +
+                "before the first v4 start, and you can restore it when you switch back.\n\nUse v4?",
+                "FH1 title update v4", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (answer == MessageBoxResult.Yes)
+                await ChangeTitleUpdateAsync("enable", null, "v4 is on. It is built the next time you start, if needed.");
+            return;
+        }
+        await ChangeTitleUpdateAsync("disable", null, "The base disc is on.");
+        if (_titleUpdate is { } status && status.Profiles.ContainsValue("v4"))
+        {
+            if (status.PreV4Backups.Count == 0)
+            {
+                TitleUpdateStatusText.Text = "The base disc is on, but your profile was saved by v4 and no pre-v4 backup exists. The base disc cannot load it.";
+                return;
+            }
+            var restore = MessageBox.Show(this,
+                "Your profile was saved by v4, which the base disc cannot load.\n\n" +
+                "Restore the profile backed up before v4? Your v4 saves are kept in the backups folder.",
+                "FH1 title update v4", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (restore == MessageBoxResult.Yes)
+                await ChangeTitleUpdateAsync("restore", null, "Restored the profile from before v4. Your v4 saves are kept in backups.");
+        }
+    }
+
+    private async Task ChangeTitleUpdateAsync(string action, string? source, string success)
+    {
+        _busy = true;
+        TitleUpdateControls.IsEnabled = false;
+        UpdatePrimaryButton();
+        TitleUpdateStatusText.Text = action == "import" ? "Verifying the title update against your disc…" : "Updating…";
+        try { ApplyTitleUpdate(await RunTitleUpdateToolAsync(action, source), success); }
+        catch (Exception ex)
+        {
+            await RefreshTitleUpdateAsync(ex.Message);
+            AppendLog($"Title update: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+            TitleUpdateControls.IsEnabled = true;
+            UpdatePrimaryButton();
+        }
+    }
+
+    private async Task<TitleUpdateStatus> RunTitleUpdateToolAsync(string action, string? source = null)
+    {
+        if (_repositoryRoot is null || _stateRoot is null)
+            throw new InvalidOperationException("Release source is not ready.");
+        var start = new ProcessStartInfo
+        {
+            FileName = PowerShellExecutable(), WorkingDirectory = _repositoryRoot,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(_repositoryRoot, "tools", "manage-title-update.ps1"), "-Action", action, "-StateRoot", _stateRoot })
+            start.ArgumentList.Add(argument);
+        if (source is not null) { start.ArgumentList.Add("-InputPath"); start.ArgumentList.Add(source); }
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start title-update management.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var stdout = (await output).Trim();
+        var stderr = (await error).Trim();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "Title-update management stopped." : stderr);
+        var json = stdout[(stdout.LastIndexOf('\n') + 1)..];
+        return JsonSerializer.Deserialize<TitleUpdateStatus>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidDataException("Title-update management returned an invalid result.");
+    }
+
+    private async Task RunStreamingToolAsync(string script, string[] arguments, CancellationToken cancellation)
+    {
+        if (_repositoryRoot is null) throw new InvalidOperationException("Release source is not ready.");
+        var start = new ProcessStartInfo
+        {
+            FileName = PowerShellExecutable(), WorkingDirectory = _repositoryRoot,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(_repositoryRoot, "tools", script) }.Concat(arguments))
+            start.ArgumentList.Add(argument);
+        using var process = new Process { StartInfo = start };
+        process.OutputDataReceived += (_, args) => { if (args.Data is not null) Dispatcher.Invoke(() => AppendLog(args.Data)); };
+        process.ErrorDataReceived += (_, args) => { if (args.Data is not null) Dispatcher.Invoke(() => AppendLog(args.Data)); };
+        if (!process.Start()) throw new InvalidOperationException($"Windows could not start {script}.");
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        using var registration = cancellation.Register(() =>
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+        });
+        await process.WaitForExitAsync(cancellation);
+        if (process.ExitCode != 0) throw new InvalidOperationException($"{script} failed. See the log above.");
+    }
+
+    public sealed class TitleUpdateStatus
+    {
+        public bool Installed { get; set; }
+        public bool Use { get; set; }
+        public bool Built { get; set; }
+        public bool Club { get; set; }
+        public Dictionary<string, string> Profiles { get; set; } = [];
+        [JsonPropertyName("pre_v4_backups")] public List<string> PreV4Backups { get; set; } = [];
+    }
+
+    private async void ImportDlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var picker = new OpenFileDialog { Title = "Choose your FH1 DLC package or ZIP", Filter = "DLC packages and ZIPs|*.*" };
+        if (picker.ShowDialog(this) == true)
+            await ChangeDlcAsync("import", picker.FileName, success: "Import verified. Enable individual packages when ready to test them.");
+    }
+
+    private async void ImportDlcFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var picker = new OpenFolderDialog { Title = "Choose your FH1 DLC folder" };
+        if (picker.ShowDialog(this) == true)
+            await ChangeDlcAsync("import", picker.FolderName, success: "Import verified. Enable individual packages when ready to test them.");
+    }
+
+    private async void ToggleDlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || (sender as Button)?.Tag is not DlcPackage package) return;
+        await ChangeDlcAsync(package.Enabled ? "disable" : "enable", packageId: package.PackageId,
+            success: "Updated. Applies at the next start; saves were not changed.");
+    }
+
+    private void CloseDlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        ShowPanel(_panelBeforeDlc);
+        UpdatePrimaryButton();
+    }
+
+    private async Task ChangeDlcAsync(string action, string? source = null, string? packageId = null, string success = "")
+    {
+        _busy = true;
+        DlcControls.IsEnabled = false;
+        DlcList.IsEnabled = false;
+        UpdatePrimaryButton();
+        DlcStatusText.Text = action == "import" ? "Verifying and importing packages…" :
+            action == "enable" && packageId == "6F6992766050D818245ADD408031E280FB5F4E634D"
+                ? "Verifying Rally and preparing its assets…" : "Reading content…";
+        try
+        {
+            ApplyDlcResult(await RunDlcToolAsync(action, source, packageId));
+            DlcStatusText.Text = success;
+        }
+        catch (Exception ex)
+        {
+            // A batch may have completed some package transactions before an
+            // I/O failure. Refresh so the list always reflects disk state.
+            try { ApplyDlcResult(await RunDlcToolAsync("list")); } catch { }
+            DlcStatusText.Text = ex.Message;
+            AppendLog($"DLC: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+            DlcControls.IsEnabled = true;
+            DlcList.IsEnabled = true;
+            UpdatePrimaryButton();
+        }
+    }
+
+    private async Task<DlcResult> RunDlcToolAsync(string action, string? source = null, string? packageId = null)
+    {
+        if (_repositoryRoot is null || _stateRoot is null)
+            throw new InvalidOperationException("Release source is not ready.");
+        var start = new ProcessStartInfo
+        {
+            FileName = PowerShellExecutable(), WorkingDirectory = _repositoryRoot,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(_repositoryRoot, "tools", "manage-dlc.ps1"), "-Action", action, "-StateRoot", _stateRoot })
+            start.ArgumentList.Add(argument);
+        if (source is not null) { start.ArgumentList.Add("-InputPath"); start.ArgumentList.Add(source); }
+        if (packageId is not null) { start.ArgumentList.Add("-PackageId"); start.ArgumentList.Add(packageId); }
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start DLC management.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var stdout = await output;
+        var stderr = await error;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "DLC management stopped." : stderr.Trim());
+        return JsonSerializer.Deserialize<DlcResult>(stdout.Trim(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidDataException("DLC management returned an invalid result.");
+    }
+
+    private void ApplyDlcResult(DlcResult result)
+    {
+        DlcList.ItemsSource = result.Packages;
+        DlcEmptyText.Visibility = result.Packages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public sealed class DlcResult
+    {
+        public List<DlcPackage> Packages { get; set; } = [];
+    }
+
+    public sealed class DlcPackage
+    {
+        [JsonPropertyName("package_id")] public string PackageId { get; set; } = "";
+        [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
+        public bool Enabled { get; set; }
+        public string Status { get; set; } = "";
+        [JsonPropertyName("rally_assets_cached")] public bool RallyAssetsCached { get; set; }
+        public bool CanToggle => Status == "gameplay_unverified" ||
+            (Enabled && (Status == "missing" || Status == "metadata_invalid"));
+        public string ToggleText => Enabled ? "Disable" : "Enable";
+        public string ToggleAccessibleName => $"{ToggleText} {DisplayName}";
+        public string StatusText => Status switch
+        {
+            "missing" => "Content or header missing. Import the original package again.",
+            "metadata_invalid" => "Import record damaged. Import the original package again to repair it.",
+            "conflict" => "Both enabled and disabled copies exist. Check the content folder.",
+            "unmanaged" => "Content imported outside the launcher. Management unavailable.",
+            _ when Enabled && PackageId == "6F6992766050D818245ADD408031E280FB5F4E634D" =>
+                RallyAssetsCached ? "Enabled · Assets cached · Gameplay unverified" :
+                    "Enabled · Assets not prepared · Gameplay unverified",
+            _ => $"{(Enabled ? "Enabled" : "Disabled")} · Gameplay unverified"
+        };
+    }
+
     private void CloseGraphicsButton_Click(object sender, RoutedEventArgs e)
     {
         ShowPanel(_panelBeforeGraphics == View.Graphics ? View.Setup : _panelBeforeGraphics);
@@ -1150,7 +1455,7 @@ public partial class MainWindow : Window
     private async void SaveGraphicsButton_Click(object sender, RoutedEventArgs e)
     {
         if (!await ChangeGraphicsSettingsAsync("Apply", "Saved. Applies at the next start.")) return;
-        // Direct3D 12 may now need its shader packs.
+        // Refresh the displayed resolution after saving.
         if (_gameExecutable is not null && !_busy) DetectExistingBuild();
         CloseGraphicsButton_Click(sender, e);
     }
@@ -1221,7 +1526,7 @@ public partial class MainWindow : Window
             // Only the choices in this panel: the rest is set in game and must
             // not be overwritten.
             "-ResolutionScale", SelectedTag(ResolutionComboBox),
-            "-GraphicsApi", SelectedTag(GraphicsApiComboBox),
+            "-GraphicsApi", "vulkan",
             "-OutputScaling", SelectedTag(OutputScalingComboBox),
             "-TreasureMap", TreasureMapCheckBox.IsChecked == true ? "true" : "false",
             "-Json"
@@ -1249,8 +1554,6 @@ public partial class MainWindow : Window
     {
         _graphicsSettings = result.Settings;
         SelectTag(ResolutionComboBox, result.Settings.ResolutionScale.ToString());
-        SelectTag(GraphicsApiComboBox, string.IsNullOrWhiteSpace(result.Settings.GraphicsApi)
-            ? "vulkan" : result.Settings.GraphicsApi);
         SelectTag(OutputScalingComboBox, string.IsNullOrWhiteSpace(result.Settings.OutputScaling)
             ? "bilinear" : result.Settings.OutputScaling);
         TreasureMapCheckBox.IsChecked = result.Settings.TreasureMap;
@@ -1396,7 +1699,6 @@ public partial class MainWindow : Window
     private void SetGraphicsControlsEnabled(bool enabled)
     {
         ResolutionComboBox.IsEnabled = enabled;
-        GraphicsApiComboBox.IsEnabled = enabled;
         OutputScalingComboBox.IsEnabled = enabled;
         TreasureMapCheckBox.IsEnabled = enabled;
         SaveGraphicsButton.IsEnabled = enabled;

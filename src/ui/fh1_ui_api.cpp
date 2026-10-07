@@ -20,7 +20,8 @@ Status Api::ValidateSceneLocked(const SceneHandle& handle) const {
       scenes_.begin(), scenes_.end(), [&](const SceneState& state) {
         return state.handle.id == handle.id;
       });
-  if (scene == scenes_.end() || scene->handle.generation != handle.generation) {
+  if (scene == scenes_.end() || !scene->active ||
+      scene->handle.generation != handle.generation) {
     return Status::kStaleScene;
   }
   return Status::kOk;
@@ -74,7 +75,9 @@ Status Api::SceneClosing(const SceneHandle& handle) {
       scenes_.begin(), scenes_.end(), [&](const SceneState& state) {
         return state.handle.id == handle.id;
       });
-  scenes_.erase(scene);
+  // Retain the last generation so a later open cannot resurrect old handles.
+  scene->active = false;
+  scene->component_ids.clear();
   pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
                                 [&](const Operation& operation) {
                                   return operation.scene.id == handle.id &&

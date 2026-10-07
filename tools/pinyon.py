@@ -11,7 +11,7 @@ environment the game reads and starts it, then reports how it exited:
                    [--render-test-script FILE --render-test-output DIR]
                    [-- game arguments...]
 
-On Windows the D3D12 shader pack is prepared first through
+On Windows Vulkan shader storage is prepared first through
 tools/prepare-fh1-shaders.ps1 (skip it with --skip-shader-preparation); on
 Linux the game runs on Vulkan and translates shaders itself, so there is
 nothing to prepare. A crash on Windows is bundled by
@@ -96,12 +96,12 @@ def build_mods(state: Path, game: Path, build: Path) -> None:
 def prepare_shaders(state: Path, game: Path, build: Path) -> None:
     shell = powershell()
     if shell is None:
-        raise LaunchError("PowerShell is needed to prepare the D3D12 shader pack "
+        raise LaunchError("PowerShell is needed to prepare Vulkan shader storage "
                           "(or pass --skip-shader-preparation)")
     command = [shell, "-NoProfile", "-File", str(ROOT / "tools" / "prepare-fh1-shaders.ps1"),
                "-StateRoot", str(state), "-GameRoot", str(game), "-BuildDirectory", str(build)]
     if subprocess.run(command, stdout=subprocess.DEVNULL).returncode:
-        raise LaunchError("could not prepare the shader pack")
+        raise LaunchError("could not prepare Vulkan shader storage")
 
 
 def crash_report(state: Path, executable: Path, started: datetime, pid: int,

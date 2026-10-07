@@ -104,11 +104,14 @@
                     <Button x:Name="GraphicsSettingsButton" Content="Settings" Style="{StaticResource QuietButton}"
                             Height="54" Padding="24,0" Margin="12,0,0,0" Visibility="Collapsed"
                             Click="GraphicsSettingsButton_Click"
-                            AutomationProperties.HelpText="Choose the graphics API, the resolution and the Treasure Map."/>
+                            AutomationProperties.HelpText="Choose the resolution, output scaling and the Treasure Map."/>
                     <Button x:Name="AndroidButton" Content="Build Android APK" Style="{StaticResource QuietButton}"
                             Height="54" Padding="24,0" Margin="12,0,0,0" Visibility="Collapsed"
                             Click="AndroidButton_Click"
                             AutomationProperties.HelpText="Build an Android package of the game from this PC's build, for your own device."/>
+                    <Button x:Name="DlcButton" Content="DLC" Style="{StaticResource QuietButton}"
+                            Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
+                            Click="DlcButton_Click" AutomationProperties.HelpText="Import and manage your owned downloadable content."/>
                 </StackPanel>
 
                 <!-- Setup steps, while there is setup left to do. -->
@@ -223,6 +226,72 @@
                     </StackPanel>
                 </Border>
 
+                <Border x:Name="DlcPanel" Background="{StaticResource SurfaceBrush}" CornerRadius="14"
+                        Visibility="Collapsed" VerticalAlignment="Top" AutomationProperties.Name="Downloadable content">
+                    <StackPanel Margin="26,22">
+                        <TextBlock Margin="0,0,0,16" FontSize="13" TextWrapping="Wrap" LineHeight="20"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Text="Import your own FH1 packages, folders or ZIPs. Imports start disabled. Gameplay support, including Rally on the base disc, is still being verified."/>
+                        <TextBlock x:Name="DlcEmptyText" Text="No DLC imported for this installation." FontSize="14" Margin="0,8,0,16"/>
+                        <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="DlcList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,18,0">
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="14" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding StatusText}" FontSize="12" Margin="0,3,0,0"
+                                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="{Binding ToggleText}" Tag="{Binding}"
+                                                    IsEnabled="{Binding CanToggle}" Style="{StaticResource QuietButton}"
+                                                    AutomationProperties.Name="{Binding ToggleAccessibleName}"
+                                                    AutomationProperties.HelpText="{Binding StatusText}"
+                                                    MinWidth="88" VerticalAlignment="Center" Click="ToggleDlcButton_Click"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock x:Name="DlcStatusText" Margin="0,8,0,14" TextWrapping="Wrap" FontSize="12.5"
+                                   Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                        <WrapPanel x:Name="DlcControls">
+                            <Button Content="Import package or ZIP" Style="{StaticResource ActionButton}" Click="ImportDlcButton_Click" Margin="0,0,10,8"/>
+                            <Button Content="Import folder" Style="{StaticResource QuietButton}" Click="ImportDlcFolderButton_Click" Margin="0,0,10,8"/>
+                            <Button Content="Done" Style="{StaticResource QuietButton}" Click="CloseDlcButton_Click" Margin="0,0,0,8"/>
+                        </WrapPanel>
+                        <!-- Optional FH1 v4 title update (TITLE_UPDATE_V4_BACKLOG TU-2). -->
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                                <TextBlock Text="FH1 title update v4" FontSize="14"/>
+                                <TextBlock x:Name="TitleUpdateStatusText" Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap" Text="Checking…"
+                                           Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                                <CheckBox x:Name="TitleUpdateClubCheckBox" Margin="0,5,0,0" FontSize="12" IsEnabled="False"
+                                          Click="TitleUpdateClubCheckBox_Click"
+                                          AutomationProperties.Name="Play 1000 Club offline with title update v4">
+                                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
+                                        <Run Text="1000 Club offline"/><Run Foreground="{StaticResource MutedBrush}"
+                                             Text=" · Goals are confirmed locally instead of by the closed Forza server."/>
+                                    </TextBlock>
+                                </CheckBox>
+                            </StackPanel>
+                            <StackPanel x:Name="TitleUpdateControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Import update" Style="{StaticResource QuietButton}"
+                                        Click="ImportTitleUpdateButton_Click" Margin="0,0,10,0"
+                                        AutomationProperties.Name="Import FH1 title update v4"/>
+                                <Button x:Name="TitleUpdateToggleButton" Content="Use v4" Style="{StaticResource QuietButton}"
+                                        Click="TitleUpdateToggleButton_Click" IsEnabled="False" MinWidth="88"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
                 <!-- Graphics settings read before the game starts. -->
                 <Border x:Name="GraphicsPanel" Background="{StaticResource SurfaceBrush}" CornerRadius="14"
                         Visibility="Collapsed" VerticalAlignment="Top" AutomationProperties.Name="Graphics settings">
@@ -242,11 +311,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Graphics API" FontSize="13" Foreground="{StaticResource MutedBrush}"/>
-                        <ComboBox Grid.Row="1" x:Name="GraphicsApiComboBox" Margin="0,8,0,0" SelectedIndex="0"
-                                  AutomationProperties.Name="Graphics API">
-                            <ComboBoxItem Tag="vulkan">Vulkan, best at 1× and 2×</ComboBoxItem>
-                            <ComboBoxItem Tag="d3d12">Direct3D 12, best at 3× and 4×</ComboBoxItem>
-                        </ComboBox>
+                        <TextBlock Grid.Row="1" Text="Vulkan" Margin="0,8,0,0" VerticalAlignment="Center"
+                                   FontSize="16" AutomationProperties.Name="Graphics API: Vulkan"/>
                         <TextBlock Grid.Column="2" Text="Internal resolution" FontSize="13" Foreground="{StaticResource MutedBrush}"/>
                         <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ResolutionComboBox" Margin="0,8,0,0" SelectedIndex="0"
                                   AutomationProperties.Name="Internal resolution"

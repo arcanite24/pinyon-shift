@@ -78,6 +78,64 @@ def read_archive_entry(archive: Path, table: str, extractor: Path) -> bytes:
         raise StringTableError(f"{table} is not in {archive}")
     return module.extract_entry(archive, matches[0], extractor, "auto", 1 << 24)
 
+def merge_preserving_base(stock: bytes, owned: bytes) -> bytes:
+    """Use the owned lookup dictionaries and added strings, retaining base text."""
+    original, replacement = dict(parse(stock)), dict(parse(owned))
+    if not original.keys() <= replacement.keys():
+        raise StringTableError("owned table omits base string keys")
+    changed = {key: text for key, text in original.items() if text and replacement[key] != text}
+    if not changed:
+        return owned
+    offset = struct.unpack_from(">I", owned, 12)[0]
+    size, count = struct.unpack_from(">II", owned, offset)
+    chunk = bytearray(owned[offset:offset + size])
+    pool = 8 + 6 * (count + 1)
+    for index in range(count):
+        key = struct.unpack_from(">H", chunk, 8 + 6 * index)[0]
+        if key in changed:
+            struct.pack_into(">I", chunk, 10 + 6 * index, (len(chunk) - pool) // 2)
+            chunk.extend(changed[key].encode("utf-16-be") + b"\0\0")
+    struct.pack_into(">I", chunk, 10 + 6 * count, (len(chunk) - pool) // 2 - 1)
+    struct.pack_into(">I", chunk, 0, len(chunk))
+    header = bytearray(owned[:offset])
+    pointers = struct.unpack_from(">I", header, 16)[0]
+    if pointers > 16 or 20 + pointers * 4 > offset:
+        raise StringTableError("invalid LSB2 chunk directory")
+    for index in range(pointers):
+        at = 20 + index * 4
+        value = struct.unpack_from(">I", header, at)[0]
+        if value >= offset + size:
+            struct.pack_into(">I", header, at, value + len(chunk) - size)
+    result = bytes(header) + bytes(chunk) + owned[offset + size:]
+    if any(text and dict(parse(result))[key] != text for key, text in original.items()):
+        raise StringTableError("base strings changed during Rally merge")
+    return result
+
+
+def replace_strings(data: bytes, replacements: dict[int, str]) -> bytes:
+    """Replace or add text while retaining the table header and lookup chunks."""
+    entries = dict(parse(data)) | replacements
+    if any(not 0 <= key < SENTINEL or "\0" in text for key, text in entries.items()):
+        raise StringTableError("invalid replacement string")
+    offset = struct.unpack_from(">I", data, 12)[0]
+    old_size = struct.unpack_from(">I", data, offset)[0]
+    pool, records = bytearray(), bytearray()
+    for key, text in sorted(entries.items()):
+        records.extend(struct.pack(">HI", key, len(pool) // 2))
+        pool.extend(text.encode("utf-16-be") + b"\0\0")
+    records.extend(struct.pack(">HI", SENTINEL, len(pool) // 2 - 1))
+    chunk = struct.pack(">II", 8 + len(records) + len(pool), len(entries)) + records + pool
+    header = bytearray(data[:offset])
+    pointers = struct.unpack_from(">I", header, 16)[0]
+    if pointers > 16 or 20 + pointers * 4 > offset:
+        raise StringTableError("invalid LSB2 chunk directory")
+    for index in range(pointers):
+        at = 20 + index * 4
+        value = struct.unpack_from(">I", header, at)[0]
+        if value >= offset + old_size:
+            struct.pack_into(">I", header, at, value + len(chunk) - old_size)
+    return bytes(header) + chunk + data[offset + old_size:]
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
