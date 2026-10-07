@@ -830,10 +830,12 @@ registers = ["r1", "r6", "r31"]
 # frustum and projection. For the 1280x720 main view a wider window's aspect
 # is returned instead, so the title renders (and culls) a wider horizontal
 # field of view into the same 16:9 buffer, which the presenter stretches.
+# The hook reads the caller (context) to leave the pause map unwidened.
 [[midasm_hook]]
 address = 0x823E22F4
 name = "PinyonShiftViewportAspect"
 registers = ["r3", "f1"]
+context = true
 
 # sub_8284EF90 returns a camera's vertical field of view in radians (f1, from
 # [r3+304]) to the frustum and projection code; the field-of-view setting

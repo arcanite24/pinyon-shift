@@ -62,6 +62,9 @@ class PinyonShiftApp final : public rex::ReXApp {
   bool EnsureHostUi();
   // NP-4.4 Hor+: the title's aspect for the window's (pinyon_shift_hor_plus).
   void UpdateHorPlus();
+  // While the pause map is open under Hor+, present 16:9 letterboxed.
+  void ApplyMapView(bool open);
+  bool map_view_open_ = false;
 
   // Recomputes Hor+ when the window changes size.
   class ResizeListener final : public rex::ui::WindowListener {

@@ -31,5 +31,8 @@ void PinyonShiftObserveGuestFileOpen(std::string_view guest_path);
 // NP-4.4 Hor+: the factor the title's 16:9 main-view aspect is multiplied by
 // (1 keeps it), so a wider window shows more of the world horizontally.
 void PinyonShiftSetViewportAspectScale(float scale);
+// Called (on the title's thread) when the pause map opens or closes, so the
+// presentation can show it as 16:9 instead of widened.
+void PinyonShiftSetMapViewCallback(std::function<void(bool open)> callback);
 
 void PinyonShiftSetPauseSettingsHandler(std::function<void()> handler);

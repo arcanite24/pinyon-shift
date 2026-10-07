@@ -767,10 +767,22 @@ void PinyonShiftApp::UpdateHorPlus() {
     }
   }
   PinyonShiftSetViewportAspectScale(scale);
-  // The HUD keeps 16:9 proportions in the stretched image.
-  rex::cvar::SetFlagByName("fh1_hud_squeeze", fmt::format("{:.6f}", scale));
+  // The HUD keeps 16:9 proportions in the stretched image; the map shows 16:9.
+  rex::cvar::SetFlagByName("fh1_hud_squeeze",
+                           fmt::format("{:.6f}", map_view_open_ ? 1.0f : scale));
   pinyon_shift::diagnostics::RecordEvent("display.hor_plus",
                                          {{"scale", fmt::format("{:.4f}", scale)}});
+}
+
+void PinyonShiftApp::ApplyMapView(bool open) {
+  if (open == map_view_open_) return;
+  map_view_open_ = open;
+  if (!REXCVAR_GET(pinyon_shift_hor_plus)) return;
+  // Wider View stretches the 16:9 frame over the window; the map's 16:9 layer
+  // is shown letterboxed instead, then the stretch returns (#363).
+  rex::cvar::SetFlagByName("present_letterbox", open ? "true" : "false");
+  UpdateHorPlus();
+  pinyon_shift::diagnostics::RecordEvent("display.map_view", {{"open", open ? "1" : "0"}});
 }
 
 void PinyonShiftApp::OnPostSetup() {
@@ -790,6 +802,11 @@ void PinyonShiftApp::OnPostSetup() {
                                       }
                                     });
   UpdateHorPlus();
+  PinyonShiftSetMapViewCallback([this](bool open) {
+    if (window()) {
+      window()->app_context().CallInUIThreadDeferred([this, open] { ApplyMapView(open); });
+    }
+  });
   rex::ui::RegisterBind("bind_game_menu", "F6", "Open the in-game settings menu",
                         [this] { ToggleGameMenu(); });
 #if defined(__ANDROID__)
@@ -1040,6 +1057,7 @@ void PinyonShiftApp::OnShutdown() {
   pinyon_shift::mod::NotifyShutdown();
   rex::ui::UnregisterBind("bind_game_menu");
   rex::cvar::UnregisterChangeCallbacks("pinyon_shift_hor_plus");
+  PinyonShiftSetMapViewCallback(nullptr);
   if (resize_listener_added_ && window()) {
     window()->RemoveListener(&resize_listener_);
     resize_listener_added_ = false;

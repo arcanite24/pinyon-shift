@@ -6184,6 +6184,8 @@ static void QueueRallyRaceTrace() {
   });
 }
 
+static void UpdateMapView();
+
 void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   PROFILE_SIMULATION_TICK();
   pinyon_shift::stall::NoteFrame();
@@ -6194,6 +6196,7 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   pinyon_shift::cheats::UpdateCollectibleMarkers();
   // The Treasure Map add-on's reveal, when the setting owns it.
   pinyon_shift::dlc::UpdateTreasureMap();
+  UpdateMapView();
   pinyon_shift::dlc::UpdateTokenUnlocks();
   QueueRallyRaceTrace();
   // frame.tick for mods: their guest tasks, then the hook.
@@ -6796,6 +6799,42 @@ namespace {
 std::atomic<float> g_viewport_aspect_scale{1.0f};
 }  // namespace
 
+
+namespace {
+// Title frames, and the last one in which the pause map projected its view.
+std::atomic<uint64_t> g_title_frames{0};
+std::atomic<uint64_t> g_map_view_frame{0};
+std::atomic<uint64_t> g_game_view_frame{0};
+std::mutex g_map_view_mutex;
+std::function<void(bool)> g_map_view_callback;
+
+}  // namespace
+
+static void UpdateMapView() {
+  static bool open = false;
+  const uint64_t frame = g_title_frames.fetch_add(1, std::memory_order_relaxed) + 1;
+  const uint64_t seen = g_map_view_frame.load(std::memory_order_relaxed);
+  const uint64_t game = g_game_view_frame.load(std::memory_order_relaxed);
+  // The map view also runs under loading screens and after a fast travel, but
+  // the gameplay camera's view stops only while the pause map is up. Dialogs
+  // over the map can skip its view for a few frames; close only after half a
+  // second without it so the presentation does not flicker.
+  const bool now_open = seen != 0 && frame - seen <= 30 && (game == 0 || frame - game > 3);
+  if (now_open == open) return;
+  open = now_open;
+  std::function<void(bool)> callback;
+  {
+    std::lock_guard lock(g_map_view_mutex);
+    callback = g_map_view_callback;
+  }
+  if (callback) callback(open);
+}
+
+void PinyonShiftSetMapViewCallback(std::function<void(bool open)> callback) {
+  std::lock_guard lock(g_map_view_mutex);
+  g_map_view_callback = std::move(callback);
+}
+
 void PinyonShiftSetViewportAspectScale(float scale) {
   g_viewport_aspect_scale.store(scale, std::memory_order_relaxed);
 }
@@ -6805,11 +6844,27 @@ void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
   if (scale != 1.0) f1.f64 = double(float(f1.f64 * scale));
 }
 
-void PinyonShiftViewportAspect(PPCRegister& r3, PPCRegister& f1) {
+void PinyonShiftViewportAspect(PPCContext& context, [[maybe_unused]] uint8_t* base,
+                               PPCRegister& r3, PPCRegister& f1) {
+  // The pause map projects through the same main view (from sub_8263AB90,
+  // v4 sub_826E2E20). Its image is a 16:9 layer, so a widened view shows
+  // smeared clamped texture beside it (#363); seeing this caller marks the
+  // map open, and the presentation shows it 16:9 (UpdateMapView).
+  constexpr uint32_t kMapProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x826E30A8u : 0x8263AE18u;
+  // The gameplay camera's view (sub_829A4860, v4 sub_82A58DA0).
+  constexpr uint32_t kGameProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x82A58E34u : 0x829A48F4u;
   const float scale = g_viewport_aspect_scale.load(std::memory_order_relaxed);
+  if (uint32_t(context.lr) == kGameProjectionReturn) {
+    g_game_view_frame.store(g_title_frames.load(std::memory_order_relaxed), std::memory_order_relaxed);
+  }
+  if (uint32_t(context.lr) == kMapProjectionReturn) {
+    g_map_view_frame.store(g_title_frames.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    return;
+  }
   // Only the title's main view: render-to-texture views (car thumbnails,
   // reflections) keep their own aspect.
-  if (scale == 1.0f || LoadGuestU32(r3.u32 + 8u) != 1280u || LoadGuestU32(r3.u32 + 12u) != 720u) {
+  if (scale == 1.0f ||
+      LoadGuestU32(r3.u32 + 8u) != 1280u || LoadGuestU32(r3.u32 + 12u) != 720u) {
     return;
   }
   f1.f64 = double(float(f1.f64) * scale);
