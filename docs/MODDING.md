@@ -46,6 +46,15 @@ A mod whose requirement is missing or failed, or that conflicts with an
 enabled mod, is not loaded. Load order follows `requires` and `load_after`,
 otherwise the `enabled_mods` order.
 
+`game_version` may also be a list. The FH1 v4 title-update build identifies
+itself as `74B033805AB1BCAA`, the SHA-256 prefix of its verified patched
+image. It has its own symbol table, so a mod that uses only symbol and hook
+names can list both builds:
+`game_version = ["DB40DF605ADE49A6", "74B033805AB1BCAA"]`. A mod that relies
+on raw guest addresses or field offsets must target one build: classes grew
+in v4, so several offsets differ (see the
+[title update v4 backlog](TITLE_UPDATE_V4_BACKLOG.md)).
+
 ## Your saves stay separate
 
 With any mod enabled, the title plays a separate profile,
@@ -56,16 +65,37 @@ with the enabled mods, a hash of the mod set and a hash of the plaintext save
 body, so a save can always be traced to the mods that made it. Turning all
 mods off returns to the unmodded profile unchanged.
 
+Marketplace DLC installations and their entitlement headers are shared from
+`<state>/user`: launcher enable/disable changes apply to both profiles. Creating
+the modded profile copies save data without duplicating DLC assets. Existing
+DLC copies under `user-modded` are left in place but are not enumerated.
+
 ## Asset mods
 
 Files under `game/` replace the game's files with the same path
 (case-insensitive) while the mod is enabled; an earlier mod in the load order
-wins over a later one. Replacement is whole files: the title reads its
+wins over a later one. New directories supplied by a mod are accessible;
+existing disc directories retain their base files alongside replacements.
+Replacement is whole files: the title reads its
 archives (`media/*.zip`) through C streams, so an asset mod ships a complete
 archive. Nothing from the game disc may be distributed; a mod's install
 instructions should build its files from the player's own copy, as
 `tools/install-sample-mod.py english_strings` does. Each replaced file the
 title opens is logged as `mod.file.override`.
+
+For an FH1 archive containing XMem members, use
+[`patch-fh1-archive.py`](../tools/patch-fh1-archive.py) to replace selected
+members in a new archive built from your own game files:
+
+```powershell
+python tools/patch-fh1-archive.py <original.zip> <new.zip> --replace member.xml=<edited.xml>
+```
+
+The tool retains other members' compressed bytes and updates both ZIP header
+offsets and FH1's absolute payload offsets (extra field `0x1123`). Ordinary ZIP
+repacking can leave those offsets pointing into unrelated data. The output
+must be a new file; the original is never overwritten. A loose XML under
+`game/media/GameModes` does not replace an existing member of `gamemodes.zip`.
 
 The title checks some game files block by block against SHA-256 digests of
 the originals and stops with a dirty-disc error on a mismatch. For a file a

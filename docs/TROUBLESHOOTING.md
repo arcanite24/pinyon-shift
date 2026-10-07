@@ -67,12 +67,10 @@ fix.
 
 ## Something is missing the first time a screen appears
 
-The preview draws only with shaders prepared before launch. When the game
-builds a shader that preparation did not reach, those draws are skipped for
-that session and the shader is recorded. The next launch prepares graphics
-again ("Preparing graphics ... This only runs when needed.") and includes it.
-If the same thing stays missing after relaunching, report it with the latest
-runtime log from `.local/preview/logs`.
+Vulkan prepares newly encountered shaders during play and stores them for later
+launches. A new effect may cause brief stutter while its shaders compile. If
+something stays missing after relaunching, report it with the latest runtime
+log from `.local/preview/logs`.
 
 ## Graphics setup fails with a resolution scale error
 
@@ -84,7 +82,9 @@ supported scale in the launcher, or remove the file to reset runtime settings.
 
 ## The game does not start
 
-Update the GPU driver and confirm that the GPU supports DirectX 12. Remove
+Update the GPU driver and confirm that the GPU supports Vulkan 1.3. Vulkan is
+the sole supported graphics API; Direct3D 12 is legacy and unsupported. Saved
+Direct3D 12 selections migrate to Vulkan on the next launch. Remove
 `.local/preview/config/pinyon_shift.toml` to reset runtime settings. Security
 software may also quarantine a newly compiled unsigned executable; restore it
 only after confirming it was produced by your local checkout.

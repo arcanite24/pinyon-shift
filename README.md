@@ -25,7 +25,8 @@ Pinyon Shift is not an emulator. The game's PowerPC code is translated ahead of
 time into C++ with [ShiftGlue](https://github.com/arcanite24/shiftglue-sdk), our
 fork of ReXGlue, and compiled for x86-64 on your computer. The GPU command stream
 the game builds is executed by a native renderer written for *Forza Horizon*,
-on Vulkan (the default) or Direct3D 12. The project is a playable preview: early,
+on Vulkan, the sole supported graphics API. Direct3D 12 is legacy and unsupported.
+The project is a playable preview: early,
 imperfect, and surprisingly drivable.
 
 This repository contains the launcher, build tools, host code, configuration and
@@ -42,13 +43,13 @@ or a prebuilt game executable.
 - **Native code.** The title's executable is recompiled ahead of time; nothing
   is interpreted or JIT-compiled at run time.
 - **A renderer built for this game.** Every draw, clear, resolve and swap runs
-  in order with the game's own shaders, translated to SPIR-V (Vulkan) or DXBC
-  (Direct3D 12). On Vulkan, one thread decodes the game's command stream while a
+  in order with the game's own shaders, translated to SPIR-V. One thread
+  decodes the game's command stream while a
   second records the draws.
 - **60 and 120 fps at the right game speed.** The render rate is decoupled from
   the console's 30 fps, with the simulation kept in step.
 - **1x to 4x internal resolution**, FSR 1 output scaling, anisotropic and
-  trilinear filtering, FXAA, and optional motion blur and depth of field.
+  trilinear filtering, FXAA, and optional bloom, motion blur and depth of field.
 - **Settings in game (F6)** for display, graphics, audio and controls, plus a
   trainer (F10: credits, game speed, time of day, free camera, collectibles on
   the map), photo export, save backups and [mods](docs/MODDING.md).
@@ -73,7 +74,7 @@ settings.
 | --- | ---: | ---: |
 | Xenia Canary (`67d80958c`, Direct3D 12) | 30.0 fps | 30.0 fps |
 | Pinyon Shift 0.1.0 (ReXGlue Xenos renderer) | 28.3 fps | 29.0 fps |
-| Pinyon Shift, native renderer on Direct3D 12 | 118.7 fps | 119.5 fps |
+| Pinyon Shift, native renderer on Direct3D 12 (legacy) | 118.7 fps | 119.5 fps |
 | **Pinyon Shift, native renderer on Vulkan** | **119.8 fps** | **120.0 fps** |
 
 On the console *Forza Horizon* runs at 30 fps, and Xenia and the Xenos-era
@@ -113,7 +114,7 @@ The scripted race (`fh1-race-sync`) is the heaviest route. It is measured over
 the race's last 600 frames with the frame rate limited to 120, in a hidden
 window, from the same save.
 
-| Internal resolution | Vulkan | Direct3D 12 |
+| Internal resolution | Vulkan | Direct3D 12 (legacy) |
 | --- | ---: | ---: |
 | 1x (1280×720) | **110 fps** (9.1 ms) | 79 fps (12.7 ms) |
 | 2x (2560×1440) | **79 fps** (12.7 ms) | 66 fps (15.2 ms) |
@@ -122,9 +123,10 @@ window, from the same save.
 Median frame rate and frame time over the race's last 600 frames, its busiest
 part.
 
-Vulkan is the default because it records draws on a second thread, which makes
-it the faster backend at 1x and 2x. At 3x and above the GPU is the limit, and
-there Direct3D 12 is faster: the Vulkan backend spends more GPU time on the
+Direct3D 12 measurements above are historical comparisons; current support and
+qualification target Vulkan only. Vulkan records draws on a second thread,
+which makes it faster at 1x and 2x in these measurements. At 3x and above the
+GPU is the limit: the Vulkan backend spends more GPU time on the
 game's multisampled surfaces. The optional single-sampled surfaces
 (`fh1_scaled_msaa_single_sample`) bring Vulkan at 3x to about 24 ms. How the
 Vulkan path got here is in the [performance backlog](docs/PERFORMANCE_BACKLOG.md).
@@ -144,19 +146,18 @@ Vulkan path got here is in the [performance backlog](docs/PERFORMANCE_BACKLOG.md
 6. Choose **Play**. Press **F6** in game for settings.
 
 <p align="center">
-  <img src=".github/launcher-settings.png" alt="The launcher's Settings panel: graphics API, internal resolution, output scaling, the resulting resolutions and the Treasure Map toggle" width="800">
+  <img src=".github/launcher-settings.png" alt="The launcher's Settings panel: Vulkan, internal resolution, output scaling, the resulting resolutions and the Treasure Map toggle" width="800">
 </p>
 
-**Settings** in the launcher picks the graphics API (Vulkan, recommended, or
-Direct3D 12), the internal resolution and the output scaling (bilinear, CAS or
+**Settings** in the launcher shows Vulkan and picks the internal resolution
+and the output scaling (bilinear, CAS or
 FSR 1), and says what that means on your screen: for example, renders
 1280 × 720, FSR 1 upscales to 3840 × 2160. The Treasure Map toggle is there
 too: on by default, and once a save's map is revealed it stays revealed, as
-after a purchase. Vulkan is faster at 1x and 2x; for
-3x and 4x choose Direct3D 12, which prepares shader packs for your computer
-before its first start. Everything else, including the **Performance 120** and
+after a purchase. Existing Direct3D 12 settings migrate to Vulkan on the next
+start. Everything else, including the **Performance 120** and
 **Quality 60** presets, is in the in-game settings, where most changes apply at
-once; the graphics API and the language are among the few that need a
+once; the language is among the few that need a
 restart.
 
 To change the game language, press **F6** at the title screen or during play,
@@ -172,8 +173,9 @@ The launcher verifies the image before reading it. Unsupported or modified
 images are rejected. Your image and extracted game files stay on your machine.
 The launcher downloads build tools and the pinned ShiftGlue source, extracts
 the disc locally, generates the translation locally and compiles the executable
-locally. Administrator permission is requested only if Visual Studio Build Tools
-must be installed.
+locally. Administrator permission is requested only if compatible Visual Studio
+Build Tools must be installed. VS 2022 Build Tools 17.1 or newer are required;
+VS 2019 alone does not satisfy the C++ standard library requirement.
 
 To build on another drive, choose **Change** next to **Installs to** on the
 setup screen of the packaged launcher. The launcher remembers your choice for subsequent launches.
@@ -240,7 +242,7 @@ PC at its next build), the graphics driver's own shader cache, and the files
 
 - The USA retail base disc, serial `MS-2505`, title ID `4D5309C9`.
 - Windows 10 or 11, x64.
-- A GPU with Vulkan 1.3 (the default) or Direct3D 12. Only NVIDIA GPUs are
+- A GPU with Vulkan 1.3. Only NVIDIA GPUs are
   qualified so far; AMD and Intel are untested.
 
 This is a public preview, not a finished remaster. Please report reproducible
@@ -272,7 +274,7 @@ From a PowerShell terminal in a repository checkout:
 
 The setup script provisions pinned dependencies, initializes ShiftGlue,
 verifies and extracts the disc, generates translated source, and builds Release
-with both the Vulkan and the Direct3D 12 backends.
+with Vulkan as the supported graphics API. The retained Direct3D 12 code is legacy.
 `python tools/pinyon.py launch` starts the built game the same way without
 PowerShell, with `--state-root`, `--hidden` and game arguments after `--`; it is
 the launcher for Linux builds. See [Building](docs/BUILDING.md) and
@@ -294,8 +296,7 @@ the proposed additions. Implementation details and acceptance gates are in the
 Done since 0.1:
 
 - [x] Change resolution and render scale while the game is running
-- [x] Apply graphics settings without restarting the preview (all but the
-  graphics API)
+- [x] Apply graphics settings without restarting the preview
 - [x] Support ultrawide (21:9 and wider) displays, with a 16:9 HUD and a field
   of view setting
 - [x] Ship a modding API for loading custom content: native plugins, file and
@@ -311,10 +312,136 @@ Done since 0.1:
 In progress:
 
 - [ ] Native Linux support
-- [ ] FH1 v4 title-update support
+- [ ] FH1 v4 title-update support, built from your USA disc and your own
+  update ([title update v4 backlog](docs/TITLE_UPDATE_V4_BACKLOG.md))
 - [ ] DLC support from your own Xbox 360 content, including car packs and
   the Horizon Rally expansion
 - [ ] Easier Android build, USB installation and game-data transfer
+
+### DLC support priorities
+
+The immediate priority is Rally's original discovery, event entry, menus and
+progression. Starting championships through F6 is a development shortcut;
+restoring the intended in-game experience remains open in the
+[DLC backlog](docs/DLC_BACKLOG.md#immediate-priority-the-original-rally-experience).
+
+Planned support from your own Xbox 360 content, ordered by gameplay value.
+Package availability does not mean it is playable yet. DLC currently runs on
+the supported base disc. The original Rally and 1000 Club code exists only in
+v4, so those expansions are moving to a v4 build made from the same disc
+([title update v4 backlog](docs/TITLE_UPDATE_V4_BACKLOG.md)). The launcher imports verified owned
+packages and keeps them disabled until enabled individually; full gameplay support
+is still being qualified.
+Enabling Rally also prepares its owned assets against the supported base disc.
+Prepared stages use each championship's correct class target and the base game's
+class restriction. Requiring Rally upgrades in car selection is still pending.
+Preparation also binds the owned Rally ticket images through the base UI's
+supported texture folders. The original Rally menu layout remains unfinished.
+Prepared championship and stage names now follow the owned route order;
+older prepared caches rebuild automatically without changing saves.
+Normal launch verifies and mounts the generated Rally entry assets. They include
+seven owned activation locations, localized stage names and a director that
+preserves unfinished attempts. Physical entry at these coordinates and full Rally gameplay
+remain unqualified.
+An optional developer preparation mode (`tools/prepare-fh1-rally.py --native-menu`)
+generates the seven-ticket native hub and car-selection flow. Its activity
+context, championship focus, car-selection cancellation and gameplay return
+pass component tests; physical entry, prizes and Rally upgrade eligibility
+remain unfinished. New installations keep the existing development flow.
+Launch preflight preserves an explicitly selected mode; `--no-native-menu`
+switches it off again. See the [DLC backlog](docs/DLC_BACKLOG.md).
+The development in-game menu (F6) now includes **Horizon Rally** with championship
+selection, resume status and retirement confirmation. Keyboard selection of
+championship 7 passes a native Vulkan first-stage entry and initial-checkpoint
+test from a normal owned-content save. Keyboard resume of stages 1 and 2 and
+confirmed retirement also pass for that championship, preserving earned records.
+Full championships, other input methods and the remaining Rally gameplay checks
+are still being qualified.
+Those menu/progression probes used a profile-only test fixture; full-save
+qualification with the existing saved garage is still pending.
+The normal title database merge also passes a read-only Vulkan check of all
+16 Rally car rows and their tyre, suspension and engine option counts. The
+imported licence covers five selectable cars; the Focus SVT remains unowned.
+The owned Escort RS Cosworth now passes normal Autoshow purchase, garage save,
+fresh reload and free-roam driving on Vulkan with the complete pinned save.
+Its Custom Upgrade menu opens after reload. Rally tyre, suspension and transmission
+purchase, save and reload pass, followed by normal stage-two resume and initial
+driving with all three parts installed. Preparation also adds Rally tyre options
+for 173 base-car entries; an owned Mustang passes normal tyre purchase, save,
+reload and initial Rally driving. Base-car suspension/transmission conversions,
+Rally surface handling and tuning, other Rally cars and disabling Rally with a
+purchased Rally car's upgrades remain unqualified. Disabling Rally with the stock
+Escort selected, saving a base-car switch, then restoring and driving the same
+Escort passes with all seven garage cars and purchased parts retained.
+Disabling Rally with a saved Rally tyre now stops with a recovery message and
+preserves the purchased part. Re-enabling Rally restores the tested Mustang's
+load and initial driving; other missing DLC cars and parts still need checks.
+Rally selection now stays disabled while a native garage/service flow owns
+game control. A Vulkan garage check rejects selection there, then resumes the
+saved stage after leaving the garage; other services still need qualification.
+A diagnostic native-AI run finishes stages two and three with the complete
+saved garage, preserves their earned checkpoints and reloads stage three
+through F6 on Vulkan. Both finish backgrounds now render the road and terrain
+correctly after grounding their camera targets. Manual full-stage driving and
+other finish views remain unqualified.
+An earned championship-7 completion also passes a fresh Vulkan reload with
+all seven garage cars, 122 purchased parts and four stage times preserved,
+followed by an 85-metre drive and map return without diagnostic AI.
+The DLC panel reports cached assets separately from gameplay support; normal
+Rally entry and progression are still being qualified and ported.
+The [DLC backlog](docs/DLC_BACKLOG.md) tracks dependencies and acceptance checks.
+Monthly car packs share a priority and are listed in release order.
+Current DLC qualification targets Vulkan only. Direct3D 12 results below were
+recorded before its legacy designation and remain historical evidence.
+Private Rally probes finish solo stages on Vulkan and D3D12 using the base
+disc. A private native stage record now saves completions and best times and
+reloads them beside the active profile. A private two-stage probe also loads
+the next Rally route on both renderers. The private four-stage director now
+finishes series 7 and saves its total on both renderers. Both also resume an
+incomplete attempt and reload a completed record unchanged. Fresh full-series
+checks on both renderers preserve the original return position, reload Colorado
+and drive after the final results. Base-native English and Spanish pace-note
+probes start a cue and capture non-silent game audio. Private route-1 tests
+also sequence 10 authored phrases in English on Vulkan and Spanish on D3D12
+through the base audio interface. A private owned-icon HUD now draws the
+current phrase's turns, and active-phrase pause/resume checks pass on English
+Vulkan and Spanish D3D12. Native restart checks on both also re-arm the first
+phrase, continue to later calls and save a subsequent finish. Visual HUD review,
+speech intelligibility, live rewind and complete authored pace-note coverage
+remain open. Results-screen replay saves a second completion on both renderers
+and preserves the faster best. Fresh native reloads retain both completions
+and the best time unchanged while starting another stage.
+A private built-in overlay also finishes route 1 and saves its stage record
+and series checkpoint in the normal profile on both renderers, with no mods
+enabled. Fresh processes resume stage 2 and preserve the earned record.
+The experiment still uses a temporary entry prompt and base race UI.
+The owned co-driver now activates without a pace override and selects its bank
+from the console language and country. Fresh English and Mexican Spanish
+Vulkan checks each play 10 complete phrases in that private entry fixture.
+Official entry, Rally scoring, XP, wristbands, unlocks and the remaining gameplay qualification
+remain open.
+
+- [x] Treasure Map functionality, already included in the preview
+- [x] Launcher DLC import, detection and enable/disable controls (Windows
+  development build; verified local catalog, release integration and gameplay
+  qualification pending)
+- [ ] Horizon Rally Expansion Pack: rally events, routes, cars and upgrades
+- [ ] 1000 Club Expansion Pack: car challenges and saved medal progress
+- [ ] October Car Pack
+- [ ] November Bondurant Car Pack
+- [ ] December IGN Car Pack
+- [ ] January Recaro Car Pack
+- [ ] February Jalopnik Car Pack
+- [ ] March Meguiar's Car Pack
+- [ ] April TopGear Car Pack
+- [ ] VIP Membership & Cars Pack: cars and applicable local perks
+- [ ] Honda Challenge Car Pack
+- [ ] Pre-Order Car Pack
+- [ ] Season Pass: 2006 Lamborghini Miura Concept
+- [ ] 2013 Ford Shelby GT500 - Rockstar Energy
+- [ ] Individual promotional cars: Nissan 370Z, Ferrari 458 Italia,
+  Mercedes-Benz SLS AMG, Volkswagen Golf R and Aston Martin Virage
+- [ ] LCE: Day1 DLC Pack, including its custom-painted cars
 
 Next, in priority order:
 
@@ -324,6 +451,8 @@ Next, in priority order:
   toolchain before building and recover from interrupted setup
 - [ ] Qualify AMD and Intel GPUs and publish tested hardware, drivers,
   settings and performance results
+- [ ] Expose FSR 1 quality presets and sharpening controls in settings,
+  with the rendered and output resolutions shown clearly
 - [ ] Validate Steam Deck and SteamOS: controls, Steam Input, suspend and
   resume, and performance presets
 - [ ] Improve sustained Android frame pacing and thermals on supported
@@ -335,6 +464,14 @@ Next, in priority order:
 
 Mid term, in priority order:
 
+- [ ] Let the trainer toggle AI driving for the player's own car, with an
+  immediate return to manual control
+- [ ] Reuse player-car AI driving in automated gameplay and performance tests
+  from pinned save seeds, with route checks and captured diagnostics
+- [ ] Improve asset streaming and multi-core utilisation; replace measured
+  bottlenecks and fixed limits inherited from Xbox 360 hardware
+- [ ] Shorten loading screens and remove avoidable loading transitions through
+  background streaming; speed up saves while preserving atomic writes and backups
 - [ ] Better Android performance on lower-end hardware, with published
   device requirements and sustainable graphics presets
 - [ ] Nintendo Switch support, starting with hardware feasibility and
@@ -354,6 +491,8 @@ Longer term and research:
   event
 - [ ] Let mods add items to the game's own menus
 - [ ] Import cars from *Forza Horizon 2*
+- [ ] Research importing cars from *Assetto Corsa*, including geometry,
+  materials, physics and FH1 integration for compatible, permitted content
 - [ ] Investigate multiplayer restoration, starting with LAN feasibility
 
 Other *Forza* recompilations would be separate projects; stabilising FH1

@@ -7,6 +7,11 @@ checkpoint `e5dc399`, the source pins ShiftGlue
 `aff6202fcb159721a96d9ce791d280d59703ec9a`; older binary hashes in individual
 experiment reports describe those experiments.
 
+Since 2026-10-05, Vulkan is the sole supported graphics API. Direct3D 12 is
+legacy and unsupported; new gameplay, performance and release qualification
+targets Vulkan. The older shader-pack findings below describe the retained
+legacy backend. Current setup and launch behavior is in [Building](BUILDING.md).
+
 ## Documentation map
 
 | Need | Read |
@@ -20,6 +25,7 @@ experiment reports describe those experiments.
 | Performance | [Performance backlog: 4K at 120 fps on Vulkan](PERFORMANCE_BACKLOG.md), [native performance baselines](native-renderer/NATIVE_PERFORMANCE_BASELINES.md), [CPU profiling procedure](native-renderer/CPU_HOTSPOT_PROFILING.md) |
 | Previous renderer and performance work | [Research reference](native-renderer/RESEARCH.md): retired plans, journals, failed trials, their Git checkpoints and the [archived Xenos-era documents](native-renderer/RESEARCH.md#archived-xenos-era-documents) |
 | Extend the original game UI | [UI API research and implementation tasks](UI_API_PLAN.md) |
+| DLC, Rally and the v4 title update | [DLC backlog](DLC_BACKLOG.md), [title update v4 backlog](TITLE_UPDATE_V4_BACKLOG.md) (native Rally and 1000 Club) |
 | Produce and validate artifacts | [Artifact production](native-renderer/P1_ARTIFACT_PRODUCTION.md), [shader pack contract](native-renderer/SHADER_PACK_FORMAT.md), [shader capture](native-renderer/CANDIDATE_SHADER_CAPTURE.md), [render tests and diagnostics](native-renderer/FH1_RENDER_TEST_AUTOMATION.md), [manual discovery sessions](native-renderer/DISCOVERY_PLAYTEST.md) |
 | Investigate user reports | [September 10 issue review (historical)](https://github.com/arcanite24/pinyon-shift/blob/53f9bf91b470f37cf7efb21c64dc1f8cce50c4c5/docs/GITHUB_ISSUE_TRIAGE_2026-09-10.md) |
 | Release behavior and distribution | [Changelog](../CHANGELOG.md), [preview notes](releases/0.1.2-preview.3.md), [legal](LEGAL.md) |

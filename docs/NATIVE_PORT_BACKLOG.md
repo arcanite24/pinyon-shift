@@ -1,5 +1,9 @@
 # Native port backlog
 
+Support policy, 2026-10-05: Vulkan is the sole supported graphics API.
+Direct3D 12 is legacy and unsupported; its measurements below are historical.
+New runtime qualification targets Vulkan, with no automatic Direct3D 12 fallback.
+
 Status: **open; created 2026-09-28** at `dev` checkpoint `02ceca9` (ShiftGlue
 `aff6202`). This is the working plan that follows the closed
 [Xenos retirement backlog](native-renderer/XENOS_RETIREMENT_BACKLOG.md). It
@@ -105,21 +109,18 @@ architecture.
 | NP-12 | Linux and Steam Deck | Native Linux build with the Vulkan executor and Deck qualification | XL | NP-9 | 1.x |
 | NP-13 | macOS | Apple Silicon build through MoltenVK | L | NP-12 | 1.x |
 | NP-14 | Android | ARM64 Vulkan build with a cross-build workflow | XL | NP-13 | 1.x |
-| NP-15 | Vulkan first | Vulkan becomes the renderer new work lands on, then the default once it matches D3D12; D3D12 stays as a maintained fallback | L | NP-12.4 | 1.x |
+| NP-15 | Vulkan support | Vulkan is the sole supported graphics API; qualify performance, preparation and hardware support | L | NP-12.4 | 1.x |
 | NP-X | Quality and tooling | C++ tests and SDK build in CI, pruned tools, hardware qualification | ongoing | — | all |
 | NP-D | Distribution and first run | Faster first build, launcher core reusable across platforms, signing | ongoing | — | all |
 
 ## Working order
 
-**Renderer direction (decided 2026-09-30): Vulkan first (NP-15).** Vulkan is
-the only renderer every planned platform can use (Linux and the Deck, macOS
-through MoltenVK, Android), and it now renders FH1 correctly at 1x and 2x.
-New renderer work lands on Vulkan first; D3D12 stays the default for players
-and moves to maintenance (bug fixes, and new features only where they are
-cheap) until Vulkan meets NP-15's switch gates, then Vulkan becomes the
-default with D3D12 kept as a fallback setting for a release or two. Order
-from here: the Linux build (NP-12.1, 12.2, 12.7), then NP-15's performance
-and preparation items, since the Deck needs both.
+**Renderer direction (updated 2026-10-05): Vulkan only (NP-15).** Vulkan is
+the supported graphics API on Windows and every planned platform (Linux and
+the Deck, macOS through MoltenVK, Android). Direct3D 12 is legacy and
+unsupported. New renderer work and qualification target Vulkan, including
+NP-15's performance, preparation and hardware items and the Linux build
+(NP-12.1, 12.2, 12.7).
 
 **Performance direction (set 2026-09-30): 4K at 120 fps on Vulkan.** The
 maintainer's target is the race at 3x (3840x2160) at a steady 120 fps on
@@ -542,10 +543,10 @@ one NVIDIA card it has run on.
 | NP-15.2 | Shader preparation for Vulkan like D3D12's: produce a Vulkan pack for the chosen scales at preparation time and validate it with a compiler-free route (every pipeline from the pack, no translation), keyed by the Vulkan device and driver, so play never stutters on a first-seen shader. | M |
 | NP-15.3 | Port the D3D12-only texture-cache fast paths (reflection-cube import, scaled 32-bpp, linear video upload) and anything else the D3D12 executor does natively that Vulkan does through the generic texture cache. | M |
 | NP-15.4 | Higher scales on Vulkan: every route at 1x to 4x with no executor skips, and NP-4.10's window and shadow artifacts checked on Vulkan too. | M |
-| NP-15.5 | Switch the default: the launcher and SETTINGS offer RENDERER (VULKAN, DIRECT3D 12), new installs start on Vulkan, and a device loss or failed start falls back to D3D12 with a notice. | S |
+| NP-15.5 | **Superseded, 2026-10-05:** Vulkan is the sole supported graphics API. Schema 28 migrates saved Direct3D 12 selections; launcher and in-game settings no longer offer it. No automatic legacy fallback. | S |
 | NP-15.6 | Vendor qualification of the Vulkan path on an AMD and an Intel GPU (see Needs a person). | S (+hardware) |
 
-**Gates for the default switch (NP-15.5).** The race frame within 5% of
+**Historical gates for the default switch (NP-15.5), superseded by the support policy above.** The race frame within 5% of
 D3D12 or better on the baseline machine; every render-test route passing on
 Vulkan at 1x to 4x, and the golden frame replays matching D3D12 within
 tolerance; a validated Vulkan pack with zero runtime translations on the
@@ -824,3 +825,31 @@ Ideas considered and not scheduled; add to a slice when a train has room.
 | Cheat menu for playthroughs | NP-8 |
 | Metal and Vulkan for Android and macOS later | NP-9.0, NP-9.4 as prerequisites; NP-12, NP-13, NP-14 |
 | Additions | HFR correctness (NP-3.7), save backups and photo export (NP-5.5, NP-5.6), profile isolation for mods (NP-7.5), CI that compiles C++ (NP-X), first-build time (NP-D), parking lot |
+
+## Notes for later
+
+- **Say what FSR 1 does to the resolution.** Make the FSR 1 setting explicit
+  for players: show the base resolution the game renders at, then the final
+  resolution after the FSR 1 pass (for example, "renders 1280x720, upscaled
+  to 1920x1080"), in the launcher's graphics panel and the in-game display
+  settings (NP-1, NP-4.2), so nobody has to work it out from the scale
+  factor. Also make FSR toggles don't require restart
+- **Free-roam frame pacing.** The F3 frame-time graph shows a consistent,
+  periodic spike in free roam (not on the race routes). Find the period and
+  which thread owns it (streaming, the decoder's waits, texture reloads,
+  present) with the perf CSV and the thread sampler on `fh1-free-roam` or
+  `fh1-long-drive`, then fix or smooth it.
+- **FSR options.** Expose FSR's settings instead of one toggle: the target
+  (output) resolution to upscale to, the sharpness, and quality presets that
+  pick the render scale for a target, in the launcher and in game (joins the
+  FSR 1 resolution note above and the modern-upscalers item).
+- **A 1.5x render scale** so the game renders at 1920x1080 (1.5 x 1280x720)
+  for 1080p screens without FSR. The draw resolution scale is an integer
+  today (1x, 2x, 3x), so this needs fractional scale support through the
+  executor's surfaces, resolves and the translator's baked scale.
+- **More cheats: destructible scenery.** Cheats that make trees, bushes and
+  barriers break away on contact instead of acting as solid walls, next to
+  the existing cheat menu (NP-8).
+- **DLC support.** Load the game's downloadable content (car packs, tracks)
+  from the player's own DLC files: content packages mounted like the disc,
+  the title's content enumeration and licence checks answered for them.

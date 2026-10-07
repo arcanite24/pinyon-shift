@@ -98,3 +98,54 @@ cheats on), SAVE PHOTO and the achievements, which have keyboard keys on the PC.
 | RESOLUTION SCALE offers only 1X | Higher scales need resolve buffers larger than a phone's shared memory holds; `android_allow_resolution_scale` lifts the limit for testing. |
 | `skipped a resolve` in the log | A guest copy the renderer cannot pack yet (one is known, in the title screen's attract sequence); the frame continues without it. |
 | No sound | No output device could be opened; the game runs silently instead of stopping. |
+
+
+## Settings restart verification (2026-10-06)
+
+The settings menu now derives renderer restart requirements from SDK flag
+metadata, while retaining project-specific title/profile requirements. On the
+Odin 2 Portal, changing MSAA from 4X to OFF shows a restart badge and pending
+restart note. A fresh process retains OFF and clears that pending note. This
+qualifies settings persistence and restart presentation; it is not a new GPU
+performance or image-quality measurement.
+
+The [Android MSAA scenario](../config/render-tests/fh1-android-msaa-restart.fh1test)
+uses a private state with MSAA initially 4X. Its Windows-line-ending variant
+also runs on Android, covering CRLF handling in both the schema and clock
+metadata. Run the scenario using a private state-root intent override and
+inspect the host menu with an ADB screenshot; ordinary render-test captures
+contain the guest output and omit the host UI. Existing device progress is
+outside the qualification state and must not be replaced for this check.
+
+The subsequent build includes the shared diagnostic Rally AI control-release
+fix. Its signed/aligned APK was installed on the Odin without clearing app
+data, and private session `20261006T065043Z-p2335` completed the CRLF reload
+route at frame 1200 and shut down normally. This is a startup check; Rally
+driving and GPU performance on Android remain unqualified. Current artifact
+verification is recorded in ignored `.local/android/latest-apk-verification.json`.
+
+Bloom now defaults to OFF with a live toggle in Graphics settings. It zeros
+the title's frame-local bloom scale while preserving exposure, tone mapping
+and weather data. A signed/aligned ARM64 build was installed on the Odin 2
+Portal and passed a private-state on/off/restore gameplay run through frame
+5400 (`20261006T103905Z-p8506`), with three native free-roam captures and normal
+shutdown. All 17 files in the normal device user tree remain byte-identical.
+The PC pinned seed profile is unchanged. Receipt:
+`D:/horizon1-recomp-tests/android-bloom-20261006/qualification.json`.
+This checks the switch and gameplay stability. Captures have different vehicle
+poses; they are not a pixel-matched A/B. Stepped paint shading and very bright
+vegetation are still visible on Android. Cutscenes, showroom/photo mode and
+those graphics defects remain unqualified. Bloom filter passes still execute;
+no performance improvement is claimed.
+
+MSAA now defaults to OFF for unset configurations, including desktop. The
+subsequent signed/aligned Odin build showed OFF with no saved MSAA flag and
+retained an explicit saved 4X choice in separate private states. All 16 normal
+device profile files retained their pre-install hashes. These are configuration
+and startup checks; sustained driving performance remains unqualified.
+
+Fatal scripted-test rejection now exits immediately after flushing its failure
+receipt. Reusing an existing output directory previously triggered SDL thread
+crashes during static destruction on the Odin. A private rejection check and
+desktop subprocess check preserve that directory and emit the expected failure;
+the updated Odin run produces no corresponding native crash record.

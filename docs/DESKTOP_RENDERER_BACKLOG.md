@@ -4,11 +4,20 @@ Created 2026-10-02 at `dev` `47465e2` (ShiftGlue `91ecc6d`) from a research
 pass of 2026-10-01 (its report is not in the repository; its findings,
 code references and sources are summarised here). Long-term goal: get as
 much performance as possible out of the desktop builds (Windows and Linux,
-Vulkan default, D3D12 fallback). That means higher and steadier frame rates
+Vulkan only; Direct3D 12 became legacy and unsupported on 2026-10-05). That means higher and steadier frame rates
 at high resolution, low frame-time variance, low CPU cost, and headroom for
 enhancements. It follows [PERFORMANCE_BACKLOG.md](PERFORMANCE_BACKLOG.md),
 whose PB items are done, measured and dropped, or deferred; items here
-name the PB items they extend.
+name the PB items they extend. Lowering the hardware requirements (60 fps
+at 1x on constrained machines) is planned in
+[LOW_SPEC_BACKLOG.md](LOW_SPEC_BACKLOG.md), which re-scopes DR-3, DR-4 and
+DR-5.1 for slower machines.
+
+User priorities added 2026-10-05: first restore the
+[original Rally experience](DLC_BACKLOG.md#immediate-priority-the-original-rally-experience).
+Then address [effects defaults, MSAA removal, optional game-system reductions
+and modern VFX replacements](LOW_SPEC_BACKLOG.md#requested-defaults-and-feature-trades)
+on Vulkan. These are open work, not changes already shipped.
 
 ## Where it stands
 
@@ -200,7 +209,7 @@ regression on RADV.
 - **A skate3-style hand-ported scene renderer**: months of material work,
   no draw-count gain. It stays the fallback if DR-3's hit rate disappoints.
 - **A general RHI.**
-- **D3D12 parity work** beyond keeping it the fallback.
+- **D3D12 maintenance or parity work:** the backend is legacy and unsupported.
 - **Ideas already measured and dropped:**
   - MMCSS and priority boosts, PGO and AVX2 plugin builds;
   - 200 us `WAIT_REG_MEM` sleeps on Windows;

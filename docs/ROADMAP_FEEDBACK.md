@@ -111,6 +111,37 @@ they have direct requests. Existing-mod compatibility deserves a documented
 route; evaluating XE content does not imply accepting an unverified modified
 disc as the base installation.
 
+## Additional maintainer priorities
+
+These additions come from the maintainer, rather than the community request
+ranking above:
+
+- **FSR 1 settings, next.** The game already offers FSR 1 output scaling.
+  Add explicit quality presets and sharpening controls, with clear rendered
+  and output resolutions, rather than treating the upscaler itself as new.
+- **Streaming and multi-core optimisation, mid term.** Profile asset loading,
+  decompression, scheduling and synchronisation; replace measured bottlenecks
+  and fixed Xbox 360 limits where the native runtime can safely do more.
+  Validate frame pacing during fast traversal as well as average frame rate.
+- **Fewer loading screens and faster saves, mid term.** Move avoidable loading
+  work into background streaming and shorten transitions that still require
+  a loading screen. Measure load and save latency while preserving atomic
+  writes, backups and correct progression. Removing every loading screen is
+  an objective to investigate, not an established capability.
+- **Assetto Corsa car import, research.** Start with a single permitted car
+  and prove geometry, materials, physics and FH1 integration before committing
+  to a general importer. Compatibility and permission to use each asset need
+  to be established; this is separate from importing FH2 cars.
+- **AI driving for the player's car, mid term.** Add a trainer toggle that
+  hands the player's current car to the game's AI and returns control
+  immediately when disabled. Keep the existing trainer profile isolation.
+  Reuse the same control path for automated races and streaming stress tests,
+  with pinned save seeds, recorded settings, route/progress checks, timeouts
+  and performance diagnostics. Tests should verify the car follows the
+  intended route and completes the scenario; AI driving alone does not
+  guarantee a deterministic replay. Use the existing private per-run state
+  workflow so tests never write to the live save or the seed.
+
 ## Changes to the public roadmap
 
 The [README roadmap](../README.md#roadmap) now groups priorities into in

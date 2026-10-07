@@ -25,3 +25,16 @@
     (about 34 KB each); cards saved by older builds stay striped (275-845 KB
     of compressed noise) until the game saves them again. Repairing those is
     NP-0.6 in docs/NATIVE_PORT_BACKLOG.md.
+
+- [ ] Green and pink artifacts on race central. Happened only on blue band collect cinematic
+- [ ] Buy a new car pre-race, has unlocked animation speed
+- [x] Rally stage-two finish screen shows the underside of the terrain on Vulkan.
+  - Reproduced with the stock owned Escort and normal F6 entry in
+    `fh1-rally-full-garage-stage-finish.fh1test`, using the render-test-only
+    native AI driver. The car's position stays stable between the results
+    captures. The authored finish target is 12.51 metres below native terrain
+    collision at the same X/Z. Rally preparation recipe 7 enables the existing
+    native ground snap for referenced finish targets in the generated cache.
+    Both results captures now show the correct road and terrain on Vulkan;
+    native finish and checkpoint saving still pass. Other finish views and
+    manual full-stage driving remain unqualified; see docs/DLC_BACKLOG.md.

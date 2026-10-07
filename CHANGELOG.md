@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased
+
+- Default to bloom OFF with a live settings toggle. Suppress its contribution
+  through the title's frame-local scale while preserving weather and tone mapping.
+- Default to MSAA OFF on desktop and Android while preserving saved choices;
+  changes still require a restart.
+
+- Avoid racing active SDL threads during a fatal render-test rejection; flush
+  the diagnostic failure before exiting immediately.
+
+- Bind Rally stages to their owned ticket artwork through reserved base-UI
+  texture names, fixing black cards in the native ticket prototype.
+
+- Preserve unfinished Rally championships when a native event menu loads its
+  selection; apply the same resume guard as named event entries.
+
+- Apply each Rally championship's correct class target and the supported base
+  class restriction to its stages; Rally upgrade eligibility remains pending.
+
+- Correct Rally championship and stage names to match their owned routes;
+  rebuild older prepared content without changing saves.
+
+- Initialize Visual Studio builds when a portable launcher uses a temporary
+  path containing parentheses; preserve its TEMP/TMP paths afterward.
+
+- Preserve base route and region labels while adding owned Rally labels in
+  all 20 languages during content preparation.
+
+- Release the diagnostic Rally AI driver back to player control at stage end;
+  verify the same car/race handoff and final-stage free-roam return.
+
+- Require Visual Studio 2022 Build Tools 17.1 or newer during discovery, so
+  VS 2019 cannot bypass provisioning and fail later on `std::byteswap`.
+
+- Fixed Android MSAA and graphics presets failing to show that a restart is
+  required. Settings now honor the SDK flag lifecycle metadata.
+- Accepted Windows line endings in render-test scripts on Android and other
+  platforms, including the schema header and clock directive.
+
+- Replaced a startup crash from an unavailable saved Rally tyre with a recovery
+  message. Re-enable or restore its DLC to keep driving with the purchased part;
+  the save is preserved.
+- Added Rally tyre conversions derived from the supported base-disc data when
+  owned Rally content is enabled. A Mustang's normal purchase, save/reload and
+  initial Rally driving pass; base-car suspension/transmission remain pending.
+
+- Made Vulkan the sole supported graphics API. Direct3D 12 is legacy and
+  unsupported; saved selections migrate to Vulkan and player settings no
+  longer offer it.
+- Fixed Custom Upgrade crashing after loading a saved car by initializing its
+  native upgrade views when the car loads.
+- Added the missing Rally tyre, suspension and transmission upgrade definitions
+  to owned-content preparation on the base build, with Rally tyre parameters and
+  English and Spanish menu text.
+- Added an experimental Horizon Rally menu for owned content, with championship
+  selection, resume status and retirement confirmation. Full Rally gameplay is
+  still being qualified on the base-disc build.
+
 ## 0.4.0 - 2026-10-03
 
 - Fixed Vulkan losing the GPU on AMD Radeon cards: the game could wait on a

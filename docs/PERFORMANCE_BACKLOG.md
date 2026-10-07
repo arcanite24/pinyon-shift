@@ -53,7 +53,8 @@ code and the frame loop, plus the measurements in
 
 The moving race at a **3x internal scale (3840x2160) at a steady 120 fps**
 on the maintainer's machine (Ryzen 7 5800X, RTX 4080, 4K display at
-120 Hz), on the **Vulkan** backend, with D3D12 kept working but not tuned.
+120 Hz), on the **Vulkan** backend. Direct3D 12 became legacy and unsupported
+on 2026-10-05; its measurements below are historical comparisons.
 A frame is 8.33 ms, and FH1 ends its frames on guest vblanks, so a frame
 that misses the budget costs a whole vblank (4.17 ms at the 240 Hz vblank
 the render limit of 120 gives): the measured race frames take 8.4, 12.5,

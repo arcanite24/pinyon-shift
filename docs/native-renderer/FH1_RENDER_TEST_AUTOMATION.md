@@ -7,33 +7,15 @@ guest-output frames by default; `# clock-hz N` makes their frame numbers an
 explicit wall-time clock for stock-versus-unlocked comparisons. It does not use
 computer use, screen scraping, or a physical controller.
 
-For the installed AppData save, follow [AGENTS.md](../../AGENTS.md): verify its
-`user/**/ForzaProfile/ForzaProfile` exists and no `pinyon_shift` process is running,
-then launch through `tools/launch-preview.ps1` with that preview as `-StateRoot`.
-Do not copy or reset this save for testing. Scripted/capture launches intentionally
-skip automatic shader-pack and prewarm staging, so explicitly stage the selected
-pack before a comparison. For an existing prepared 1x state:
+Vulkan is the sole supported graphics API. Direct3D 12 is legacy and
+unsupported; its retained diagnostics and historical comparisons do not gate
+new releases or DLC support. Vulkan translates shaders during play and uses
+shader storage; normal setup prepares that storage before the first launch.
 
-```powershell
-$stateRoot = Join-Path $env:LOCALAPPDATA 'PinyonShift\source\0.1.0\.local\preview'
-python tools/native-shader-pack.py stage `
-  .local/native-renderer/fh1-disc-aot-complete-1x.pnsp --state-root $stateRoot --scale 1
-if ($LASTEXITCODE) { throw 'Shader pack staging failed.' }
-.\tools\launch-preview.ps1 -StateRoot $stateRoot `
-  -RenderTestScript config/render-tests/fh1-map.fh1test `
-  -RenderTestOutput .local/native-renderer/map-test `
-  -GameArguments @('--draw_resolution_scale_x=1', '--draw_resolution_scale_y=1')
-```
-
-Pin pack and native shader/pipeline/prewarm catalog hashes before every condition,
-check them again after exit, and verify the loaded pack count in the session log.
-Do not silently replace a pack midway through a comparison. The direct launcher
-produces captures/logs; run the appropriate clock, workload and image checks
-separately before accepting the run. In-game autosaves remain normal gameplay.
-
-The separate `tools/run-fh1-render-test.py` runner runs from a disposable seed,
-so routes keep reaching the same event while the live save progresses. Pin a
-seed from the AppData save once (the game must be closed):
+Follow [AGENTS.md](../../AGENTS.md) for save handling. Scripted routes use
+`tools/run-fh1-render-test.py`, which copies a pinned seed into a private run
+directory. Pin a read-only snapshot of the AppData save once with the game
+closed; the runner never writes the source save or seed:
 
 ```powershell
 python tools/create-render-seed.py appdata-2026-09-27 `
@@ -41,8 +23,7 @@ python tools/create-render-seed.py appdata-2026-09-27 `
   --note "Free roam next to the Gauntlet sign-up"
 python tools/run-fh1-render-test.py config/render-tests/fh1-race-sync.fh1test `
   --state-root .local/render-seeds/appdata-2026-09-27 --configuration RelWithDebInfo --hidden `
-  --shader-pack "$env:LOCALAPPDATA\PinyonShift\source\0.1.0\.local\preview\cache\shaders\shareable\4D5309C9.fh1-native-v3.d3d12.01.09.1x1.pnsp" `
-  --seed-pipeline-prewarm
+  --game-argument=--gpu_backend=vulkan --seed-vulkan-shader-storage
 ```
 
 The seed holds `user`, `config`, the FH1 shader catalogs and a `seed.json`
@@ -181,6 +162,52 @@ The committed scenarios cover:
   opening and a rewind from a profile-free seed (`--fresh-profile`);
 - `fh1-buy-car.fh1test`: buys a car in the autoshow and waits for its saved
   thumbnail;
+- `fh1-rally-car-database.fh1test`: checks the normal owned Rally database merge
+  and native entitlement cache against the imported licence and package's
+  reference database, including tyre, suspension and engine option counts.
+  Requires a prepared owned seed with an existing Rally ledger and preserves
+  it byte for byte. This does not qualify purchase, driving or the upgrade UI;
+- `fh1-rally-service-entry-guard.fh1test`: attempts Rally selection from Dak's
+  Garage, leaves the service, then resumes championship 7 stage 2 with the
+  retained Escort. Requires the restored seven-car seed described in the
+  [DLC backlog](../DLC_BACKLOG.md). `# expect-rally-service-entry-guard` checks
+  native control ownership, disabled selection across the attempted Enter,
+  restored free-roam availability and subsequent player selection. The existing
+  resume and HUD gates also require a live race and an unchanged earned ledger.
+  It does not qualify other services, sustained handling or stage completion;
+- `fh1-rally-full-garage-stage-finish.fh1test`: enters the saved championship-7
+  checkpoint through F6 with the complete owned-car profile. Pass
+  `--game-argument=--fh1_render_test_rally_ai_driver=true` to use the native AI
+  controller for finish/persistence diagnostics. The default-off flag is ignored
+  outside render tests; `# expect-rally-test-ai-driver` requires its native
+  controller event and reports player steering as unqualified. Native finish
+  and earned-progress gates are separate from visual review of both results
+  captures. It does not capture the loading transition: that frame may be
+  intentionally black. Recipe 7 grounds Rally finish targets through the native
+  terrain query; the stage-two and stage-three backgrounds pass visual review, while other
+  finish views remain unqualified;
+- `fh1-rally-full-garage-stage-reload.fh1test`: uses the preceding run's private
+  state as its source, reloads and resumes stage three through F6, then drives
+  with scripted throttle. Run without the diagnostic AI flag. Preserve the
+  original source state and compare native saves and the earned ledger as
+  described in the [DLC backlog](../DLC_BACKLOG.md);
+- `fh1-rally-full-garage-final-stage.fh1test`: resumes an earned 7/4 checkpoint
+  with the same complete owned-car profile and diagnostic native AI flag,
+  waits for the native result, then exercises results navigation and return
+  to playable free roam. This uses output frames because native readiness
+  waits cannot be combined with a wall-time clock. It is a gameplay diagnostic,
+  not a performance or player-steering qualification. Completion and the
+  preceding three saved times require a separate native-save audit; this route
+  is still being qualified;
+- `fh1-rally-full-garage-series-reload.fh1test`: starts from an actually earned
+  completed championship-7 save with the full seven-car garage and stock Escort
+  selected at Dak's Garage. Uses ordinary owned-content preparation, reloads
+  its four stage times and single completion, drives through the garage area
+  with scripted reverse, handbrake, throttle and steering, then opens/closes the
+  map. Run without diagnostic AI. The source save, native database, purchased
+  parts and ledger require the separate preservation audit described in the
+  [DLC backlog](../DLC_BACKLOG.md). This qualifies initial free-roam control
+  and completed-record reload; full-stage player handling remains open;
 - `fh1-long-drive.fh1test`: a long scripted race drive for stability;
 - `fh1-smoke.fh1test`: launch, capture, and clean self-termination;
 - `fh1-fmv.fh1test`: startup/FMV composition with
