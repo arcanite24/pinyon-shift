@@ -1,0 +1,43 @@
+pinyon-shift-fh1-render-test-v1
+# Use tools/create-rally-stage-seed.py with the pinned appdata-2026-09-27 save.
+# Create the private seed with --autopilot; the base AI drives the route.
+# This private probe enters a solo Rally stage through a generic activity,
+# using the current car, then continues through the base results. The entry borrows
+# the Media Center prompt and base race UI until real Rally UI is implemented.
+# It tests the stage finish and return; official Rally progression remains open.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+# expect-rally-series-reload 7
+# expect-freeroam-return series-reload-driving
+# expect-freeroam-return series-reload-return
+wait 1400 3000 vehicle
+capture 1800 reload-ready
+# The saved base map initializes after the vehicle; close it once its UI is ready.
+input 2500 2000 0 0 0 0 0 0
+input 2560 0000 0 0 0 0 0 0
+input 2800 0000 0 255 0 0 0 0
+wait 2810 3000 vehicle-moved 30
+capture 3400 series-reload-driving
+input 3500 0000 0 0 0 0 0 0
+input 3600 0020 0 0 0 0 0 0
+input 3660 0000 0 0 0 0 0 0
+capture 3900 map
+input 4000 2000 0 0 0 0 0 0
+input 4060 0000 0 0 0 0 0 0
+capture 4300 series-reload-return
+stop 4400

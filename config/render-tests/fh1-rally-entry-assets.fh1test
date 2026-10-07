@@ -1,0 +1,29 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Exercise normal owned-content preflight, the complete cache and base map.
+# This does not establish activation, a stage finish or official Rally results.
+# expect-rally-normal-entry
+# expect-rally-entry-positions
+# expect-image free-roam 12 30 1.00
+# expect-image map 4 12 0.15
+# expect-image free-roam-return 12 30 1.00
+# expect-capture-mae map free-roam 20
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 255 0 0 0 0 0
+capture 900 free-roam
+input 930 0000 0 0 0 0 0 0
+input 960 0020 0 0 0 0 0 0
+input 966 0000 0 0 0 0 0 0
+capture 1050 map
+input 1140 0020 0 0 0 0 0 0
+input 1146 0000 0 0 0 0 0 0
+capture 1240 free-roam-return
+stop 1270

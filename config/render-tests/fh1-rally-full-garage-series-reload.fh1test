@@ -1,0 +1,53 @@
+pinyon-shift-fh1-render-test-v1
+# Fresh-process reload of the complete seven-car championship-7 save.
+# No diagnostic AI: reverse out of the preserved garage anchor, open/close
+# the map, and retain the four earned stage times and single series completion.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+# expect-rally-normal-entry
+# expect-rally-series-reload 7
+# expect-freeroam-return series-reload-driving
+# expect-freeroam-return series-reload-return
+wait 1400 3000 vehicle
+capture 1800 reload-ready
+# The saved base map initializes after the vehicle; close it once its UI is ready.
+input 2500 2000 0 0 0 0 0 0
+input 2560 0000 0 0 0 0 0 0
+# Leave the parked anchor with an ordinary reverse/forward steering maneuver.
+# Reverse, stop with the ordinary handbrake, then turn forward toward the road.
+input 2800 0000 255 0 32767 0 0 0
+capture 3040 garage-reverse-turn
+input 3050 1000 0 0 0 0 0 0
+capture 3160 garage-stopped
+input 3170 0000 0 255 -32767 0 0 0
+capture 3460 garage-forward-turn
+input 3470 0000 0 255 0 0 0 0
+capture 3760 garage-court
+input 3770 0000 0 255 32767 0 0 0
+capture 3910 garage-exit-turn
+input 3920 0000 0 255 0 0 0 0
+wait 3930 3000 vehicle-moved 30
+capture 4600 series-reload-driving
+input 4700 0000 0 0 0 0 0 0
+input 4800 0020 0 0 0 0 0 0
+input 4860 0000 0 0 0 0 0 0
+capture 5100 map
+input 5200 2000 0 0 0 0 0 0
+input 5260 0000 0 0 0 0 0 0
+capture 5500 series-reload-return
+stop 5600

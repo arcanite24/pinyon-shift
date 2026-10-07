@@ -1,0 +1,75 @@
+pinyon-shift-fh1-render-test-v1
+# Use a freshly created pinned appdata-2026-09-27 --route 1 --autopilot --pace-notes seed.
+# The current builder resets the native AI-control latch before enabling it; old seeds do not.
+# Pause during the first phrase, select RESTART, confirm YES, then select START RACE.
+# Require zero-clock pre-race, first-phrase re-arming, later gates and unchanged earned records.
+# This does not qualify finishing a retried stage, rewind, scoring or the visual host HUD.
+# expect-rally-pace EN
+# expect-rally-pace-retry
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+input 3950 0010 0 0 0 0 0 0
+input 3956 0000 0 0 0 0 0 0
+capture 4030 phrase-paused-entry
+capture 4100 active-phrase-paused
+capture 4150 phrase-paused-later
+input 4790 1000 0 0 0 0 0 0
+input 4796 0000 0 255 0 0 0 0
+capture 4900 restart-dialog
+input 5050 1000 0 0 0 0 0 0
+input 5056 0000 0 255 0 0 0 0
+capture 5600 retry-entry
+input 5890 1000 0 0 0 0 0 0
+input 5896 0000 0 255 0 0 0 0
+capture 6400 pace-early
+capture 6600 retry-running
+wait 6650 3000 vehicle-moved 30
+capture 10000 pace-later
+stop 11000

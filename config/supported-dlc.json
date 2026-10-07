@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "title_id": "4D5309C9",
+  "content_type": "00000002",
+  "packages": [
+    {
+      "package_id": "EE8ECC936E550AE8C52031F6968068D2273165584D",
+      "content_id": "EE8ECC936E550AE8C52031F6968068D227316558",
+      "display_name": "1000 Club Expansion Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "0D5DBF8DBD00018928BB73726C487642E92C97E294E61A3F815334DE7BB9A972",
+      "file_count": 501,
+      "expanded_size": 366272746,
+      "accepted": [
+        {
+          "size": 370028544,
+          "sha256": "17D9C0A4DB9F4923752A8BD26000E6D5A0D2CE6BB62CF7A0534AD4B38A1887F8",
+          "license_mask": "00000001"
+        },
+        {
+          "size": 370028544,
+          "sha256": "C628CCFD01105A4AE5CA52034C6ACB9E16CAD6D7C7ED5CD0F33906F6A5D55538",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "BC6F8A24F1F38F719B9F09C002DDC1F3024AC2AB4D",
+      "content_id": "BC6F8A24F1F38F719B9F09C002DDC1F3024AC2AB",
+      "display_name": "December IGN Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "1F6C2418D53A74C6E128438E4AD7F1ED5664786B9005F92C6A5F1C1A73291EE3",
+      "file_count": 24,
+      "expanded_size": 77924670,
+      "accepted": [
+        {
+          "size": 78475264,
+          "sha256": "A4285BAE6835A2D874BF71141A5441392BAE1DDA04AD3668E69D89CE889E57BD",
+          "license_mask": "00000008"
+        },
+        {
+          "size": 78475264,
+          "sha256": "C7CAC7C2779A748EDA37FB8FB479413E8A57F3BFE1F4FACE6763E9CCA29D7E40",
+          "license_mask": "FFFFFFFF"
+        },
+        {
+          "size": 78475264,
+          "sha256": "BED7EAF400B4757CC326BB82097D0BAD7F7D625C74F4990DF83286383843BC63",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "3691DE1D9E8D54E492DF1CB7AB44527F12905EBE4D",
+      "content_id": "3691DE1D9E8D54E492DF1CB7AB44527F12905EBE",
+      "display_name": "February Jalopnik Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "EC6704DD4AB3AA933F9AAE939C2BC9AC3C84010CCC6724FAC0D1FE96294F0EF1",
+      "file_count": 29,
+      "expanded_size": 78936198,
+      "accepted": [
+        {
+          "size": 79507456,
+          "sha256": "B8BCDD8C4A07FC1E38337D683905D9CC142B263629831CD93173FA05A78D17A1",
+          "license_mask": "FFFFFFFF"
+        },
+        {
+          "size": 79507456,
+          "sha256": "05AE60D1D9066E8B3666B24F3CA353E8BF8281D622BE440DEAB8B69CEDC8821D",
+          "license_mask": "FFFFFFFF"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "DA1027D3F195042E877B864AAD6C8B26E0B281C24D",
+      "content_id": "DA1027D3F195042E877B864AAD6C8B26E0B281C2",
+      "display_name": "Honda Challenge Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "1753EA0C0D9CC89249AB972F6F89E1C29C6C9B9B2C5C171133E9F1CF45513AC2",
+      "file_count": 17,
+      "expanded_size": 33704316,
+      "accepted": [
+        {
+          "size": 33996800,
+          "sha256": "58450E3B79FBA0184DE846A2E53CB12CB1F131209D01128494FC5CC3AFA49B11",
+          "license_mask": "00000001"
+        },
+        {
+          "size": 33996800,
+          "sha256": "AFE4ABC4A0582265A542FD64A8E0AAACEEF62E62BF64C8AB780409471C0A52F6",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "DFCA0F246444BEB5F96E33802B0C3D082B25003F4",
+      "content_id": "DFCA0F246444BEB5F96E33802B0C3D082B25003F",
+      "display_name": "January Recaro Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "1181BC92E97461D1A73AEEF6E05D3659EB95D339246BC203333022EFC5DFCB23",
+      "file_count": 21,
+      "expanded_size": 75236813,
+      "accepted": [
+        {
+          "size": 75784192,
+          "sha256": "0848AA7AF7A3A536FA9E3E0DCC3D3DB0A7BCC997471C878FDFCFF8DA7B29217C",
+          "license_mask": "FFFFFFFF"
+        },
+        {
+          "size": 75784192,
+          "sha256": "D2100673EEE9864DCB711BCAFC940643F9536C16DB2D3719DE6E3807E7CDCEDE",
+          "license_mask": "FFFFFFFF"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "AA8F507902C3D3D05E38F115C0170A4A2CC412C84D",
+      "content_id": "AA8F507902C3D3D05E38F115C0170A4A2CC412C8",
+      "display_name": "November Bondurant Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "AC540954B62816243C2D43621329E50FF4F4981C2031D7D3A0739D66E66ABCF7",
+      "file_count": 13,
+      "expanded_size": 82381695,
+      "accepted": [
+        {
+          "size": 82948096,
+          "sha256": "0223CC38D63A1AED5E5D5342EB3F4A888E938B7A81809F2E71AF97D41C2D9DF3",
+          "license_mask": "FFFFFFFF"
+        },
+        {
+          "size": 82948096,
+          "sha256": "CC5FB39B937C2C125531242D78C5738207522F802A1A1DFC2967EE1D47683524",
+          "license_mask": "00000002"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "B75175BED56077D233373795139AEB570A5CFEE24D",
+      "content_id": "B75175BED56077D233373795139AEB570A5CFEE2",
+      "display_name": "October Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "D6031D6778C86E8CBD158D19BE0E44F42C6F5DE256386513FAC07E65EC673CA0",
+      "file_count": 8,
+      "expanded_size": 127388855,
+      "accepted": [
+        {
+          "size": 128217088,
+          "sha256": "E112C6E4531B680E7C7C278603F047248AEAF014DF7D7552DC08B4B566D9D8E5",
+          "license_mask": "FFFFFFFF"
+        },
+        {
+          "size": 128217088,
+          "sha256": "2419F31BFA8B93005B964DFEB8D872338A0819A22277142D3E4FE21AF58CD65A",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "13E2064584A4BA7759BA105051C2199ABC5FA5554D",
+      "content_id": "13E2064584A4BA7759BA105051C2199ABC5FA555",
+      "display_name": "Pre-Order Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "5708315D45A08264FC134FA9C66B575442F3B539B9197EB2CC6B448FEEAF83AF",
+      "file_count": 7,
+      "expanded_size": 54847025,
+      "accepted": [
+        {
+          "size": 55246848,
+          "sha256": "44B9E977E5FB17D320CF8FC8B3EF8BE7556922018574813E30629ABB0EF90106",
+          "license_mask": "FFFFFFFF"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "6F6992766050D818245ADD408031E280FB5F4E634D",
+      "content_id": "6F6992766050D818245ADD408031E280FB5F4E63",
+      "display_name": "Rally Expansion Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "B9C0D77E8E7EDF8E9EB5C8CCEE75A9BF7290768B2A6350AC2C8E9613D6BE2E6C",
+      "file_count": 452,
+      "expanded_size": 1075358327,
+      "accepted": [
+        {
+          "size": 1083125760,
+          "sha256": "0D9F6833B46AE0FDE0525F23BEECD1EE02EED12AB6DF6CA7019A4009D0A7B2B7",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": [
+        {
+          "size": 1083125760,
+          "sha256": "AA7BD510649F5441AA8E626E8D20CCCB6D0DBC99BD9B8834DEE8C9DF993D9497",
+          "license_mask": "FFFFFFFF",
+          "reason": "Corrupt ColoradoDirt archive: three changed terrain members fail XMem decompression; aggregate variant passes their CRCs."
+        }
+      ]
+    },
+    {
+      "package_id": "64A1E7AA98F887E1D4017D4EA369F44F3B33CC934D",
+      "content_id": "64A1E7AA98F887E1D4017D4EA369F44F3B33CC93",
+      "display_name": "April TopGear Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "CC78850B94DCA77C2793F4A96FEC3B6C7531602039B6617E6A101B32079E8666",
+      "file_count": 11,
+      "expanded_size": 58557547,
+      "accepted": [
+        {
+          "size": 58986496,
+          "sha256": "06BBBC7B037B8E7CD86E5692D434A7FDAD55998D746E87EB1B6D89DDA5B12D54",
+          "license_mask": "00000001"
+        },
+        {
+          "size": 58986496,
+          "sha256": "C09C652D9810997F7AC82F8D9D8091554B137A769C02DCEBE6AA25630E2815C7",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "210BB00587D95ACFD8CEDCA23B7E16AE2C59C3DB4D",
+      "content_id": "210BB00587D95ACFD8CEDCA23B7E16AE2C59C3DB",
+      "display_name": "VIP Membership & Cars Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "F5862C4BBA8E0B678D4E44F7AA65541195B79108CC1358A915A3FE97A04C2B75",
+      "file_count": 10,
+      "expanded_size": 50676810,
+      "accepted": [
+        {
+          "size": 51048448,
+          "sha256": "06803693BD72DABB4CA3EEFFDCF5EDD1834309F0AAEE896BC325191D06E3028D",
+          "license_mask": "FFFFFFFF"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "1E21F98F04DBD7B0C7A2274481E2A854EB2C8C414D",
+      "content_id": "1E21F98F04DBD7B0C7A2274481E2A854EB2C8C41",
+      "display_name": "Season Pass: 2006 Lamborghini Miura Concept",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "D502C4849F9F575BDF9DCDF766F0452C901F81EC723D9614485C1A4843BCFE4C",
+      "file_count": 6,
+      "expanded_size": 9593215,
+      "accepted": [
+        {
+          "size": 9719808,
+          "sha256": "E558561EBD2A3100EF507C42A8B3D544EAF4DF316FF2E5D36EE4818F846B6F5E",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "ED6D95A929D78638F2E6A10466BD847875E3CC234D",
+      "content_id": "ED6D95A929D78638F2E6A10466BD847875E3CC23",
+      "display_name": "2010 Nissan 370Z",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "C8F17DD1063309B0392748343904AB808C107B593104B08B1A9B2F7E6F1EED29",
+      "file_count": 4,
+      "expanded_size": 736252,
+      "accepted": [
+        {
+          "size": 806912,
+          "sha256": "5A0751E84275DD25FFFDB578AC3824C4EC7F586BE204AAB2159CB8C67EFC08F3",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "50C4BE8C00EBF08197B09C4936D1C66D394F39C84D",
+      "content_id": "50C4BE8C00EBF08197B09C4936D1C66D394F39C8",
+      "display_name": "2010 Ferrari 458 Italia",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "35DA3878E631E04E9D2C05DA9F8D39C467F1E60F9E47F2FC540CF4B48FB61B53",
+      "file_count": 4,
+      "expanded_size": 748366,
+      "accepted": [
+        {
+          "size": 819200,
+          "sha256": "B6AC2E1F4C46684E902110C8AC5A09D6CD6435A3F57FC95A6DF26FCBE12BE0B3",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "8794D269B02C9C52EB95D1CC7AE365E9B06BD9414D",
+      "content_id": "8794D269B02C9C52EB95D1CC7AE365E9B06BD941",
+      "display_name": "2013 Ford Shelby GT500 - Rockstar Energy",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "17BA7205FF7748DE2FADCC63BBB5EF5A9104AC8157A8D9EB22A86438D33D5860",
+      "file_count": 5,
+      "expanded_size": 11132802,
+      "accepted": [
+        {
+          "size": 11268096,
+          "sha256": "8F95716E6E71B1208D8BB03869D8624665179FD5F61FEDBED80E3F0114C148E9",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "4E78F9223A118CFBB8A25A3319890A9C68BD66E54D",
+      "content_id": "4E78F9223A118CFBB8A25A3319890A9C68BD66E5",
+      "display_name": "March Meguiar's Car Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "23CC00BA33863F1558F4C3BBFEB8357B23138040446981CFA6388C40A35F91B1",
+      "file_count": 14,
+      "expanded_size": 76491218,
+      "accepted": [
+        {
+          "size": 77025280,
+          "sha256": "4F86ADE513EF89992F07CF2A9E1931E41904609325636620758DBBC67F50D2DD",
+          "license_mask": "FFFFFFFF"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "38776C61072464819DF6352F1615E96E812CE8734D",
+      "content_id": "38776C61072464819DF6352F1615E96E812CE873",
+      "display_name": "LCE: Day1 DLC Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "879C006F10667E12A91A1FEA5AA065E050A9CE58A176BB7F62D98CB993314E5B",
+      "file_count": 8,
+      "expanded_size": 127411939,
+      "accepted": [
+        {
+          "size": 128245760,
+          "sha256": "B293407E36DBBEA038FA7F1A5A6C856137CCFF00658CA8C9CAA54B2DC46B7234",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "C96D582D5F0E48E58765AC15FB950D09DA1680894D",
+      "content_id": "C96D582D5F0E48E58765AC15FB950D09DA168089",
+      "display_name": "2011 Mercedes-Benz SLS AMG",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "68ECA6239D48FD11E6D312BEFB977A2C4F873AD644FCCF9C162AC4C43D328874",
+      "file_count": 5,
+      "expanded_size": 1209310,
+      "accepted": [
+        {
+          "size": 1282048,
+          "sha256": "955CD694697D518E9D8256B4A3FC5DA6CF9834981B3D715CB7EA54FFA4FB6D56",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "CCB95DD6E009F4F78DF207A1405A0E034CE9B7C34D",
+      "content_id": "CCB95DD6E009F4F78DF207A1405A0E034CE9B7C3",
+      "display_name": "2010 Volkswagen Golf R",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "1BB8EC0DDF929C02583AFDD171665760F19658180D746AD5FE8CE8A03F7F501E",
+      "file_count": 4,
+      "expanded_size": 812862,
+      "accepted": [
+        {
+          "size": 884736,
+          "sha256": "11728A74844240F8188D9A2A25292D0FE663C2127FE22132E5F6D1E56FF72683",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "A5B171B88811F1785A9AFC1F956C768A97029C004D",
+      "content_id": "A5B171B88811F1785A9AFC1F956C768A97029C00",
+      "display_name": "VIP Membership & Cars Pack",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "5A93ACBAC7B86088F6B7A24D34B74FF013198CF0CA0DFDC33A6F767A687E151C",
+      "file_count": 8,
+      "expanded_size": 3952657,
+      "accepted": [
+        {
+          "size": 4042752,
+          "sha256": "8A44BE846771D523B091C552AE79961509C1673E84A877330EACED5AC4EBBC59",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "package_id": "74C7C406C55BBD8C6681B22D1CBFE07AA054060C4D",
+      "content_id": "74C7C406C55BBD8C6681B22D1CBFE07AA054060C",
+      "display_name": "2012 Aston Martin Virage",
+      "status": "import_verified_gameplay_pending",
+      "payload_sha256": "323FD73DA715B245E0A98826A376DBDF2D0CFF368A21714857F10A9B71BA24CE",
+      "file_count": 4,
+      "expanded_size": 820776,
+      "accepted": [
+        {
+          "size": 892928,
+          "sha256": "1E02F10D88F55DC58F809622A6F3207CEA55285C64CA434875F58A7F35B2DCFB",
+          "license_mask": "00000001"
+        }
+      ],
+      "rejected": []
+    }
+  ]
+}

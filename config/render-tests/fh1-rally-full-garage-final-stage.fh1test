@@ -1,0 +1,167 @@
+pinyon-shift-fh1-render-test-v1
+# Output-frame route: native readiness waits govern finish and return.
+# Full seven-car native save with stock Escort selected and earned checkpoint 7/4.
+# Enter through F6 with normal verified owned assets; native AI drives after race start.
+# Run with --game-argument=--fh1_render_test_rally_ai_driver=true.
+# This qualifies results/persistence diagnostics, not player steering or handling.
+# expect-rally-normal-entry
+# expect-rally-test-ai-driver
+# expect-rally-test-ai-release
+# expect-rally-progress
+# expect-race-hud stage-moving
+# expect-race-hud stage-middle
+# expect-freeroam-return series-return
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 372 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 492 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 612 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 732 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 852 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 972 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1092 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1212 0000 0 0 0 0 0 0
+input 1320 1000 0 0 0 0 0 0
+input 1332 0000 0 0 0 0 0 0
+input 1440 1000 0 0 0 0 0 0
+input 1452 0000 0 0 0 0 0 0
+input 1560 1000 0 0 0 0 0 0
+input 1572 0000 0 0 0 0 0 0
+input 1680 1000 0 0 0 0 0 0
+input 1692 0000 0 0 0 0 0 0
+input 1800 1000 0 0 0 0 0 0
+input 1812 0000 0 0 0 0 0 0
+input 1920 1000 0 0 0 0 0 0
+input 1932 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2052 0000 0 0 0 0 0 0
+input 2160 1000 0 0 0 0 0 0
+input 2172 0000 0 0 0 0 0 0
+input 2280 1000 0 0 0 0 0 0
+input 2292 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2412 0000 0 0 0 0 0 0
+capture 3600 loaded-escort
+hostkey 3900 f6
+hostkey 4020 up
+hostkey 4080 enter
+hostkey 4200 enter
+input 4800 1000 0 0 0 0 0 0
+input 4812 0000 0 0 0 0 0 0
+input 5100 1000 0 0 0 0 0 0
+input 5112 0000 0 0 0 0 0 0
+input 5400 1000 0 0 0 0 0 0
+input 5412 0000 0 0 0 0 0 0
+input 5700 1000 0 0 0 0 0 0
+input 5712 0000 0 0 0 0 0 0
+input 6000 1000 0 0 0 0 0 0
+input 6012 0000 0 0 0 0 0 0
+input 6300 1000 0 0 0 0 0 0
+input 6312 0000 0 0 0 0 0 0
+input 6600 1000 0 0 0 0 0 0
+input 6612 0000 0 0 0 0 0 0
+input 6900 1000 0 0 0 0 0 0
+input 6912 0000 0 0 0 0 0 0
+input 7200 1000 0 0 0 0 0 0
+input 7212 0000 0 0 0 0 0 0
+input 7500 1000 0 0 0 0 0 0
+input 7512 0000 0 0 0 0 0 0
+input 7800 1000 0 0 0 0 0 0
+input 7812 0000 0 0 0 0 0 0
+input 8100 1000 0 0 0 0 0 0
+input 8112 0000 0 0 0 0 0 0
+input 8400 1000 0 0 0 0 0 0
+input 8412 0000 0 0 0 0 0 0
+input 8700 1000 0 0 0 0 0 0
+input 8712 0000 0 0 0 0 0 0
+input 9000 1000 0 0 0 0 0 0
+input 9012 0000 0 0 0 0 0 0
+input 9300 1000 0 0 0 0 0 0
+input 9312 0000 0 0 0 0 0 0
+input 9600 1000 0 0 0 0 0 0
+input 9612 0000 0 0 0 0 0 0
+input 9900 1000 0 0 0 0 0 0
+input 9912 0000 0 0 0 0 0 0
+input 10200 1000 0 0 0 0 0 0
+input 10212 0000 0 0 0 0 0 0
+input 10500 1000 0 0 0 0 0 0
+input 10512 0000 0 0 0 0 0 0
+input 10800 1000 0 0 0 0 0 0
+input 10812 0000 0 0 0 0 0 0
+capture 14000 stage-moving
+capture 24000 stage-middle
+wait 42000 36000 rally-stage-saved
+capture 43000 stage-results
+input 43500 1000 0 0 0 0 0 0
+input 43510 0000 0 0 0 0 0 0
+input 44800 1000 0 0 0 0 0 0
+input 44810 0000 0 0 0 0 0 0
+input 46100 1000 0 0 0 0 0 0
+input 46110 0000 0 0 0 0 0 0
+input 47400 1000 0 0 0 0 0 0
+input 47410 0000 0 0 0 0 0 0
+input 48700 1000 0 0 0 0 0 0
+input 48710 0000 0 0 0 0 0 0
+input 49100 1000 0 0 0 0 0 0
+input 49110 0000 0 0 0 0 0 0
+input 49340 1000 0 0 0 0 0 0
+input 49350 0000 0 0 0 0 0 0
+input 49580 1000 0 0 0 0 0 0
+input 49590 0000 0 0 0 0 0 0
+input 49820 1000 0 0 0 0 0 0
+input 49830 0000 0 0 0 0 0 0
+input 50060 1000 0 0 0 0 0 0
+input 50070 0000 0 0 0 0 0 0
+input 50300 1000 0 0 0 0 0 0
+input 50310 0000 0 0 0 0 0 0
+input 50540 1000 0 0 0 0 0 0
+input 50550 0000 0 0 0 0 0 0
+input 50780 1000 0 0 0 0 0 0
+input 50790 0000 0 0 0 0 0 0
+input 51020 1000 0 0 0 0 0 0
+input 51030 0000 0 0 0 0 0 0
+input 51260 1000 0 0 0 0 0 0
+input 51270 0000 0 0 0 0 0 0
+input 51500 1000 0 0 0 0 0 0
+input 51510 0000 0 0 0 0 0 0
+input 51740 1000 0 0 0 0 0 0
+input 51750 0000 0 0 0 0 0 0
+input 51980 1000 0 0 0 0 0 0
+input 51990 0000 0 0 0 0 0 0
+input 52220 1000 0 0 0 0 0 0
+input 52230 0000 0 0 0 0 0 0
+input 52460 1000 0 0 0 0 0 0
+input 52470 0000 0 0 0 0 0 0
+input 52700 1000 0 0 0 0 0 0
+input 52710 0000 0 0 0 0 0 0
+input 52940 1000 0 0 0 0 0 0
+input 52950 0000 0 0 0 0 0 0
+capture 53090 return-before-map-close
+input 53100 2000 0 0 0 0 0 0
+input 53160 0000 0 0 0 0 0 0
+capture 53190 return-after-map-close
+input 53600 2000 0 0 0 0 0 0
+input 53660 0000 0 0 0 0 0 0
+capture 53700 return-map-close-second
+input 54100 2000 0 0 0 0 0 0
+input 54160 0000 0 0 0 0 0 0
+capture 54200 return-map-close-third
+# The preserved garage anchor faces a barrier. Use the garage departure
+# qualified by the complete-profile reload route, with ordinary player inputs.
+input 54600 0000 255 0 32767 0 0 0
+input 54850 1000 0 0 0 0 0 0
+input 54970 0000 0 255 -32767 0 0 0
+input 55270 0000 0 255 0 0 0 0
+input 55570 0000 0 255 32767 0 0 0
+input 55720 0000 0 255 0 0 0 0
+wait 55730 6000 vehicle-moved 30
+wait 56500 6000 freeroam
+capture 56600 series-return
+stop 56800

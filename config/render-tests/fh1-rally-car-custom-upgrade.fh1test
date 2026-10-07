@@ -1,0 +1,37 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 120
+# expect-rally-car-database
+# Requires a complete private save with a natively purchased Escort at the Autoshow.
+# Opens Custom Upgrade after a fresh reload; review custom-upgrades visually.
+# The database marker alone does not qualify upgrade installation/persistence.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 396 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 516 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 636 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 756 0000 0 0 0 0 0 0
+input 1680 0020 0 0 0 0 0 0
+input 1716 0000 0 0 0 0 0 0
+capture 1860 normal-map
+input 1970 0000 0 0 -18000 -7000 0 0
+input 1995 0000 0 0 0 0 0 0
+capture 2090 selected-service
+input 2130 4000 0 0 0 0 0 0
+input 2166 0000 0 0 0 0 0 0
+capture 2310 travel-prompt
+input 2410 1000 0 0 0 0 0 0
+input 2446 0000 0 0 0 0 0 0
+capture 3600 destination
+input 3700 4000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+capture 4300 garage
+input 4400 0002 0 0 0 0 0 0
+input 4412 0000 0 0 0 0 0 0
+capture 4470 selected-option
+input 4500 1000 0 0 0 0 0 0
+input 4512 0000 0 0 0 0 0 0
+capture 5000 custom-upgrades
+stop 5060

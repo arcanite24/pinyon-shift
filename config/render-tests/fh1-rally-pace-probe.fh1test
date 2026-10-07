@@ -1,0 +1,63 @@
+pinyon-shift-fh1-render-test-v1
+# Create a new private seed with --route 1 --autopilot --pace-notes.
+# This private probe enters a solo Rally stage through a generic activity,
+# using the current car, and checks native authored phrase playback. The entry borrows
+# the Media Center prompt and base race UI until real Rally UI is implemented.
+# Speech intelligibility, live rewind/retry, HUD and progression remain unqualified.
+# expect-rally-pace EN
+# expect-race-hud race-moving
+# expect-race-hud race-moving-later
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+capture 4030 race-moving
+capture 4150 race-moving-later
+capture 6400 pace-early
+capture 10000 pace-later
+stop 11000

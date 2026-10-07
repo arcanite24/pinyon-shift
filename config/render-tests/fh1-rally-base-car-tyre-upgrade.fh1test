@@ -1,0 +1,60 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 120
+# expect-rally-car-database
+# Requires a complete private save with an owned Mustang Boss 429 at Dak's Garage.
+# Buy Rally tyres through the normal menu and leave Custom Upgrade to commit.
+# Review tyre captures and native save/reload; the database gate alone does not
+# qualify the conversion. The runner copies the source seed before launch.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 2520 reloaded-car
+input 2700 4000 0 0 0 0 0 0
+input 2712 0000 0 0 0 0 0 0
+capture 3300 garage
+input 3400 0002 0 0 0 0 0 0
+input 3412 0000 0 0 0 0 0 0
+input 3500 1000 0 0 0 0 0 0
+input 3512 0000 0 0 0 0 0 0
+capture 4000 custom-upgrades
+input 4100 0008 0 0 0 0 0 0
+input 4112 0000 0 0 0 0 0 0
+capture 4500 tyre-category
+input 4600 1000 0 0 0 0 0 0
+input 4612 0000 0 0 0 0 0 0
+capture 5100 tyre-types
+capture 5300 selected-type
+input 5400 1000 0 0 0 0 0 0
+input 5412 0000 0 0 0 0 0 0
+capture 6000 tyre-parts
+input 6100 0008 0 0 0 0 0 0
+input 6112 0000 0 0 0 0 0 0
+input 6180 0008 0 0 0 0 0 0
+input 6192 0000 0 0 0 0 0 0
+input 6260 0008 0 0 0 0 0 0
+input 6272 0000 0 0 0 0 0 0
+input 6340 0008 0 0 0 0 0 0
+input 6352 0000 0 0 0 0 0 0
+capture 6600 rally-tyre
+input 6800 1000 0 0 0 0 0 0
+input 6812 0000 0 0 0 0 0 0
+capture 7200 tyre-purchase-confirmation
+input 7400 1000 0 0 0 0 0 0
+input 7412 0000 0 0 0 0 0 0
+capture 8100 tyre-installed
+input 8400 2000 0 0 0 0 0 0
+input 8412 0000 0 0 0 0 0 0
+capture 8900 after-tyre-parts
+input 9000 2000 0 0 0 0 0 0
+input 9012 0000 0 0 0 0 0 0
+capture 9500 after-tyre-types
+input 9600 2000 0 0 0 0 0 0
+input 9612 0000 0 0 0 0 0 0
+capture 10800 committed-garage
+stop 10860

@@ -1,0 +1,41 @@
+pinyon-shift-fh1-render-test-v1
+# Prepared owned seed with a natively earned unfinished championship 7.
+# Keep the first confirmation with its default selection, then explicitly retire.
+# Earned stage/series results must survive; only the unfinished attempt is cleared.
+# expect-rally-hub-retirement 7
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+hostkey 1680 f6
+hostkey 1800 up
+hostkey 1860 enter
+hostkey 1920 down
+hostkey 1980 enter
+hostkey 2040 enter
+hostkey 2100 enter
+hostkey 2160 up
+hostkey 2220 enter
+hostkey 2340 f6
+input 2400 2000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2520 0000 0 255 0 0 0 0
+wait 2530 2400 vehicle-moved 30
+capture 2650 retirement-return
+capture 2770 retirement-stable
+stop 2820

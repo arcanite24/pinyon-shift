@@ -1,0 +1,68 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 120
+# expect-rally-car-database
+# Requires a complete private save with a natively purchased Escort at the Autoshow.
+# Buy the Rally transmission through the normal menu and leave Custom Upgrade to save.
+# Review transmission captures and native save/reload separately; the database gate
+# alone does not qualify purchase or persistence. The runner always copies the seed.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 2520 reloaded-car
+input 2700 4000 0 0 0 0 0 0
+input 2712 0000 0 0 0 0 0 0
+capture 3300 garage
+input 3400 0002 0 0 0 0 0 0
+input 3412 0000 0 0 0 0 0 0
+input 3500 1000 0 0 0 0 0 0
+input 3512 0000 0 0 0 0 0 0
+capture 4000 custom-upgrades
+input 4100 0008 0 0 0 0 0 0
+input 4112 0000 0 0 0 0 0 0
+input 4200 0008 0 0 0 0 0 0
+input 4212 0000 0 0 0 0 0 0
+input 4300 0008 0 0 0 0 0 0
+input 4312 0000 0 0 0 0 0 0
+input 4400 0008 0 0 0 0 0 0
+input 4412 0000 0 0 0 0 0 0
+capture 4500 drivetrain-category
+input 4600 1000 0 0 0 0 0 0
+input 4612 0000 0 0 0 0 0 0
+capture 5100 drivetrain-types
+input 5200 0008 0 0 0 0 0 0
+input 5212 0000 0 0 0 0 0 0
+capture 5300 selected-type
+input 5400 1000 0 0 0 0 0 0
+input 5412 0000 0 0 0 0 0 0
+capture 6000 transmission-parts
+input 6100 0008 0 0 0 0 0 0
+input 6112 0000 0 0 0 0 0 0
+input 6180 0008 0 0 0 0 0 0
+input 6192 0000 0 0 0 0 0 0
+input 6260 0008 0 0 0 0 0 0
+input 6272 0000 0 0 0 0 0 0
+input 6340 0008 0 0 0 0 0 0
+input 6352 0000 0 0 0 0 0 0
+capture 6600 rally-transmission
+input 6800 1000 0 0 0 0 0 0
+input 6812 0000 0 0 0 0 0 0
+capture 7200 transmission-purchase-confirmation
+input 7400 1000 0 0 0 0 0 0
+input 7412 0000 0 0 0 0 0 0
+capture 8100 transmission-installed
+input 8400 2000 0 0 0 0 0 0
+input 8412 0000 0 0 0 0 0 0
+capture 8900 after-transmission-parts
+input 9000 2000 0 0 0 0 0 0
+input 9012 0000 0 0 0 0 0 0
+capture 9500 after-transmission-types
+input 9600 2000 0 0 0 0 0 0
+input 9612 0000 0 0 0 0 0 0
+capture 10800 committed-garage
+stop 10860

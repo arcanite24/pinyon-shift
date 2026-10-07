@@ -1,0 +1,281 @@
+pinyon-shift-fh1-render-test-v1
+# Use tools/create-rally-stage-seed.py with the pinned appdata-2026-09-27 save.
+# Create the private seed with --autopilot; the base AI drives the route.
+# This private probe enters a solo Rally stage through a generic activity,
+# using the current car, then continues through the base results. The entry borrows
+# the Media Center prompt and base race UI until real Rally UI is implemented.
+# Private four-stage director; official scoring, UI and unlocks remain open.
+# expect-race-hud race-moving
+# expect-race-hud race-moving-later
+# expect-race-finish
+# expect-rally-series 7
+# expect-rally-return-entry
+# expect-rally-transition 2 3
+# expect-rally-transition 3 41
+# expect-freeroam-return series-return
+# expect-rally-transition 1 2
+# expect-race-hud stage2-moving
+# expect-race-hud stage3-moving
+# expect-race-hud stage4-moving
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+capture 4030 race-moving
+capture 4150 race-moving-later
+capture 6000 route-early
+capture 10000 route-progress
+capture 16000 route-middle
+capture 22000 route-late
+wait 27900 36000 rally-stage-saved
+capture 28000 route-finish
+input 28500 1000 0 0 0 0 0 0
+input 28510 0000 0 0 0 0 0 0
+input 29800 1000 0 0 0 0 0 0
+input 29810 0000 0 0 0 0 0 0
+input 31100 1000 0 0 0 0 0 0
+input 31110 0000 0 0 0 0 0 0
+input 32400 1000 0 0 0 0 0 0
+input 32410 0000 0 0 0 0 0 0
+input 33700 1000 0 0 0 0 0 0
+input 33710 0000 0 0 0 0 0 0
+input 34100 1000 0 0 0 0 0 0
+input 34110 0000 0 0 0 0 0 0
+input 34340 1000 0 0 0 0 0 0
+input 34350 0000 0 0 0 0 0 0
+input 34580 1000 0 0 0 0 0 0
+input 34590 0000 0 0 0 0 0 0
+input 34820 1000 0 0 0 0 0 0
+input 34830 0000 0 0 0 0 0 0
+input 35060 1000 0 0 0 0 0 0
+input 35070 0000 0 0 0 0 0 0
+input 35300 1000 0 0 0 0 0 0
+input 35310 0000 0 0 0 0 0 0
+input 35540 1000 0 0 0 0 0 0
+input 35550 0000 0 0 0 0 0 0
+input 35780 1000 0 0 0 0 0 0
+input 35790 0000 0 0 0 0 0 0
+input 36020 1000 0 0 0 0 0 0
+input 36030 0000 0 0 0 0 0 0
+input 36260 1000 0 0 0 0 0 0
+input 36270 0000 0 0 0 0 0 0
+input 36500 1000 0 0 0 0 0 0
+input 36510 0000 0 0 0 0 0 0
+input 36740 1000 0 0 0 0 0 0
+input 36750 0000 0 0 0 0 0 0
+input 36980 1000 0 0 0 0 0 0
+input 36990 0000 0 0 0 0 0 0
+input 37220 1000 0 0 0 0 0 0
+input 37230 0000 0 0 0 0 0 0
+input 37460 1000 0 0 0 0 0 0
+input 37470 0000 0 0 0 0 0 0
+input 37700 1000 0 0 0 0 0 0
+input 37710 0000 0 0 0 0 0 0
+input 37940 1000 0 0 0 0 0 0
+input 37950 0000 0 0 0 0 0 0
+wait 39000 6000 vehicle-moved 30
+capture 39100 stage2-moving
+wait 44000 36000 rally-stage-saved
+capture 44100 stage2-finish
+input 44600 1000 0 0 0 0 0 0
+input 44610 0000 0 0 0 0 0 0
+input 45900 1000 0 0 0 0 0 0
+input 45910 0000 0 0 0 0 0 0
+input 47200 1000 0 0 0 0 0 0
+input 47210 0000 0 0 0 0 0 0
+input 48500 1000 0 0 0 0 0 0
+input 48510 0000 0 0 0 0 0 0
+input 49800 1000 0 0 0 0 0 0
+input 49810 0000 0 0 0 0 0 0
+input 50200 1000 0 0 0 0 0 0
+input 50210 0000 0 0 0 0 0 0
+input 50440 1000 0 0 0 0 0 0
+input 50450 0000 0 0 0 0 0 0
+input 50680 1000 0 0 0 0 0 0
+input 50690 0000 0 0 0 0 0 0
+input 50920 1000 0 0 0 0 0 0
+input 50930 0000 0 0 0 0 0 0
+input 51160 1000 0 0 0 0 0 0
+input 51170 0000 0 0 0 0 0 0
+input 51400 1000 0 0 0 0 0 0
+input 51410 0000 0 0 0 0 0 0
+input 51640 1000 0 0 0 0 0 0
+input 51650 0000 0 0 0 0 0 0
+input 51880 1000 0 0 0 0 0 0
+input 51890 0000 0 0 0 0 0 0
+input 52120 1000 0 0 0 0 0 0
+input 52130 0000 0 0 0 0 0 0
+input 52360 1000 0 0 0 0 0 0
+input 52370 0000 0 0 0 0 0 0
+input 52600 1000 0 0 0 0 0 0
+input 52610 0000 0 0 0 0 0 0
+input 52840 1000 0 0 0 0 0 0
+input 52850 0000 0 0 0 0 0 0
+input 53080 1000 0 0 0 0 0 0
+input 53090 0000 0 0 0 0 0 0
+input 53320 1000 0 0 0 0 0 0
+input 53330 0000 0 0 0 0 0 0
+input 53560 1000 0 0 0 0 0 0
+input 53570 0000 0 0 0 0 0 0
+input 53800 1000 0 0 0 0 0 0
+input 53810 0000 0 0 0 0 0 0
+input 54040 1000 0 0 0 0 0 0
+input 54050 0000 0 0 0 0 0 0
+wait 55000 6000 vehicle-moved 30
+capture 55100 stage3-moving
+capture 62000 stage3-middle
+wait 69000 36000 rally-stage-saved
+capture 69100 stage3-finish
+input 69600 1000 0 0 0 0 0 0
+input 69610 0000 0 0 0 0 0 0
+input 70900 1000 0 0 0 0 0 0
+input 70910 0000 0 0 0 0 0 0
+input 72200 1000 0 0 0 0 0 0
+input 72210 0000 0 0 0 0 0 0
+input 73500 1000 0 0 0 0 0 0
+input 73510 0000 0 0 0 0 0 0
+input 74800 1000 0 0 0 0 0 0
+input 74810 0000 0 0 0 0 0 0
+input 75200 1000 0 0 0 0 0 0
+input 75210 0000 0 0 0 0 0 0
+input 75440 1000 0 0 0 0 0 0
+input 75450 0000 0 0 0 0 0 0
+input 75680 1000 0 0 0 0 0 0
+input 75690 0000 0 0 0 0 0 0
+input 75920 1000 0 0 0 0 0 0
+input 75930 0000 0 0 0 0 0 0
+input 76160 1000 0 0 0 0 0 0
+input 76170 0000 0 0 0 0 0 0
+input 76400 1000 0 0 0 0 0 0
+input 76410 0000 0 0 0 0 0 0
+input 76640 1000 0 0 0 0 0 0
+input 76650 0000 0 0 0 0 0 0
+input 76880 1000 0 0 0 0 0 0
+input 76890 0000 0 0 0 0 0 0
+input 77120 1000 0 0 0 0 0 0
+input 77130 0000 0 0 0 0 0 0
+input 77360 1000 0 0 0 0 0 0
+input 77370 0000 0 0 0 0 0 0
+input 77600 1000 0 0 0 0 0 0
+input 77610 0000 0 0 0 0 0 0
+input 77840 1000 0 0 0 0 0 0
+input 77850 0000 0 0 0 0 0 0
+input 78080 1000 0 0 0 0 0 0
+input 78090 0000 0 0 0 0 0 0
+input 78320 1000 0 0 0 0 0 0
+input 78330 0000 0 0 0 0 0 0
+input 78560 1000 0 0 0 0 0 0
+input 78570 0000 0 0 0 0 0 0
+input 78800 1000 0 0 0 0 0 0
+input 78810 0000 0 0 0 0 0 0
+input 79040 1000 0 0 0 0 0 0
+input 79050 0000 0 0 0 0 0 0
+wait 80000 6000 vehicle-moved 30
+capture 80100 stage4-moving
+capture 93000 stage4-middle
+wait 104000 36000 rally-stage-saved
+capture 104100 stage4-finish
+input 104600 1000 0 0 0 0 0 0
+input 104610 0000 0 0 0 0 0 0
+input 105900 1000 0 0 0 0 0 0
+input 105910 0000 0 0 0 0 0 0
+input 107200 1000 0 0 0 0 0 0
+input 107210 0000 0 0 0 0 0 0
+input 108500 1000 0 0 0 0 0 0
+input 108510 0000 0 0 0 0 0 0
+input 109800 1000 0 0 0 0 0 0
+input 109810 0000 0 0 0 0 0 0
+input 110200 1000 0 0 0 0 0 0
+input 110210 0000 0 0 0 0 0 0
+input 110440 1000 0 0 0 0 0 0
+input 110450 0000 0 0 0 0 0 0
+input 110680 1000 0 0 0 0 0 0
+input 110690 0000 0 0 0 0 0 0
+input 110920 1000 0 0 0 0 0 0
+input 110930 0000 0 0 0 0 0 0
+input 111160 1000 0 0 0 0 0 0
+input 111170 0000 0 0 0 0 0 0
+input 111400 1000 0 0 0 0 0 0
+input 111410 0000 0 0 0 0 0 0
+input 111640 1000 0 0 0 0 0 0
+input 111650 0000 0 0 0 0 0 0
+input 111880 1000 0 0 0 0 0 0
+input 111890 0000 0 0 0 0 0 0
+input 112120 1000 0 0 0 0 0 0
+input 112130 0000 0 0 0 0 0 0
+input 112360 1000 0 0 0 0 0 0
+input 112370 0000 0 0 0 0 0 0
+input 112600 1000 0 0 0 0 0 0
+input 112610 0000 0 0 0 0 0 0
+input 112840 1000 0 0 0 0 0 0
+input 112850 0000 0 0 0 0 0 0
+input 113080 1000 0 0 0 0 0 0
+input 113090 0000 0 0 0 0 0 0
+input 113320 1000 0 0 0 0 0 0
+input 113330 0000 0 0 0 0 0 0
+input 113560 1000 0 0 0 0 0 0
+input 113570 0000 0 0 0 0 0 0
+input 113800 1000 0 0 0 0 0 0
+input 113810 0000 0 0 0 0 0 0
+input 114040 1000 0 0 0 0 0 0
+input 114050 0000 0 0 0 0 0 0
+capture 114190 return-before-map-close
+input 114200 2000 0 0 0 0 0 0
+input 114260 0000 0 0 0 0 0 0
+capture 114290 return-after-map-close
+input 114700 2000 0 0 0 0 0 0
+input 114760 0000 0 0 0 0 0 0
+capture 114800 return-map-close-second
+input 115200 2000 0 0 0 0 0 0
+input 115260 0000 0 0 0 0 0 0
+capture 115300 return-map-close-third
+input 115700 0000 0 255 0 0 0 0
+wait 115710 6000 vehicle-moved 30
+wait 116400 6000 freeroam
+capture 116500 series-return
+stop 116700

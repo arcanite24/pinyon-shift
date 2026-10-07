@@ -1,0 +1,82 @@
+pinyon-shift-fh1-render-test-v1
+# Use tools/create-rally-stage-seed.py with the pinned appdata-2026-09-27 save.
+# Create the private seed with --autopilot; the base AI drives the route.
+# This private probe enters a solo Rally stage through a generic activity,
+# using the current car, then continues through the base results. The entry borrows
+# the Media Center prompt and base race UI until real Rally UI is implemented.
+# It tests the stage finish and return; official Rally progression remains open.
+# expect-race-hud race-moving
+# expect-race-hud race-moving-later
+# expect-race-finish
+# expect-rally-progress
+# expect-freeroam-return stage-return
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+capture 4030 race-moving
+capture 4150 race-moving-later
+capture 6000 route-early
+capture 10000 route-progress
+capture 16000 route-middle
+capture 22000 route-late
+wait 27900 36000 rally-stage-saved
+capture 28000 route-finish
+input 28500 1000 0 0 0 0 0 0
+input 28510 0000 0 0 0 0 0 0
+input 29800 1000 0 0 0 0 0 0
+input 29810 0000 0 0 0 0 0 0
+input 31100 1000 0 0 0 0 0 0
+input 31110 0000 0 0 0 0 0 0
+input 32400 1000 0 0 0 0 0 0
+input 32410 0000 0 0 0 0 0 0
+input 33700 1000 0 0 0 0 0 0
+input 33710 0000 0 0 0 0 0 0
+wait 34500 6000 freeroam
+capture 35100 stage-return
+stop 35300

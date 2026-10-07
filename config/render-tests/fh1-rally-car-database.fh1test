@@ -1,0 +1,28 @@
+pinyon-shift-fh1-render-test-v1
+# Read-only native merge/entitlement/upgrade check from a normal prepared owned seed.
+# Requires an existing Rally ledger; this checks preservation, not car purchase.
+# Purchase, driving, upgrade UI and safe disable remain separate qualifications.
+# expect-rally-car-database
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 2000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 free-roam
+stop 1920

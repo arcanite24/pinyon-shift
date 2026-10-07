@@ -1,0 +1,138 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 120
+# Re-enable verified Rally in a copy of the disabled-car test's natively saved state.
+# Requires the pinned seven-car garage, Mustang selected at Dak's Garage and checkpoint 7/2.
+# Select the retained Escort beside the Mustang; leave the service before Rally entry.
+# Review native loaded/saved garage, purchased parts, credits and earned ledger.
+# These route/entitlement gates alone do not qualify the selected car or save preservation.
+# expect-rally-car-database
+# expect-rally-normal-entry
+# expect-rally-hub-resume 7 2
+# expect-rally-resume 7 2
+# expect-race-hud rally-start
+# expect-race-hud rally-driving
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 372 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 492 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 612 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 732 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 852 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 972 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1092 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1212 0000 0 0 0 0 0 0
+input 1320 1000 0 0 0 0 0 0
+input 1332 0000 0 0 0 0 0 0
+input 1440 1000 0 0 0 0 0 0
+input 1452 0000 0 0 0 0 0 0
+input 1560 1000 0 0 0 0 0 0
+input 1572 0000 0 0 0 0 0 0
+input 1680 1000 0 0 0 0 0 0
+input 1692 0000 0 0 0 0 0 0
+input 1800 1000 0 0 0 0 0 0
+input 1812 0000 0 0 0 0 0 0
+input 1920 1000 0 0 0 0 0 0
+input 1932 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2052 0000 0 0 0 0 0 0
+input 2160 1000 0 0 0 0 0 0
+input 2172 0000 0 0 0 0 0 0
+input 2280 1000 0 0 0 0 0 0
+input 2292 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2412 0000 0 0 0 0 0 0
+capture 3600 restored-base-car
+input 3900 4000 0 0 0 0 0 0
+input 3912 0000 0 0 0 0 0 0
+capture 4500 garage
+input 4600 0002 0 0 0 0 0 0
+input 4612 0000 0 0 0 0 0 0
+input 4660 0002 0 0 0 0 0 0
+input 4672 0000 0 0 0 0 0 0
+input 4720 0002 0 0 0 0 0 0
+input 4732 0000 0 0 0 0 0 0
+input 4800 1000 0 0 0 0 0 0
+input 4812 0000 0 0 0 0 0 0
+capture 5200 restored-garage
+input 5300 0008 0 0 0 0 0 0
+input 5312 0000 0 0 0 0 0 0
+capture 5780 purchased-escort
+input 5840 1000 0 0 0 0 0 0
+input 5852 0000 0 0 0 0 0 0
+capture 6100 escort-actions
+input 6200 1000 0 0 0 0 0 0
+input 6212 0000 0 0 0 0 0 0
+capture 9100 selected-escort
+input 9200 2000 0 0 0 0 0 0
+input 9212 0000 0 0 0 0 0 0
+capture 11000 restored-free-roam
+hostkey 11400 f6
+hostkey 11520 up
+hostkey 11580 enter
+hostkey 11700 enter
+capture 12200 entry-prompt
+input 12300 1000 0 0 0 0 0 0
+input 12312 0000 0 0 0 0 0 0
+input 12600 1000 0 0 0 0 0 0
+input 12612 0000 0 0 0 0 0 0
+input 12900 1000 0 0 0 0 0 0
+input 12912 0000 0 0 0 0 0 0
+input 13200 1000 0 0 0 0 0 0
+input 13212 0000 0 0 0 0 0 0
+input 13500 1000 0 0 0 0 0 0
+input 13512 0000 0 0 0 0 0 0
+input 13800 1000 0 0 0 0 0 0
+input 13812 0000 0 0 0 0 0 0
+input 14100 1000 0 0 0 0 0 0
+input 14112 0000 0 0 0 0 0 0
+input 14400 1000 0 0 0 0 0 0
+input 14412 0000 0 0 0 0 0 0
+input 14700 1000 0 0 0 0 0 0
+input 14712 0000 0 0 0 0 0 0
+input 15000 1000 0 0 0 0 0 0
+input 15012 0000 0 0 0 0 0 0
+input 15300 1000 0 0 0 0 0 0
+input 15312 0000 0 0 0 0 0 0
+input 15600 1000 0 0 0 0 0 0
+input 15612 0000 0 0 0 0 0 0
+input 15900 1000 0 0 0 0 0 0
+input 15912 0000 0 0 0 0 0 0
+input 16200 1000 0 0 0 0 0 0
+input 16212 0000 0 0 0 0 0 0
+input 16500 1000 0 0 0 0 0 0
+input 16512 0000 0 0 0 0 0 0
+input 16800 1000 0 0 0 0 0 0
+input 16812 0000 0 0 0 0 0 0
+input 17100 1000 0 0 0 0 0 0
+input 17112 0000 0 0 0 0 0 0
+input 17400 1000 0 0 0 0 0 0
+input 17412 0000 0 0 0 0 0 0
+input 17700 1000 0 0 0 0 0 0
+input 17712 0000 0 0 0 0 0 0
+input 18000 1000 0 0 0 0 0 0
+input 18012 0000 0 0 0 0 0 0
+input 18300 1000 0 0 0 0 0 0
+input 18312 0000 0 0 0 0 0 0
+input 18600 1000 0 0 0 0 0 0
+input 18612 0000 0 0 0 0 0 0
+input 18900 1000 0 0 0 0 0 0
+input 18912 0000 0 0 0 0 0 0
+input 19200 1000 0 0 0 0 0 0
+input 19212 0000 0 0 0 0 0 0
+input 19500 1000 0 0 0 0 0 0
+input 19512 0000 0 0 0 0 0 0
+input 19800 1000 0 0 0 0 0 0
+input 19812 0000 0 0 0 0 0 0
+capture 22000 rally-start
+input 22100 0000 0 255 0 0 0 0
+capture 22500 rally-driving
+input 23100 0000 0 0 0 0 0 0
+capture 23300 rally-driven
+stop 23400

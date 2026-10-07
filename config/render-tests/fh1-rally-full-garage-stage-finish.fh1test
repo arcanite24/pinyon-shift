@@ -1,0 +1,100 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 120
+# Full seven-car native save with stock Escort selected and earned championship-7 checkpoint.
+# Enter through F6 with normal verified owned assets; native AI drives after race start.
+# Run with --game-argument=--fh1_render_test_rally_ai_driver=true.
+# This qualifies results/persistence diagnostics, not player steering or handling.
+# expect-rally-normal-entry
+# expect-rally-test-ai-driver
+# expect-rally-progress
+# expect-race-hud stage-moving
+# expect-race-hud stage-late
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 372 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 492 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 612 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 732 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 852 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 972 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1092 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1212 0000 0 0 0 0 0 0
+input 1320 1000 0 0 0 0 0 0
+input 1332 0000 0 0 0 0 0 0
+input 1440 1000 0 0 0 0 0 0
+input 1452 0000 0 0 0 0 0 0
+input 1560 1000 0 0 0 0 0 0
+input 1572 0000 0 0 0 0 0 0
+input 1680 1000 0 0 0 0 0 0
+input 1692 0000 0 0 0 0 0 0
+input 1800 1000 0 0 0 0 0 0
+input 1812 0000 0 0 0 0 0 0
+input 1920 1000 0 0 0 0 0 0
+input 1932 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2052 0000 0 0 0 0 0 0
+input 2160 1000 0 0 0 0 0 0
+input 2172 0000 0 0 0 0 0 0
+input 2280 1000 0 0 0 0 0 0
+input 2292 0000 0 0 0 0 0 0
+input 2400 1000 0 0 0 0 0 0
+input 2412 0000 0 0 0 0 0 0
+capture 3600 loaded-escort
+hostkey 3900 f6
+hostkey 4020 up
+hostkey 4080 enter
+hostkey 4200 enter
+input 4800 1000 0 0 0 0 0 0
+input 4812 0000 0 0 0 0 0 0
+input 5100 1000 0 0 0 0 0 0
+input 5112 0000 0 0 0 0 0 0
+input 5400 1000 0 0 0 0 0 0
+input 5412 0000 0 0 0 0 0 0
+input 5700 1000 0 0 0 0 0 0
+input 5712 0000 0 0 0 0 0 0
+input 6000 1000 0 0 0 0 0 0
+input 6012 0000 0 0 0 0 0 0
+input 6300 1000 0 0 0 0 0 0
+input 6312 0000 0 0 0 0 0 0
+input 6600 1000 0 0 0 0 0 0
+input 6612 0000 0 0 0 0 0 0
+input 6900 1000 0 0 0 0 0 0
+input 6912 0000 0 0 0 0 0 0
+input 7200 1000 0 0 0 0 0 0
+input 7212 0000 0 0 0 0 0 0
+input 7500 1000 0 0 0 0 0 0
+input 7512 0000 0 0 0 0 0 0
+input 7800 1000 0 0 0 0 0 0
+input 7812 0000 0 0 0 0 0 0
+input 8100 1000 0 0 0 0 0 0
+input 8112 0000 0 0 0 0 0 0
+input 8400 1000 0 0 0 0 0 0
+input 8412 0000 0 0 0 0 0 0
+input 8700 1000 0 0 0 0 0 0
+input 8712 0000 0 0 0 0 0 0
+input 9000 1000 0 0 0 0 0 0
+input 9012 0000 0 0 0 0 0 0
+input 9300 1000 0 0 0 0 0 0
+input 9312 0000 0 0 0 0 0 0
+input 9600 1000 0 0 0 0 0 0
+input 9612 0000 0 0 0 0 0 0
+input 9900 1000 0 0 0 0 0 0
+input 9912 0000 0 0 0 0 0 0
+input 10200 1000 0 0 0 0 0 0
+input 10212 0000 0 0 0 0 0 0
+input 10500 1000 0 0 0 0 0 0
+input 10512 0000 0 0 0 0 0 0
+input 10800 1000 0 0 0 0 0 0
+input 10812 0000 0 0 0 0 0 0
+capture 14000 stage-moving
+capture 19000 stage-late
+capture 27000 stage-results
+capture 37000 stable-results
+stop 38000
