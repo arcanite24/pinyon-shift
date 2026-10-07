@@ -346,24 +346,35 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
                          {{"BILINEAR", {{"present_effect", "\"bilinear\""}}},
                           {"CAS", {{"present_effect", "\"cas\""}}},
                           {"FSR 1", {{"present_effect", "\"fsr\""}}}}));
+  // The rate the game simulates and renders at, which sets every CPU cost
+  // (LS-1.4). DISPLAY follows the refresh rate: 144 Hz and faster displays
+  // then render that many frames. 40 is an even third of 120 Hz (LS-1.6).
   rows.push_back(Setting("GAME FRAME RATE LIMIT",
-                         {{"OFF", {{"pinyon_shift_fh1_render_fps_limit", "0"}}},
+                         {{"DISPLAY", {{"pinyon_shift_fh1_render_fps_limit", "0"}}},
                           {"30", {{"pinyon_shift_fh1_render_fps_limit", "30"}}},
+                          {"40", {{"pinyon_shift_fh1_render_fps_limit", "40"}}},
                           {"60", {{"pinyon_shift_fh1_render_fps_limit", "60"}}},
                           {"120", {{"pinyon_shift_fh1_render_fps_limit", "120"}}}}));
   auto note = [this, restart = RestartNote(rows)] {
     const std::string pending = restart ? restart() : std::string();
-    return pending.empty() ? ResolutionLine() : pending;
+    if (!pending.empty()) {
+      return pending;
+    }
+    // A presentation limit below the game's drops frames the game rendered.
+    const auto present = Number(Unquote(Saved("host_present_fps_limit")));
+    const auto game = Number(Unquote(Saved("pinyon_shift_fh1_render_fps_limit")));
+    if (present && *present > 0 && game && (*game == 0 || *game > *present)) {
+      return std::string("THE GAME RENDERS FRAMES THE FRAME RATE LIMIT DROPS");
+    }
+    return ResolutionLine();
   };
   return std::make_unique<MenuScreen>("DISPLAY", std::move(rows), std::move(note));
 }
 
 std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   std::vector<MenuRow> rows;
-  // PB-5: whole setups at once; any other combination reads CUSTOM. Both
-  // render on Vulkan with the split GPU commands thread. The 120 fps preset
-  // renders at 1x and scales to the display with FSR 1; at 2x the race's
-  // busiest part runs at a 12.7 ms median (79 fps), so it holds 60.
+  // PB-5: whole setups at once; any other combination reads CUSTOM. All
+  // render on Vulkan with the split GPU commands thread.
 #if defined(__ANDROID__)
   // AP-7.5: a handheld renders at 1x (AP-2.5) and trades frame rate for
   // battery and heat. BATTERY 30 is the Xbox 360's own rate (the guest
@@ -382,6 +393,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
                             {"fh1_msaa_single_sample", "false"},
+                            {"host_present_fps_limit", "0"},
                             {"pinyon_shift_fh1_render_fps_limit", "30"}}},
                           {"SMOOTH 60",
                            {{"gpu_backend", "\"vulkan\""},
@@ -391,28 +403,51 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
                             {"fh1_msaa_single_sample", "true"},
+                            {"host_present_fps_limit", "0"},
                             {"pinyon_shift_fh1_render_fps_limit", "60"}}}}));
   // The game's 4x MSAA is most of a handheld GPU's frame: off, edges are
   // harder and the frame much cheaper.
-  // Labelled apart from the FXAA row (ANTI-ALIASING) below.
+  // Labelled apart from the FXAA row (POST-PROCESS AA) below.
   rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
 #else
-  rows.push_back(Setting("GRAPHICS PRESET",
-                         {{"PERFORMANCE 120",
-                           {{"gpu_backend", "\"vulkan\""},
-                            {"gpu_record_thread", "true"},
-                            {"draw_resolution_scale_x", "1"},
-                            {"draw_resolution_scale_y", "1"},
-                            {"present_effect", "\"fsr\""},
-                            {"pinyon_shift_fh1_render_fps_limit", "120"}}},
-                          {"QUALITY 60",
-                           {{"gpu_backend", "\"vulkan\""},
-                            {"gpu_record_thread", "true"},
-                            {"draw_resolution_scale_x", "2"},
-                            {"draw_resolution_scale_y", "2"},
-                            {"present_effect", "\"bilinear\""},
-                            {"pinyon_shift_fh1_render_fps_limit", "60"}}}}));
+  // LOW-SPEC 60 and BALANCED 40 (LS-1.1, LS-1.6) choose the cheapest
+  // workload on purpose for weaker machines: the console's own resolution,
+  // no MSAA (a quarter of the target memory and much of a small GPU's frame),
+  // bilinear output, the game's own filtering and no FXAA. The game's rate
+  // sets every CPU cost, so 60 is half the work a second of 120 and 40 a
+  // third; 40 paces evenly on 120 Hz displays and the Steam Deck's 40 Hz mode.
+  // Every preset clears the presentation limit, so the frames the game
+  // renders are the frames shown.
+  const auto preset = [](const char* scale, const char* effect, const char* msaa_off,
+                         const char* fps,
+                         std::vector<std::pair<std::string, std::string>> extra = {}) {
+    std::vector<std::pair<std::string, std::string>> values = {
+        {"gpu_backend", "\"vulkan\""},
+        {"gpu_record_thread", "true"},
+        {"draw_resolution_scale_x", scale},
+        {"draw_resolution_scale_y", scale},
+        {"present_effect", effect},
+        {"fh1_msaa_single_sample", msaa_off},
+        {"host_present_fps_limit", "0"},
+        {"pinyon_shift_fh1_render_fps_limit", fps}};
+    values.insert(values.end(), extra.begin(), extra.end());
+    return values;
+  };
+  const std::vector<std::pair<std::string, std::string>> cheapest = {
+      {"anisotropic_override", "-1"}, {"swap_post_effect", "\"none\""}};
+  rows.push_back(Setting(
+      "GRAPHICS PRESET",
+      {{"LOW-SPEC 60", preset("1", "\"bilinear\"", "true", "60", cheapest)},
+       {"BALANCED 40", preset("1", "\"bilinear\"", "true", "40", cheapest)},
+       // The reference desktop (Ryzen 7 5800X, RTX 4080) holds the 120 limit
+       // in the race at 1x (8.3 ms median) and runs it at 9.5 ms at 3x.
+       {"PERFORMANCE 120", preset("1", "\"fsr\"", "true", "120")},
+       {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60")}}));
+  // The game's 4x MSAA, apart from the post-process FXAA row below: off,
+  // edges are harder and targets take a quarter of the memory.
+  rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"}}},
+                                  {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
 #endif
   std::vector<Choice> scales;
   // Android renders at 1x: higher scales need resolve buffers a phone's
@@ -449,7 +484,8 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                           {"DEFAULT", {{"texture_mip_lod_bias", "0.0"}}},
                           {"SHARP", {{"texture_mip_lod_bias", "-0.5"}}},
                           {"SHARPEST", {{"texture_mip_lod_bias", "-1.0"}}}}));
-  rows.push_back(Setting("ANTI-ALIASING",
+  // FXAA over the finished frame; the game's MSAA is its own row.
+  rows.push_back(Setting("POST-PROCESS AA",
                          {{"OFF", {{"swap_post_effect", "\"none\""}}},
                           {"FXAA", {{"swap_post_effect", "\"fxaa\""}}},
                           {"FXAA EXTREME", {{"swap_post_effect", "\"fxaa_extreme\""}}}}));
