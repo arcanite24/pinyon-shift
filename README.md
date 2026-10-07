@@ -425,23 +425,36 @@ remain open.
 - [x] Launcher DLC import, detection and enable/disable controls (Windows
   development build; verified local catalog, release integration and gameplay
   qualification pending)
-- [ ] Horizon Rally Expansion Pack: rally events, routes, cars and upgrades
-- [ ] 1000 Club Expansion Pack: car challenges and saved medal progress
-- [ ] October Car Pack
-- [ ] November Bondurant Car Pack
-- [ ] December IGN Car Pack
-- [ ] January Recaro Car Pack
-- [ ] February Jalopnik Car Pack
-- [ ] March Meguiar's Car Pack
-- [ ] April TopGear Car Pack
-- [ ] VIP Membership & Cars Pack: cars and applicable local perks
-- [ ] Honda Challenge Car Pack
-- [ ] Pre-Order Car Pack
-- [ ] Season Pass: 2006 Lamborghini Miura Concept
-- [ ] 2013 Ford Shelby GT500 - Rockstar Energy
-- [ ] Individual promotional cars: Nissan 370Z, Ferrari 458 Italia,
-  Mercedes-Benz SLS AMG, Volkswagen Golf R and Aston Martin Virage
-- [ ] LCE: Day1 DLC Pack, including its custom-painted cars
+Car packs are qualified on the optional v4 build with every owned package
+enabled together: each pack's cars are owned in the game's own entitlement
+cache and show in the Autoshow, and one car per pack was bought, reloaded from
+a fresh launch and driven. Import every copy of a package you own: verified
+variants of the same package combine their licences (the full November pack
+needs its full-licence copy).
+
+- [x] Horizon Rally Expansion Pack: native entry, intro, hub, car selection and
+  a championship on the v4 build (other championships not yet played)
+- [x] 1000 Club Expansion Pack: offline car challenges with saved medals on the
+  v4 build ("1000 Club offline" in the launcher)
+- [x] October Car Pack
+- [x] November Bondurant Car Pack
+- [x] December IGN Car Pack
+- [x] January Recaro Car Pack
+- [x] February Jalopnik Car Pack
+- [x] March Meguiar's Car Pack
+- [x] April TopGear Car Pack
+- [x] VIP Membership & Cars Pack: cars, plus Fast Travel Anywhere on v4
+- [x] Honda Challenge Car Pack (cars; the challenge flow is unqualified)
+- [x] Pre-Order Car Pack
+- [ ] Season Pass: 2006 Lamborghini Miura Concept (owned in the cache; purchase
+  not yet run)
+- [ ] 2013 Ford Shelby GT500 - Rockstar Energy (owned in the cache; purchase
+  not yet run)
+- [x] Individual promotional cars: Nissan 370Z, Ferrari 458 Italia,
+  Mercedes-Benz SLS AMG, Volkswagen Golf R and Aston Martin Virage (they share
+  the Pre-Order cars without duplicates)
+- [x] LCE: Day1 DLC Pack, including its custom-painted cars (shares the
+  October roster)
 
 Next, in priority order:
 

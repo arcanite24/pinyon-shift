@@ -264,13 +264,20 @@ after save/reload. Record any unavailable service features in the README.
 
 Depends on DLC-1 and each pack's verified update requirement.
 
-- [ ] October Car Pack
-- [ ] November Bondurant Car Pack
-- [ ] December IGN Car Pack, after resolving the conflicting local inputs
-- [ ] January Recaro Car Pack
-- [ ] February Jalopnik Car Pack
-- [ ] March Meguiar's Car Pack
-- [ ] April TopGear Car Pack
+Qualified on the v4 build with all 21 owned packages enabled together (see
+"Car packs on v4" below): every pack's roster is installed, purchased and
+visible in the native entitlement cache, and one representative car per pack
+was bought in the Autoshow, reloaded from a fresh launch and driven.
+
+- [x] October Car Pack (Gumpert Apollo Enraged)
+- [x] November Bondurant Car Pack (Shelby Cobra 427 S/C). The full pack needs
+  the full-licence variant; the importer now combines owned variants.
+- [x] December IGN Car Pack (AMC Javelin AMX); all three local variants are
+  accepted and their licences combine.
+- [x] January Recaro Car Pack (GMC Vandura G-1500)
+- [x] February Jalopnik Car Pack (Devon GTX)
+- [x] March Meguiar's Car Pack (Joss JT1)
+- [x] April TopGear Car Pack (Bowler Nemesis EXR)
 
 For each pack, establish its expected car roster from its own database/assets.
 Verify every car is visible, purchasable, rendered correctly in the garage and
@@ -284,11 +291,16 @@ Mark its README checkbox independently.
 
 Depends on DLC-1 and each package's verified update requirement.
 
-- [ ] VIP: qualify both package entries, the car roster and applicable local
-  perks; document online recognition or other service features separately.
-- [ ] Honda Challenge: qualify cars, then investigate the named challenge flow
-  and its dependencies; state the supported scope explicitly.
-- [ ] Pre-Order bundle: qualify its roster and overlap with single-car packages.
+- [x] VIP: both packages mount; the five VIP cars are owned and the Koenigsegg
+  Agera was bought, reloaded and driven on v4. v4's VIP perk Fast Travel
+  Anywhere is granted by `pinyon_shift_dlc_fast_travel_anywhere` (DLC-7);
+  online VIP recognition is a removed service.
+- [x] Honda Challenge: the three Honda cars are owned; the 1986 Civic Si was
+  bought, reloaded and driven on v4. The named Honda challenge flow itself
+  has not been qualified.
+- [x] Pre-Order bundle: its five cars are owned (the five single-car packages
+  carry only wheels and strings for the same cars, so they overlap without
+  duplicates); the Nissan 370Z was bought, reloaded and driven on v4.
 - [ ] Season Pass Miura Concept and Rockstar Energy Shelby GT500: qualify
   assets, entitlement, purchase and persistence without requiring an online store.
 - [ ] Nissan 370Z, Ferrari 458 Italia, Mercedes-Benz SLS AMG, Volkswagen Golf R
@@ -318,12 +330,12 @@ in-game marketplace for Tokens counted by Turn 10's web service
 (`ForzaUserGetForzaAssetCounts`, `ForzaUserTwoPhaseConsumeForzaAsset`), not
 as Marketplace content packages, so they do not depend on DLC-1.
 
-- [ ] Fast travel anywhere: trace the unlock's purchase transaction, its
-  completion handler and the state it sets (entitlement flag or saved profile
-  field), then grant it from a hot-reload cvar in the same style as
-  `pinyon_shift_dlc_treasure_map`. Qualify fast travel from the pause map to
-  arbitrary roads, not only the festival and owned houses, and that it
-  persists across save/reload.
+- [x] Fast travel anywhere (v4 only; the base disc has no such unlock). The
+  purchase completion, sub_825D5C00, stores the profile value
+  `Main/FastTravelAnywhere = true`; `pinyon_shift_dlc_fast_travel_anywhere`
+  (default on) stores it the same way once per loaded profile in free roam.
+  The map's Y then fast travels to any road, and a fresh launch with the
+  setting off keeps it (2026-10-07, commit `fa19331`).
 - [ ] Token amount: trace where the title stores the asset count returned by
   `ForzaUserGetForzaAssetCounts` and how purchases consume it, then let the
   player set the balance (setting or cheat). Verify the showroom's
@@ -2191,3 +2203,41 @@ byte-identical and source profile hashes pass. No entry_ground diagnostic event
 is emitted with the flag unset. Driving captures were visually inspected.
 The Odin 2 Portal bd89bfde remains connected; this investigation installs no APK.
 The final-build result is appended to ground-qualification.json above.
+
+
+### Car packs on v4 (2026-10-07)
+
+All 21 owned packages were imported into a private copy of the v4 all-DLC
+seed (`D:/horizon1-recomp-v4/seeds/v4-all-dlc-merged-2026-10-07`), each from
+every local input file. Rosters come from each package's own merge database
+(84 car rows; `D:/horizon1-recomp-v4/dlc-rosters/rosters.json`).
+
+- **Licences.** The first seed held the November variant whose licence covers
+  only the Gallardo offer (mask `00000002`): the native cache left the Cobra
+  427, 240SX, M3 GTS and Shelby 1000 unpurchased and hidden. The importer now
+  ORs the licences of verified variants with identical payloads (commit
+  `efa4170`), so November becomes `FFFFFFFF` with both inputs owned.
+- **Entitlements.** `v4-dlc-car-database` (the trace with `# dlc-car-ids`)
+  reports all 84 rows installed, purchased and drivable; all are visible
+  except the Season Pass-only Focus SVT (Rally licence `00000001` excludes
+  it) and Rally's event-only duplicates, which are not selectable by design.
+- **Autoshow.** The manufacturer grid lists every DLC-only make with NEW
+  badges (AMC, Bowler, Cadillac, Devon, GMC, Gumpert, HUMMER, Joss,
+  Koenigsegg, Pagani, RUF, Honda's additions, ...); spot-checked car lists
+  show the pack cars beside base cars.
+- **Purchase and persistence.** One car per pack was bought with test
+  credits (cheats on, so in the separate `user-modded` save), then a fresh
+  launch loaded that save, put the car in free roam and drove it: Bowler
+  Nemesis EXR, Shelby Cobra 427 S/C, Gumpert Apollo Enraged, AMC Javelin AMX,
+  GMC Vandura, Devon GTX, Joss JT1, Koenigsegg Agera, Honda Civic Si (1986),
+  Nissan 370Z and RUF CTR2. Captures were inspected
+  (`D:/horizon1-recomp-v4/runs/dlc-batch{6,7,8}/verify.png`).
+- **Startup cost.** With 21 packages the title merges every DLC database
+  synchronously after Start: a 20.6 s main-thread stall on this machine
+  (the runtime's stall watchdog logs it). Routes now wait for the merge's
+  final `media\db\patch` open before the remaining title presses.
+
+Not covered: per-car upgrades and tuning for each pack (the Rally Escort's
+upgrade path is the representative qualification), the Miura and Rockstar
+Shelby purchases (owned in the cache, not bought in a route), and the car
+packs on the base build, which were not run.
