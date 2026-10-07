@@ -60,7 +60,7 @@ class SummarizeLowSpecTests(unittest.TestCase):
             record = json.loads(output.read_text(encoding="utf-8"))
             heavy = record["bands"]["heavy"]
             self.assertEqual(heavy["frames"], 100)
-            self.assertAlmostEqual(heavy["over_25ms_share"], 0.02)
+            self.assertAlmostEqual(heavy["long_frame_share"], 0.02)
             self.assertFalse(heavy["gate_cadence"])  # 2 % of frames over 25 ms
             self.assertAlmostEqual(heavy["recorder_cpu_ms"], 7.0)
             self.assertEqual(record["memory"]["memory_device_usage_mb_peak"], 1099)
@@ -74,6 +74,12 @@ class SummarizeLowSpecTests(unittest.TestCase):
                                    check=True, capture_output=True, text=True).stdout
             self.assertIn("| 4C/8T (simulated) |", table)
             self.assertIn("1099 of 4000 MB", table)
+
+    def test_gate_follows_the_target_rate(self):
+        rows = [{"frame_time_us": "25000", "draw_calls": "6000", "present_count": "1"}
+                for _ in range(400)]
+        self.assertTrue(MODULE.band_metrics(rows, 40.0)["gate_cadence"])
+        self.assertFalse(MODULE.band_metrics(rows, 60.0)["gate_cadence"])
 
     def test_steady_run_passes_the_cadence_gate(self):
         metrics = MODULE.band_metrics([

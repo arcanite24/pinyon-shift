@@ -26,11 +26,14 @@ from pathlib import Path
 
 SCHEMA = "pinyon-shift.low-spec-benchmark.v1"
 ROOT = Path(__file__).resolve().parents[1]
-# The 60 fps frame budget and the release gate's limits (LOW_SPEC_BACKLOG).
-BUDGET_MS = 1000.0 / 60.0
-GATE_P95_MS = 16.9
-GATE_LONG_MS = 25.0
-GATE_PRESENTS = 59.0
+# The release gate (LOW_SPEC_BACKLOG), relative to the target rate: at least
+# 59 of 60 frames presented a second, at most 1 % of frames over 1.5 frame
+# intervals (25 ms at 60 fps). "Over budget" is a frame a quarter
+# millisecond past its interval (16.9 ms at 60 fps), reported, not gated.
+GATE_PRESENT_SHARE = 59.0 / 60.0
+GATE_LONG_INTERVALS = 1.5
+OVER_BUDGET_SLACK_MS = 0.25
+DEFAULT_TARGET_FPS = 60.0
 # Draw bands (DR's method): the race's heavy start, and gameplay in general.
 BANDS = {"heavy": (5000, None), "gameplay": (2000, None)}
 # Frames after loading (output frames run uncapped while loading).
@@ -119,10 +122,11 @@ def number(row: dict, column: str) -> float:
         return 0.0
 
 
-def band_metrics(rows: list[dict]) -> dict | None:
+def band_metrics(rows: list[dict], target_fps: float = DEFAULT_TARGET_FPS) -> dict | None:
     if not rows:
         return None
     frame_ms = [number(row, "frame_time_us") / 1000.0 for row in rows]
+    interval_ms = 1000.0 / target_fps
     seconds = sum(frame_ms) / 1000.0
     presents = sum(number(row, "present_count") for row in rows)
     metrics = {
@@ -131,8 +135,11 @@ def band_metrics(rows: list[dict]) -> dict | None:
         "frame_ms_p50": round(percentile(frame_ms, 0.50), 3),
         "frame_ms_p95": round(percentile(frame_ms, 0.95), 3),
         "frame_ms_p99": round(percentile(frame_ms, 0.99), 3),
-        "over_budget_share": round(sum(ms > GATE_P95_MS for ms in frame_ms) / len(rows), 4),
-        "over_25ms_share": round(sum(ms > GATE_LONG_MS for ms in frame_ms) / len(rows), 4),
+        "target_fps": target_fps,
+        "over_budget_share": round(
+            sum(ms > interval_ms + OVER_BUDGET_SLACK_MS for ms in frame_ms) / len(rows), 4),
+        "long_frame_share": round(
+            sum(ms > interval_ms * GATE_LONG_INTERVALS for ms in frame_ms) / len(rows), 4),
         "presents_per_second": round(presents / seconds, 2) if seconds else None,
         "deadline_misses_per_second": round(
             sum(number(row, "present_deadline_misses") for row in rows) / seconds, 3)
@@ -153,9 +160,19 @@ def band_metrics(rows: list[dict]) -> dict | None:
     # reference machine while every one is presented on time, so the gate
     # counts delivered frames and long frames rather than the p95.
     metrics["gate_cadence"] = bool(metrics["presents_per_second"] and
-                                   metrics["presents_per_second"] >= GATE_PRESENTS and
-                                   metrics["over_25ms_share"] <= 0.01)
+                                   metrics["presents_per_second"] >= target_fps * GATE_PRESENT_SHARE
+                                   and metrics["long_frame_share"] <= 0.01)
     return metrics
+
+
+def target_rate(run_result: Path | None) -> float:
+    """The game rate the run asked for (the runner's game arguments), else 60."""
+    if run_result and run_result.is_file():
+        for argument in json.loads(run_result.read_text(encoding="utf-8")).get("game_arguments") or []:
+            name, _, value = argument.lstrip("-").partition("=")
+            if name == "pinyon_shift_fh1_render_fps_limit" and value not in ("", "0"):
+                return float(value)
+    return DEFAULT_TARGET_FPS
 
 
 def record(arguments: argparse.Namespace) -> int:
@@ -166,12 +183,13 @@ def record(arguments: argparse.Namespace) -> int:
     with perf.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     played = rows[SETTLE_FRAMES:]
+    target_fps = target_rate(arguments.run_result)
     bands = {}
     for name, (low, high) in BANDS.items():
         selected = [row for row in played
                     if number(row, "draw_calls") >= low
                     and (high is None or number(row, "draw_calls") < high)]
-        bands[name] = band_metrics(selected)
+        bands[name] = band_metrics(selected, target_fps)
     memory = {}
     for column in MEMORY_COLUMNS:
         values = [number(row, column) for row in rows if column in row]
@@ -229,7 +247,7 @@ def table(arguments: argparse.Namespace) -> int:
     records = [json.loads(path.read_text(encoding="utf-8")) for path in arguments.records]
     band = arguments.band
     lines = [
-        f"| Configuration | Machine | Median | p95 | Over 16.9 ms | Over 25 ms | "
+        f"| Configuration | Machine | Median | p95 | Over interval | Over 1.5 intervals | "
         f"Decoder CPU | Recorder CPU | Title CPU | Peak VRAM | Commit |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
@@ -244,7 +262,7 @@ def table(arguments: argparse.Namespace) -> int:
             f"{item['machine'].get('gpu')} | {cell(metrics.get('frame_ms_p50'), 2)} ms | "
             f"{cell(metrics.get('frame_ms_p95'), 2)} ms | "
             f"{cell(100 * metrics['over_budget_share'] if 'over_budget_share' in metrics else None)} % | "
-            f"{cell(100 * metrics['over_25ms_share'] if 'over_25ms_share' in metrics else None)} % | "
+            f"{cell(100 * metrics['long_frame_share'] if 'long_frame_share' in metrics else None)} % | "
             f"{cell(metrics.get('decoder_cpu_ms'), 2)} ms | {cell(metrics.get('recorder_cpu_ms'), 2)} ms | "
             f"{cell(metrics.get('title_thread_cpu_ms'), 2)} ms | "
             f"{cell(vram, 0)} of {cell(budget, 0)} MB | `{item['commit']}` |")
