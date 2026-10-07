@@ -425,8 +425,8 @@ remain open.
 - [x] Launcher DLC import, detection and enable/disable controls (Windows
   development build; verified local catalog, release integration and gameplay
   qualification pending)
-Car packs are qualified on the optional v4 build with every owned package
-enabled together: each pack's cars are owned in the game's own entitlement
+Car packs are qualified with every owned package enabled together (on the
+optional v4 build, and spot-checked on the default build): each pack's cars are owned in the game's own entitlement
 cache and show in the Autoshow, and one car per pack was bought, reloaded from
 a fresh launch and driven. Import every copy of a package you own: verified
 variants of the same package combine their licences (the full November pack

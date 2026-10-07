@@ -2239,6 +2239,10 @@ every local input file. Rosters come from each package's own merge database
   (the runtime's stall watchdog logs it). Routes now wait for the merge's
   final `media\db\patch` open before the remaining title presses.
 
+Base build: the same trace on the base executable reports the same 84 rows
+and entitlements (the Pre-Order and VIP cars carry the base flag because
+their rows ship in the base database), and the Bowler Nemesis EXR was bought
+and then loaded into free roam after a fresh launch.
+
 Not covered: per-car upgrades and tuning for each pack (the Rally Escort's
-upgrade path is the representative qualification) and the car packs on the
-base build, which were not run.
+upgrade path is the representative qualification).
