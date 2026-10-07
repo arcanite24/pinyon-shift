@@ -5860,6 +5860,12 @@ static void QueueRallyRaceTrace() {
     const uint32_t session = pointer(world + 124, 60);
     const uint32_t mode = session ? LoadGuestU32(session + 56) : 0;
     if (mode != 17 || !profile_ready) g_rally_hub_available.store(false, std::memory_order_release);
+    // Without the Rally adapter's hub observer, run the read-only owned-content
+    // trace (PINYON_SHIFT_DLC_TRACE) once free roam has settled.
+    static uint32_t free_roam_samples = 0;
+    if (mode == 17 && !PinyonShiftUseBuiltinRallyAdapter() && ++free_roam_samples == 5) {
+      TraceDlcCars();
+    }
     pinyon_shift::fh1_render_test::ObserveGameMode(mode);
     if (mode == 17 && profile_ready && unfinished_series_stage && progress->CancelAttempt()) {
       unfinished_series_stage = false;
