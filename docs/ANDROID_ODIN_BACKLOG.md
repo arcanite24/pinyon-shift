@@ -335,3 +335,27 @@ What remains is the game's own shading (main scene about 20 ms of a 1x
 frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
 forth (about 15,000 tile-passes a frame, 5.3 ms): one host image for both
 views is DR-2.1's deferred per-surface scale.
+
+### Where the 4x Turnip frame goes (2026-10-08)
+
+Bounds measured on the 4x drive (about 40 ms a frame), each a diagnostic
+that breaks the image (SDK `8d09b0d`, `d604440`):
+
+| Removed | Frame | So it costs |
+| --- | --- | --- |
+| Pixel shading (`vulkan_debug_flat_pixel_shaders`) | 30.5 ms | about 11 ms |
+| All but each draw's first triangle (`fh1_debug_tiny_draws`) | 32.1 ms | about 8 ms with the pixels it keeps |
+| Clears (`fh1_debug_skip_clears`) | 39.9 against 41.4 ms | about 1.5 ms |
+| LRZ (`TU_DEBUG=nolrz`) | 40.1 against 39.8 ms | nothing: no hidden shading for it to save |
+
+Per pixel shader (`fh1_native_gpu_profile_draws`), the cost is spread
+across about 200 shaders: the heaviest takes 1.5 ms over 129 draws a frame
+(298 instructions, one fetch), the next 0.9 ms; none spills, and the
+translator changes above did not move them. The rest of the frame, with
+shading and geometry gone, is about 30 ms: resolves 4.5, transfers 3,
+texture reloads 2.5, clears 1.5, and the cost of about 3,000 draws and of
+the renderings the game's own order breaks up (63 a frame by resolves, 14
+by CPU-written memory uploads, 6.5 by texture loads), each a drain of the
+GPU between render and compute work. Constants are about 2 KB a draw
+(`gpu_constant_census`). Turnip has no performance counter extension to
+split that remainder further.
