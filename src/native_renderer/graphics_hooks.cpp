@@ -75,6 +75,11 @@ std::mutex render_scenarios_mutex;
 std::vector<RenderScenario> render_scenarios;
 float applied_env_rate = 1.0f;
 bool shadows_skipped = false;
+// Shadow mask resolves seen at the last frame and when the mask was last
+// filled: the cockpit view still draws shadows (SkipShadowMapUnlessCockpit),
+// and the other views must not keep its last mask.
+uint32_t mask_resolves_seen = 0;
+uint32_t mask_resolves_filled = UINT32_MAX;
 
 // SkipShadowMapUnlessCockpit (id 35) is embedded in each scenario at +0x194;
 // bit 35 of the bitset at +36 marks it set by the scenario.
@@ -108,8 +113,8 @@ void SetEnvMapRate(rex::memory::Memory* memory, const RenderScenario& scenario, 
 // Called with render_scenarios_mutex held.
 void KeepShadowsOff(rex::memory::Memory* memory) {
   auto* graphics = rex::system::kernel_state()->emulator()->graphics_system();
-  uint32_t mask_base, mask_length;
-  if (!graphics || !graphics->fh1_shadow_mask(&mask_base, &mask_length)) return;
+  uint32_t mask_base, mask_length, mask_resolves;
+  if (!graphics || !graphics->fh1_shadow_mask(&mask_base, &mask_length, &mask_resolves)) return;
   if (!shadows_skipped) {
     for (const RenderScenario& scenario : render_scenarios) {
       SetShadowsSkipped(memory, scenario, true);
@@ -119,9 +124,18 @@ void KeepShadowsOff(rex::memory::Memory* memory) {
                 render_scenarios.size(), mask_base, mask_length);
   }
   // Without the shadow passes the mask keeps what was last there: written
-  // white (lit), and again whenever something else writes it.
+  // white (lit), and again whenever something else writes it. While the
+  // game resolves the mask every frame (the cockpit view draws shadows) it
+  // is left alone; the first frame without a resolve fills it again.
+  const bool resolving = mask_resolves != mask_resolves_seen;
+  mask_resolves_seen = mask_resolves;
+  if (resolving) return;
   auto* mask = memory->TranslatePhysical<uint32_t*>(mask_base);
-  if (mask[0] == 0xFFFFFFFFu && mask[mask_length / 4 - 1] == 0xFFFFFFFFu) return;
+  if (mask_resolves == mask_resolves_filled && mask[0] == 0xFFFFFFFFu &&
+      mask[mask_length / 4 - 1] == 0xFFFFFFFFu) {
+    return;
+  }
+  mask_resolves_filled = mask_resolves;
   std::memset(mask, 0xFF, mask_length);
   memory->TriggerPhysicalMemoryCallbacks(rex::thread::global_critical_region::AcquireDirect(),
                                          0xA0000000u + mask_base, mask_length, true, false);
