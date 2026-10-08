@@ -392,3 +392,19 @@ The GPU's highest clock is 680 MHz, which it already holds. The remaining barrie
 pair around each of about 60 resolves a frame (rendering to the resolve's
 compute and back), which the game's order of render, resolve and sample
 makes necessary.
+
+### The last reloads (2026-10-08)
+
+Skipping every remaining resolve-sourced reload (`fh1_debug_skip_resolve_reloads`,
+stale images, a bound) took the 4x frame from 38.4 and 39.4 to 36.0 and
+36.7 ms, so the 5-6 reloads left (18 MB a frame) were worth 2.5 ms. Their
+causes, from `fh1_texture_reload_probe` with the sampled textures' keys:
+
+| Cause | Change | Effect |
+| --- | --- | --- |
+| The 1280x720 resolve targets fetched with and without packed mips made two textures over the same memory | Keys clear unused packed mips (`texture_key_unused_packed_mips`, SDK `4ea590d`) | Reload bytes 18.5 to 14.8 MB; 37.8 and 37.7 against 38.6 and 38.8 ms |
+| The depth resolve is sampled as a depth texture and as 8_8_8_8 texels | Resolves write up to two textures (`fh1_resolve_two_textures`) | Reload bytes 14.4 to 10.9 MB; four pairs, mean 38.40 against 39.12 ms |
+
+Left: the two 1024x1024 depth shadow atlases (memory overwritten in part
+by a 1280x720 resolve each frame, then resolved only 520x520) and a few
+textures resolved in bands; about 11 MB a frame.
