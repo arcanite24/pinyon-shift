@@ -116,6 +116,20 @@ def rexsdk_dir() -> Path:
     return ROOT / ".local" / "rexglue"
 
 
+def _pinned_tool(name: str) -> Path | None:
+    """CMake or Ninja from the Windows build's pinned toolchain
+    (config/release-toolchain.json, provisioned with the PC build)."""
+    if not WINDOWS:
+        return None
+    try:
+        entry = json.loads((ROOT / "config" / "release-toolchain.json").read_text(
+            encoding="utf-8"))[name]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return None
+    path = ROOT / entry["install_path"] / entry["executable"]
+    return path if path.is_file() else None
+
+
 class Tools:
     def __init__(self) -> None:
         self.sdk = sdk_root()
@@ -138,10 +152,9 @@ class Tools:
         self.strip = self.llvm_bin / _exe("llvm-strip")
         self.libcxx = (self.ndk / "toolchains" / "llvm" / "prebuilt" / host / "sysroot" / "usr"
                        / "lib" / "aarch64-linux-android" / "libc++_shared.so")
-        local_cmake = (ROOT / ".local" / "toolchain" / "cmake-3.31.10-windows-x86_64" / "bin"
-                       / "cmake.exe")
-        self.cmake = Path(str(local_cmake if local_cmake.is_file() else shutil.which("cmake")))
-        self.ninja = self._ninja()
+        local_cmake = _pinned_tool("cmake")
+        self.cmake = local_cmake or (Path(shutil.which("cmake")) if shutil.which("cmake") else None)
+        self.ninja = _pinned_tool("ninja") or self._ninja()
 
     @staticmethod
     def _find(directory: Path | None, name: str) -> Path | None:

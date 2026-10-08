@@ -16,6 +16,13 @@
     "install_path": ".local/toolchain/cmake-3.31.10-windows-x86_64",
     "executable": "bin/cmake.exe"
   },
+  "ninja": {
+    "version": "1.13.2",
+    "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+    "sha256": "07FC8261B42B20E71D1720B39068C2E14FFCEE6396B76FB7A795FB460B78DC65",
+    "install_path": ".local/toolchain/ninja-1.13.2",
+    "executable": "ninja.exe"
+  },
   "git": {
     "version": "2.55.0.5",
     "url": "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/MinGit-2.55.0.5-64-bit.zip",

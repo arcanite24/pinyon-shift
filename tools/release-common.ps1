@@ -647,11 +647,20 @@ function Enter-PinyonBuildEnvironment {
     }
     $llvm = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
     $env:PATH = "$(Join-Path $llvm 'bin');$env:PATH"
+    # The pinned Ninja first on PATH, where the presets' Ninja generator finds
+    # it; Visual Studio's copy remains the fallback for older installs.
+    $ninja = Join-Path ([IO.Path]::GetFullPath((Join-Path $root $config.ninja.install_path))) $config.ninja.executable
+    if (Test-Path -LiteralPath $ninja -PathType Leaf) {
+        $env:PATH = "$(Split-Path $ninja -Parent);$env:PATH"
+    }
+    else {
+        $ninja = Join-Path $vsRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
+    }
     Assert-PinyonBuildCapabilities -LlvmRoot $llvm
     [pscustomobject]@{
         VisualStudioRoot = $vsRoot
         CMake = Get-PinyonCMake -VisualStudioRoot $vsRoot
-        Ninja = Join-Path $vsRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
+        Ninja = $ninja
         LlvmRoot = $llvm
     }
 }

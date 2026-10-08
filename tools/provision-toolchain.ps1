@@ -129,6 +129,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $cmakeRoot $config.cmake.executable)
     Invoke-PinyonDownload -Uri $config.cmake.url -Destination $archive -Sha256 $config.cmake.sha256
     Expand-Archive -LiteralPath $archive -DestinationPath (Split-Path $cmakeRoot -Parent) -Force
 }
+# Ninja is pinned like CMake, so the build does not depend on the Visual
+# Studio CMake component being installed.
+$ninjaRoot = Resolve-PinyonLocalPath -RelativePath $config.ninja.install_path
+if (-not (Test-Path -LiteralPath (Join-Path $ninjaRoot $config.ninja.executable) -PathType Leaf)) {
+    $archive = Join-Path $downloads "ninja-$($config.ninja.version)-win.zip"
+    Invoke-PinyonDownload -Uri $config.ninja.url -Destination $archive -Sha256 $config.ninja.sha256
+    [void](New-Item -ItemType Directory -Force -Path $ninjaRoot)
+    Expand-Archive -LiteralPath $archive -DestinationPath $ninjaRoot -Force
+}
 $environment = Enter-PinyonBuildEnvironment
 $git = Get-PinyonGit
 foreach ($required in @(
