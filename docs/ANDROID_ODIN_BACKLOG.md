@@ -451,3 +451,15 @@ It also renders FH1 wrongly: lighting crushed toward black in the drive
 capture and in the frame 600 replay (mean difference 112.7 from Gen8
 V37's, 62 % of pixels by more than 16). Gen8 V37 stays the Odin driver;
 the player state now loads it (`android_gpu_driver = "turnip-gen8-v37"`).
+
+### What bounds the Gen8 V37 frame (2026-10-08)
+
+The same bounds as before, on Gen8 V37 (4x drive): the frame 32.4 ms,
+flat pixel shaders 25.7, each draw's first triangle only 24.6, the GPU 99
+% busy in all three. So pixel shading is about 6.7 ms and all draw work
+about 8 ms; the rest is resolves (6.3 ms), transfers (3.9), the full-screen
+post passes and reloads, all real GPU work now that the waits between it
+are gone. Skipping the per-sample divisions in resolves of the surface
+that owns the tiles (the usual case) changed neither the resolves' 6.3 ms
+nor the frame (32.3 against 32.4 ms): they are bound by memory traffic,
+not arithmetic, so it was not kept.
