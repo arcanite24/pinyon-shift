@@ -385,7 +385,10 @@ each frame, so its own 520x520 resolve leaves it outdated (writing it
 directly would need validity tracked per region of a texture), and
 textures resolved in bands. Skipping every shared memory barrier after
 resolves (unsafe, a bound) gained nothing (38.1 and 38.8 against 38.5 and
-38.5 ms): the waits are the real dependencies, not the buffer barriers. The remaining barriers are mostly the
+38.5 ms): the waits are the real dependencies, not the buffer barriers. Letting depth resolves also write
+the 8_8_8_8 textures over their destination (the one sampled last)
+changed no reload count (6 a frame) or frame time, so it was not kept.
+The GPU's highest clock is 680 MHz, which it already holds. The remaining barriers are mostly the
 pair around each of about 60 resolves a frame (rendering to the resolve's
 compute and back), which the game's order of render, resolve and sample
 makes necessary.
