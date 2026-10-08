@@ -290,9 +290,44 @@ transfers 5.4 / 3.2, resolves 5.7 / 4.7, texture reloads 3.2 / 2.6. The
 main scene (`1024/32/4x/d1+0/32/4x/c3`, about 18 renderings) is 24.8 /
 25.6 ms, 60 % of the frame, and it is the game's own shading at 4x MSAA:
 bandwidth, precision, specialization and pass-structure changes above did
-not move it. Beyond Turnip, the remaining gains change the image (MSAA off,
-a lower resolution) or need DR-2.1's single host image for the main
-depth's 4x and 1x views (transfers, now 3.2 ms).
+not move it.
+
+### Turnip shader work (2026-10-08)
+
+`vulkan_pipeline_statistics` (SDK `8d09b0d`) logs the driver's statistics
+for every pipeline through `VK_KHR_pipeline_executable_properties`; Turnip
+reports them, and nothing spills. `vulkan_debug_flat_pixel_shaders` (same
+commit) bounds pixel shading: with every guest pixel shader writing a
+constant, the 4x frame falls from 41.7 to 30.5 ms, so pixel shading is
+about 11 ms of it.
+
+Taken: 2D pixel shader fetches with implicit LOD on Turnip
+(`spirv_implicit_lod_2d_turnip`, default on, SDK `a17fd5f`). 4x drive, two
+interleaved pairs: 39.8 and 40.1 ms against 42.4 and 41.6; 1x median 35.5
+ms (37.0 before). The frame 600 replay differs from explicit gradients by
+a mean of 0.07, 0.01 % of pixels by more than 16 levels.
+
+Measured and not taken:
+
+| Experiment | Result |
+| --- | --- |
+| The once-through main loop left unrollable (Mesa honors `DontUnroll`) | Loops gone from 208 of 210 pixel shaders and 189 vertex shaders; instructions 457 to 446 and 1,196 to 1,172; frame unchanged (41.49 against 41.49 ms) |
+| Shared memory loads (four 128 MB bindings) and endian swaps with selects instead of branches | Vertex shaders 1,196 to 749 instructions, load stalls 1,059 to 183 cycles; frame unchanged in two pairs (41.8/42.2, 51.9/51.9 ms): vertex work does not bound the frame |
+| `TU_DEBUG=gmem` / `sysmem` | See above; the driver's choice is best |
+
+DR-2.1's one host image for the main depth's 4x and 1x views does not
+apply to MSAA on Vulkan: a 4x image cannot alias a single-sampled one of
+twice the size, and supersampling it instead would shade the main scene
+four times. The transfers it would remove cost 3.2 ms on Turnip, each
+pair needed.
+
+What remains is the game's own pixel shading and geometry in the main
+scene (about 23.5 ms of a 40 ms 4x frame on Turnip), resolves (4.6 ms,
+about 0.5 ms for each 1280x256 4x color resolve) and the post chain's 43
+small renderings and 21 small resolves a frame (about 2 ms, each step
+waiting on the last). The GPU is 91-93 % busy at 680 MHz throughout. At
+1x the Odin now runs the busy drive at about 28 fps (35.5 ms) with Turnip,
+against 24 fps (41.3 ms) on the stock driver before this round.
 
 What remains is the game's own shading (main scene about 20 ms of a 1x
 frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
