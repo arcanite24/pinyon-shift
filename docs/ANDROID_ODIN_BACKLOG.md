@@ -498,3 +498,42 @@ which the untiled first tile still shades. Turnip already renders these
 passes in system memory: `TU_DEBUG=sysmem` measured 28.6 ms against 28.9
 ms by default, and forcing GMEM 50.4 ms, so the renderings broken by
 resolves and uploads cost no extra tile loads and stores.
+
+### Render scenario settings toward 60 fps (2026-10-08)
+
+The render scenarios (`renderscenarios.zip`, `Horizon_Race.xml` for free
+roam) were tried one setting at a time as asset mods in private states
+(1x drive, untiled, stock about 25.0 ms):
+
+| Setting | 1x drive |
+| --- | --- |
+| `EnvMapFrequencyScale` 0.25 | 22.7 ms, reflections look the same |
+| `EnvMapFrequencyScale` 0 | 22.3 ms, reflections go dark |
+| `CrowdDraw` 0; car LOD distances halved; `ParticleRateScale` 0.5 | no change |
+| `CarDrawDriver`, `CollidableShadows`, `CrowdDrawShadows`, `SoftParticles`, `CarDamageTextures` 0, `HalfRateMirror`, `HalfRateBloom` | no change |
+| `SkipShadowMapUnlessCockpit` 1 | 16.7 ms, the world in full shadow |
+
+A mod switches the player to the modded profile, so both levers are host
+hooks instead. After each DynamicRenderSettings control loads (0x82D81298,
+r30 the control, r26 its scenario; controls are embedded in the scenario
+at offsets from the table at 0x8321D848, index = id), the hook scales
+`EnvMapFrequencyScale` (id 30) by `pinyon_shift_fh1_env_map_rate`, 0.25 on
+Android (2.1 ms). `SkipShadowMapUnlessCockpit` (id 35, unused by the
+game's own scenarios) drops the cascaded shadow maps, a screen depth
+pre-pass and the screen-space shadow mask, about 6.4 ms; left alone, the
+mask keeps its last contents, zeros on a fresh start, and the world is
+fully shadowed. `pinyon_shift_fh1_shadows` (off by default on Android)
+waits until the FH1 executor has seen the mask resolved once (1x 8888 at
+EDRAM tile 720 into a 1280x720 texture, SDK `85625d3`), then sets the
+skip in every gameplay scenario and keeps the mask texture white, so the
+world is lit without shadows.
+
+With both defaults (busy drive, Gen8 V37):
+
+| | Frame | GPU |
+| --- | --- | --- |
+| 1x | 16.69 ms (the 60 fps cap), p95 16.9 | 15.5 ms |
+| 4x | 19.2 ms, p95 23.2 | 18.6 ms |
+
+The horizontal smear in some captures taken in turns is the game's
+camera motion blur; captures with shadows on show it as well.
