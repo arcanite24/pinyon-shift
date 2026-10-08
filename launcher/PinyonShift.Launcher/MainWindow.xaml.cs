@@ -265,6 +265,14 @@ public partial class MainWindow : Window
             SetFailure("Portable folder path is too long", pathTooLong);
             return;
         }
+        if (_portableRoot is null && _installRoot is not null &&
+            PortableMode.PathLengthProblem(_installRoot, "install") is { } installTooLong)
+        {
+            SetFailure("Install folder path is too long", installTooLong);
+            return;
+        }
+        if (!ConfirmGraphicsDriverBeforeBuild())
+            return;
 
         _busy = true;
         ChooseInstallRootButton.IsEnabled = false;
@@ -803,6 +811,7 @@ public partial class MainWindow : Window
                     ? (await File.ReadAllTextAsync(InstallRootPreference)).Trim() : null);
             if (string.IsNullOrWhiteSpace(installRoot))
                 installRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyonShift");
+            _installRoot = Path.GetFullPath(installRoot);
         }
         var destination = Path.Combine(Path.GetFullPath(installRoot), "source", version);
         var payloadHash = await Task.Run(async () =>
@@ -1121,6 +1130,9 @@ public partial class MainWindow : Window
             "https://github.com/arcanite24/pinyon-shift/issues/new?template=bug.yml")
         { UseShellExecute = true });
 
+    private static void OpenUrl(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
     private void ProjectButton_Click(object sender, RoutedEventArgs e) =>
         Process.Start(new ProcessStartInfo("https://github.com/arcanite24/pinyon-shift") { UseShellExecute = true });
 
@@ -1161,6 +1173,26 @@ public partial class MainWindow : Window
             GraphicsStatusText.Text = $"Settings could not be loaded: {ex.Message}";
         }
         await ShowHardwareCheckAsync();
+    }
+
+    private string? _installRoot;
+
+    // A build takes 20 to 60 minutes, and the game cannot start without a
+    // Vulkan 1.3 driver, so a missing or old driver is raised before it, with
+    // the vendor's driver page (#393). The player may build anyway.
+    private bool ConfirmGraphicsDriverBeforeBuild()
+    {
+        try { _hardware ??= HardwareCheck.Probe(DisplayRefresh(_graphicsSettings?.Monitor ?? 0)); }
+        catch (Exception) { return true; }
+        if (HardwareCheck.Recommend(_hardware).Warning is not { } warning)
+            return true;
+        var answer = MessageBox.Show(this,
+            $"{warning}\n\nThe build takes 20 to 60 minutes and the game will not start without a Vulkan 1.3 " +
+            "driver.\n\nYes: build anyway. No: open the driver download page. Cancel: do nothing.",
+            "Graphics driver", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.No)
+            OpenUrl(HardwareCheck.DriverPage(_hardware.Gpu));
+        return answer == MessageBoxResult.Yes;
     }
 
     // LS-1.7: the GPU, its memory and Vulkan version, the CPU and the display,

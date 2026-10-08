@@ -6,7 +6,7 @@ namespace PinyonShift.Launcher;
 // What this PC has for the game (LOW_SPEC_BACKLOG LS-1.7): the Vulkan GPU the
 // game would pick, its own memory, its Vulkan version, the CPU's cores and the
 // display's refresh rate, and the in-game preset that suits them.
-public sealed record GpuInfo(string Name, bool Discrete, ulong DeviceLocalBytes, uint ApiVersion)
+public sealed record GpuInfo(string Name, bool Discrete, ulong DeviceLocalBytes, uint ApiVersion, uint VendorId = 0)
 {
     public string VulkanVersion => $"{ApiVersion >> 22}.{(ApiVersion >> 12) & 0x3FF}";
     public bool SupportsVulkan13 => (ApiVersion >> 22) > 1 || ((ApiVersion >> 22) == 1 && ((ApiVersion >> 12) & 0x3FF) >= 3);
@@ -81,6 +81,16 @@ public static class HardwareCheck
 
     private static string FormatBytes(ulong bytes) =>
         bytes >= 1UL << 30 ? $"{bytes / (double)(1UL << 30):0.#} GB" : $"{bytes >> 20} MB";
+
+    // The vendor's driver download page for the GPU, or the troubleshooting
+    // page when no Vulkan GPU answered.
+    public static string DriverPage(GpuInfo? gpu) => gpu?.VendorId switch
+    {
+        0x1002 => "https://www.amd.com/en/support/download/drivers.html",
+        0x10DE => "https://www.nvidia.com/en-us/drivers/",
+        0x8086 => "https://www.intel.com/content/www/us/en/download-center/home.html",
+        _ => "https://github.com/arcanite24/pinyon-shift/blob/main/docs/TROUBLESHOOTING.md"
+    };
 
     // ---- Vulkan ------------------------------------------------------------
 
@@ -202,7 +212,8 @@ public static class HardwareCheck
             var flags = BitConverter.ToUInt32(memory, 272 + heap * 16);
             if ((flags & VkMemoryHeapDeviceLocal) != 0) deviceLocal = Math.Max(deviceLocal, size);
         }
-        return new GpuInfo(deviceName, deviceType == VkPhysicalDeviceTypeDiscrete, deviceLocal, apiVersion);
+        return new GpuInfo(deviceName, deviceType == VkPhysicalDeviceTypeDiscrete, deviceLocal, apiVersion,
+            BitConverter.ToUInt32(properties, 8));
     }
 
     // ---- CPU ---------------------------------------------------------------

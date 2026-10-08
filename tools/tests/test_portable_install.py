@@ -68,6 +68,16 @@ class PortableLauncherContractTests(unittest.TestCase):
         self.assertIn("Program Files", self.portable)
         self.assertIn("MaximumDataRootLength = 70", self.portable)
         self.assertIn("PortableMode.PathLengthProblem(_portableRoot)", self.window)
+        # A chosen install folder holds the same tree (#393).
+        self.assertIn('PortableMode.PathLengthProblem(_installRoot, "install")', self.window)
+
+    def test_a_missing_vulkan_driver_is_raised_before_the_build(self):
+        click = self.window[self.window.index("private async void PrimaryButton_Click"):]
+        click = click[:click.index('SetPrimaryText("Building')]
+        self.assertIn("ConfirmGraphicsDriverBeforeBuild()", click)
+        hardware = (ROOT / "launcher/PinyonShift.Launcher/HardwareCheck.cs").read_text(encoding="utf-8")
+        for vendor in ("0x1002", "0x10DE", "0x8086"):
+            self.assertIn(vendor, hardware)
 
     def test_children_keep_temporary_files_and_overrides_inside(self):
         for name in ('"TEMP"', '"TMP"', '"PSModuleAnalysisCachePath"', '"PINYON_SHIFT_INSTALL_ROOT"',

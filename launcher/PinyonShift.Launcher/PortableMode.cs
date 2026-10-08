@@ -55,13 +55,16 @@ internal static class PortableMode
         }
     }
 
-    // Null when the data folder is short enough to build in.
-    public static string? PathLengthProblem(string dataRoot) =>
+    // Null when the data folder is short enough to build in. A chosen install
+    // folder holds the same tree, so the same limit applies to it (#393).
+    public static string? PathLengthProblem(string dataRoot, string kind = "portable") =>
         dataRoot.Length <= MaximumDataRootLength
             ? null
-            : $"The portable folder {dataRoot} is {dataRoot.Length} characters long. The build creates files " +
+            : $"The {kind} folder {dataRoot} is {dataRoot.Length} characters long. The build creates files " +
               $"about 185 characters below it, past the 260-character limit of the build tools, so keep it " +
-              $@"to {MaximumDataRootLength} characters or fewer: move the launcher folder higher, such as D:\PinyonShift.";
+              $@"to {MaximumDataRootLength} characters or fewer: " + (kind == "portable"
+                  ? @"move the launcher folder higher, such as D:\PinyonShift."
+                  : @"choose a shorter install folder, such as D:\PinyonShift.");
 
     // Points the temporary folder of the launcher and every tool it starts (setup, the
     // compilers, crash reports) and PowerShell's module cache into the data folder, and
