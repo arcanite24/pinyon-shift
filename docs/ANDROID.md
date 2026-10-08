@@ -109,6 +109,27 @@ install's saves, settings and drivers into the new folder (leaving the
 originals) and moves its game files; uninstall the old app once the game
 shows your save.
 
+DLC and the v4 title update work as on the PC, with the content copied into
+the device's state. Import and enable packages into a state folder on the PC
+(`tools/manage-fh1-dlc.py`), then push its `user` folder (and `dlc`) to
+`files/state`. On the base build, Rally also needs the overlay
+`tools/prepare-fh1-rally.py` writes to `cache/rally_adapter`; the activity
+turns Rally on when that overlay is present. The v4 build runs Rally and 1000
+Club natively. It is built from the player's verified update after
+`tools/build-v4.ps1` has generated its code:
+
+```bash
+python tools/verify-fh1-title-update.py --install STATE tu00000001_00000000
+python tools/pinyon.py android build --title-update-v4
+python tools/pinyon.py android push-title-update --state-root STATE
+```
+
+A save written by v4 cannot be loaded by the base build afterwards, so keep a
+copy before its first v4 start. Offline 1000 Club needs
+`pinyon_shift_car_challenge_gate_probe = true` and
+`xam_report_live_signin = true` in the device's `config/pinyon_shift.toml`,
+which the PC launcher sets from its 1000 Club choice.
+
 Start the game from the launcher icon, or:
 
 ```bash
