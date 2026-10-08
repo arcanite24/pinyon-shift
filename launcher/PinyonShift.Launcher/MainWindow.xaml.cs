@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     ];
 
     // The content area shows one of these at a time.
-    private enum View { Setup, Ready, Log, Crash, Graphics, Dlc }
+    private enum View { Setup, Ready, Log, Crash, Graphics, Dlc, Android }
 
     private CancellationTokenSource? _cancellation;
     private string? _repositoryRoot;
@@ -82,6 +82,7 @@ public partial class MainWindow : Window
         };
         Closing += (_, _) =>
         {
+            _androidShare?.Dispose();
             _cancellation?.Cancel();
             _sessionLog?.Dispose();
         };
@@ -920,20 +921,25 @@ public partial class MainWindow : Window
 
     private void ShowPanel(View panel)
     {
-        if (panel == View.Dlc && _panel != View.Dlc)
+        // The DLC and Android panels take the headline while open.
+        var wasSide = _panel is View.Dlc or View.Android;
+        if (panel is View.Dlc or View.Android && panel != _panel)
         {
-            _headlineBeforeDlc = HeadlineText.Text;
-            HeadlineText.Text = "Downloadable content";
+            if (!wasSide) _headlineBeforeDlc = HeadlineText.Text;
+            HeadlineText.Text = panel == View.Dlc ? "Downloadable content" : "Android";
         }
-        else if (_panel == View.Dlc && panel != View.Dlc) HeadlineText.Text = _headlineBeforeDlc;
+        else if (wasSide && panel is not (View.Dlc or View.Android)) HeadlineText.Text = _headlineBeforeDlc;
+        // The local network share serves only while its panel is open.
+        if (_panel == View.Android && panel != View.Android && _androidShare is not null) StopAndroidShare();
         _panel = panel;
-        SubheadText.Visibility = panel == View.Dlc || string.IsNullOrEmpty(SubheadText.Text)
+        SubheadText.Visibility = panel is View.Dlc or View.Android || string.IsNullOrEmpty(SubheadText.Text)
             ? Visibility.Collapsed : Visibility.Visible;
         SetupPanel.Visibility = panel == View.Setup ? Visibility.Visible : Visibility.Collapsed;
         LogPanel.Visibility = panel == View.Log ? Visibility.Visible : Visibility.Collapsed;
         CrashPanel.Visibility = panel == View.Crash ? Visibility.Visible : Visibility.Collapsed;
         GraphicsPanel.Visibility = panel == View.Graphics ? Visibility.Visible : Visibility.Collapsed;
         DlcPanel.Visibility = panel == View.Dlc ? Visibility.Visible : Visibility.Collapsed;
+        AndroidPanel.Visibility = panel == View.Android ? Visibility.Visible : Visibility.Collapsed;
         // The route only tells something while there is setup left to do.
         RouteList.Visibility = panel is View.Setup or View.Log ? Visibility.Visible : Visibility.Collapsed;
         if (panel == View.Ready) UpdateSummary();
@@ -1003,8 +1009,8 @@ public partial class MainWindow : Window
     private void UpdatePrimaryButton()
     {
         ChooseInstallRootButton.IsEnabled = !_busy && _canChooseInstallRoot &&
-            _panel is not (View.Graphics or View.Dlc);
-        PrimaryButton.IsEnabled = !_busy && _panel != View.Dlc && (_pendingReport is not null || _gameExecutable is not null ||
+            _panel is not (View.Graphics or View.Dlc or View.Android);
+        PrimaryButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Android) && (_pendingReport is not null || _gameExecutable is not null ||
             (_repositoryRoot is not null && (File.Exists(IsoPathTextBox.Text) || Directory.Exists(IsoPathTextBox.Text)) && OwnershipCheckBox.IsChecked == true));
         // The Android package is made from the game this PC built.
         AndroidButton.Visibility = _gameExecutable is not null && _pendingReport is null
@@ -1016,21 +1022,288 @@ public partial class MainWindow : Window
         GraphicsSettingsButton.IsEnabled = !_busy && _panel != View.Dlc;
     }
 
+    // ---- Android (ONE_CLICK_SETUP_BACKLOG A-1 to A-5) -----------------------
+
+    private AndroidShare? _androidShare;
+    private string? _adbDevice;
+
+    private string? AndroidApk => _repositoryRoot is null ? null
+        : Path.Combine(_repositoryRoot, ".local", "android", "pinyon-shift.apk");
+
+    private sealed record AndroidApkRecord(
+        [property: JsonPropertyName("title_update_v4")] bool TitleUpdateV4,
+        [property: JsonPropertyName("built_utc")] DateTime? BuiltUtc);
+
+    private AndroidApkRecord? ReadAndroidApkRecord()
+    {
+        if (_repositoryRoot is null) return null;
+        var path = Path.Combine(_repositoryRoot, ".local", "android", "pinyon-shift.json");
+        try { return File.Exists(path) ? JsonSerializer.Deserialize<AndroidApkRecord>(File.ReadAllText(path)) : null; }
+        catch (Exception ex) when (ex is IOException or JsonException) { return null; }
+    }
+
+    // Whether the player plays the v4 title update on the PC, so the Android
+    // package is built from it and the update is copied to the device.
+    private bool WantsTitleUpdateV4 => _titleUpdate is { Use: true, Built: true };
+
     private async void AndroidButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || _repositoryRoot is null || _gameExecutable is null) return;
-        var script = Path.Combine(_repositoryRoot, "tools", "build-android.ps1");
-        if (!File.Exists(script))
+        if (_panel != View.Android) _panelBeforeDlc = _panel;
+        ShowPanel(View.Android);
+        RefreshAndroidPanel();
+        try { _titleUpdate = await RunTitleUpdateToolAsync("status"); } catch (Exception) { }
+        RefreshAndroidPanel();
+        await DetectAdbDeviceAsync();
+    }
+
+    private void RefreshAndroidPanel()
+    {
+        var apk = AndroidApk;
+        var built = apk is not null && File.Exists(apk);
+        var record = ReadAndroidApkRecord();
+        var unavailable = _repositoryRoot is null ||
+                          !File.Exists(Path.Combine(_repositoryRoot, "tools", "build-android.ps1"));
+        if (built)
         {
-            SetFailure("Android build unavailable", "This release does not include the Android build workflow.");
-            SetPrimaryText("Play");
+            var info = new FileInfo(apk!);
+            AndroidApkText.Text = $"{apk}\n{info.Length / (1024.0 * 1024.0):0} MB, built {info.LastWriteTime:g}" +
+                (record?.TitleUpdateV4 == true ? ", title update v4." : ".") +
+                (WantsTitleUpdateV4 != (record?.TitleUpdateV4 == true)
+                    ? WantsTitleUpdateV4
+                        ? " You play v4 on this PC now: build again for a v4 package."
+                        : " You play the base disc on this PC now: build again for a base package."
+                    : string.Empty);
+        }
+        else
+        {
+            AndroidApkText.Text = unavailable
+                ? "This release does not include the Android build."
+                : "Not built yet. The first build takes 20 to 60 minutes and about 15 GB of disk" +
+                  (WantsTitleUpdateV4 ? "; it is made from title update v4, as you play on this PC." : ".");
+        }
+        AndroidBuildButton.Content = built ? "Build again" : "Build APK";
+        AndroidBuildButton.IsEnabled = !_busy && !unavailable;
+        AndroidShowButton.IsEnabled = built;
+        AndroidSaveButton.IsEnabled = built;
+        AndroidShareButton.IsEnabled = !_busy && built;
+        AndroidShareButton.Content = _androidShare is null ? "Share on Wi-Fi" : "Stop sharing";
+        AndroidUsbButton.IsEnabled = !_busy && built;
+    }
+
+    private void CloseAndroidButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        StopAndroidShare();
+        ShowPanel(_panelBeforeDlc);
+        UpdatePrimaryButton();
+    }
+
+    private void AndroidShowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AndroidApk is { } apk && File.Exists(apk))
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{apk}\"") { UseShellExecute = true });
+    }
+
+    private async void AndroidSaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AndroidApk is not { } apk || !File.Exists(apk)) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save a copy of the Android package",
+            FileName = "PinyonShift.apk",
+            Filter = "Android package|*.apk",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) is { } home
+                ? Path.Combine(home, "Downloads") : null
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            await Task.Run(() => File.Copy(apk, dialog.FileName, overwrite: true));
+            AndroidStatusText.Text = $"Saved {dialog.FileName}. Copy it to the device and open it there to install.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AndroidStatusText.Text = $"The copy failed: {ex.Message}";
+        }
+    }
+
+    private void AndroidShareButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_androidShare is not null)
+        {
+            StopAndroidShare();
+            AndroidStatusText.Text = "Sharing stopped.";
             return;
         }
+        if (AndroidApk is not { } apk || !File.Exists(apk) || _repositoryRoot is null || _stateRoot is null) return;
+        var addresses = AndroidShare.LocalAddresses();
+        if (addresses.Count == 0)
+        {
+            AndroidStatusText.Text = "This PC is not on a local network. Connect it to the same Wi-Fi or router as the device.";
+            return;
+        }
+        var record = ReadAndroidApkRecord();
+        IReadOnlyList<ShareGroup> groups;
+        try { groups = AndroidShareGroups(record?.TitleUpdateV4 == true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AndroidStatusText.Text = $"The game files cannot be read: {ex.Message}";
+            return;
+        }
+        var share = new AndroidShare(apk, groups, new
+        {
+            title_update_v4 = record?.TitleUpdateV4 == true,
+            club = record?.TitleUpdateV4 == true && _titleUpdate?.Club == true
+        });
+        share.Activity += message => Dispatcher.BeginInvoke(() =>
+        {
+            AndroidStatusText.Text = message;
+            AppendLog(message);
+        });
+        try { share.Start(); }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or UnauthorizedAccessException)
+        {
+            share.Dispose();
+            AndroidStatusText.Text = $"Sharing could not start: {ex.Message}";
+            return;
+        }
+        _androidShare = share;
+        var url = share.PageUrl(addresses[0]);
+        AndroidQrImage.Source = QrCode.Encode(url).ToBitmap();
+        AndroidQrPanel.Visibility = Visibility.Visible;
+        AndroidCodeText.Inlines.Clear();
+        AndroidCodeText.Inlines.Add(new System.Windows.Documents.Run("Pairing code  "));
+        AndroidCodeText.Inlines.Add(new System.Windows.Documents.Run(share.Code[..3] + " " + share.Code[3..])
+        { FontSize = 26, FontFamily = new FontFamily("Bahnschrift SemiBold"), Foreground = ActiveBrush });
+        AndroidCodeText.Inlines.Add(new System.Windows.Documents.LineBreak());
+        AndroidCodeText.Inlines.Add(new System.Windows.Documents.Run(
+            $"Without the camera, open {url} in the device's browser." +
+            (addresses.Count > 1 ? $" This PC is also at {string.Join(", ", addresses.Skip(1))}." : string.Empty) +
+            $" On the device, the app finds this PC by itself, or enter {addresses[0]}.")
+        { FontSize = 12, Foreground = (Brush)FindResource("MutedBrush") });
+        AndroidCodeText.Visibility = Visibility.Visible;
+        var total = groups.Sum(group => group.Bytes);
+        AndroidStatusText.Text = $"Sharing: {string.Join(", ", groups.Select(group => group.Label))} " +
+            $"({total / (1024.0 * 1024 * 1024):0.0} GB). Windows may ask to allow the launcher on private networks: allow it.";
+        AppendLog($"Sharing the Android package and game files at {url}.");
+        RefreshAndroidPanel();
+    }
+
+    private void StopAndroidShare()
+    {
+        _androidShare?.Dispose();
+        _androidShare = null;
+        AndroidQrPanel.Visibility = Visibility.Collapsed;
+        AndroidQrImage.Source = null;
+        AndroidCodeText.Visibility = Visibility.Collapsed;
+        RefreshAndroidPanel();
+    }
+
+    // What the device can copy: the extracted game, and from the PC's state
+    // the v4 update (for a v4 package), imported DLC, the Rally overlay and,
+    // only when chosen on the device, the save the PC plays.
+    private IReadOnlyList<ShareGroup> AndroidShareGroups(bool titleUpdateV4)
+    {
+        var groups = new List<ShareGroup>();
+        IReadOnlyList<ShareFile> Tree(string source, string destination, Func<string, bool>? include = null)
+        {
+            if (!Directory.Exists(source)) return [];
+            return Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)
+                .Select(path => (path, relative: Path.GetRelativePath(source, path).Replace('\\', '/')))
+                .Where(entry => include?.Invoke(entry.relative) ?? true)
+                .Select(entry => new ShareFile(entry.path, destination + "/" + entry.relative, new FileInfo(entry.path).Length))
+                .ToList();
+        }
+        var game = Path.Combine(_repositoryRoot!, ".local", "game", "base");
+        if (!File.Exists(Path.Combine(game, "default.xex")))
+            throw new IOException($"The extracted game is not at {game}. Build and play on this PC first.");
+        groups.Add(new ShareGroup("game", "game files", true, Tree(game, "game/base")));
+        var state = _stateRoot!;
+        if (titleUpdateV4)
+        {
+            var update = Tree(Path.Combine(state, "title-update-v4"), "state/title-update-v4",
+                name => !name.Contains('/'));
+            if (update.Count > 0) groups.Add(new ShareGroup("title_update_v4", "title update v4", true, update));
+        }
+        var dlc = Tree(Path.Combine(state, "user", "0000000000000000", "4D5309C9"), "state/user/0000000000000000/4D5309C9")
+            .Concat(Tree(Path.Combine(state, "dlc"), "state/dlc",
+                name => name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && !name.Contains('/')))
+            .ToList();
+        if (dlc.Count > 0) groups.Add(new ShareGroup("dlc", "DLC", true, dlc));
+        var rally = Tree(Path.Combine(state, "cache", "rally_adapter"), "state/cache/rally_adapter");
+        if (rally.Count > 0) groups.Add(new ShareGroup("rally", "Rally", true, rally));
+        // The PC plays from user-modded while cheats or mods are on: offer the
+        // tree written last.
+        static bool IsSave(string name) => !name.StartsWith("0000000000000000/", StringComparison.Ordinal);
+        var save = new[] { "user", "user-modded" }
+            .Select(tree => Tree(Path.Combine(state, tree), "state/user", IsSave))
+            .Where(files => files.Count > 0)
+            .OrderByDescending(files => files.Max(file => File.GetLastWriteTimeUtc(file.Source)))
+            .FirstOrDefault();
+        if (save is not null) groups.Add(new ShareGroup("save", "this PC's save", false, save));
+        return groups;
+    }
+
+    private static string? FindAdb(string? repositoryRoot)
+    {
+        var roots = new List<string?>
+        {
+            Environment.GetEnvironmentVariable("ANDROID_HOME"),
+            Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk"),
+            repositoryRoot is null ? null : Path.Combine(repositoryRoot, ".local", "toolchain", "android-sdk")
+        };
+        return roots.Where(root => !string.IsNullOrWhiteSpace(root))
+            .Select(root => Path.Combine(root!, "platform-tools", "adb.exe"))
+            .FirstOrDefault(File.Exists);
+    }
+
+    // A device with USB debugging on, for developers (A-5); the button stays
+    // hidden otherwise.
+    private async Task DetectAdbDeviceAsync()
+    {
+        _adbDevice = null;
+        AndroidUsbButton.Visibility = Visibility.Collapsed;
+        if (FindAdb(_repositoryRoot) is not { } adb) return;
+        try
+        {
+            var output = await Task.Run(() =>
+            {
+                using var process = Process.Start(new ProcessStartInfo(adb, "devices")
+                {
+                    UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true
+                })!;
+                var text = process.StandardOutput.ReadToEnd();
+                if (!process.WaitForExit(10000)) process.Kill();
+                return text;
+            });
+            _adbDevice = output.Split('\n').Skip(1)
+                .Select(line => line.Trim().Split('\t'))
+                .Where(parts => parts.Length == 2 && parts[1] == "device")
+                .Select(parts => parts[0]).FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+        if (_adbDevice is not null && _panel == View.Android)
+        {
+            AndroidUsbButton.Visibility = Visibility.Visible;
+            AutomationProperties.SetHelpText(AndroidUsbButton,
+                $"Install the app and copy the game to {_adbDevice} over USB with adb.");
+        }
+    }
+
+    private async void AndroidBuildButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _repositoryRoot is null || _gameExecutable is null) return;
+        var script = Path.Combine(_repositoryRoot, "tools", "build-android.ps1");
+        if (!File.Exists(script)) return;
+        var v4 = WantsTitleUpdateV4;
         // The player sees what will be downloaded and accepts the Android SDK license
         // before sdkmanager is answered for them.
         var answer = MessageBox.Show(this,
-            "Build an Android package (APK) of the game from this PC's build, for your own device. " +
-            "The first build takes 20 to 60 minutes and about 10 GB of disk.\n\n" +
+            "Build an Android package (APK) of the game from this PC's build, for your own device" +
+            (v4 ? ", with title update v4 as you play it here" : string.Empty) + ". " +
+            "The first build takes 20 to 60 minutes and about 15 GB of disk.\n\n" +
             "If this PC has no Android SDK or JDK, the launcher downloads Google's Android SDK command-line " +
             "tools and the Eclipse Temurin JDK 17 into the install folder, then installs the Android NDK, " +
             "build tools and platform. Those packages are covered by the Android Software Development Kit " +
@@ -1038,7 +1311,47 @@ public partial class MainWindow : Window
             "Accept the Android SDK license and build?",
             "Build Android APK", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
+        StopAndroidShare();
+        var arguments = new List<string> { "-AcceptAndroidLicenses" };
+        if (v4) arguments.Add("-TitleUpdateV4");
+        var succeeded = await RunAndroidScriptAsync(script, arguments, "Building for Android",
+            "The first build takes 20 to 60 minutes. You can leave it running.", "The Android build");
+        if (!succeeded) return;
+        if (AndroidApk is not { } apk || !File.Exists(apk))
+        {
+            SetFailure("Android build stopped", "The Android build completed without producing pinyon-shift.apk.");
+            SetPrimaryText("Play");
+            return;
+        }
+        AppendLog($"Android package: {apk}");
+        HeadlineText.Text = "Android package ready";
+        ShowPanel(View.Android);
+        RefreshAndroidPanel();
+        AndroidStatusText.Text = "Ready. Share on Wi-Fi to install it on the device, or save a copy.";
+    }
 
+    private async void AndroidUsbButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _repositoryRoot is null || _stateRoot is null || _adbDevice is null) return;
+        var script = Path.Combine(_repositoryRoot, "tools", "install-android-usb.ps1");
+        if (!File.Exists(script)) return;
+        StopAndroidShare();
+        var arguments = new List<string> { "-Serial", _adbDevice, "-StateRoot", _stateRoot };
+        if (ReadAndroidApkRecord()?.TitleUpdateV4 == true) arguments.Add("-TitleUpdateV4");
+        if (!await RunAndroidScriptAsync(script, arguments, "Installing over USB",
+                "The game files are about 7 GB; an interrupted copy resumes.", "The USB installation"))
+            return;
+        HeadlineText.Text = "Installed on the device";
+        ShowPanel(View.Android);
+        RefreshAndroidPanel();
+        AndroidStatusText.Text = $"Installed on {_adbDevice}. Start Pinyon Shift from the device's app list.";
+    }
+
+    // Runs an Android script with the launcher's progress events and its
+    // failure report (.local/logs/android-error.json); true when it succeeded.
+    private async Task<bool> RunAndroidScriptAsync(string script, IEnumerable<string> arguments, string headline,
+        string subhead, string what)
+    {
         _busy = true;
         ChooseInstallRootButton.IsEnabled = false;
         GraphicsSettingsButton.IsEnabled = false;
@@ -1047,11 +1360,10 @@ public partial class MainWindow : Window
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
         ShowPanel(View.Log);
-        SetProgress(0, "Starting the Android build.");
-        HeadlineText.Text = "Building for Android";
-        SetSubhead("The first build takes 20 to 60 minutes. You can leave it running.");
-        AppendLog("Starting the Android build.");
-
+        SetProgress(0, $"Starting: {headline.ToLowerInvariant()}.");
+        HeadlineText.Text = headline;
+        SetSubhead(subhead);
+        AppendLog($"{headline}.");
         var startedUtc = DateTime.UtcNow;
         _setupFailurePrinted = false;
         try
@@ -1065,8 +1377,8 @@ public partial class MainWindow : Window
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-                         "-AcceptAndroidLicenses", "-JsonEvents" })
+            foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script }
+                         .Concat(arguments).Append("-JsonEvents"))
                 startInfo.ArgumentList.Add(argument);
 
             using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
@@ -1076,7 +1388,7 @@ public partial class MainWindow : Window
                 if (!string.IsNullOrWhiteSpace(args.Data)) AppendLog(args.Data);
             });
             if (!process.Start())
-                throw new InvalidOperationException("Windows could not start the Android build.");
+                throw new InvalidOperationException($"Windows could not start {what.ToLowerInvariant()}.");
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             using var registration = _cancellation.Token.Register(() =>
@@ -1086,25 +1398,17 @@ public partial class MainWindow : Window
             await process.WaitForExitAsync(_cancellation.Token);
             if (process.ExitCode != 0)
                 throw new InvalidOperationException(DescribeSetupFailure(process.ExitCode, startedUtc,
-                    "android-error.json", "The Android build"));
-
-            var apk = Path.Combine(_repositoryRoot, ".local", "android", "pinyon-shift.apk");
-            if (!File.Exists(apk))
-                throw new InvalidOperationException("The Android build completed without producing pinyon-shift.apk.");
-            SetProgress(100, "Android package ready.");
-            HeadlineText.Text = "Android package ready";
-            SetSubhead("Install it on your own device: copy the APK over, or with USB debugging run " +
-                "\"python tools\\pinyon.py android install\" and \"android push-data\" in the install folder.");
-            AppendLog($"Android package: {apk}");
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{apk}\"") { UseShellExecute = true });
+                    "android-error.json", what));
+            SetProgress(100, $"{what} finished.");
+            return true;
         }
         catch (OperationCanceledException)
         {
-            SetFailure("Android build cancelled", "Start it again to resume where it stopped.");
+            SetFailure($"{what} cancelled", "Start it again to resume where it stopped.");
         }
         catch (Exception ex)
         {
-            SetFailure("Android build stopped", ex.Message);
+            SetFailure($"{what} stopped", ex.Message);
         }
         finally
         {
@@ -1114,6 +1418,7 @@ public partial class MainWindow : Window
             SetPrimaryText("Play");
             UpdatePrimaryButton();
         }
+        return false;
     }
 
     private void AppendLog(string line)
