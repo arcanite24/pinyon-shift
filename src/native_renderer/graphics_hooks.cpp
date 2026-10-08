@@ -30,13 +30,13 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25
                       "never, reflections go dark). 0.25 saves about 2.3 ms a frame on the "
                       "Odin 2 Portal with reflections that look the same")
     .range(0.0, 1.0)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_shadows, !REX_PLATFORM_ANDROID, "Pinyon Shift",
                     "Draw the sun's shadows. Off sets the render scenarios' "
                     "SkipShadowMapUnlessCockpit (no shadow maps, depth pre-pass or shadow "
                     "mask: about 6.4 ms a frame on the Odin 2 Portal) and keeps the "
                     "screen's shadow mask lit; needs the Vulkan FH1 executor")
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_block_on_gpu_fence, true, "Pinyon Shift",
                     "Block the title's GPU fence polling until the command processor next "
                     "writes guest memory (bounded to 1 ms) instead of spinning")
@@ -58,38 +58,65 @@ thread_local uint64_t title_emitter_time_ns = 0;
 thread_local uint64_t title_packet_count = 0;
 thread_local int64_t title_first_packet_ns = 0;
 thread_local int64_t title_last_packet_ns = 0;
-// pinyon_shift_fh1_shadows off: the gameplay render scenarios, and whether
-// their SkipShadowMapUnlessCockpit is on. Shadows stay on until the GPU
-// backend has resolved the screen's shadow mask once, so its texture is
-// known and can be kept lit.
-std::mutex shadow_scenarios_mutex;
-std::vector<uint32_t> shadow_scenarios;
+// The gameplay render scenarios (every one sets EnvMapFrequencyScale), for
+// the render settings that apply while the game runs: the reflection rate
+// scales each scenario's EnvMapFrequencyScale from the value its XML set,
+// and shadows off sets SkipShadowMapUnlessCockpit in each. Shadows go off
+// only once the GPU backend has resolved the screen's shadow mask, so its
+// texture is known and can be kept lit.
+struct RenderScenario {
+  uint32_t address;
+  uint32_t env_control;
+  float env_value;
+  uint8_t skip_value;
+  bool skip_set;
+};
+std::mutex render_scenarios_mutex;
+std::vector<RenderScenario> render_scenarios;
+float applied_env_rate = 1.0f;
 bool shadows_skipped = false;
 
 // SkipShadowMapUnlessCockpit (id 35) is embedded in each scenario at +0x194;
 // bit 35 of the bitset at +36 marks it set by the scenario.
-void SkipShadows(rex::memory::Memory* memory, uint32_t scenario) {
-  auto* skip = memory->TranslateVirtual<uint8_t*>(scenario + 0x194);
-  if (rex::byte_swap(*reinterpret_cast<uint32_t*>(skip)) != 0x8223C6C4u) return;
-  skip[4] = 1;
-  auto* set_bits = memory->TranslateVirtual<uint32_t*>(scenario + 40);
-  *set_bits = rex::byte_swap(rex::byte_swap(*set_bits) | (1u << 3));
+constexpr uint32_t kSkipShadowOffset = 0x194, kSkipShadowVtable = 0x8223C6C4u;
+constexpr uint32_t kSetBitsOffset = 40, kSkipShadowBit = 1u << 3;
+
+uint8_t* SkipShadowControl(rex::memory::Memory* memory, uint32_t scenario) {
+  auto* skip = memory->TranslateVirtual<uint8_t*>(scenario + kSkipShadowOffset);
+  return rex::byte_swap(*reinterpret_cast<uint32_t*>(skip)) == kSkipShadowVtable ? skip
+                                                                                  : nullptr;
 }
 
-void KeepShadowsOff() {
-  auto* kernel_state = rex::system::kernel_state();
-  auto* graphics = kernel_state->emulator()->graphics_system();
+void SetShadowsSkipped(rex::memory::Memory* memory, const RenderScenario& scenario,
+                       bool skipped) {
+  uint8_t* skip = SkipShadowControl(memory, scenario.address);
+  if (!skip) return;
+  skip[4] = skipped ? 1 : scenario.skip_value;
+  auto* set_bits = memory->TranslateVirtual<uint32_t*>(scenario.address + kSetBitsOffset);
+  uint32_t bits = rex::byte_swap(*set_bits) & ~kSkipShadowBit;
+  if (skipped || scenario.skip_set) bits |= kSkipShadowBit;
+  *set_bits = rex::byte_swap(bits);
+}
+
+void SetEnvMapRate(rex::memory::Memory* memory, const RenderScenario& scenario, float rate) {
+  const float value = scenario.env_value * rate;
+  uint32_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  memory->TranslateVirtual<uint32_t*>(scenario.env_control)[1] = rex::byte_swap(bits);
+}
+
+// Called with render_scenarios_mutex held.
+void KeepShadowsOff(rex::memory::Memory* memory) {
+  auto* graphics = rex::system::kernel_state()->emulator()->graphics_system();
   uint32_t mask_base, mask_length;
   if (!graphics || !graphics->fh1_shadow_mask(&mask_base, &mask_length)) return;
-  auto* memory = kernel_state->memory();
-  {
-    std::lock_guard<std::mutex> lock(shadow_scenarios_mutex);
-    if (!shadows_skipped) {
-      for (uint32_t scenario : shadow_scenarios) SkipShadows(memory, scenario);
-      shadows_skipped = true;
-      REXLOG_INFO("Shadows off: {} render scenarios, shadow mask {:08X}+{:X}",
-                  shadow_scenarios.size(), mask_base, mask_length);
+  if (!shadows_skipped) {
+    for (const RenderScenario& scenario : render_scenarios) {
+      SetShadowsSkipped(memory, scenario, true);
     }
+    shadows_skipped = true;
+    REXLOG_INFO("Shadows off: {} render scenarios, shadow mask {:08X}+{:X}",
+                render_scenarios.size(), mask_base, mask_length);
   }
   // Without the shadow passes the mask keeps what was last there: written
   // white (lit), and again whenever something else writes it.
@@ -98,6 +125,26 @@ void KeepShadowsOff() {
   std::memset(mask, 0xFF, mask_length);
   memory->TriggerPhysicalMemoryCallbacks(rex::thread::global_critical_region::AcquireDirect(),
                                          0xA0000000u + mask_base, mask_length, true, false);
+}
+
+// Once a frame: brings the scenarios to the settings' current values.
+void ApplyRenderSettings() {
+  auto* memory = rex::system::kernel_state()->memory();
+  std::lock_guard<std::mutex> lock(render_scenarios_mutex);
+  const float rate = float(REXCVAR_GET(pinyon_shift_fh1_env_map_rate));
+  if (rate != applied_env_rate) {
+    for (const RenderScenario& scenario : render_scenarios) SetEnvMapRate(memory, scenario, rate);
+    applied_env_rate = rate;
+  }
+  if (!REXCVAR_GET(pinyon_shift_fh1_shadows)) {
+    KeepShadowsOff(memory);
+  } else if (shadows_skipped) {
+    for (const RenderScenario& scenario : render_scenarios) {
+      SetShadowsSkipped(memory, scenario, false);
+    }
+    shadows_skipped = false;
+    REXLOG_INFO("Shadows on");
+  }
 }
 
 }  // namespace
@@ -119,7 +166,7 @@ void PinyonShiftObserveGraphicsFrame() {
                                  int64_t(title_packet_count), title_first_packet_ns,
                                  title_last_packet_ns);
   }
-  if (!REXCVAR_GET(pinyon_shift_fh1_shadows)) KeepShadowsOff();
+  ApplyRenderSettings();
   PROFILE_SOURCE_FRAME();
   title_emitter_frame = uint64_t(rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount));
@@ -213,26 +260,28 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
 }
 
 // After the title loads a DynamicRenderSettings control from a render
-// scenario's XML (r30 the control, r26 the scenario): scales
-// EnvMapFrequencyScale (how often the dynamic cubemap that cars reflect is
-// redrawn, the control's float at +4) and, with shadows off, records the
-// scenario.
+// scenario's XML (r30 the control, r26 the scenario): records each gameplay
+// scenario by its EnvMapFrequencyScale (how often the dynamic cubemap that
+// cars reflect is redrawn, the control's float at +4) and applies the
+// reflection rate and shadow settings to it.
 void PinyonShiftRenderSettingLoaded(PPCRegister& r26, PPCRegister& r30) {
   auto* memory = rex::system::kernel_state()->memory();
   auto* control = memory->TranslateVirtual<uint32_t*>(r30.u32);
   if (rex::byte_swap(control[0]) != 0x8223C5F4u) return;
-  if (!REXCVAR_GET(pinyon_shift_fh1_shadows)) {
-    // Every gameplay scenario sets EnvMapFrequencyScale.
-    std::lock_guard<std::mutex> lock(shadow_scenarios_mutex);
-    shadow_scenarios.push_back(r26.u32);
-    if (shadows_skipped) SkipShadows(memory, r26.u32);
+  RenderScenario scenario = {r26.u32, r30.u32, 0.0f, 0, false};
+  const uint32_t bits = rex::byte_swap(control[1]);
+  std::memcpy(&scenario.env_value, &bits, sizeof(bits));
+  if (const uint8_t* skip = SkipShadowControl(memory, r26.u32)) {
+    scenario.skip_value = skip[4];
+    scenario.skip_set = (rex::byte_swap(*memory->TranslateVirtual<uint32_t*>(
+                             r26.u32 + kSetBitsOffset)) &
+                         kSkipShadowBit) != 0;
   }
-  const float rate = REXCVAR_GET(pinyon_shift_fh1_env_map_rate);
-  if (rate == 1.0f) return;
-  uint32_t bits = rex::byte_swap(control[1]);
-  float value;
-  std::memcpy(&value, &bits, sizeof(value));
-  value *= rate;
-  std::memcpy(&bits, &value, sizeof(bits));
-  control[1] = rex::byte_swap(bits);
+  std::lock_guard<std::mutex> lock(render_scenarios_mutex);
+  if (render_scenarios.empty()) {
+    applied_env_rate = float(REXCVAR_GET(pinyon_shift_fh1_env_map_rate));
+  }
+  render_scenarios.push_back(scenario);
+  SetEnvMapRate(memory, scenario, applied_env_rate);
+  if (shadows_skipped) SetShadowsSkipped(memory, scenario, true);
 }

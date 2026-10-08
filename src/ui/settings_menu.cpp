@@ -377,15 +377,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // render on Vulkan with the split GPU commands thread.
 #if defined(__ANDROID__)
   // AP-7.5: a handheld renders at 1x (AP-2.5) and trades frame rate for
-  // battery and heat. BATTERY 30 is the Xbox 360's own rate (the guest
-  // vblank at 60 Hz) with the game's 4x MSAA; SMOOTH 60 doubles it and
-  // renders without MSAA: on a Snapdragon 8 Elite the race's busiest part
-  // takes 25 ms with MSAA and holds 60 fps cold without it. Both scale to the
-  // panel bilinearly and keep the game's own anisotropic filtering: FSR 1 at
-  // the panel's 2400x1504 cost 1.4 ms a frame and forced 4x anisotropy
-  // 0.4 ms, measured by alternating each in one run.
+  // battery and heat. QUALITY 30 is the Xbox 360's own rate (the guest
+  // vblank at 60 Hz) with the game's 4x MSAA and shadows; SMOOTH 60 doubles
+  // it without MSAA or shadows: on the Odin 2 Portal (Turnip Gen8 V37) that
+  // holds 60 fps in free roam and races at 15.5 ms of GPU a frame, where 4x
+  // with shadows takes about 27 ms. Both draw FH1's tiles in one pass and
+  // redraw the reflection cubemap at a quarter of the game's rate (no
+  // visible change), scale to the panel bilinearly and keep the game's own
+  // anisotropic filtering: FSR 1 at the panel's 2400x1504 cost 1.4 ms a
+  // frame and forced 4x anisotropy 0.4 ms, measured by alternating each in
+  // one run.
   rows.push_back(Setting("GRAPHICS PRESET",
-                         {{"BATTERY 30",
+                         {{"QUALITY 30",
                            {{"gpu_backend", "\"vulkan\""},
                             {"gpu_record_thread", "true"},
                             {"draw_resolution_scale_x", "1"},
@@ -393,6 +396,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
                             {"fh1_msaa_single_sample", "false"},
+                            {"fh1_untile_predicated_tiling", "true"},
+                            {"pinyon_shift_fh1_env_map_rate", "0.25"},
+                            {"pinyon_shift_fh1_shadows", "true"},
                             {"host_present_fps_limit", "0"},
                             {"pinyon_shift_fh1_render_fps_limit", "30"}}},
                           {"SMOOTH 60",
@@ -403,6 +409,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
                             {"fh1_msaa_single_sample", "true"},
+                            {"fh1_untile_predicated_tiling", "true"},
+                            {"pinyon_shift_fh1_env_map_rate", "0.25"},
+                            {"pinyon_shift_fh1_shadows", "false"},
                             {"host_present_fps_limit", "0"},
                             {"pinyon_shift_fh1_render_fps_limit", "60"}}}}));
   // The game's 4x MSAA is most of a handheld GPU's frame: off, edges are
@@ -489,6 +498,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                          {{"OFF", {{"swap_post_effect", "\"none\""}}},
                           {"FXAA", {{"swap_post_effect", "\"fxaa\""}}},
                           {"FXAA EXTREME", {{"swap_post_effect", "\"fxaa_extreme\""}}}}));
+  // The sun's shadows: off drops the shadow maps, a depth pre-pass and the
+  // screen's shadow mask (about 6 ms a frame on the Odin 2 Portal) and
+  // lights everything. Applies on the next frame.
+  rows.push_back(Toggle("SHADOWS", "pinyon_shift_fh1_shadows"));
+  // How often the dynamic cubemap that cars reflect is redrawn.
+  rows.push_back(Setting("REFLECTION UPDATES",
+                         {{"FULL", {{"pinyon_shift_fh1_env_map_rate", "1"}}},
+                          {"QUARTER", {{"pinyon_shift_fh1_env_map_rate", "0.25"}}}}));
+  // FH1's three predicated tiles drawn as one pass (the same image, about
+  // 3 ms a frame cheaper on the Odin); a change rebuilds the renderer
+  // between frames.
+  rows.push_back(Toggle("SINGLE-PASS SCENE", "fh1_untile_predicated_tiling"));
   rows.push_back(Toggle("BLOOM", "disable_bloom", true));
   rows.push_back(Toggle("MOTION BLUR", "disable_motion_blur", true));
   rows.push_back(Toggle("DEPTH OF FIELD", "disable_depth_of_field", true));
