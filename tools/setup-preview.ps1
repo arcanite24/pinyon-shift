@@ -53,6 +53,11 @@ try {
         $names = ($buildTreeProcesses | ForEach-Object { "$($_.ProcessName).exe (PID $($_.Id))" }) -join ', '
         throw "Close $names before building. It was started from the Pinyon Shift build folder and keeps its runtime files locked."
     }
+    if (-not $VerifyOnly) {
+        $firstBuild = -not (Test-Path -LiteralPath (Join-Path $root '.local/build.json') -PathType Leaf)
+        $buildToolsMissing = [string]::IsNullOrWhiteSpace((Get-PinyonVisualStudioRoot -AllowMissing))
+        Assert-PinyonFreeSpace -Root $root -FirstBuild:$firstBuild -BuildToolsMissing:$buildToolsMissing
+    }
     Write-PinyonEvent verify 2 'Reading your game source. Nothing is uploaded.' -JsonEvents:$JsonEvents
     $verification = if ($folderInput) {
         & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $resolvedSource -Json | ConvertFrom-Json

@@ -29,7 +29,7 @@ verified before use.
 
 ## The build fails
 
-Restart Windows after a Build Tools installation, make at least 25 GB free, and
+Restart Windows after a Build Tools installation, make at least 30 GB free, and
 close every running Pinyon Shift preview before trying again. If it still
 fails, choose **Open logs** in the launcher and attach `launcher.log` to the bug
 report. This log contains build output and local paths, but no game data or

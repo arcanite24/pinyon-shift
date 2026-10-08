@@ -201,7 +201,7 @@ rough, single-device measurements; the method and logs are in the
    [extracted game inputs](docs/EXTRACTED_GAME_INPUT.md).
 4. Confirm ownership, then choose **Verify and build**.
 5. Leave the launcher open while it installs the Windows build tools and builds
-   the preview. The first build can take 20–60 minutes and needs roughly 25 GB of
+   the preview. The first build can take 20–60 minutes and needs about 30 GB of
    free disk space.
 6. Choose **Play**. Press **F6** in game for settings.
 

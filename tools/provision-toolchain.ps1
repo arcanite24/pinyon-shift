@@ -15,6 +15,18 @@ $downloads = Resolve-PinyonLocalPath -RelativePath '.local/downloads'
 
 Write-PinyonEvent tools 18 'Checking the Windows build environment.' -JsonEvents:$JsonEvents
 $vsRoot = Get-PinyonVisualStudioRoot -AllowMissing
+# Only the hosts of downloads still to come: a provisioned PC builds offline.
+$pending = @(foreach ($name in 'git', 'xz', 'llvm', 'extract_xiso', 'python', 'cmake', 'ninja') {
+    $tool = $config.$name
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $root $tool.install_path) $tool.executable) -PathType Leaf)) {
+        $tool.url
+    }
+})
+if ([string]::IsNullOrWhiteSpace($vsRoot)) { $pending += $config.visual_studio.bootstrap_url }
+if (-not (Test-Path -LiteralPath (Join-Path (Resolve-PinyonRexGlueRoot) 'CMakeLists.txt') -PathType Leaf)) {
+    $pending += $config.rexglue.repository
+}
+Assert-PinyonDownloadHosts -Uris $pending
 if ([string]::IsNullOrWhiteSpace($vsRoot)) {
     Write-PinyonEvent tools 20 'Microsoft C++ Build Tools are required. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
     $bootstrap = Join-Path $downloads 'vs_BuildTools.exe'

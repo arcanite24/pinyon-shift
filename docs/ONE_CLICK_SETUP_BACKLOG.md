@@ -18,7 +18,7 @@ where Play repeated a long preparation step.
 
 | ID | Item | Status |
 | --- | --- | --- |
-| W-1 | Free-space check before setup, on the install drive and on the system drive (Build Tools, build temp), with one figure in `config/release-toolchain.json` used by the docs and the failure hint | Open |
+| W-1 | Free-space check before setup, on the install drive and on the system drive (Build Tools, build temp), with one figure in `config/release-toolchain.json` used by the docs and the failure hint | Done |
 | W-2 | A portable, pinned Ninja like CMake and LLVM, so neither build depends on a Visual Studio component | Done |
 | W-3 | Repair an incomplete Visual Studio: when the Windows SDK probe fails, add the pinned SDK component with the installer's `modify` (one administrator prompt) and probe again (#339) | Open |
 | W-4 | Reboot: a Build Tools exit code 3010 or a pending reboot stops setup with a "restart required" failure; the launcher offers Restart now and resumes setup after sign-in | Open |
@@ -26,7 +26,7 @@ where Play repeated a long preparation step.
 | W-6 | Visual C++ runtime: check the game's runtime DLLs and install Microsoft's signed redistributable when they are missing | Open |
 | W-7 | Path-length limit for custom install folders as well as portable ones | Open |
 | W-8 | Remove the downloaded-file mark from the extracted toolchains and payload | Open |
-| W-9 | Network check of the download hosts still needed, before the first download | Open |
+| W-9 | Network check of the download hosts still needed, before the first download | Done |
 | W-10 | Build Tools progress: the installer's own progress window and a heartbeat in the launcher | Open |
 | W-11 | #389: a Vulkan preparation that was cancelled or failed is not repeated at every Play, and Play shows "Preparing graphics", not the build step | Open |
 

@@ -588,6 +588,78 @@ int main() { return GetTickCount() == 0 && GetDesktopWindow() == nullptr; }';
     }
 }
 
+# Free space before a long build (#393): the install drive holds the
+# toolchains, extracted game and build; the system drive the build temp and,
+# when they are missing, the Microsoft C++ Build Tools. Figures are in
+# config/release-toolchain.json (disk_space_gb).
+function Assert-PinyonFreeSpace {
+    param(
+        [Parameter(Mandatory)] [string]$Root,
+        [switch]$FirstBuild,
+        [switch]$BuildToolsMissing
+    )
+    $space = (Get-PinyonReleaseToolchain).disk_space_gb
+    $needs = [ordered]@{}
+    $install = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Root)).ToUpperInvariant()
+    $system = ([Environment]::GetFolderPath('Windows') | ForEach-Object { [IO.Path]::GetPathRoot($_) }).ToUpperInvariant()
+    $needs[$install] = [double]$(if ($FirstBuild) { $space.first_build } else { $space.rebuild })
+    $systemNeed = [double]$space.system_drive + $(if ($BuildToolsMissing) { [double]$space.build_tools } else { 0 })
+    if ($needs.Contains($system)) { $needs[$system] += $systemNeed } else { $needs[$system] = $systemNeed }
+    $short = foreach ($drive in $needs.Keys) {
+        try { $free = [IO.DriveInfo]::new($drive).AvailableFreeSpace / 1GB } catch { continue }
+        if ($free -lt $needs[$drive]) {
+            "$($drive.TrimEnd('')) has $([Math]::Round($free, 1)) GB free and needs $($needs[$drive]) GB"
+        }
+    }
+    if (@($short).Count -gt 0) {
+        $hint = "Free up space ($(@($short) -join '; ')), then start setup again. " +
+            'The install drive holds the build; the Windows drive holds the build tools and temporary files.'
+        $failure = [Exception]::new("Not enough free disk space for the build. $hint")
+        $failure.Data['step'] = 'Check free disk space'
+        $failure.Data['error_kind'] = 'disk-space'
+        $failure.Data['hint'] = $hint
+        throw $failure
+    }
+}
+
+# Reachability of the hosts the remaining downloads need, checked once before
+# the first download so a proxy, firewall or offline PC is named up front
+# instead of failing one tool at a time (#393).
+function Assert-PinyonDownloadHosts {
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]]$Uris)
+    $hosts = @($Uris | Where-Object { $_ } | ForEach-Object { ([Uri]$_).GetLeftPart([UriPartial]::Authority) } |
+        Select-Object -Unique)
+    if ($hosts.Count -eq 0) { return }
+    Add-Type -AssemblyName System.Net.Http
+    $client = [Net.Http.HttpClient]::new()
+    $client.Timeout = [TimeSpan]::FromSeconds(20)
+    $unreachable = [Collections.Generic.List[string]]::new()
+    try {
+        foreach ($origin in $hosts) {
+            try {
+                $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Head, "$origin/")
+                $response = $client.SendAsync($request).GetAwaiter().GetResult()
+                $response.Dispose()
+            }
+            catch {
+                $reason = $_.Exception.GetBaseException().Message
+                $unreachable.Add("$origin ($reason)")
+            }
+        }
+    }
+    finally { $client.Dispose() }
+    if ($unreachable.Count -gt 0) {
+        $hint = 'Setup downloads its build tools once from these sites. Check the internet connection, ' +
+            'or allow them in the firewall, proxy or parental controls, then start setup again: ' +
+            ($unreachable -join ', ')
+        $failure = [Exception]::new("A download site cannot be reached. $hint")
+        $failure.Data['step'] = 'Check the download sites'
+        $failure.Data['error_kind'] = 'network'
+        $failure.Data['hint'] = $hint
+        throw $failure
+    }
+}
+
 function Enter-PinyonBuildEnvironment {
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
