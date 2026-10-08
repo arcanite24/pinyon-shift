@@ -435,3 +435,19 @@ between the work: the labeled spans cover 32.1 of a 34.1 ms profiled frame
 between rendering and compute cost it far less. The GPU is 99 % busy. Its
 own choice of tiled or direct rendering stays best: default 32.0 ms,
 `TU_DEBUG=sysmem` 32.9, `TU_DEBUG=gmem` 55.4.
+
+### Balemuni Apex v2 (2026-10-08)
+
+A community Turnip build (Mesa 26.3 development, b9a2bf3, "GCM" and other
+tuning), reported to run other games better, against Gen8 V37 on the same
+build, interleaved:
+
+| Busy drive | Gen8 V37 | Balemuni Apex v2 |
+| --- | --- | --- |
+| 4x | 32.6, 32.4 ms | 35.1, 34.3 ms |
+| 1x | 28.6 ms | 31.3 ms |
+
+It also renders FH1 wrongly: lighting crushed toward black in the drive
+capture and in the frame 600 replay (mean difference 112.7 from Gen8
+V37's, 62 % of pixels by more than 16). Gen8 V37 stays the Odin driver;
+the player state now loads it (`android_gpu_driver = "turnip-gen8-v37"`).
