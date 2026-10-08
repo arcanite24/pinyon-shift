@@ -37,6 +37,7 @@ private/
 !/docs/LOW_SPEC_BACKLOG.md
 !/docs/RECORDER_REPLAY_BACKLOG.md
 !/docs/RECORDER_PER_DRAW_BACKLOG.md
+!/docs/FEATURE_BACKLOG.md
 !/docs/ANDROID.md
 !/docs/android/
 !/docs/android/*.json

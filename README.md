@@ -330,7 +330,9 @@ each phase. These are priorities, not release dates; ports need validation on
 their target hardware before they are ready for players.
 
 The [community request review](docs/ROADMAP_FEEDBACK.md) explains the demand and
-the proposed additions. Implementation details and acceptance gates are in the
+the proposed additions. The [feature backlog](docs/FEATURE_BACKLOG.md) is the
+central list of player-facing features. Implementation details and acceptance
+gates are in the
 [native port backlog](docs/NATIVE_PORT_BACKLOG.md),
 [performance backlog](docs/PERFORMANCE_BACKLOG.md) and
 [Android port backlog](docs/ANDROID_PORT_BACKLOG.md).
