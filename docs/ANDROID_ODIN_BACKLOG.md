@@ -537,3 +537,25 @@ With both defaults (busy drive, Gen8 V37):
 
 The horizontal smear in some captures taken in turns is the game's
 camera motion blur; captures with shadows on show it as well.
+
+### In-game settings and desktop (2026-10-08)
+
+The three settings apply while the game runs: the reflection rate and
+shadows are rewritten in every recorded scenario at the next frame (the
+game reads both each frame), and SINGLE-PASS SCENE rebuilds the Vulkan
+renderer between frames like a resolution scale change (80 ms). A route
+that switches them mid-drive on the Odin (GPU about 25 ms with shadows, 15.5
+without, back to about 25) and on the desktop renders each phase
+correctly. The Android presets are QUALITY 30 (4x, shadows) and SMOOTH 60
+(1x, no shadows), both single-pass with quarter-rate reflections.
+
+Desktop (Ryzen 7 5800X, RTX 4080, Vulkan, busy drive, hidden window):
+
+| | Default | Single-pass | Single-pass, shadows off |
+| --- | --- | --- | --- |
+| 1x frame | 9.05, 8.86 ms | 8.91 ms | 8.81 ms |
+| 3x GPU | 12.48, 11.36 ms | 11.89 ms | 8.38 ms |
+
+1x is CPU-bound on the desktop, so neither changes its frame; at 3x
+single-pass is within the noise and shadows off saves about 3.5 ms. The
+desktop keeps both at the game's defaults.

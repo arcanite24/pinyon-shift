@@ -17,8 +17,13 @@ the stock driver. Copy the driver package (its `.so` and `meta.json`) into
 the app's `files/state/drivers/<name>` folder and set
 `android_gpu_driver = "<name>"`.
 
-Android builds trade some image quality for frame rate by default, each a
-setting in `config/pinyon_shift.toml`: FH1's three predicated tiles are
+Android builds trade some image quality for frame rate by default. Each is
+a row on the in-game SETTINGS > GRAPHICS page that applies while the game
+runs (SHADOWS, REFLECTION UPDATES, SINGLE-PASS SCENE; the last rebuilds the
+renderer between frames, about 80 ms), and the GRAPHICS PRESET row sets
+them together: QUALITY 30 (4x MSAA, shadows, 30 fps) or SMOOTH 60 (no MSAA,
+no shadows, 60 fps), both single-pass with quarter-rate reflections. As
+settings in `config/pinyon_shift.toml`: FH1's three predicated tiles are
 drawn once (`fh1_untile_predicated_tiling`, same image), the reflection
 cubemap is redrawn at a quarter of the game's rate
 (`pinyon_shift_fh1_env_map_rate = 0.25`; 1 restores it) and the sun's
