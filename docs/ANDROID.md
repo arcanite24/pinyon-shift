@@ -7,7 +7,8 @@ and settles near 30 once its skin passes about 44 C
 ([60 fps backlog](ANDROID_60FPS_BACKLOG.md)). The target is a high-end Android handheld or phone with
 a Snapdragon 8 Gen 2 or newer (Adreno 740+), 12 GB of memory and Android 13
 or later. The plan and its progress are in the
-[Android port backlog](ANDROID_PORT_BACKLOG.md).
+[Android port backlog](ANDROID_PORT_BACKLOG.md); the AYN Odin 2 Portal
+(Adreno 740) has its own [Odin backlog](ANDROID_ODIN_BACKLOG.md).
 
 ## What stays private
 

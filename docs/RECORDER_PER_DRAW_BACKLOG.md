@@ -119,7 +119,7 @@ saves; zero verify differences; validation clean.
 | PD-2.3 | **Update templates** for the texture and constants sets and for pushes (`vkUpdateDescriptorSetWithTemplate`, `vkCmdPushDescriptorSetWithTemplateKHR`), from flat structs instead of `VkWriteDescriptorSet` arrays. On the worker after PD-2.1. | Driver CPU on whichever thread writes | S | Not built: no recorder share |
 | PD-2.4 | **`RequestTextures` trims.** A relaxed load before the `texture_became_outdated_` exchange; one fused pass over used textures for 3D-as-2D views and usage, skipping the 3D check by a per-slot dimension mask. A fast path on generations is not proposed again (DR-3). | 10-30 ns a draw | S | Done (2026-10-07) |
 | PD-2.5 | **Fixed arrays in `UpdateBindings`.** Image and sampler infos, the last-set copies and the free-set lookup (`unordered_map` keyed by counts and stage) as fixed arrays; `nullDescriptor` cached. | A few ns each, low risk | S | No-go (2026-10-07) |
-| PD-2.6 | **Push descriptors on Adreno.** On the Odin's Qualcomm driver, measure pushed against set-based pixel textures (`vulkan_push_texture_descriptors` off) per the [Android in-run A/B method](ANDROID_60FPS_BACKLOG.md); Turnip and desktop keep pushes. | No slow driver path on Android | S | Needs hardware; now also bindless (PD-4) |
+| PD-2.6 | **Push descriptors on Adreno.** On the Odin's Qualcomm driver, measure pushed against set-based pixel textures (`vulkan_push_texture_descriptors` off) per the [Android in-run A/B method](ANDROID_60FPS_BACKLOG.md); Turnip and desktop keep pushes. | No slow driver path on Android | S | Done (2026-10-07): pushes read as null on Adreno (the Odin's rendering faults), so Qualcomm uses sets, and bindless is the Android default ([Odin backlog](ANDROID_ODIN_BACKLOG.md)) |
 
 ### PD-3 Constants, samplers and targets memos (2-4 weeks)
 
@@ -138,7 +138,7 @@ reporting zero differences.
 
 | ID | Item | Expected | Effort | Status |
 | --- | --- | --- | --- | --- |
-| PD-4.1 | **Descriptor-indexed textures** (RR-5.1): persistent slots for image view and sampler pairs (combined image samplers for Adreno's bindless mode), the per-stage indices in the fetch constants block, behind a capability check. Translator change. | Texture binding work down to index stores | L | No-go on desktop (2026-10-07); opt-in for Adreno |
+| PD-4.1 | **Descriptor-indexed textures** (RR-5.1): persistent slots for image view and sampler pairs (combined image samplers for Adreno's bindless mode), the per-stage indices in the fetch constants block, behind a capability check. Translator change. | Texture binding work down to index stores | L | No-go on desktop (2026-10-07); default on Android (recorder CPU -15 % on the Odin) |
 
 ## Not to build
 
@@ -164,7 +164,7 @@ reporting zero differences.
 
 | Item | What | Who |
 | --- | --- | --- |
-| PD-2.6 | Pushed against set-based textures on the Odin | Needs hardware; now also bindless (PD-4) |
+| PD-2.6 | Pushed against set-based textures on the Odin | Done: sets on Qualcomm, bindless on Android |
 
 ## Progress
 
