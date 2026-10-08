@@ -337,6 +337,28 @@ def _build_manifest(tools: Tools, version_name: str, libraries: list[Path]) -> d
     }
 
 
+# GPU drivers packaged as assets/drivers/<name>, which the activity installs
+# into state/drivers and android_gpu_driver "auto" picks by GPU: the binary
+# from .local/android/drivers/<name> (not in the repository), its notice from
+# android/drivers/<name>.
+BUNDLED_DRIVERS = ["turnip-gen8-v37"]
+
+
+def bundled_driver_files() -> list[tuple[Path, str]]:
+    files = []
+    for name in BUNDLED_DRIVERS:
+        binary = WORK / "drivers" / name
+        notice = ROOT / "android" / "drivers" / name
+        found = sorted(binary.glob("*")) if binary.is_dir() else []
+        if not any(path.suffix == ".so" for path in found):
+            print(f"warning: bundled driver {name} is missing from {binary}; not packaged")
+            continue
+        for path in found + sorted(notice.glob("*")):
+            if path.is_file():
+                files.append((path, f"assets/drivers/{name}/{path.name}"))
+    return files
+
+
 def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
     tools = tools or Tools()
     directory = build_directory(args.configuration)
@@ -408,6 +430,8 @@ def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
         apk.write(staging / "pinyon_shift_build.json", "assets/pinyon_shift_build.json")
         for library in stripped:
             apk.write(library, f"lib/{CONFIG['abi']}/{library.name}")
+        for path, name in bundled_driver_files():
+            apk.write(path, name)
 
     aligned = staging / "aligned.apk"
     run([tools.zipalign, "-P", "16", "-f", "4", unsigned, aligned])

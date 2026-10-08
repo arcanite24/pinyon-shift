@@ -44,12 +44,13 @@ class AndroidPortTest(unittest.TestCase):
         self.assertIn(stray.name, check.stdout + check.stderr)
 
     def test_project_template_holds_no_game_code_or_data(self):
-        # Only the manifest, the activity's Java source and the game mode
-        # config are checked in; everything derived from the disc is built
-        # locally.
+        # Only the manifest, the activity's Java source, the game mode
+        # config and the bundled driver's notice are checked in; everything
+        # derived from the disc is built locally.
         files = sorted(path.relative_to(ROOT / "android").as_posix()
                        for path in (ROOT / "android").rglob("*") if path.is_file())
         self.assertEqual(files, ["AndroidManifest.xml",
+                                 "drivers/turnip-gen8-v37/NOTICE.txt",
                                  "java/com/pinyonshift/fh1/PinyonShiftActivity.java",
                                  "res/xml/game_mode_config.xml"])
         for path in (ROOT / "android").rglob("*"):

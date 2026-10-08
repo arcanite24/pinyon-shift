@@ -13,9 +13,21 @@ or later. The plan and its progress are in the
 newer Mesa builds faster still: on the Odin 2 Portal the busy drive takes
 32 ms at 4x MSAA and 28 ms at 1x with Turnip Gen8 V37 (Mesa, Vulkan
 1.4.359), against 39 and 34 ms with an older Turnip and 49 and 41 ms with
-the stock driver. Copy the driver package (its `.so` and `meta.json`) into
-the app's `files/state/drivers/<name>` folder and set
-`android_gpu_driver = "<name>"`.
+the stock driver.
+
+The package bundles Turnip Gen8 V37 (MIT, built by StevenMXZ from Mesa; its
+notice is in `android/drivers/turnip-gen8-v37/NOTICE.txt`) and installs it
+into `files/state/drivers` at start. SETTINGS > GRAPHICS > GPU DRIVER picks
+the Vulkan driver loaded at the next start (`android_gpu_driver`): AUTO, the
+default, loads the one recommended for the GPU (Turnip Gen8 V37 on Adreno
+7xx, the system's elsewhere, such as the Adreno 830), SYSTEM the device's
+own, and every folder under `files/state/drivers` by name. IMPORT DRIVER
+(.ZIP) opens the system's file picker for an adrenotools package (a `.zip`
+with `meta.json` and the driver `.so`), which is unpacked into a folder
+named after the zip. The page's note names the driver in use. Packaging
+reads the driver binary from `.local/android/drivers/turnip-gen8-v37`
+(`meta.json` and `libvulkan_freedreno.so`) and skips it with a warning when
+absent.
 
 Android builds trade some image quality for frame rate by default. Each is
 a row on the in-game SETTINGS > GRAPHICS page that applies while the game

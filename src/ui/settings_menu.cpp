@@ -11,8 +11,13 @@
 #include <utility>
 #include <vector>
 
+#include <filesystem>
+
 #include <rex/audio/downmix.h>
 #include <rex/input/pad_remap.h>
+#if defined(__ANDROID__)
+#include <rex/ui/vulkan/android_gpu_driver.h>
+#endif
 
 #include "cheats.h"
 #include "mod/mod_host.h"
@@ -425,6 +430,35 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                   {"2X", {{"fh1_msaa_single_sample", "false"},
                                           {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
+  // The Vulkan driver loaded at the next start: AUTO is the one recommended
+  // for the GPU (Mesa Turnip Gen8 V37, bundled, on Adreno 7xx), SYSTEM the
+  // device's own, and every package under state/drivers (bundled or
+  // imported) by its folder name.
+  {
+    std::vector<Choice> drivers = {{"AUTO", {{"android_gpu_driver", "\"auto\""}}},
+                                   {"SYSTEM", {{"android_gpu_driver", "\"\""}}}};
+    if (const char* root = std::getenv("REX_ANDROID_DRIVERS_DIR")) {
+      std::vector<std::string> names;
+      std::error_code error;
+      for (auto it = std::filesystem::directory_iterator(root, error);
+           !error && it != std::filesystem::directory_iterator(); it.increment(error)) {
+        const std::string name = it->path().filename().string();
+        if (it->is_directory(error) && !name.empty() && name[0] != '.') names.push_back(name);
+      }
+      std::sort(names.begin(), names.end());
+      for (const auto& name : names) {
+        drivers.push_back({Upper(name), {{"android_gpu_driver", config::Quote(name)}}});
+      }
+    }
+    rows.push_back(Setting("GPU DRIVER", std::move(drivers)));
+    // An adrenotools package (.zip with meta.json and the driver .so) from
+    // the system's file picker, unpacked into state/drivers; it then shows
+    // in GPU DRIVER the next time this page opens.
+    MenuRow import;
+    import.label = "IMPORT DRIVER (.ZIP)";
+    import.activate = [] { rex::ui::vulkan::CallAndroidActivityMethod("importGpuDriver"); };
+    rows.push_back(std::move(import));
+  }
 #else
   // LOW-SPEC 60 and BALANCED 40 (LS-1.1, LS-1.6) choose the cheapest
   // workload on purpose for weaker machines: the console's own resolution,
@@ -527,7 +561,13 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   rows.push_back(Toggle("DEPTH OF FIELD", "disable_depth_of_field", true));
   auto note = [this, restart = RestartNote(rows)] {
     const std::string pending = restart ? restart() : std::string();
-    return pending.empty() ? ResolutionLine() : pending;
+    if (!pending.empty()) return pending;
+#if defined(__ANDROID__)
+    const std::string& driver = rex::ui::vulkan::LoadedAndroidGpuDriver();
+    return ResolutionLine() + ", DRIVER " + (driver.empty() ? std::string("SYSTEM") : Upper(driver));
+#else
+    return ResolutionLine();
+#endif
   };
   return std::make_unique<MenuScreen>("GRAPHICS", std::move(rows), std::move(note));
 }
