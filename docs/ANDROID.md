@@ -9,9 +9,13 @@ a Snapdragon 8 Gen 2 or newer (Adreno 740+), 12 GB of memory and Android 13
 or later. The plan and its progress are in the
 [Android port backlog](ANDROID_PORT_BACKLOG.md); the AYN Odin 2 Portal
 (Adreno 740) has its own [Odin backlog](ANDROID_ODIN_BACKLOG.md). On Adreno
-7xx, Mesa Turnip runs the game 16-22 % faster than the stock driver: copy
-its `vulkan.ad07xx.so` into the app's `files/state/drivers/<name>` folder
-and set `android_gpu_driver = "<name>"`.
+7xx, Mesa Turnip runs the game much faster than the stock driver, and
+newer Mesa builds faster still: on the Odin 2 Portal the busy drive takes
+32 ms at 4x MSAA and 28 ms at 1x with Turnip Gen8 V37 (Mesa, Vulkan
+1.4.359), against 39 and 34 ms with an older Turnip and 49 and 41 ms with
+the stock driver. Copy the driver package (its `.so` and `meta.json`) into
+the app's `files/state/drivers/<name>` folder and set
+`android_gpu_driver = "<name>"`.
 
 ## What stays private
 

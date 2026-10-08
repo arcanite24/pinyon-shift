@@ -412,3 +412,19 @@ textures resolved in bands; about 11 MB a frame. Skipping only the atlases' relo
 against 38.17 and 37.27 against 38.76 ms: at most about 0.7 ms, and a
 correct fix would keep reloading the overwritten parts outside the 520x520
 resolve, so it was not built.
+
+### A newer Turnip (2026-10-08)
+
+Turnip Gen8 V37 (Mesa, Vulkan 1.4.359, packaged for a8xx but running the
+Adreno 740 as `Turnip Adreno (TM) 740`, API 1.4.363), already on the PC
+from the 8 Elite work, against `turnip-r8` with the same build:
+
+| Busy drive | turnip-r8 | Gen8 V37 |
+| --- | --- | --- |
+| 4x, two interleaved pairs | 38.7, 38.8 ms | 32.4, 32.4 ms (median 32.3, p95 38.6) |
+| 1x | 34.3 ms (median 33.8) | 28.2 ms (median 27.9, p95 34.2) |
+
+The frame 600 replay is identical to `turnip-r8`'s (front buffer mean
+difference 0.0; 12.61 from the desktop reference for both) and the drive
+capture renders correctly. Gen8 V37 is the recommended Odin driver: the
+busy drive now runs about 31 fps at 4x and 36 fps at 1x.
