@@ -112,6 +112,9 @@ last touch, so a controller player never sees them
 Android's Back button or gesture opens SETTINGS, and inside the menus it steps
 back; tap a row to open or change it. SETTINGS also holds the trainer (with
 cheats on), SAVE PHOTO and the achievements, which have keyboard keys on the PC.
+Clicking both sticks (LS + RS) shows or hides the performance panel, F3 on a
+keyboard; SETTINGS > CONTROLLER > PERFORMANCE PANEL changes the buttons
+(`pad_chord_debug_overlay`).
 
 ## Troubleshooting
 

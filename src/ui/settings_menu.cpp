@@ -569,6 +569,12 @@ std::unique_ptr<MenuScreen> SettingsPages::ControllerButtons() {
     rows.push_back(std::move(row));
   }
   rows.push_back(Toggle("INVERT LOOK", "pad_invert_right_stick_y"));
+  // Buttons held together that toggle the performance panel (F3 on a
+  // keyboard); the game does not see them while they are held.
+  rows.push_back(Setting("PERFORMANCE PANEL",
+                         {{"LS + RS", {{"pad_chord_debug_overlay", "\"LS+RS\""}}},
+                          {"BACK + RS", {{"pad_chord_debug_overlay", "\"BACK+RS\""}}},
+                          {"OFF", {{"pad_chord_debug_overlay", "\"\""}}}}));
   MenuRow reset;
   reset.label = "RESET TO DEFAULT";
   reset.activate = [this] {
