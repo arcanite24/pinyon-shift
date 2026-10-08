@@ -359,3 +359,28 @@ by CPU-written memory uploads, 6.5 by texture loads), each a drain of the
 GPU between render and compute work. Constants are about 2 KB a draw
 (`gpu_constant_census`). Turnip has no performance counter extension to
 split that remainder further.
+
+### Fewer drains between renderings (2026-10-08)
+
+With rendering spans ending at the rendering (SDK `3a45f5d`), the 4x
+Turnip profile split into renderings 16.4 ms (the main scene 11.0),
+resolves 4.4, transfers 2.7, texture reloads 2.5 and about 14.6 ms in no
+span: the drains and flushes between about 300 barrier batches a frame
+(`gpu_barrier_census`). Constant set rebinds cost nothing measurable
+(`fh1_debug_keep_constant_binds`: 30.4 against 30.0 ms with tiny draws).
+
+Taken:
+
+| Change | Effect |
+| --- | --- |
+| Resolves write outdated textures they cover whole (`fh1_direct_resolve_outdated`, SDK `200c4c0`) | Direct writes from 58 to 73 % of resolves; 38.8 and 38.9 ms against 39.4 and 39.9 |
+| Small 4-byte textures get the raw-bits view (`vulkan_small_texture_copy_views`, SDK `d003d06`) | The bloom and luminance chains (320x192 down to 2x2) are written by their resolves: resolve-sourced reloads from 67 to 17 a frame, barrier batches from about 300 to about 200; 38.5 and 38.3 ms against 39.1 and 39.0 |
+
+Both replays of frame 600 are identical to before and the drive captures
+render correctly. Still reloading: 4x4 and 2x2 textures whose resolves
+write an 8x8 area (writing them directly would write outside the image),
+a 1024x1024 shadow map resolved 520x520, and memory read back in another
+format than it was resolved in. The remaining barriers are mostly the
+pair around each of about 60 resolves a frame (rendering to the resolve's
+compute and back), which the game's order of render, resolve and sample
+makes necessary.
