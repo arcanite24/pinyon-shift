@@ -462,4 +462,8 @@ post passes and reloads, all real GPU work now that the waits between it
 are gone. Skipping the per-sample divisions in resolves of the surface
 that owns the tiles (the usual case) changed neither the resolves' 6.3 ms
 nor the frame (32.3 against 32.4 ms): they are bound by memory traffic,
-not arithmetic, so it was not kept.
+not arithmetic, so it was not kept. Keeping the 7e3 render targets as 32-bit
+B10G11R11 instead of 64-bit float16 (which loses their alpha, so only a
+bound) gave 31.4 and 31.7 against 32.1 and 32.2 ms: at most about 0.55 ms,
+and a correct 32-bit 7e3 would need integer storage with shader packing,
+which gives up hardware blending, so it was not built.
