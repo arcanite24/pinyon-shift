@@ -376,11 +376,16 @@ Taken:
 | Resolves write outdated textures they cover whole (`fh1_direct_resolve_outdated`, SDK `200c4c0`) | Direct writes from 58 to 73 % of resolves; 38.8 and 38.9 ms against 39.4 and 39.9 |
 | Small 4-byte textures get the raw-bits view (`vulkan_small_texture_copy_views`, SDK `d003d06`) | The bloom and luminance chains (320x192 down to 2x2) are written by their resolves: resolve-sourced reloads from 67 to 17 a frame, barrier batches from about 300 to about 200; 38.5 and 38.3 ms against 39.1 and 39.0 |
 
-Both replays of frame 600 are identical to before and the drive captures
-render correctly. Still reloading: 4x4 and 2x2 textures whose resolves
-write an 8x8 area (writing them directly would write outside the image),
-a 1024x1024 shadow map resolved 520x520, and memory read back in another
-format than it was resolved in. The remaining barriers are mostly the
+| Resolve image stores skip texels outside the texture, so 4x4 and 2x2 textures under 8x8 resolves are written directly (`fh1_resolve_bounded_image_writes`, SDK `815af3c`) | Resolve-sourced reloads from 18 to 6 a frame; 38.2 and 38.6 ms against 38.7 and 38.9 |
+
+All replays of frame 600 are identical to before and the drive captures
+render correctly. Still reloading, about 6 a frame: the 1024x1024 depth
+shadow atlas, whose memory a 1280x720 8888 resolve overwrites in part
+each frame, so its own 520x520 resolve leaves it outdated (writing it
+directly would need validity tracked per region of a texture), and
+textures resolved in bands. Skipping every shared memory barrier after
+resolves (unsafe, a bound) gained nothing (38.1 and 38.8 against 38.5 and
+38.5 ms): the waits are the real dependencies, not the buffer barriers. The remaining barriers are mostly the
 pair around each of about 60 resolves a frame (rendering to the resolve's
 compute and back), which the game's order of render, resolve and sample
 makes necessary.
