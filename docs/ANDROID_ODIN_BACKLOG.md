@@ -467,3 +467,34 @@ B10G11R11 instead of 64-bit float16 (which loses their alpha, so only a
 bound) gave 31.4 and 31.7 against 32.1 and 32.2 ms: at most about 0.55 ms,
 and a correct 32-bit 7e3 would need integer storage with shader packing,
 which gives up hardware blending, so it was not built.
+
+### Predicated tiling rendered once (2026-10-08)
+
+FH1 draws its 720p scene in three predicated tiles (rows 0-256, 256-512
+and 512-720, bin selects 3, C and 30), replaying the same command buffers
+for each. Objects carry bin masks (8, A, 28, ...) and their own predicated
+sub-buffers; packets predicated on a whole tile's mask (C, 30) set that
+tile's window offset, window scissor and resolve destination. Skipping the
+later tiles' draws outright (a wrong image) bounded the cost at 8.8 ms of
+the 1x frame, and the game's own NonTiling scenario, selected through a
+hook on its tiling-scenario load, drops the static world on both Vulkan and
+D3D12, so the tiles are merged on the host instead
+(`fh1_untile_predicated_tiling`, SDK `b4a9f72`, default on for Android):
+the executor's surfaces are 720 rows tall, the first tile runs every bin's
+packets except the whole-tile ones over the full height, the later tiles'
+draws are skipped, and their resolves and resolve clears address their own
+band's rows. The frame dump recorder flattens indirect buffers it ran, so
+replays of a tiled recording lack the sub-buffers the first tile now runs;
+only live runs test it.
+
+| Busy drive, Gen8 V37 | Tiled | Untiled |
+| --- | --- | --- |
+| 4x | 32.0, 32.6 ms | 29.2, 29.5 ms |
+| 1x | 28.3, 28.8 ms | 25.4, 25.5 ms |
+
+The drive, race, map and photo mode captures match tiled ones (no seam at
+the tile edges). The rest of the 8.8 ms bound was the later tiles' pixels,
+which the untiled first tile still shades. Turnip already renders these
+passes in system memory: `TU_DEBUG=sysmem` measured 28.6 ms against 28.9
+ms by default, and forcing GMEM 50.4 ms, so the renderings broken by
+resolves and uploads cost no extra tile loads and stores.
