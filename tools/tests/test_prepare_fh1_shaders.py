@@ -70,6 +70,7 @@ foreach ($file in @('fh1-gpu-prewarm-v3.txt', 'fh1-native-pipelines-v1.bin', "sh
 param($StateRoot, $GameRoot, $BuildDirectory, [switch]$JsonEvents)
 $root = Split-Path $PSScriptRoot -Parent
 Add-Content (Join-Path $root 'calls.txt') 'vulkan'
+if ($env:PINYON_TEST_VULKAN_FAIL -eq 'stop') { [Environment]::Exit(1) }
 if ($env:PINYON_TEST_VULKAN_FAIL -eq '1') { return }
 $shareable = Join-Path $StateRoot 'cache/shaders/shareable'
 [void][IO.Directory]::CreateDirectory($shareable)
@@ -104,9 +105,11 @@ function Get-Process { return $null }
             # Vulkan, the default (and what any config before schema 28
             # migrates to), keeps the shaders and pipelines it creates as it
             # runs; its storage is filled once before the first start. A
-            # failed preparation is not retried until the build changes.
+            # failed preparation, or one stopped with the launcher's Cancel,
+            # is not retried until the build changes (#389).
+            environment["PINYON_TEST_VULKAN_FAIL"] = "stop"
+            run(success=False)
             environment["PINYON_TEST_VULKAN_FAIL"] = "1"
-            run()
             run()
             self.assertEqual(calls(), ["vulkan"])
             executable = root / "out/build/win-amd64-release/pinyon_shift.exe"

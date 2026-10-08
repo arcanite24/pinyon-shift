@@ -370,8 +370,10 @@ public partial class MainWindow : Window
                 PropertyNameCaseInsensitive = true
             });
             if (message is null) return;
+            // Shader preparation runs as the game starts, after the build: it belongs
+            // to the Play step, so a prepared game never appears to rebuild (#389).
             var stage = string.Equals(message.Stage, "shaders", StringComparison.OrdinalIgnoreCase)
-                ? "build" : message.Stage;
+                ? "play" : message.Stage;
             var index = Array.FindIndex(RouteStep.StageOrder, x =>
                 string.Equals(x, stage, StringComparison.OrdinalIgnoreCase));
             if (message.Stage == "shaders")

@@ -28,7 +28,7 @@ where Play repeated a long preparation step.
 | W-8 | Remove the downloaded-file mark from the extracted toolchains and payload | Open |
 | W-9 | Network check of the download hosts still needed, before the first download | Done |
 | W-10 | Build Tools progress: the installer's own progress window and a heartbeat in the launcher | Done |
-| W-11 | #389: a Vulkan preparation that was cancelled or failed is not repeated at every Play, and Play shows "Preparing graphics", not the build step | Open |
+| W-11 | #389: a Vulkan preparation that was cancelled or failed is not repeated at every Play, and Play shows "Preparing graphics", not the build step | Done |
 
 Not planned: a Defender exclusion offer. It changes a security setting
 for the player, and the existing antivirus hint names the folder to allow.
