@@ -75,6 +75,12 @@ public class PinyonShiftActivity extends SDLActivity {
                 setDefaultEnvironment("REX_ANDROID_RECOMMENDED_DRIVER", recommended);
             }
         }
+        // Rally, once tools/prepare-fh1-rally.py's overlay was copied into
+        // state/cache (the PC launcher verifies it before the same flag);
+        // the game still checks the enabled package and the stage mapping.
+        if (new File(base, "state/cache/rally_adapter/rally-stage.toml").isFile()) {
+            setDefaultEnvironment("PINYON_SHIFT_RALLY_PREPARED", "1");
+        }
         // The build's provenance, packaged as an asset, for logs and crash
         // reports (the game reads it beside the executable elsewhere).
         File manifest = new File(getFilesDir(), "pinyon_shift_build.json");
