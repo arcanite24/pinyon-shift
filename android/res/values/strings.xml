@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_setup_short">Get files from PC</string>
+    <string name="shortcut_setup_long">Get game files, DLC or a save from the PC</string>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: the setup screen with the game installed, to
+     copy title update v4, DLC, Rally data or a save from the PC. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="setup"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_setup_short"
+        android:shortcutLongLabel="@string/shortcut_setup_long">
+        <intent
+            android:action="studio.deimos.pinyonshift.SETUP"
+            android:targetPackage="studio.deimos.pinyonshift"
+            android:targetClass="studio.deimos.pinyonshift.SetupActivity" />
+    </shortcut>
+</shortcuts>

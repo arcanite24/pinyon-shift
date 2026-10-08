@@ -38,6 +38,11 @@
          title dereferences null on that path. Nothing contacts a server. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- The setup screen copies the game files from the player's PC on the
+         local network (SetupActivity), over plain HTTP to the launcher: the
+         PC has no certificate a phone would trust, and a pairing code guards
+         the transfer. -->
+
     <application
         android:label="Pinyon Shift"
         android:icon="@mipmap/ic_launcher"
@@ -49,6 +54,7 @@
         android:appCategory="game"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true"
         android:enableOnBackInvokedCallback="false">
 
         <!-- simpleperf from adb on a release build (AP-7.0): profiling only,
@@ -61,6 +67,26 @@
         <meta-data android:name="android.game_mode_config"
             android:resource="@xml/game_mode_config" />
 
+        <!-- The app icon: starts the game, or gets its files from the PC
+             first (ONE_CLICK_SETUP_BACKLOG A-4). -->
+        <activity
+            android:name="studio.deimos.pinyonshift.SetupActivity"
+            android:label="Pinyon Shift"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="studio.deimos.pinyonshift.SETUP" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
         <activity
             android:name="studio.deimos.pinyonshift.PinyonShiftActivity"
             android:label="Pinyon Shift"
@@ -72,10 +98,6 @@
             android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:preferMinimalPostProcessing="true"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>

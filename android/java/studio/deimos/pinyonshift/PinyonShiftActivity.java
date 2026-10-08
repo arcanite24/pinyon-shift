@@ -19,6 +19,9 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -128,11 +131,26 @@ public class PinyonShiftActivity extends SDLActivity {
         return new String[] {"c++_shared", "rexruntime", "main"};
     }
 
+    // The intent's args, then the lines of state/config/android-arguments.txt,
+    // which the setup screen writes (1000 Club offline with title update v4).
     @Override
     protected String[] getArguments() {
         Intent intent = getIntent();
-        String[] arguments = intent != null ? intent.getStringArrayExtra("args") : null;
-        return arguments != null ? arguments : new String[0];
+        String[] given = intent != null ? intent.getStringArrayExtra("args") : null;
+        List<String> arguments = new ArrayList<>();
+        if (given != null) Collections.addAll(arguments, given);
+        File external = getExternalFilesDir(null);
+        File file = new File(external != null ? external : getFilesDir(), SetupActivity.ARGUMENTS_FILE);
+        if (file.isFile()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                for (String line; (line = reader.readLine()) != null; ) {
+                    if (line.trim().startsWith("--")) arguments.add(line.trim());
+                }
+            } catch (IOException error) {
+                Log.w(TAG, "launch arguments not read", error);
+            }
+        }
+        return arguments.toArray(new String[0]);
     }
 
     // The Adreno GPU's model number ("740"), from the kernel driver, or from

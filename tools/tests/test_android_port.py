@@ -44,21 +44,28 @@ class AndroidPortTest(unittest.TestCase):
         self.assertIn(stray.name, check.stdout + check.stderr)
 
     def test_project_template_holds_no_game_code_or_data(self):
-        # Only the manifest, the activity's Java source, the game mode
-        # config, the launcher icon and the bundled driver's notice are
-        # checked in; everything derived from the disc is built locally.
+        # Only the manifest, the activities' Java sources, the game mode
+        # config, the launcher icon and shortcut and the bundled driver's
+        # notice are checked in; everything derived from the disc is built
+        # locally.
         files = sorted(path.relative_to(ROOT / "android").as_posix()
                        for path in (ROOT / "android").rglob("*") if path.is_file())
         self.assertEqual(files, ["AndroidManifest.xml",
                                  "drivers/turnip-gen8-v37/NOTICE.txt",
                                  "java/studio/deimos/pinyonshift/PinyonShiftActivity.java",
+                                 "java/studio/deimos/pinyonshift/SetupActivity.java",
                                  "res/drawable-xxxhdpi/ic_launcher_foreground.png",
                                  "res/mipmap-anydpi-v26/ic_launcher.xml",
                                  "res/values/ic_launcher_background.xml",
-                                 "res/xml/game_mode_config.xml"])
+                                 "res/values/strings.xml",
+                                 "res/xml/game_mode_config.xml",
+                                 "res/xml/shortcuts.xml"])
+        # Small files only, so nothing large hides among them; the setup
+        # screen's source is the one longer file.
         for path in (ROOT / "android").rglob("*"):
             if path.is_file():
-                self.assertLess(path.stat().st_size, 16 * 1024)
+                limit = 64 * 1024 if path.suffix == ".java" else 16 * 1024
+                self.assertLess(path.stat().st_size, limit, path.name)
 
     def test_manifest_asks_only_for_sockets_and_rumble(self):
         manifest = (ROOT / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
@@ -78,6 +85,39 @@ class AndroidPortTest(unittest.TestCase):
                     / "PinyonShiftActivity.java").read_text(encoding="utf-8")
         self.assertIn('{"c++_shared", "rexruntime", "main"}', activity)
         self.assertEqual(pinyon_android.NATIVE_LIBRARIES[-1], "libmain.so")
+
+    def test_the_app_icon_opens_setup_until_the_game_is_copied(self):
+        # ONE_CLICK_SETUP_BACKLOG A-4: the launcher entry is the setup
+        # screen, which hands over to the game once its files are present;
+        # tooling still starts the game activity directly.
+        manifest = (ROOT / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
+        setup = manifest[manifest.index('android:name="studio.deimos.pinyonshift.SetupActivity"'):]
+        setup = setup[:setup.index("</activity>")]
+        game = manifest[manifest.index(f'android:name="{pinyon_android.ACTIVITY}"'):]
+        game = game[:game.index("</activity>")]
+        self.assertIn("android.intent.category.LAUNCHER", setup)
+        self.assertNotIn("android.intent.category.LAUNCHER", game)
+        self.assertIn("studio.deimos.pinyonshift.SETUP", setup)
+        self.assertIn('android:usesCleartextTraffic="true"', manifest)
+        shortcuts = (ROOT / "android" / "res" / "xml" / "shortcuts.xml").read_text(encoding="utf-8")
+        self.assertIn("studio.deimos.pinyonshift.SETUP", shortcuts)
+
+    def test_setup_writes_only_inside_the_game_and_state_folders(self):
+        source = (ROOT / "android" / "java" / "studio" / "deimos" / "pinyonshift"
+                  / "SetupActivity.java").read_text(encoding="utf-8")
+        self.assertIn('path.startsWith("game/base/") || path.startsWith("state/")', source)
+        self.assertIn('part.equals("..")', source)
+        self.assertIn("getCanonicalPath()", source)
+        # The PC's save replaces the device's only after a backup.
+        self.assertLess(source.index("backUpSave();"), source.index("fetch(code,"))
+
+    def test_java_sources_avoid_lambdas(self):
+        # javac compiles against android.jar alone, which has no
+        # LambdaMetafactory: a lambda or method reference fails the package.
+        for path in (ROOT / "android" / "java").rglob("*.java"):
+            code = re.sub(r"//.*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", "",
+                          path.read_text(encoding="utf-8"), flags=re.S)
+            self.assertNotRegex(code, r"->|::", path.name)
 
     def test_version_code_follows_the_release(self):
         release = json.loads((ROOT / "config" / "release.json").read_text(encoding="utf-8"))
