@@ -113,6 +113,13 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(any("WindowsSDK" in c or "Windows11SDK" in c
                             for c in config["visual_studio"]["repair_components"]))
 
+    def test_the_launcher_restarts_and_resumes_setup(self):
+        window = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(encoding="utf-8")
+        self.assertIn('JsonPropertyName("error_kind")', window)
+        self.assertIn('_lastFailureKind == "reboot-required"', window)
+        self.assertIn(r"CurrentVersion\RunOnce", window)
+        self.assertIn("ResumeSetupArgument", window[window.index("MainWindow_Loaded("):])
+
 
 if __name__ == "__main__":
     unittest.main()

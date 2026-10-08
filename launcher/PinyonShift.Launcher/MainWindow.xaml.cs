@@ -88,7 +88,49 @@ public partial class MainWindow : Window
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
-        => await InitializeSourceAsync();
+    {
+        await InitializeSourceAsync();
+        // Started by Windows after the restart that setup asked for: continue
+        // with the same game source.
+        var arguments = Environment.GetCommandLineArgs();
+        var resume = Array.IndexOf(arguments, ResumeSetupArgument);
+        if (resume > 0 && resume + 1 < arguments.Length && _gameExecutable is null &&
+            (File.Exists(arguments[resume + 1]) || Directory.Exists(arguments[resume + 1])))
+        {
+            SelectDiscImage(arguments[resume + 1]);
+            OwnershipCheckBox.IsChecked = true;
+            AppendLog("Continuing setup after the restart.");
+            PrimaryButton_Click(PrimaryButton, new RoutedEventArgs());
+        }
+    }
+
+    // W-4 (#393): a Build Tools install that needs a restart before the
+    // build environment works. The launcher restarts Windows when the player
+    // asks, and Windows starts it again once, after sign-in, to continue.
+    private const string ResumeSetupArgument = "--resume-setup";
+    private bool _restartRequired;
+    private string? _lastFailureKind;
+
+    private void RestartAndResumeSetup()
+    {
+        if (MessageBox.Show(this,
+                "Windows will restart now to finish installing the Microsoft C++ Build Tools. Save your work " +
+                "in other apps first.\n\n" + (_portableRoot is null
+                    ? "Pinyon Shift opens again after you sign in and continues setup."
+                    : "Open Pinyon Shift again after you sign in and choose Build to continue."),
+                "Restart required", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+            return;
+        var launcher = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "PinyonShiftLauncher.exe");
+        // A portable install leaves nothing outside its folder, so it is not
+        // started again by Windows.
+        if (_portableRoot is null)
+        using (var runOnce = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\RunOnce"))
+            runOnce.SetValue("PinyonShiftResumeSetup",
+                $"\"{launcher}\" {ResumeSetupArgument} \"{IsoPathTextBox.Text}\"");
+        AppendLog("Restarting Windows; setup continues after sign-in.");
+        Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 5 /d p:4:2") { UseShellExecute = false, CreateNoWindow = true });
+        Close();
+    }
 
     private async Task InitializeSourceAsync(string? installRoot = null)
     {
@@ -247,6 +289,11 @@ public partial class MainWindow : Window
 
     private async void PrimaryButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_restartRequired)
+        {
+            RestartAndResumeSetup();
+            return;
+        }
         if (_pendingReport is not null)
         {
             ReportCrash();
@@ -348,6 +395,12 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             SetFailure("Setup stopped", ex.Message);
+            if (_lastFailureKind == "reboot-required")
+            {
+                _restartRequired = true;
+                HeadlineText.Text = "Restart required";
+                SetPrimaryText("Restart now");
+            }
         }
         finally
         {
@@ -425,6 +478,7 @@ public partial class MainWindow : Window
         string reportName = "setup-error.json", string what = "Setup")
     {
         var fallback = $"{what} stopped before completing (exit code {exitCode}). The details above contain the cause.";
+        _lastFailureKind = null;
         if (_repositoryRoot is null) return fallback;
         var path = Path.Combine(_repositoryRoot, ".local", "logs", reportName);
         SetupFailure? failure;
@@ -439,6 +493,7 @@ public partial class MainWindow : Window
         }
         if (failure is null) return fallback;
 
+        _lastFailureKind = failure.ErrorKind;
         var excerpt = new List<string>();
         if (failure.ErrorExcerpt is { ValueKind: JsonValueKind.Array } lines)
             excerpt.AddRange(lines.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString()));
@@ -936,6 +991,7 @@ public partial class MainWindow : Window
     {
         _gameExecutable = null;
         _pendingReport = null;
+        _restartRequired = false;
         foreach (var step in _steps)
             step.SetState(StepState.Waiting, WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         SetPrimaryText("Verify and build");
@@ -1816,7 +1872,8 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("exit_code")] JsonElement? ExitCode,
         [property: JsonPropertyName("build_log")] string? BuildLog,
         [property: JsonPropertyName("error_excerpt")] JsonElement? ErrorExcerpt,
-        [property: JsonPropertyName("hint")] string? Hint);
+        [property: JsonPropertyName("hint")] string? Hint,
+        [property: JsonPropertyName("error_kind")] string? ErrorKind = null);
     private sealed record LaunchResult(
         [property: JsonPropertyName("result")] string? Result,
         [property: JsonPropertyName("crash_id")] string? CrashId,

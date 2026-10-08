@@ -59,7 +59,12 @@ class PortableLauncherContractTests(unittest.TestCase):
         portable_branch = portable_branch[:portable_branch.index("else")]
         self.assertNotIn("InstallRootPreference", portable_branch)
         self.assertIn("_canChooseInstallRoot = false;", portable_branch)
-        self.assertNotIn("Registry", self.window + self.portable)
+        # The one registry entry, the RunOnce that resumes setup after a
+        # restart, is skipped in portable mode.
+        self.assertNotIn("Registry", self.portable)
+        registry = self.window[self.window.index("Registry.") - 300:self.window.index("Registry.")]
+        self.assertIn("if (_portableRoot is null)", registry)
+        self.assertEqual(self.window.count("Registry."), 1)
         self.assertNotIn("LocalApplicationData", self.portable)
 
     def test_portable_folder_must_be_writable_and_short_enough(self):
