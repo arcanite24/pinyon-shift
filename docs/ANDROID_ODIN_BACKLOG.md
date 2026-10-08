@@ -279,7 +279,10 @@ Turnip is 11 % faster at 1x and 16 % at 4x MSAA, and its p95 frame is a
 third lower. Its replay of frame 600 matches the stock driver (front-buffer
 mean difference 4.1 of 255, foliage noise) and its drive captures match.
 The recommended Odin setup is Turnip with `android_gpu_driver = "turnip-r8"`;
-the package does not ship a driver.
+the package does not ship a driver. Its own choice between tiled (GMEM)
+and direct (sysmem) rendering is already the best: `TU_DEBUG=sysmem`
+measures the same (4x mean 41.3 ms), and `TU_DEBUG=gmem` is slower (mean
+56.4 ms, with a bimodal frame time) and leaves grainy edges.
 
 What remains is the game's own shading (main scene about 20 ms of a 1x
 frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
