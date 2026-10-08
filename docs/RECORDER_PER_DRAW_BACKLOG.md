@@ -119,7 +119,7 @@ saves; zero verify differences; validation clean.
 | PD-2.3 | **Update templates** for the texture and constants sets and for pushes (`vkUpdateDescriptorSetWithTemplate`, `vkCmdPushDescriptorSetWithTemplateKHR`), from flat structs instead of `VkWriteDescriptorSet` arrays. On the worker after PD-2.1. | Driver CPU on whichever thread writes | S | Not built: no recorder share |
 | PD-2.4 | **`RequestTextures` trims.** A relaxed load before the `texture_became_outdated_` exchange; one fused pass over used textures for 3D-as-2D views and usage, skipping the 3D check by a per-slot dimension mask. A fast path on generations is not proposed again (DR-3). | 10-30 ns a draw | S | Done (2026-10-07) |
 | PD-2.5 | **Fixed arrays in `UpdateBindings`.** Image and sampler infos, the last-set copies and the free-set lookup (`unordered_map` keyed by counts and stage) as fixed arrays; `nullDescriptor` cached. | A few ns each, low risk | S | No-go (2026-10-07) |
-| PD-2.6 | **Push descriptors on Adreno.** On the Odin's Qualcomm driver, measure pushed against set-based pixel textures (`vulkan_push_texture_descriptors` off) per the [Android in-run A/B method](ANDROID_60FPS_BACKLOG.md); Turnip and desktop keep pushes. | No slow driver path on Android | S | Needs hardware |
+| PD-2.6 | **Push descriptors on Adreno.** On the Odin's Qualcomm driver, measure pushed against set-based pixel textures (`vulkan_push_texture_descriptors` off) per the [Android in-run A/B method](ANDROID_60FPS_BACKLOG.md); Turnip and desktop keep pushes. | No slow driver path on Android | S | Needs hardware; now also bindless (PD-4) |
 
 ### PD-3 Constants, samplers and targets memos (2-4 weeks)
 
@@ -138,7 +138,7 @@ reporting zero differences.
 
 | ID | Item | Expected | Effort | Status |
 | --- | --- | --- | --- | --- |
-| PD-4.1 | **Descriptor-indexed textures** (RR-5.1): persistent slots for image view and sampler pairs (combined image samplers for Adreno's bindless mode), the per-stage indices in the fetch constants block, behind a capability check. Translator change. | Texture binding work down to index stores | L | Condition met; needs a decision |
+| PD-4.1 | **Descriptor-indexed textures** (RR-5.1): persistent slots for image view and sampler pairs (combined image samplers for Adreno's bindless mode), the per-stage indices in the fetch constants block, behind a capability check. Translator change. | Texture binding work down to index stores | L | No-go on desktop (2026-10-07); opt-in for Adreno |
 
 ## Not to build
 
@@ -164,7 +164,7 @@ reporting zero differences.
 
 | Item | What | Who |
 | --- | --- | --- |
-| PD-2.6 | Pushed against set-based textures on the Odin | Whoever holds the device |
+| PD-2.6 | Pushed against set-based textures on the Odin | Needs hardware; now also bindless (PD-4) |
 
 ## Progress
 
@@ -190,3 +190,4 @@ Rows are added here as items are measured or done.
 | PD-3 gate | **Not met** (2026-10-07) | Constant uploads, constants set, samplers and targets a draw: about 420 ns at PD-0 to about 380 (samplers 96-104 to 82-88 by PD-3.4; the rest within spread), -9 % against -15 % |
 | PD-4 condition | **Met; needs a decision** (2026-10-07) | Texture work is still about 27 % of a draw after PD-2 (textures 113-129, image infos 63-77, checks 34-41, sets and update 30-38, binds 56-59 ns), above the 15 % condition. Bindless textures are an L item (a translator change, a capability path, Adreno combined image samplers); it is the remaining large lever on the recorder and waits for the maintainer's go |
 | Goal | **Partly met** (2026-10-07) | Interleaved in one session, race start on simulated 4C/8T, cost model off, heavy band: with the switchable changes off (`gpu_record_fused_draw_registers`, `gpu_sampler_fetch_key`, `gpu_record_shader_load_entries`, `gpu_record_coalesce_scratch`, `gpu_system_constants_memo`) recorder CPU 9.77 and 10.27 ms a frame (1,540 and 1,596 ns a draw), with them on 8.41 and 9.58 ms (1,374 and 1,503 ns), -7 to -14 %; decoder and title CPU within spread. The batch handoff, `RequestTextures` trims and the constants key fix have no switch and add about 5 % more by their own pairs. The matrix rerun (records in `benchmarks/recorder-replay/2026-10-07-per-draw/`, SDK `a59ccef`) ran on a slower machine state than RR-0.4's (title thread CPU, which nothing here touches, 0.8-0.9 ms higher on the simulated parts), so its rows are not comparable to the baseline: 16 threads recorder 7.7 to 7.0 ms; 4 slow cores 57.9 presents a second (58.9 at RR-0.4), still short of 59 |
+| PD-4 bindless textures | **No-go on desktop** (2026-10-07; maintainer's go) | SDK `3bdd21f`, `vulkan_bindless_textures` (off, restart). Vulkan 1.2 descriptor indexing: each image view and sampler holds a slot in one update-after-bind set for its life (freed only when destroyed, after its last submission), shaders index 2D array, 3D, cube and sampler runtime arrays with per-draw indices after the fetch constants, and one pipeline layout serves every shader; the shader pack key carries the mode. Validation clean beyond the existing query error, captures render correctly, GPU time unchanged (16.24-16.42 ms). Three trials of interleaved pairs on simulated 4C/8T: image infos 63-72 to 21-34 ns a draw, set checks 34-37 to 15-18, binds 48-57 to 31-45, but computing the indices (still 53-56 % of draws after a memo on shaders, binding and sampler generations) and the 1,280-byte fetch block add 40-70 ns to the uploads step; recorder CPU +1.5 and -1.2 % in the final pairs (9.61 to 9.76 and 9.76 to 9.65 ms). NVIDIA's push descriptors were already cheap; on Adreno, where push descriptors are reported slow, it may pay, so it is kept off by default for PD-2.6's measurement on the Odin |
