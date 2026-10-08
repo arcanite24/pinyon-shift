@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
-  "package": "com.pinyonshift.fh1",
-  "activity": "com.pinyonshift.fh1.PinyonShiftActivity",
+  "package": "studio.deimos.pinyonshift",
+  "activity": "studio.deimos.pinyonshift.PinyonShiftActivity",
+  "previous_packages": ["com.pinyonshift.fh1"],
   "abi": "arm64-v8a",
   "min_sdk": 33,
   "target_sdk": 35,

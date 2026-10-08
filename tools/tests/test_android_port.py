@@ -51,7 +51,7 @@ class AndroidPortTest(unittest.TestCase):
                        for path in (ROOT / "android").rglob("*") if path.is_file())
         self.assertEqual(files, ["AndroidManifest.xml",
                                  "drivers/turnip-gen8-v37/NOTICE.txt",
-                                 "java/com/pinyonshift/fh1/PinyonShiftActivity.java",
+                                 "java/studio/deimos/pinyonshift/PinyonShiftActivity.java",
                                  "res/xml/game_mode_config.xml"])
         for path in (ROOT / "android").rglob("*"):
             if path.is_file():
@@ -71,7 +71,7 @@ class AndroidPortTest(unittest.TestCase):
     def test_activity_loads_the_runtime_before_the_game(self):
         # SDL lives in librexruntime.so; it registers its Java natives when
         # System.loadLibrary loads it, and SDL calls SDL_main in the last.
-        activity = (ROOT / "android" / "java" / "com" / "pinyonshift" / "fh1"
+        activity = (ROOT / "android" / "java" / "studio" / "deimos" / "pinyonshift"
                     / "PinyonShiftActivity.java").read_text(encoding="utf-8")
         self.assertIn('{"c++_shared", "rexruntime", "main"}', activity)
         self.assertEqual(pinyon_android.NATIVE_LIBRARIES[-1], "libmain.so")

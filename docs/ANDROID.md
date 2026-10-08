@@ -97,10 +97,17 @@ python tools/pinyon.py android push-data
 `build` cross-compiles the game (20 to 60 minutes the first time) and
 packages `.local/android/pinyon-shift.apk`, signed with a key made on your
 PC. `push-data` copies the extracted game (7.2 GB, 2,400 files) into the
-app's folder on the device, `Android/data/com.pinyonshift.fh1/files/game/base`;
+app's folder on the device, `Android/data/studio.deimos.pinyonshift/files/game/base`;
 it resumes where it stopped if interrupted. Saves, settings, logs and mods
 live beside it in `files/state`, with the same layout as on the PC, so a save
 copies between the two as a folder.
+
+Builds before October 2026 installed as `com.pinyonshift.fh1`, which Android
+treats as another app with its own folder. After installing the current
+package, `python tools/pinyon.py android migrate` copies the earlier
+install's saves, settings and drivers into the new folder (leaving the
+originals) and moves its game files; uninstall the old app once the game
+shows your save.
 
 Start the game from the launcher icon, or:
 

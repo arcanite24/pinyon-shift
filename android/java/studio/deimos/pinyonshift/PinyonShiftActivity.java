@@ -1,4 +1,4 @@
-package com.pinyonshift.fh1;
+package studio.deimos.pinyonshift;
 
 import android.content.Intent;
 import android.database.Cursor;
@@ -41,7 +41,7 @@ import org.libsdl.app.SDLActivity;
  * Tooling can override any variable with a string extra named env.NAME and
  * pass game arguments as a string-array extra named args:
  *
- *   adb shell am start -n com.pinyonshift.fh1/.PinyonShiftActivity \
+ *   adb shell am start -n studio.deimos.pinyonshift/.PinyonShiftActivity \
  *       --es env.PINYON_SHIFT_FH1_RENDER_TEST_SCRIPT /sdcard/.../route.fh1test \
  *       --esa args --gpu_backend=null
  */

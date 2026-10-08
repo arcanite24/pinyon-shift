@@ -60,7 +60,7 @@
             android:resource="@xml/game_mode_config" />
 
         <activity
-            android:name="com.pinyonshift.fh1.PinyonShiftActivity"
+            android:name="studio.deimos.pinyonshift.PinyonShiftActivity"
             android:label="Pinyon Shift"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:screenOrientation="sensorLandscape"

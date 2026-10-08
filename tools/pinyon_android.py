@@ -493,6 +493,46 @@ def push_driver(args: argparse.Namespace) -> int:
     return 0
 
 
+def migrate(args: argparse.Namespace) -> int:
+    """Brings a device's game and state from an install under an earlier
+    package name (com.pinyonshift.fh1) into this one's folder, which Android
+    keeps apart. The state (saves, settings, drivers) is copied and the
+    earlier copy left as it was; the extracted game (7.2 GB) is moved, as it
+    is rebuilt from the disc with push-data. Nothing already in this
+    package's state is overwritten."""
+    tools = Tools()
+    serial = ["-s", args.serial] if args.serial else []
+
+    def shell(command: str) -> str:
+        return subprocess.run([str(tools.adb)] + serial + ["shell", command],
+                              capture_output=True, text=True).stdout.strip()
+
+    sources = [name for name in CONFIG.get("previous_packages", [])
+               if shell(f"[ -d /sdcard/Android/data/{name}/files/state ] && echo yes") == "yes"]
+    if not sources:
+        print("no earlier install's files on the device")
+        return 0
+    old = f"/sdcard/Android/data/{sources[0]}/files"
+    adb(tools, args, "shell", "am", "force-stop", PACKAGE)
+    for name in sources:
+        adb(tools, args, "shell", "am", "force-stop", name)
+    adb(tools, args, "shell", "mkdir", "-p", f"{DEVICE_FILES}/state", f"{DEVICE_FILES}/game")
+    # cp -n: the new install's own files win; logs are not carried over.
+    for entry in shell(f"ls '{old}/state'").split():
+        if entry == "logs":
+            continue
+        adb(tools, args, "shell", "cp", "-R", "-n", f"{old}/state/{entry}", f"{DEVICE_FILES}/state/")
+    if shell(f"[ -d '{old}/game/base' ] && echo yes") == "yes":
+        if shell(f"[ -e '{DEVICE_FILES}/game/base' ] && echo yes") == "yes":
+            print(f"game files already in {DEVICE_FILES}/game/base; the earlier copy is left")
+        else:
+            adb(tools, args, "shell", "mv", f"{old}/game/base", f"{DEVICE_FILES}/game/base")
+    share_with_app(tools, args, f"{DEVICE_FILES}/game", f"{DEVICE_FILES}/state")
+    print(f"migrated {old} into {DEVICE_FILES}; uninstall {sources[0]} once the game "
+          "shows your save (its state stays until then)")
+    return 0
+
+
 def _pid(tools: Tools, args: argparse.Namespace) -> str:
     completed = subprocess.run([str(tools.adb)] + (["-s", args.serial] if args.serial else [])
                                + ["shell", "pidof", PACKAGE], capture_output=True, text=True)
@@ -675,6 +715,8 @@ def add_parser(commands) -> None:
                      "copy a custom Vulkan driver package (Mesa Turnip) to the device")
     parser.add_argument("driver", type=Path, help="an adrenotools driver .zip or folder")
     parser.add_argument("--name", help="the folder name on the device (default: the file's)")
+    command("migrate", migrate,
+            "bring an earlier package name's game and saves into this install")
     parser = command("run", run_game, "start the game on the device")
     parser.add_argument("--null-gpu", action="store_true", help="no renderer (gpu_backend=null)")
     parser.add_argument("--route", type=Path, help="a render-test route to run")
