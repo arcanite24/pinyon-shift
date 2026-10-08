@@ -258,6 +258,28 @@ Measured and not taken:
 | Skipping the bloom chain (its scale is zeroed when bloom is off) | Every post group changes the frame: none is dead work |
 | Adaptive frame limit | The limit costs nothing while driving (limited and unlimited windows 44.4 and 44.5 ms) |
 | `spirv_implicit_lod_2d`, coordinate sanitizing, `android_gpu_turbo` | No gain; the GPU already holds 680 MHz |
+| Transfers rendering only the rectangles they copy, `RelaxedPrecision` on pixel math | No gain beyond noise |
+| Skipping each 4x/1x depth transfer pair (`fh1_debug_skip_transfers`, SDK `12dda6e`) | Every pair is needed (the image breaks); each costs only about 0.7 ms |
+
+### Turnip on the Odin (2026-10-08)
+
+Mesa Turnip (`turnip-r8`, loaded with `android_gpu_driver` from
+`files/state/drivers/turnip-r8`) is the largest remaining gain. It
+advertises sparse residency buffers, but resolves written into sparse
+shared memory read back as zeros, so the frame was black; the shared memory
+now uses a plain buffer on Turnip (SDK `cd5c76c`). Long drive, frame cap
+off, two interleaved pairs each:
+
+| Driver | 1x frame median / p95 | 4x frame median / p95 |
+| --- | --- | --- |
+| Qualcomm (stock) | 41.5, 41.1 / 58.4, 58.3 ms | 48.6, 48.9 / 74.4, 78.3 ms |
+| Turnip | 36.9, 37.2 / 45.2, 46.3 ms | 40.9, 41.0 / 50.1, 50.8 ms |
+
+Turnip is 11 % faster at 1x and 16 % at 4x MSAA, and its p95 frame is a
+third lower. Its replay of frame 600 matches the stock driver (front-buffer
+mean difference 4.1 of 255, foliage noise) and its drive captures match.
+The recommended Odin setup is Turnip with `android_gpu_driver = "turnip-r8"`;
+the package does not ship a driver.
 
 What remains is the game's own shading (main scene about 20 ms of a 1x
 frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
