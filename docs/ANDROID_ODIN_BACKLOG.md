@@ -584,3 +584,6 @@ frames run 16.8 to 17.1 ms, at or just under the 60 fps cap.
 Turnip's GMEM rendering, forced (`TU_DEBUG=gmem`) with the scene now one
 pass, is still far slower at 4x: 49.7 ms of GPU against 18.9 ms in system
 memory, so the on-chip MSAA path is no way to 4x at 60.
+With the 60 fps limits on (as played), 2X does not lock: the drive and the
+race average 17.2 ms a frame (p95 19.7 ms, about a quarter of frames over
+17.5 ms) at 16.5 ms of GPU, so SMOOTH 60 keeps MSAA OFF.
