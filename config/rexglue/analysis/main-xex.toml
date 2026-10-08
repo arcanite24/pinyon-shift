@@ -1272,10 +1272,11 @@ memcpy = 0x82A7D730
 memmove = 0x82A7DCA0
 memset = 0x82A7F140
 
-# Scale the render scenario's EnvMapFrequencyScale after the title loads a
-# DynamicRenderSettings control (src/native_renderer/graphics_hooks.cpp):
-# 0x82D81298 follows the call of each control's loader, r30 the control.
+# Scale the render scenario's EnvMapFrequencyScale and record the scenarios
+# for pinyon_shift_fh1_shadows after the title loads a DynamicRenderSettings
+# control (src/native_renderer/graphics_hooks.cpp): 0x82D81298 follows the
+# call of each control's loader, r30 the control, r26 its scenario.
 [[midasm_hook]]
 address = 0x82D81298
 name = "PinyonShiftRenderSettingLoaded"
-registers = ["r30"]
+registers = ["r26", "r30"]

@@ -4,15 +4,19 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 #include <rex/cvar.h>
+#include <rex/logging/macros.h>
 #include <rex/perf/counter.h>
 #include <rex/ppc/context.h>
+#include <rex/runtime.h>
 #include <rex/system/gpu_write_signal.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
+#include <rex/thread/mutex.h>
 #include <rex/types.h>
 
 REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_gpu_corpus, false, "Pinyon Shift",
@@ -26,6 +30,12 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25
                       "never, reflections go dark). 0.25 saves about 2.3 ms a frame on the "
                       "Odin 2 Portal with reflections that look the same")
     .range(0.0, 1.0)
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_shadows, !REX_PLATFORM_ANDROID, "Pinyon Shift",
+                    "Draw the sun's shadows. Off sets the render scenarios' "
+                    "SkipShadowMapUnlessCockpit (no shadow maps, depth pre-pass or shadow "
+                    "mask: about 6.4 ms a frame on the Odin 2 Portal) and keeps the "
+                    "screen's shadow mask lit; needs the Vulkan FH1 executor")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_block_on_gpu_fence, true, "Pinyon Shift",
                     "Block the title's GPU fence polling until the command processor next "
@@ -48,6 +58,47 @@ thread_local uint64_t title_emitter_time_ns = 0;
 thread_local uint64_t title_packet_count = 0;
 thread_local int64_t title_first_packet_ns = 0;
 thread_local int64_t title_last_packet_ns = 0;
+// pinyon_shift_fh1_shadows off: the gameplay render scenarios, and whether
+// their SkipShadowMapUnlessCockpit is on. Shadows stay on until the GPU
+// backend has resolved the screen's shadow mask once, so its texture is
+// known and can be kept lit.
+std::mutex shadow_scenarios_mutex;
+std::vector<uint32_t> shadow_scenarios;
+bool shadows_skipped = false;
+
+// SkipShadowMapUnlessCockpit (id 35) is embedded in each scenario at +0x194;
+// bit 35 of the bitset at +36 marks it set by the scenario.
+void SkipShadows(rex::memory::Memory* memory, uint32_t scenario) {
+  auto* skip = memory->TranslateVirtual<uint8_t*>(scenario + 0x194);
+  if (rex::byte_swap(*reinterpret_cast<uint32_t*>(skip)) != 0x8223C6C4u) return;
+  skip[4] = 1;
+  auto* set_bits = memory->TranslateVirtual<uint32_t*>(scenario + 40);
+  *set_bits = rex::byte_swap(rex::byte_swap(*set_bits) | (1u << 3));
+}
+
+void KeepShadowsOff() {
+  auto* kernel_state = rex::system::kernel_state();
+  auto* graphics = kernel_state->emulator()->graphics_system();
+  uint32_t mask_base, mask_length;
+  if (!graphics || !graphics->fh1_shadow_mask(&mask_base, &mask_length)) return;
+  auto* memory = kernel_state->memory();
+  {
+    std::lock_guard<std::mutex> lock(shadow_scenarios_mutex);
+    if (!shadows_skipped) {
+      for (uint32_t scenario : shadow_scenarios) SkipShadows(memory, scenario);
+      shadows_skipped = true;
+      REXLOG_INFO("Shadows off: {} render scenarios, shadow mask {:08X}+{:X}",
+                  shadow_scenarios.size(), mask_base, mask_length);
+    }
+  }
+  // Without the shadow passes the mask keeps what was last there: written
+  // white (lit), and again whenever something else writes it.
+  auto* mask = memory->TranslatePhysical<uint32_t*>(mask_base);
+  if (mask[0] == 0xFFFFFFFFu && mask[mask_length / 4 - 1] == 0xFFFFFFFFu) return;
+  std::memset(mask, 0xFF, mask_length);
+  memory->TriggerPhysicalMemoryCallbacks(rex::thread::global_critical_region::AcquireDirect(),
+                                         0xA0000000u + mask_base, mask_length, true, false);
+}
 
 }  // namespace
 
@@ -68,6 +119,7 @@ void PinyonShiftObserveGraphicsFrame() {
                                  int64_t(title_packet_count), title_first_packet_ns,
                                  title_last_packet_ns);
   }
+  if (!REXCVAR_GET(pinyon_shift_fh1_shadows)) KeepShadowsOff();
   PROFILE_SOURCE_FRAME();
   title_emitter_frame = uint64_t(rex::perf::GetTotalCounter(
       rex::perf::CounterId::kSourceFrameCount));
@@ -160,15 +212,23 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
                                              .count());
 }
 
-// Scales the render scenario's EnvMapFrequencyScale (how often the dynamic
-// cubemap that cars reflect is redrawn) after the title loads it from the
-// DynamicRenderSettings XML: r30 is the control just loaded, its float at +4.
-void PinyonShiftRenderSettingLoaded(PPCRegister& r30) {
-  const float rate = REXCVAR_GET(pinyon_shift_fh1_env_map_rate);
-  if (rate == 1.0f) return;
+// After the title loads a DynamicRenderSettings control from a render
+// scenario's XML (r30 the control, r26 the scenario): scales
+// EnvMapFrequencyScale (how often the dynamic cubemap that cars reflect is
+// redrawn, the control's float at +4) and, with shadows off, records the
+// scenario.
+void PinyonShiftRenderSettingLoaded(PPCRegister& r26, PPCRegister& r30) {
   auto* memory = rex::system::kernel_state()->memory();
   auto* control = memory->TranslateVirtual<uint32_t*>(r30.u32);
   if (rex::byte_swap(control[0]) != 0x8223C5F4u) return;
+  if (!REXCVAR_GET(pinyon_shift_fh1_shadows)) {
+    // Every gameplay scenario sets EnvMapFrequencyScale.
+    std::lock_guard<std::mutex> lock(shadow_scenarios_mutex);
+    shadow_scenarios.push_back(r26.u32);
+    if (shadows_skipped) SkipShadows(memory, r26.u32);
+  }
+  const float rate = REXCVAR_GET(pinyon_shift_fh1_env_map_rate);
+  if (rate == 1.0f) return;
   uint32_t bits = rex::byte_swap(control[1]);
   float value;
   std::memcpy(&value, &bits, sizeof(value));
