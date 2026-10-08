@@ -407,4 +407,8 @@ causes, from `fh1_texture_reload_probe` with the sampled textures' keys:
 
 Left: the two 1024x1024 depth shadow atlases (memory overwritten in part
 by a 1280x720 resolve each frame, then resolved only 520x520) and a few
-textures resolved in bands; about 11 MB a frame.
+textures resolved in bands; about 11 MB a frame. Skipping only the atlases' reloads
+(`fh1_debug_skip_resolve_reloads_format=22`, stale images) measured 38.19
+against 38.17 and 37.27 against 38.76 ms: at most about 0.7 ms, and a
+correct fix would keep reloading the overwritten parts outside the 520x520
+resolve, so it was not built.
