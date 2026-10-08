@@ -13,7 +13,11 @@
     "bootstrap_url": "https://aka.ms/vs/17/release/vs_BuildTools.exe",
     "bootstrap_signer": "Microsoft Corporation",
     "workload": "Microsoft.VisualStudio.Workload.VCTools",
-    "required_component": "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+    "required_component": "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+    "repair_components": [
+      "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+      "Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    ]
   },
   "cmake": {
     "version": "3.31.10",

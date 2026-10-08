@@ -27,8 +27,8 @@ if (-not (Test-Path -LiteralPath (Join-Path (Resolve-PinyonRexGlueRoot) 'CMakeLi
     $pending += $config.rexglue.repository
 }
 Assert-PinyonDownloadHosts -Uris $pending
-if ([string]::IsNullOrWhiteSpace($vsRoot)) {
-    Write-PinyonEvent tools 20 'Microsoft C++ Build Tools are required. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
+# Downloads and checks the signed Build Tools bootstrapper.
+function Get-BuildToolsBootstrapper {
     $bootstrap = Join-Path $downloads 'vs_BuildTools.exe'
     if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
         $partial = "$bootstrap.partial"
@@ -41,12 +41,20 @@ if ([string]::IsNullOrWhiteSpace($vsRoot)) {
         Remove-Item -LiteralPath $bootstrap -Force
         throw 'The Microsoft Build Tools installer signature is invalid.'
     }
+    $bootstrap
+}
+
+# Runs install-build-tools.ps1 elevated (one administrator prompt), with a
+# heartbeat while the installer works, which can take many minutes. Returns
+# whether Windows must restart to finish (exit code 3010).
+function Invoke-BuildToolsInstaller {
+    param([Parameter(Mandatory)] [string]$Arguments, [Parameter(Mandatory)] [string]$Activity)
     $helper = Join-Path $PSScriptRoot 'install-build-tools.ps1'
-    $arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$helper`" -Bootstrapper `"$bootstrap`""
     # The running PowerShell by its own path, since PATH may not hold it. Process.Start keeps
     # the Win32 error that Start-Process drops, so a declined permission prompt
     # (ERROR_CANCELLED) can be told apart from a failed installer.
-    $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path, $arguments)
+    $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path,
+        "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$helper`" $Arguments")
     $startInfo.Verb = 'runas'
     $startInfo.UseShellExecute = $true
     try {
@@ -61,10 +69,23 @@ if ([string]::IsNullOrWhiteSpace($vsRoot)) {
         }
         throw
     }
-    $elevated.WaitForExit()
+    $started = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $elevated.WaitForExit(15000)) {
+        Write-PinyonEvent tools 21 "$Activity ($([int]$started.Elapsed.TotalMinutes) min so far; the installer window shows its progress)." `
+            -JsonEvents:$JsonEvents | Out-Host
+    }
     if ($elevated.ExitCode -notin @(0, 3010)) {
         throw "Microsoft C++ Build Tools installation stopped with exit code $($elevated.ExitCode)."
     }
+    $elevated.ExitCode -eq 3010
+}
+
+$restartPending = $false
+if ([string]::IsNullOrWhiteSpace($vsRoot)) {
+    Write-PinyonEvent tools 20 'Microsoft C++ Build Tools are required. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
+    $bootstrap = Get-BuildToolsBootstrapper
+    $restartPending = Invoke-BuildToolsInstaller -Arguments "-Bootstrapper `"$bootstrap`"" `
+        -Activity 'Installing the Microsoft C++ Build Tools'
     $vsRoot = Get-PinyonVisualStudioRoot
 }
 
@@ -150,7 +171,40 @@ if (-not (Test-Path -LiteralPath (Join-Path $ninjaRoot $config.ninja.executable)
     [void](New-Item -ItemType Directory -Force -Path $ninjaRoot)
     Expand-Archive -LiteralPath $archive -DestinationPath $ninjaRoot -Force
 }
-$environment = Enter-PinyonBuildEnvironment
+# A Visual Studio without a usable Windows SDK or with an old C++ library is
+# updated and completed with the installer (one administrator prompt), then
+# checked again (#393, #339). A restart the installer asked for is requested
+# only when the build environment still fails.
+function New-RestartRequiredFailure {
+    $hint = 'Windows must restart to finish installing the Microsoft C++ Build Tools. Restart, then start setup again; it continues where it stopped.'
+    $failure = [Exception]::new($hint)
+    $failure.Data['step'] = 'Finish the Microsoft C++ Build Tools installation'
+    $failure.Data['error_kind'] = 'reboot-required'
+    $failure.Data['hint'] = $hint
+    $failure
+}
+try {
+    $environment = Enter-PinyonBuildEnvironment
+}
+catch {
+    $kind = $_.Exception.Data['error_kind']
+    if ($restartPending) { throw (New-RestartRequiredFailure) }
+    if ($kind -ne 'toolchain-capability') { throw }
+    Write-PinyonEvent tools 21 'Updating Visual Studio and adding the Windows SDK the build needs. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
+    # The Visual Studio Installer already on the PC can update any edition
+    # (Community, Professional, Build Tools); the Build Tools bootstrapper is
+    # the fallback.
+    $bootstrap = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'
+    if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) { $bootstrap = Get-BuildToolsBootstrapper }
+    $restartPending = Invoke-BuildToolsInstaller -Activity 'Updating the Microsoft C++ Build Tools' -Arguments (
+        "-Bootstrapper `"$bootstrap`" -Mode Repair -InstallPath `"$vsRoot`" -Add " +
+        ((@($config.visual_studio.repair_components) | ForEach-Object { "`"$_`"" }) -join ','))
+    try { $environment = Enter-PinyonBuildEnvironment }
+    catch {
+        if ($restartPending) { throw (New-RestartRequiredFailure) }
+        throw
+    }
+}
 $git = Get-PinyonGit
 foreach ($required in @(
     @{ Name = 'Git'; Path = $git },
