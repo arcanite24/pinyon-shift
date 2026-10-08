@@ -258,7 +258,8 @@ Measured and not taken:
 | Skipping the bloom chain (its scale is zeroed when bloom is off) | Every post group changes the frame: none is dead work |
 | Adaptive frame limit | The limit costs nothing while driving (limited and unlimited windows 44.4 and 44.5 ms) |
 | `spirv_implicit_lod_2d`, coordinate sanitizing, `android_gpu_turbo` | No gain; the GPU already holds 680 MHz |
-| Transfers rendering only the rectangles they copy, `RelaxedPrecision` on pixel math | No gain beyond noise |
+| Transfers rendering only the rectangles they copy | 4x mean 49.5 and 49.1 ms off, 49.9 and 49.5 on: no gain |
+| `RelaxedPrecision` on pixel math | No gain beyond noise |
 | Skipping each 4x/1x depth transfer pair (`fh1_debug_skip_transfers`, SDK `12dda6e`) | Every pair is needed (the image breaks); each costs only about 0.7 ms |
 
 ### Turnip on the Odin (2026-10-08)
@@ -283,6 +284,15 @@ the package does not ship a driver. Its own choice between tiled (GMEM)
 and direct (sysmem) rendering is already the best: `TU_DEBUG=sysmem`
 measures the same (4x mean 41.3 ms), and `TU_DEBUG=gmem` is slower (mean
 56.4 ms, with a bimodal frame time) and leaves grainy edges.
+
+GPU profile at 4x, stock against Turnip (ms a frame): frame 45.1 / 42.8,
+transfers 5.4 / 3.2, resolves 5.7 / 4.7, texture reloads 3.2 / 2.6. The
+main scene (`1024/32/4x/d1+0/32/4x/c3`, about 18 renderings) is 24.8 /
+25.6 ms, 60 % of the frame, and it is the game's own shading at 4x MSAA:
+bandwidth, precision, specialization and pass-structure changes above did
+not move it. Beyond Turnip, the remaining gains change the image (MSAA off,
+a lower resolution) or need DR-2.1's single host image for the main
+depth's 4x and 1x views (transfers, now 3.2 ms).
 
 What remains is the game's own shading (main scene about 20 ms of a 1x
 frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
