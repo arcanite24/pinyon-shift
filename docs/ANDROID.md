@@ -17,6 +17,17 @@ the stock driver. Copy the driver package (its `.so` and `meta.json`) into
 the app's `files/state/drivers/<name>` folder and set
 `android_gpu_driver = "<name>"`.
 
+Android builds trade some image quality for frame rate by default, each a
+setting in `config/pinyon_shift.toml`: FH1's three predicated tiles are
+drawn once (`fh1_untile_predicated_tiling`, same image), the reflection
+cubemap is redrawn at a quarter of the game's rate
+(`pinyon_shift_fh1_env_map_rate = 0.25`; 1 restores it) and the sun's
+shadows are off (`pinyon_shift_fh1_shadows = false`; true restores them,
+about 6 ms a frame on the Odin). With these, MSAA off and the frame limits
+at 60 (`host_present_fps_limit` and `pinyon_shift_fh1_render_fps_limit`),
+the Odin 2 Portal holds 60 fps in free roam and races on Turnip Gen8 V37
+(15.5 ms of GPU a frame); with 4x MSAA it runs near 52 fps.
+
 ## What stays private
 
 The package holds the game translated from your own disc, exactly as
