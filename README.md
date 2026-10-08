@@ -202,7 +202,11 @@ rough, single-device measurements; the method and logs are in the
 4. Confirm ownership, then choose **Verify and build**.
 5. Leave the launcher open while it installs the Windows build tools and builds
    the preview. The first build can take 20–60 minutes and needs about 30 GB of
-   free disk space.
+   free disk space. Nothing needs installing by hand: free space, the download
+   sites and the graphics driver are checked before the build starts, an
+   incomplete Visual Studio is updated, and if Windows must restart to finish
+   the build tools, **Restart now** restarts it and setup continues after you
+   sign in.
 6. Choose **Play**. Press **F6** in game for settings.
 
 <p align="center">
@@ -239,8 +243,9 @@ images are rejected. Your image and extracted game files stay on your machine.
 The launcher downloads build tools and the pinned ShiftGlue source, extracts
 the disc locally, generates the translation locally and compiles the executable
 locally. Administrator permission is requested only if compatible Visual Studio
-Build Tools must be installed. VS 2022 Build Tools 17.1 or newer are required;
-VS 2019 alone does not satisfy the C++ standard library requirement.
+Build Tools must be installed or completed. VS 2022 Build Tools 17.1 or newer
+are required; VS 2019 alone does not satisfy the C++ standard library
+requirement. The game carries its own copy of the Visual C++ runtime.
 
 To build on another drive, choose **Change** next to **Installs to** on the
 setup screen of the packaged launcher. The launcher remembers your choice for subsequent launches.
@@ -322,11 +327,27 @@ code.
 ## Android (developer alpha)
 
 The Android build is the same recompiled game, cross-compiled for arm64 on
-your PC from your own disc, signed with a key made on your PC and installed
-over USB or wireless adb. Nothing is published or shared; the game files go
-to the app's own folder on the device. It needs an arm64 device with
-Android 13 or later and Vulkan 1.3. It is tuned for Snapdragon 8 Gen 2 and
-newer (Adreno 740+) with 8 GB of memory or more.
+your PC from your own disc and signed with a key made on your PC. Nothing is
+published or shared; the game files go to the app's own folder on the
+device. It needs an arm64 device with Android 13 or later and Vulkan 1.3. It
+is tuned for Snapdragon 8 Gen 2 and newer (Adreno 740+) with 8 GB of memory
+or more. No developer options or USB debugging are needed:
+
+1. Once the game plays on the PC, choose **Android** in the launcher, then
+   **Build APK**. The launcher downloads the Android tools it needs, and builds
+   from title update v4 if you play v4. **Show in folder** and **Save a copy**
+   find the finished `pinyon-shift.apk`.
+2. Choose **Share on Wi-Fi** and scan the QR code with the device's camera.
+   Download the app and open it; allow the browser to install apps if Android
+   asks.
+3. Open Pinyon Shift on the device. It finds the PC, asks for the six-digit
+   code the launcher shows, and copies the game, title update v4, your DLC and
+   Rally data (and your PC save, only if you tick it). Keep the launcher's
+   Android panel open until it finishes.
+
+Without Wi-Fi, copy the extracted game folder to the device over USB and
+choose it with **Choose folder** in the app. With USB debugging on, the
+launcher's **Install over USB**, or the commands below, do it with adb:
 
 ```bash
 python tools/pinyon.py android build
@@ -342,10 +363,10 @@ python tools/pinyon.py android push-data
   IMPORT DRIVER (.ZIP) adds an adrenotools package from the file picker.
 - **Controllers.** Pads work as on the PC; LS+RS toggles the performance
   panel.
-- **Saves, DLC and v4.** Saves copy between the PC and the device as a folder.
-  Imported DLC, the Rally overlay and the v4 title update are pushed the
-  same way (`android build --title-update-v4`,
-  `android push-title-update`).
+- **Saves, DLC and v4.** The app's setup screen copies imported DLC, the
+  Rally overlay, the v4 title update and, when chosen, the PC's save (after
+  backing up the device's). Long-press the app icon and choose **Get files
+  from PC** to copy them later. Saves also copy as a folder.
 - **Known issue.** Edges of trees and signs still flicker on Adreno
   ([#403](https://github.com/arcanite24/pinyon-shift/issues/403)).
 
@@ -417,6 +438,9 @@ Done since 0.1:
   ([developer alpha](docs/ANDROID.md))
 - [x] 60 fps on Snapdragon 8 Gen 2 handhelds, a bundled Turnip driver and
   custom GPU driver import on Android
+- [x] One-click setup: nothing to install by hand on Windows, and Android
+  installed over Wi-Fi without adb
+  ([backlog](docs/ONE_CLICK_SETUP_BACKLOG.md))
 
 In progress:
 
@@ -425,7 +449,6 @@ In progress:
   update ([title update v4 backlog](docs/TITLE_UPDATE_V4_BACKLOG.md))
 - [ ] DLC support from your own Xbox 360 content, including car packs and
   the Horizon Rally expansion
-- [ ] Easier Android build, USB installation and game-data transfer
 
 ### DLC support today
 

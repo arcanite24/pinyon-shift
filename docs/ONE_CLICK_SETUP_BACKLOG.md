@@ -1,6 +1,6 @@
 # One-click setup backlog: download, import the disc, play
 
-Status: **open**, created 2026-10-08 at `dev` `a1a7675`.
+Status: **done** (2026-10-08), created 2026-10-08 at `dev` `a1a7675`.
 
 Goal: a player downloads `PinyonShift-Launcher.zip`, drops in their own disc
 image and plays, on Windows and on an Android device, with nothing installed
@@ -37,12 +37,12 @@ for the player, and the existing antivirus hint names the folder to allow.
 
 | ID | Item | Status |
 | --- | --- | --- |
-| A-1 | The Android build provisions everything itself (CMake and Ninja from the pinned toolchain, the JDK and SDK as now) and builds the v4 APK when v4 is chosen in the launcher | Open |
-| A-2 | The APK is easy to find: an Android panel in the launcher with the APK's path, Show in folder and Save a copy | Open |
-| A-3 | Install without adb: the launcher serves the APK on the local network while the panel is open, with a QR code to scan on the device | Open |
-| A-4 | Game files without adb: the app opens a setup screen when the game is missing. It receives the game, the v4 update, DLC and Rally data from the launcher over the local network with a pairing code. It can also import a folder copied to the device over USB | Open |
-| A-5 | adb stays for developers: Install over USB when a device with USB debugging is connected | Open |
-| A-6 | Documentation: README, `docs/ANDROID.md` and the launcher's own text | Open |
+| A-1 | The Android build provisions everything itself (CMake and Ninja from the pinned toolchain, the JDK and SDK as now) and builds the v4 APK when v4 is chosen in the launcher | Done: free space (15 GB) and the download sites are checked first; `.local/android/pinyon-shift.json` records whether the package is v4 |
+| A-2 | The APK is easy to find: an Android panel in the launcher with the APK's path, Show in folder and Save a copy | Done |
+| A-3 | Install without adb: the launcher serves the APK on the local network while the panel is open, with a QR code to scan on the device | Done: a download page with install steps; QR encoder in the launcher (byte mode, level M), checked against jsQR |
+| A-4 | Game files without adb: the app opens a setup screen when the game is missing. It receives the game, the v4 update, DLC and Rally data from the launcher over the local network with a pairing code. It can also import a folder copied to the device over USB | Done: `SetupActivity` is the app icon's entry and hands over to the game once the files are complete; **Get files from PC** reopens it. Checked on the AYN Thor through `adb reverse`: pairing, a 48 MB copy and a resumed copy matched by SHA-256 |
+| A-5 | adb stays for developers: Install over USB when a device with USB debugging is connected | Done: `tools/install-android-usb.ps1` |
+| A-6 | Documentation: README, `docs/ANDROID.md` and the launcher's own text | Done |
 
 ### Local network transfer (A-3, A-4)
 
@@ -58,3 +58,10 @@ for the player, and the existing antivirus hint names the folder to allow.
 - **Discovery.** The device finds the launcher by a UDP broadcast on the
   local network, or the player types the address the panel shows.
 - **Firewall.** Windows asks once to allow the launcher on private networks.
+
+### Not yet checked on hardware
+
+- UDP discovery and the Windows Firewall prompt on a real Wi-Fi network (the
+  device test above used `adb reverse`, which carries TCP only).
+- The setup screen on a device without the game files, and the folder import.
+- The launcher's Android panel itself (built, not driven by a test).

@@ -50,33 +50,61 @@ the Odin 2 Portal holds 60 fps in free roam and races on Turnip Gen8 V37
 The package holds the game translated from your own disc, exactly as
 `pinyon_shift.exe` does on Windows, so it is built on your PC and installed
 on your own device, and it is never published or shared. The game files go
-from your PC to your device over USB. Nothing is uploaded. The repository
-refuses Android packages, libraries and signing keys (see
-[legal](LEGAL.md)).
+from your PC to your device over your local network or USB. Nothing is
+uploaded. The repository refuses Android packages, libraries and signing keys
+(see [legal](LEGAL.md)).
 
 ## Requirements
 
 - A Windows PC where the game is already built (the launcher, or
   `tools/build-preview.ps1`): the Android build reuses the code translated
   there.
-- The Android SDK command-line tools (Android Studio installs them) and JDK
-  17. `pinyon.py android doctor --install` adds the pinned NDK, build tools
-  and platform from `config/android-toolchain.json`, and shows the Android
-  SDK license for you to accept (`--accept-licenses` answers yes).
+- Nothing else on the PC: the launcher downloads the pinned Android SDK
+  command-line tools and JDK 17 when the PC has none, then the NDK, build
+  tools and platform from `config/android-toolchain.json` once you accept the
+  Android SDK license, and builds with the pinned CMake and Ninja. About 15 GB
+  free on the install drive. From a terminal, `pinyon.py android doctor
+  --install` does the same (`--accept-licenses` answers yes).
 - The device: arm64, Android 13 (API 33) or later, a Vulkan 1.3 driver,
-  about 8 GB free, USB debugging turned on.
+  about 8 GB free, on the same network as the PC. USB debugging is needed only
+  for the adb commands.
 
 ## From the PC to the device
 
-In the launcher, once the game is built, **Build Android APK** does the
-first two steps below. It asks you to accept the Android SDK license, and on
-a PC with no Android SDK or JDK it fetches the pinned command-line tools and
-Eclipse Temurin JDK 17 into the install folder (`.local/toolchain`), checked
-against their SHA-256. A failure is described in
-`.local/logs/android-error.json`. Then install the package and copy the
-game with the last two commands.
+In the launcher, once the game plays on the PC, choose **Android**:
 
-From a terminal:
+1. **Build APK** builds `.local/android/pinyon-shift.apk` (20 to 60 minutes
+   the first time), from title update v4 when you play v4 on the PC. The
+   panel shows where the package is, with **Show in folder** and **Save a
+   copy**. A failure is described in `.local/logs/android-error.json`.
+2. **Share on Wi-Fi** shows a QR code and a six-digit pairing code. Scan the
+   code with the device's camera (or open the address under it in the
+   device's browser), download the app and open it; Android asks once to
+   allow the browser to install apps. Windows asks once to allow the launcher
+   on private networks.
+3. The app opens its setup screen while the game files are missing. It finds
+   the PC by a broadcast on the local network (or takes the address the panel
+   shows), asks for the pairing code and lists what the PC offers: the game
+   files (7.2 GB, required), title update v4 (with a v4 package), imported
+   DLC, the Rally overlay and the PC's save. The save is never selected for
+   you; when chosen, the device's own save is first copied to
+   `files/state/backups/before-pc-save-<time>`. An interrupted copy resumes
+   where it stopped. Then **Play**.
+
+The launcher serves only while its Android panel is open and sharing, only to
+private network addresses, and only the files it listed. Every request but
+the download page and the package needs the pairing code, which changes each
+time sharing starts; ten wrong codes stop the share. Nothing goes from the
+device to the PC.
+
+To copy more later, such as DLC imported afterwards, long-press the app icon
+and choose **Get files from PC**. Without a network, copy the extracted game
+folder (`.local\game\base` in the install folder, the one holding
+`default.xex`) to the device over USB and choose it with **Choose folder** on
+the setup screen.
+
+With USB debugging on, **Install over USB** in the panel installs the package
+and copies the game with adb. From a terminal:
 
 ```bash
 python tools/pinyon.py android doctor --install
@@ -94,13 +122,13 @@ python tools/pinyon.py android install
 python tools/pinyon.py android push-data
 ```
 
-`build` cross-compiles the game (20 to 60 minutes the first time) and
-packages `.local/android/pinyon-shift.apk`, signed with a key made on your
-PC. `push-data` copies the extracted game (7.2 GB, 2,400 files) into the
-app's folder on the device, `Android/data/studio.deimos.pinyonshift/files/game/base`;
-it resumes where it stopped if interrupted. Saves, settings, logs and mods
-live beside it in `files/state`, with the same layout as on the PC, so a save
-copies between the two as a folder.
+`build` cross-compiles the game and packages `.local/android/pinyon-shift.apk`,
+signed with a key made on your PC. `push-data` copies the extracted game
+(7.2 GB, 2,400 files) into the app's folder on the device,
+`Android/data/studio.deimos.pinyonshift/files/game/base`; it resumes where it
+stopped if interrupted. Saves, settings, logs and mods live beside it in
+`files/state`, with the same layout as on the PC, so a save copies between
+the two as a folder.
 
 Builds before October 2026 installed as `com.pinyonshift.fh1`, which Android
 treats as another app with its own folder. After installing the current
@@ -126,9 +154,10 @@ python tools/pinyon.py android push-title-update --state-root STATE
 
 A save written by v4 cannot be loaded by the base build afterwards, so keep a
 copy before its first v4 start. Offline 1000 Club needs
-`pinyon_shift_car_challenge_gate_probe = true` and
-`xam_report_live_signin = true` in the device's `config/pinyon_shift.toml`,
-which the PC launcher sets from its 1000 Club choice.
+`pinyon_shift_car_challenge_gate_probe` and `xam_report_live_signin` on. When
+the setup screen copies title update v4 from a PC with 1000 Club offline on,
+it writes both to `files/state/config/android-arguments.txt`, whose lines the
+game adds to its arguments at every start.
 
 Start the game from the launcher icon, or:
 
@@ -160,7 +189,8 @@ keyboard; SETTINGS > CONTROLLER > PERFORMANCE PANEL changes the buttons
 
 | Symptom | Cause |
 | --- | --- |
-| The app closes at once | The game files are not on the device: run `push-data`. If logcat says `Cannot create the state folder`, files were copied into the app's folder by hand: run `push-data` again, which lets the app use them. |
+| The setup screen does not find the PC | The device and the PC are on different networks, the network blocks broadcasts, or Windows Firewall blocked the launcher: enter the address the launcher shows, and allow the launcher on private networks. |
+| The app closes at once | Started from adb without the game files: open it from the app icon, or run `push-data`. If logcat says `Cannot create the state folder`, files were copied into the app's folder by hand: run `push-data` again, which lets the app use them. |
 | `VULKAN_CAPABILITY_REPORT` in the log | The device's features, formats and memory, logged at every start; attach it to reports. |
 | RESOLUTION SCALE offers only 1X | Higher scales need resolve buffers larger than a phone's shared memory holds; `android_allow_resolution_scale` lifts the limit for testing. |
 | `skipped a resolve` in the log | A guest copy the renderer cannot pack yet (one is known, in the title screen's attract sequence); the frame continues without it. |
