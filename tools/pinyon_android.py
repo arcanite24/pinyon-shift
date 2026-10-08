@@ -369,6 +369,24 @@ def bundled_driver_files() -> list[tuple[Path, str]]:
     return files
 
 
+# The Khronos validation layer (Apache-2.0), from the release's Android
+# binaries unpacked into .local/vulkan-validation-android/<release>/. The
+# loader finds a layer in the app's native library folder, and
+# SETTINGS > GRAPHICS > KHRONOS VALIDATION enables it; with it on, the
+# Adreno smear (issue #403) has not been seen.
+VALIDATION_LAYER = "libVkLayer_khronos_validation.so"
+
+
+def validation_layer() -> Path | None:
+    found = sorted((ROOT / ".local" / "vulkan-validation-android").glob(
+        f"*/{CONFIG['abi']}/{VALIDATION_LAYER}"))
+    if not found:
+        print(f"warning: {VALIDATION_LAYER} is not in .local/vulkan-validation-android; "
+              "KHRONOS VALIDATION will have no layer to load")
+        return None
+    return found[-1]
+
+
 def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
     tools = tools or Tools()
     directory = build_directory(args)
@@ -434,12 +452,15 @@ def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
                   if line.strip().startswith("LOAD")}
         if not aligns or min(aligns) < 0x4000:
             raise AndroidError(f"{library.name} has load segments aligned below 16 KiB")
+    layer = validation_layer()
 
     with zipfile.ZipFile(unsigned, "a", compression=zipfile.ZIP_DEFLATED) as apk:
         apk.write(staging / "dex" / "classes.dex", "classes.dex")
         apk.write(staging / "pinyon_shift_build.json", "assets/pinyon_shift_build.json")
         for library in stripped:
             apk.write(library, f"lib/{CONFIG['abi']}/{library.name}")
+        if layer:
+            apk.write(layer, f"lib/{CONFIG['abi']}/{VALIDATION_LAYER}")
         for path, name in bundled_driver_files():
             apk.write(path, name)
 
@@ -451,7 +472,8 @@ def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
          "--key-pass", "pass:pinyon-local", "--out", output, aligned])
     size = output.stat().st_size
     print(json.dumps({"apk": str(output), "bytes": size, "version": version_name,
-                      "libraries": [path.name for path in stripped]}))
+                      "libraries": [path.name for path in stripped]
+                      + ([VALIDATION_LAYER] if layer else [])}))
     return 0
 
 

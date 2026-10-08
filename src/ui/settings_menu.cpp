@@ -430,6 +430,17 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                   {"2X", {{"fh1_msaa_single_sample", "false"},
                                           {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
+  // The Khronos validation layer packaged with the game: with it on, the
+  // intermittent smear on distant geometry on Adreno (issue #403) has not
+  // been seen, at a CPU cost. SYNC adds its synchronization validation, as
+  // in the runs that showed none. Applies at the next start.
+  rows.push_back(Setting("KHRONOS VALIDATION",
+                         {{"OFF", {{"vulkan_validation_enabled", "false"},
+                                   {"vulkan_validation_sync", "false"}}},
+                          {"ON", {{"vulkan_validation_enabled", "true"},
+                                  {"vulkan_validation_sync", "false"}}},
+                          {"SYNC", {{"vulkan_validation_enabled", "true"},
+                                    {"vulkan_validation_sync", "true"}}}}));
   // The Vulkan driver loaded at the next start: AUTO is the one recommended
   // for the GPU (Mesa Turnip Gen8 V37, bundled, on Adreno 7xx), SYSTEM the
   // device's own, and every package under state/drivers (bundled or
