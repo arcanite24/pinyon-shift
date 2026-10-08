@@ -587,3 +587,20 @@ memory, so the on-chip MSAA path is no way to 4x at 60.
 With the 60 fps limits on (as played), 2X does not lock: the drive and the
 race average 17.2 ms a frame (p95 19.7 ms, about a quarter of frames over
 17.5 ms) at 16.5 ms of GPU, so SMOOTH 60 keeps MSAA OFF.
+
+### Player reports on SMOOTH 60 (2026-10-08)
+
+Shimmering, noise-like edges on trees and signs: alpha to coverage. The
+shaders were told the guest's 4x while the executor stored one host
+sample, so each pixel kept guest sample 0's threshold minus the console's
+per-pixel dither offset, a pattern that crawls without four samples to
+average it. Shaders now get the host sample count, and with fewer host
+samples every pixel uses one offset (`fh1_stable_alpha_to_coverage`, SDK
+`65dad16`): foliage, flags and cables have solid edges.
+
+Shadows "baked" after changing view with RB: the cockpit view draws
+shadows even with them skipped (SkipShadowMapUnlessCockpit), and its
+screen-space mask stayed in the other views because the refill checked
+only words the sky keeps white. The executor counts mask resolves (SDK
+`fa3c46c`) and the hook refills on the first frame without one: a drive
+cycling all six views shows the cockpit shadowed and the rest lit.
