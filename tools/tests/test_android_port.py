@@ -45,13 +45,16 @@ class AndroidPortTest(unittest.TestCase):
 
     def test_project_template_holds_no_game_code_or_data(self):
         # Only the manifest, the activity's Java source, the game mode
-        # config and the bundled driver's notice are checked in; everything
-        # derived from the disc is built locally.
+        # config, the launcher icon and the bundled driver's notice are
+        # checked in; everything derived from the disc is built locally.
         files = sorted(path.relative_to(ROOT / "android").as_posix()
                        for path in (ROOT / "android").rglob("*") if path.is_file())
         self.assertEqual(files, ["AndroidManifest.xml",
                                  "drivers/turnip-gen8-v37/NOTICE.txt",
                                  "java/studio/deimos/pinyonshift/PinyonShiftActivity.java",
+                                 "res/drawable-xxxhdpi/ic_launcher_foreground.png",
+                                 "res/mipmap-anydpi-v26/ic_launcher.xml",
+                                 "res/values/ic_launcher_background.xml",
                                  "res/xml/game_mode_config.xml"])
         for path in (ROOT / "android").rglob("*"):
             if path.is_file():

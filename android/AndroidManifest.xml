@@ -40,6 +40,8 @@
 
     <application
         android:label="Pinyon Shift"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:hasCode="true"
         android:extractNativeLibs="true"

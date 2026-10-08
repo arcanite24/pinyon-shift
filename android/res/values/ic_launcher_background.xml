@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launcher's Forest (launcher/PinyonShift.Launcher/App.xaml). -->
+    <color name="ic_launcher_background">#1B4229</color>
+</resources>
