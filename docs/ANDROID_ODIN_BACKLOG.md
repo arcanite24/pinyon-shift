@@ -428,3 +428,10 @@ The frame 600 replay is identical to `turnip-r8`'s (front buffer mean
 difference 0.0; 12.61 from the desktop reference for both) and the drive
 capture renders correctly. Gen8 V37 is the recommended Odin driver: the
 busy drive now runs about 31 fps at 4x and 36 fps at 1x.
+
+Its GPU profile (4x) differs from `turnip-r8`'s mostly in what lies
+between the work: the labeled spans cover 32.1 of a 34.1 ms profiled frame
+(against about 14.6 ms in no span before), so barriers and switches
+between rendering and compute cost it far less. The GPU is 99 % busy. Its
+own choice of tiled or direct rendering stays best: default 32.0 ms,
+`TU_DEBUG=sysmem` 32.9, `TU_DEBUG=gmem` 55.4.
