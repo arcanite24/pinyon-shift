@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -17,6 +18,14 @@
 REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_gpu_corpus, false, "Pinyon Shift",
                     "Sample native GPU pass and texture-request timings every 60 frames "
                     "(read by the D3D12 command processor)")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25 : 1.0,
+                      "Pinyon Shift",
+                      "Scales how often the dynamic cubemap that cars reflect is redrawn "
+                      "(the render scenarios' EnvMapFrequencyScale; 1: the game's rate, 0: "
+                      "never, reflections go dark). 0.25 saves about 2.3 ms a frame on the "
+                      "Odin 2 Portal with reflections that look the same")
+    .range(0.0, 1.0)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_block_on_gpu_fence, true, "Pinyon Shift",
                     "Block the title's GPU fence polling until the command processor next "
@@ -149,4 +158,21 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
   PERF_counter_add(kTitleGpuFenceWaitNs, std::chrono::duration_cast<std::chrono::nanoseconds>(
                                              Clock::now() - wait_start)
                                              .count());
+}
+
+// Scales the render scenario's EnvMapFrequencyScale (how often the dynamic
+// cubemap that cars reflect is redrawn) after the title loads it from the
+// DynamicRenderSettings XML: r30 is the control just loaded, its float at +4.
+void PinyonShiftRenderSettingLoaded(PPCRegister& r30) {
+  const float rate = REXCVAR_GET(pinyon_shift_fh1_env_map_rate);
+  if (rate == 1.0f) return;
+  auto* memory = rex::system::kernel_state()->memory();
+  auto* control = memory->TranslateVirtual<uint32_t*>(r30.u32);
+  if (rex::byte_swap(control[0]) != 0x8223C5F4u) return;
+  uint32_t bits = rex::byte_swap(control[1]);
+  float value;
+  std::memcpy(&value, &bits, sizeof(value));
+  value *= rate;
+  std::memcpy(&bits, &value, sizeof(bits));
+  control[1] = rex::byte_swap(bits);
 }
