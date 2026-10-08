@@ -245,6 +245,27 @@ add_custom_target(pinyon_shift_stage_controller_mappings ALL
     COMMENT "Staging project gamepad mappings beside pinyon_shift"
     VERBATIM)
 
+# The game and its libraries use the Visual C++ runtime DLLs. Copies from the
+# toolset that built them sit beside the game (Microsoft's app-local
+# deployment), so it starts on a PC without the matching redistributable
+# (#393). The developer prompt sets VCToolsRedistDir.
+if(WIN32 AND DEFINED ENV{VCToolsRedistDir})
+    set(PINYON_SHIFT_VC_REDIST_DIR "$ENV{VCToolsRedistDir}" CACHE PATH
+        "Visual C++ redistributable folder of the build toolset")
+endif()
+if(WIN32 AND PINYON_SHIFT_VC_REDIST_DIR)
+    file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
+        "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+    if(PINYON_SHIFT_VC_RUNTIME_DLLS)
+        add_custom_target(pinyon_shift_stage_vc_runtime ALL
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${PINYON_SHIFT_VC_RUNTIME_DLLS} "$<TARGET_FILE_DIR:pinyon_shift>"
+            DEPENDS pinyon_shift ${PINYON_SHIFT_VC_RUNTIME_DLLS}
+            COMMENT "Staging the Visual C++ runtime beside pinyon_shift"
+            VERBATIM)
+    endif()
+endif()
+
 if(WIN32)
     target_link_libraries(pinyon_shift PRIVATE bcrypt d3d12 dbghelp dxgi rex::gpu-fh1)
 else()
