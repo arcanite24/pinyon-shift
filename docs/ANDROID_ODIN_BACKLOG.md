@@ -237,3 +237,29 @@ runs about 22 fps at 1x and 19 at 4x; the frame limit of 30 costs nothing
 there (the limited and unlimited runs' driving windows match, 44.4 and
 44.5 ms), only menus and loading run faster without it. Further GPU gains
 need shader work on the main scene or the post chain.
+
+### Shader specialization and further experiments (2026-10-08)
+
+Every translated texture fetch read its signedness from a system constant
+and switched on it. `spirv_specialize_texture_signs` (Android default, SDK
+`efcbb82`) makes those words specialization constants set from the bound
+textures, in pipelines kept beside the stored ones (the stored description
+format and desktop prewarm catalogs are unchanged). 1x drive, two
+interleaved pairs: frame 45.8 and 46.9 to 43.8 and 44.0 ms; the replay is
+byte-identical. Draws that write nothing outside occlusion queries are now
+skipped (SDK `9187b27`; 120 a frame, replay identical, gain within noise).
+
+Measured and not taken:
+
+| Experiment | Result |
+| --- | --- |
+| 7e3 targets as 32-bit B10G11R11 (half the main scene's color traffic) | GPU 45.4 to 45.8 ms at 4x: the scene is shader-bound, not bandwidth-bound; image drifts |
+| Predicated forward jumps falling through (113 of 153 pixel shaders lose the program counter loop) | Replay identical; frame 42.8/41.7 to 42.7/41.2 ms, noise |
+| Skipping the bloom chain (its scale is zeroed when bloom is off) | Every post group changes the frame: none is dead work |
+| Adaptive frame limit | The limit costs nothing while driving (limited and unlimited windows 44.4 and 44.5 ms) |
+| `spirv_implicit_lod_2d`, coordinate sanitizing, `android_gpu_turbo` | No gain; the GPU already holds 680 MHz |
+
+What remains is the game's own shading (main scene about 20 ms of a 1x
+frame) and, at 4x MSAA, the main depth buffer's 4x/1x views copied back and
+forth (about 15,000 tile-passes a frame, 5.3 ms): one host image for both
+views is DR-2.1's deferred per-surface scale.
