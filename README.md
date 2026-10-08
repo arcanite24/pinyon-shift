@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>The Xbox 360 release of <i>Forza Horizon</i>, recompiled to run natively on Windows.</b><br>
+  <b>The Xbox 360 release of <i>Forza Horizon</i>, recompiled to run natively on Windows, with an Android alpha.</b><br>
   Built on your own PC from your own disc, with internal resolutions up to 4K.
 </p>
 
@@ -55,6 +55,12 @@ or a prebuilt game executable.
 - **Settings in game (F6)** for display, graphics, audio and controls, plus a
   trainer (F10: credits, game speed, time of day, free camera, collectibles on
   the map), photo export, save backups and [mods](docs/MODDING.md).
+- **Android handhelds (alpha).** The same game, cross-compiled for arm64 and
+  installed on your own device: 60 fps on Snapdragon 8 Gen 2 handhelds with
+  the SMOOTH 60 preset. See [Android](#android-developer-alpha).
+- **Your DLC.** Owned Xbox 360 packages are verified and imported, and Rally and
+  1000 Club run natively on the optional v4 title-update build. See
+  [DLC support today](#dlc-support-today).
 - **The Treasure Map included.** The add-on that showed every discount sign and
   barn find on the map was sold for Tokens through a service that no longer
   exists; it is on by default and can be turned off in the launcher.
@@ -162,6 +168,28 @@ take 265 MB, textures about 150 MB) and stays there over a long drive, so a
 GPUs and the Steam Deck need their own runs. The records, with the commit each
 ran, are in [benchmarks/low-spec](benchmarks/low-spec); the plan is in the
 [low-spec backlog](docs/LOW_SPEC_BACKLOG.md).
+
+### Android handhelds
+
+Measured in free roam and races at 1x (1280×720 internal) with the in-game
+presets, from the same save. SMOOTH 60 is no MSAA, no sun shadows and a
+60 fps limit; QUALITY 30 keeps the game's 4x MSAA and shadows at 30 fps.
+Both draw FH1's three predicated tiles once and redraw the reflection map
+at a quarter rate.
+
+| Device | SoC, GPU, memory | Driver | SMOOTH 60 | 2x MSAA, 60 limit | 4x MSAA, 60 limit | QUALITY 30 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| AYN Odin 2 Portal | Snapdragon 8 Gen 2, Adreno 740, 8 GB | Turnip Gen8 V37 (bundled) | **about 60 fps** (15.5–16.2 ms GPU) | about 58 fps | about 52 fps | holds 30 |
+| AYN Thor (Max) | Snapdragon 8 Gen 2, Adreno 740, 16 GB | Turnip Gen8 V37 (bundled) | **about 60 fps** | — | — | — |
+| RedMagic Astra (nubia NP05J) | Snapdragon 8 Elite, Adreno 830 | Qualcomm (system) | **60 fps while cool**; 37–39 at 40–44 °C skin, 26–28 above 44.5 °C | — | — | — |
+
+On Adreno 7xx, Mesa Turnip is much faster than the stock Qualcomm driver:
+before the presets, the Odin's busy drive took 32 ms at 4x MSAA with Turnip
+Gen8 V37 against 49 ms with the stock driver. The tablet's limit is heat,
+not frame cost: after about three minutes it throttles. The numbers are
+rough, single-device measurements; the method and logs are in the
+[Android](docs/ANDROID.md), [Odin](docs/ANDROID_ODIN_BACKLOG.md) and
+[60 fps](docs/ANDROID_60FPS_BACKLOG.md) documents.
 
 ## Play
 
@@ -291,6 +319,41 @@ This is a public preview, not a finished remaster. Please report reproducible
 problems with the issue template and do not attach game files or generated
 code.
 
+## Android (developer alpha)
+
+The Android build is the same recompiled game, cross-compiled for arm64 on
+your PC from your own disc, signed with a key made on your PC and installed
+over USB or wireless adb. Nothing is published or shared; the game files go
+to the app's own folder on the device. It needs an arm64 device with
+Android 13 or later and Vulkan 1.3. It is tuned for Snapdragon 8 Gen 2 and
+newer (Adreno 740+) with 8 GB of memory or more.
+
+```bash
+python tools/pinyon.py android build
+python tools/pinyon.py android install
+python tools/pinyon.py android push-data
+```
+
+- **Presets and settings in game.** SETTINGS > GRAPHICS has QUALITY 30 and
+  SMOOTH 60, and separate rows for shadows, reflection updates, single-pass
+  scene and MSAA (4X, 2X or OFF). Most of them apply while you play.
+- **GPU drivers.** Mesa Turnip Gen8 V37 is bundled and chosen automatically on
+  Adreno 7xx. GPU DRIVER switches to the system driver or any other, and
+  IMPORT DRIVER (.ZIP) adds an adrenotools package from the file picker.
+- **Controllers.** Pads work as on the PC; LS+RS toggles the performance
+  panel.
+- **Saves, DLC and v4.** Saves copy between the PC and the device as a folder.
+  Imported DLC, the Rally overlay and the v4 title update are pushed the
+  same way (`android build --title-update-v4`,
+  `android push-title-update`).
+- **Known issue.** Edges of trees and signs still flicker on Adreno
+  ([#403](https://github.com/arcanite24/pinyon-shift/issues/403)).
+
+The app installs as `studio.deimos.pinyonshift`. Builds before October 2026
+used `com.pinyonshift.fh1`; `python tools/pinyon.py android migrate` copies
+their saves into the new app. Full instructions are in
+[docs/ANDROID.md](docs/ANDROID.md).
+
 ## Reporting crashes and bugs
 
 Keep the launcher open while playing. If the game exits unexpectedly, the
@@ -352,6 +415,8 @@ Done since 0.1:
 - [x] Keep crowd and purchase animations at the right speed above 30 fps
 - [x] Initial Android runtime and local APK build from the launcher
   ([developer alpha](docs/ANDROID.md))
+- [x] 60 fps on Snapdragon 8 Gen 2 handhelds, a bundled Turnip driver and
+  custom GPU driver import on Android
 
 In progress:
 
@@ -361,6 +426,23 @@ In progress:
 - [ ] DLC support from your own Xbox 360 content, including car packs and
   the Horizon Rally expansion
 - [ ] Easier Android build, USB installation and game-data transfer
+
+### DLC support today
+
+- **Import.** `tools/manage-fh1-dlc.py` (and the launcher) verify your own
+  packages against a pinned catalog of 21 FH1 packages and import them. Each
+  package is enabled separately. This covers Rally, 1000 Club, the monthly
+  car packs, VIP, Honda, the pre-order and the single cars.
+- **Rally on the base disc.** A prepared overlay makes the championships
+  playable from F6. Stage records, pace notes and resume are saved, but the
+  original in-game entry is not restored yet.
+- **Rally and 1000 Club on v4.** The optional v4 build runs the expansions'
+  original code. It is built from your disc and your own v4 update, on
+  Windows (`tools/build-v4.ps1`) or Android (`--title-update-v4`). 1000 Club
+  runs offline when its launcher option is on. A save written by v4 cannot go
+  back to the base build, so the launcher backs it up first.
+- **Car packs.** These are imported and enabled like the others, but showing
+  and driving their cars in game is not verified yet.
 
 ### DLC support priorities
 
