@@ -323,7 +323,9 @@ pair needed.
 
 What remains is the game's own pixel shading and geometry in the main
 scene (about 23.5 ms of a 40 ms 4x frame on Turnip), resolves (4.6 ms,
-about 0.5 ms for each 1280x256 4x color resolve) and the post chain's 43
+about 0.5 ms for each 1280x256 4x color resolve, which moves about 13 MB:
+27 GB/s, near the memory's practical rate, so the shaders' 1,300-1,950
+mostly untaken instructions are not what costs) and the post chain's 43
 small renderings and 21 small resolves a frame (about 2 ms, each step
 waiting on the last). The GPU is 91-93 % busy at 680 MHz throughout. At
 1x the Odin now runs the busy drive at about 28 fps (35.5 ms) with Turnip,
