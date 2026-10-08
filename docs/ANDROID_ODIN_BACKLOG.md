@@ -559,3 +559,18 @@ Desktop (Ryzen 7 5800X, RTX 4080, Vulkan, busy drive, hidden window):
 1x is CPU-bound on the desktop, so neither changes its frame; at 3x
 single-pass is within the noise and shadows off saves about 3.5 ms. The
 desktop keeps both at the game's defaults.
+
+### 2x MSAA (2026-10-08)
+
+`fh1_msaa_2x` (SDK `30bc02c`, MSAA row 2X) stores the game's 4x surfaces with two host
+samples, the guest's top and bottom sample pairs each in one. Drive with
+shadows off, Gen8 V37:
+
+| MSAA | Frame | GPU |
+| --- | --- | --- |
+| 4X | 19.28 ms | 18.69 ms |
+| 2X | 16.97, 17.01 ms | 16.19, 16.24 ms |
+| OFF | 16.73 ms (the cap) | 15.19 ms |
+
+2X antialiases edges like 4X at about 59 fps; SMOOTH 60 stays OFF for
+headroom. It also renders correctly on the desktop (Vulkan, 2x scale).

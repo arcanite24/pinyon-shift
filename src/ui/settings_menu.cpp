@@ -396,6 +396,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
                             {"fh1_msaa_single_sample", "false"},
+                            {"fh1_msaa_2x", "false"},
                             {"fh1_untile_predicated_tiling", "true"},
                             {"pinyon_shift_fh1_env_map_rate", "0.25"},
                             {"pinyon_shift_fh1_shadows", "true"},
@@ -417,7 +418,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // The game's 4x MSAA is most of a handheld GPU's frame: off, edges are
   // harder and the frame much cheaper.
   // Labelled apart from the FXAA row (POST-PROCESS AA) below.
-  rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"}}},
+  // 2X stores the game's 4x surfaces with two samples each (Vulkan): on the
+  // Odin 2 Portal 16.2 ms of GPU a frame against 18.7 at 4X and 15.2 OFF.
+  rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"},
+                                          {"fh1_msaa_2x", "false"}}},
+                                  {"2X", {{"fh1_msaa_single_sample", "false"},
+                                          {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
 #else
   // LOW-SPEC 60 and BALANCED 40 (LS-1.1, LS-1.6) choose the cheapest
@@ -438,6 +444,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
         {"draw_resolution_scale_y", scale},
         {"present_effect", effect},
         {"fh1_msaa_single_sample", msaa_off},
+        {"fh1_msaa_2x", "false"},
         {"host_present_fps_limit", "0"},
         {"pinyon_shift_fh1_render_fps_limit", fps}};
     values.insert(values.end(), extra.begin(), extra.end());
@@ -455,7 +462,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
        {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60")}}));
   // The game's 4x MSAA, apart from the post-process FXAA row below: off,
   // edges are harder and targets take a quarter of the memory.
-  rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"}}},
+  // 2X stores the game's 4x surfaces with two samples each (Vulkan): on the
+  // Odin 2 Portal 16.2 ms of GPU a frame against 18.7 at 4X and 15.2 OFF.
+  rows.push_back(Setting("MSAA", {{"4X", {{"fh1_msaa_single_sample", "false"},
+                                          {"fh1_msaa_2x", "false"}}},
+                                  {"2X", {{"fh1_msaa_single_sample", "false"},
+                                          {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
 #endif
   std::vector<Choice> scales;
