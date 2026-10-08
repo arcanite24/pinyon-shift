@@ -24,12 +24,7 @@ default, loads the one recommended for the GPU (Turnip Gen8 V37 on Adreno
 own, and every folder under `files/state/drivers` by name. IMPORT DRIVER
 (.ZIP) opens the system's file picker for an adrenotools package (a `.zip`
 with `meta.json` and the driver `.so`), which is unpacked into a folder
-named after the zip. The page's note names the driver in use.
-KHRONOS VALIDATION (OFF, ON, SYNC; next start) loads the Khronos validation
-layer packaged in the APK. With it on, the intermittent smear on distant
-geometry ([#403](https://github.com/arcanite24/pinyon-shift/issues/403))
-has not been seen, at a CPU cost. Packaging takes the layer from the
-release's Android binaries unpacked under `.local/vulkan-validation-android`. Packaging
+named after the zip. The page's note names the driver in use. Packaging
 reads the driver binary from `.local/android/drivers/turnip-gen8-v37`
 (`meta.json` and `libvulkan_freedreno.so`) and skips it with a warning when
 absent.
