@@ -57,6 +57,15 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("needs 1000000 GB", result["hint"])
         self.assertEqual(result["step"], "Check free disk space")
 
+    def test_the_android_build_has_its_own_figure(self):
+        result = failure(
+            "function Get-PinyonReleaseToolchain { [pscustomobject]@{ disk_space_gb ="
+            " [pscustomobject]@{ first_build = 0; rebuild = 0; system_drive = 0;"
+            " build_tools = 0; android = 1000000 } } }\n"
+            "Assert-PinyonFreeSpace -Root . -Android")
+        self.assertEqual(result["kind"], "disk-space")
+        self.assertIn("needs 1000000 GB", result["hint"])
+
     def test_enough_space_passes(self):
         result = failure(
             "function Get-PinyonReleaseToolchain { [pscustomobject]@{ disk_space_gb ="

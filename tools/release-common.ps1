@@ -596,13 +596,15 @@ function Assert-PinyonFreeSpace {
     param(
         [Parameter(Mandatory)] [string]$Root,
         [switch]$FirstBuild,
-        [switch]$BuildToolsMissing
+        [switch]$BuildToolsMissing,
+        # The Android build: the SDK packages, JDK and its own build tree.
+        [switch]$Android
     )
     $space = (Get-PinyonReleaseToolchain).disk_space_gb
     $needs = [ordered]@{}
     $install = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Root)).ToUpperInvariant()
     $system = ([Environment]::GetFolderPath('Windows') | ForEach-Object { [IO.Path]::GetPathRoot($_) }).ToUpperInvariant()
-    $needs[$install] = [double]$(if ($FirstBuild) { $space.first_build } else { $space.rebuild })
+    $needs[$install] = [double]$(if ($Android) { $space.android } elseif ($FirstBuild) { $space.first_build } else { $space.rebuild })
     $systemNeed = [double]$space.system_drive + $(if ($BuildToolsMissing) { [double]$space.build_tools } else { 0 })
     if ($needs.Contains($system)) { $needs[$system] += $systemNeed } else { $needs[$system] = $systemNeed }
     $short = foreach ($drive in $needs.Keys) {

@@ -6,7 +6,8 @@
     "first_build": 30,
     "rebuild": 8,
     "system_drive": 3,
-    "build_tools": 8
+    "build_tools": 8,
+    "android": 15
   },
   "visual_studio": {
     "minimum_version": "17.1",
