@@ -574,3 +574,10 @@ shadows off, Gen8 V37:
 
 2X antialiases edges like 4X at about 59 fps; SMOOTH 60 stays OFF for
 headroom. It also renders correctly on the desktop (Vulkan, 2x scale).
+
+Re-checked on the final build (2026-10-08): frame 600 replayed on the
+Odin and on desktop Vulkan at 4x differs by a mean of 1.1 (0.55 % of
+pixels by more than 16), against 12.8 when the pushed-texture fix landed
+and 49.7 before it. At 2X MSAA a reflection rate of 0.1 instead of 0.25
+measured 15.95 and 15.99 against 16.14 and 15.87 ms of GPU (noise); 2X
+frames run 16.8 to 17.1 ms, at or just under the 60 fps cap.
