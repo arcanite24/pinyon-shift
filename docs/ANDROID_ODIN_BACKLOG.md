@@ -581,3 +581,6 @@ pixels by more than 16), against 12.8 when the pushed-texture fix landed
 and 49.7 before it. At 2X MSAA a reflection rate of 0.1 instead of 0.25
 measured 15.95 and 15.99 against 16.14 and 15.87 ms of GPU (noise); 2X
 frames run 16.8 to 17.1 ms, at or just under the 60 fps cap.
+Turnip's GMEM rendering, forced (`TU_DEBUG=gmem`) with the scene now one
+pass, is still far slower at 4x: 49.7 ms of GPU against 18.9 ms in system
+memory, so the on-chip MSAA path is no way to 4x at 60.
