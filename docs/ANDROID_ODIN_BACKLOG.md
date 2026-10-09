@@ -604,3 +604,60 @@ screen-space mask stayed in the other views because the refill checked
 only words the sky keeps white. The executor counts mask resolves (SDK
 `fa3c46c`) and the hook refills on the first frame without one: a drive
 cycling all six views shows the cockpit shadowed and the rest lit.
+
+### EDRAM passes rebuilt for Turnip (2026-10-09)
+
+The driver's own code (`vulkan_pipeline_ir_dump_dir`, SDK `5e1d9c1`)
+showed what the earlier "bound by memory traffic" reading missed: ir3
+flattens uniform switches into selects, so the generic resolve and
+transfer shaders ran every format's and layout's code, about 400
+instructions a pixel. Each kind of resolve and transfer now gets its own
+pipeline, its layout, sample selection and format given as
+specialization constants (`fh1_specialize_edram_passes`, SDK `38d55bc`,
+`3d69b06`), which leaves 100 to 300. Resolves of a surface that owns its
+tiles skip the EDRAM relocation, and resolves from 4x surfaces stored
+with one host sample read that sample instead of averaging four equal
+ones. Quad lists are drawn as triangle lists on Android (SDK `0e9c70d`).
+Every resolve of the frame-600 replay (92) stays byte-identical.
+
+| 1x drive, shadows on, Gen8 V37 | Saves |
+| --- | --- |
+| Quads as triangles | about 1.2 ms of GPU |
+| Specialized resolves, one-sample reads | resolves 4.83 to 3.59 ms |
+| Specialized transfers | the rest: GPU 23.7 to 20.4-21.3 ms, frame 24.3 to 21.4 ms |
+
+Tried and not kept: UBWC on the textures resolves write (about 0.2 ms at
+best), implicit-LOD fetches (speckles on Turnip), dropping redundant
+depth writes to regain early Z (a census of 1.43 million depth-writing
+draws: 917,000 run late Z for alpha to coverage, alpha test or kills,
+none of them with an EQUAL test), and forcing early Z for
+alpha-to-coverage draws (0.35 ms, but holes in foliage would write
+depth).
+
+### Coarse shading (2026-10-09)
+
+Turnip exposes `VK_KHR_fragment_shading_rate`, enabled on Android
+(`vulkan_fragment_shading_rate`, SDK `dd6a0bb`). `fh1_coarse_shading`
+names draw renderings, as the GPU profile labels them, shaded once per
+block of pixels; draws whose pixel shader kills or whose coverage
+depends on alpha stay per pixel, since Turnip shades alpha-tested
+foliage at a coarse rate as dithered ghosts. Per rendering at 1x with
+shadows:
+
+| Rendering at 2x2 | Its GPU time |
+| --- | --- |
+| Shadow mask (`0/16/1x/d1+720/16/1x/c0`) | 1.16 to 1.02 ms |
+| Scene (`1024/32/4x/d1+0/32/4x/c3`), opaque draws | 8.67 to 7.71 ms |
+| Post passes (`0/16/1x/c2`) | no change |
+
+Both together, interleaved: 19.42 and 19.56 ms of GPU against 20.33 and
+20.98 (frames 20.0 against 21.1 ms) at 1x with shadows, and 24.0 against
+26.0 ms at 4X. Surfaces are a little softer, edges and the HUD
+unchanged. It is the Android Graphics row SCENE SHADING (COARSE), off in
+both presets. With nothing named the dynamic rate stays 1x1 and the
+replay is byte-identical.
+
+The heaviest single shader left is the final post pass
+(`614588022744BF6B`, 0.55 ms a draw, twice a frame): six bilinear taps
+of the 64-bit scene along the velocity and a 3D colour grade, bound by
+texture bandwidth, not instructions.
