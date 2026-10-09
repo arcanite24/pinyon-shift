@@ -39,6 +39,9 @@ class PinyonShiftApp final : public rex::ReXApp {
   void OnConfigureFonts(ImFontAtlas* atlas) override;
   void OnConfigureStyle(ImGuiStyle& imgui_style, rex::ui::Style& ui_style) override;
   void OnPreSetup(rex::RuntimeConfig& config) override;
+  // A failed graphics start explains itself and exits 1308 rather than
+  // returning 1, which the launcher reported as a crash (#402, #404).
+  bool SetupPresentation() override;
   void OnPostLoadXexImage() override;
   void OnPostSetup() override;
   void OnPreLaunchModule() override;

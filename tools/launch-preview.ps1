@@ -314,6 +314,17 @@ if ($RenderDocCommand) {
     if ($exitCode -ne 0) { exit 1 }
     return
 }
+if ($exitCode -eq 1308) {
+    # The graphics device did not start: a driver without Vulkan 1.3 or a GPU
+    # that has none. The game said so; a crash report would not help.
+    $result = [ordered]@{
+        result = 'graphics-unavailable'
+        process_id = $process.Id
+        exit_code = $exitCode
+    }
+    if ($Json) { $result | ConvertTo-Json -Compress } else { $result }
+    exit 1
+}
 if ($exitCode -eq 1307) {
     # The game stopped before dereferencing a missing saved tyre record.
     # This needs the player's content restored, not a crash report.

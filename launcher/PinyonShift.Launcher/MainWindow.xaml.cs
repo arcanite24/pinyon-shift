@@ -692,6 +692,16 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (string.Equals(result?.Result, "graphics-unavailable", StringComparison.OrdinalIgnoreCase))
+            {
+                SetFailure("Update the graphics driver",
+                    "The game could not start the graphics device. It needs a GPU whose driver supports " +
+                    "Vulkan 1.3; install the newest driver from AMD, Intel or NVIDIA, then retry. " +
+                    "Older integrated graphics, such as Intel HD Graphics before the 6th generation, " +
+                    "cannot run the game.");
+                return;
+            }
+
             DetectPendingReport();
             if (_pendingReport is null && result is not null &&
                 !string.IsNullOrWhiteSpace(result.CrashId) &&

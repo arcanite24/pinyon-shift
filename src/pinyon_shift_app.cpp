@@ -645,6 +645,23 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
        {"input_requested", config.input_factory ? "1" : "0"}});
 }
 
+bool PinyonShiftApp::SetupPresentation() {
+  if (ReXApp::SetupPresentation()) {
+    return true;
+  }
+  pinyon_shift::diagnostics::RecordEvent("graphics.unavailable",
+                                         {{"gpu_backend", rex::cvar::GetFlagByName("gpu_backend")}});
+  if (!pinyon_shift::fh1_render_test::Enabled()) {
+    pinyon_shift::platform::ShowFatalError(
+        "Graphics unavailable",
+        "Pinyon Shift could not start the graphics device. It needs a GPU whose "
+        "driver supports Vulkan 1.3. Install the newest driver from AMD, Intel or "
+        "NVIDIA, then retry. Older integrated graphics, such as Intel HD Graphics "
+        "before the 6th generation, cannot run the game.");
+  }
+  pinyon_shift::platform::ExitImmediately(1308);
+}
+
 void PinyonShiftApp::OnPostLoadXexImage() {
   const auto title_id = runtime() && runtime()->kernel_state()
                             ? runtime()->kernel_state()->title_id()
