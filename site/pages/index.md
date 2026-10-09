@@ -2,23 +2,23 @@
 title: Overview
 section: Start
 order: 1
-description: Documentation for Pinyon Shift, the Xbox 360 release of Forza Horizon recompiled to run natively on Windows, with an Android alpha.
+description: Documentation for Pinyon Shift, the Xbox 360 release of Forza Horizon recompiled to run natively on Windows, Linux, the Steam Deck and Apple silicon Macs, with an Android alpha.
 ---
 
 # Pinyon Shift
 
-The Xbox 360 release of *Forza Horizon*, recompiled ahead of time into native code for Windows, with an Android alpha. You build it on your own PC from a disc you own.
+The Xbox 360 release of *Forza Horizon*, recompiled ahead of time into native code for Windows, Linux, the Steam Deck and Apple silicon Macs, with an Android alpha. You build it on your own PC from a disc you own.
 
 {{release}}
 
-The download is the launcher. It doesn't contain the game: the launcher verifies your disc image, then builds the game on your machine. Start with [Install on Windows](install.md).
+The download is the launcher. It doesn't contain the game: the launcher verifies your disc image, then builds the game on your machine. Start with [Install on Windows](install.md), [Linux and Steam Deck](linux.md) or [macOS](macos.md).
 
 ## Requirements
 
 | | |
 | --- | --- |
 | Game | USA retail disc of *Forza Horizon*, serial `MS-2505`, title ID `4D5309C9`, as an ISO or an [extracted folder](install.md#use-an-extracted-folder) |
-| System | Windows 10 or 11, x64 |
+| System | Windows 10 or 11, x64; x86-64 Linux or SteamOS; macOS 13 on Apple silicon |
 | GPU | Vulkan 1.3. NVIDIA is tested; AMD and Intel are not qualified yet |
 | CPU | 4 cores for the Low-spec 60 preset |
 | Disk | About 30 GB free. The first build takes 20 to 60 minutes |

@@ -34,9 +34,13 @@ Done since 0.1:
   installed over Wi-Fi without adb
   ([backlog](ONE_CLICK_SETUP_BACKLOG.md))
 
-In progress:
+- [x] Native Linux and Steam Deck support: a launcher for Linux, Add to
+  Steam, 60 fps on the Deck ([Linux and Steam Deck](LINUX.md))
 
-- [ ] Native Linux support
+- [x] macOS on Apple silicon, with Vulkan on Metal through MoltenVK
+  ([macOS](MACOS.md))
+
+In progress:
 - [ ] FH1 v4 title-update support, built from your USA disc and your own
   update ([title update v4 backlog](TITLE_UPDATE_V4_BACKLOG.md))
 - [ ] DLC support from your own Xbox 360 content, including car packs and

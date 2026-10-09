@@ -44,6 +44,8 @@ private/
 !/docs/RECORDER_PER_DRAW_BACKLOG.md
 !/docs/FEATURE_BACKLOG.md
 !/docs/ANDROID.md
+!/docs/LINUX.md
+!/docs/MACOS.md
 !/docs/android/
 !/docs/android/*.json
 !/docs/MODDING.md

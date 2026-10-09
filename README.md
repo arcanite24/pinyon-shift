@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>The Xbox 360 release of <i>Forza Horizon</i>, recompiled to run natively on Windows, with an Android alpha.</b><br>
+  <b>The Xbox 360 release of <i>Forza Horizon</i>, recompiled to run natively on Windows, Linux, the Steam Deck and Apple silicon Macs, with an Android alpha.</b><br>
   Built on your own PC from your own disc, with internal resolutions up to 4K.
 </p>
 
@@ -50,6 +50,11 @@ prebuilt executable: you build the game from a disc you own.
   day, free camera), photo export, save backups and [mods](docs/MODDING.md).
 - **Your DLC.** Owned Xbox 360 packages are verified and imported. Car packs
   work, and Rally and 1000 Club run on the optional title update v4 build.
+- **Linux and Steam Deck.** A native Linux build, no Proton: 60 fps at 1x on
+  the Deck within its 15 W limit, and **Add to Steam** puts it in Game Mode.
+  See [Linux and Steam Deck](docs/LINUX.md).
+- **macOS on Apple silicon.** Vulkan on Metal through MoltenVK, built into
+  the game. See [macOS](docs/MACOS.md).
 - **Android handhelds (alpha).** 60 fps on Snapdragon 8 Gen 2 handhelds. See
   [Android](#android-developer-alpha).
 - **The Treasure Map included.** This add-on was sold through a service that
@@ -87,6 +92,13 @@ downloads build tools and the ShiftGlue source. The launcher is not
 code-signed yet, so Windows may warn about it: download it only from this
 repository's releases.
 
+**On Linux or a Steam Deck**, download
+`PinyonShift-Launcher-linux-x86_64.tar.gz` instead, extract it and run
+`PinyonShiftLauncher`; after the build, **Add to Steam** puts the game in
+Game Mode. The steps are in [Linux and Steam Deck](docs/LINUX.md).
+**On a Mac**, download `PinyonShift-Launcher-macos-arm64.zip`; see
+[macOS](docs/MACOS.md).
+
 To install on another drive, make a portable install, change the language, or
 read the launcher's settings, see [Installing and setup](docs/INSTALLING.md).
 If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
@@ -94,11 +106,12 @@ If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
 ### Requirements
 
 - The USA retail disc, serial `MS-2505`, title ID `4D5309C9`.
-- Windows 10 or 11, x64.
+- Windows 10 or 11, x64; x86-64 Linux, including SteamOS on the Steam
+  Deck; or macOS 13 or newer on Apple silicon.
 - A GPU with Vulkan 1.3. NVIDIA is tested; AMD and Intel are not yet
   qualified.
-- A CPU with 4 cores for Low-spec 60. Integrated graphics and the Steam Deck
-  are not measured yet.
+- A CPU with 4 cores for Low-spec 60. The Steam Deck holds 60 fps at 1x; other
+  integrated graphics are not measured yet.
 
 ## Android (developer alpha)
 
@@ -142,9 +155,9 @@ command line.
 
 ## Roadmap
 
-In progress: native Linux support, title update v4 builds from your own update,
+In progress: title update v4 builds from your own update,
 and complete DLC support. Next:
-stability fixes, AMD and Intel qualification, Steam Deck, Android frame pacing
+stability fixes, AMD and Intel qualification, Android frame pacing
 and in-launcher updates. The full list, with what's done, is in the
 [roadmap](docs/ROADMAP.md).
 
