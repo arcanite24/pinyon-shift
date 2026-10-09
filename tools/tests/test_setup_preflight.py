@@ -122,6 +122,17 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(any("WindowsSDK" in c or "Windows11SDK" in c
                             for c in config["visual_studio"]["repair_components"]))
 
+    def test_another_image_of_the_disc_is_checked_by_its_files(self):
+        # #410: a trimmed or differently padded image of the supported disc
+        # is extracted and checked file by file instead of refused by hash.
+        setup = (ROOT / "tools/setup-preview.ps1").read_text(encoding="utf-8")
+        self.assertIn("$contentCheck = -not $folderInput -and -not $verification.recognized", setup)
+        extract = setup[setup.index("& $extractExe -q -s -x -d $gameRoot $resolvedIso"):]
+        self.assertLess(extract.index("verify-extracted-game.ps1"),
+                        extract.index("if ($contentCheck -and -not $check.recognized)"))
+        refused = extract[extract.index("if ($contentCheck -and -not $check.recognized)"):]
+        self.assertLess(refused.index("Remove-Item -LiteralPath $checkedGameRoot"), refused.index("throw"))
+
     def test_the_launcher_restarts_and_resumes_setup(self):
         window = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(encoding="utf-8")
         self.assertIn('JsonPropertyName("error_kind")', window)
