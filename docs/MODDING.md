@@ -40,6 +40,8 @@ library = "code/hello_telemetry.dll"  # omit for an asset-only mod
 requires = []                     # mods that must be enabled and load first
 load_after = []                   # mods to load after when they are enabled
 conflicts = []                    # mods that must not be enabled with this one
+hide_dlc = []                     # marketplace package IDs the title must not see
+profile = ""                      # play a new save, <state>/user-<profile>
 ```
 
 A mod whose requirement is missing or failed, or that conflicts with an
@@ -55,6 +57,18 @@ on raw guest addresses or field offsets must target one build: classes grew
 in v4, so several offsets differ (see the
 [title update v4 backlog](TITLE_UPDATE_V4_BACKLOG.md)).
 
+`hide_dlc` lists marketplace package IDs (the hex names of the DLC
+directories) that the title does not see while the mod is loaded: they are
+not enumerated, opened or counted as installed, and nothing in them is
+changed. A mod that replaces the database an expansion extends hides it; the
+XE mod hides Horizon Rally (`6F6992766050D818245ADD408031E280FB5F4E634D`),
+and with it hidden the built-in Rally adapter stays off. Each hidden package
+is logged once in a `mod.dlc.hidden` event.
+
+`profile` gives a mod its own new save instead of the shared modded copy
+(see below). Use it when the mod's saves cannot be mixed with the game's,
+such as a total conversion that renumbers cars.
+
 ## Your saves stay separate
 
 With any mod enabled, the title plays a separate profile,
@@ -64,6 +78,11 @@ on. Every save of the modded profile writes `user-modded/pinyon_shift_mods.json`
 with the enabled mods, a hash of the mod set and a hash of the plaintext save
 body, so a save can always be traced to the mods that made it. Turning all
 mods off returns to the unmodded profile unchanged.
+
+The first enabled mod with a `profile` replaces `user-modded` with
+`<state>/user-<profile>`, created empty the first time (a
+`mod.profile.created` event), so the game starts a new save there. Neither
+the player's own profile nor `user-modded` is opened while it is enabled.
 
 Marketplace DLC installations and their entitlement headers are shared from
 `<state>/user`: launcher enable/disable changes apply to both profiles. Creating
@@ -76,6 +95,9 @@ Files under `game/` replace the game's files with the same path
 (case-insensitive) while the mod is enabled; an earlier mod in the load order
 wins over a later one. New directories supplied by a mod are accessible;
 existing disc directories retain their base files alongside replacements.
+A mod's new files are also listed with the disc's directories, as the title
+enumerates some of them (wildcards in `FilesToCache.xml`); the overlay
+records the number of entries it added in a `mod.overlay.listed` event.
 Replacement is whole files: the title reads its
 archives (`media/*.zip`) through C streams, so an asset mod ships a complete
 archive. Nothing from the game disc may be distributed; a mod's install
@@ -201,6 +223,52 @@ result as the generated mod `zz-db-patches`, listed first so it wins. With no
 scripts left the generated mod is removed and the stock database returns.
 `zz-db-patches/patches.json` records the base and patched hashes and every
 script applied.
+
+When an enabled mod replaces `media/db/gamedb.slt` itself, as the XE mod
+does, the scripts apply to that mod's database instead of the disc's; the
+earliest enabled mod in the load order that ships one is the base, recorded as
+`base` in `patches.json`. Archive members and merges likewise start from a
+mod's replacement archive or `zipmanifest.xml` when one is enabled.
+
+## The Forza Horizon XE mod
+
+[Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) by
+Teancum adds about 170 cars, among them FH2 and Fast & Furious 7 cars, plus
+engine and drivetrain swaps. It is installed from the player's own downloads;
+nothing from it is part of Pinyon Shift. Download both archives from ModDB:
+`Forza_Horizon_1_XE_Mod_v1.0.7z` (2.0 GB) and the
+`FH1XE_v1.01_hotfix.7z` (1.6 GB). In the Windows launcher, open DLC and choose
+**Install XE**; on Linux and macOS the launcher has the same control. From a
+terminal:
+
+```text
+python tools/pinyon.py xe install Forza_Horizon_1_XE_Mod_v1.0.7z FH1XE_v1.01_hotfix.7z
+python tools/pinyon.py xe status | enable | disable | remove
+```
+
+`install` checks each archive's size and MD5 against ModDB's, extracts them
+(the hotfix over 1.0) with 7-Zip or bsdtar (`tar.exe` on Windows 10 and
+later), and keeps only the files that differ from the player's game: 10
+replaced files (seven cars, the database, the UI textures and
+`zipmanifest.xml`) and about 1,140 new ones, 2.4 GB in `<state>/mods/xe`. It
+needs 7 GB free while it works. XE's executables are not used: they differ
+from the disc's only in the file hash table, and the host accepts the hashes
+of files a mod replaces, so the base build runs XE unchanged.
+
+As XE's readme asks, the mod runs on the base game without the title update,
+with Horizon Rally removed and on a new save. Its `mod.toml` targets the base
+executable, hides Rally and sets `profile = "xe"`, so XE plays
+`<state>/user-xe` and the player's own save is untouched. While XE is on, the
+launcher starts the base build even if title update v4 is chosen. `disable`
+returns to the player's own save, and `remove` deletes the mod's files but
+keeps `user-xe`. Smaller mods made for XE can be enabled before it; their
+database scripts apply to XE's database.
+
+Known XE issues, present on the console too: some new cars have black
+thumbnails, and the Autoshow asks for an ambience bank XE does not ship
+while an XE car is shown (`AMB_FA_Autoshow.fsb`, logged and harmless).
+The route `config/render-tests/fh1-xe-buy-car.fh1test` buys an XE car and
+races it from a seed with XE installed.
 
 ## Native mods
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Install the Forza Horizon XE mod from the player's own ModDB downloads
+  with `pinyon.py xe` or the launchers. XE runs on the base build with
+  Horizon Rally hidden and plays its own new save; the player's save is kept.
+- Let mods hide marketplace DLC (`hide_dlc`) and play their own save
+  (`profile`); list a mod's new files with the disc's directories; build
+  database and archive patches on top of a mod's replacement files.
+
 - Default to bloom OFF with a live settings toggle. Suppress its contribution
   through the title's frame-local scale while preserving weather and tone mapping.
 - Default to MSAA OFF on desktop and Android while preserving saved choices;

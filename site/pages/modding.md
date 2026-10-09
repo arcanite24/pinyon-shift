@@ -45,13 +45,15 @@ library = "code/hello_telemetry.dll"  # omit for an asset-only mod
 requires = []
 load_after = []
 conflicts = []
+hide_dlc = []                         # DLC package IDs the game must not see
+profile = ""                          # play a new save in <state>/user-<profile>
 ```
 
-A mod with a missing requirement or a conflict isn't loaded. The v4 title update build identifies as `74B033805AB1BCAA`; a mod that uses only symbol and hook names can list both builds.
+A mod with a missing requirement or a conflict isn't loaded. The v4 title update build identifies as `74B033805AB1BCAA`; a mod that uses only symbol and hook names can list both builds. `hide_dlc` hides marketplace packages, such as an expansion whose database the mod replaces, without changing them.
 
 ## Your save stays separate
 
-With any mod enabled, the game plays a separate profile in `<state>/user-modded`, copied from yours the first time. Your own profile in `<state>/user` isn't opened while mods are on. Each modded save records the enabled mods and their hashes. Turn all mods off to get back to your unmodded profile, unchanged.
+With any mod enabled, the game plays a separate profile in `<state>/user-modded`, copied from yours the first time. Your own profile in `<state>/user` isn't opened while mods are on. Each modded save records the enabled mods and their hashes. Turn all mods off to get back to your unmodded profile, unchanged. A mod with a `profile` plays its own new save in `<state>/user-<profile>` instead.
 
 ## Asset mods
 
@@ -60,7 +62,7 @@ With any mod enabled, the game plays a separate profile in `<state>/user-modded`
 | Whole files (`game/`) | Replace the file with the same path, case-insensitively. The earlier mod in the load order wins |
 | Archive members (`members/<archive>/<member>`) | Before each start, the affected archives are rebuilt from your own copy with only those members replaced |
 | Merged settings (`merge/`) | `.ini` keys and `.xml` elements are merged into the file, so several mods can change one settings file |
-| Database (`db/*.sql`) | SQL scripts run in load order on a copy of `media/db/gamedb.slt` |
+| Database (`db/*.sql`) | SQL scripts run in load order on a copy of `media/db/gamedb.slt`, or of the database an enabled mod replaces it with |
 | Textures (`textures/<hash>.dds`) | Find a texture's hash with `--texture_dump_dir`. A replacement keeps the format and may be 2, 4 or 8 times larger. **SETTINGS > MODS > RELOAD TEXTURES** reloads them in game |
 
 For example, a merge that removes free-roam traffic:
@@ -72,6 +74,16 @@ For example, a merge that removes free-roam traffic:
 ```
 
 Nothing from the game disc may be distributed. A mod's install steps should build its files from the player's own copy, as `tools/install-sample-mod.py english_strings` does.
+
+## The XE mod
+
+[Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) adds about 170 cars and engine swaps. Download `Forza_Horizon_1_XE_Mod_v1.0.7z` and the `FH1XE_v1.01_hotfix.7z` from ModDB, then choose **Install XE** in the launcher (under DLC on Windows), or run:
+
+```text
+python tools/pinyon.py xe install Forza_Horizon_1_XE_Mod_v1.0.7z FH1XE_v1.01_hotfix.7z
+```
+
+The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
 
 ## Native mods
 
