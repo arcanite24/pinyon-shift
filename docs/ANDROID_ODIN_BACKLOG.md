@@ -695,7 +695,7 @@ Measured and not kept:
 | CPU-written memory uploads hoisted to the submission's start (16,206 of 16,384) | no gain |
 | 4x4 coarse shading of the shadow mask | no gain over 2x2 |
 | `TU_DEBUG=nolrz`, `gmem` (about 53 ms: about 150 renderings a frame, most ended by resolves), `noubwc` (5 ms worse) | nothing better than the default |
-| The game's `UseSmallShadowMap` option (guest byte `0x834AB27C`) set from the first frame | the shadow atlas stays 512x512: it is created before |
+| The game's `UseSmallShadowMap` option (guest byte `0x834AB27C`, read by `sub_823E2650` when it sizes the shadow map: 256x512 instead of 512x512), set before the title starts | 0.1 to 0.3 ms of GPU p90 on the drive, within its noise |
 | The shadow mask's filter (technique chosen by `sub_82C3AF68`'s mode) | the game already uses LQ, the cheapest |
 | No shadow mask blur (mode at the renderer + 8436, the game's 1: one pass) | within the drive's noise |
 | The command-line render switches (`renderfur`, `renderroaddetailblur`, `fast*render` in the options object at `sub_82479E88`) set before the renderer copies them | no change |
@@ -723,3 +723,44 @@ The v4 build had never applied the reflection rate or SHADOWS: its
 analysis lacked the DynamicRenderSettings hook, and the control
 vtables it checks moved. Both are ported (`3f5c652`); the Android build
 (base disc) was not affected.
+
+### Shared memory through one texel buffer (2026-10-09)
+
+The Adreno 740 limits a storage buffer to 128 MB, so the 512 MB of
+guest memory was bound as four storage buffers and every word a shader
+read chose among four loads. A typical vertex shader came to 548
+instructions with 472 cycles of stalls on those loads. Android now reads
+shared memory through one R32_UINT uniform texel buffer over the whole
+512 MB (`vulkan_shared_memory_texel_buffer`, SDK `0754bd4`; the device
+allows 2^27 texel elements): the same shader is 252 instructions with 51
+stall cycles. The resolve compute shaders run in 16x16 groups instead
+of 8x8 on Vulkan (SDK `705e58d`).
+
+| Frame-600 replay | Before | After |
+| --- | --- | --- |
+| 1x | 16.66 ms | 14.18 ms |
+| 4x MSAA | 20.48 ms | 18.21 ms |
+
+The front buffer is bit-identical. On the drive with shadows, COARSE,
+FAST gamma and no frame limit, gameplay frames (over 1,000 draws) went
+from about 54 fps with 41 to 43 % over 17.5 ms and a GPU median of
+about 17.2 ms to 56.8 to 57.4 fps with 15 to 20 % over 17.5 ms, a GPU
+median of 15.7 to 15.9 ms and a p90 of 17.4 to 18.0 ms. The slow frames
+are still GPU-bound, so shadows at a steady 60 remain about 1 ms of p90
+away and SMOOTH 60 keeps them off.
+
+Bounds from the new switches (`fh1_debug_skip_draw_calls`,
+`vulkan_debug_trivial_vertex_shaders`,
+`fh1_debug_skip_resolve_dispatches`, SDK `c59587d`): the resolve
+dispatches cost about 2.4 ms (about 0.4 ms of fixed cost per dispatch in
+total, 0.6 ms of loads, 0.5 ms of stores, the rest arithmetic and
+occupancy). Transfers are about 1 ms, mostly the depth at EDRAM base 0
+moving between its 1x and 4x layouts, and the image breaks without them.
+
+Measured and not kept:
+
+| Tried | Result |
+| --- | --- |
+| Resolves in 32x32 groups, or several pixels per thread | no gain over 16x16 |
+| Coarse shading of the HUD blur passes | no gain |
+| `pinyon_shift_fh1_env_map_rate` 0.25 on this drive | no clear change |
