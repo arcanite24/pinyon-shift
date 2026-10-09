@@ -335,6 +335,36 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0)
             self.assertFalse((pathlib.Path(temporary) / "config/pinyon_shift.toml").exists())
 
+    def test_apply_turns_depth_of_field_off_once_from_schema_27(self):
+        # #356, #375: 0.4.0 wrote disable_depth_of_field = false by default.
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            config = state / "config/pinyon_shift.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("pinyon_shift_config_schema = 27\ndisable_depth_of_field = false\n",
+                              encoding="utf-8")
+            result = self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "1")
+            self.assertIn("disable_depth_of_field = true", config.read_text(encoding="utf-8"))
+            self.assertTrue(result["settings"]["disable_depth_of_field"])
+            # On schema 28 a player who turns it back on keeps it.
+            self.run_tool(state, "-Action", "Apply", "-DisableDepthOfField", "false")
+            self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "1")
+            self.assertIn("disable_depth_of_field = false", config.read_text(encoding="utf-8"))
+
+    def test_a_config_without_a_schema_is_read_and_repaired(self):
+        # The old F4 overlay save dropped the schema line (#345, #364).
+        with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
+            state = pathlib.Path(temporary)
+            config = state / "config/pinyon_shift.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("# Auto-generated cvar configuration\nanisotropic_override = 5\n",
+                              encoding="utf-8")
+            self.assertEqual(self.run_tool(state, "-Action", "Get")["settings"]["anisotropy"], 16)
+            self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "1")
+            text = config.read_text(encoding="utf-8")
+            self.assertIn("pinyon_shift_config_schema = 28", text)
+            self.assertIn("anisotropic_override = 5", text)
+
     def test_get_accepts_schema_25(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-settings-") as temporary:
             state = pathlib.Path(temporary)

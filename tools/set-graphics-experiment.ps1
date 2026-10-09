@@ -188,7 +188,9 @@ function Get-GamePreset([string]$Text) {
 function Get-SchemaVersion([string]$Text) {
     $match = [regex]::Match($Text,
         '(?m)^\s*pinyon_shift_config_schema\s*=\s*(?<value>[0-9]+)\s*(?:#.*)?$')
-    if (-not $match.Success) { throw 'The host configuration has no schema version.' }
+    # A file without one was saved by the old F4 overlay with only changed
+    # settings; the game keeps them under the current schema, so do the same.
+    if (-not $match.Success) { return 28 }
     [int]$match.Groups['value'].Value
 }
 
@@ -295,6 +297,9 @@ switch ($Action) {
         # Schema 28 makes Vulkan the only supported player backend.
         $text = Set-TomlValue $text 'gpu_backend' '"vulkan"'
         $text = Set-TomlValue $text 'gpu_record_thread' 'true'
+        # Schema 28 turns off depth of field once, as the game does
+        # (src/pinyon_shift_app.cpp); a choice passed below still wins.
+        if ($schema -lt 28) { $text = Set-TomlValue $text 'disable_depth_of_field' 'true' }
         $text = Set-TomlValue $text 'pinyon_shift_config_schema' '28'
         $text = Set-TomlValue $text 'pinyon_shift_fh1_source_presentation' 'true'
         if (-not [regex]::IsMatch($text, '(?m)^[ \t]*xma_relaxed_padding_admission[ \t]*=')) {

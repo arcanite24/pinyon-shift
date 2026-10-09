@@ -348,6 +348,14 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
           migrated_text,
           std::regex(R"((^|\n)(\s*gpu_record_thread\s*=\s*)false)", std::regex::icase),
           "$1$2true");
+      // Depth of field turns cutscenes and garages green, pink and white on
+      // current AMD and NVIDIA drivers (#356, #375, #363). Schema 27 files
+      // carry the old default `false`, which few players chose, so turn it
+      // off once here; the setting stays available.
+      migrated_text = std::regex_replace(
+          migrated_text,
+          std::regex(R"((^|\n)(\s*disable_depth_of_field\s*=\s*)false)", std::regex::icase),
+          "$1$2true");
     }
     if (schema == 1) {
       const std::regex stabilization_pattern(
