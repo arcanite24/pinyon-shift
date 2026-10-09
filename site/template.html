@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="{{root}}favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="{{root}}style.css">
+<script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="{{page_class}}">
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar">
+  <button class="menu-button" type="button" aria-controls="sidebar" aria-expanded="false">
+    <span class="menu-icon" aria-hidden="true"></span><span class="visually-hidden">Menu</span>
+  </button>
+  <a class="brand" href="{{root}}"><span class="logo" role="img" aria-label="Pinyon Shift"></span><span class="brand-docs">Docs</span></a>
+  <nav class="top-links" aria-label="Project">
+    <a href="{{repo}}">GitHub</a>
+    <a href="{{repo}}/issues">Issues</a>
+    <button class="theme-button" type="button" aria-label="Switch colour theme"><span aria-hidden="true"></span></button>
+    <a class="button button-small" href="{{repo}}/releases/latest">Download <span class="version">{{version}}</span></a>
+  </nav>
+</header>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+{{nav}}
+    </nav>
+  </aside>
+  <main id="content">
+    <article class="prose">
+{{content}}
+    </article>
+    <footer class="page-footer">
+      {{pager}}
+      <div class="meta">
+        <span>{{edit}}</span>
+        <span>Not affiliated with or endorsed by Microsoft, Xbox, Turn 10 Studios or Playground Games.</span>
+      </div>
+    </footer>
+  </main>
+  {{toc}}
+</div>
+<script src="{{root}}site.js" defer></script>
+</body>
+</html>
