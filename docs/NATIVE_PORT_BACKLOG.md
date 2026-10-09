@@ -175,7 +175,7 @@ runs on the development machine (Ryzen 7 5800X, RTX 4080).
 | NP-3.7 | Which animation plays too fast after buying a car before a race at the unlocked rate (the race crowd running fast, reported 2026-09-30, is reproducible by route and tracked in NP-3.7 itself) | A short clip or the moment it happens, from the player who saw it |
 | NP-4.5 | That VARIABLE REFRESH RATE runs the display at the game's rate without tearing artifacts | A VRR (G-SYNC or FreeSync) display |
 | NP-6.3 | DualSense and Steam Input through SDL, a Deck controls layout | Those controllers and a Steam Deck |
-| NP-12.1, 12.2, 12.7, 12.8 | Configuring and building on Linux (the presets and POSIX sources of NP-12.1 and NP-12.2 are written but unbuilt), Linux tooling and Steam Deck qualification | A Steam Deck (the Linux toolchain is approved in WSL, 2026-09-30) |
+| NP-12.1, 12.2, 12.7, 12.8 | Configuring and building on Linux (the presets and POSIX sources of NP-12.1 and NP-12.2 are written but unbuilt), Linux tooling and Steam Deck qualification | A Steam Deck LCD on the LAN since 2026-10-08, reached with the SteamOS devkit key, and the Linux toolchain approved in WSL (2026-09-30); what still needs a person is in the [Linux backlog](LINUX_PORT_BACKLOG.md#needs-a-person-or-hardware) |
 | NP-13 | The macOS port (ARM64 baseline, MoltenVK, app bundle) | A Mac and its toolchain |
 | NP-14 | The Android port (NDK build, fibers, mobile GPU, sideloading; running NP-14.3 on a 16 KiB kernel) | The Android NDK and a reference device |
 | NP-X | AMD, Intel and lower-end GPU qualification; an unscripted drive before each train | Hardware and a player |
@@ -492,6 +492,11 @@ hard problem, graphics, from any CPU-architecture risk, exercises the POSIX
 layer that already exists, and targets RADV, the driver with the fewest
 feature gaps. Build a Vulkan-native executor on the existing base-class seams;
 do not introduce a general RHI.
+
+The detailed plan for the native Linux build, its toolchain and tooling, and
+Steam Deck qualification is the
+[Linux and Steam Deck backlog](LINUX_PORT_BACKLOG.md) (2026-10-08), which
+takes over NP-12.1, 12.2, 12.7 and 12.8 as its slices LX-0 to LX-8.
 
 | Item | Work | Size |
 | --- | --- | --- |
