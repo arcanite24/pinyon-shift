@@ -21,6 +21,9 @@ tools/create-crash-report.ps1; elsewhere the exit code is reported.
 see tools/pinyon_setup.py. `shortcuts` adds it to Steam and the desktop menu
 on Linux (LX-5.10); see tools/pinyon_steam.py.
 
+`xe` installs the Forza Horizon XE mod from the player's own downloads
+(XE-1); see tools/pinyon_xe.py.
+
 `android` builds, installs and runs the game on an Android device from this
 PC (AP-6.1); see tools/pinyon_android.py. `deck` copies a Linux build and the
 game to a Steam Deck and runs it there over SSH (LX-2.1); see
@@ -44,6 +47,7 @@ import pinyon_android  # noqa: E402
 import pinyon_deck  # noqa: E402
 import pinyon_setup  # noqa: E402
 import pinyon_steam  # noqa: E402
+import pinyon_xe  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = os.name == "nt"
@@ -228,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     pinyon_deck.add_parser(commands)
     pinyon_setup.add_parser(commands)
     pinyon_steam.add_parser(commands)
+    pinyon_xe.add_parser(commands)
     args = parser.parse_args(argv)
     if args.command == "setup":
         return pinyon_setup.main(args)
@@ -237,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
         return pinyon_android.main(args)
     if args.command == "deck":
         return pinyon_deck.main(args)
+    if args.command == "xe":
+        return pinyon_xe.main(args)
     try:
         result = launch(args)
     except LaunchError as error:
