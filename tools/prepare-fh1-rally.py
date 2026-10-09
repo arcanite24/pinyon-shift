@@ -455,6 +455,16 @@ def main() -> int:
     parser.add_argument("--native-menu", action=argparse.BooleanOptionalAction, default=None,
                         help="prepare the experimental native Rally hub/car-selection flow")
     args = parser.parse_args()
+    # An enabled mod that cannot run with Rally (the XE mod) hides it from
+    # the title; leave the owned package and its cache untouched.
+    patches = importlib.util.spec_from_file_location(
+        "build_mod_patches", Path(__file__).with_name("build-mod-patches.py"))
+    module = importlib.util.module_from_spec(patches)
+    patches.loader.exec_module(module)
+    hidden_by = module.hidden_dlc(args.state_root).get(RALLY)
+    if hidden_by:
+        print(json.dumps({"entry_ready": False, "hidden_by_mod": hidden_by}))
+        return 0
     try:
         print(json.dumps(prepare(args.state_root, args.game_root, args.extractor, native_menu=args.native_menu)))
         return 0

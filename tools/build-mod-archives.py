@@ -385,17 +385,23 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
             shutil.rmtree(target)
         patches.set_enabled_mods(config, mods)
         return {"patched": False, "mods": mods}
-    manifest = (game_root / MANIFEST).read_bytes().decode("utf-8-sig")
+    # A mod that replaces whole archives or the manifest (a total conversion
+    # such as the XE mod) is the base its members are patched on.
+    manifest = patches.effective_game_file(state, mods, game_root, MANIFEST.as_posix())         .read_bytes().decode("utf-8-sig")
     staging = state / "mods" / (GENERATED + ".building")
     if staging.exists():
         shutil.rmtree(staging)
     results = []
     for archive, members in sorted(archives.items()):
-        base = find_case_insensitive(game_root, archive)
+        disc = find_case_insensitive(game_root, archive)
+        replaced = patches.effective_game_file(state, mods, game_root, archive)
+        base = replaced if replaced.is_file() else disc
         if base is None:
             raise ArchiveError(f"{archive} is not in the game files")
+        # Named as on the disc where it exists there, as the manifest names it.
+        relative = disc.relative_to(game_root) if disc is not None else Path(archive)
         data = base.read_bytes()
-        check_supported(data, manifest, base.relative_to(game_root).as_posix())
+        check_supported(data, manifest, relative.as_posix())
         names ={info["name"].replace("/", "\\").lower() for _, info in read_central(data)[0]}
         archive_merges = merges.get(archive, {})
         missing = sorted((set(members) | set(archive_merges)) - names)
@@ -410,7 +416,6 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
                 merged = merge_member(member, merged, file.read_bytes())
             replacements[member] = merged
         rebuilt, dirstart, dirsize, direntries = rebuild(data, replacements)
-        relative = base.relative_to(game_root)
         output = staging / "game" / relative
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(rebuilt)
