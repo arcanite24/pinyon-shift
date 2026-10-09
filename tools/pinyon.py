@@ -50,7 +50,8 @@ class LaunchError(RuntimeError):
 
 
 def default_build_directory(configuration: str) -> Path:
-    system = "win" if WINDOWS else platform.system().lower()
+    system = {"Windows": "win", "Darwin": "macos"}.get(platform.system(),
+                                                       platform.system().lower())
     machine = platform.machine().lower()
     arch = "arm64" if machine in ("arm64", "aarch64") else "amd64"
     return ROOT / "out" / "build" / f"{system}-{arch}-{configuration.lower()}"

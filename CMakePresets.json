@@ -109,6 +109,52 @@
       }
     },
     {
+      "name": "macos-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0",
+        "PINYON_SHIFT_CPU_BASELINE": "armv8-a",
+        "REXSDK_DIR": "${sourceDir}/thirdparty/shiftglue-sdk",
+        "REXGLUE_USE_VULKAN": "ON",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated/default"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS Apple silicon Debug",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-arm64-relwithdebinfo",
+      "displayName": "macOS Apple silicon RelWithDebInfo",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "macos-arm64-release",
+      "displayName": "macOS Apple silicon Release",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
       "name": "android-base",
       "hidden": true,
       "generator": "Ninja",
@@ -191,6 +237,18 @@
     {
       "name": "linux-amd64-release",
       "configurePreset": "linux-amd64-release"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug"
+    },
+    {
+      "name": "macos-arm64-relwithdebinfo",
+      "configurePreset": "macos-arm64-relwithdebinfo"
+    },
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release"
     },
     {
       "name": "android-arm64-debug",
