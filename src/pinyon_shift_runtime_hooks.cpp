@@ -29,6 +29,7 @@
 #include <rex/memory.h>
 #include <rex/ppc/context.h>
 #include <rex/perf/counter.h>
+#include <rex/string.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/flags.h>
 #include <rex/system/function_dispatcher.h>
@@ -4749,6 +4750,13 @@ bool PinyonShiftUseBuiltinRallyAdapter() {
     const auto& state = pinyon_shift::diagnostics::StateRoot();
     const auto title = state / "user/0000000000000000/4D5309C9";
     constexpr const char* package = "6F6992766050D818245ADD408031E280FB5F4E634D";
+    for (const auto& hidden : pinyon_shift::mod::HiddenDlc()) {
+      if (rex::string::compare_case(hidden.c_str(), package) == 0) {
+        pinyon_shift::diagnostics::RecordEvent("dlc.rally.adapter_error", {
+            {"error", "an enabled mod hides Rally"}});
+        return false;
+      }
+    }
     std::error_code error;
     if (std::filesystem::is_directory(title / "00000002" / package, error) &&
         std::filesystem::is_regular_file(title / "Headers/00000002" / (std::string(package) + ".header"), error) &&

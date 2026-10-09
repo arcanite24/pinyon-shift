@@ -518,10 +518,21 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
     cheats = cheats || host_config_->Get("pinyon_shift_cheats").value_or("false") == "true";
   }
   if (!enabled_mods_.empty() || cheats) {
-    const auto modded = LongHostPath(state_root / "user-modded");
+    // A mod that cannot share a save (the XE mod) plays its own profile,
+    // which starts new instead of as a copy of the player's.
+    const std::string own_profile =
+        pinyon_shift::mod::RequestedProfile(state_root, enabled_mods_);
+    const auto modded = LongHostPath(
+        state_root / (own_profile.empty() ? "user-modded" : "user-" + own_profile));
     std::error_code error;
-    if (!std::filesystem::exists(modded, error) &&
-        std::filesystem::exists(paths.user_data_root, error)) {
+    if (!own_profile.empty()) {
+      if (!std::filesystem::exists(modded, error)) {
+        std::filesystem::create_directories(modded, error);
+        diagnostics::RecordEvent("mod.profile.created",
+                                 {{"path", modded.string()}, {"profile", own_profile}});
+      }
+    } else if (!std::filesystem::exists(modded, error) &&
+               std::filesystem::exists(paths.user_data_root, error)) {
       if (!pinyon_shift::SaveBackups::CopyProfile(paths.user_data_root, modded)) {
         pinyon_shift::platform::ShowFatalError(
             "Could not create the modded profile", "The player profile could not be copied.");
@@ -986,6 +997,15 @@ void PinyonShiftApp::OnPostSetup() {
     };
     pinyon_shift::mod::LoadMods(pinyon_shift::diagnostics::StateRoot(), enabled_mods_,
                                 std::move(services));
+    // DLC a loaded mod cannot run with (the XE mod and Rally) stays installed
+    // but hidden from the title.
+    if (auto hidden = pinyon_shift::mod::HiddenDlc(); !hidden.empty()) {
+      std::string packages;
+      for (const auto& package : hidden) packages += (packages.empty() ? "" : ",") + package;
+      runtime()->kernel_state()->content_manager()->SetHiddenMarketplacePackages(
+          std::move(hidden));
+      pinyon_shift::diagnostics::RecordEvent("mod.dlc.hidden", {{"packages", packages}});
+    }
     // Mods' texture replacements, ahead of any folders already configured.
     if (auto textures = pinyon_shift::mod::TextureRoots(); !textures.empty()) {
       std::string dirs;

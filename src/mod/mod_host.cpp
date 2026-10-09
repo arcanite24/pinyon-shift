@@ -102,6 +102,7 @@ struct LoadedMod {
   rex::platform::DynamicLibrary library;
   PinyonModApi api{};
   PinyonMod mod{};
+  std::vector<std::string> hide_dlc;
 };
 std::vector<std::unique_ptr<LoadedMod>> g_loaded;
 std::vector<ModInfo> g_mods;
@@ -381,6 +382,8 @@ struct Manifest {
   std::string version;
   std::filesystem::path library;
   std::vector<std::string> requires_mods, load_after, conflicts;
+  std::vector<std::string> hide_dlc;  // marketplace package IDs
+  std::string profile;                // its own save tree, user-<profile>
 };
 
 bool ValidName(const std::string& name) {
@@ -429,6 +432,18 @@ std::string ReadManifest(const std::string& name, const std::filesystem::path& d
   manifest.requires_mods = StringArray(table, "requires");
   manifest.load_after = StringArray(table, "load_after");
   manifest.conflicts = StringArray(table, "conflicts");
+  manifest.hide_dlc = StringArray(table, "hide_dlc");
+  manifest.profile = table["profile"].value_or(std::string());
+  if (!manifest.profile.empty() && !ValidName(manifest.profile)) {
+    return "mod.toml profile may only use letters, digits, _ and -";
+  }
+  for (const auto& package : manifest.hide_dlc) {
+    if (package.empty() || package.size() > 42 ||
+        !std::all_of(package.begin(), package.end(),
+                     [](unsigned char c) { return std::isxdigit(c); })) {
+      return "mod.toml hide_dlc lists something other than a package ID";
+    }
+  }
   return {};
 }
 
@@ -484,6 +499,18 @@ void EnqueueHostGuestTask(std::function<void()> task) {
 uint32_t CallGuest(uint32_t address, std::initializer_list<uint32_t> args) {
   const std::vector<uint32_t> values(args);
   return ApiCallGuest(address, values.data(), uint32_t(values.size()));
+}
+
+std::string RequestedProfile(const std::filesystem::path& state_root,
+                             const std::string& enabled_mods) {
+  for (const auto& name : SplitList(enabled_mods)) {
+    Manifest manifest;
+    if (ReadManifest(name, state_root / "mods" / name, manifest).empty() &&
+        !manifest.profile.empty()) {
+      return manifest.profile;
+    }
+  }
+  return {};
 }
 
 void LoadMods(const std::filesystem::path& state_root, const std::string& enabled_mods,
@@ -556,6 +583,7 @@ void LoadMods(const std::filesystem::path& state_root, const std::string& enable
     loaded->info = *info_it;
     loaded->name = name;
     loaded->directory = info_it->directory.string();
+    loaded->hide_dlc = manifest.hide_dlc;
     if (manifest.library.empty()) {
       info_it->loaded = true;
       loaded->info.loaded = true;
@@ -684,6 +712,18 @@ std::vector<std::filesystem::path> OverlayRoots() {
     if (std::filesystem::is_directory(root, error)) roots.push_back(root);
   }
   return roots;
+}
+
+std::vector<std::string> HiddenDlc() {
+  std::vector<std::string> packages;
+  for (const auto& mod : g_loaded) {
+    for (const auto& package : mod->hide_dlc) {
+      if (std::find(packages.begin(), packages.end(), package) == packages.end()) {
+        packages.push_back(package);
+      }
+    }
+  }
+  return packages;
 }
 
 std::vector<std::filesystem::path> TextureRoots() {
