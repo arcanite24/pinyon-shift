@@ -674,3 +674,22 @@ reply drafts in `.local/issue-triage/drafts-20261007.md`):
   #375 (no scene), #380/#381 (no reproduction yet), #369 (low-end
   hardware), #352/#357/#361 (affected hardware), #370 (legacy D3D12).
 
+
+### Closed without reproduction, 2026-10-09
+
+Nineteen reports that could not be reproduced and lacked the evidence to
+investigate were closed with a friendly comment that names what would let
+them be reopened. Each one, except the duplicate, was closed as `not_planned`
+with the `question` label and points at #354.
+
+| Reason | Issues |
+| --- | --- |
+| Crash with no diagnostic ZIP or steps | #361, #374, #377, #383, #384, #385, #395, #400, #407, #408, #409, #411, #415 |
+| Duplicate crash ID | #378 → #377 |
+| Retired Direct3D 12 path or 0.3.1 build; retest on Vulkan | #357, #370, #397 |
+| Visual report with no log, not reproduced | #380, #382 |
+
+Kept open because they carry evidence or are active: #339, #343, #352,
+#381 (second reporter; investigated in #416), #389, #390, #399, #406 and
+#412, plus the hardware reports #363, #369 and #388 and the requests #310
+and #337.
