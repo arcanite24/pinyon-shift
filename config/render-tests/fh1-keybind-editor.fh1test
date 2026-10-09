@@ -1,0 +1,41 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# FB-3.4 (#401): rebind a key from SETTINGS > CONTROLS. X takes Space, a
+# prompt on Y is cancelled with Escape, and the guest gets its input back.
+# Afterwards the run's config holds keybind_x = "Space" and keybind_y keeps
+# its value.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 free-roam
+hostkey 1300 f6
+hostkey 1330 down
+hostkey 1350 down
+hostkey 1370 down
+hostkey 1390 down
+hostkey 1410 enter
+hostkey 1450 down
+hostkey 1470 down
+hostkey 1490 down
+hostkey 1510 down
+hostkey 1530 down
+hostkey 1550 down
+hostkey 1570 down
+hostkey 1590 enter
+capture 1620 prompt
+hostkey 1650 space
+capture 1690 controls
+hostkey 1720 down
+hostkey 1740 enter
+hostkey 1780 escape
+capture 1810 cancelled
+hostkey 1840 escape
+hostkey 1870 escape
+capture 1970 after
+stop 2030

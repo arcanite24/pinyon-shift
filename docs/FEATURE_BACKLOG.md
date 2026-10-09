@@ -38,8 +38,9 @@ build. The gaps are in four areas:
 - **Input:** SDL opens only devices it maps as gamepads
   (`SDL_OpenGamepad`, SDK `src/input/sdl/sdl_input_driver.cpp:445`), so most
   PC wheels are ignored. Every non-XInput driver reports subtype 1 (gamepad).
-  No gyro, trigger rumble or DualSense effects; keys are rebound only in the
-  config file (NP-6.1).
+  No gyro, trigger rumble or DualSense effects. Keys are rebound one per
+  control in F6 > CONTROLS (FB-3.4); several keys per control only in the
+  config file.
 - **Online:** every LIVE export is a stub; matchmaking, Rivals, leaderboards,
   the Storefront and car meets have been gone since the servers closed on
   2023-08-22 ([forza.net](https://forza.net/news/forza-horizon-online-services-closure)).
@@ -201,7 +202,7 @@ unchanged.
 | FB-3.1 | **Stick deadzones and response curves** on the host (none today: `sdl_input_driver.cpp:495-590` passes axes raw), per stick and trigger, with a test view in F6. | S | Not started |
 | FB-3.2 | **Gyro steering** for DualSense, DualShock 4 and Switch Pro: `SDL_SetGamepadSensorEnabled`, blend into left-stick X with recentre and sensitivity. | S-M | Not started |
 | FB-3.3 | **Trigger rumble and adaptive triggers.** `SDL_RumbleGamepadTriggers` for Xbox controllers; DualSense resistance through `SDL_SendGamepadEffect`, derived from throttle and brake input plus the guest's motor values (the guest exposes nothing trigger-specific, so this is an approximation). | M | Not started |
-| FB-3.4 | **In-menu keyboard binding editor** and analog ramp for keyboard steering and throttle (NP-6.1; the F6 rows are read-only today). | S-M | Not started |
+| FB-3.4 | **In-menu keyboard binding editor** and analog ramp for keyboard steering and throttle (NP-6.1). | S-M | Editor done (#401): choosing a key row in F6 > CONTROLS asks for a key or mouse button, which replaces the row's keys and applies at once; RESET KEYS restores the defaults. The analog ramp is not started |
 | FB-3.5 | **Button glyphs per device** in host UI; guest HUD glyphs stay Xbox (NP-6.2). | S | Not started |
 | FB-3.6 | **Steam Input and Deck layout** (NP-6.3, NP-12.8). | S | Needs a person |
 

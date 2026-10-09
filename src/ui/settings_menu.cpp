@@ -25,6 +25,8 @@
 #include "pinyon_shift_runtime_hooks.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include <rex/ui/keybinds.h>
+#include <rex/ui/virtual_key.h>
 
 REXCVAR_DEFINE_INT32(pinyon_shift_master_volume, 100, "Pinyon Shift",
                      "Master volume, 0 to 100, applied to the output mix");
@@ -874,9 +876,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
     sensitivities.push_back({value, {{"mnk_sensitivity", value}}});
   }
   rows.push_back(Setting("MOUSE SENSITIVITY", std::move(sensitivities)));
-  // The keys each pad control maps to in mouse-and-keyboard mode. Editing
-  // them is NP-6.1.
-  const std::pair<const char*, const char*> binds[] = {
+  // The keys each pad control maps to in mouse-and-keyboard mode (NP-6.1,
+  // #401). Choosing a row asks for a key; it replaces the row's keys and
+  // applies at once, since the keyboard driver reads them on every press.
+  static constexpr std::pair<const char*, const char*> binds[] = {
       {"A", "keybind_a"},
       {"B", "keybind_b"},
       {"X", "keybind_x"},
@@ -900,8 +903,44 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
       }
       return keys.empty() ? std::string("NONE") : keys;
     };
+    row.activate = [self = shared_from_this(), label = std::string(label),
+                    name = std::string(name)] {
+      auto prompt = std::make_unique<MenuScreen>("PRESS A KEY", std::vector<MenuRow>{});
+      prompt->set_body("Press the key or mouse button for " + label +
+                       ". Escape or the controller's B cancels.");
+      const MenuScreen* screen = prompt.get();
+      prompt->set_key_capture([self, screen, name](int virtual_key) {
+        const auto key = rex::ui::VirtualKey(virtual_key);
+        if (key == rex::ui::VirtualKey::kEscape) {
+          self->host_ui_.Finish(screen);
+          return;
+        }
+        const std::string key_name = rex::ui::VirtualKeyToString(key);
+        if (key_name.empty()) {
+          return;  // a key the keyboard driver cannot name; keep waiting
+        }
+        self->config_.Set(name, config::Quote(key_name));
+        rex::cvar::SetFlagByName(name, key_name);
+        self->Save();
+        self->host_ui_.Finish(screen);
+      });
+      self->host_ui_.Push(std::move(prompt));
+    };
     rows.push_back(std::move(row));
   }
+  MenuRow reset;
+  reset.label = "RESET KEYS";
+  reset.activate = [this] {
+    for (const auto& [label, name] : binds) {
+      (void)label;
+      if (const auto* info = rex::cvar::GetFlagInfo(name)) {
+        config_.Set(name, config::Quote(info->default_value));
+        rex::cvar::SetFlagByName(name, info->default_value);
+      }
+    }
+    Save();
+  };
+  rows.push_back(std::move(reset));
   return std::make_unique<MenuScreen>("CONTROLS", std::move(rows));
 }
 

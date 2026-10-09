@@ -150,6 +150,8 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   void EnsureDrawer();
   void ReleaseDrawer();
   void Apply(NavCommand command);
+  // Hands a press to the top screen's key capture (a keybind prompt).
+  void CaptureKey(int virtual_key);
   void PollPad();
   void RequestPaint();
   void SetGuestUiActive(bool active);

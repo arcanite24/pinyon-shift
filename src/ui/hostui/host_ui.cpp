@@ -323,6 +323,23 @@ void HostUi::SetGuestUiActive(bool active) {
 
 void HostUi::RequestPaint() { presenter_.RequestUIPaintFromUIThread(); }
 
+void HostUi::CaptureKey(int virtual_key) {
+  applying_ = true;
+  screens_.back()->CaptureKey(virtual_key);
+  applying_ = false;
+  if (close_pending_) {
+    close_pending_ = false;
+    finish_pending_ = nullptr;
+    Close();
+    return;
+  }
+  if (const MenuScreen* finished = std::exchange(finish_pending_, nullptr)) {
+    RemoveScreen(finished);
+    return;
+  }
+  RequestPaint();
+}
+
 void HostUi::Apply(NavCommand command) {
   if (!is_open()) {
     return;
@@ -952,6 +969,12 @@ void HostUi::OnKeyDown(rex::ui::KeyEvent& e) {
     return;
   }
   e.set_handled(true);
+  if (screens_.back()->captures_keys()) {
+    if (!e.prev_state()) {
+      CaptureKey(int(key));
+    }
+    return;
+  }
   switch (key) {
     case VirtualKey::kUp:
     case VirtualKey::kNumpad8:
@@ -1040,6 +1063,22 @@ void HostUi::OnMouseDown(rex::ui::MouseEvent& e) {
     return;
   }
   e.set_handled(true);
+  if (screens_.back()->captures_keys()) {
+    switch (e.button()) {
+      case rex::ui::MouseEvent::Button::kLeft:
+        CaptureKey(int(VirtualKey::kLButton));
+        break;
+      case rex::ui::MouseEvent::Button::kRight:
+        CaptureKey(int(VirtualKey::kRButton));
+        break;
+      case rex::ui::MouseEvent::Button::kMiddle:
+        CaptureKey(int(VirtualKey::kMButton));
+        break;
+      default:
+        break;
+    }
+    return;
+  }
   if (e.button() == rex::ui::MouseEvent::Button::kRight) {
     Apply(NavCommand::kBack);
     return;

@@ -63,6 +63,17 @@ class MenuScreen {
       text_input_(code_point);
     }
   }
+  // The next key or mouse button press as a virtual key code, before menu
+  // navigation sees it, for a screen that asks for a key (a keybind).
+  void set_key_capture(std::function<void(int virtual_key)> key_capture) {
+    key_capture_ = std::move(key_capture);
+  }
+  bool captures_keys() const { return bool(key_capture_); }
+  void CaptureKey(int virtual_key) {
+    if (key_capture_) {
+      key_capture_(virtual_key);
+    }
+  }
   // A line shown under the rows, or empty.
   std::string note() const { return note_ ? note_() : std::string(); }
   const std::vector<MenuRow>& rows() const { return rows_; }
@@ -83,6 +94,7 @@ class MenuScreen {
   std::function<std::string()> note_;
   std::function<void()> on_back_;
   std::function<void(char32_t)> text_input_;
+  std::function<void(int)> key_capture_;
   size_t focus_ = 0;
 };
 

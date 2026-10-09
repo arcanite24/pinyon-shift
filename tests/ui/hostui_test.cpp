@@ -345,6 +345,17 @@ void TestMenu() {
   CHECK(screen.Handle(NavCommand::kBack) == MenuScreen::Result::kBack);
   CHECK(screen.Handle(NavCommand::kClose) == MenuScreen::Result::kBack);
 
+  // A keybind prompt takes the next press before navigation does.
+  MenuScreen prompt("PRESS A KEY", {});
+  CHECK(!prompt.captures_keys());
+  int captured = 0;
+  prompt.set_key_capture([&](int virtual_key) { captured = virtual_key; });
+  CHECK(prompt.captures_keys());
+  prompt.CaptureKey(0x41);
+  CHECK(captured == 0x41);
+  CHECK(prompt.Handle(NavCommand::kAccept) == MenuScreen::Result::kNone);
+  CHECK(prompt.Handle(NavCommand::kBack) == MenuScreen::Result::kBack);
+
   PadNavigator pad;
   using Commands = std::vector<NavCommand>;
   // The press that opened the menu is ignored until released.
