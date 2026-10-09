@@ -802,6 +802,15 @@ public partial class MainWindow : Window
                 WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         HeadlineText.Text = "The game crashed";
         SetSubhead("");
+        // Exit 1309: the GPU device was lost (src/pinyon_shift_app.cpp,
+        // OnHostGpuLoss). Usually a driver reset on weak graphics, which the
+        // player can act on; the report still helps when it is not.
+        if (string.Equals(report.ExitCodeHex, "0x0000051D", StringComparison.OrdinalIgnoreCase))
+        {
+            HeadlineText.Text = "The graphics driver stopped responding";
+            SetSubhead("Install the newest graphics driver. On integrated or older graphics, choose " +
+                "Low-spec 60 or a lower resolution scale in Settings, then play again.");
+        }
         CrashIdRun.Text = report.CrashId;
         ShowPanel(View.Crash);
         ReportProblemButton.Visibility = Visibility.Collapsed;

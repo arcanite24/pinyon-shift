@@ -18,6 +18,7 @@
 #include <rex/logging.h>
 #include <rex/perf/counter.h>
 #include <rex/runtime.h>
+#include <rex/system/gpu_plugin.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xthread.h>
@@ -430,6 +431,24 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
   }
 }
 
+// The GPU stopped answering: usually a driver reset after a frame took too
+// long (TDR) on a weak or integrated GPU, or a driver fault. The SDK used to
+// abort without a word (0xC0000409); say what happened and exit 1309 so the
+// launcher can advise instead of filing a crash.
+void OnHostGpuLoss() {
+  pinyon_shift::diagnostics::RecordEvent("graphics.device_lost",
+                                         {{"gpu_backend", rex::cvar::GetFlagByName("gpu_backend")}});
+  if (!pinyon_shift::fh1_render_test::Enabled()) {
+    pinyon_shift::platform::ShowFatalError(
+        "Graphics driver stopped responding",
+        "The graphics driver stopped responding, so Pinyon Shift has to close. Your "
+        "progress up to the last save is kept. Install the newest graphics driver; on "
+        "integrated or older graphics, choose the Low-spec 60 preset or a lower "
+        "resolution scale in the launcher's settings.");
+  }
+  pinyon_shift::platform::ExitImmediately(1309);
+}
+
 }  // namespace
 
 std::unique_ptr<rex::ui::WindowedApp> PinyonShiftApp::Create(
@@ -617,6 +636,7 @@ void PinyonShiftApp::OnPostInitLogging() {
 }
 
 void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
+  rex::system::SetHostGpuLossHandler(&OnHostGpuLoss);
   config.gpu_plugin =
       pinyon_shift::platform::EnvironmentVariable("PINYON_SHIFT_FH1_DISC_SHADER_CORPUS_DIR")
           ? "fh1-producer"
@@ -647,6 +667,10 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
 
 bool PinyonShiftApp::SetupPresentation() {
   if (ReXApp::SetupPresentation()) {
+    // Self-test of the GPU-loss report, like PINYON_SHIFT_CRASH_SELF_TEST.
+    if (pinyon_shift::platform::EnvironmentFlag("PINYON_SHIFT_GPU_LOSS_SELF_TEST")) {
+      rex::system::ReportHostGpuLoss();
+    }
     return true;
   }
   pinyon_shift::diagnostics::RecordEvent("graphics.unavailable",

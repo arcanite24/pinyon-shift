@@ -59,5 +59,30 @@ class GraphicsUnavailableTests(unittest.TestCase):
         self.assertIn('SetFailure("Update the graphics driver"', window)
 
 
+class GraphicsDeviceLostTests(unittest.TestCase):
+    """A lost GPU device aborted silently (0xC0000409 on integrated GPUs)."""
+
+    def test_the_sdk_hands_device_loss_to_the_host(self):
+        for path in ("thirdparty/shiftglue-sdk/src/graphics/graphics_system.cpp",
+                     "thirdparty/shiftglue-sdk/src/ui/presenter.cpp"):
+            self.assertIn("ReportHostGpuLoss()", read(path), path)
+        loader = read("thirdparty/shiftglue-sdk/src/system/gpu_plugin_loader.cpp")
+        report = loader[loader.index("void ReportHostGpuLoss()"):]
+        self.assertLess(report.index("handler();"), report.index("rex::FatalError("))
+
+    def test_the_game_explains_and_exits_1309(self):
+        app = read("src/pinyon_shift_app.cpp")
+        handler = app[app.index("void OnHostGpuLoss()"):]
+        handler = handler[:handler.index("\n}\n")]
+        self.assertIn('"graphics.device_lost"', handler)
+        self.assertIn("ExitImmediately(1309)", handler)
+        self.assertIn("SetHostGpuLossHandler(&OnHostGpuLoss)", app)
+
+    def test_the_launcher_keeps_the_report_and_advises(self):
+        window = read("launcher/PinyonShift.Launcher/MainWindow.xaml.cs")
+        pending = window[window.index("private void SetPendingReport"):]
+        self.assertIn('"0x0000051D"', pending[:pending.index("\n    }\n")])
+
+
 if __name__ == "__main__":
     unittest.main()
