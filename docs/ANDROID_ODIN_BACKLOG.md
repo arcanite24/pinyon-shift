@@ -669,3 +669,57 @@ After the EDRAM pass work, 2X MSAA holds the 60 fps limit as played
 16.86 to 16.98 ms, GPU about 15.4 ms, where it averaged 17.2 ms before.
 Coarse shading changes nothing there (15.3 to 15.4 against 15.4 to 15.5
 ms of GPU), since the frame waits on the limit. SMOOTH 60 now selects 2X.
+
+### Toward 60 fps with shadows (2026-10-09)
+
+A deterministic benchmark replaces the drive for small changes: the
+frame-600 dump replayed 1,210 times (`fh1_frame_replay_repeat`, SDK
+`76f0b0e`) in a private state, `guest_frame_gpu_time` repeating to
+0.02 ms. It runs with `TU_DEBUG=sysmem`: Turnip's autotune otherwise
+picks GMEM for the repeated frame (26.0 against 17.2 ms), while play
+already runs in system memory. The live drive varies by a millisecond or
+more with its draw count.
+
+Kept, both opt-in on the Android Graphics page:
+
+| Change | Saves |
+| --- | --- |
+| TEXTURE GAMMA FAST: gamma textures sampled through sRGB views instead of the console's curve in every shader (`texture_gamma_host_srgb`, SDK `8af5d3c`) | about 0.4 ms; terrain and foliage a little darker (mean 7 of 255) |
+| SCENE SHADING COARSE now also shades alpha-tested foliage per 2x2 block (`fh1_coarse_shading_alpha_test`, SDK `09d3aed`) | 0.24 ms more; foliage edges step by the block |
+
+Measured and not kept:
+
+| Tried | Result |
+| --- | --- |
+| Pixel shaders without the color outputs a rendering does not use | identical image, no gain |
+| CPU-written memory uploads hoisted to the submission's start (16,206 of 16,384) | no gain |
+| 4x4 coarse shading of the shadow mask | no gain over 2x2 |
+| `TU_DEBUG=nolrz`, `gmem` (about 53 ms: about 150 renderings a frame, most ended by resolves), `noubwc` (5 ms worse) | nothing better than the default |
+| The game's `UseSmallShadowMap` option (guest byte `0x834AB27C`) set from the first frame | the shadow atlas stays 512x512: it is created before |
+| The shadow mask's filter (technique chosen by `sub_82C3AF68`'s mode) | the game already uses LQ, the cheapest |
+| No shadow mask blur (mode at the renderer + 8436, the game's 1: one pass) | within the drive's noise |
+| The command-line render switches (`renderfur`, `renderroaddetailblur`, `fast*render` in the options object at `sub_82479E88`) set before the renderer copies them | no change |
+| Resolves that write a texture skipping their guest memory write (a bound) | 0.22 ms at 4x: not worth tracking lazily written memory |
+| Vertex shaders with the pixel shaders' fast multiply rule, with and without fused multiply-adds | 0.07 ms |
+
+Where the 1x replay's 16.66 ms goes: 12.05 ms with flat pixel shaders,
+12.65 with every draw's rasterization discarded
+(`vulkan_debug_discard_rasterization`) and 11.39 with vertex fetches
+skipped too (`spirv_debug_skip_vertex_fetch`, SDK `5eece0f`). Pixels are
+about 4 to 4.6 ms, vertices about 1.3, and about 11.4 ms remain with no
+geometry at all: resolves 3.6, transfers 1.3, and the waits for idle
+around them. Turnip drains the GPU for graphics-to-compute and
+graphics-to-graphics dependencies alike (`tu_flush_for_stage`), so doing
+resolves as draws would not remove them.
+
+With shadows, at 1x without MSAA, COARSE, FAST gamma and the 60 fps
+limit, the drive's median frame is 16.73 and 16.75 ms but 36 to 42 % of
+frames take over 17.5 ms: about 51.5 fps on average. GPU time with
+shadows (median 16.3 to 16.6 ms against 17.4 to 17.5 without the two
+rows) is still about 2 ms over a steady 60, so SMOOTH 60 keeps shadows
+off.
+
+The v4 build had never applied the reflection rate or SHADOWS: its
+analysis lacked the DynamicRenderSettings hook, and the control
+vtables it checks moved. Both are ported (`3f5c652`); the Android build
+(base disc) was not affected.
