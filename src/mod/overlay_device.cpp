@@ -33,6 +33,18 @@ bool OverlayDevice::Initialize() {
       it = overlays_.erase(it);
     }
   }
+  // Files a mod adds to the game's directories are listed with them, as if
+  // they were on the disc: the title enumerates directories (FilesToCache.xml
+  // names wildcards such as media\Audio\Cars\Engines\Soundbanks\Burbles\*.*),
+  // and the XE mod adds hundreds of files beside the disc's. Earlier mods
+  // first, as they win when opening.
+  size_t listed = 0;
+  for (const auto& overlay : overlays_) {
+    listed += base_->MergeTree(overlay->host_path());
+  }
+  if (listed) {
+    diagnostics::RecordEvent("mod.overlay.listed", {{"entries", std::to_string(listed)}});
+  }
   return true;
 }
 

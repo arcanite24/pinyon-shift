@@ -47,8 +47,25 @@ int main() {
         file->Destroy();
       }
     }
+    // A directory lists the mod's new files beside the base's, as the title
+    // enumerates some directories.
+    const auto listed = [&](const char* directory, const char* name) {
+      auto* entry = vfs.ResolvePath(directory);
+      if (!entry) return false;
+      for (const auto& child : entry->children()) {
+        if (child->name() == name) return true;
+      }
+      return false;
+    };
+    passed &= listed("game:\\media\\shared", "keep.xml") &&
+              listed("game:\\media\\shared", "replacement.xml") &&
+              listed("game:\\media", "ColoradoDirt");
   }
   fs::remove_all(root);
-  if (!passed) { std::cerr << "Overlay hides base files or cannot open new directories\n"; return 1; }
-  std::cout << "Overlay keeps base files and opens assets in new directories.\n";
+  if (!passed) {
+    std::cerr << "Overlay hides base files, cannot open new directories or omits mod files "
+                 "from listings\n";
+    return 1;
+  }
+  std::cout << "Overlay keeps base files, opens assets in new directories and lists mod files.\n";
 }
