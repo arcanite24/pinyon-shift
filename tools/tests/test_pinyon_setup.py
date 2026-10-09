@@ -1,4 +1,5 @@
-"""tools/pinyon_setup.py: the Linux and macOS setup path (LX-3)."""
+"""tools/pinyon_setup.py and tools/pinyon_steam.py: the Linux and macOS
+setup path (LX-3) and the Steam shortcut (LX-5.10)."""
 
 import hashlib
 import json
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import pinyon_setup  # noqa: E402
+import pinyon_steam  # noqa: E402
 
 SECTOR = 2048
 
@@ -124,9 +126,31 @@ class ToolchainPinTests(unittest.TestCase):
     def test_the_payload_ships_the_posix_setup(self):
         script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
         include = script.split("$include = @(", 1)[1].split("\n)", 1)[0]
-        for required in ("tools/pinyon_setup.py", "tools/verify-codegen-log.py", "cmake"):
+        for required in ("tools/pinyon_setup.py", "tools/pinyon_steam.py", "config/steam",
+                         "tools/verify-codegen-log.py", "cmake"):
             self.assertIn(f"'{required}'", include)
             self.assertTrue((ROOT / required).exists(), required)
+
+
+class SteamShortcutTests(unittest.TestCase):
+    def test_binary_vdf_round_trips(self):
+        value = {"shortcuts": {"0": {"appid": -12345, "AppName": "Pinyon Shift",
+                                     "Exe": '"/x/pinyon-shift.sh"', "IsHidden": 0,
+                                     "tags": {"0": "Racing"}}}}
+        data = pinyon_steam.dump_vdf(value)
+        parsed, end = pinyon_steam.parse_vdf(data)
+        self.assertEqual(parsed, value)
+        self.assertEqual(end, len(data))
+        self.assertEqual(pinyon_steam.dump_vdf(parsed), data)
+
+    def test_shortcut_app_id_has_the_non_steam_bit(self):
+        app_id = pinyon_steam.shortcut_app_id('"/x/pinyon-shift.sh"', "Pinyon Shift")
+        self.assertTrue(app_id & 0x80000000)
+        self.assertEqual(app_id, pinyon_steam.shortcut_app_id('"/x/pinyon-shift.sh"', "Pinyon Shift"))
+
+    def test_artwork_is_present(self):
+        for name in ("capsule.png", "wide.png", "hero.png", "logo.png", "icon.png"):
+            self.assertTrue((ROOT / "config/steam" / name).is_file(), name)
 
 
 if __name__ == "__main__":
