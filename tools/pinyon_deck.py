@@ -182,7 +182,24 @@ def doctor(args: argparse.Namespace) -> int:
                       "free -g | awk '/Mem/{print $2\" GiB\"}'; df -h ~ | tail -1; "
                       "command -v gamescope; pgrep -a gamescope | head -1; "
                       f"ls {deck.root} 2>/dev/null; true"))
+    clock = gpu_clock(deck)
+    print(f"GPU clock: {clock}")
     return 0
+
+
+def gpu_clock(deck: Deck) -> str:
+    """The GPU's performance level and active clock. Steam's Performance
+    settings can pin it (manual, 200 MHz), and a game started over SSH gets no
+    game profile; such numbers say nothing about the game."""
+    level = deck.output("cat /sys/class/drm/card*/device/power_dpm_force_performance_level "
+                        "2>/dev/null | head -1", check=False).strip()
+    active = deck.output("grep '\\*' /sys/class/drm/card*/device/pp_dpm_sclk 2>/dev/null "
+                         "| head -1", check=False).strip()
+    text = f"{level or 'unknown'}, {active.split(':', 1)[-1].replace('*', '').strip() or '?'}"
+    if level == "manual":
+        text += (" -- pinned by Steam's Performance settings (Manual GPU Clock); "
+                 "measurements will not be representative")
+    return text
 
 
 def install(args: argparse.Namespace) -> int:
@@ -303,6 +320,7 @@ def route_result(deck: Deck, state: str) -> dict:
         "failures": failures[:3],
         "events": len(events),
         "log": str(destination / sessions[0]),
+        "gpu_clock": gpu_clock(deck),
     }
     perf = destination / (stem + ".perf.csv")
     if perf.is_file():
