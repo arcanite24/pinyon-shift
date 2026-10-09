@@ -365,7 +365,8 @@ def shortcut(args: argparse.Namespace) -> int:
     folder = f"devkit-game/{SHORTCUT_GAMEID}"
     deck.run(f"mkdir -p {folder} && cat > {folder}/pinyon-shift.sh && "
              f"chmod +x {folder}/pinyon-shift.sh",
-             input=SHORTCUT_LAUNCHER.format(root=deck.root), text=True)
+             # Bytes: a text-mode pipe on Windows would end lines with CRLF.
+             input=SHORTCUT_LAUNCHER.format(root=deck.root).encode())
     parms = {
         "gameid": SHORTCUT_GAMEID,
         "directory": f"/home/{deck.user}/{folder}",
