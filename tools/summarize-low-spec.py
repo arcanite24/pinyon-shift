@@ -4,8 +4,8 @@
 `record` reads one render-test run (its isolated state directory) and writes a
 JSON record: the commit and SDK, the machine, the effective settings the game
 logged, any low-end simulation the runner applied, and the frame metrics of
-the race's draw bands. `table` renders records as the markdown table the
-README's performance section uses, so prose never drifts from measurements.
+the race's draw bands. `table` renders records as the markdown table
+docs/PERFORMANCE.md uses, so prose never drifts from measurements.
 
     summarize-low-spec.py record RUN.state --label "4C/8T" --output r.json
     summarize-low-spec.py table benchmarks/results/*.json

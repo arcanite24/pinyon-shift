@@ -38,8 +38,8 @@ generated source. Never attach game files or generated source.
 ## A portable install cannot start or build
 
 A launcher with `portable.txt` beside it (or started with `--portable`) keeps
-everything in the `data` folder next to it; see "Portable install" in the
-README.
+everything in the `data` folder next to it; see
+[Portable install](INSTALLING.md#portable-install).
 
 - **"Portable folder is not writable"**: the launcher folder is read-only for
   your account, typically because it was extracted into Program Files or onto

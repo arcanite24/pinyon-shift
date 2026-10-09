@@ -144,7 +144,7 @@ ranking above:
 
 ## Changes to the public roadmap
 
-The [README roadmap](../README.md#roadmap) now groups priorities into in
+The [roadmap](ROADMAP.md) now groups priorities into in
 progress, next, mid term and research. Current Linux, v4 title-update, DLC and
 Android setup work stays in progress. Mid term includes lower-end Android,
 Switch, macOS, wheels, mod management and custom radio. Multiplayer and

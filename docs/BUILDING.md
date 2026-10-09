@@ -50,6 +50,11 @@ To verify only the image:
 .\tools\setup-preview.ps1 -IsoPath C:\path\to\your-disc.iso -VerifyOnly
 ```
 
+To start the built game, run `.\tools\launch-preview.ps1`, or
+`python tools/pinyon.py launch` without PowerShell. The latter takes
+`--state-root`, `--hidden` and game arguments after `--`, and is the launcher
+for Linux builds.
+
 To rebuild after changing host or ShiftGlue code:
 
 ```powershell
@@ -66,7 +71,7 @@ That package contains a self-contained launcher executable and a source archive.
 It deliberately excludes the compiled preview, generated translations, and all
 game content. An empty `portable.txt` beside the extracted launcher (or
 `--portable` on its command line) makes it a portable install that keeps
-everything in a `data` folder beside it; see "Portable install" in the README.
+everything in a `data` folder beside it; see [Portable install](INSTALLING.md#portable-install).
 
 ## Owned Rally assets
 

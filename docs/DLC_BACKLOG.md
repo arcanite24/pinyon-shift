@@ -4,7 +4,7 @@ Status: **open**, inventoried 2026-10-04. Priority follows gameplay breadth:
 Rally, 1000 Club, monthly car packs, VIP, Honda, pre-order and exclusive cars,
 then LCE paint variants. Implementation starts with the shared import and
 base-disc prerequisites, even when a small car pack is the first test case.
-The public checklist lives in the [README](../README.md#dlc-support-priorities).
+The public checklist lives in the [roadmap](ROADMAP.md#dlc-packages).
 
 ## Immediate priority: the original Rally experience
 

@@ -45,9 +45,9 @@ class PortableLauncherContractTests(unittest.TestCase):
         self.assertIn('MarkerFileName = "portable.txt"', self.portable)
         self.assertIn('CommandLineSwitch = "--portable"', self.portable)
         self.assertIn('DataFolderName = "data"', self.portable)
-        readme = read("README.md")
+        guide = read("docs/INSTALLING.md")
         for text in ("portable.txt", "--portable", "Portable:"):
-            self.assertIn(text, readme)
+            self.assertIn(text, guide)
         self.assertIn("portable.txt", read("docs/TROUBLESHOOTING.md"))
 
     def test_portable_root_is_derived_from_the_launcher_folder_each_start(self):
