@@ -4,6 +4,7 @@
 #include "dlc/rally_audio_probe.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +33,10 @@
 #endif
 #include <rex/ui/windowed_app_context.h>
 #include <rex/ui/window.h>
+
+#if !defined(_WIN32) && !defined(__ANDROID__)
+#include <SDL3/SDL_video.h>
+#endif
 
 #include "native_renderer/guest_output_renderer.h"
 #include "native_renderer/shader_capture.h"
@@ -566,8 +571,19 @@ std::optional<rex::PathConfig> PinyonShiftApp::OnFinalizePaths(
     const rex::PathConfig& defaults,
     std::function<void(rex::PathConfig)> resume) {
   (void)resume;
-  const auto refresh = pinyon_shift::platform::DisplayRefreshRate(
+  auto refresh = pinyon_shift::platform::DisplayRefreshRate(
       window() ? window()->GetNativeWindowHandle() : nullptr);
+#if !defined(_WIN32) && !defined(__ANDROID__)
+  // LX-5.5: no native handle off Windows; SDL knows the display's mode (under
+  // gamescope, its output's). Android keeps the guest's own 60 Hz.
+  if (!refresh) {
+    const SDL_DisplayID display = SDL_GetPrimaryDisplay();
+    if (const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
+        mode && mode->refresh_rate > 1.0f) {
+      refresh = uint32_t(std::lround(mode->refresh_rate));
+    }
+  }
+#endif
   if (refresh && *refresh >= 24 && *refresh <= 240) {
     REXCVAR_SET(video_mode_refresh_rate, double(*refresh));
     pinyon_shift::diagnostics::RecordEvent("display.refresh.detected",

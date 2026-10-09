@@ -18,7 +18,9 @@ nothing to prepare. A crash on Windows is bundled by
 tools/create-crash-report.ps1; elsewhere the exit code is reported.
 
 `android` builds, installs and runs the game on an Android device from this
-PC (AP-6.1); see tools/pinyon_android.py.
+PC (AP-6.1); see tools/pinyon_android.py. `deck` copies a Linux build and the
+game to a Steam Deck and runs it there over SSH (LX-2.1); see
+tools/pinyon_deck.py.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pinyon_android  # noqa: E402
+import pinyon_deck  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = os.name == "nt"
@@ -149,7 +152,8 @@ def launch(args: argparse.Namespace) -> dict:
         if args.render_test_output:
             environment["PINYON_SHIFT_FH1_RENDER_TEST_OUTPUT"] = str(
                 args.render_test_output.resolve())
-        arguments.append("--pinyon_shift_skip_opening_movies=true")
+        if not args.include_opening_movies:
+            arguments.append("--pinyon_shift_skip_opening_movies=true")
     started = datetime.now(timezone.utc)
     process = subprocess.Popen([str(executable)] + arguments, cwd=str(build), env=environment)
     try:
@@ -183,13 +187,18 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("--skip-shader-preparation", action="store_true")
     start.add_argument("--render-test-script", type=Path)
     start.add_argument("--render-test-output", type=Path)
+    start.add_argument("--include-opening-movies", action="store_true",
+                       help="play the opening movies in a render test")
     start.add_argument("--timeout", type=float, help="seconds before the game is stopped")
     start.add_argument("--json", action="store_true", help="print the result as JSON")
     start.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     pinyon_android.add_parser(commands)
+    pinyon_deck.add_parser(commands)
     args = parser.parse_args(argv)
     if args.command == "android":
         return pinyon_android.main(args)
+    if args.command == "deck":
+        return pinyon_deck.main(args)
     try:
         result = launch(args)
     except LaunchError as error:

@@ -1792,6 +1792,32 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     command.extend(["-GameArgumentsJson", json.dumps(game_arguments)])
     command.append("-Json")
     environment = dict(os.environ)
+    if sys.platform != "win32":
+        # LX-3.7: no PowerShell off Windows; tools/pinyon.py launch does what
+        # launch-preview.ps1 does for a route.
+        if expect_rally_normal_entry or args.collect_pass_inventory or args.nsight_gpu_trace:
+            raise SystemExit("--verify-rally, the pass inventory and Nsight need Windows")
+        command = [sys.executable, str(Path(__file__).with_name("pinyon.py")), "launch",
+                   "--state-root", str(run_state_root),
+                   "--render-test-script", str(scenario),
+                   "--render-test-output", str(output),
+                   "--timeout", str(timeout), "--json"]
+        if args.configuration:
+            command += ["--configuration", args.configuration]
+        if args.game_root:
+            command += ["--game-root", str(args.game_root.resolve())]
+        if args.build_directory:
+            command += ["--build-directory", str(args.build_directory.resolve())]
+        if args.hidden:
+            command.append("--hidden")
+        if args.include_opening_movies:
+            command.append("--include-opening-movies")
+        command += ["--"] + game_arguments
+        if args.shader_capture_dir:
+            environment["PINYON_SHIFT_NATIVE_SHADER_CAPTURE_DIR"] = str(
+                args.shader_capture_dir.resolve())
+        if disc_shader_corpus_dir:
+            environment["PINYON_SHIFT_FH1_DISC_SHADER_CORPUS_DIR"] = str(disc_shader_corpus_dir)
     if expect_rally_car_database or dlc_car_trace:
         environment["PINYON_SHIFT_DLC_TRACE"] = "1"
     else:

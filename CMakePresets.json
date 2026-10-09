@@ -33,9 +33,8 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-x86_64-sniper.cmake",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_C_FLAGS": "-msse4.1",
         "CMAKE_CXX_FLAGS": "-msse4.1",
         "PINYON_SHIFT_CPU_BASELINE": "sse4.1",
