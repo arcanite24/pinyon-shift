@@ -17,6 +17,9 @@ Linux the game runs on Vulkan and translates shaders itself, so there is
 nothing to prepare. A crash on Windows is bundled by
 tools/create-crash-report.ps1; elsewhere the exit code is reported.
 
+`setup` builds the game from the player's disc on Linux and macOS (LX-3);
+see tools/pinyon_setup.py.
+
 `android` builds, installs and runs the game on an Android device from this
 PC (AP-6.1); see tools/pinyon_android.py. `deck` copies a Linux build and the
 game to a Steam Deck and runs it there over SSH (LX-2.1); see
@@ -38,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pinyon_android  # noqa: E402
 import pinyon_deck  # noqa: E402
+import pinyon_setup  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = os.name == "nt"
@@ -220,7 +224,10 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     pinyon_android.add_parser(commands)
     pinyon_deck.add_parser(commands)
+    pinyon_setup.add_parser(commands)
     args = parser.parse_args(argv)
+    if args.command == "setup":
+        return pinyon_setup.main(args)
     if args.command == "android":
         return pinyon_android.main(args)
     if args.command == "deck":

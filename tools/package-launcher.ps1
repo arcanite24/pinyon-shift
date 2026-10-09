@@ -79,6 +79,8 @@ $include = @(
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
     'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/install-sample-mod.py',
     'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/build-android.ps1',
+    # Linux, the Steam Deck and macOS (docs/LINUX.md, docs/MACOS.md).
+    'tools/pinyon_setup.py', 'tools/pinyon_deck.py',
     'config/android-toolchain.json', 'android',
     'tools/fh1-profile.py', 'tools/fh1-strings.py', 'tools/inspect-fh1-ui.py',
     'tools/native-shader-pack.py',

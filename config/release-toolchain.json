@@ -69,6 +69,79 @@
     "install_path": ".local/toolchain/python-3.13.15",
     "executable": "python.exe"
   },
+  "posix": {
+    "linux-x86_64": {
+      "disk_space_gb": {
+        "first_build": 45,
+        "rebuild": 8
+      },
+      "cmake": {
+        "version": "3.31.10",
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-linux-x86_64.tar.gz",
+        "sha256": "3CB3DD247B6A1DE2D0F4B20C6FD4326C9024E894CEBC9DC8699758887E566CA7",
+        "install_path": ".local/toolchain/cmake-3.31.10-linux-x86_64",
+        "executable": "bin/cmake"
+      },
+      "ninja": {
+        "version": "1.13.2",
+        "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip",
+        "sha256": "5749CBC4E668273514150A80E387A957F933C6ED3F5F11E03FB30955E2BBEAD6",
+        "install_path": ".local/toolchain/ninja-1.13.2-linux",
+        "executable": "ninja",
+        "strip_top": false
+      },
+      "llvm": {
+        "version": "20.1.8",
+        "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-Linux-X64.tar.xz",
+        "sha256": "1EAD36B3DFCB774B57BE530DF42BEC70AB2D239FBCE9889447C7A29A4DDC1AE6",
+        "install_path": ".local/toolchain/llvm-20.1.8-linux",
+        "executable": "bin/clang"
+      },
+      "sysroot": {
+        "label": "the Steam Runtime 3 (sniper) SDK",
+        "version": "3.0.20260805.254768",
+        "url": "https://repo.steampowered.com/steamrt3/images/3.0.20260805.254768/com.valvesoftware.SteamRuntime.Sdk-amd64%2Ci386-sniper-sysroot.tar.gz",
+        "sha256": "32903ECFE7C06CE8CBA26722ADB876A665B6292606A0666F43D0BFD9BEB2C10A",
+        "install_path": ".local/toolchain/sniper-sdk-3.0.20260805.254768",
+        "executable": ""
+      },
+      "python": {
+        "version": "3.13.16",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz",
+        "sha256": "0A0272910B10417C659A9312FB3F2D7A6D774DA7BD510999BE7A3BA83273DC1F",
+        "install_path": ".local/toolchain/python-3.13.16-linux",
+        "executable": "bin/python3"
+      }
+    },
+    "macos-arm64": {
+      "disk_space_gb": {
+        "first_build": 20,
+        "rebuild": 8
+      },
+      "cmake": {
+        "version": "3.31.10",
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-macos-universal.tar.gz",
+        "sha256": "BE9F3FAEEAF7921CC2D77CEA711DD5E6F72C63AF2810CACD9205B3CE8D1593C9",
+        "install_path": ".local/toolchain/cmake-3.31.10-macos",
+        "executable": "CMake.app/Contents/bin/cmake"
+      },
+      "ninja": {
+        "version": "1.13.2",
+        "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip",
+        "sha256": "C99048673AA765960A99CF10C6DDB9F1FAD506099FF0A0E137AD8960A88F321B",
+        "install_path": ".local/toolchain/ninja-1.13.2-macos",
+        "executable": "ninja",
+        "strip_top": false
+      },
+      "python": {
+        "version": "3.13.16",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-aarch64-apple-darwin-install_only.tar.gz",
+        "sha256": "D8975D7DF4F08F7B1C7AAFCDFACBDDCEC3D366415F2C1A72B2466B6850815933",
+        "install_path": ".local/toolchain/python-3.13.16-macos",
+        "executable": "bin/python3"
+      }
+    }
+  },
   "rexglue": {
     "repository": "https://github.com/arcanite24/shiftglue-sdk",
     "revision": "50c0df0df56b9dee1ec00a24298847b2e2f7970d",

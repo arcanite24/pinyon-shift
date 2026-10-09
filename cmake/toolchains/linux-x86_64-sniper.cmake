@@ -61,6 +61,14 @@ set(ENV{PKG_CONFIG_SYSROOT_DIR} "${CMAKE_SYSROOT}")
 set(ENV{PKG_CONFIG_LIBDIR}
     "${CMAKE_SYSROOT}/usr/lib/x86_64-linux-gnu/pkgconfig:${CMAKE_SYSROOT}/usr/share/pkgconfig")
 set(ENV{PKG_CONFIG_PATH} "")
+# SteamOS has no pkg-config of its own; the sysroot's runs on any host with
+# GLib, which every Linux desktop has.
+if(NOT CMAKE_HOST_WIN32 AND NOT PKG_CONFIG_EXECUTABLE)
+  find_program(_pinyon_host_pkg_config NAMES pkg-config pkgconf NO_CMAKE_FIND_ROOT_PATH)
+  if(NOT _pinyon_host_pkg_config)
+    set(PKG_CONFIG_EXECUTABLE "${CMAKE_SYSROOT}/usr/bin/pkg-config" CACHE FILEPATH "")
+  endif()
+endif()
 
 # SDL3's Wayland backend generates its protocol code at build time. The
 # sysroot's scanner runs on a Linux build host with libxml2 (LX-1.4 replaces
