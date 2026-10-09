@@ -96,6 +96,27 @@ def build_mods(state: Path, game: Path, build: Path) -> None:
         raise LaunchError("could not build the mods' archive members")
 
 
+RALLY_CONTENT = "user/0000000000000000/4D5309C9/00000002/6F6992766050D818245ADD408031E280FB5F4E634D"
+
+
+def prepare_rally(state: Path, game: Path, build: Path) -> bool:
+    """Verify owned Rally and its generated cache before play, as
+    launch-preview.ps1 does. True when the Rally entry is ready."""
+    if not (state / RALLY_CONTENT).is_dir():
+        return False
+    extractor = build / ("pinyon_shift_fh1_archive_extract" + (".exe" if WINDOWS else ""))
+    completed = subprocess.run([sys.executable, str(ROOT / "tools" / "prepare-fh1-rally.py"),
+                                "--state-root", str(state), "--game-root", str(game),
+                                "--extractor", str(extractor)], capture_output=True, text=True)
+    if completed.returncode:
+        raise LaunchError("could not verify and prepare Rally; restore or re-import the "
+                          "verified Rally package. Saved cars with Rally parts need it")
+    try:
+        return json.loads(completed.stdout).get("entry_ready") is True
+    except json.JSONDecodeError:
+        return False
+
+
 def prepare_shaders(state: Path, game: Path, build: Path) -> None:
     shell = powershell()
     if shell is None:
@@ -138,11 +159,15 @@ def launch(args: argparse.Namespace) -> dict:
     if WINDOWS and not args.skip_shader_preparation and not args.render_test_script:
         prepare_shaders(state, game, build)
     build_mods(state, game, build)
+    rally_ready = not args.render_test_script and prepare_rally(state, game, build)
 
     environment = dict(os.environ)
     environment.update({"PINYON_SHIFT_STATE_ROOT": str(state),
                         "PINYON_SHIFT_GAME_ROOT": str(game),
                         "REX_D3D12_ALLOW_VARIABLE_REFRESH_RATE_AND_TEARING": "false"})
+    environment.pop("PINYON_SHIFT_RALLY_PREPARED", None)
+    if rally_ready:
+        environment["PINYON_SHIFT_RALLY_PREPARED"] = "1"
     arguments = list(args.game_arguments)
     if args.hidden:
         environment["REX_WINDOW_HIDDEN"] = "1"
