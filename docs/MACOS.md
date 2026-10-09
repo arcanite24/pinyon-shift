@@ -28,7 +28,7 @@ verifies it, builds the game on your Mac and starts it.
    tools** and follow Apple's dialog, then **Check again**.
 4. Choose **Choose disc image** and select your ISO, or drop it onto the
    launcher. Confirm ownership and choose **Verify and build**. The Mac stays
-   awake until the build is done.
+   awake until the build is done: about 20 minutes on an M4 Pro.
 5. Choose **Play**. Press **F6** in game for settings.
 
 On an M4 Pro, free roam runs at a median of about 105 fps at the default 1x
@@ -78,7 +78,7 @@ delete the app and `~/Library/Application Support/PinyonShift`.
 
 | System | Status |
 | --- | --- |
-| Mac mini, M4 Pro, macOS 26 | Builds and plays; free roam route passes |
+| Mac mini, M4 Pro, macOS 26 | Release app to a built game in 18 minutes, installed on an external drive; free roam route passes |
 | Other Apple silicon Macs | Not tested yet |
 
 DLC import, the title update build and crash bundles are not available on
