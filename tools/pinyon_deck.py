@@ -15,10 +15,14 @@ its qual/ folder.
   pinyon.py deck run [--null-gpu] [--route FILE [--seed DIR]] [--wait] [-- args]
   pinyon.py deck pull-logs [--state NAME] copy a state's logs and route output
   pinyon.py deck stop                    stop the game on the Deck
+  pinyon.py deck shortcut [--seed DIR]   add the game to Steam (LX-2.3)
 
 `run` starts the game inside a headless gamescope by default, so scripted
 routes do not take over the screen; --display runs it in the Deck's own
-session (Game Mode's Xwayland) instead.
+session (Game Mode's Xwayland) instead. A game started over SSH gets no game
+power profile from Steam, which may hold the GPU at its lowest clock; `deck
+shortcut` registers the build as a native (no compatibility tool) devkit game,
+so it starts from Game Mode like any other and keeps its save under play/.
 """
 
 from __future__ import annotations
@@ -209,6 +213,9 @@ def run_game(args: argparse.Namespace) -> int:
     game_arguments = list(args.game_arguments)
     if args.null_gpu:
         game_arguments.append("--gpu_backend=null")
+    if not args.display and not any("audio_mute" in argument for argument in game_arguments):
+        # Nobody sees a headless run; nobody should hear it either.
+        game_arguments.append("--audio_mute=true")
     if args.seed:
         # As on Android (AP-8.1): a private state per run from a pinned seed;
         # only the logs, crash reports and route output carry over.
@@ -327,6 +334,56 @@ def pull_logs(args: argparse.Namespace) -> int:
     return 0
 
 
+SHORTCUT_GAMEID = "PinyonShift"
+SHORTCUT_LAUNCHER = """#!/bin/sh
+# Written by tools/pinyon.py deck shortcut: Steam starts this from Game Mode.
+root="$HOME/{root}"
+export PINYON_SHIFT_STATE_ROOT="$root/play"
+export PINYON_SHIFT_GAME_ROOT="$root/game/base"
+mkdir -p "$PINYON_SHIFT_STATE_ROOT/logs"
+cd "$root/build" || exit 1
+exec ./pinyon_shift "$@" > "$PINYON_SHIFT_STATE_ROOT/logs/steam-console.log" 2>&1
+"""
+
+
+def shortcut(args: argparse.Namespace) -> int:
+    deck = Deck(args)
+    if deck.run(f"test -x {deck.root}/build/pinyon_shift && "
+                f"test -f {deck.root}/game/base/default.xex", check=False).returncode:
+        raise DeckError("install the build and push the game data first")
+    play = f"{deck.root}/play"
+    if args.seed and deck.run(f"test -d {play}/user", check=False).returncode:
+        # Only into an empty play state: its save is the player's from then on.
+        seed = args.seed.resolve()
+        if not (seed / "user").is_dir():
+            raise DeckError(f"{seed} is not a render seed (no user folder)")
+        files = sorted(path for folder in ("user", "config") if (seed / folder).is_dir()
+                       for path in (seed / folder).rglob("*") if path.is_file())
+        deck.send([(path, path.relative_to(seed).as_posix()) for path in files], play)
+        print(f"seeded {play} from {seed.name}")
+    # The devkit tools register ~/devkit-game/<gameid> and run argv from it.
+    folder = f"devkit-game/{SHORTCUT_GAMEID}"
+    deck.run(f"mkdir -p {folder} && cat > {folder}/pinyon-shift.sh && "
+             f"chmod +x {folder}/pinyon-shift.sh",
+             input=SHORTCUT_LAUNCHER.format(root=deck.root), text=True)
+    parms = {
+        "gameid": SHORTCUT_GAMEID,
+        "directory": f"/home/{deck.user}/{folder}",
+        "argv": ["./pinyon-shift.sh"],
+        "env": {},
+        "settings": {"steam_play": "0", "compat_tool": ""},
+        "force_appid": "",
+        "lepton_args": "",
+    }
+    reply = deck.output("python3 ~/devkit-utils/steam-client-create-shortcut --parms "
+                        + shlex.quote(json.dumps(parms)))
+    result = json.loads(reply.strip().splitlines()[-1])
+    if "error" in result:
+        raise DeckError(f"Steam did not add the shortcut: {result['error']}")
+    print(f"added {SHORTCUT_GAMEID} to Steam on the Deck")
+    return 0
+
+
 def add_parser(commands) -> None:
     deck = commands.add_parser("deck", help="run the Linux build on a Steam Deck over SSH")
     sub = deck.add_subparsers(dest="deck_command", required=True)
@@ -363,6 +420,9 @@ def add_parser(commands) -> None:
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     command("stop", stop, "stop the game on the Deck")
+    parser = command("shortcut", shortcut, "add the game to Steam on the Deck")
+    parser.add_argument("--seed", type=Path,
+                        help="a render seed for an empty play state (user, config)")
     parser = command("pull-logs", pull_logs, "copy a state's logs and route output back")
     parser.add_argument("--state", default="default")
     parser.add_argument("--output", type=Path)
