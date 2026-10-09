@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private View _panelBeforeGraphics = View.Setup;
     private View _panelBeforeDlc = View.Ready;
     private TitleUpdateStatus? _titleUpdate;
+    private XeStatus? _xe;
     private string _headlineBeforeDlc = "Ready to drive";
 
     private static readonly string InstallRootPreference = Path.Combine(
@@ -639,7 +640,18 @@ public partial class MainWindow : Window
                 try { titleUpdate = await RunTitleUpdateToolAsync("status"); }
                 catch (Exception ex) { AppendLog($"Title update status unavailable, starting the base disc: {ex.Message}"); }
             }
-            if (titleUpdate is { Use: true })
+            // XE is made for the base disc; it wins over a chosen v4.
+            XeStatus? xe = null;
+            if (File.Exists(Path.Combine(_repositoryRoot, "tools", "manage-xe.ps1")))
+            {
+                try { xe = await RunXeToolAsync("status"); }
+                catch (Exception ex) { AppendLog($"XE mod status unavailable: {ex.Message}"); }
+            }
+            if (xe is { Enabled: true })
+                AppendLog(titleUpdate is { Use: true }
+                    ? "Starting the XE mod on the base disc; title update v4 is not used while XE is on."
+                    : "Starting the XE mod. It plays its own save; your base save is untouched.");
+            if (titleUpdate is { Use: true } && xe is not { Enabled: true })
             {
                 if (!titleUpdate.Built)
                 {
@@ -1628,6 +1640,7 @@ public partial class MainWindow : Window
         ShowPanel(View.Dlc);
         await ChangeDlcAsync("list", success: "Changes apply the next time you start the game.");
         await RefreshTitleUpdateAsync();
+        await RefreshXeAsync();
     }
 
     private async Task RefreshTitleUpdateAsync(string? message = null)
@@ -1777,6 +1790,117 @@ public partial class MainWindow : Window
         });
         await process.WaitForExitAsync(cancellation);
         if (process.ExitCode != 0) throw new InvalidOperationException($"{script} failed. See the log above.");
+    }
+
+    private async Task RefreshXeAsync(string? message = null)
+    {
+        try { ApplyXe(await RunXeToolAsync("status"), message); }
+        catch (Exception ex) { XeStatusText.Text = ex.Message; }
+    }
+
+    private void ApplyXe(XeStatus status, string? message = null)
+    {
+        _xe = status;
+        XeToggleButton.IsEnabled = status.Installed;
+        XeToggleButton.Content = status.Enabled ? "Turn off" : "Use XE";
+        XeInstallButton.Content = status.Installed ? "Reinstall" : "Install XE";
+        AutomationProperties.SetName(XeToggleButton, status.Enabled ? "Play without the XE mod" : "Play with the XE mod");
+        XeStatusText.Text = message ?? (!status.Installed
+            ? "Not installed. Download XE 1.0 and the 1.01 hotfix from ModDB, then choose both archives."
+            : status.Enabled
+                ? $"XE {status.Version} is on. It plays its own new save and hides Horizon Rally; your base save is kept."
+                : $"XE {status.Version} is installed and off. The game runs as on the disc.");
+    }
+
+    private async void InstallXeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var picker = new OpenFileDialog
+        {
+            Title = "Choose the XE 1.0 download and the 1.01 hotfix",
+            Filter = "XE mod archives (*.7z)|*.7z|All files|*.*",
+            Multiselect = true
+        };
+        if (picker.ShowDialog(this) != true) return;
+        await ChangeXeAsync("install", picker.FileNames,
+            "XE is installed and on. Its first start creates a new save.");
+    }
+
+    private async void XeToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _xe is null) return;
+        if (_xe.Enabled)
+        {
+            await ChangeXeAsync("disable", [], "XE is off. Your base save is used again.");
+            return;
+        }
+        var answer = MessageBox.Show(this,
+            "The XE mod adds cars and replaces the game's database.\n\n" +
+            "It plays its own new save, so your current save is kept as it is, and it hides the " +
+            "Horizon Rally expansion while it is on. Title update v4 is not used with XE.\n\nUse XE?",
+            "Forza Horizon XE mod", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (answer == MessageBoxResult.Yes)
+            await ChangeXeAsync("enable", [], "XE is on. It starts with a new save.");
+    }
+
+    private async Task ChangeXeAsync(string action, string[] archives, string success)
+    {
+        _busy = true;
+        XeControls.IsEnabled = false;
+        UpdatePrimaryButton();
+        XeStatusText.Text = action == "install"
+            ? "Checking and extracting the XE archives. This takes a few minutes…"
+            : "Updating…";
+        try { ApplyXe(await RunXeToolAsync(action, archives), success); }
+        catch (Exception ex)
+        {
+            await RefreshXeAsync(ex.Message);
+            AppendLog($"XE mod: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+            XeControls.IsEnabled = true;
+            UpdatePrimaryButton();
+        }
+    }
+
+    private async Task<XeStatus> RunXeToolAsync(string action, string[]? archives = null)
+    {
+        if (_repositoryRoot is null || _stateRoot is null)
+            throw new InvalidOperationException("Release source is not ready.");
+        var start = new ProcessStartInfo
+        {
+            FileName = PowerShellExecutable(), WorkingDirectory = _repositoryRoot,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(_repositoryRoot, "tools", "manage-xe.ps1"), "-Action", action, "-StateRoot", _stateRoot })
+            start.ArgumentList.Add(argument);
+        foreach (var archive in archives ?? []) start.ArgumentList.Add(archive);
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start XE management.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var stdout = (await output).Trim();
+        var stderr = (await error).Trim();
+        var json = stdout[(stdout.LastIndexOf('\n') + 1)..];
+        var status = json.StartsWith('{')
+            ? JsonSerializer.Deserialize<XeStatus>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            : null;
+        if (process.ExitCode != 0 || status is null)
+            throw new InvalidOperationException(status?.Error ?? (string.IsNullOrWhiteSpace(stderr) ? "XE management stopped." : stderr));
+        // install reports what it did; read the full status afterwards.
+        return action == "install" ? await RunXeToolAsync("status") : status;
+    }
+
+    public sealed class XeStatus
+    {
+        public bool Installed { get; set; }
+        public bool Enabled { get; set; }
+        public string? Version { get; set; }
+        public string? Error { get; set; }
     }
 
     public sealed class TitleUpdateStatus

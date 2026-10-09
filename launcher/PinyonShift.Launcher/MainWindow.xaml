@@ -289,6 +289,24 @@
                                         Click="TitleUpdateToggleButton_Click" IsEnabled="False" MinWidth="88"/>
                             </StackPanel>
                         </Grid>
+                        <!-- Optional Forza Horizon XE mod, installed from the player's own downloads. -->
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                                <TextBlock Text="Forza Horizon XE mod" FontSize="14"/>
+                                <TextBlock x:Name="XeStatusText" Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap" Text="Checking…"
+                                           Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                            <StackPanel x:Name="XeControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="XeInstallButton" Content="Install XE" Style="{StaticResource QuietButton}"
+                                        Click="InstallXeButton_Click" Margin="0,0,10,0"
+                                        AutomationProperties.Name="Install the XE mod from its downloaded archives"/>
+                                <Button x:Name="XeToggleButton" Content="Use XE" Style="{StaticResource QuietButton}"
+                                        Click="XeToggleButton_Click" IsEnabled="False" MinWidth="88"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 

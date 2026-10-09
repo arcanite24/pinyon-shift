@@ -89,6 +89,24 @@
                 <TextBlock x:Name="StatusText" Margin="0,16,0,0" FontSize="13" TextWrapping="Wrap"
                            Foreground="{StaticResource MutedBrush}"/>
 
+                <!-- The optional Forza Horizon XE mod, from the player's own downloads. -->
+                <Border x:Name="XePanel" IsVisible="False" Margin="0,24,0,0" Padding="22,18"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" x:Name="XeControls" Orientation="Horizontal"
+                                    Spacing="10" VerticalAlignment="Center">
+                            <Button x:Name="XeInstallButton" Classes="quiet" Content="Install XE" Click="XeInstall_Click"/>
+                            <Button x:Name="XeToggleButton" Classes="quiet" Content="Use XE" IsEnabled="False"
+                                    Click="XeToggle_Click" MinWidth="88"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Forza Horizon XE mod" FontSize="14"/>
+                            <TextBlock x:Name="XeStatusText" Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}" Text="Checking…"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <!-- Progress and the log. -->
                 <Border x:Name="ProgressPanel" IsVisible="False" Margin="0,24,0,0" Padding="22,18"
                         CornerRadius="14" Background="{StaticResource SurfaceBrush}">

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -64,6 +65,9 @@ public partial class MainWindow : Window
         PrimaryButton.IsVisible = true;
         SteamButton.IsVisible = ready && Installation.IsLinux;
         RebuildButton.IsVisible = mode == Mode.Ready;
+        XePanel.IsVisible = mode == Mode.Ready;
+        XeControls.IsEnabled = mode == Mode.Ready;
+        if (mode == Mode.Ready) _ = RefreshXeAsync();
         CancelButton.IsVisible = mode == Mode.Building;
         if (mode == Mode.Building) ProgressPanel.IsVisible = true;
         switch (mode)
@@ -227,6 +231,94 @@ public partial class MainWindow : Window
             ? "Added to Steam and the applications menu. On a Steam Deck, return to Game Mode and find "
               + "Pinyon Shift under Non-Steam in your library."
             : "Could not add it to Steam: " + output.ToString().Trim();
+    }
+
+    // The XE mod: tools/pinyon.py xe, which prints one JSON object with --json.
+    private bool _xeInstalled, _xeEnabled;
+
+    private async Task<JsonElement> RunXeAsync(params string[] arguments)
+    {
+        if (_installation is null) throw new InvalidOperationException("The installation is not ready.");
+        var lines = new List<string>();
+        var code = await _installation.RunAsync(new[] { "xe" }.Concat(arguments).Append("--json"), _ => { },
+            line => { lock (lines) lines.Add(line); });
+        string? json;
+        lock (lines) json = lines.LastOrDefault(line => line.StartsWith('{'));
+        if (json is null) throw new InvalidOperationException($"XE management stopped (exit {code}).");
+        var result = JsonDocument.Parse(json).RootElement.Clone();
+        if (code != 0 || result.TryGetProperty("error", out _))
+            throw new InvalidOperationException(result.TryGetProperty("error", out var error)
+                ? error.GetString() : $"XE management stopped (exit {code}).");
+        return result;
+    }
+
+    private async Task RefreshXeAsync(string? message = null)
+    {
+        try
+        {
+            var status = await RunXeAsync("status");
+            _xeInstalled = status.GetProperty("installed").GetBoolean();
+            _xeEnabled = _xeInstalled && status.GetProperty("enabled").GetBoolean();
+            var version = _xeInstalled ? status.GetProperty("version").GetString() : null;
+            XeToggleButton.IsEnabled = _xeInstalled;
+            XeToggleButton.Content = _xeEnabled ? "Turn off" : "Use XE";
+            XeInstallButton.Content = _xeInstalled ? "Reinstall" : "Install XE";
+            XeStatusText.Text = message ?? (!_xeInstalled
+                ? "Not installed. Download XE 1.0 and the 1.01 hotfix from ModDB, then choose both archives."
+                : _xeEnabled
+                    ? $"XE {version} is on. It plays its own new save and hides Horizon Rally; your save is kept."
+                    : $"XE {version} is installed and off. The game runs as on the disc.");
+        }
+        catch (Exception error)
+        {
+            XeStatusText.Text = message ?? error.Message;
+        }
+    }
+
+    private async Task ChangeXeAsync(string[] arguments, string working, string success)
+    {
+        XeControls.IsEnabled = false;
+        PrimaryButton.IsEnabled = false;
+        XeStatusText.Text = working;
+        string message;
+        try
+        {
+            await RunXeAsync(arguments);
+            message = success;
+        }
+        catch (Exception error)
+        {
+            message = error.Message;
+        }
+        await RefreshXeAsync(message);
+        XeControls.IsEnabled = true;
+        PrimaryButton.IsEnabled = _mode == Mode.Ready;
+    }
+
+    private async void XeInstall_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose the XE 1.0 download and the 1.01 hotfix",
+            AllowMultiple = true,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("XE mod archives") { Patterns = new[] { "*.7z" } },
+                FilePickerFileTypes.All,
+            },
+        });
+        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToArray();
+        if (paths.Length == 0) return;
+        await ChangeXeAsync(new[] { "install" }.Concat(paths).Append("--replace").ToArray(),
+            "Checking and extracting the XE archives. This takes a few minutes…",
+            "XE is installed and on. Its first start creates a new save.");
+    }
+
+    private async void XeToggle_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!_xeInstalled) return;
+        await ChangeXeAsync(new[] { _xeEnabled ? "disable" : "enable" }, "Updating…",
+            _xeEnabled ? "XE is off. Your own save is used again." : "XE is on. It starts with a new save.");
     }
 
     private void Details_Click(object? sender, RoutedEventArgs e)
