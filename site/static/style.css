@@ -531,3 +531,22 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }
 }
+
+/* The development-branch notice above each page */
+
+.channel-note {
+  max-width: 46rem;
+  margin: 0 0 2rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.channel-note code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-strong);
+}
+.channel-note a { color: var(--link); }

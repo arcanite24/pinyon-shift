@@ -7,7 +7,7 @@ description: Asset, archive, database, texture and native mods for Pinyon Shift,
 
 # Modding
 
-Mods live in the state folder, never in the game files. They can replace files, patch single archive members, merge settings, patch the game database, replace textures, or run native code through a C API. This page is a summary; the full contract is [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/main/docs/MODDING.md).
+Mods live in the state folder, never in the game files. They can replace files, patch single archive members, merge settings, patch the game database, replace textures, or run native code through a C API. This page is a summary; the full contract is [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md).
 
 ## Layout
 
@@ -75,7 +75,7 @@ Nothing from the game disc may be distributed. A mod's install steps should buil
 
 ## Native mods
 
-A native mod is a DLL built against [`include/pinyon_mod.h`](https://github.com/arcanite24/pinyon-shift/blob/main/include/pinyon_mod.h). It exports two functions:
+A native mod is a DLL built against [`include/pinyon_mod.h`](https://github.com/arcanite24/pinyon-shift/blob/dev/include/pinyon_mod.h). It exports two functions:
 
 ```c
 PINYON_MOD_EXPORT uint32_t rex_mod_abi_version(void) { return PINYON_MOD_ABI_VERSION; }

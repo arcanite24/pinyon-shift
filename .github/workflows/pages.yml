@@ -1,10 +1,11 @@
 name: Docs site
 
-# Builds site/ and publishes it to GitHub Pages. A release rebuilds it so the
+# Builds site/ from dev, which the site documents ahead of the latest
+# release, and publishes it to GitHub Pages. A release rebuilds it so the
 # overview's download link names the new version.
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
@@ -25,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: dev
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

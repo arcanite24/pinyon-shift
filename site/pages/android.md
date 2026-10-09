@@ -72,4 +72,4 @@ A built-in, Bluetooth or USB controller works as on the PC. On a touch screen, o
 | RESOLUTION SCALE offers only 1X | Higher scales need more shared memory than a phone has |
 | No sound | No output device could be opened. The game runs silently instead of stopping |
 
-The full Android reference, including DLC and title update v4 on Android, is in [docs/ANDROID.md](https://github.com/arcanite24/pinyon-shift/blob/main/docs/ANDROID.md).
+The full Android reference, including DLC and title update v4 on Android, is in [docs/ANDROID.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID.md).

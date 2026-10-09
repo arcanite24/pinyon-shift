@@ -60,4 +60,4 @@ Free roam and races at 1x with the in-game presets.
 
 The Astra throttles after about three minutes: 37 to 39 fps at 40 to 44 °C skin temperature, 26 to 28 above 44.5 °C. These are rough single-device measurements.
 
-Methods, logs and the full tables are in [docs/PERFORMANCE.md](https://github.com/arcanite24/pinyon-shift/blob/main/docs/PERFORMANCE.md) and the records in [benchmarks/](https://github.com/arcanite24/pinyon-shift/tree/main/benchmarks).
+Methods, logs and the full tables are in [docs/PERFORMANCE.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/PERFORMANCE.md) and the records in [benchmarks/](https://github.com/arcanite24/pinyon-shift/tree/dev/benchmarks).

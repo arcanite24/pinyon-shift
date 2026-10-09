@@ -23,8 +23,8 @@ The Android package you build holds the game translated from your disc. Keep it 
 
 ## Licence
 
-The [BSD 3-Clause License](https://github.com/arcanite24/pinyon-shift/blob/main/LICENSE) covers only the independently written material in the repository. It grants no rights to *Forza Horizon*, Xbox software, ReXGlue or anything you supply. Third-party components are listed in [THIRD_PARTY_NOTICES.md](https://github.com/arcanite24/pinyon-shift/blob/main/THIRD_PARTY_NOTICES.md).
+The [BSD 3-Clause License](https://github.com/arcanite24/pinyon-shift/blob/dev/LICENSE) covers only the independently written material in the repository. It grants no rights to *Forza Horizon*, Xbox software, ReXGlue or anything you supply. Third-party components are listed in [THIRD_PARTY_NOTICES.md](https://github.com/arcanite24/pinyon-shift/blob/dev/THIRD_PARTY_NOTICES.md).
 
 Microsoft, Xbox, Turn 10 Studios, Playground Games and *Forza Horizon* are the property of their owners. Pinyon Shift isn't affiliated with or endorsed by them.
 
-This page describes the project's distribution policy and isn't legal advice. The source of record is [docs/LEGAL.md](https://github.com/arcanite24/pinyon-shift/blob/main/docs/LEGAL.md).
+This page describes the project's distribution policy and isn't legal advice. The source of record is [docs/LEGAL.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LEGAL.md).

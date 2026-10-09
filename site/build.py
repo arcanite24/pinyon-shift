@@ -29,6 +29,8 @@ SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
 REPO = "arcanite24/pinyon-shift"
 REPO_URL = f"https://github.com/{REPO}"
+# The site documents the development branch, ahead of the latest release.
+BRANCH = "dev"
 SECTIONS = ["Start", "Playing", "Technical", "Project"]
 
 # Files copied from the repository into the site, by output name.
@@ -119,6 +121,13 @@ def release_block(release: dict | None) -> str:
 </div>"""
 
 
+def channel_note(release: dict | None) -> str:
+    newer = f"newer than {html.escape(release['tag'])}" if release else "newer than the latest release"
+    return (f'<p class="channel-note">These docs follow the <code>{BRANCH}</code> branch and can '
+            f'describe changes {newer}. The <a href="{REPO_URL}/releases/latest">release notes</a> '
+            f'list what the download contains.</p>')
+
+
 def render_markdown(text: str) -> tuple[str, list[dict]]:
     converter = markdown.Markdown(
         extensions=["tables", "fenced_code", "codehilite", "toc", "attr_list", "md_in_html"],
@@ -174,9 +183,9 @@ def nav_html(pages: list[Page], current: Page | None, prefix: str) -> str:
             attrs = ' aria-current="page"' if page is current else ""
             parts.append(f'<li><a href="{page_href(prefix, page)}"{attrs}>{html.escape(page.title)}</a></li>')
         if section == "Project":
-            parts.append(f'<li><a href="{REPO_URL}/blob/main/docs/ROADMAP.md">Roadmap '
+            parts.append(f'<li><a href="{REPO_URL}/blob/{BRANCH}/docs/ROADMAP.md">Roadmap '
                          f'<span class="ext" aria-hidden="true">↗</span></a></li>')
-            parts.append(f'<li><a href="{REPO_URL}/blob/main/CHANGELOG.md">Changelog '
+            parts.append(f'<li><a href="{REPO_URL}/blob/{BRANCH}/CHANGELOG.md">Changelog '
                          f'<span class="ext" aria-hidden="true">↗</span></a></li>')
         parts.append("</ul>")
     return "\n".join(parts)
@@ -240,8 +249,9 @@ def build(out: Path) -> None:
             "pager": pager_html(pages, page),
             "repo": REPO_URL,
             "version": html.escape(version),
-            "edit": f'<a href="{REPO_URL}/edit/main/{source}">Edit this page on GitHub</a>',
+            "edit": f'<a href="{REPO_URL}/edit/{BRANCH}/{source}">Edit this page on GitHub</a>',
             "page_class": "home" if not page.slug else "doc",
+            "channel": channel_note(release),
         }
         rendered = re.sub(r"\{\{(\w+)\}\}", lambda m: values[m.group(1)], template)
         target = out / page.output
@@ -257,7 +267,7 @@ def build(out: Path) -> None:
         "content": f'<h1>Page not found</h1><p>Nothing lives at this address. '
                    f'Start from the <a href="{base}">overview</a>.</p>',
         "version": html.escape(release["tag"] if release else ""), "edit": "",
-        "page_class": "doc",
+        "page_class": "doc", "channel": "",
     }
     (out / "404.html").write_text(re.sub(r"\{\{(\w+)\}\}", lambda m: missing[m.group(1)], template),
                                   encoding="utf-8")

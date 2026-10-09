@@ -30,4 +30,4 @@ The base disc build is the default. The optional v4 build applies title update v
 
 > A save written by the v4 build can't be loaded by the base build afterwards. The launcher backs up the save before the first v4 start.
 
-The v4 build is still under qualification. Details are in the [title update v4 backlog](https://github.com/arcanite24/pinyon-shift/blob/main/docs/TITLE_UPDATE_V4_BACKLOG.md) and the [DLC backlog](https://github.com/arcanite24/pinyon-shift/blob/main/docs/DLC_BACKLOG.md).
+The v4 build is still under qualification. Details are in the [title update v4 backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/TITLE_UPDATE_V4_BACKLOG.md) and the [DLC backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DLC_BACKLOG.md).

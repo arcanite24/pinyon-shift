@@ -59,4 +59,4 @@ The Android build reuses the code translated on the PC, cross-compiles it for ar
 | `include/pinyon_mod.h` | The C API for native mods |
 | `thirdparty/shiftglue-sdk` | The recompiler and runtime, as a submodule |
 
-Engineering notes, measurements and backlogs are in [docs/](https://github.com/arcanite24/pinyon-shift/tree/main/docs), starting from [DEVELOPMENT.md](https://github.com/arcanite24/pinyon-shift/blob/main/docs/DEVELOPMENT.md).
+Engineering notes, measurements and backlogs are in [docs/](https://github.com/arcanite24/pinyon-shift/tree/dev/docs), starting from [DEVELOPMENT.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DEVELOPMENT.md).

@@ -67,4 +67,4 @@ The package holds a self-contained launcher and a source archive. It excludes th
 
 ## Contributing
 
-Read [CONTRIBUTING.md](https://github.com/arcanite24/pinyon-shift/blob/main/CONTRIBUTING.md) first. Repository checks reject disc images, executables, generated translations, extracted assets and build products. Commit subjects follow Conventional Commits.
+Read [CONTRIBUTING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/CONTRIBUTING.md) first. Repository checks reject disc images, executables, generated translations, extracted assets and build products. Commit subjects follow Conventional Commits.
