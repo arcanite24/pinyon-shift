@@ -2,6 +2,13 @@
 # mapper (tools/map-fh1-v4-addresses.py) cannot place. Each entry records why.
 
 [default]
+# DynamicRenderSettings control vtables (graphics_hooks.cpp): the float
+# control (EnvMapFrequencyScale) and the bool control
+# (SkipShadowMapUnlessCockpit). Their v4 vtables hold the mapped methods in
+# the same order (5 of 7 equal, the other two the base's neighbours) and
+# keep the 0xD0 spacing; the bool vtable's trailing "Skip" string matches.
+"8223C5F4" = "8224F754"
+"8223C6C4" = "8224F824"
 # CPauseMenu action switch (base sub_82739D00, v4 sub_827EBEE0). v4 inserts a
 # new action at case 6 and moves to a halfword jump table at 0x82060DD8, so
 # base case 6 (MULTIPLAYER, relabelled SETTINGS) is v4 case 7. Both cases have

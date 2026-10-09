@@ -1275,6 +1275,15 @@ memcpy = 0x82B3A7E0
 memmove = 0x82B3AD50
 memset = 0x82B3C1F0
 
+# Scale the render scenario's EnvMapFrequencyScale and record the scenarios
+# for pinyon_shift_fh1_shadows after the title loads a DynamicRenderSettings
+# control (src/native_renderer/graphics_hooks.cpp): 0x82D81298 follows the
+# call of each control's loader, r30 the control, r26 its scenario.
+[[midasm_hook]]
+address = 0x82E43458
+name = "PinyonShiftRenderSettingLoaded"
+registers = ["r26", "r30"]
+
 # Virtual-call thunks discovered in the v4 image (vcall_thunks in
 # tools/map-fh1-v4-addresses.py). Entries marked THUNK above are covered here.
 

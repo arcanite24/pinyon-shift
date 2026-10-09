@@ -1,5 +1,7 @@
 #include "native_renderer/graphics_hooks.h"
 
+#include "fh1_guest_address.h"
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -83,7 +85,7 @@ uint32_t mask_resolves_filled = UINT32_MAX;
 
 // SkipShadowMapUnlessCockpit (id 35) is embedded in each scenario at +0x194;
 // bit 35 of the bitset at +36 marks it set by the scenario.
-constexpr uint32_t kSkipShadowOffset = 0x194, kSkipShadowVtable = 0x8223C6C4u;
+constexpr uint32_t kSkipShadowOffset = 0x194, kSkipShadowVtable = FH1_ADDR(0x8223C6C4u);
 constexpr uint32_t kSetBitsOffset = 40, kSkipShadowBit = 1u << 3;
 
 uint8_t* SkipShadowControl(rex::memory::Memory* memory, uint32_t scenario) {
@@ -281,7 +283,7 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
 void PinyonShiftRenderSettingLoaded(PPCRegister& r26, PPCRegister& r30) {
   auto* memory = rex::system::kernel_state()->memory();
   auto* control = memory->TranslateVirtual<uint32_t*>(r30.u32);
-  if (rex::byte_swap(control[0]) != 0x8223C5F4u) return;
+  if (rex::byte_swap(control[0]) != FH1_ADDR(0x8223C5F4u)) return;
   RenderScenario scenario = {r26.u32, r30.u32, 0.0f, 0, false};
   const uint32_t bits = rex::byte_swap(control[1]);
   std::memcpy(&scenario.env_value, &bits, sizeof(bits));

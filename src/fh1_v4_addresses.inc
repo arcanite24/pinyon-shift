@@ -20,6 +20,8 @@
     {0x8207F9CCu, 0x8209004Cu},  // data: data-ref
     {0x82137C70u, 0x8214A868u},  // data: data
     {0x82137C88u, 0x8214A880u},  // data: data
+    {0x8223C5F4u, 0x8224F754u},  // data: override
+    {0x8223C6C4u, 0x8224F824u},  // data: override
     {0x8224B790u, 0x8225E9D0u},  // data: data
     {0x8247FC10u, 0x824AF1E8u},  // code: aligned
     {0x82486B40u, 0x824B6758u},  // code: context
