@@ -661,3 +661,11 @@ The heaviest single shader left is the final post pass
 (`614588022744BF6B`, 0.55 ms a draw, twice a frame): six bilinear taps
 of the 64-bit scene along the velocity and a 3D colour grade, bound by
 texture bandwidth, not instructions.
+
+### SMOOTH 60 with 2X MSAA (2026-10-09)
+
+After the EDRAM pass work, 2X MSAA holds the 60 fps limit as played
+(drive, shadows off, two interleaved pairs): frames 16.66 ms median, p95
+16.86 to 16.98 ms, GPU about 15.4 ms, where it averaged 17.2 ms before.
+Coarse shading changes nothing there (15.3 to 15.4 against 15.4 to 15.5
+ms of GPU), since the frame waits on the limit. SMOOTH 60 now selects 2X.

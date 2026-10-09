@@ -386,9 +386,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // AP-7.5: a handheld renders at 1x (AP-2.5) and trades frame rate for
   // battery and heat. QUALITY 30 is the Xbox 360's own rate (the guest
   // vblank at 60 Hz) with the game's 4x MSAA and shadows; SMOOTH 60 doubles
-  // it without MSAA or shadows: on the Odin 2 Portal (Turnip Gen8 V37) that
-  // holds 60 fps in free roam and races at 15.5 ms of GPU a frame, where 4x
-  // with shadows takes about 27 ms. Both draw FH1's tiles in one pass and
+  // it with 2X MSAA and no shadows: on the Odin 2 Portal (Turnip Gen8 V37)
+  // that holds 60 fps in free roam (p95 16.9 ms, about 15.4 ms of GPU a
+  // frame since the EDRAM passes were specialized), where 4x with shadows
+  // takes about 26 ms. Both draw FH1's tiles in one pass and
   // redraw the reflection cubemap at a quarter of the game's rate (no
   // visible change), scale to the panel bilinearly and keep the game's own
   // anisotropic filtering: FSR 1 at the panel's 2400x1504 cost 1.4 ms a
@@ -416,7 +417,8 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                             {"draw_resolution_scale_y", "1"},
                             {"present_effect", "\"bilinear\""},
                             {"anisotropic_override", "-1"},
-                            {"fh1_msaa_single_sample", "true"},
+                            {"fh1_msaa_single_sample", "false"},
+                            {"fh1_msaa_2x", "true"},
                             {"fh1_untile_predicated_tiling", "true"},
                             {"pinyon_shift_fh1_env_map_rate", "0.25"},
                             {"pinyon_shift_fh1_shadows", "false"},
