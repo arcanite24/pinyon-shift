@@ -1,0 +1,74 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PinyonShift.Launcher.Desktop.App"
+             RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <!-- The Windows launcher's palette (../PinyonShift.Launcher/App.xaml). -->
+        <SolidColorBrush x:Key="InkBrush" Color="#0A0F0C"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#101813"/>
+        <SolidColorBrush x:Key="RaisedBrush" Color="#16211A"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="#1D2B22"/>
+        <SolidColorBrush x:Key="LineBrush" Color="#243429"/>
+        <SolidColorBrush x:Key="LineStrongBrush" Color="#34493B"/>
+        <SolidColorBrush x:Key="FogBrush" Color="#EEF3EC"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#93A597"/>
+        <SolidColorBrush x:Key="FaintBrush" Color="#61736A"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#5CD08A"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#7EE0A4"/>
+        <SolidColorBrush x:Key="AmberBrush" Color="#F1AE36"/>
+        <SolidColorBrush x:Key="RedBrush" Color="#E16E5F"/>
+        <LinearGradientBrush x:Key="HeroGradient" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Color="#1B4229" Offset="0"/>
+            <GradientStop Color="#0E2016" Offset="0.55"/>
+            <GradientStop Color="#0A0F0C" Offset="1"/>
+        </LinearGradientBrush>
+    </Application.Resources>
+    <Application.Styles>
+        <FluentTheme/>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}"/>
+            <Setter Property="FontSize" Value="19"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="34,18"/>
+            <Setter Property="MinWidth" Value="220"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}"/>
+        </Style>
+        <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource LineStrongBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+        </Style>
+        <Style Selector="Button.quiet">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="22,14"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+        <Style Selector="Button.quiet:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
+        </Style>
+        <Style Selector="Button.link">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="Button.link:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentHoverBrush}"/>
+        </Style>
+    </Application.Styles>
+</Application>

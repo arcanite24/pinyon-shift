@@ -26,6 +26,8 @@ jobs:
         run: python tools/check-markdown-links.py
       - name: Build launcher
         run: dotnet build launcher/PinyonShift.Launcher/PinyonShift.Launcher.csproj -c Release
+      - name: Build Linux and macOS launcher
+        run: dotnet build launcher/PinyonShift.Launcher.Desktop/PinyonShift.Launcher.Desktop.csproj -c Release
       - name: Check launcher behavior
         run: python tools/check-launcher.py
 

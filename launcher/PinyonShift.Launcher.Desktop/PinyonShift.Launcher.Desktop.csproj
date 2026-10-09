@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The launcher for Linux (Steam Deck included) and macOS (LX-6, MAC-6).
+       Windows keeps the WPF launcher in ../PinyonShift.Launcher. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PinyonShiftLauncher</AssemblyName>
+    <RootNamespace>PinyonShift.Launcher.Desktop</RootNamespace>
+    <Version>0.1.1</Version>
+    <AssemblyVersion>0.1.1.0</AssemblyVersion>
+    <FileVersion>0.1.1.0</FileVersion>
+    <Product>Pinyon Shift Launcher</Product>
+    <Description>Builds Pinyon Shift locally from a verified user-supplied game disc image.</Description>
+    <Authors>Pinyon Shift contributors</Authors>
+    <Copyright>Copyright © 2026 Pinyon Shift contributors</Copyright>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The same art as the Windows launcher. -->
+    <AvaloniaResource Include="..\PinyonShift.Launcher\Branding\logo-light.png" Link="Branding\logo-light.png" />
+    <AvaloniaResource Include="..\PinyonShift.Launcher\Branding\mark-light.png" Link="Branding\mark-light.png" />
+  </ItemGroup>
+</Project>

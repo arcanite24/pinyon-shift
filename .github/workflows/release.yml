@@ -38,29 +38,74 @@ jobs:
         with:
           name: PinyonShift-Launcher
           path: .artifacts/PinyonShift-Launcher.zip
+
+  # The Linux (Steam Deck) and macOS launchers: the same source payload,
+  # the Avalonia launcher (docs/LINUX.md, docs/MACOS.md).
+  package-linux:
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Package launcher
+        run: python3 tools/package-launcher.py --platform linux-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PinyonShift-Launcher-linux-x86_64
+          path: .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
+
+  package-macos:
+    if: github.event.repository.visibility == 'public'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Package launcher
+        run: python3 tools/package-launcher.py --platform osx-arm64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PinyonShift-Launcher-macos-arm64
+          path: .artifacts/PinyonShift-Launcher-macos-arm64.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [package, package-linux, package-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          path: .artifacts
+          merge-multiple: true
       - name: Attach tagged release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $release = Get-Content config/release.json -Raw | ConvertFrom-Json
-          $arguments = @(
-            'release', 'create', $env:RELEASE_TAG,
-            '.artifacts/PinyonShift-Launcher.zip',
-            '--verify-tag'
-          )
-          $notesPath = "docs/releases/$($release.version).md"
-          if (Test-Path -LiteralPath $notesPath) {
-            $title = (Get-Content -LiteralPath $notesPath -TotalCount 1) -replace '^#\s*', ''
-            $arguments += @('--notes-file', $notesPath, '--title', $title)
-          } else {
-            $arguments += '--generate-notes'
-          }
-          if ($release.channel -eq 'preview') {
-            $arguments += '--prerelease'
-          } elseif ($release.channel -ne 'stable') {
-            throw "Unsupported release channel: $($release.channel)"
-          }
-          & gh @arguments
+          version=$(python3 -c "import json;print(json.load(open('config/release.json'))['version'])")
+          channel=$(python3 -c "import json;print(json.load(open('config/release.json'))['channel'])")
+          arguments=(release create "$RELEASE_TAG"
+            .artifacts/PinyonShift-Launcher.zip
+            .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
+            .artifacts/PinyonShift-Launcher-macos-arm64.zip
+            --verify-tag)
+          notes="docs/releases/$version.md"
+          if [ -f "$notes" ]; then
+            arguments+=(--notes-file "$notes" --title "$(head -n1 "$notes" | sed 's/^#\s*//')")
+          else
+            arguments+=(--generate-notes)
+          fi
+          case "$channel" in
+            preview) arguments+=(--prerelease) ;;
+            stable) ;;
+            *) echo "Unsupported release channel: $channel"; exit 1 ;;
+          esac
+          gh "${arguments[@]}"

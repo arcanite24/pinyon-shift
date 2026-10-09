@@ -1,0 +1,127 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PinyonShift.Launcher.Desktop.MainWindow"
+        Title="Pinyon Shift" Width="1180" Height="760" MinWidth="760" MinHeight="560"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource InkBrush}"
+        DragDrop.AllowDrop="True">
+    <Grid RowDefinitions="64,*,48">
+        <!-- Art behind the body; the ridges are the horizon, as on Windows. -->
+        <Grid Grid.RowSpan="2" ClipToBounds="True">
+            <Border Background="{StaticResource HeroGradient}"/>
+            <Image Source="avares://PinyonShiftLauncher/Branding/mark-light.png" Height="420" Opacity="0.05"
+                   HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,60,0"/>
+            <Path VerticalAlignment="Bottom" Height="170" Stretch="Fill" Opacity="0.55"
+                  Data="M0,150 L0,96 L70,62 L120,84 L190,40 L260,78 L330,52 L400,86 L470,48 L560,82 L630,58 L720,90 L800,50 L880,80 L960,44 L1040,76 L1120,54 L1180,70 L1180,150 Z">
+                <Path.Fill>
+                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                        <GradientStop Color="#1E4A30" Offset="0"/>
+                        <GradientStop Color="#0A0F0C" Offset="1"/>
+                    </LinearGradientBrush>
+                </Path.Fill>
+            </Path>
+            <Path VerticalAlignment="Bottom" Height="100" Stretch="Fill" Opacity="0.9"
+                  Data="M0,92 L0,64 L40,44 L60,56 L90,30 L120,52 L170,38 L230,60 L290,34 L340,56 L400,42 L470,66 L540,36 L600,58 L660,44 L740,64 L820,32 L880,54 L950,40 L1020,62 L1090,38 L1140,52 L1180,44 L1180,92 Z">
+                <Path.Fill>
+                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                        <GradientStop Color="#123321" Offset="0"/>
+                        <GradientStop Color="#0A0F0C" Offset="1"/>
+                    </LinearGradientBrush>
+                </Path.Fill>
+            </Path>
+        </Grid>
+
+        <Image Grid.Row="0" Source="avares://PinyonShiftLauncher/Branding/logo-light.png" Height="22"
+               HorizontalAlignment="Left" VerticalAlignment="Center" Margin="32,0,0,0"/>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="72,40,72,40" MaxWidth="760" HorizontalAlignment="Left" Spacing="0">
+                <TextBlock x:Name="Headline" Text="Build your copy" FontSize="46" FontWeight="Bold"/>
+                <TextBlock x:Name="Subhead" Margin="0,10,0,0" FontSize="16" TextWrapping="Wrap"
+                           Foreground="{StaticResource MutedBrush}"
+                           Text="Verified, extracted and compiled on this computer. Nothing is uploaded."/>
+
+                <!-- Choosing the disc. -->
+                <Border x:Name="SetupPanel" Margin="0,30,0,0" Padding="26,22" CornerRadius="14"
+                        Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}"
+                        BorderThickness="1">
+                    <StackPanel Spacing="14">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" x:Name="BrowseButton" Classes="quiet"
+                                    Content="Choose disc image" Click="Browse_Click"/>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock x:Name="DiscText" Text="Drop your Forza Horizon disc image (.iso) here"
+                                           FontSize="15" TextWrapping="Wrap"/>
+                                <TextBlock Text="The USA retail disc (MS-2505), dumped from your own copy." Margin="0,4,0,0"
+                                           FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <CheckBox x:Name="OwnershipCheck" IsCheckedChanged="Ownership_Changed">
+                            <TextBlock Text="I own this copy and dumped it from my own disc." TextWrapping="Wrap"/>
+                        </CheckBox>
+                        <TextBlock x:Name="InstallText" FontSize="12" Foreground="{StaticResource FaintBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Apple's developer tools, before anything else on a Mac. -->
+                <Border x:Name="AppleToolsPanel" IsVisible="False" Margin="0,30,0,0" Padding="26,22"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource AmberBrush}" BorderThickness="1">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Apple's Command Line Tools are needed" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
+                                   Text="They provide the compiler that builds the game on your Mac. Install them, then come back here."/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Classes="quiet" Content="Install the tools" Click="InstallAppleTools_Click"/>
+                            <Button Classes="quiet" Content="Check again" Click="CheckAppleTools_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,30,0,0">
+                    <Button x:Name="PrimaryButton" Classes="primary" Content="Verify and build"
+                            Click="Primary_Click" IsEnabled="False"/>
+                    <Button x:Name="SteamButton" Classes="quiet" Content="Add to Steam" IsVisible="False"
+                            Click="Steam_Click" VerticalAlignment="Stretch"/>
+                    <Button x:Name="RebuildButton" Classes="quiet" Content="Rebuild" IsVisible="False"
+                            Click="Rebuild_Click" VerticalAlignment="Stretch"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" Margin="0,16,0,0" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{StaticResource MutedBrush}"/>
+
+                <!-- Progress and the log. -->
+                <Border x:Name="ProgressPanel" IsVisible="False" Margin="0,24,0,0" Padding="22,18"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Spacing="10">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" x:Name="PercentText" FontSize="13"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                            <TextBlock x:Name="ProgressMessage" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
+                        <ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="6"
+                                     Foreground="{StaticResource AccentBrush}"
+                                     Background="{StaticResource LineBrush}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button x:Name="DetailsButton" Classes="link" Content="Show details" Click="Details_Click"/>
+                            <Button x:Name="CancelButton" Classes="link" Content="Cancel" Click="Cancel_Click"/>
+                        </StackPanel>
+                        <TextBox x:Name="LogBox" IsVisible="False" IsReadOnly="True" Height="220"
+                                 FontFamily="monospace" FontSize="11.5" TextWrapping="NoWrap"
+                                 Background="#0B120E" BorderThickness="0" Foreground="{StaticResource MutedBrush}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <DockPanel Grid.Row="2" Background="#0A0F0C" LastChildFill="False">
+            <TextBlock DockPanel.Dock="Left" x:Name="VersionText" Margin="58,0,0,0" VerticalAlignment="Center"
+                       FontSize="12.5" Foreground="{StaticResource FaintBrush}"/>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,50,0" VerticalAlignment="Center">
+                <Button Classes="link" Content="Saves" Click="Saves_Click"/>
+                <Button Classes="link" Content="Logs" Click="Logs_Click"/>
+                <Button Classes="link" Content="Report a problem" Click="Report_Click"/>
+                <Button Classes="link" Content="GitHub" Click="GitHub_Click"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

@@ -102,11 +102,15 @@ if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported too
 
     def test_release_workflow_publishes_only_preview_channels_as_prereleases(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("$release.channel -eq 'preview'", workflow)
-        self.assertIn("$release.channel -ne 'stable'", workflow)
-        self.assertIn("$arguments += '--prerelease'", workflow)
-        self.assertIn('docs/releases/$($release.version).md', workflow)
-        self.assertIn("@('--notes-file', $notesPath, '--title', $title)", workflow)
+        self.assertIn("preview) arguments+=(--prerelease) ;;", workflow)
+        self.assertIn("stable) ;;", workflow)
+        self.assertIn('Unsupported release channel: $channel"; exit 1', workflow)
+        self.assertIn('notes="docs/releases/$version.md"', workflow)
+        self.assertIn('arguments+=(--notes-file "$notes" --title', workflow)
+        # Every platform's launcher is attached to the same release.
+        for asset in ("PinyonShift-Launcher.zip", "PinyonShift-Launcher-linux-x86_64.tar.gz",
+                      "PinyonShift-Launcher-macos-arm64.zip"):
+            self.assertIn(f".artifacts/{asset}", workflow)
         self.assertNotIn(
             "--generate-notes --prerelease --verify-tag",
             workflow,
