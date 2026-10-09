@@ -2026,7 +2026,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         check=True,
     )
     performance = json.loads(perf.stdout)
-    if performance_limits:
+    # The null GPU backend presents nothing and paces differently; its runs are
+    # judged by the simulation-time ratio, as on Android (AP-0.5).
+    if performance_limits and not args.null_gpu:
         median_max, present_min, simulation_min, simulation_max = performance_limits
         median = performance["frames"]["frame_time_us"]["median"]
         cadence = performance["presentation"]["cadence_hz"]
