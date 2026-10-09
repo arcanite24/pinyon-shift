@@ -12,6 +12,8 @@
 <p align="center">
   <a href="https://github.com/arcanite24/pinyon-shift/releases/latest"><b>Download the launcher</b></a>
   ·
+  <a href="https://arcanite24.github.io/pinyon-shift/">Documentation</a>
+  ·
   <a href="#play">How to play</a>
   ·
   <a href="docs/ROADMAP.md">Roadmap</a>
