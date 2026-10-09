@@ -432,6 +432,16 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                   {"2X", {{"fh1_msaa_single_sample", "false"},
                                           {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
+  // COARSE shades the opaque scene and the shadow mask once per 2x2 pixels
+  // (VK_KHR_fragment_shading_rate; alpha-tested and alpha-to-coverage
+  // draws such as foliage stay per pixel): surfaces a little softer, edges
+  // unchanged. On the Odin 2 Portal about 1.1 ms of GPU a frame at 1x with
+  // shadows and 2 ms at 4X. Applies on the next frame.
+  rows.push_back(Setting(
+      "SCENE SHADING",
+      {{"FULL", {{"fh1_coarse_shading", "\"\""}}},
+       {"COARSE",
+        {{"fh1_coarse_shading", "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""}}}}));
   // The Vulkan driver loaded at the next start: AUTO is the one recommended
   // for the GPU (Mesa Turnip Gen8 V37, bundled, on Adreno 7xx), SYSTEM the
   // device's own, and every package under state/drivers (bundled or
