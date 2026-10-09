@@ -181,7 +181,28 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
       R"((?:^|\n)\s*pinyon_shift_config_schema\s*=\s*([0-9]+)\s*(?:#.*)?(?:\r?\n|$))");
   std::smatch match;
   if (!std::regex_search(config_text, match, schema_pattern) || match.size() != 2) {
-    return false;
+    // A file without a schema line was rewritten by something that keeps
+    // only the settings it knows, such as the F4 settings overlay's save
+    // before it merged into the file (#345, #364). Its settings are current,
+    // so keep them under the current schema rather than refuse to start.
+    if (std::regex_search(config_text, std::regex(R"((?:^|\n)\s*pinyon_shift_config_schema\s*=)"))) {
+      return false;
+    }
+    std::filesystem::path backup = path;
+    backup += ".noschema.bak";
+    std::error_code backup_error;
+    std::filesystem::copy_file(path, backup, std::filesystem::copy_options::overwrite_existing,
+                               backup_error);
+    if (backup_error) {
+      return false;
+    }
+    const std::string repaired =
+        "pinyon_shift_config_schema = " + std::to_string(kConfigSchema) + "\n" + config_text;
+    if (!pinyon_shift::config::WriteAtomically(path, repaired)) {
+      return false;
+    }
+    migrated = true;
+    return true;
   }
   try {
     const uint32_t schema = std::stoul(match[1].str());
