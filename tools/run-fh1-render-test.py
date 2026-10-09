@@ -167,12 +167,17 @@ def prepare_isolated_state(source: Path, destination: Path) -> None:
             return Path("\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value)
         source, destination = extended(source), extended(destination)
     destination.mkdir(parents=True)
-    # mods/ and user-modded/ carry a seed's installed mods and modded profile;
+    # mods/ and user-modded/ carry a seed's installed mods and modded profile
+    # (user-<profile> for a mod with its own save, such as user-xe);
     # title-update-v4/ holds a verified title update for the v4 build.
-    for name in ("user", "config", "mods", "user-modded", "dlc", "title-update-v4"):
+    profiles = tuple(sorted(p.name for p in source.glob("user-*") if p.is_dir()))
+    for name in ("user", "config", "mods", "dlc", "title-update-v4") + profiles:
         source_directory = source / name
         if source_directory.is_dir():
-            shutil.copytree(source_directory, destination / name, ignore=skip_private_content)
+            # Mods' files are read-only to the game and are replaced, never
+            # edited, by the mod build tools: link them (XE alone is 2.4 GB).
+            shutil.copytree(source_directory, destination / name, ignore=skip_private_content,
+                            copy_function=link_or_copy if name == "mods" else shutil.copy2)
     # Marketplace content (gigabytes with every DLC) is mounted read-only, so
     # hard-link it instead of copying it into every run; copying 8 GB before
     # each launch also slowed the title's DLC merge to 20 s on a full SSD.

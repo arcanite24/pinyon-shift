@@ -1,0 +1,84 @@
+pinyon-shift-fh1-render-test-v1
+# XE-1: from seed xe-2026-10-09-probe (XE 1.01, the test-only mod xe_probe
+# makes event 43 recommend XE's class-A BMW M3 GTR). As fh1-buy-car, but
+# move right to the BMW before buying it,
+# then continue into the race and drive: the XE car's model, engine and
+# audio must load from mods/xe, and the purchase must save to user-xe.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+wait 2050 1200 file thumbnail_
+capture 2220 car-select
+input 2400 0004 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+input 2460 1000 0 0 0 0 0 0
+input 2466 0000 0 0 0 0 0 0
+wait 2470 1500 file shaders_ui_v16
+capture 2560 recommends
+input 2580 0008 0 0 0 0 0 0
+input 2586 0000 0 0 0 0 0 0
+capture 2595 recommends-charger
+input 2600 1000 0 0 0 0 0 0
+input 2606 0000 0 0 0 0 0 0
+wait 2610 900 file playerdatabase
+capture 2680 showroom
+capture 2900 showroom-ready
+input 2940 1000 0 0 0 0 0 0
+input 2946 0000 0 0 0 0 0 0
+capture 2990 confirm
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+capture 3060 saving
+wait 3070 3000 file thumbnail_7
+capture 3140 after-thumbnail
+input 3200 1000 0 0 0 0 0 0
+input 3206 0000 0 0 0 0 0 0
+input 3380 1000 0 0 0 0 0 0
+input 3386 0000 0 0 0 0 0 0
+input 3560 1000 0 0 0 0 0 0
+input 3566 0000 0 0 0 0 0 0
+input 3740 1000 0 0 0 0 0 0
+input 3746 0000 0 0 0 0 0 0
+input 3920 1000 0 0 0 0 0 0
+input 3926 0000 0 0 0 0 0 0
+input 4100 1000 0 0 0 0 0 0
+input 4106 0000 0 0 0 0 0 0
+capture 4280 intro
+input 4340 1000 0 0 0 0 0 0
+input 4346 0000 0 0 0 0 0 0
+capture 4400 start-race
+input 4460 1000 0 0 0 0 0 0
+input 4468 0000 0 0 0 0 0 0
+input 4610 1000 0 0 0 0 0 0
+input 4618 0000 0 0 0 0 0 0
+input 4760 1000 0 0 0 0 0 0
+input 4768 0000 0 0 0 0 0 0
+input 4910 1000 0 0 0 0 0 0
+input 4918 0000 0 0 0 0 0 0
+input 5100 1000 0 0 0 0 0 0
+input 5108 0000 0 0 0 0 0 0
+input 5400 1000 0 0 0 0 0 0
+input 5408 0000 0 0 0 0 0 0
+input 5700 1000 0 0 0 0 0 0
+input 5708 0000 0 0 0 0 0 0
+input 6000 1000 0 0 0 0 0 0
+input 6008 0000 0 0 0 0 0 0
+capture 6300 race-ready
+input 6400 0000 0 255 0 0 0 0
+capture 6900 race-moving
+capture 7300 race-moving-later
+input 7310 0000 0 0 0 0 0 0
+stop 7340
