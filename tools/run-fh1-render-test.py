@@ -2033,14 +2033,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         median = performance["frames"]["frame_time_us"]["median"]
         cadence = performance["presentation"]["cadence_hz"]
         present = cadence["present"]
-        simulation = cadence["simulation_tick"]
+        simulation_tick = cadence["simulation_tick"]
         if median > median_max:
             raise RuntimeError(f"median frame time {median} us exceeds {median_max}")
         if present < present_min:
             raise RuntimeError(f"present cadence {present} Hz is below {present_min}")
-        if not simulation_min <= simulation <= simulation_max:
+        if not simulation_min <= simulation_tick <= simulation_max:
             raise RuntimeError(
-                f"simulation cadence {simulation} Hz is outside "
+                f"simulation cadence {simulation_tick} Hz is outside "
                 f"{simulation_min}..{simulation_max}"
             )
     if distinct_presentation_min is not None:
