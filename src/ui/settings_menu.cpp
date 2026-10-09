@@ -434,16 +434,24 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                   {"2X", {{"fh1_msaa_single_sample", "false"},
                                           {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
-  // COARSE shades the opaque scene and the shadow mask once per 2x2 pixels
-  // (VK_KHR_fragment_shading_rate; alpha-tested and alpha-to-coverage
-  // draws such as foliage stay per pixel): surfaces a little softer, edges
-  // unchanged. On the Odin 2 Portal about 1.1 ms of GPU a frame at 1x with
-  // shadows and 2 ms at 4X. Applies on the next frame.
+  // COARSE shades the scene and the shadow mask once per 2x2 pixels
+  // (VK_KHR_fragment_shading_rate; alpha-to-coverage draws stay per pixel,
+  // alpha-tested foliage steps its edges by the block): surfaces a little
+  // softer, geometry edges unchanged. On the Odin 2 Portal about 1.1 ms of
+  // GPU a frame at 1x with shadows and 2 ms at 4X, foliage 0.25 ms more.
+  // Applies on the next frame.
   rows.push_back(Setting(
       "SCENE SHADING",
-      {{"FULL", {{"fh1_coarse_shading", "\"\""}}},
+      {{"FULL", {{"fh1_coarse_shading", "\"\""}, {"fh1_coarse_shading_alpha_test", "false"}}},
        {"COARSE",
-        {{"fh1_coarse_shading", "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""}}}}));
+        {{"fh1_coarse_shading", "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""},
+         {"fh1_coarse_shading_alpha_test", "true"}}}}));
+  // FAST samples the game's gamma textures through sRGB views instead of
+  // converting them with the console's curve in every shader: terrain and
+  // foliage a little darker, about 0.4 ms of GPU a frame on the Odin 2
+  // Portal with shadows. Applies at the next start.
+  rows.push_back(Setting("TEXTURE GAMMA", {{"ACCURATE", {{"texture_gamma_host_srgb", "false"}}},
+                                           {"FAST", {{"texture_gamma_host_srgb", "true"}}}}));
   // The Vulkan driver loaded at the next start: AUTO is the one recommended
   // for the GPU (Mesa Turnip Gen8 V37, bundled, on Adreno 7xx), SYSTEM the
   // device's own, and every package under state/drivers (bundled or
