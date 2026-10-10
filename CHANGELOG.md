@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Offer the optional immersive camera on F6 > DISPLAY (#419).
 - Play your own MP3 and WAV files from the state's `music` folder (F6 >
   AUDIO > YOUR MUSIC, F9 and Shift+F9 to skip); the game silences its own
   music as under a 360 dashboard soundtrack (#420).
