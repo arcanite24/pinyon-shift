@@ -637,6 +637,11 @@ std::unique_ptr<MenuScreen> SettingsPages::ControllerButtons() {
                          {{"LS + RS", {{"pad_chord_debug_overlay", "\"LS+RS\""}}},
                           {"BACK + RS", {{"pad_chord_debug_overlay", "\"BACK+RS\""}}},
                           {"OFF", {{"pad_chord_debug_overlay", "\"\""}}}}));
+  // Opens these settings from a controller alone (Steam Deck, handhelds).
+  rows.push_back(Setting("SETTINGS MENU",
+                         {{"BACK + START", {{"pad_chord_game_menu", "\"BACK+START\""}}},
+                          {"LS + RS + START", {{"pad_chord_game_menu", "\"LS+RS+START\""}}},
+                          {"OFF", {{"pad_chord_game_menu", "\"\""}}}}));
   MenuRow reset;
   reset.label = "RESET TO DEFAULT";
   reset.activate = [this] {

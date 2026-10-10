@@ -20,7 +20,7 @@ Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and th
 | <kbd>F10</kbd> | Trainer: credits, game speed, time of day, free camera. Needs cheats on |
 | <kbd>F11</kbd> | Fullscreen |
 
-Keys can be rebound in **F6 > CONTROLS**. In the game's own menus, <kbd>Space</kbd> or a left click acts as the A button and <kbd>Enter</kbd> as Start.
+On a controller, hold **Back + Start** together (View + Menu on a Steam Deck) to open the settings, and **LS + RS** for the performance panel; both chords can be changed in **F6 > CONTROLS > CONTROLLER**. Keys can be rebound in **F6 > CONTROLS**. In the game's own menus, <kbd>Space</kbd> or a left click acts as the A button and <kbd>Enter</kbd> as Start.
 
 ## Graphics presets
 
