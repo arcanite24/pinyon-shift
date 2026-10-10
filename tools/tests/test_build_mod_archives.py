@@ -179,6 +179,20 @@ class BuildModArchivesTests(unittest.TestCase):
         with self.assertRaises(MODULE.ArchiveError):
             MODULE.merge_xml(base, b"<Other/>")
 
+    def test_appends_unkeyed_elements_marked_to_add(self):
+        base = (b'<CameraPhysics>\r\n  <DriverCam NumLayers="2">\r\n'
+                b'    <Layer InputType="SpeedMPH"/>\r\n    <Layer InputType="Slip"/>\r\n'
+                b'  </DriverCam>\r\n</CameraPhysics>\r\n')
+        patch = (b'<CameraPhysics><DriverCam NumLayers="3">'
+                 b'<Layer pinyon-add="true" InputType="ConstantOne"/></DriverCam></CameraPhysics>')
+        text = MODULE.merge_xml(base, patch).decode("utf-8")
+        self.assertIn('NumLayers="3"', text)
+        self.assertIn('<Layer InputType="SpeedMPH" />', text)
+        self.assertIn('<Layer InputType="Slip" />', text)
+        self.assertIn('<Layer InputType="ConstantOne" />', text)
+        self.assertNotIn("pinyon-add", text)
+        self.assertLess(text.index("Slip"), text.index("ConstantOne"))
+
     def test_builds_merged_members_over_the_players_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             game, state = self.make(Path(directory))
@@ -206,6 +220,14 @@ class BuildModArchivesTests(unittest.TestCase):
             with zipfile.ZipFile(rebuilt) as zipped:
                 self.assertEqual(b"A\\One 10\r\nA\\Two 20\r\n", zipped.read("Settings.ini"))
                 self.assertEqual(b"pause menu", zipped.read("PauseMenu.str"))
+            generated = state / "mods" / MODULE.GENERATED / "mod.toml"
+            self.assertNotIn("shares_save", generated.read_text(encoding="utf-8"))
+            # Built only from mods that keep the player's save, it keeps it.
+            for mod in ("first", "second"):
+                (state / "mods" / mod / "mod.toml").write_text(
+                    f'name = "{mod}"\nshares_save = true\n', encoding="utf-8")
+            MODULE.build(state, game)
+            self.assertIn("shares_save = true", generated.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

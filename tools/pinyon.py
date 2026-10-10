@@ -91,9 +91,8 @@ def prepare_state(state: Path) -> None:
 
 def build_mods(state: Path, game: Path, build: Path) -> None:
     """Mods' database patches (NP-10.2) and archive members and merges
-    (NP-10.1, NP-10.2), rebuilt from the player's files before each start."""
-    if not (state / "mods").is_dir():
-        return
+    (NP-10.1, NP-10.2), rebuilt from the player's files before each start.
+    The first step also installs the built-in optional mods."""
     patches = [sys.executable, str(ROOT / "tools" / "build-mod-patches.py"), str(state),
                "--game-root", str(game)]
     if subprocess.run(patches, stdout=subprocess.DEVNULL).returncode:

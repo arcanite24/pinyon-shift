@@ -533,7 +533,10 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
     enabled_mods_ = host_config_->Get("enabled_mods").value_or("");
     cheats = cheats || host_config_->Get("pinyon_shift_cheats").value_or("false") == "true";
   }
-  if (!enabled_mods_.empty() || cheats) {
+  // Mods that only change how the game looks (shares_save) keep it.
+  if ((!enabled_mods_.empty() &&
+       !pinyon_shift::mod::ModsShareSave(state_root, enabled_mods_)) ||
+      cheats) {
     // A mod that cannot share a save (the XE mod) plays its own profile,
     // which starts new instead of as a copy of the player's.
     const std::string own_profile =

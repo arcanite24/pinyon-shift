@@ -384,6 +384,7 @@ struct Manifest {
   std::vector<std::string> requires_mods, load_after, conflicts;
   std::vector<std::string> hide_dlc;  // marketplace package IDs
   std::string profile;                // its own save tree, user-<profile>
+  bool shares_save = false;           // visual only: keeps the player's save
 };
 
 bool ValidName(const std::string& name) {
@@ -434,6 +435,7 @@ std::string ReadManifest(const std::string& name, const std::filesystem::path& d
   manifest.conflicts = StringArray(table, "conflicts");
   manifest.hide_dlc = StringArray(table, "hide_dlc");
   manifest.profile = table["profile"].value_or(std::string());
+  manifest.shares_save = table["shares_save"].value_or(false);
   if (!manifest.profile.empty() && !ValidName(manifest.profile)) {
     return "mod.toml profile may only use letters, digits, _ and -";
   }
@@ -511,6 +513,19 @@ std::string RequestedProfile(const std::filesystem::path& state_root,
     }
   }
   return {};
+}
+
+bool ModsShareSave(const std::filesystem::path& state_root, const std::string& enabled_mods) {
+  const auto names = SplitList(enabled_mods);
+  if (names.empty()) return false;
+  for (const auto& name : names) {
+    Manifest manifest;
+    if (!ReadManifest(name, state_root / "mods" / name, manifest).empty() ||
+        !manifest.shares_save || !manifest.profile.empty()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void LoadMods(const std::filesystem::path& state_root, const std::string& enabled_mods,

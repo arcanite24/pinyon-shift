@@ -53,6 +53,11 @@ void LoadMods(const std::filesystem::path& state_root, const std::string& enable
 // shared modded profile. Read before the mods load, while paths are chosen.
 std::string RequestedProfile(const std::filesystem::path& state_root,
                              const std::string& enabled_mods);
+// True when every enabled mod declares `shares_save = true` (it changes
+// only how the game looks or sounds, never what it saves), so the player's
+// own profile stays in use. The generated archive mod counts as its sources
+// do; the generated database mod never shares the save.
+bool ModsShareSave(const std::filesystem::path& state_root, const std::string& enabled_mods);
 const std::vector<ModInfo>& Mods();
 bool AnyModLoaded();
 // Directories of loaded mods' game/ overrides, in priority order.

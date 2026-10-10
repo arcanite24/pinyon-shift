@@ -88,6 +88,43 @@ class BuildModPatchesTests(unittest.TestCase):
             self.assertIn('enabled_mods = "cheap,plain"',
                           (state / "config" / "pinyon_shift.toml").read_text(encoding="utf-8"))
 
+    def test_installs_builtin_mods_and_leaves_the_players_own(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "builtin"
+            for name in ("camera", "taken"):
+                (source / name / "merge").mkdir(parents=True)
+                (source / name / "mod.toml").write_text(f'name = "{name}"\n', encoding="utf-8")
+                (source / name / "merge" / "a.xml").write_text("<A/>", encoding="utf-8")
+            state = root / "state"
+            (state / "mods" / "taken").mkdir(parents=True)
+            (state / "mods" / "taken" / "mod.toml").write_text("mine", encoding="utf-8")
+            self.assertEqual(["camera"], MODULE.install_builtin_mods(state, source))
+            self.assertEqual("<A/>", (state / "mods" / "camera" / "merge" / "a.xml")
+                             .read_text(encoding="utf-8"))
+            self.assertEqual("mine", (state / "mods" / "taken" / "mod.toml")
+                             .read_text(encoding="utf-8"))
+            # Unchanged: not copied again. Updated: replaced.
+            self.assertEqual([], MODULE.install_builtin_mods(state, source))
+            (source / "camera" / "merge" / "a.xml").write_text("<B/>", encoding="utf-8")
+            self.assertEqual(["camera"], MODULE.install_builtin_mods(state, source))
+            self.assertEqual("<B/>", (state / "mods" / "camera" / "merge" / "a.xml")
+                             .read_text(encoding="utf-8"))
+            # Not enabled by installing.
+            self.assertFalse((state / "config" / "pinyon_shift.toml").exists())
+
+    def test_reads_shares_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            for name, text in (("look", "shares_save = true  # camera only\n"),
+                               ("data", "shares_save = false\n"), ("plain", "")):
+                (state / "mods" / name).mkdir(parents=True)
+                (state / "mods" / name / "mod.toml").write_text(text, encoding="utf-8")
+            self.assertTrue(MODULE.shares_save(state, "look"))
+            self.assertFalse(MODULE.shares_save(state, "data"))
+            self.assertFalse(MODULE.shares_save(state, "plain"))
+            self.assertFalse(MODULE.shares_save(state, "missing"))
+
 
 if __name__ == "__main__":
     unittest.main()

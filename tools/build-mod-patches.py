@@ -85,6 +85,51 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest().upper()
 
 
+BUILTIN = ROOT / "mods_src" / "builtin"
+# Written into each installed built-in mod; a player's own mod of the same
+# name (without it) is never replaced.
+BUILTIN_MARKER = ".pinyon-builtin"
+
+
+def _tree(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*")) if path.is_file() and path.name != BUILTIN_MARKER}
+
+
+def install_builtin_mods(state: Path, source: Path = BUILTIN) -> list[str]:
+    """Copy the project's own optional mods (such as the immersive camera)
+    into <state>/mods, replacing an older copy, so the player can switch them
+    on in the MODS or CAMERA settings. They are not enabled here."""
+    installed = []
+    if not source.is_dir():
+        return installed
+    for mod in sorted(p for p in source.iterdir() if p.is_dir()):
+        target = state / "mods" / mod.name
+        if target.exists() and not (target / BUILTIN_MARKER).is_file():
+            continue
+        if target.exists() and _tree(target) == _tree(mod):
+            continue
+        staging = target.with_name(target.name + ".installing")
+        if staging.exists():
+            shutil.rmtree(staging)
+        shutil.copytree(mod, staging)
+        (staging / BUILTIN_MARKER).write_text("Installed by tools/build-mod-patches.py; "
+                                              "replaced when the game updates.\n",
+                                              encoding="utf-8", newline="\n")
+        if target.exists():
+            shutil.rmtree(target)
+        staging.rename(target)
+        installed.append(mod.name)
+    return installed
+
+
+def shares_save(state: Path, mod: str) -> bool:
+    """mod.toml declares `shares_save = true` (it never changes saved data)."""
+    manifest = state / "mods" / mod / "mod.toml"
+    text = manifest.read_text(encoding="utf-8") if manifest.is_file() else ""
+    return re.search(r"^shares_save[ \t]*=[ \t]*true[ \t]*(#.*)?$", text, re.MULTILINE) is not None
+
+
 def build(state: Path, game_root: Path) -> dict:
     config = state / "config" / "pinyon_shift.toml"
     mods = [m for m in enabled_mods(config) if m != GENERATED]
@@ -129,7 +174,10 @@ def main() -> int:
     parser.add_argument("state_root", type=Path)
     parser.add_argument("--game-root", type=Path, default=ROOT / ".local" / "game" / "base")
     args = parser.parse_args()
+    (args.state_root / "mods").mkdir(parents=True, exist_ok=True)
+    installed = install_builtin_mods(args.state_root.resolve())
     result = build(args.state_root.resolve(), args.game_root.resolve())
+    result["builtin_installed"] = installed
     print(json.dumps(result, indent=2))
     return 0
 

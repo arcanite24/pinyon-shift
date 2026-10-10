@@ -139,23 +139,22 @@ if (-not ($RenderTestScript -or $ShaderCaptureDir -or $DiscShaderCorpusDir -or $
 }
 
 # Mods' database patches (NP-10.2) are applied to a copy of the player's own
-# gamedb.slt before each start, so they follow the enabled mods.
-if (Test-Path -LiteralPath (Join-Path $resolvedStateRoot 'mods') -PathType Container) {
-    & (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-patches.py') $resolvedStateRoot `
-        --game-root $resolvedGameRoot | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' database patches.' }
-    # Mods' single archive members (NP-10.1) and key merges (NP-10.2), rebuilt
-    # into copies of the player's archives with zipmanifest.xml to match; the
-    # archive extractor decompresses members that merges edit.
-    $archiveArguments = @('--game-root', $resolvedGameRoot)
-    $archiveExtractor = Join-Path $resolvedBuildDirectory 'pinyon_shift_fh1_archive_extract.exe'
-    if (Test-Path -LiteralPath $archiveExtractor -PathType Leaf) {
-        $archiveArguments += @('--archive-extractor', $archiveExtractor)
-    }
-    & (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-archives.py') $resolvedStateRoot `
-        @archiveArguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' archive members.' }
+# gamedb.slt before each start, so they follow the enabled mods. The same
+# step installs the project's built-in optional mods (the immersive camera).
+& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-patches.py') $resolvedStateRoot `
+    --game-root $resolvedGameRoot | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' database patches.' }
+# Mods' single archive members (NP-10.1) and key merges (NP-10.2), rebuilt
+# into copies of the player's archives with zipmanifest.xml to match; the
+# archive extractor decompresses members that merges edit.
+$archiveArguments = @('--game-root', $resolvedGameRoot)
+$archiveExtractor = Join-Path $resolvedBuildDirectory 'pinyon_shift_fh1_archive_extract.exe'
+if (Test-Path -LiteralPath $archiveExtractor -PathType Leaf) {
+    $archiveArguments += @('--archive-extractor', $archiveExtractor)
 }
+& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-archives.py') $resolvedStateRoot `
+    @archiveArguments | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' archive members.' }
 
 # Verify owned Rally and its generated cache before normal play. Diagnostic
 # scenarios retain their private overlays; no probe flag is needed by players.
