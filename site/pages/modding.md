@@ -80,6 +80,16 @@ Elements without a key attribute, such as the layers in `CameraPhysics.xml`, mat
 
 Nothing from the game disc may be distributed. A mod's install steps should build its files from the player's own copy, as `tools/install-sample-mod.py english_strings` does.
 
+## Custom radio stations
+
+`tools/build-fh1-radio.py` builds a mod that adds a folder of music to Radio1, Radio2 or Radio3, or replaces a station's playlist with it. It needs [FFmpeg](https://ffmpeg.org/) and uses your own game files:
+
+```text
+python tools/build-fh1-radio.py D:\Music\Drive --state-root <state> --station Radio1 --replace --enable
+```
+
+The tracks play on the game's radio like its own; the DJ lines are unchanged. The mod holds a copy of the game's 680 MB music bank plus your tracks. To hear your music without touching the radio, use **YOUR MUSIC** on the AUDIO page instead.
+
 ## The XE mod
 
 [Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) adds about 170 cars and engine swaps. In the launcher (under DLC on Windows), **Download from ModDB** opens both XE downloads in your browser and installs them as soon as they finish in your Downloads folder. If you already have `Forza_Horizon_1_XE_Mod_v1.0.7z` and `FH1XE_v1.01_hotfix.7z`, choose **Install XE** instead, or run:

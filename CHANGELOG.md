@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Offer the optional immersive camera on F6 > DISPLAY (#419).
+- Build a radio station from a folder of music with
+  `tools/build-fh1-radio.py`, as a mod that adds the tracks to Radio1-3
+  or replaces a playlist (#420).
 - Play your own MP3 and WAV files from the state's `music` folder (F6 >
   AUDIO > YOUR MUSIC, F9 and Shift+F9 to skip); the game silences its own
   music as under a 360 dashboard soundtrack (#420).
