@@ -764,3 +764,16 @@ Measured and not kept:
 | Resolves in 32x32 groups, or several pixels per thread | no gain over 16x16 |
 | Coarse shading of the HUD blur passes | no gain |
 | `pinyon_shift_fh1_env_map_rate` 0.25 on this drive | no clear change |
+| Skipping the barrier between consecutive resolves into disjoint guest memory | 18.22 against 18.22 ms on the 4x replay |
+| Resolving repeated shadow mask, 640x360 and 64x64 copies once | not possible: the game draws into each source between its copies |
+| `TU_DEBUG=sysmem` on the drive (it is the replay's setting) | 57.2 and 56.4 against 57.3 and 56.8 fps: play already runs in system memory |
+
+Where the shadows-on drive's GPU frame goes (live profile, 15.85 ms):
+the scene's eight renderings 4.8 ms, resolves 3.1 ms, transfers 1.7 ms,
+the shadow mask 1.0 ms plus 0.5 ms for its two resolves, the depth
+prepass 0.8 ms, the shadow cascades 0.6 ms and their resolve 0.3 ms, and
+the reflection cube's reload 0.2 ms a frame (its face resolves
+invalidate it; resolves write only single-layer textures directly).
+What is left to try is each about 0.2 to 0.4 ms: the cube's faces
+written by their resolves, and the depth at EDRAM base 0 kept in one
+layout instead of moving between 1x and 4x.
