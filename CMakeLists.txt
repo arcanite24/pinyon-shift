@@ -52,6 +52,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/hostui/vector_font.cpp
     src/ui/hostui/xds_texture.cpp
     src/ui/settings_menu.cpp
+    src/ui/music.cpp
     src/ui/photo_export.cpp
     src/ui/png_writer.cpp
     src/ui/xam_dialogs.cpp

@@ -114,7 +114,8 @@ rex::ui::VirtualKey ParseHostKey(const std::string& name) {
   using rex::ui::VirtualKey;
   static const std::pair<const char*, VirtualKey> kNames[] = {
       {"f6", VirtualKey::kF6},       {"f7", VirtualKey::kF7},
-      {"f8", VirtualKey::kF8},       {"f10", VirtualKey::kF10},
+      {"f8", VirtualKey::kF8},       {"f9", VirtualKey::kF9},
+      {"f10", VirtualKey::kF10},
       {"enter", VirtualKey::kReturn},
       {"escape", VirtualKey::kEscape}, {"up", VirtualKey::kUp},
       {"down", VirtualKey::kDown},   {"left", VirtualKey::kLeft},

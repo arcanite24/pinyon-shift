@@ -88,5 +88,8 @@ inline constexpr std::string_view kTrainerKeys = "F10";
 inline constexpr std::string_view kFullscreenKeys = "F11,Alt+Return";
 inline constexpr std::string_view kQuitKeys = "";
 #endif
+// Your music (#420): next and previous track while it plays.
+inline constexpr std::string_view kMusicNextKeys = "F9";
+inline constexpr std::string_view kMusicPreviousKeys = "Shift+F9";
 
 }  // namespace pinyon_shift::config

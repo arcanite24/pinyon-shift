@@ -56,6 +56,10 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 
 **F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. It applies at the next start, keeps your own save, and isn't available on Android yet.
 
+## Your music
+
+**F6 > AUDIO > YOUR MUSIC** plays your own MP3 and WAV files instead of the game's music, as a soundtrack from the Xbox 360 dashboard did: the game silences its radio and menu music by itself and keeps its effects. Put the files in the `music` folder of the install's state folder (`%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview\music`, created when you turn it on), in subfolders if you like; they play in name order or shuffled. The AUDIO page also has MUSIC VOLUME, SHUFFLE, NEXT TRACK and PREVIOUS TRACK and shows what is playing; <kbd>F9</kbd> and <kbd>Shift</kbd>+<kbd>F9</kbd> skip forward and back. On macOS and ARM builds only WAV files play for now.
+
 ## Language
 
 The game runs in any of the disc's 18 languages. Press <kbd>F6</kbd>, open **Profile > Language** and choose a language and region with Left and Right, then restart the game.

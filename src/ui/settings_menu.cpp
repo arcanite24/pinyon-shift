@@ -26,6 +26,7 @@
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
 #include "pinyon_shift_runtime_hooks.h"
+#include "ui/music.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ui/keybinds.h>
@@ -621,7 +622,25 @@ std::unique_ptr<MenuScreen> SettingsPages::Audio() {
   }
   rows.push_back(Setting("MASTER VOLUME", std::move(volumes)));
   rows.push_back(Toggle("MUTE", "audio_mute"));
-  return std::make_unique<MenuScreen>("AUDIO", std::move(rows));
+  // Your music (#420): the player's own files instead of the game's radio,
+  // which the game mutes once the host player has the music.
+  rows.push_back(Toggle("YOUR MUSIC", "pinyon_shift_music"));
+  std::vector<Choice> music_volumes;
+  for (int volume = 0; volume <= 100; volume += 10) {
+    music_volumes.push_back({std::to_string(volume), {{"pinyon_shift_music_volume",
+                                                       std::to_string(volume)}}});
+  }
+  rows.push_back(Setting("MUSIC VOLUME", std::move(music_volumes)));
+  rows.push_back(Toggle("SHUFFLE", "pinyon_shift_music_shuffle"));
+  MenuRow next;
+  next.label = "NEXT TRACK";
+  next.activate = [] { music::Next(); };
+  rows.push_back(std::move(next));
+  MenuRow previous;
+  previous.label = "PREVIOUS TRACK";
+  previous.activate = [] { music::Previous(); };
+  rows.push_back(std::move(previous));
+  return std::make_unique<MenuScreen>("AUDIO", std::move(rows), [] { return music::StatusLine(); });
 }
 
 // The controller mapping assistant (#432): for a controller SDL's database

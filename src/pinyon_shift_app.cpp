@@ -58,6 +58,7 @@
 #include "ui/xam_dialogs.h"
 #include "ui/settings_menu.h"
 #include "ui/touch_pad.h"
+#include "ui/music.h"
 
 #include <cstdio>
 
@@ -985,6 +986,10 @@ void PinyonShiftApp::OnPostSetup() {
                                     ? runtime()->graphics_system()->presenter()
                                     : nullptr);
   });
+  rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
+                        "Your music: next track", [] { pinyon_shift::music::Next(); });
+  rex::ui::RegisterBind("bind_music_previous", pinyon_shift::config::kMusicPreviousKeys,
+                        "Your music: previous track", [] { pinyon_shift::music::Previous(); });
   rex::ui::RegisterBind("bind_quit", pinyon_shift::config::kQuitKeys, "Quit the game", [this] {
     if (window()) window()->RequestClose();
   });
@@ -1083,6 +1088,9 @@ void PinyonShiftApp::OnPostSetup() {
       pinyon_shift::mod::NotifyCreateDialogs();
     });
   }
+  pinyon_shift::music::Install([this](std::function<void()> task) {
+    if (window()) window()->app_context().CallInUIThreadDeferred(std::move(task));
+  });
   pinyon_shift::ui::ApplyMasterVolume();
   rex::cvar::RegisterChangeCallback(
       "pinyon_shift_master_volume",
@@ -1258,6 +1266,9 @@ void PinyonShiftApp::OnShutdown() {
   rex::ui::UnregisterBind("bind_quit");
   rex::ui::UnregisterBind("bind_photo");
   rex::ui::UnregisterBind("bind_trainer");
+  rex::ui::UnregisterBind("bind_music_next");
+  rex::ui::UnregisterBind("bind_music_previous");
+  pinyon_shift::music::Shutdown();
   pinyon_shift::cheats::SetAppliedCallback(nullptr);
   pinyon_shift::ui::WaitForPhoto();
   PinyonShiftSetPauseSettingsHandler(nullptr);
