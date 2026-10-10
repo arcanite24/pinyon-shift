@@ -123,6 +123,32 @@ registers = ["r29", "r31"]
 address = 0x829EFEB8
 name = "PinyonShiftObserveGraphicsFrame"
 
+# The gamma ramp builder sub_82C28070 (graphics_hooks.cpp): at the start of
+# each ramp format's path, a ramp built from the same arguments is put back
+# on the stack and the hook jumps to the device call; at the device call a
+# newly built ramp is kept.
+[[midasm_hook]]
+address = 0x82C280B8
+name = "PinyonShiftGammaRampPwlBegin"
+context = true
+jump_address_on_true = 0x82C28290
+
+[[midasm_hook]]
+address = 0x82C28290
+name = "PinyonShiftGammaRampPwlBuilt"
+context = true
+
+[[midasm_hook]]
+address = 0x82C28298
+name = "PinyonShiftGammaRampLinearBegin"
+context = true
+jump_address_on_true = 0x82C283C0
+
+[[midasm_hook]]
+address = 0x82C283C0
+name = "PinyonShiftGammaRampLinearBuilt"
+context = true
+
 # PERF-11 read-only critical-path probes around the indexed title draw emitter
 # and its exact PM4 header publication. All return immediately unless the SDK
 # perf_critical_path_trace flag is enabled.

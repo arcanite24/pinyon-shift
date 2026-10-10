@@ -39,6 +39,12 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_shadows, !REX_PLATFORM_ANDROID, "Pinyon Shi
                     "mask: about 6.4 ms a frame on the Odin 2 Portal) and keeps the "
                     "screen's shadow mask lit; needs the Vulkan FH1 executor")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_reuse_gamma_ramp, true, "Pinyon Shift",
+                    "Reuse the title's gamma ramp when it is rebuilt from the same settings. "
+                    "A finished gamma transition never ends, so the title rebuilds the same "
+                    "ramp (up to 256 software pow calls) every frame after a fade, which "
+                    "showed as hitching after races and at boot")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_block_on_gpu_fence, true, "Pinyon Shift",
                     "Block the title's GPU fence polling until the command processor next "
                     "writes guest memory (bounded to 1 ms) instead of spinning")
@@ -300,4 +306,76 @@ void PinyonShiftRenderSettingLoaded(PPCRegister& r26, PPCRegister& r30) {
   render_scenarios.push_back(scenario);
   SetEnvMapRate(memory, scenario, applied_env_rate);
   if (shadows_skipped) SetShadowsSkipped(memory, scenario, true);
+}
+
+// The title's gamma ramp builder (sub_82C28070, r3 the display object, f1 the
+// exponent, f2 and f3 the offset and range, r4 and r5 the curve and encoding)
+// fills a ramp on its stack from those arguments, the display's ramp format
+// and constants, then hands it to the device: as 128 piecewise-linear entries
+// a channel (r1 + 128) or 256 entries a channel (r1 + 1664), 1,536 bytes
+// either way. Its caller (sub_82586CD8) clamps a gamma transition's progress
+// to 1 but clears the transition only past 1, so once the title has faded
+// the screen it rebuilds the same ramp every frame. The hooks at the start of
+// each format's path find a ramp built from the same arguments, put it back
+// on the stack and jump to the device call; the hooks at the device call
+// keep each newly built ramp.
+namespace {
+
+struct GammaRamp {
+  bool valid = false;
+  uint64_t key[4] = {};
+  uint8_t data[1536];
+};
+constexpr uint32_t kGammaRampOffset[2] = {128, 1664};
+thread_local GammaRamp gamma_ramps[2];
+thread_local int gamma_ramp_pending = -1;
+thread_local uint64_t gamma_ramp_pending_key[4];
+
+// At the start of a path: f28 holds f1, f27 f3 + 1, f2 is still the argument,
+// r26 and r25 hold r4 and r5, r24 holds r3.
+bool GammaRampBegin(PPCContext& ctx, uint8_t* base, int path) {
+  gamma_ramp_pending = -1;
+  if (!REXCVAR_GET(pinyon_shift_reuse_gamma_ramp)) return false;
+  const uint64_t key[4] = {ctx.f28.u64, ctx.f27.u64, ctx.f2.u64,
+                           (uint64_t(ctx.r26.u32) << 32) | ctx.r25.u32};
+  GammaRamp& ramp = gamma_ramps[path];
+  if (!ramp.valid || std::memcmp(ramp.key, key, sizeof(key))) {
+    std::memcpy(gamma_ramp_pending_key, key, sizeof(key));
+    gamma_ramp_pending = path;
+    return false;
+  }
+  const uint32_t stack = ctx.r1.u32 + kGammaRampOffset[path];
+  std::memcpy(base + stack, ramp.data, sizeof(ramp.data));
+  // The arguments of the device call the hook jumps to.
+  ctx.r3.u64 = rex::byte_swap(*reinterpret_cast<uint32_t*>(base + ctx.r24.u32 + 20));
+  ctx.r4.u64 = 2;
+  ctx.r5.u64 = stack;
+  return true;
+}
+
+void GammaRampBuilt(PPCContext& ctx, uint8_t* base, int path) {
+  if (gamma_ramp_pending != path) return;
+  gamma_ramp_pending = -1;
+  GammaRamp& ramp = gamma_ramps[path];
+  std::memcpy(ramp.data, base + ctx.r1.u32 + kGammaRampOffset[path], sizeof(ramp.data));
+  std::memcpy(ramp.key, gamma_ramp_pending_key, sizeof(ramp.key));
+  ramp.valid = true;
+}
+
+}  // namespace
+
+bool PinyonShiftGammaRampPwlBegin(PPCContext& ctx, uint8_t* base) {
+  return GammaRampBegin(ctx, base, 0);
+}
+
+void PinyonShiftGammaRampPwlBuilt(PPCContext& ctx, uint8_t* base) {
+  GammaRampBuilt(ctx, base, 0);
+}
+
+bool PinyonShiftGammaRampLinearBegin(PPCContext& ctx, uint8_t* base) {
+  return GammaRampBegin(ctx, base, 1);
+}
+
+void PinyonShiftGammaRampLinearBuilt(PPCContext& ctx, uint8_t* base) {
+  GammaRampBuilt(ctx, base, 1);
 }
