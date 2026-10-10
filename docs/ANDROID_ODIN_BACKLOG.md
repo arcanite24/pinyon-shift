@@ -777,3 +777,49 @@ invalidate it; resolves write only single-layer textures directly).
 What is left to try is each about 0.2 to 0.4 ms: the cube's faces
 written by their resolves, and the depth at EDRAM base 0 kept in one
 layout instead of moving between 1x and 4x.
+
+### Cube faces and vertex multiplies (2026-10-09)
+
+The game renders one face of its 256x256 reflection cube, and that
+face's mips, every frame, and each face resolve invalidated the whole
+cube, so all six faces and their mip chains were untiled again. The
+texture cache's write log now also finds which array layers GPU writes
+changed since a texture's last load, and the Vulkan load untiles and
+copies only those (`texture_layer_reloads`, SDK `b868d65`): the cube's
+reload goes from 0.20 to 0.04 ms a frame on the shadows drive, in every
+profile window of two pairs.
+
+Bounds on the 1x frame-600 replay (14.18 ms): 4.7 ms with no draw
+commands, 6.9 ms with trivial vertex shaders and rasterization
+discarded, and 10.0 ms with the real vertex shaders and rasterization
+discarded. Vertex shading was about 3 ms, and skipping its vertex
+fetches did not lower it. Most of a typical vertex shader was the
+Direct3D 9 multiply rule (a depth-only one: 81 multiplies, 88
+compares, 94 selects and 81 minimums). Android vertex shaders now
+multiply as IEEE floats (`spirv_ieee_vertex_math`, SDK `884b0c5`;
+products stay unfused so the prepass and the scene compute the same
+positions): that shader goes from 258 to 163 instructions and the
+replay from 14.19 to 13.87 ms. Frame 600, free roam, a race, photo
+mode and the title replay byte-identical with and without the rule.
+
+With the 60 fps render limit (`pinyon_shift_fh1_render_fps_limit=60`,
+present limit off as SMOOTH 60 sets it), COARSE and FAST gamma, the long
+drive with shadows runs at 58.1 fps with 8.1 and 10.9 % of frames over
+17.5 ms (4.0 and 4.4 % over 20 ms), against 58.3 fps and 4.4 % (2.4 %)
+with shadows off. Under the limit the GPU clocks down to fill the
+frame, so GPU times converge and only frame times compare. Shadows now
+cost about 4 to 6 points of slow frames over the shadows-off floor
+instead of 36 to 42 % of frames; SMOOTH 60 still leaves them off.
+
+Measured and not kept:
+
+| Tried | Result |
+| --- | --- |
+| Unrollable main loop (no "don't unroll" hint when a shader has no jumps) | 14.18 against 14.16 ms |
+| Fused multiply-adds in vertex shaders with IEEE products | 13.87 against 13.87 ms |
+
+Per draw the recorded stream holds about 0.9 descriptor set binds (the
+constants set with new dynamic offsets), 0.8 index buffer binds, 0.26
+pipeline binds and 0.14 barriers: only state the guest changes is
+bound, so the remaining fixed cost of about 2.2 ms is the draws
+themselves.
