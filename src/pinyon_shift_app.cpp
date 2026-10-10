@@ -15,6 +15,7 @@
 #include <thread>
 
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/kernel/xboxkrnl/io.h>
 #include <rex/logging.h>
 #include <rex/perf/counter.h>
@@ -549,7 +550,7 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
       if (!std::filesystem::exists(modded, error)) {
         std::filesystem::create_directories(modded, error);
         diagnostics::RecordEvent("mod.profile.created",
-                                 {{"path", modded.string()}, {"profile", own_profile}});
+                                 {{"path", rex::path_to_utf8(modded)}, {"profile", own_profile}});
       }
     } else if (!std::filesystem::exists(modded, error) &&
                std::filesystem::exists(paths.user_data_root, error)) {
@@ -558,7 +559,7 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
             "Could not create the modded profile", "The player profile could not be copied.");
         pinyon_shift::platform::ExitImmediately(1);
       }
-      diagnostics::RecordEvent("mod.profile.created", {{"path", modded.string()}});
+      diagnostics::RecordEvent("mod.profile.created", {{"path", rex::path_to_utf8(modded)}});
     }
     paths.user_data_root = modded;
     pinyon_shift::mod::SetModdedProfile(modded);
@@ -570,7 +571,7 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   if (!EnsureSupportedConfig(paths.config_path, config_created,
                              config_migrated)) {
     diagnostics::RecordEvent("config.unsupported",
-                             {{"path", paths.config_path.string()},
+                             {{"path", rex::path_to_utf8(paths.config_path)},
                               {"required_schema", std::to_string(kConfigSchema)}});
     pinyon_shift::platform::ShowFatalError(
         "Unsupported configuration",
@@ -582,21 +583,21 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
 
   config_created_ = config_created;
   if (REXCVAR_GET(log_file).empty()) {
-    REXCVAR_SET(log_file, (state_root / "logs" / "runtime.log").string());
+    REXCVAR_SET(log_file, rex::path_to_utf8(state_root / "logs" / "runtime.log"));
   }
   // Controllers the player mapped in CONTROLS > MAP CONTROLLER (#432).
   if (REXCVAR_GET(hid_user_mappings_file).empty()) {
     REXCVAR_SET(hid_user_mappings_file,
-                (paths.config_path.parent_path() / "controller_mappings.txt").string());
+                rex::path_to_utf8(paths.config_path.parent_path() / "controller_mappings.txt"));
   }
 
   diagnostics::RecordEvent(
       "paths.configured",
-      {{"game", paths.game_data_root.string()},
-       {"user", paths.user_data_root.string()},
-       {"update", paths.update_data_root.string()},
-       {"cache", paths.cache_root.string()},
-       {"config", paths.config_path.string()},
+      {{"game", rex::path_to_utf8(paths.game_data_root)},
+       {"user", rex::path_to_utf8(paths.user_data_root)},
+       {"update", rex::path_to_utf8(paths.update_data_root)},
+       {"cache", rex::path_to_utf8(paths.cache_root)},
+       {"config", rex::path_to_utf8(paths.config_path)},
        {"config_schema", std::to_string(kConfigSchema)},
        {"config_created", config_created ? "1" : "0"},
        {"config_migrated", config_migrated ? "1" : "0"},
@@ -643,9 +644,10 @@ void PinyonShiftApp::OnConfigureStyle(ImGuiStyle& imgui_style, rex::ui::Style& u
 void PinyonShiftApp::OnPostInitLogging() {
   std::string perf_csv = rex::cvar::GetFlagByName("perf_log_csv");
   if (perf_csv.empty() && REXCVAR_GET(pinyon_shift_capture_performance)) {
-    perf_csv = (pinyon_shift::diagnostics::StateRoot() / "logs" /
-                (pinyon_shift::diagnostics::SessionId() + ".perf.csv"))
-                   .string();
+    // UTF-8, as the SDK reads it; string() would use the ANSI code page and
+    // a profile path with an accent made the SDK throw at startup (#436).
+    perf_csv = rex::path_to_utf8(pinyon_shift::diagnostics::StateRoot() / "logs" /
+                                 (pinyon_shift::diagnostics::SessionId() + ".perf.csv"));
   }
   if (!perf_csv.empty()) {
     rex::perf::SetCsvLogPath(perf_csv);
@@ -964,7 +966,7 @@ void PinyonShiftApp::OnPostSetup() {
         // The credits take -1 for "leave them", the field list "".
         host_config_->Set(name, name == "cheat_set_credits" ? "-1" : "");
         if (!host_config_->Save()) {
-          REXLOG_ERROR("Cheats: could not clear {} in {}", name, host_config_->path().string());
+          REXLOG_ERROR("Cheats: could not clear {} in {}", name, rex::path_to_utf8(host_config_->path()));
         }
       }
     });
@@ -1045,7 +1047,7 @@ void PinyonShiftApp::OnPostSetup() {
     // Mods' texture replacements, ahead of any folders already configured.
     if (auto textures = pinyon_shift::mod::TextureRoots(); !textures.empty()) {
       std::string dirs;
-      for (const auto& root : textures) dirs += (dirs.empty() ? "" : ";") + root.string();
+      for (const auto& root : textures) dirs += (dirs.empty() ? "" : ";") + rex::path_to_utf8(root);
       // Defined in the GPU module, so read by name.
       if (const std::string configured = rex::cvar::GetFlagByName("texture_replacement_dirs");
           !configured.empty()) {
@@ -1164,7 +1166,7 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
       rex::cvar::SetFlagByName(name, value);
     }
     if (!host_config_->Save()) {
-      REXLOG_ERROR("Settings: could not write {}", host_config_->path().string());
+      REXLOG_ERROR("Settings: could not write {}", rex::path_to_utf8(host_config_->path()));
     }
   }
   pinyon_shift::diagnostics::RecordEvent(

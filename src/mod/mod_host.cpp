@@ -9,6 +9,7 @@
 #include <mutex>
 #include <set>
 #include <fstream>
+#include <iterator>
 #include <span>
 
 #include <fmt/format.h>
@@ -16,6 +17,7 @@
 #include <toml++/toml.hpp>
 
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/kernel/xam/ui_provider.h>
 #include <rex/logging.h>
 #include <rex/platform/dynlib.h>
@@ -399,7 +401,12 @@ std::string ReadManifest(const std::string& name, const std::filesystem::path& d
   if (!ValidName(name)) return "the name may only use letters, digits, _ and -";
   toml::table table;
   try {
-    table = toml::parse_file((directory / "mod.toml").string());
+    // Read through the path itself: toml++ would open a narrow path in the
+    // ANSI code page.
+    std::ifstream stream(directory / "mod.toml", std::ios::binary);
+    if (!stream) return "mod.toml cannot be read";
+    const std::string text{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    table = toml::parse(text, rex::path_to_utf8(directory / "mod.toml"));
   } catch (const toml::parse_error& error) {
     return "mod.toml cannot be read: " + std::string(error.description());
   }
@@ -597,7 +604,7 @@ void LoadMods(const std::filesystem::path& state_root, const std::string& enable
     auto loaded = std::make_unique<LoadedMod>();
     loaded->info = *info_it;
     loaded->name = name;
-    loaded->directory = info_it->directory.string();
+    loaded->directory = rex::path_to_utf8(info_it->directory);
     loaded->hide_dlc = manifest.hide_dlc;
     if (manifest.library.empty()) {
       info_it->loaded = true;
@@ -606,7 +613,7 @@ void LoadMods(const std::filesystem::path& state_root, const std::string& enable
       continue;
     }
     if (!loaded->library.Load(manifest.library)) {
-      info_it->problem = "cannot load " + manifest.library.string();
+      info_it->problem = "cannot load " + rex::path_to_utf8(manifest.library);
       continue;
     }
     auto abi = loaded->library.GetSymbol<PinyonModAbiVersionFn>("rex_mod_abi_version");
@@ -712,8 +719,9 @@ void RecordSave(uint32_t body_address, uint32_t body_size) {
   std::error_code error;
   std::filesystem::create_directories(g_modded_user_root, error);
   const auto path = g_modded_user_root / "pinyon_shift_mods.json";
-  std::ofstream(path.string() + ".tmp", std::ios::binary | std::ios::trunc) << json;
-  std::filesystem::rename(path.string() + ".tmp", path, error);
+  const auto temporary = std::filesystem::path(path) += ".tmp";
+  std::ofstream(temporary, std::ios::binary | std::ios::trunc) << json;
+  std::filesystem::rename(temporary, path, error);
   diagnostics::RecordEvent("mod.save.tagged", {{"mod_set", ModSetHash()}});
 }
 

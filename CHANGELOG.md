@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Offer the optional immersive camera on F6 > DISPLAY (#419).
+- Start when the Windows user folder has an accent or other non-ASCII
+  characters, such as C:\Users\Júnior; the game closed at once (#436).
 - Build a radio station from a folder of music with
   `tools/build-fh1-radio.py`, as a mod that adds the tracks to Radio1-3
   or replaces a playlist (#420).

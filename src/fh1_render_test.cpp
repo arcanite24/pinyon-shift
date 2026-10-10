@@ -22,6 +22,7 @@
 
 #include <rex/input/device_assignment.h>
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/input/input.h>
 #include <rex/input/input_driver.h>
 #include <rex/input/input_system.h>
@@ -848,8 +849,8 @@ void Configure(rex::RuntimeConfig& config) {
   config.input_factory = &CreateInputSystem;
   diagnostics::RecordEvent(
       "fh1.render_test.configured",
-      {{"script", script->string()},
-       {"output", output->string()},
+      {{"script", rex::path_to_utf8(*script)},
+       {"output", rex::path_to_utf8(*output)},
        {"input_steps", std::to_string(g_test.inputs.size())},
        {"captures", std::to_string(g_test.captures.size())},
        {"stop_frame", std::to_string(g_test.stop_frame)},

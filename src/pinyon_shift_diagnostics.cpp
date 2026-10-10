@@ -16,6 +16,7 @@
 #include <system_error>
 
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 
 #include "crash_reporter.h"
 #include "platform/host_platform.h"
@@ -192,7 +193,7 @@ bool InitializeEarly() {
     if (error) {
       // The only trace of a silent exit on Android: logcat.
       REXLOG_ERROR("Cannot create the state folder {}: {}",
-                   (g_state_root / directory).string(), error.message());
+                   rex::path_to_utf8(g_state_root / directory), error.message());
       return false;
     }
   }
@@ -212,7 +213,7 @@ bool InitializeEarly() {
                {"executable_sha256", build.executable_sha256},
                {"cpu_baseline", PINYON_SHIFT_CPU_BASELINE},
                {"cpu_features", features},
-               {"state_root", g_state_root.string()}});
+               {"state_root", rex::path_to_utf8(g_state_root)}});
 
   if (!CpuHasSse41()) {
     RecordEvent("cpu.unsupported", {{"required", "sse4.1"}, {"detected", features}});

@@ -25,6 +25,7 @@
 
 #include <fmt/format.h>
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/kernel/xam/module.h>
 #include <rex/memory.h>
 #include <rex/ppc/context.h>
@@ -489,7 +490,7 @@ void SnapshotSavePayload(std::string_view kind, uint32_t address, uint32_t size,
        {"first_time_career_stage",
         fmt::format("{}", first_time_career_stage)},
        {"hash", fmt::format("{:016X}", hash)},
-       {"snapshot", path.string()},
+       {"snapshot", rex::path_to_utf8(path)},
        {"created", created ? "1" : "0"}});
 }
 
@@ -5821,7 +5822,7 @@ static void QueueRallyRaceTrace() {
           for (const auto& saved : progress->stages()) completed += saved.completions != 0;
           const auto primary_route = stage.begin()->second;
           const auto& saved = progress->stages()[*pinyon_shift::rally::StageIndex(primary_route)];
-          RecordEvent("dlc.rally.progress_loaded", {{"path", path.string()},
+          RecordEvent("dlc.rally.progress_loaded", {{"path", rex::path_to_utf8(path)},
               {"completed_stages", fmt::format("{}", completed)},
               {"route", fmt::format("{}", primary_route)},
               {"completions", fmt::format("{}", saved.completions)},

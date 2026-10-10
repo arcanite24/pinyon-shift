@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 
 #include "platform/host_platform.h"
 
@@ -68,7 +69,7 @@ void ConfigureHostFonts(ImFontAtlas* atlas, float dpi_scale) {
     config.OversampleV = 1;
     // Rasterize at physical size and draw at logical size, so text stays
     // sharp on high-DPI displays instead of being magnified.
-    ImFont* font = atlas->AddFontFromFileTTF(path.string().c_str(),
+    ImFont* font = atlas->AddFontFromFileTTF(rex::path_to_utf8(path).c_str(),
                                              kFontLogicalSize * dpi_scale, &config,
                                              kGlyphRanges);
     if (!font) {
@@ -76,7 +77,7 @@ void ConfigureHostFonts(ImFontAtlas* atlas, float dpi_scale) {
     }
     font->Scale = 1.0f / dpi_scale;
     ImGui::GetIO().FontDefault = font;
-    REXLOG_INFO("Host UI font {} at {} px (DPI scale {})", path.filename().string(),
+    REXLOG_INFO("Host UI font {} at {} px (DPI scale {})", rex::path_to_utf8(path.filename()),
                 kFontLogicalSize, dpi_scale);
     return;
   }

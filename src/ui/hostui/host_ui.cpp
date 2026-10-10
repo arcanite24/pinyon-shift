@@ -9,6 +9,7 @@
 #include <rex/input/input_system.h>
 #include <rex/kernel/xam/module.h>
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 #include <rex/rex_app.h>
 #include <rex/ui/presenter.h>
 #include <rex/ui/ui_event.h>
@@ -144,7 +145,7 @@ bool HostUi::LoadAssets() {
   const auto ui_root = game_data_root_ / "media" / "ui";
   auto fonts = Fh1Archive::Open(ui_root / "Fonts.zip");
   if (!fonts) {
-    REXLOG_ERROR("Host UI: cannot open {}", (ui_root / "Fonts.zip").string());
+    REXLOG_ERROR("Host UI: cannot open {}", rex::path_to_utf8(ui_root / "Fonts.zip"));
     assets_failed_ = true;
     return false;
   }

@@ -5,6 +5,7 @@
 
 #include <rex/filesystem/entry.h>
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 
 #include "pinyon_shift_diagnostics.h"
 
@@ -29,7 +30,7 @@ bool OverlayDevice::Initialize() {
     if ((*it)->Initialize()) {
       ++it;
     } else {
-      REXLOG_WARN("Mods: cannot read {}; its files are not used", (*it)->host_path().string());
+      REXLOG_WARN("Mods: cannot read {}; its files are not used", rex::path_to_utf8((*it)->host_path()));
       it = overlays_.erase(it);
     }
   }
@@ -97,7 +98,7 @@ rex::filesystem::Entry* OverlayDevice::ResolvePath(std::string_view path) {
       // Only files replace; a mod's directories must not hide the game's.
       if (entry && !(entry->attributes() & rex::filesystem::kFileAttributeDirectory)) {
         diagnostics::RecordEvent("mod.file.override",
-                                 {{"path", path}, {"from", overlay->host_path().string()}});
+                                 {{"path", path}, {"from", rex::path_to_utf8(overlay->host_path())}});
         {
           std::lock_guard lock(g_overridden_mutex);
           g_overridden.insert(NormalizeGamePath(path));

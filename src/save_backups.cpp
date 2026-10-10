@@ -9,6 +9,7 @@
 #include <fmt/format.h>
 
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 
 #include "pinyon_shift_diagnostics.h"
 
@@ -38,7 +39,7 @@ std::string UtcStamp() {
 // slot is either complete or absent.
 bool CopyTree(const fs::path& from, const fs::path& to) {
   std::error_code error;
-  const fs::path staging = to.string() + ".partial";
+  const fs::path staging = fs::path(to) += ".partial";
   fs::remove_all(staging, error);
   fs::create_directories(staging, error);
   for (auto it = fs::recursive_directory_iterator(from, error);
@@ -53,7 +54,7 @@ bool CopyTree(const fs::path& from, const fs::path& to) {
     else fs::copy_file(it->path(), destination, fs::copy_options::none, error);
   }
   if (error) {
-    REXLOG_ERROR("Save backup: copying {} failed: {}", from.string(), error.message());
+    REXLOG_ERROR("Save backup: copying {} failed: {}", rex::path_to_utf8(from), error.message());
     fs::remove_all(staging, error);
     return false;
   }
@@ -67,9 +68,9 @@ bool CopyTree(const fs::path& from, const fs::path& to) {
   }
 #endif
   if (error) {
-    REXLOG_ERROR("Save backup: publishing {} failed: {}", to.string(), error.message());
+    REXLOG_ERROR("Save backup: publishing {} failed: {}", rex::path_to_utf8(to), error.message());
     diagnostics::RecordEvent("save.copy.failed",
-                             {{"path", to.string()}, {"error", error.message()}});
+                             {{"path", rex::path_to_utf8(to)}, {"error", error.message()}});
   }
   return !error;
 }
@@ -209,13 +210,13 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
     REXLOG_ERROR("Save restore: could not back up the current files; nothing restored");
     return;
   }
-  const fs::path staging = user_root.string() + ".restoring";
+  const fs::path staging = fs::path(user_root) += ".restoring";
   fs::remove_all(staging, error);
   if (!CopyTree(source, staging)) {
     REXLOG_ERROR("Save restore: could not copy backup {}", slot);
     return;
   }
-  const fs::path previous = user_root.string() + ".replaced";
+  const fs::path previous = fs::path(user_root) += ".replaced";
   fs::remove_all(previous, error);
   if (fs::exists(user_root, error)) {
     fs::rename(user_root, previous, error);

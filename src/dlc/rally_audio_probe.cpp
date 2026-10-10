@@ -10,6 +10,7 @@
 #include <mutex>
 #include <vector>
 #include <rex/audio/sdl/sdl_audio_driver.h>
+#include <rex/filesystem.h>
 #include <rex/audio/sdl/sdl_audio_system.h>
 #include <rex/runtime.h>
 #include "fh1_render_test.h"
@@ -109,7 +110,7 @@ void FlushAudioProbeCapture() {
   file.write(reinterpret_cast<const char*>(pcm.data()), std::streamsize(size));
   file.close();
   diagnostics::RecordEvent(file ? "dlc.rally.audio_capture_saved" : "dlc.rally.audio_capture_error",
-      {{"path", path.string()}, {"frequency", std::to_string(frequency)},
+      {{"path", rex::path_to_utf8(path)}, {"frequency", std::to_string(frequency)},
        {"source", "native_pre_device_pcm"},
        {"channels", std::to_string(channels)}, {"samples", std::to_string(count)},
        {"rms", std::to_string(std::sqrt(energy / double(count)))}, {"peak", std::to_string(peak)}});

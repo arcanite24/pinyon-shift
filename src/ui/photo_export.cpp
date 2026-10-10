@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 #include <rex/ui/presenter.h>
 
 #include "pinyon_shift_diagnostics.h"
@@ -47,14 +48,14 @@ void SavePhoto(rex::ui::Presenter* presenter) {
     const bool written = bool(file);
     file.close();
     if (written) {
-      REXLOG_INFO("Photo saved: {} ({}x{}, {} KB)", path.string(), image.width, image.height,
+      REXLOG_INFO("Photo saved: {} ({}x{}, {} KB)", rex::path_to_utf8(path), image.width, image.height,
                   png.size() >> 10);
-      diagnostics::RecordEvent("photo.saved", {{"path", path.string()},
+      diagnostics::RecordEvent("photo.saved", {{"path", rex::path_to_utf8(path)},
                                                {"width", std::to_string(image.width)},
                                                {"height", std::to_string(image.height)},
                                                {"bytes", std::to_string(png.size())}});
     } else {
-      REXLOG_ERROR("Photo: could not write {}", path.string());
+      REXLOG_ERROR("Photo: could not write {}", rex::path_to_utf8(path));
     }
     g_saving = false;
   }).detach();

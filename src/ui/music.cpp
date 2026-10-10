@@ -7,6 +7,7 @@
 #include <rex/cvar.h>
 #include <rex/kernel/xam/apps/xmp_app.h>
 #include <rex/logging.h>
+#include <rex/filesystem.h>
 
 #include "pinyon_shift_diagnostics.h"
 
@@ -73,7 +74,7 @@ void Apply() {
   g_playing_folder = folder;
   const bool playing = player.Play(folder);
   diagnostics::RecordEvent("music.started",
-                           {{"folder", folder.string()},
+                           {{"folder", rex::path_to_utf8(folder)},
                             {"tracks", std::to_string(player.GetStatus().count)},
                             {"playing", playing ? "1" : "0"}});
 }
@@ -82,7 +83,7 @@ void Apply() {
 
 std::filesystem::path Folder() {
   const std::string folder = REXCVAR_GET(pinyon_shift_music_folder);
-  return folder.empty() ? diagnostics::StateRoot() / "music" : std::filesystem::path(folder);
+  return folder.empty() ? diagnostics::StateRoot() / "music" : rex::to_path(folder);
 }
 
 void Install(std::function<void(std::function<void()>)> post_to_ui) {

@@ -145,8 +145,8 @@ LONG WINAPI UnhandledExceptionReporter(EXCEPTION_POINTERS* exception) {
   EXCEPTION_POINTERS snapshot{&exception_record, &context};
   exception = &snapshot;
   const std::filesystem::path base = g_crash_root / (g_session_id + "-unhandled");
-  const std::filesystem::path dump_path = base.string() + ".dmp";
-  const std::filesystem::path text_path = base.string() + ".txt";
+  const std::filesystem::path dump_path = std::filesystem::path(base) += ".dmp";
+  const std::filesystem::path text_path = std::filesystem::path(base) += ".txt";
 
   HANDLE dump = CreateFileW(dump_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -190,8 +190,8 @@ void WriteAccessViolationSnapshot(EXCEPTION_POINTERS* exception) {
       operation == 0 ? "read" : operation == 1 ? "write" : operation == 8 ? "execute" : "unknown";
   const std::filesystem::path base =
       g_crash_root / (g_session_id + "-" + operation_name + "-av");
-  const std::filesystem::path dump_path = base.string() + ".dmp";
-  const std::filesystem::path text_path = base.string() + ".txt";
+  const std::filesystem::path dump_path = std::filesystem::path(base) += ".dmp";
+  const std::filesystem::path text_path = std::filesystem::path(base) += ".txt";
 
   HANDLE dump = CreateFileW(dump_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);

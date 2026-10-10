@@ -28,6 +28,7 @@
 #include "pinyon_shift_runtime_hooks.h"
 #include "ui/music.h"
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/virtual_key.h>
@@ -303,7 +304,7 @@ std::string SettingsPages::ResolutionLine() const {
 
 void SettingsPages::Save() {
   if (!config_.Save()) {
-    REXLOG_ERROR("Settings: could not write {}", config_.path().string());
+    REXLOG_ERROR("Settings: could not write {}", rex::path_to_utf8(config_.path()));
   }
 }
 
@@ -1628,7 +1629,7 @@ std::unique_ptr<hostui::MenuScreen> CreateSettingsMenu(hostui::HostUi& host_ui,
                                                        config::HostConfig& config,
                                                        SettingsServices services) {
   if (!config.Load()) {
-    REXLOG_ERROR("Settings: cannot read {}; changes will not be saved", config.path().string());
+    REXLOG_ERROR("Settings: cannot read {}; changes will not be saved", rex::path_to_utf8(config.path()));
   }
   return std::make_shared<SettingsPages>(host_ui, config, std::move(services))->Root();
 }
@@ -1636,7 +1637,7 @@ std::unique_ptr<hostui::MenuScreen> CreateSettingsMenu(hostui::HostUi& host_ui,
 std::unique_ptr<hostui::MenuScreen> CreateTrainerMenu(hostui::HostUi& host_ui,
                                                       config::HostConfig& config) {
   if (!config.Load()) {
-    REXLOG_ERROR("Trainer: cannot read {}; changes will not be saved", config.path().string());
+    REXLOG_ERROR("Trainer: cannot read {}; changes will not be saved", rex::path_to_utf8(config.path()));
   }
   return std::make_shared<SettingsPages>(host_ui, config, SettingsServices{})->Trainer();
 }
