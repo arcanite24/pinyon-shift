@@ -61,7 +61,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             )
             updated = config.read_text(encoding="utf-8")
             self.assertEqual(result["settings"]["anisotropy"], 16)
-            self.assertIn("pinyon_shift_config_schema = 28", updated)
+            self.assertIn("pinyon_shift_config_schema = 29", updated)
             self.assertIn('gpu_backend = "vulkan"', updated)
             self.assertIn("gpu_record_thread = true", updated)
             self.assertNotIn("fh1_renderer", updated)
@@ -125,7 +125,7 @@ class GraphicsSettingsTests(unittest.TestCase):
                               encoding="utf-8")
             result = self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "1")
             text = config.read_text(encoding="utf-8")
-            self.assertIn("pinyon_shift_config_schema = 28", text)
+            self.assertIn("pinyon_shift_config_schema = 29", text)
             self.assertIn("clear_memory_page_state = false", text)
             self.assertFalse(result["settings"]["clear_memory_page_state"])
             # Once on schema 26, a player who turns it back on keeps it.
@@ -246,7 +246,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertIn('host_present_sleep_spin = true', text)
             self.assertIn('pinyon_shift_fh1_render_fps_limit = 60', text)
             self.assertIn('pinyon_shift_fh1_source_presentation = true', text)
-            self.assertIn("pinyon_shift_config_schema = 28", text)
+            self.assertIn("pinyon_shift_config_schema = 29", text)
             self.assertIn('gpu_backend = "vulkan"', text)
             self.assertIn("gpu_record_thread = true", text)
             self.assertNotIn("fh1_renderer", text)
@@ -315,7 +315,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             )
             result = self.run_tool(state, "-Action", "Apply")
             text = config.read_text(encoding="utf-8")
-            self.assertIn("pinyon_shift_config_schema = 28", text)
+            self.assertIn("pinyon_shift_config_schema = 29", text)
             self.assertIn("custom_value = 77", text)
             for line in retired:
                 self.assertNotIn(line.split(" =")[0] + " =", text)
@@ -362,7 +362,7 @@ class GraphicsSettingsTests(unittest.TestCase):
             self.assertEqual(self.run_tool(state, "-Action", "Get")["settings"]["anisotropy"], 16)
             self.run_tool(state, "-Action", "Apply", "-ResolutionScale", "1")
             text = config.read_text(encoding="utf-8")
-            self.assertIn("pinyon_shift_config_schema = 28", text)
+            self.assertIn("pinyon_shift_config_schema = 29", text)
             self.assertIn("anisotropic_override = 5", text)
 
     def test_get_accepts_schema_25(self):

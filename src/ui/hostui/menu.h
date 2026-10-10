@@ -74,6 +74,16 @@ class MenuScreen {
       key_capture_(virtual_key);
     }
   }
+  // Runs on every frame the screen is on top, on the UI thread. While a
+  // screen ticks, the pad does not navigate: the controller mapping
+  // assistant reads the controller's raw inputs instead.
+  void set_tick(std::function<void()> tick) { tick_ = std::move(tick); }
+  bool ticks() const { return bool(tick_); }
+  void Tick() {
+    if (tick_) {
+      tick_();
+    }
+  }
   // A line shown under the rows, or empty.
   std::string note() const { return note_ ? note_() : std::string(); }
   const std::vector<MenuRow>& rows() const { return rows_; }
@@ -95,6 +105,7 @@ class MenuScreen {
   std::function<void()> on_back_;
   std::function<void(char32_t)> text_input_;
   std::function<void(int)> key_capture_;
+  std::function<void()> tick_;
   size_t focus_ = 0;
 };
 

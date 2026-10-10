@@ -152,6 +152,9 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   void Apply(NavCommand command);
   // Hands a press to the top screen's key capture (a keybind prompt).
   void CaptureKey(int virtual_key);
+  // Runs a callback of the top screen, then removes it or closes the UI if the
+  // callback finished it.
+  void RunOnTopScreen(const std::function<void(MenuScreen&)>& callback);
   void PollPad();
   void RequestPaint();
   void SetGuestUiActive(bool active);

@@ -27,15 +27,20 @@ hostkey 1510 down
 hostkey 1530 down
 hostkey 1550 down
 hostkey 1570 down
-hostkey 1590 enter
-capture 1620 prompt
-hostkey 1650 space
-capture 1690 controls
-hostkey 1720 down
-hostkey 1740 enter
-hostkey 1780 escape
-capture 1810 cancelled
-hostkey 1840 escape
-hostkey 1870 escape
-capture 1970 after
-stop 2030
+hostkey 1590 down
+hostkey 1610 down
+hostkey 1630 down
+hostkey 1650 down
+hostkey 1670 down
+hostkey 1690 enter
+capture 1720 prompt
+hostkey 1750 space
+capture 1790 controls
+hostkey 1820 down
+hostkey 1840 enter
+hostkey 1880 escape
+capture 1910 cancelled
+hostkey 1940 escape
+hostkey 1970 escape
+capture 2070 after
+stop 2130

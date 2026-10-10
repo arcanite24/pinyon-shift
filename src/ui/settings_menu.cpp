@@ -1,6 +1,7 @@
 #include "ui/settings_menu.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <optional>
@@ -15,11 +16,13 @@
 
 #include <rex/audio/downmix.h>
 #include <rex/input/pad_remap.h>
+#include <rex/input/sdl/joystick_mapping.h>
 #if defined(__ANDROID__)
 #include <rex/ui/vulkan/android_gpu_driver.h>
 #endif
 
 #include "cheats.h"
+#include "config/default_keys.h"
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
 #include "pinyon_shift_runtime_hooks.h"
@@ -144,6 +147,9 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   std::unique_ptr<MenuScreen> Gamertag();
   std::unique_ptr<MenuScreen> Backups();
   std::unique_ptr<MenuScreen> ControllerButtons();
+  std::unique_ptr<MenuScreen> MapController();
+  std::unique_ptr<MenuScreen> MapControllerOptions(rex::input::sdl::JoystickInfo joystick);
+  std::unique_ptr<MenuScreen> MapControllerSteps(rex::input::sdl::JoystickInfo joystick);
   std::unique_ptr<MenuScreen> Mods();
   std::unique_ptr<MenuScreen> Cheats();
   std::unique_ptr<MenuScreen> ModActions();
@@ -606,6 +612,322 @@ std::unique_ptr<MenuScreen> SettingsPages::Audio() {
   return std::make_unique<MenuScreen>("AUDIO", std::move(rows));
 }
 
+// The controller mapping assistant (#432): for a controller SDL's database
+// does not know, or one the player wants to lay out differently, ask for each
+// Xbox 360 control in turn, read the controller's raw input, let the player
+// try the result and save it as an SDL mapping (kept in
+// config/controller_mappings.txt). It works with the controller alone.
+std::unique_ptr<MenuScreen> SettingsPages::MapController() {
+  std::vector<MenuRow> rows;
+  for (auto& joystick : rex::input::sdl::ListJoysticks()) {
+    MenuRow row;
+    row.label = Upper(joystick.name);
+    row.value = [user = joystick.user_mapping, mapped = !joystick.mapping.empty()] {
+      return std::string(user ? "YOUR MAPPING" : mapped ? "MAPPED" : "NOT MAPPED");
+    };
+    row.activate = [self = shared_from_this(), joystick] {
+      self->host_ui_.Push(self->MapControllerOptions(joystick));
+    };
+    rows.push_back(std::move(row));
+  }
+  auto screen = std::make_unique<MenuScreen>("MAP CONTROLLER", std::move(rows));
+  screen->set_body(screen->rows().empty()
+                       ? "No controller is connected. Connect one and open this page again."
+                       : "Choose a controller. The keyboard works here too if the controller "
+                         "does not move through menus yet.");
+  return screen;
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::MapControllerOptions(
+    rex::input::sdl::JoystickInfo joystick) {
+  auto user_mapping = std::make_shared<bool>(joystick.user_mapping);
+  auto screen_ref = std::make_shared<MenuScreen*>(nullptr);
+  std::vector<MenuRow> rows;
+  MenuRow map;
+  map.label = "MAP BUTTONS";
+  map.activate = [self = shared_from_this(), joystick] {
+    self->host_ui_.Push(self->MapControllerSteps(joystick));
+  };
+  rows.push_back(std::move(map));
+  MenuRow reset;
+  reset.label = "RESET TO DEFAULT MAPPING";
+  reset.enabled = [user_mapping] { return *user_mapping; };
+  reset.activate = [user_mapping, screen_ref, guid = joystick.guid] {
+    *user_mapping = false;
+    (*screen_ref)
+        ->set_body(rex::input::sdl::RemoveUserMapping(guid)
+                       ? "Your mapping is removed and the default one applies."
+                       : "Your mapping is removed. The default one applies after a restart.");
+  };
+  rows.push_back(std::move(reset));
+  auto screen = std::make_unique<MenuScreen>(Upper(joystick.name), std::move(rows));
+  *screen_ref = screen.get();
+  screen->set_body(joystick.user_mapping ? "This controller uses a mapping you made."
+                   : joystick.mapping.empty()
+                       ? "SDL does not know this controller. Map its buttons to use it."
+                       : "This controller uses SDL's mapping for it.");
+  return screen;
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::MapControllerSteps(
+    rex::input::sdl::JoystickInfo joystick) {
+  struct Step {
+    const char* prompt;
+    const char* output;
+  };
+  // SDL's names for the Xbox 360 controls; a leading sign is a half axis.
+  static constexpr Step kSteps[] = {
+      {"A", "a"},
+      {"B", "b"},
+      {"X", "x"},
+      {"Y", "y"},
+      {"LEFT BUMPER (LB)", "leftshoulder"},
+      {"RIGHT BUMPER (RB)", "rightshoulder"},
+      {"LEFT TRIGGER (LT)", "lefttrigger"},
+      {"RIGHT TRIGGER (RT)", "righttrigger"},
+      {"BACK", "back"},
+      {"START", "start"},
+      {"GUIDE (XBOX BUTTON)", "guide"},
+      {"D-PAD UP", "dpup"},
+      {"D-PAD DOWN", "dpdown"},
+      {"D-PAD LEFT", "dpleft"},
+      {"D-PAD RIGHT", "dpright"},
+      {"LEFT STICK LEFT", "-leftx"},
+      {"LEFT STICK RIGHT", "+leftx"},
+      {"LEFT STICK UP", "-lefty"},
+      {"LEFT STICK DOWN", "+lefty"},
+      {"LEFT STICK PRESS", "leftstick"},
+      {"RIGHT STICK LEFT", "-rightx"},
+      {"RIGHT STICK RIGHT", "+rightx"},
+      {"RIGHT STICK UP", "-righty"},
+      {"RIGHT STICK DOWN", "+righty"},
+      {"RIGHT STICK PRESS", "rightstick"},
+  };
+  static constexpr size_t kStepCount = std::size(kSteps);
+  static constexpr auto kStepTime = std::chrono::seconds(8);
+  static constexpr auto kHoldTime = std::chrono::seconds(2);
+  enum class Phase { kCapture, kTest, kDone };
+  struct Session {
+    rex::input::sdl::JoystickInfo joystick;
+    rex::input::sdl::JoystickCapture capture;
+    rex::input::sdl::GamepadView view;
+    // The captured input for each step, empty when skipped.
+    std::vector<std::string> inputs = std::vector<std::string>(kStepCount);
+    size_t step = 0;
+    Phase phase = Phase::kCapture;
+    std::string note;
+    std::chrono::steady_clock::time_point step_started, phase_started;
+    std::string held_control;
+    std::chrono::steady_clock::time_point held_since;
+    bool saved = false;
+  };
+  auto session = std::make_shared<Session>();
+  session->joystick = std::move(joystick);
+  const bool opened = session->capture.Begin(session->joystick.instance_id);
+  session->step_started = std::chrono::steady_clock::now();
+
+  const auto control_name = [](const std::string& output) {
+    for (const Step& step : kSteps) {
+      if (output == step.output) return std::string(step.prompt);
+    }
+    return Upper(output);
+  };
+  // Pairs of half axes on one input become a full axis ("leftx:a0").
+  const auto mapping = [session] {
+    std::vector<std::pair<std::string, std::string>> bindings;
+    for (size_t i = 0; i < kStepCount; ++i) {
+      const std::string output = kSteps[i].output;
+      const std::string& input = session->inputs[i];
+      if (input.empty()) continue;
+      if (output[0] == '-' || output[0] == '+') {
+        size_t other = 0;
+        while (other < kStepCount &&
+               (other == i ||
+                std::string_view(kSteps[other].output).substr(1) != output.substr(1))) {
+          ++other;
+        }
+        if (other < kStepCount) {
+          const std::string& paired = session->inputs[other];
+          if (input.size() > 1 && paired.size() > 1 && (input[0] == '+' || input[0] == '-') &&
+              input.substr(1) == paired.substr(1) && input[0] != paired[0]) {
+            if (output[0] == '+') {
+              bindings.emplace_back(output.substr(1),
+                                    input[0] == '+' ? input.substr(1) : input.substr(1) + "~");
+            }
+            continue;
+          }
+        }
+      }
+      bindings.emplace_back(output, input);
+    }
+    return rex::input::sdl::BuildMapping(session->joystick, bindings);
+  };
+  // Leaving or starting over while trying a mapping puts the old one back.
+  const auto restore = [session] {
+    if (session->phase == Phase::kTest && !session->joystick.mapping.empty()) {
+      rex::input::sdl::ApplyMapping(session->joystick.mapping);
+    }
+  };
+  const auto begin_test = [session, mapping] {
+    session->capture.End();
+    session->phase = Phase::kTest;
+    session->phase_started = std::chrono::steady_clock::now();
+    session->held_control.clear();
+    if (!rex::input::sdl::ApplyMapping(mapping()) ||
+        !session->view.Begin(session->joystick.instance_id)) {
+      session->note = "The mapping could not be applied (see the log).";
+    }
+  };
+  const auto restart = [session, restore] {
+    restore();
+    session->view.End();
+    session->inputs.assign(kStepCount, std::string());
+    session->step = 0;
+    session->phase = Phase::kCapture;
+    session->note.clear();
+    session->capture.Begin(session->joystick.instance_id);
+    session->step_started = std::chrono::steady_clock::now();
+  };
+  const auto save = [session, mapping] {
+    session->view.End();
+    session->saved = rex::input::sdl::SaveMapping(mapping());
+    session->phase = Phase::kDone;
+    session->phase_started = std::chrono::steady_clock::now();
+  };
+  const auto advance = [session, begin_test] {
+    session->note.clear();
+    if (++session->step >= kStepCount) {
+      session->step = kStepCount - 1;
+      begin_test();
+    }
+    session->step_started = std::chrono::steady_clock::now();
+  };
+
+  auto screen = std::make_unique<MenuScreen>(Upper(session->joystick.name), std::vector<MenuRow>{});
+  MenuScreen* raw = screen.get();
+  const auto show = [session, raw, control_name] {
+    const auto now = std::chrono::steady_clock::now();
+    const std::string note = session->note.empty() ? std::string() : session->note + "\n";
+    std::string body;
+    switch (session->phase) {
+      case Phase::kCapture: {
+        const auto left = std::chrono::duration_cast<std::chrono::seconds>(
+            kStepTime - (now - session->step_started));
+        body = "Press " + std::string(kSteps[session->step].prompt) + " on the controller.\n" +
+               std::to_string(session->step + 1) + " of " + std::to_string(kStepCount) +
+               ". Skipped in " + std::to_string(std::max<int64_t>(0, left.count() + 1)) +
+               " s if the controller has none.\n" + note +
+               "Keyboard: any key skips, Backspace goes back, R starts over, Escape cancels.";
+        break;
+      }
+      case Phase::kTest: {
+        std::string held;
+        for (const auto& control : session->view.Held()) {
+          held += (held.empty() ? "" : ", ") + control_name(control);
+        }
+        body = "Try the controller. Held: " + (held.empty() ? std::string("nothing") : held) +
+               "\n" + note +
+               "Hold START for 2 s to save it, or BACK to map it again.\n"
+               "Keyboard: Enter saves, R maps again, Escape cancels.";
+        break;
+      }
+      case Phase::kDone:
+        body = session->saved ? "Saved. The controller now works as an Xbox 360 controller."
+                              : "The mapping could not be saved (see the log).";
+        break;
+    }
+    raw->set_body(std::move(body));
+  };
+  if (!opened) {
+    session->phase = Phase::kDone;
+    raw->set_body("The controller could not be opened. Press any key to go back.");
+  } else {
+    show();
+    screen->set_tick([self = shared_from_this(), session, raw, show, advance, restart, save] {
+      const auto now = std::chrono::steady_clock::now();
+      switch (session->phase) {
+        case Phase::kCapture:
+          if (auto input = session->capture.Poll()) {
+            const auto used = std::find(session->inputs.begin(), session->inputs.end(), *input);
+            if (used == session->inputs.end()) {
+              session->inputs[session->step] = *input;
+              advance();
+            } else {
+              session->note = "That is already " +
+                              std::string(kSteps[used - session->inputs.begin()].prompt) +
+                              ". Press another control.";
+            }
+          } else if (now - session->step_started >= kStepTime) {
+            advance();
+          }
+          break;
+        case Phase::kTest: {
+          // Holding START or BACK (through the new mapping) decides, so the
+          // controller alone can finish.
+          const auto held = session->view.Held();
+          std::string control;
+          for (const char* name : {"start", "back"}) {
+            if (std::find(held.begin(), held.end(), name) != held.end()) control = name;
+          }
+          if (control != session->held_control) {
+            session->held_control = control;
+            session->held_since = now;
+          } else if (!control.empty() && now - session->held_since >= kHoldTime) {
+            if (control == "start") {
+              save();
+            } else {
+              restart();
+            }
+          }
+          break;
+        }
+        case Phase::kDone:
+          // The result stays up for a few seconds, then the screen goes back
+          // by itself, so a player with only the controller is not stuck.
+          if (now - session->phase_started >= std::chrono::seconds(4)) {
+            self->host_ui_.Finish(raw);
+            return;
+          }
+          break;
+      }
+      show();
+    });
+  }
+  screen->set_key_capture(
+      [self = shared_from_this(), session, raw, show, advance, restart, save, restore](
+          int virtual_key) {
+        using rex::ui::VirtualKey;
+        const auto key = VirtualKey(virtual_key);
+        if (session->phase == Phase::kDone || key == VirtualKey::kEscape) {
+          restore();
+          session->capture.End();
+          session->view.End();
+          self->host_ui_.Finish(raw);
+          return;
+        }
+        if (key == VirtualKey::kR) {
+          restart();
+        } else if (session->phase == Phase::kTest) {
+          if (key == VirtualKey::kReturn) save();
+        } else if (key == VirtualKey::kBack) {
+          if (session->step > 0) {
+            session->inputs[--session->step].clear();
+            session->note.clear();
+            session->step_started = std::chrono::steady_clock::now();
+          }
+        } else {
+          advance();
+        }
+        show();
+      });
+  screen->set_on_back([session, restore] {
+    restore();
+    session->capture.End();
+    session->view.End();
+  });
+  return screen;
+}
+
 std::unique_ptr<MenuScreen> SettingsPages::ControllerButtons() {
   // One row per physical control, showing what the title receives from it;
   // swapping A and B is A SENDS B and B SENDS A. Menus here keep the
@@ -885,6 +1207,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   controller.label = "CONTROLLER BUTTONS";
   controller.activate = [this] { host_ui_.Push(ControllerButtons()); };
   rows.push_back(std::move(controller));
+  MenuRow map;
+  map.label = "MAP CONTROLLER";
+  map.activate = [this] { host_ui_.Push(MapController()); };
+  rows.push_back(std::move(map));
   rows.push_back(Setting("RUMBLE",
                          {{"OFF", {{"pad_rumble_strength", "0"}}},
                           {"25%", {{"pad_rumble_strength", "25"}}},
@@ -905,18 +1231,20 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   // #401). Choosing a row asks for a key; it replaces the row's keys and
   // applies at once, since the keyboard driver reads them on every press.
   static constexpr std::pair<const char*, const char*> binds[] = {
-      {"A", "keybind_a"},
-      {"B", "keybind_b"},
-      {"X", "keybind_x"},
-      {"Y", "keybind_y"},
-      {"LEFT TRIGGER", "keybind_left_trigger"},
-      {"RIGHT TRIGGER", "keybind_right_trigger"},
-      {"LEFT BUMPER", "keybind_left_shoulder"},
-      {"RIGHT BUMPER", "keybind_right_shoulder"},
+      // Labelled with the pad control and its role while driving.
+      {"THROTTLE (RT)", "keybind_right_trigger"},
+      {"BRAKE (LT)", "keybind_left_trigger"},
       {"STEER LEFT", "keybind_lstick_left"},
       {"STEER RIGHT", "keybind_lstick_right"},
+      {"HANDBRAKE, ACCEPT (A)", "keybind_a"},
+      {"SHIFT UP, BACK (B)", "keybind_b"},
+      {"SHIFT DOWN (X)", "keybind_x"},
+      {"REWIND (Y)", "keybind_y"},
+      {"CLUTCH (LB)", "keybind_left_shoulder"},
+      {"CAMERA (RB)", "keybind_right_shoulder"},
+      {"RIGHT STICK PRESS", "keybind_rstick_press"},
       {"BACK", "keybind_back"},
-      {"START", "keybind_start"},
+      {"PAUSE (START)", "keybind_start"},
   };
   for (const auto& [label, name] : binds) {
     MenuRow row;
@@ -955,13 +1283,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   }
   MenuRow reset;
   reset.label = "RESET KEYS";
+  // Every keyboard bind, not only the rows above, back to Pinyon Shift's
+  // driving-first keys (#432).
   reset.activate = [this] {
-    for (const auto& [label, name] : binds) {
-      (void)label;
-      if (const auto* info = rex::cvar::GetFlagInfo(name)) {
-        config_.Set(name, config::Quote(info->default_value));
-        rex::cvar::SetFlagByName(name, info->default_value);
-      }
+    for (const auto& key : config::kDefaultKeys) {
+      config_.Set(key.name, config::Quote(key.keys));
+      rex::cvar::SetFlagByName(key.name, key.keys);
     }
     Save();
   };

@@ -324,8 +324,12 @@ void HostUi::SetGuestUiActive(bool active) {
 void HostUi::RequestPaint() { presenter_.RequestUIPaintFromUIThread(); }
 
 void HostUi::CaptureKey(int virtual_key) {
+  RunOnTopScreen([virtual_key](MenuScreen& screen) { screen.CaptureKey(virtual_key); });
+}
+
+void HostUi::RunOnTopScreen(const std::function<void(MenuScreen&)>& callback) {
   applying_ = true;
-  screens_.back()->CaptureKey(virtual_key);
+  callback(*screens_.back());
   applying_ = false;
   if (close_pending_) {
     close_pending_ = false;
@@ -376,6 +380,19 @@ void HostUi::Apply(NavCommand command) {
 }
 
 void HostUi::PollPad() {
+  if (is_open() && screens_.back()->ticks()) {
+    // Polling runs inside Draw; tick after it, and keep painting so the
+    // screen keeps ticking while the game does not present.
+    window_.app_context().CallInUIThreadDeferred(
+        [alive = std::weak_ptr<bool>(alive_), this] {
+          if (alive.expired() || !is_open() || !screens_.back()->ticks()) {
+            return;
+          }
+          RunOnTopScreen([](MenuScreen& screen) { screen.Tick(); });
+        });
+    pad_.Reset();
+    return;
+  }
   if (!input_system_) {
     return;
   }

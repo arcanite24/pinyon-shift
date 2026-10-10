@@ -25,6 +25,7 @@
 #include <rex/system/xthread.h>
 #include <rex/thread.h>
 #include <rex/input/input_system.h>
+#include <rex/input/sdl/joystick_mapping.h>
 #include <rex/ui/flags.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/presenter.h>
@@ -43,6 +44,7 @@
 #include "pinyon_shift_diagnostics.h"
 #include "platform/host_platform.h"
 #include "pinyon_shift_runtime_hooks.h"
+#include "config/default_keys.h"
 #include "config/host_config.h"
 #include "ui/host_style.h"
 #include "ui/hostui/host_ui.h"
@@ -67,7 +69,7 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_touch_controls, REX_PLATFORM_ANDROID, "Pinyon S
                     "On-screen controls for touch screens: a steering stick, throttle, brake "
                     "and buttons, shown on a touch and hidden after a while without one")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
-REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 28, "Pinyon Shift",
+REXCVAR_DEFINE_UINT32(pinyon_shift_config_schema, 29, "Pinyon Shift",
                       "Pinyon Shift host configuration schema version");
 REXCVAR_DEFINE_STRING(enabled_mods, "", "Mods",
                       "Mods to load from <state>/mods, in order, separated by commas. With any "
@@ -127,7 +129,9 @@ std::filesystem::path LongHostPath(std::filesystem::path path) {
 // at 120 fps there against about 55 on Direct3D 12 (docs/PERFORMANCE_BACKLOG.md).
 // Schema 28 retires Direct3D 12 from player settings and moves its saved
 // selections to Vulkan. The legacy backend remains available to developers.
-constexpr uint32_t kConfigSchema = 28;
+// Schema 29 writes every keyboard bind into the file: new files get the
+// driving-first keys (#432), older ones the keys they already had.
+constexpr uint32_t kConfigSchema = 29;
 
 bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
                            bool& migrated) {
@@ -145,9 +149,11 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
            << kConfigSchema << "\n"
               "input_backend = \"sdl\"\n"
               "hid_mappings_file = \"gamecontrollerdb.txt\"\n"
-              "mnk_mode = true\n"
-              "keybind_a = \"LMB,Space\"\n"
-              "keybind_start = \"Return\"\n"
+              "mnk_mode = true\n";
+    for (const auto& key : pinyon_shift::config::kDefaultKeys) {
+      output << key.name << " = " << pinyon_shift::config::Quote(key.keys) << "\n";
+    }
+    output <<
               "d3d12_allow_variable_refresh_rate_and_tearing = false\n"
               "gpu_backend = \"vulkan\"\n"
               "gpu_record_thread = true\n"
@@ -362,6 +368,16 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
           std::regex(R"((^|\n)(\s*disable_depth_of_field\s*=\s*)false)", std::regex::icase),
           "$1$2true");
     }
+    if (schema < 29) {
+      // Keep the keys the player had: until now only A and Start were
+      // written, and the rest came from defaults that change here.
+      for (const auto& key : pinyon_shift::config::kSchema28Keys) {
+        if (!pinyon_shift::config::GetValue(migrated_text, key.name)) {
+          migrated_text = pinyon_shift::config::SetValue(
+              migrated_text, key.name, pinyon_shift::config::Quote(key.keys));
+        }
+      }
+    }
     if (schema == 1) {
       const std::regex stabilization_pattern(
           R"((?:^|\n)\s*pinyon_shift_stabilize_vehicle_presentation\s*=\s*(true|false)\s*(?:#.*)?(?:\r?\n|$))");
@@ -563,6 +579,11 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   config_created_ = config_created;
   if (REXCVAR_GET(log_file).empty()) {
     REXCVAR_SET(log_file, (state_root / "logs" / "runtime.log").string());
+  }
+  // Controllers the player mapped in CONTROLS > MAP CONTROLLER (#432).
+  if (REXCVAR_GET(hid_user_mappings_file).empty()) {
+    REXCVAR_SET(hid_user_mappings_file,
+                (paths.config_path.parent_path() / "controller_mappings.txt").string());
   }
 
   diagnostics::RecordEvent(
@@ -911,7 +932,8 @@ void PinyonShiftApp::OnPostSetup() {
       window()->app_context().CallInUIThreadDeferred([this, open] { ApplyMapView(open); });
     }
   });
-  rex::ui::RegisterBind("bind_game_menu", "F6", "Open the in-game settings menu",
+  rex::ui::RegisterBind("bind_game_menu", pinyon_shift::config::kGameMenuKeys,
+                        "Open the in-game settings menu",
                         [this] { ToggleGameMenu(); });
 #if defined(__ANDROID__)
   // Android's Back (the button or gesture; a key to the app) opens SETTINGS
@@ -943,7 +965,8 @@ void PinyonShiftApp::OnPostSetup() {
       }
     });
   });
-  rex::ui::RegisterBind("bind_trainer", "F10", "Open the trainer (cheats on)", [this] {
+  rex::ui::RegisterBind("bind_trainer", pinyon_shift::config::kTrainerKeys,
+                        "Open the trainer (cheats on)", [this] {
     if (!pinyon_shift::cheats::Enabled()) {
       return;
     }
@@ -953,12 +976,17 @@ void PinyonShiftApp::OnPostSetup() {
       host_ui_->Open(pinyon_shift::ui::CreateTrainerMenu(*host_ui_, *host_config_));
     }
   });
-  rex::ui::RegisterBind("bind_photo", "F8", "Save the current frame as a PNG photo", [this] {
+  rex::ui::RegisterBind("bind_photo", pinyon_shift::config::kPhotoKeys,
+                        "Save the current frame as a PNG photo", [this] {
     pinyon_shift::ui::SavePhoto(runtime() && runtime()->graphics_system()
                                     ? runtime()->graphics_system()->presenter()
                                     : nullptr);
   });
-  rex::ui::RegisterBind("bind_fullscreen", "F11", "Toggle fullscreen", [this] {
+  rex::ui::RegisterBind("bind_quit", pinyon_shift::config::kQuitKeys, "Quit the game", [this] {
+    if (window()) window()->RequestClose();
+  });
+  rex::ui::RegisterBind("bind_fullscreen", pinyon_shift::config::kFullscreenKeys,
+                        "Toggle fullscreen", [this] {
     const bool fullscreen = !REXCVAR_GET(fullscreen);
     rex::cvar::SetFlagByName("fullscreen", fullscreen ? "true" : "false");
     if (host_config_ && host_config_->Load()) {
@@ -1224,6 +1252,7 @@ void PinyonShiftApp::OnShutdown() {
     resize_listener_added_ = false;
   }
   rex::ui::UnregisterBind("bind_fullscreen");
+  rex::ui::UnregisterBind("bind_quit");
   rex::ui::UnregisterBind("bind_photo");
   rex::ui::UnregisterBind("bind_trainer");
   pinyon_shift::cheats::SetAppliedCallback(nullptr);

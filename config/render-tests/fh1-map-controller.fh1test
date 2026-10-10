@@ -1,0 +1,40 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #432: SETTINGS > CONTROLS > MAP CONTROLLER lists the connected controllers;
+# with one connected, its page opens the mapping assistant, Space skips a
+# step and Escape cancels without saving. The guest gets its input back.
+# Captures show the guest output only; the event log's hostui.screen events
+# record the pages reached.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 free-roam
+hostkey 1300 f6
+hostkey 1330 down
+hostkey 1350 down
+hostkey 1370 down
+hostkey 1390 down
+hostkey 1410 enter
+hostkey 1450 down
+hostkey 1470 enter
+capture 1520 list
+hostkey 1550 enter
+capture 1600 options
+hostkey 1630 enter
+capture 1680 step-a
+hostkey 1710 space
+capture 1760 step-b
+hostkey 1790 escape
+capture 1840 options-again
+hostkey 1870 escape
+hostkey 1900 escape
+hostkey 1930 escape
+hostkey 1960 escape
+capture 2060 after
+stop 2120

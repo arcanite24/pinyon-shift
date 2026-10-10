@@ -52,15 +52,37 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 28 supports only Vulkan with the split GPU commands thread; schema 26
+# Schema 29 writes every keyboard bind (#432); schema 28 supports only Vulkan with the split GPU commands thread; schema 26
 # stops re-uploading CPU-written memory every frame; schema 25 keeps one
 # occlusion-query path; schema 24 retired the renderer choice.
-pinyon_shift_config_schema = 28
+pinyon_shift_config_schema = 29
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
-keybind_a = "LMB,Space"
-keybind_start = "Return"
+keybind_a = "Space,Return,LMB"
+keybind_b = "E,Backspace"
+keybind_x = "Q"
+keybind_y = "R"
+keybind_left_trigger = "S"
+keybind_right_trigger = "W"
+keybind_left_shoulder = "Z"
+keybind_right_shoulder = "C"
+keybind_lstick_up = "Up"
+keybind_lstick_down = "Down"
+keybind_lstick_left = "A,Left"
+keybind_lstick_right = "D,Right"
+keybind_lstick_press = "F"
+keybind_rstick_up = "I"
+keybind_rstick_down = "K"
+keybind_rstick_left = "J"
+keybind_rstick_right = "L"
+keybind_rstick_press = "V"
+keybind_dpad_up = "Shift+Up"
+keybind_dpad_down = "Shift+Down"
+keybind_dpad_left = "Shift+Left"
+keybind_dpad_right = "Shift+Right"
+keybind_back = "Tab,M"
+keybind_start = "Escape"
 d3d12_allow_variable_refresh_rate_and_tearing = false
 gpu_backend = "vulkan"
 gpu_record_thread = true
@@ -88,6 +110,35 @@ clear_memory_page_state = false
 # Settings a config file may still carry from an earlier release. Apply writes
 # the current schema, so the game's own migration never sees the file again:
 # drop every setting that migration retires (src/pinyon_shift_app.cpp).
+# The keys configurations had through schema 28; schema 29 writes them into
+# older files that lack them, as the game does (src/config/default_keys.h).
+$schema28Keys = [ordered]@{
+    'keybind_a' = 'LMB,Space'
+    'keybind_b' = 'Quote,Backspace'
+    'keybind_x' = 'L'
+    'keybind_y' = 'P'
+    'keybind_left_trigger' = 'Q,I'
+    'keybind_right_trigger' = 'E,O'
+    'keybind_left_shoulder' = '1'
+    'keybind_right_shoulder' = '3'
+    'keybind_lstick_up' = 'W'
+    'keybind_lstick_down' = 'S'
+    'keybind_lstick_left' = 'A'
+    'keybind_lstick_right' = 'D'
+    'keybind_lstick_press' = 'F'
+    'keybind_rstick_up' = 'Up'
+    'keybind_rstick_down' = 'Down'
+    'keybind_rstick_left' = 'Left'
+    'keybind_rstick_right' = 'Right'
+    'keybind_rstick_press' = 'K'
+    'keybind_dpad_up' = 'Shift+Up'
+    'keybind_dpad_down' = 'Shift+Down'
+    'keybind_dpad_left' = 'Shift+Left'
+    'keybind_dpad_right' = 'Shift+Right'
+    'keybind_back' = 'Z,Tab'
+    'keybind_start' = 'Return'
+}
+
 $retiredSettings = @(
     'pinyon_shift_fh1_guest_vblank_hz',
     'pinyon_shift_native_renderer_texture_bridge',
@@ -190,7 +241,7 @@ function Get-SchemaVersion([string]$Text) {
         '(?m)^\s*pinyon_shift_config_schema\s*=\s*(?<value>[0-9]+)\s*(?:#.*)?$')
     # A file without one was saved by the old F4 overlay with only changed
     # settings; the game keeps them under the current schema, so do the same.
-    if (-not $match.Success) { return 28 }
+    if (-not $match.Success) { return 29 }
     [int]$match.Groups['value'].Value
 }
 
@@ -256,7 +307,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 28) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 29) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-HostConfigBackup $configPath
@@ -273,7 +324,7 @@ switch ($Action) {
         $backup = New-HostConfigBackup $configPath
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 28) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 29) { throw "Backup uses unsupported schema: $schema" }
         Write-HostConfig $configPath $text
     }
     'Apply' {
@@ -281,7 +332,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 28) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 29) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-HostConfigBackup $configPath
         # The retired guest vblank rate became the render limit, which now
         # defaults to 60 (LOW-SPEC 60), not the display's rate.
@@ -300,7 +351,14 @@ switch ($Action) {
         # Schema 28 turns off depth of field once, as the game does
         # (src/pinyon_shift_app.cpp); a choice passed below still wins.
         if ($schema -lt 28) { $text = Set-TomlValue $text 'disable_depth_of_field' 'true' }
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '28'
+        if ($schema -lt 29) {
+            foreach ($key in $schema28Keys.Keys) {
+                if (-not [regex]::IsMatch($text, "(?m)^[ \t]*$key[ \t]*=")) {
+                    $text = Set-TomlValue $text $key ('"' + $schema28Keys[$key] + '"')
+                }
+            }
+        }
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '29'
         $text = Set-TomlValue $text 'pinyon_shift_fh1_source_presentation' 'true'
         if (-not [regex]::IsMatch($text, '(?m)^[ \t]*xma_relaxed_padding_admission[ \t]*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'
