@@ -823,3 +823,32 @@ constants set with new dynamic offsets), 0.8 index buffer binds, 0.26
 pipeline binds and 0.14 barriers: only state the guest changes is
 bound, so the remaining fixed cost of about 2.2 ms is the draws
 themselves.
+
+### Shaders without preambles (2026-10-09)
+
+Turnip's ir3 compiler hoists uniform work into a preamble that runs once
+per draw before the shader's waves. With about 1,760 draws a frame most
+draws are small, and the preambles cost more than they save: custom Mesa
+drivers now get `IR3_SHADER_DEBUG=nopreamble` unless the environment or
+`android_gpu_driver_env` sets that variable
+(`android_gpu_driver_no_preamble`, SDK `8857164`). The 1x frame-600
+replay goes from 13.88 to 13.65 ms with an identical image, and the
+shadows drive at the 60 fps limit from 11.3 and 12.3 % of frames over
+17.5 ms to 8.4 and 7.8 %.
+
+Measured and not kept:
+
+| Tried | Result |
+| --- | --- |
+| `IR3_SHADER_DEBUG` `nodescprefetch`, `noaliastex`, `noaliasrb`, `nofp16` | within 0.02 ms |
+| `IR3_SHADER_DEBUG` `nouboopt`, `noearlypreamble` (with preambles) | slower |
+| `TU_DEBUG` `nomultipos`, `nolrzfc`, `push_consts_per_stage` | within 0.02 ms |
+| Point and rectangle lists expanded in the vertex shader instead of a geometry shader | 0.05 ms slower |
+| Skipping a depth transfer back to the surface that lent the tiles when the borrower did not write them | never applies: the 4x pass writes depth in 11,400 of 11,540 bindings over all 720 tiles |
+
+In the dense part of the long drive (about 2,050 draws instead of
+1,760) the GPU stays at its 680 MHz maximum at 80 to 99 % busy and takes
+18.5 to 20 ms for 41 to 46 frames in a row; that run is what remains of
+the slow frames with shadows. The isolated 50 to 100 ms hitches are on
+the CPU (blocked critical regions and the simulation) and happen with
+shadows off too.
