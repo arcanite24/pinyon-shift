@@ -852,3 +852,74 @@ In the dense part of the long drive (about 2,050 draws instead of
 the slow frames with shadows. The isolated 50 to 100 ms hitches are on
 the CPU (blocked critical regions and the simulation) and happen with
 shadows off too.
+
+### Hitches and lag spikes (2026-10-09, issue #416)
+
+Long frames at SMOOTH 60 (60 fps render limit, present limit off,
+single-sample MSAA, Gen8 V37), each run twice in a private state; a warm
+run follows another on the same state, a cold one starts from the pinned
+seed without stored pipelines, shaders or driver cache. Routes: the long
+drive (`lroff`, 4,300 frames) and a full-throttle run into a fence post,
+a guardrail and a stop sign (`crash1`, first crash at about route frame
+1,200). `critical_region_hold_log_ms` (SDK `bd3e202`) logs who holds the
+global critical region and for how long, and on Android a watchdog
+thread names the holder while it holds, for matching with simpleperf
+off-CPU samples.
+
+| Long drive, warm | Over 17.5 ms | Over 25 | Over 33 | Over 50 | Worst | Lock wait p99 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Before | 2.3 % | 23 | 12 | 4 | 186 ms | 39.0 ms |
+| Stored pipelines from the driver cache (SDK `1b278fd`) | 2.0 % | 14 | 6, 5 | 1, 2 | 68, 70 ms | 38.8 ms |
+| Path lookups and audio off the global lock (`6808abc`, `3f6ad5f`) | 1.1, 0.9 % | 9, 9 | 6, 4 | 1, 2 | 74, 57 ms | 9.6, 9.3 ms |
+| One readback buffer, texture memory at startup (`4df6985`, `95160cb`) | 0.9 % | 11 | 3 | 1 | 62 ms | 8.0 ms |
+| Pass pipelines and shaders on workers (`5c819d0`, `d7bdbba`) | 1.2, 1.3 % | 11, 10 | 3, 4 | 0, 0 | 48, 45 ms | 8.1, 9.3 ms |
+
+Causes found and fixed:
+
+- Stored pipelines were never recreated: the storage files open with
+  `a+b`, which starts at the end of the file on bionic, specialized
+  pipelines were not stored, and the driver cache loaded after the
+  startup creations.
+- Virtual file system lookups took the global critical region, so a
+  streaming read on an I/O thread blocked the title thread for up to
+  39 ms; the tree now has its own lock. Opening an audio client opened
+  the AAudio stream (tens of milliseconds) under the same lock.
+- Each resolve read back to the CPU made, mapped and freed its own
+  buffer; texture memory was allocated from the driver as textures
+  first appeared, 5 to 20 ms per 64 MB block.
+- On a cold start the GPU commands thread built specialized resolve and
+  EDRAM transfer pipelines (about 0.75 s in the first four seconds of
+  gameplay, up to 100 ms each) and translated guest shaders (about
+  0.5 s). A worker now builds the specialized pipelines while passes use
+  the generic one, whose output is the same
+  (`fh1_async_specialized_passes`); with
+  `vulkan_async_pipeline_no_placeholder` a second worker translates
+  first-seen shaders and their draws are skipped until ready, as for
+  pipelines (`vulkan_async_shader_translation`).
+
+The first crash at SMOOTH 60, warm: no frame over 25 ms in five runs
+(`cr1` to `cr3`, `cr4` on the final build), at the guardrail neither.
+Cold, from the seed:
+
+| Crash route, cold | Over 25 ms | Over 50 | Worst frame | Frames not presented | Worst gap between presents |
+| --- | --- | --- | --- | --- | --- |
+| Before | 16, 20 | 6, 4 | 252, 306 ms | 94, 103 | 384, 417 ms |
+| Pass pipelines on a worker | 14, 20 | 2, 4 | 155, 141 ms | 95, 92 | 267, 299 ms |
+| And shaders on a worker | 26, 11 | 1, 3 | 69, 63 ms | 103, 107 | 369, 275 ms |
+
+Cold, the title thread no longer waits behind the GPU commands thread,
+but frames whose pipelines the driver is still compiling are not
+presented, so what a player sees on the very first start is still about
+a quarter of a second at gameplay start and gaps of 100 to 150 ms when
+new content first appears. Those are driver compiles; preparing them
+ahead (AP-6.3's preparation route) is what would remove them. Later
+starts reuse the stored pipelines and the driver cache.
+
+What remains warm, by cause:
+
+| When | Frame | Cause |
+| --- | --- | --- |
+| First gameplay frame | 44-48 ms | The GPU drained for one-off resolves the title reads back on the CPU (`FlushResolveReadbacks`); needed for correctness |
+| About 1 s later | 31-37 ms | The title thread's own loading tail, about 24 ms in the guest CRT `pow` |
+| Dense part of the long drive | 41-43 ms | Single `mprotect` calls of 6 to 12 ms in the write-watch path (`PhysicalHeap::EnableAccessCallbacks` and the fault handler) under the global lock, with about 5,000 mappings; needs the watch flags under their own lock |
+| Route captures | 40-83 ms | The capture's GPU readback; not in play |
