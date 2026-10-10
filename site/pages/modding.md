@@ -47,6 +47,7 @@ load_after = []
 conflicts = []
 hide_dlc = []                         # DLC package IDs the game must not see
 profile = ""                          # play a new save in <state>/user-<profile>
+shares_save = false                   # true: changes only looks, keeps the player's save
 ```
 
 A mod with a missing requirement or a conflict isn't loaded. The v4 title update build identifies as `74B033805AB1BCAA`; a mod that uses only symbol and hook names can list both builds. `hide_dlc` hides marketplace packages, such as an expansion whose database the mod replaces, without changing them.
@@ -54,6 +55,8 @@ A mod with a missing requirement or a conflict isn't loaded. The v4 title update
 ## Your save stays separate
 
 With any mod enabled, the game plays a separate profile in `<state>/user-modded`, copied from yours the first time. Your own profile in `<state>/user` isn't opened while mods are on. Each modded save records the enabled mods and their hashes. Turn all mods off to get back to your unmodded profile, unchanged. A mod with a `profile` plays its own new save in `<state>/user-<profile>` instead.
+
+A mod that only changes how the game looks or sounds, and never what it saves, can set `shares_save = true`. When every enabled mod does, the game keeps your own profile. The built-in immersive camera is one.
 
 ## Asset mods
 
@@ -72,6 +75,8 @@ For example, a merge that removes free-roam traffic:
   <CarList numInitialTrafficCars="0" numInitialFestivalCars="0"/>
 </Settings></AIOpenWorld>
 ```
+
+Elements without a key attribute, such as the layers in `CameraPhysics.xml`, match by position; mark an element `pinyon-add="true"` to append it instead.
 
 Nothing from the game disc may be distributed. A mod's install steps should build its files from the player's own copy, as `tools/install-sample-mod.py english_strings` does.
 

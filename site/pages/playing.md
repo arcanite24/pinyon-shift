@@ -52,6 +52,10 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 
 1x is the console's 1280 × 720; up to 4x is available. Output scaling is bilinear, CAS or FSR 1. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional.
 
+## Immersive camera
+
+**F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. It applies at the next start, keeps your own save, and isn't available on Android yet.
+
 ## Language
 
 The game runs in any of the disc's 18 languages. Press <kbd>F6</kbd>, open **Profile > Language** and choose a language and region with Left and Right, then restart the game.

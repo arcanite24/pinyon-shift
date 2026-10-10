@@ -42,6 +42,7 @@ load_after = []                   # mods to load after when they are enabled
 conflicts = []                    # mods that must not be enabled with this one
 hide_dlc = []                     # marketplace package IDs the title must not see
 profile = ""                      # play a new save, <state>/user-<profile>
+shares_save = false               # true: never changes saved data, keeps the player's save
 ```
 
 A mod whose requirement is missing or failed, or that conflicts with an
@@ -84,10 +85,28 @@ The first enabled mod with a `profile` replaces `user-modded` with
 `mod.profile.created` event), so the game starts a new save there. Neither
 the player's own profile nor `user-modded` is opened while it is enabled.
 
+A mod that changes only how the game looks or sounds, never what it saves,
+sets `shares_save = true`. When every enabled mod does (the generated
+`zz-archive-patches` counts as its sources do; `zz-db-patches` never does),
+the title keeps the player's own profile in `<state>/user`, and no
+`user-modded` copy is made.
+
 Marketplace DLC installations and their entitlement headers are shared from
 `<state>/user`: launcher enable/disable changes apply to both profiles. Creating
 the modded profile copies save data without duplicating DLC assets. Existing
 DLC copies under `user-modded` are left in place but are not enumerated.
+
+## Built-in mods
+
+The project's own optional mods live in `mods_src/builtin/<name>`. Before
+each start, `tools/build-mod-patches.py` copies each one into
+`<state>/mods/<name>` (replacing an older copy, and never a player's own mod
+of the same name), with a `.pinyon-builtin` marker; they are not enabled.
+`immersive_camera` (#419) appends Pinyon Shift's own camera layers to
+`media/camera.zip`'s `CameraPhysics.xml` (G-forces, the throttle and brake
+jolt, corner lean, speed shake, braking vibration, breathing and head sway),
+written by `tools/build-immersive-camera.py`, and sets `shares_save`. F6 >
+DISPLAY > IMMERSIVE CAMERA switches it in `enabled_mods`.
 
 ## Asset mods
 
@@ -161,7 +180,9 @@ structure with only the elements to change: an element matches the file's
 element of the same tag with the same `id`, `name`, `model`, `key` or `type`
 attribute, or, without one, the one at the same position among its tag; its
 attributes and text replace the file's, unmatched elements are added, and
-`pinyon-remove="true"` removes the matched one. For example, no free-roam
+`pinyon-remove="true"` removes the matched one. Elements without a key attribute (the
+layers of `CameraPhysics.xml`) match by position, so a merge that adds one
+marks it `pinyon-add="true"`: it is appended, and the attribute dropped. For example, no free-roam
 traffic:
 
 ```xml

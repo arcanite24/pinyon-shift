@@ -138,6 +138,12 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   MenuRow Page(std::string label, std::unique_ptr<MenuScreen> (SettingsPages::*page)());
   std::function<std::string()> RestartNote(std::vector<MenuRow>& rows);
   void Save();
+  // enabled_mods as saved (applied at the next start), and one mod switched.
+  std::vector<std::string> EnabledMods() const;
+  void SetModEnabled(const std::string& name, bool enabled);
+  // A row switching one of the built-in mods (mods_src/builtin), when the
+  // launcher installed it.
+  std::optional<MenuRow> BuiltinModToggle(std::string label, std::string name);
 
   std::unique_ptr<MenuScreen> Display();
   std::unique_ptr<MenuScreen> Graphics();
@@ -344,6 +350,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
       fov.push_back({std::to_string(percent) + "%", {{"pinyon_shift_fov_scale", value}}});
     }
     rows.push_back(Setting("FIELD OF VIEW", std::move(fov)));
+  }
+  // G-forces, lean, speed shake and head motion layered on the game's own
+  // camera physics (#419), from the built-in immersive_camera mod. It keeps
+  // the player's save.
+  if (auto row = BuiltinModToggle("IMMERSIVE CAMERA", "immersive_camera")) {
+    rows.push_back(std::move(*row));
   }
   rows.push_back(Toggle("VSYNC", "vsync"));
   rows.push_back(Setting("FRAME RATE LIMIT",
@@ -980,6 +992,56 @@ std::unique_ptr<MenuScreen> SettingsPages::ControllerButtons() {
   });
 }
 
+std::vector<std::string> SettingsPages::EnabledMods() const {
+  std::vector<std::string> list;
+  const std::string text = Unquote(Saved("enabled_mods"));
+  size_t start = 0;
+  while (start <= text.size()) {
+    const size_t comma = text.find(',', start);
+    std::string name =
+        text.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+    if (!name.empty()) list.push_back(name);
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return list;
+}
+
+void SettingsPages::SetModEnabled(const std::string& name, bool enabled) {
+  auto list = EnabledMods();
+  const auto it = std::find(list.begin(), list.end(), name);
+  if ((it != list.end()) == enabled) return;
+  if (enabled) {
+    list.push_back(name);
+  } else {
+    list.erase(it);
+  }
+  std::string text;
+  for (const auto& entry : list) text += (text.empty() ? "" : ",") + entry;
+  config_.Set("enabled_mods", config::Quote(text));
+  Save();
+}
+
+std::optional<MenuRow> SettingsPages::BuiltinModToggle(std::string label, std::string name) {
+  std::error_code error;
+  if (services_.mods_root.empty() ||
+      !std::filesystem::is_regular_file(services_.mods_root / name / "mod.toml", error)) {
+    return std::nullopt;
+  }
+  MenuRow row;
+  row.label = std::move(label);
+  row.restart_required = true;
+  row.value = [this, name] {
+    const auto list = EnabledMods();
+    return std::string(std::find(list.begin(), list.end(), name) != list.end() ? "ON" : "OFF");
+  };
+  row.adjust = [this, name](int) {
+    const auto list = EnabledMods();
+    SetModEnabled(name, std::find(list.begin(), list.end(), name) == list.end());
+  };
+  return row;
+}
+
 std::unique_ptr<MenuScreen> SettingsPages::Mods() {
   // One row per folder in <state>/mods, switched on and off in enabled_mods
   // (at the next start); the note under the list is the focused mod's state.
@@ -990,41 +1052,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Mods() {
     if (it->is_directory(error)) names.push_back(it->path().filename().string());
   }
   std::sort(names.begin(), names.end());
-  const auto enabled_list = [this] {
-    std::vector<std::string> list;
-    std::string text = Unquote(Saved("enabled_mods"));
-    size_t start = 0;
-    while (start <= text.size()) {
-      const size_t comma = text.find(',', start);
-      std::string name = text.substr(start, comma == std::string::npos ? std::string::npos
-                                                                       : comma - start);
-      if (!name.empty()) list.push_back(name);
-      if (comma == std::string::npos) break;
-      start = comma + 1;
-    }
-    return list;
-  };
   std::vector<MenuRow> rows;
   for (const auto& name : names) {
     MenuRow row;
     row.label = Upper(name);
     row.restart_required = true;
-    row.value = [enabled_list, name] {
-      const auto list = enabled_list();
+    row.value = [this, name] {
+      const auto list = EnabledMods();
       return std::string(std::find(list.begin(), list.end(), name) != list.end() ? "ON" : "OFF");
     };
-    row.adjust = [this, enabled_list, name](int) {
-      auto list = enabled_list();
-      const auto it = std::find(list.begin(), list.end(), name);
-      if (it != list.end()) {
-        list.erase(it);
-      } else {
-        list.push_back(name);
-      }
-      std::string text;
-      for (const auto& entry : list) text += (text.empty() ? "" : ",") + entry;
-      config_.Set("enabled_mods", config::Quote(text));
-      Save();
+    row.adjust = [this, name](int) {
+      const auto list = EnabledMods();
+      SetModEnabled(name, std::find(list.begin(), list.end(), name) == list.end());
     };
     rows.push_back(std::move(row));
   }

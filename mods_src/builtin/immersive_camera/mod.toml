@@ -1,0 +1,5 @@
+name = "immersive_camera"
+version = "1.0.0"
+abi = 1
+# Changes only the camera, never saved data: the player keeps their own save.
+shares_save = true
