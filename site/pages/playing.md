@@ -50,7 +50,7 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 | Performance 120 | 1x | Off | FSR 1 | 120 | The default on a discrete GPU with 6 GB or more, 6 or more CPU threads and a 120 Hz display |
 | Quality 60 | 2x | 4x | Bilinear | 60 | |
 
-1x is the console's 1280 × 720; up to 4x is available. Output scaling is bilinear, CAS or FSR 1. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional.
+1x is the console's 1280 × 720; up to 4x is available. Output scaling is bilinear, CAS or FSR 1. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional. **TEXTURE GAMMA > FAST** makes terrain and foliage a little darker and saves about 8 % of the GPU's frame on a Mac; it makes no difference on a desktop GPU.
 
 ## Immersive camera
 

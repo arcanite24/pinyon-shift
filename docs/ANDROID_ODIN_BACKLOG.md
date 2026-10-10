@@ -923,3 +923,41 @@ What remains warm, by cause:
 | About 1 s later | 31-37 ms | The title thread's own loading tail, about 24 ms in the guest CRT `pow` |
 | Dense part of the long drive | 41-43 ms | Single `mprotect` calls of 6 to 12 ms in the write-watch path (`PhysicalHeap::EnableAccessCallbacks` and the fault handler) under the global lock, with about 5,000 mappings; needs the watch flags under their own lock |
 | Route captures | 40-83 ms | The capture's GPU readback; not in play |
+
+## The Odin switches on other platforms (2026-10-10, issue #427)
+
+The frame-600 replay (`--fh1_frame_replay_repeat=1210`, synchronous
+pipelines, no record thread), GPU median over the last 1,100 or so
+repeats, each switch alone against the default. Windows: RTX 4080,
+Vulkan. macOS: the M4 Pro Mac mini, MoltenVK, two passes (`m1`, `m2`).
+The Windows 2x pairs were repeated three times in a row.
+
+| Switch | RTX 4080 1x | RTX 4080 2x | M4 Pro 1x | M4 Pro 2x | Image |
+| --- | --- | --- | --- | --- | --- |
+| Default | 5.08, 5.22 ms | 6.24, 6.24, 6.25 ms | 12.67, 12.27 ms | 29.88, 30.00 ms | |
+| `force_convert_quad_lists_to_triangle_lists` | within noise | 6.04, 6.05, 6.04 ms | 12.62, 12.22 ms | 28.37, 28.20 ms | mean 0.02/255 |
+| `vulkan_fragment_shading_rate` + `fh1_coarse_shading` | within noise | 6.05, 6.04, 6.03 ms | no effect (MoltenVK has no shading rate) | | mean 2.1/255, 19 % of pixels over 4/255 |
+| and `fh1_coarse_shading_alpha_test` | within noise | 6.03 ms | | | mean 2.3/255 |
+| `vulkan_shared_memory_texel_buffer` | within noise | 6.23 ms | 12.58, 12.36 ms | | identical |
+| `fh1_direct_resolve_outdated_partial` | within noise | 6.11 ms | 12.51, 12.19 ms | | identical |
+| `texture_gamma_host_srgb` (TEXTURE GAMMA FAST) | within noise | 6.21 ms | 11.66, 11.31 ms | | 51 % of pixels darker, mean 4.6/255 |
+| `fh1_specialize_edram_passes=false` | within noise | 6.67 ms | 12.68, 13.38 ms | | identical |
+
+Decided:
+
+- Quad lists become triangle lists on every platform (SDK default): 3 %
+  of the frame at 2x on the 4080 and 5 % on the M4 Pro, nothing lost at
+  1x, the same image.
+- TEXTURE GAMMA is offered on desktop too: 8 % at 1x on the M4 Pro, no
+  change on the 4080; it stays ACCURATE by default.
+- Coarse shading stays an Android choice: 3 % at 2x on the 4080 for a
+  visibly softer image, and MoltenVK lacks the extension.
+- The texel buffer and the partial resolve stay Android-only: no gain on
+  either desktop GPU. Specialized EDRAM passes are worth 0.4 ms at 2x on
+  the 4080 and stay on.
+- `spirv_implicit_lod_2d_uniform_turnip` was not tried: it works around a
+  Turnip compiler issue and changes nothing the other drivers need.
+- Not measured: the Steam Deck (offline), an AMD desktop GPU (none
+  available) and D3D12, where only the shared resolve and transfer
+  changes apply and the replay's draws fail in the backend ("Failed in
+  backend"), so its 1.3 ms means nothing.

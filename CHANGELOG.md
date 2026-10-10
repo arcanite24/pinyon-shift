@@ -5,6 +5,9 @@
 - Play your own MP3 and WAV files from the state's `music` folder (F6 >
   AUDIO > YOUR MUSIC, F9 and Shift+F9 to skip); the game silences its own
   music as under a 360 dashboard soundtrack (#420).
+- Convert quad lists to triangle lists on every platform: about 3 % of
+  the GPU's frame at 2x on an RTX 4080 and 5 % on an M4 Pro; offer
+  TEXTURE GAMMA on desktop (#427).
 
 - Install the Forza Horizon XE mod from the player's own ModDB downloads
   with `pinyon.py xe` or the launchers. XE runs on the base build with

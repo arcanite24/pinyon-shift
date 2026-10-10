@@ -544,6 +544,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                   {"2X", {{"fh1_msaa_single_sample", "false"},
                                           {"fh1_msaa_2x", "true"}}},
                                   {"OFF", {{"fh1_msaa_single_sample", "true"}}}}));
+  // FAST samples the game's gamma textures through sRGB views: terrain and
+  // foliage a little darker. The frame-600 replay at 1x goes from 12.3-12.7
+  // to 11.3-11.7 ms on an M4 Pro (MoltenVK); no change on an RTX 4080 (#427).
+  // Applies at the next start.
+  rows.push_back(Setting("TEXTURE GAMMA", {{"ACCURATE", {{"texture_gamma_host_srgb", "false"}}},
+                                           {"FAST", {{"texture_gamma_host_srgb", "true"}}}}));
 #endif
   std::vector<Choice> scales;
   // Android renders at 1x: higher scales need resolve buffers a phone's
