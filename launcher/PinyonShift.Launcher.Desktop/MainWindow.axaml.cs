@@ -264,7 +264,7 @@ public partial class MainWindow : Window
             XeToggleButton.Content = _xeEnabled ? "Turn off" : "Use XE";
             XeInstallButton.Content = _xeInstalled ? "Reinstall" : "Install XE";
             XeStatusText.Text = message ?? (!_xeInstalled
-                ? "Not installed. Download XE 1.0 and the 1.01 hotfix from ModDB, then choose both archives."
+                ? "Not installed. Download from ModDB opens both downloads in your browser and installs them when they finish; Install XE takes archives you already have."
                 : _xeEnabled
                     ? $"XE {version} is on. It plays its own new save and hides Horizon Rally; your save is kept."
                     : $"XE {version} is installed and off. The game runs as on the disc.");
@@ -311,6 +311,16 @@ public partial class MainWindow : Window
         if (paths.Length == 0) return;
         await ChangeXeAsync(new[] { "install" }.Concat(paths).Append("--replace").ToArray(),
             "Checking and extracting the XE archives. This takes a few minutes…",
+            "XE is installed and on. Its first start creates a new save.");
+    }
+
+    // ModDB disallows automated downloads, so the player's browser fetches both
+    // archives and the tool installs them from Downloads when they finish (#426).
+    private async void XeDownload_Click(object? sender, RoutedEventArgs e)
+    {
+        await ChangeXeAsync(new[] { "install", "--find", "--open-pages", "--wait", "14400", "--replace" },
+            "Download both files on the ModDB pages that opened (XE by Teancum, 3.7 GB). " +
+            "Installing starts by itself when they finish in your Downloads folder…",
             "XE is installed and on. Its first start creates a new save.");
     }
 

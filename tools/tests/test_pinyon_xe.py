@@ -54,7 +54,8 @@ class PinyonXeTests(unittest.TestCase):
 
     def args(self, state: Path, game: Path, *archives: Path, **extra) -> argparse.Namespace:
         values = dict(xe_command="install", archives=list(archives), state_root=state,
-                      game_root=game, replace=False, no_enable=False, json=True)
+                      game_root=game, replace=False, no_enable=False, json=True,
+                      find=False, dir=None, open_pages=False, wait=0)
         values.update(extra)
         return argparse.Namespace(**values)
 
@@ -120,6 +121,52 @@ class PinyonXeTests(unittest.TestCase):
                 self.assertIn('enabled_mods = "other"', config.read_text(encoding="utf-8"))
                 self.assertFalse((state / "mods" / "xe").exists())
                 self.assertTrue((state / "user-xe" / "save").is_dir())
+
+    def test_find_takes_finished_downloads_by_name_and_size(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game, state, downloads, archives, extract = self.make(Path(directory))
+            browser = Path(directory) / "browser"
+            browser.mkdir()
+            # A partial 1.0 and a finished one the browser renamed; no hotfix yet.
+            (browser / "xe-1.0.7z.crdownload").write_bytes(b"one")
+            (browser / "xe-1.0.7z").write_bytes(b"one")
+            (browser / "xe-1.0 (1).7z").write_bytes((downloads / "xe-1.0.7z").read_bytes())
+            with mock.patch.object(pinyon_xe, "ARCHIVES", archives):
+                found = pinyon_xe.run(self.args(state, game, xe_command="find", dir=[browser]))
+            self.assertEqual({"1.0": str((browser / "xe-1.0 (1).7z").resolve())}, found["found"])
+            self.assertEqual(["xe-1.01.7z"], found["missing"])
+
+    def test_install_find_opens_the_pages_and_waits_for_the_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game, state, downloads, archives, extract = self.make(Path(directory))
+            browser = Path(directory) / "browser"
+            browser.mkdir()
+            polls = []
+
+            def sleep(_):
+                # The browser finishes both downloads while Pinyon Shift waits.
+                polls.append(1)
+                for name in ("xe-1.0.7z", "xe-1.01.7z"):
+                    (browser / name).write_bytes((downloads / name).read_bytes())
+
+            with mock.patch.object(pinyon_xe, "ARCHIVES", archives),                     mock.patch.object(pinyon_xe, "find_extractor", return_value=["7z"]),                     mock.patch.object(pinyon_xe, "extract", side_effect=extract),                     mock.patch.object(pinyon_xe, "FREE_SPACE_GB", 0),                     mock.patch.object(pinyon_xe.time, "sleep", side_effect=sleep),                     mock.patch.object(pinyon_xe.webbrowser, "open") as opened:
+                result = pinyon_xe.run(self.args(state, game, find=True, dir=[browser],
+                                                 open_pages=True, wait=3600))
+            self.assertEqual([mock.call(a["page"]) for a in archives.values()],
+                             opened.call_args_list)
+            self.assertEqual([1], polls)
+            self.assertEqual(("installed", "1.01"), (result["result"], result["version"]))
+
+    def test_install_find_names_the_page_when_1_0_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game, state, downloads, archives, extract = self.make(Path(directory))
+            empty = Path(directory) / "empty"
+            empty.mkdir()
+            with mock.patch.object(pinyon_xe, "ARCHIVES", archives),                     mock.patch.object(pinyon_xe.webbrowser, "open") as opened:
+                with self.assertRaisesRegex(pinyon_xe.XeError, "was not found.*example.invalid"):
+                    pinyon_xe.run(self.args(state, game, find=True, dir=[empty]))
+            opened.assert_not_called()
+            self.assertFalse((state / "mods").exists())
 
 
 if __name__ == "__main__":

@@ -12,6 +12,8 @@ not used.
 
   pinyon.py xe install <XE 1.0 archive> [<1.01 hotfix archive>]
                        [--state-root DIR] [--game-root DIR] [--json]
+  pinyon.py xe install --find [--dir DIR] [--wait SECONDS] [--open-pages] ...
+  pinyon.py xe find [--dir DIR] [--json]
   pinyon.py xe status|enable|disable|remove [--state-root DIR] [--json]
 
 `install` checks each archive's size and MD5 against ModDB's, extracts them
@@ -21,6 +23,14 @@ files that differ from the player's game, and writes the asset mod
 Rally expansion (XE replaces the database Rally extends) and plays its own
 new save, <state>/user-xe, as XE's readme asks. The player's own save, DLC
 and game files are never changed. Nothing from the mod is distributed.
+
+`--find` takes the archives from the player's Downloads folder (or --dir)
+instead of a list, matched by name and size. `--open-pages` opens both
+ModDB download pages in the player's browser first and `--wait` keeps
+looking until the downloads finish. Pinyon Shift never fetches XE itself:
+ModDB's robots.txt disallows automated clients on its /downloads/start/ and
+/downloads/mirror/ pages (checked 2026-10-10), so the player downloads it
+from ModDB in their own browser (#426).
 """
 
 from __future__ import annotations
@@ -33,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import time
+import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +106,69 @@ def identify(path: Path) -> str:
             return version
     raise XeError(f"{path.name} is not a known XE download: expected "
                   + " or ".join(k["file"] for k in ARCHIVES.values()))
+
+
+def download_folders() -> list[Path]:
+    """Where browsers save downloads: the user's Downloads folder (its
+    relocated location on Windows) and the home folder's Downloads."""
+    folders = []
+    if os.name == "nt":
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+            value, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
+            folders.append(Path(os.path.expandvars(value)))
+        except OSError:
+            pass
+    if xdg := os.environ.get("XDG_DOWNLOAD_DIR"):
+        folders.append(Path(xdg))
+    folders.append(Path.home() / "Downloads")
+    unique: list[Path] = []
+    for folder in folders:
+        if folder.is_dir() and all(folder.resolve() != u.resolve() for u in unique):
+            unique.append(folder)
+    return unique
+
+
+def find_archives(folders: list[Path]) -> dict[str, Path]:
+    """XE downloads in the folders, by version: a file with the archive's size,
+    named as ModDB names it (browsers may add " (1)"). Partial downloads are
+    smaller and are skipped; install checks the MD5."""
+    found: dict[str, Path] = {}
+    for folder in folders:
+        for version, known in ARCHIVES.items():
+            if version in found:
+                continue
+            stem = known["file"][:-len(".7z")].lower()
+            for candidate in sorted(folder.glob("*.7z")):
+                if candidate.name.lower().startswith(stem) and candidate.is_file() \
+                        and candidate.stat().st_size == known["size"]:
+                    found[version] = candidate
+                    break
+    return found
+
+
+def wait_for_archives(folders: list[Path], seconds: float, quiet: bool,
+                      poll: float = 5.0) -> dict[str, Path]:
+    """Look for both downloads until they are complete or the time runs out;
+    returns what was found (1.0 alone is enough to install)."""
+    deadline = time.monotonic() + seconds
+    announced: set[str] = set()
+    while True:
+        found = find_archives(folders)
+        for version in sorted(found.keys() - announced):
+            say(f"Found {found[version].name}", quiet)
+            announced.add(version)
+        if len(found) == len(ARCHIVES) or time.monotonic() >= deadline:
+            return found
+        time.sleep(poll)
+
+
+def open_pages(quiet: bool) -> None:
+    for known in ARCHIVES.values():
+        say(f"Opening {known['page']}", quiet)
+        webbrowser.open(known["page"])
 
 
 def find_extractor() -> list[str]:
@@ -185,7 +259,21 @@ def install(args: argparse.Namespace) -> dict:
     if not (game / "default.xex").is_file() or not (game / "media" / "db" / "gamedb.slt").is_file():
         raise XeError(f"the game files are not at {game}; finish setup first")
     versions: dict[str, Path] = {}
-    for archive in args.archives:
+    archives = list(args.archives)
+    if args.find:
+        folders = [d.resolve() for d in args.dir] if args.dir else download_folders()
+        if args.open_pages:
+            open_pages(quiet)
+        say("Looking for the XE downloads in " + ", ".join(str(f) for f in folders), quiet)
+        found = wait_for_archives(folders, args.wait, quiet)
+        if "1.0" not in found:
+            raise XeError(f"{ARCHIVES['1.0']['file']} was not found in "
+                          + (", ".join(str(f) for f in folders) or "a Downloads folder")
+                          + f"; download it from {ARCHIVES['1.0']['page']}")
+        archives += [found[v] for v in ARCHIVES if v in found]
+    if not archives:
+        raise XeError("choose the XE archives, or pass --find to look in Downloads")
+    for archive in archives:
         archive = archive.resolve()
         if not archive.is_file():
             raise XeError(f"{archive} does not exist")
@@ -302,6 +390,13 @@ def run(args: argparse.Namespace) -> dict:
         return install(args)
     if args.xe_command == "status":
         return status(args)
+    if args.xe_command == "find":
+        folders = [d.resolve() for d in args.dir] if args.dir else download_folders()
+        found = find_archives(folders)
+        return {"folders": [str(f) for f in folders],
+                "found": {v: str(p) for v, p in found.items()},
+                "missing": [ARCHIVES[v]["file"] for v in ARCHIVES if v not in found],
+                "pages": {v: k["page"] for v, k in ARCHIVES.items()}}
     if not (state / "mods" / MOD / "mod.toml").is_file():
         raise XeError("XE is not installed")
     if args.xe_command in ("enable", "disable"):
@@ -317,15 +412,25 @@ def add_parser(commands) -> None:
     parser = commands.add_parser("xe", help="install and manage the Forza Horizon XE mod")
     sub = parser.add_subparsers(dest="xe_command", required=True)
     installing = sub.add_parser("install", help="install XE from its downloaded archives")
-    installing.add_argument("archives", type=Path, nargs="+",
+    installing.add_argument("archives", type=Path, nargs="*",
                             help="Forza_Horizon_1_XE_Mod_v1.0.7z and FH1XE_v1.01_hotfix.7z")
+    installing.add_argument("--find", action="store_true",
+                            help="take the archives from the Downloads folder (or --dir)")
+    installing.add_argument("--open-pages", action="store_true",
+                            help="with --find: open both ModDB download pages in the browser")
+    installing.add_argument("--wait", type=float, default=0,
+                            help="with --find: seconds to keep looking for downloads to finish")
     installing.add_argument("--game-root", type=Path)
     installing.add_argument("--replace", action="store_true", help="reinstall over XE")
     installing.add_argument("--no-enable", action="store_true", help="install but leave it off")
     for name, text in (("status", "show whether XE is installed and enabled"),
                        ("enable", "play with XE"), ("disable", "play without XE"),
-                       ("remove", "delete XE's files; its save is kept")):
+                       ("remove", "delete XE's files; its save is kept"),
+                       ("find", "look for the XE downloads in the Downloads folder")):
         sub.add_parser(name, help=text)
+    for action in (installing, sub.choices["find"]):
+        action.add_argument("--dir", type=Path, action="append",
+                            help="a folder to look in instead of Downloads (repeatable)")
     for action in sub.choices.values():
         action.add_argument("--state-root", type=Path)
         action.add_argument("--json", action="store_true")

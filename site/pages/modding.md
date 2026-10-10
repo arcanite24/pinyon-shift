@@ -77,11 +77,14 @@ Nothing from the game disc may be distributed. A mod's install steps should buil
 
 ## The XE mod
 
-[Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) adds about 170 cars and engine swaps. Download `Forza_Horizon_1_XE_Mod_v1.0.7z` and the `FH1XE_v1.01_hotfix.7z` from ModDB, then choose **Install XE** in the launcher (under DLC on Windows), or run:
+[Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) adds about 170 cars and engine swaps. In the launcher (under DLC on Windows), **Download from ModDB** opens both XE downloads in your browser and installs them as soon as they finish in your Downloads folder. If you already have `Forza_Horizon_1_XE_Mod_v1.0.7z` and `FH1XE_v1.01_hotfix.7z`, choose **Install XE** instead, or run:
 
 ```text
 python tools/pinyon.py xe install Forza_Horizon_1_XE_Mod_v1.0.7z FH1XE_v1.01_hotfix.7z
+python tools/pinyon.py xe install --find --open-pages --wait 14400
 ```
+
+Pinyon Shift never downloads XE itself: ModDB doesn't allow automated downloads, so your browser does it.
 
 The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
 

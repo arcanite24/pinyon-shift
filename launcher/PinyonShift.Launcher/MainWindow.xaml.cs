@@ -1806,7 +1806,7 @@ public partial class MainWindow : Window
         XeInstallButton.Content = status.Installed ? "Reinstall" : "Install XE";
         AutomationProperties.SetName(XeToggleButton, status.Enabled ? "Play without the XE mod" : "Play with the XE mod");
         XeStatusText.Text = message ?? (!status.Installed
-            ? "Not installed. Download XE 1.0 and the 1.01 hotfix from ModDB, then choose both archives."
+            ? "Not installed. Download from ModDB opens both downloads in your browser and installs them when they finish; Install XE takes archives you already have."
             : status.Enabled
                 ? $"XE {status.Version} is on. It plays its own new save and hides Horizon Rally; your base save is kept."
                 : $"XE {status.Version} is installed and off. The game runs as on the disc.");
@@ -1823,6 +1823,15 @@ public partial class MainWindow : Window
         };
         if (picker.ShowDialog(this) != true) return;
         await ChangeXeAsync("install", picker.FileNames,
+            "XE is installed and on. Its first start creates a new save.");
+    }
+
+    // ModDB disallows automated downloads, so the player's browser fetches both
+    // archives and the tool installs them from Downloads when they finish (#426).
+    private async void DownloadXeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        await ChangeXeAsync("download", [],
             "XE is installed and on. Its first start creates a new save.");
     }
 
@@ -1848,9 +1857,13 @@ public partial class MainWindow : Window
         _busy = true;
         XeControls.IsEnabled = false;
         UpdatePrimaryButton();
-        XeStatusText.Text = action == "install"
-            ? "Checking and extracting the XE archives. This takes a few minutes…"
-            : "Updating…";
+        XeStatusText.Text = action switch
+        {
+            "install" => "Checking and extracting the XE archives. This takes a few minutes…",
+            "download" => "Download both files on the ModDB pages that opened (XE by Teancum, 3.7 GB). " +
+                          "Installing starts by itself when they finish in your Downloads folder…",
+            _ => "Updating…"
+        };
         try { ApplyXe(await RunXeToolAsync(action, archives), success); }
         catch (Exception ex)
         {

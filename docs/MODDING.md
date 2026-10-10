@@ -238,13 +238,23 @@ engine and drivetrain swaps. It is installed from the player's own downloads;
 nothing from it is part of Pinyon Shift. Download both archives from ModDB:
 `Forza_Horizon_1_XE_Mod_v1.0.7z` (2.0 GB) and the
 `FH1XE_v1.01_hotfix.7z` (1.6 GB). In the Windows launcher, open DLC and choose
-**Install XE**; on Linux and macOS the launcher has the same control. From a
-terminal:
+**Download from ModDB**: it opens both ModDB download pages in the player's
+browser and installs the archives as soon as both finish in the Downloads
+folder (found by name and size, then checked by MD5; it waits up to four
+hours). **Install XE** takes archives the player already has. Linux and macOS
+launchers have the same controls. From a terminal:
 
 ```text
 python tools/pinyon.py xe install Forza_Horizon_1_XE_Mod_v1.0.7z FH1XE_v1.01_hotfix.7z
+python tools/pinyon.py xe install --find [--open-pages] [--wait SECONDS] [--dir DIR]
+python tools/pinyon.py xe find
 python tools/pinyon.py xe status | enable | disable | remove
 ```
+
+Pinyon Shift does not fetch XE by itself. ModDB's `robots.txt` disallows
+automated clients on `/downloads/start/` and `/downloads/mirror/`, the pages a
+scripted download would need (checked 2026-10-10, #426), so the player's
+browser downloads it, from ModDB, with credit to Teancum shown in the launcher.
 
 `install` checks each archive's size and MD5 against ModDB's, extracts them
 (the hotfix over 1.0) with 7-Zip or bsdtar (`tar.exe` on Windows 10 and

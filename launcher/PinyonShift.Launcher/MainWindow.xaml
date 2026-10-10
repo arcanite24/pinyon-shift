@@ -300,6 +300,9 @@
                                            Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
                             </StackPanel>
                             <StackPanel x:Name="XeControls" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="XeDownloadButton" Content="Download from ModDB" Style="{StaticResource QuietButton}"
+                                        Click="DownloadXeButton_Click" Margin="0,0,10,0"
+                                        AutomationProperties.Name="Open the XE mod's ModDB downloads and install them when they finish"/>
                                 <Button x:Name="XeInstallButton" Content="Install XE" Style="{StaticResource QuietButton}"
                                         Click="InstallXeButton_Click" Margin="0,0,10,0"
                                         AutomationProperties.Name="Install the XE mod from its downloaded archives"/>

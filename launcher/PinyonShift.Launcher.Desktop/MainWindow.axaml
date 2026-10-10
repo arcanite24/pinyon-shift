@@ -95,6 +95,8 @@
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" x:Name="XeControls" Orientation="Horizontal"
                                     Spacing="10" VerticalAlignment="Center">
+                            <Button x:Name="XeDownloadButton" Classes="quiet" Content="Download from ModDB"
+                                    Click="XeDownload_Click"/>
                             <Button x:Name="XeInstallButton" Classes="quiet" Content="Install XE" Click="XeInstall_Click"/>
                             <Button x:Name="XeToggleButton" Classes="quiet" Content="Use XE" IsEnabled="False"
                                     Click="XeToggle_Click" MinWidth="88"/>
