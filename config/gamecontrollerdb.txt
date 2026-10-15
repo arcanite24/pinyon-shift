@@ -4,3 +4,9 @@
 # The two GUIDs cover the firmware revisions observed with version fields 0 and 1.
 03000000c82d00001d30000000000000,8BitDo Ultimate 2C Wired Controller,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:a3,leftx:a0,lefty:a1,paddle1:b2,paddle2:b5,rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,righty:a5,start:b11,x:b3,y:b4,platform:Windows,
 03000000c82d00001d30000001000000,8BitDo Ultimate 2C Wired Controller,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:a3,leftx:a0,lefty:a1,paddle1:b2,paddle2:b5,rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,righty:a5,start:b11,x:b3,y:b4,platform:Windows,
+#
+# Thrustmaster T248 (USB 044f:b696, PC mode). Bound for the game's wheel
+# button layout 1 with WHEEL MODE on: paddles on the shoulders (shift down,
+# up), A clutch, B handbrake, X activate, Y rewind; the clutch pedal on the
+# right stick's Y axis.
+030000004f04000096b6000000000000,Thrustmaster T248,a:b5,b:b4,x:b3,y:b2,leftshoulder:b0,rightshoulder:b1,lefttrigger:a1~,righttrigger:a5~,+righty:a6~,back:b6,start:b7,guide:b12,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,platform:Windows,

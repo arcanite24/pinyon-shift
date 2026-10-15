@@ -15,6 +15,16 @@ class Fh1SymbolTableTests(unittest.TestCase):
     def test_checked_in_table_matches_its_sources(self):
         self.assertEqual(MODULE.OUTPUT.read_text(encoding="utf-8"), MODULE.generate())
 
+    def test_v4_offsets_name_every_offset(self):
+        # generate-fh1-symbols.py --v4 refuses to write the v4 table unless
+        # fh1-offsets-v4.toml lists exactly the offsets of fh1-symbols.toml,
+        # but only a machine with the v4 images runs it: check the names here.
+        import tomllib
+        base = tomllib.loads(MODULE.SYMBOLS.read_text(encoding="utf-8"))["offsets"]
+        v4 = tomllib.loads(MODULE.V4_OFFSETS.read_text(encoding="utf-8"))["offsets"]
+        self.assertEqual(sorted(set(base) - set(v4)), [], "offsets without a verified v4 value")
+        self.assertEqual(sorted(set(v4) - set(base)), [], "v4 offsets without a base offset")
+
     def test_every_hook_site_is_a_symbol(self):
         text = MODULE.generate()
         hooks = re.findall(r'name = "(\w+)"', MODULE.HOOKS.read_text(encoding="utf-8"))

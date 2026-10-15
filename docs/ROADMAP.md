@@ -116,7 +116,9 @@ Mid term, in priority order:
   (#451)
 - [ ] Nintendo Switch support, starting with hardware feasibility and
   performance validation
-- [ ] Racing wheel, pedal and force feedback support
+- [ ] Racing wheel, pedal and force feedback support (built: the game's
+  wheel mode, clutch, H-shifter and force feedback, tested on one wheel;
+  open: more wheels and Linux, FB-2.5)
 - [ ] Install, enable and order any mod from the launcher, with compatibility
   guidance for existing FH1 mods
 - [ ] Verify DualSense and variable refresh rate displays

@@ -184,6 +184,28 @@ confidence = """confirmed"""
 note = """The surface index was not enumerated at run time."""
 source = """docs/DUALSENSE_BACKLOG.md DS-3"""
 
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D2F348, sub_82D36DF8, sub_82D39360"""
+name = """tyre forces and slip angle"""
+what = """Per physics step `sub_82D39360` runs each wheel's suspension (`sub_82D2EC70`, spring and damper force at wheel `+676`, the anti-roll bar's share at `+700`; their sum is the normal load) and `sub_82D36DF8`, which calls the tyre model `sub_82D2F348`. Its outputs in the wheel block: the lateral force Fy at `+468` (opposing the contact patch's lateral slip) and the longitudinal Fx at `+444`, both also normalised by static corner weight at `+132`/`+136`; the signed slip angle in radians at `+628`; the slip angle over the tyre's peak at `+516` (smoothed at `+520`); the combined slip at `+604`; the contact patch's lateral and longitudinal velocity at `+704`/`+708`. The peak slip angle comes from a per-load tyre table blended toward the surface's off-road peak, and is not stored. There is no per-wheel aligning torque; the surface's `TorqueLateralCoeff` and `LatTorqueScale` act on the body's yaw torque."""
+how = """Static reading of the generated tyre model; a recorded drive on a T248 (both front blocks at 30 Hz) matched the slip and force fields."""
+confidence = """probable"""
+note = """The units of Fy are not fixed (its ratio to the normalised value implies a scale other than the car's mass)."""
+issue = """#337"""
+source = """docs/FEATURE_BACKLOG.md FB-2.3"""
+
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D35D60, sub_8248AB08, sub_82BF7FB8, sub_82BFC2D8"""
+name = """force feedback steering torque"""
+what = """While `dyn + 3412` is set (always for the player's car), `sub_82D35D60` computes the steering torque the game sent to force feedback wheels: a load-weighted average over the front wheels of the tyre's aligning-torque curve against the smoothed normalised slip angle (wheel `+520`), scaled down by longitudinal slip and by load and by the surface's FrictionTorqueScale, plus torque steer; it is smoothed into `dyn + 40`, steering damping from the wheel's velocity is subtracted, per-wheel surface noise (wheel `+776`) is added, and the result is clamped to ±1 at `dyn + 48`. `sub_8248AB08` passes it with speed and the rear slip to `sub_82BF7FB8`, which applies ControllerFFB.ini (DynFFBScale and DynFFBMaxForce are 1), and `sub_82BFC2D8` turns it into a constant force level for the wheel. Its sign is the steering direction it pushes against."""
+how = """Static reading of the generated code; on a recorded T248 drive in the 900-degree mode the smoothed torque rose to about 0.9 near the front tyres' peak slip and fell to about 0.2 past it, opposed the steering in about 78 % of clear samples, and carried about 0.1 of noise on dirt and none on asphalt."""
+confidence = """probable"""
+note = """Read by the host for racing wheel force feedback (hid_wheel_ffb), base build only until the offsets are checked in v4. The setter of `dyn + 3412` was not found."""
+issue = """#337"""
+source = """docs/FEATURE_BACKLOG.md FB-2.3; src/pinyon_shift_runtime_hooks.cpp QueueCarTelemetry"""
+
 # ------------------------------------------------ Activities and collectibles
 
 [[finding]]

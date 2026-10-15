@@ -36,9 +36,10 @@ build. The gaps are in four areas:
 - **Audio:** MASTER VOLUME and MUTE only (`src/ui/settings_menu.cpp:502-512`).
   No radio controls, no per-channel volume, no custom music.
 - **Input:** SDL opens only devices it maps as gamepads
-  (`SDL_OpenGamepad`, SDK `src/input/sdl/sdl_input_driver.cpp:445`), so most
-  PC wheels are ignored. Every non-XInput driver reports subtype 1 (gamepad).
-  No gyro, trigger rumble or DualSense effects. Keys are rebound one per
+  (`SDL_OpenGamepad`), so a wheel needs a mapping: built in (the
+  Thrustmaster T248), from SDL's database or made in MAP CONTROLLER. The SDL
+  driver reports a wheel as subtype 2 with force feedback (FB-2); other
+  devices report subtype 1 (gamepad). Keys are rebound one per
   control in F6 > CONTROLS (FB-3.4); several keys per control only in the
   config file.
 - **Online:** every LIVE export is a stub; matchmaking, Rivals, leaderboards,
@@ -178,22 +179,29 @@ loaded as `Game:\Media\ControllerFFB.ini`, with `CSteeringWheelFilter` and
 `CCarPresentationSetSteeringWheelAngle` in the image. Its output is two
 16-bit motor values.
 
-**What exists.** Only the XInput backend passes a device's real subtype
-(`xinput_input_driver.cpp:175-176`); SDL, keyboard and null drivers report 1.
-No DirectInput, SDL joystick or SDL haptic code exists.
+**What exists.** Wheel mode, clutch, H-shifter and force feedback, checked on
+a Thrustmaster T248 (900 degrees, belt-driven) with a 6-speed USB H-shifter
+on Windows. The SDL driver reports a wheel (SDL's wheel type, or marked in
+MAP CONTROLLER) as subtype 2 with the force feedback flag and
+`Gamepad.sThumbLX = 900` in its capabilities, so the title uses its
+900-degree wheel mapping and its wheel button layouts. Force feedback plays
+the title's own steering torque through SDL's haptic API. The XInput backend
+passes a device's real subtype; keyboard and null drivers report 1. The
+records are on the site's Reverse engineering pages (steering input mapping,
+wheel layouts, force feedback steering torque, tyre forces).
 
 Gate: on at least two wheel brands, the guest sees a wheel, uses its wheel
 steering, and FFB follows the car (centring at speed, lightening on rear
 slip); pedals and clutch work in manual with clutch; the gamepad path is
-unchanged.
+unchanged. One brand (Thrustmaster) has passed.
 
 | ID | Item | Effort | Status |
 | --- | --- | --- | --- |
-| FB-2.1 | **Guest wheel contract.** Report subtype 2 with the FFB flag from a test driver and trace `sub_8310C968`, the +4 and +4244 flags, which steering and filter path engages, and what the two motor values mean under a wheel (constant force? spring?). Check whether the ordinal-442 stub zeroes output. The subtype half exists as a switch: `input_report_wheel_subtype=true` makes the SDL driver report `XINPUT_DEVSUBTYPE_WHEEL` for a detected wheel (off until the trace says what the title does with it). | S-M | Switch ready, trace not started |
-| FB-2.2 | **Wheel driver.** SDL3 joystick (not gamepad) devices with a wheel or user-chosen profile: steering, separate throttle, brake and clutch axes, H-pattern and sequential shifter buttons, mapped onto the guest's wheel state with subtype 2. DirectInput only if SDL misses devices FB-2.4 needs. | M | Not started |
-| FB-2.3 | **Force feedback.** Translate the guest's motor values into an SDL haptic constant-force effect on `SDL_HAPTIC_STEERING_AXIS`, with host spring and damper scaled by the values in `ControllerFFB.ini`. Then decide whether to recreate the ini's model host-side from the car's self-aligning torque (L). | M-L | Not started |
-| FB-2.4 | **Settings.** A WHEEL page in F6: rotation, steering linearity and deadzone, pedal curves and inversion, combined or separate pedals, FFB gain and centring, a calibration step, and per-device profiles. | S-M | Not started |
-| FB-2.5 | **Device matrix.** Logitech (G29/G920/G923), Thrustmaster (T300/T150/TMX), Fanatec, Moza; Windows and Linux (kernel quirks such as Moza's FIX_WHEEL_DIRECTION). Record each in a tested-hardware table. Closes GH-9 and #337. | M | Needs a person |
+| FB-2.1 | **Guest wheel contract.** Subtype 2 with the FFB flag sets the title's wheel class, and `sThumbLX = 900` in the capabilities its 900-degree flag; the steer mode then picks `WheelMapping900Degree`, linear and without the pad path's reduction at speed (the default wheel mapping keeps about a third of the steering at speed, measured on the T248). Wheel layouts come from `WheelLayouts` in `gamedb.slt`: layout 1 shifts on LB/RB and reads the clutch from `|thumb_ry|`, and a raw `thumb_rx` gear (-1 reverse, 0 neutral, 1 and up) comes from an H-shifter. `sub_8310C968` and the ordinal-442 stub were not traced: force feedback reads the title's torque directly (FB-2.3), not its motor output. | S-M | Done |
+| FB-2.2 | **Wheel driver.** Wheels drive through SDL gamepad mappings; the T248's is built in, bound for wheel layout 1 (paddles on the shoulders, the clutch pedal on `+righty`). An H-shifter is a separate SDL joystick chosen in MAP CONTROLLER (`hid_shifter_guid`) whose buttons per gear (`hid_shifter_gears`) set `thumb_rx`. The mapping assistant maps wheels and pedals: it takes a pedal's rest from the wheel's late first report (the T248 reports 0 at first), and for a wheel's steering waits for an eighth of its travel (about 110 degrees each way). Open: wheels SDL cannot map as gamepads, and pedals or shifters on separate devices other than the H-shifter. | M | Done for the T248 |
+| FB-2.3 | **Force feedback.** The title's steering torque (`dyn + 48`, -1 to 1, from the front tyres' aligning-torque curve, torque steer and surface noise; `sub_82D35D60`) is read each frame and played as an SDL constant force, negated for DirectInput's convention, with a light damper and the title's low rumble motor above 0.1 as a vibration for impacts. Settings scale it; a minimum force lifts small torque past a geared or belted wheel's friction. The effects are updated at most every 10 ms (the constant force) and 40 ms (the others) and restarted when the device reports them stopped, because the T248 silently dropped effects retuned at 100 Hz and stopped them on reacquiring. The ControllerFFB.ini stage (`sub_82BF7FB8`) is not replayed: its scale and maximum are 1. Base game only; the offsets are unchecked in v4. | M-L | Done (base game) |
+| FB-2.4 | **Settings.** F6 > CONTROLS > RACING WHEEL: WHEEL MODE, steering saturation, deadzone, centre and curve, pedal deadzone, and FFB strength, torque, minimum force, damping, road effects and direction; RACING WHEEL and H-SHIFTER on each device's MAP CONTROLLER page. Open: a calibration step, pedal curves and inversion, per-device profiles. | S-M | Done, profiles open |
+| FB-2.5 | **Device matrix.** Logitech (G29/G920/G923), Thrustmaster (T300/T150/TMX), Fanatec, Moza; Windows and Linux (kernel quirks such as Moza's FIX_WHEEL_DIRECTION). Record each in a tested-hardware table. Closes GH-9 and #337. Tested: Thrustmaster T248 on Windows (steering, pedals, clutch, paddles, a 6-speed USB H-shifter, force feedback with FFB MIN FORCE 6%). | M | One wheel; needs more people |
 
 ### FB-3 Controller extras (S-M)
 
@@ -510,8 +518,8 @@ and photo mode at a higher scale.
 | --- | --- |
 | The radio bank is not MPEG after all, or has an unknown layout | FB-1.3's byte-identical round trip |
 | The guest ignores the system-player notification | FB-1.1; FB-1.4 does not depend on it |
-| The vibration-level stub zeroes wheel FFB | FB-2.1 |
-| No wheel in the project | FB-2.5 (a person); FB-2.1-2.3 progress with a virtual device |
+| Another wheel's constant force runs the other way, or drops effects as the T248 did | FB-2.5; FFB DIRECTION reverses the force |
+| The steering torque moves in the v4 executable | Checking `dyn + 48` and `+ 3412` in v4 before force feedback is turned on there |
 | More LOD exhausts the 512 MB guest memory | FB-4.4 before FB-4.2 ships |
 | Rivals and Storefront formats need server responses nobody captured | FB-6.1 and FB-7.2 work from what the client writes locally |
 | Multiplayer physics desyncs at decoupled frame rates | FB-8.2's go or no-go |
@@ -520,8 +528,8 @@ and photo mode at a higher scale.
 
 1. **Now:** FB-0.1, FB-0.2 and FB-0.4; FB-1.1 and FB-1.3 (cheap, decide the
    radio approach); FB-4.1 (S spike) and FB-4.5's A/B capture.
-2. **Next:** FB-1.2, FB-1.4 to FB-1.7 (ship custom radio); FB-2.1 in parallel.
-3. **Then:** FB-2.2 to FB-2.4 and FB-3.1 to FB-3.3 as one input project;
+2. **Next:** FB-1.2, FB-1.4 to FB-1.7 (ship custom radio).
+3. **Then:** FB-2.4's profiles, FB-2.5 and FB-3.1 to FB-3.3 as one input project;
    FB-4.2 to FB-4.4; FB-0.3.
 4. **After:** FB-6.1 to FB-6.3, FB-9.1 to FB-9.3, FB-7.1 and FB-7.2, FB-10.
 5. **Research track:** FB-8.1 and FB-8.2; FB-5.1 to FB-5.3; FB-6.4 and

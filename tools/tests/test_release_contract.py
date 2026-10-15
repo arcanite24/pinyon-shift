@@ -784,6 +784,23 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertIn(".pinyon-source-sha256", launcher)
         self.assertIn("StageControllerMappings", launcher)
 
+    def test_thrustmaster_t248_mapping_is_shipped(self):
+        mappings = (ROOT / "config/gamecontrollerdb.txt").read_text(encoding="utf-8")
+        matching = [
+            line for line in mappings.splitlines()
+            if line and not line.startswith("#") and "4f04000096b60000" in line.lower()
+        ]
+        self.assertEqual(len(matching), 1)
+        # The CRC field is zero so the mapping matches whatever name the
+        # wheel's driver reports.
+        self.assertTrue(matching[0].startswith("030000004f04000096b6"))
+        for binding in (
+            "leftx:a0", "lefttrigger:a1~", "righttrigger:a5~", "+righty:a6~",
+            "leftshoulder:b0", "rightshoulder:b1", "a:b5", "b:b4",
+            "platform:Windows",
+        ):
+            self.assertIn(binding, matching[0])
+
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_crash_report_redacts_paths_and_excludes_sensitive_files(self):
         with tempfile.TemporaryDirectory(prefix="pinyon-report-") as temporary:
