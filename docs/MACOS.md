@@ -33,7 +33,8 @@ verifies it, builds the game on your Mac and starts it.
 
 On an M4 Pro, free roam holds 120 fps on a 120 Hz display at the default 1x
 resolution (median 8.35 ms a frame). Other busy apps on the Mac cause most of
-the slow frames that remain.
+the slow frames that remain. The title starts at once; the stored pipelines
+are compiled behind it, so the first seconds of a new scene can still hitch.
 
 ## From a terminal
 
