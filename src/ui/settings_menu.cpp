@@ -1038,6 +1038,23 @@ std::unique_ptr<MenuScreen> SettingsPages::MapControllerOptions(
   };
   wheel.activate = [adjust = wheel.adjust] { adjust(1); };
   rows.push_back(std::move(wheel));
+  // An H-pattern shifter: its gear goes to the racing wheel in WHEEL MODE.
+  // One shifter at a time; its buttons per gear are hid_shifter_gears.
+  MenuRow shifter;
+  shifter.label = "H-SHIFTER";
+  shifter.value = [guid = joystick.guid] {
+    return std::string(REXCVAR_GET(hid_shifter_guid) == guid ? "YES" : "NO");
+  };
+  shifter.adjust = [this, guid = joystick.guid](int) {
+    const std::string value = REXCVAR_GET(hid_shifter_guid) == guid ? std::string() : guid;
+    rex::cvar::SetFlagByName("hid_shifter_guid", value);
+    config_.Set("hid_shifter_guid", config::Quote(value));
+    diagnostics::RecordEvent("settings.changed",
+                             {{"row", "H-SHIFTER"}, {"values", "hid_shifter_guid=" + value}});
+    Save();
+  };
+  shifter.activate = [adjust = shifter.adjust] { adjust(1); };
+  rows.push_back(std::move(shifter));
   auto screen = std::make_unique<MenuScreen>(Upper(joystick.name), std::move(rows));
   *screen_ref = screen.get();
   screen->set_body(joystick.user_mapping ? "This controller uses a mapping you made."
