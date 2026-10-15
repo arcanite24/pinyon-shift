@@ -90,7 +90,25 @@ Connect the controller before starting the game. XInput controllers work as they
 
 ### Racing wheels
 
-A wheel drives through the same controller path: steering on the left stick, throttle on the right trigger and brake on the left trigger. Wheels that SDL knows are detected; for another, open **F6 > CONTROLS > MAP CONTROLLER**, map it, and set **RACING WHEEL** to **YES** on its page. **F6 > CONTROLS > RACING WHEEL** then shapes its input, since the game expects a thumbstick: **STEERING SATURATION** (full lock at that share of the wheel's rotation, so 50% on a 900-degree wheel locks at 225 degrees each way), **STEERING DEADZONE** (skips the game's stick deadzone), **STEERING CURVE** and **PEDAL DEADZONE**. Gamepads are not affected. Force feedback isn't supported yet, and the shaping has been tested with simulated input, not yet on a physical wheel.
+A wheel drives through the same controller path as a gamepad. Wheels that SDL knows are detected, and the Thrustmaster T248 has a mapping built in; for another wheel, open **F6 > CONTROLS > MAP CONTROLLER**, map it, and set **RACING WHEEL** to **YES** on its page. Gamepads are not affected by any of this.
+
+**WHEEL MODE** (on by default, in **F6 > CONTROLS > RACING WHEEL**) tells the game a wheel is connected, as an Xbox 360 wheel did. The game then uses its own wheel steering: 900 degrees, linear, and without the reduction at speed it applies to a thumbstick. It also uses its wheel button layouts (**OPTIONS > CONTROLS** in the game), which put shifting on the paddles and the clutch on its own pedal. The game reads the setting when the wheel connects, so a change applies from the next start. With it off, the wheel drives as a gamepad: steering on the left stick, throttle and brake on the triggers.
+
+The same page shapes the steering: **STEERING SATURATION** (full lock at that share of the wheel's rotation, so 50% on a 900-degree wheel locks at 225 degrees each way), **STEERING DEADZONE** (skips the game's stick deadzone, for a wheel driving as a gamepad), **STEERING CENTRE** (readings this close to centre count as centred, since a wheel rarely rests at exactly 0), **STEERING CURVE** and **PEDAL DEADZONE**.
+
+The clutch pedal works when the wheel's mapping puts it on the right stick's vertical axis, as the T248's does. Choose a manual-with-clutch transmission in the game to use it. For an H-pattern shifter that connects as its own USB device, open **F6 > CONTROLS > MAP CONTROLLER**, choose the shifter and set **H-SHIFTER** to **YES**. Its gear then goes to the game while **WHEEL MODE** is on. The default buttons per gear (`hid_shifter_gears` in `config/pinyon_shift.toml`, `1:b0,2:b1,3:b2,4:b3,5:b4,6:b5,R:b7`) fit a common 6-speed USB shifter; the log names each gear the shifter reports, so another shifter's buttons can be found by shifting through its gears.
+
+**FORCE FEEDBACK** plays the steering torque the game computed for Xbox 360 force feedback wheels. That torque comes from the front tyres: it builds as they load up in a corner, goes light when they slide past their grip, and carries surface noise off-road. It is played as a constant force through SDL's haptic API, with a light damper and the game's impacts and rumble strips as a vibration.
+
+- **FFB STRENGTH** is the wheel's overall gain.
+- **FFB TORQUE** scales the game's torque before that gain.
+- **FFB MIN FORCE** lifts any torque past the wheel's own friction, so that small forces near centre are felt. A geared or belted wheel needs a few percent: 6% on a T248.
+- **FFB DAMPING** and **FFB ROAD EFFECTS** set the damper and the vibration.
+- **FFB DIRECTION** reverses the force, for a wheel that pushes away from centre.
+
+Force feedback currently works on the base game only. With the v4 title update the wheel gets no force until the torque's address is checked in v4.
+
+Tested on a Thrustmaster T248 (900 degrees) with a 6-speed USB H-shifter, on Windows.
 
 ### DualSense
 

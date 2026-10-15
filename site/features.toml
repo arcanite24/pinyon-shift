@@ -248,10 +248,10 @@ cells = ["yes", "yes", "yes: Cmd shortcuts for the F-keys", "n/a"]
 feature = "Racing wheels"
 link = "playing.md#racing-wheels"
 cells = [
-  "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
-  "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
-  "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
-  "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+  "partly: the game's 900-degree wheel steering, clutch, H-shifter and force feedback from the game's steering torque, tested on a Thrustmaster T248; force feedback on the base game only ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+  "partly: the game's 900-degree wheel steering, clutch, H-shifter and force feedback, untested on this platform ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+  "partly: the game's 900-degree wheel steering, clutch, H-shifter and force feedback, untested on this platform ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+  "partly: the game's 900-degree wheel steering, clutch, H-shifter and force feedback, untested on this platform ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
 ]
 
 [[platform]]
