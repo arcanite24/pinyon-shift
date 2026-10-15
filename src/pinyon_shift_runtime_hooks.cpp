@@ -48,6 +48,7 @@
 #include <rex/ui/upscaler.h>
 
 #include "pinyon_shift_diagnostics.h"
+#include "head_tracking/head_tracking.h"
 #include "fh1_guest_address.h"
 #include "camera_tuning.h"
 #include "platform/host_platform.h"
@@ -6781,6 +6782,7 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   }
   QueueRallyRaceTrace();
   QueueCarTelemetry();
+  pinyon_shift::head_tracking::Update();
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_FRAME_TICK)) {
@@ -8055,13 +8057,9 @@ void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
 // tools/build-immersive-camera.py writes them. No stock layer has such a
 // fraction. Scaling the factor eases a sprung layer to its new strength.
 void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
-  const double scales[] = {REXCVAR_GET(pinyon_shift_camera_gforce),
-                           REXCVAR_GET(pinyon_shift_camera_lean),
-                           REXCVAR_GET(pinyon_shift_camera_shake),
-                           REXCVAR_GET(pinyon_shift_camera_head)};
-  if (std::all_of(std::begin(scales), std::end(scales), [](double s) { return s == 1.0; })) {
-    return;
-  }
+  const double scales[] = {
+      REXCVAR_GET(pinyon_shift_camera_gforce), REXCVAR_GET(pinyon_shift_camera_lean),
+      REXCVAR_GET(pinyon_shift_camera_shake), REXCVAR_GET(pinyon_shift_camera_head)};
   const uint32_t layer = r31.u32;
   // Sprung (+248), SpringK (+252); NoiseSeed (+156).
   const float tagged = LoadGuestF32(layer + (LoadGuestU8(layer + 248) ? 252u : 156u));
@@ -8069,7 +8067,23 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
   const double fraction = double(tagged) - std::floor(double(tagged));
   const double group = (fraction - 0.0419) / 0.0002;
   const double nearest = std::round(group);
-  if (nearest < 1.0 || nearest > 4.0 || std::abs(group - nearest) > 0.25) return;
+  if (nearest < 1.0 || nearest > 10.0 || std::abs(group - nearest) > 0.25)
+    return;
+  if (nearest >= 5.0) {
+    // Head tracking (#489): groups 5-10 are unit offsets for yaw, pitch,
+    // roll (degrees) and x, y, z (metres), held at 0 while it is off.
+    // FH1 pitches and rolls the other way from the pose (look up, tilt right).
+    static constexpr float kSigns[] = {1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+    const size_t axis = size_t(nearest) - 5;
+    // Once, so a log shows the camera physics has the head layers.
+    static std::atomic<bool> seen{};
+    if (!seen.exchange(true, std::memory_order_relaxed)) {
+      pinyon_shift::diagnostics::RecordEvent("camera.head_tracking.layers", {});
+    }
+    const auto pose = pinyon_shift::head_tracking::Current();
+    StoreGuestF32(r1.u32 + 96u, pose[axis] * kSigns[axis]);
+    return;
+  }
   const size_t index = size_t(nearest) - 1;
   const double scale = scales[index];
   if (scale == 1.0) return;
