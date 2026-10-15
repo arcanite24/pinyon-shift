@@ -104,3 +104,11 @@ sha256 = "DB40DF605ADE49A6"  # prefix of the supported default.xex SHA-256
 "wheel.surface_index" = 337              # u8 index into the physics surface table
 "wheel.norm_slip_ratio" = 496            # f32 smoothed slip ratio over the tyre's peak: past +1 spinning, past -1 locking (along the car's forward axis)
 "wheel.contact" = 796                    # u8, nonzero while the wheel touches the ground
+"dynamics.steer_torque" = 48             # f32 -1..1, the force feedback steering torque (sub_82D35D60), sign of the steering input it opposes
+"dynamics.steer_torque_smoothed" = 40    # f32, the same before steering damping and surface noise
+"dynamics.steer_torque_on" = 3412        # u32, nonzero while the steering torque is computed
+"dynamics.steer_mode" = 3927             # u8 controls steer mode: 0 pad, 1 wheel, 2 900-degree wheel
+"wheel.lateral_force" = 468              # f32 Fy, opposing the contact patch's lateral slip
+"wheel.slip_angle" = 628                 # f32 signed slip angle, rad
+"wheel.norm_slip_angle" = 516            # f32 slip angle over the tyre's peak (1 = peak)
+"wheel.norm_slip_angle_smoothed" = 520   # f32, smoothed; drives the steering torque's aligning curve

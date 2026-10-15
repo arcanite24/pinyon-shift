@@ -1609,7 +1609,8 @@ std::unique_ptr<MenuScreen> SettingsPages::TrainerDebug() {
 // Racing wheels (#337) through the SDL gamepad path: steering on the left
 // stick's X axis and the pedals on the triggers, from SDL's database or MAP
 // CONTROLLER. FH1 shapes that input for a thumbstick, so these rows reshape a
-// wheel's input first; gamepads are untouched. All apply at once.
+// wheel's input first; gamepads are untouched. All apply at once except
+// WHEEL MODE, which the game reads when a controller connects.
 std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
   std::vector<MenuRow> rows;
   const auto percents = [](const char* name, std::initializer_list<int> values) {
@@ -1619,22 +1620,54 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
     }
     return choices;
   };
+  // The game's own wheel handling: 900-degree linear steering with no
+  // reduction at speed, its wheel button layouts, an analog clutch and an
+  // H-shifter's gear. The game reads it when a controller connects.
+  rows.push_back(Toggle("WHEEL MODE", "input_report_wheel_subtype"));
   // Full lock at this share of the wheel's rotation: 50% on a 900-degree
   // wheel locks at 225 degrees each side.
   rows.push_back(Setting("STEERING SATURATION",
                          percents("hid_wheel_steering_saturation",
                                   {100, 90, 80, 70, 60, 50, 40, 30, 20})));
-  // Skips the game's stick deadzone so the car answers the first degrees.
+  // Skips the game's stick deadzone, for a wheel driving as a gamepad (with
+  // WHEEL MODE off); the game's wheel deadzone is 1%.
   rows.push_back(Setting("STEERING DEADZONE",
                          percents("hid_wheel_steering_deadzone", {0, 5, 10, 15, 20, 25, 30})));
+  // Readings this close to centre count as centred: a wheel rarely rests at
+  // exactly 0.
+  std::vector<Choice> centres;
+  for (const auto& [label, value] : std::initializer_list<std::pair<const char*, int>>{
+           {"OFF", 0}, {"0.5%", 5}, {"1%", 10}, {"1.5%", 15}, {"2%", 20}, {"3%", 30}}) {
+    centres.push_back({label, {{"hid_wheel_steering_centre", std::to_string(value)}}});
+  }
+  rows.push_back(Setting("STEERING CENTRE", std::move(centres)));
   std::vector<Choice> curves;
   for (const auto& [label, value] : std::initializer_list<std::pair<const char*, int>>{
-           {"LINEAR", 100}, {"SOFT CENTRE", 150}, {"SOFTER CENTRE", 200}, {"SHARP CENTRE", 75}}) {
+           {"LINEAR", 100}, {"SOFT CENTRE", 150}, {"SOFTER CENTRE", 200}, {"SHARP CENTRE", 75},
+           {"SHARPER CENTRE", 50}}) {
     curves.push_back({label, {{"hid_wheel_steering_linearity", std::to_string(value)}}});
   }
   rows.push_back(Setting("STEERING CURVE", std::move(curves)));
   rows.push_back(
       Setting("PEDAL DEADZONE", percents("hid_wheel_pedal_deadzone", {0, 5, 10, 15, 20})));
+  // Force feedback through SDL's haptic API from the game's own steering
+  // torque (its tyres' aligning torque, torque steer and surface feel), as it
+  // sent to Xbox 360 wheels.
+  rows.push_back(Toggle("FORCE FEEDBACK", "hid_wheel_ffb"));
+  rows.push_back(Setting("FFB STRENGTH", percents("hid_wheel_ffb_strength",
+                                                  {10, 20, 30, 40, 50, 60, 70, 80, 90, 100})));
+  rows.push_back(Setting("FFB TORQUE", percents("hid_wheel_ffb_torque",
+                                                 {25, 50, 75, 100, 125, 150, 200})));
+  // Lifts any steering torque past the wheel's own friction, so small
+  // corrections near centre are felt (geared and belted wheels).
+  rows.push_back(
+      Setting("FFB MIN FORCE", percents("hid_wheel_ffb_min_force", {0, 2, 4, 6, 8, 10, 12, 15})));
+  rows.push_back(
+      Setting("FFB DAMPING", percents("hid_wheel_ffb_damping", {0, 50, 100, 150, 200, 300})));
+  rows.push_back(Setting("FFB ROAD EFFECTS",
+                         percents("hid_wheel_ffb_effects", {0, 25, 50, 100, 150, 200})));
+  rows.push_back(Setting("FFB DIRECTION", {{"NORMAL", {{"hid_wheel_ffb_invert", "false"}}},
+                                           {"INVERTED", {{"hid_wheel_ffb_invert", "true"}}}}));
   MenuRow map;
   map.label = "MAP A WHEEL";
   map.activate = [this] { host_ui_.Push(MapController()); };
@@ -1649,10 +1682,11 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
                          : std::to_string(wheels) + " WHEELS CONNECTED";
   });
   screen->set_body(
-      "A wheel drives through its controller mapping: steering on the left stick, throttle on "
-      "the right trigger and brake on the left trigger. If the game does not see it, choose MAP "
-      "A WHEEL, then the wheel, and mark it as a racing wheel. Force feedback is not supported "
-      "yet.");
+      "A wheel drives through its controller mapping. If the game does not see it, choose MAP A "
+      "WHEEL, then the wheel. WHEEL MODE gives the game's own wheel steering and button layout "
+      "(OPTIONS > CONTROLS), an analog clutch and an H-shifter; it applies from the next start. "
+      "FORCE FEEDBACK plays the game's own steering torque: the tyres' grip, their letting go "
+      "and the surface, with kerbs and impacts.");
   return screen;
 }
 

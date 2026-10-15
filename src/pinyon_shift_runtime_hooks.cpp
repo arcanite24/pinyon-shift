@@ -29,6 +29,7 @@
 #include <rex/kernel/xam/module.h>
 #include <rex/input/dualsense.h>
 #include <rex/input/input_system.h>
+#include <rex/input/wheel_ffb.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/ppc/context.h>
@@ -5823,6 +5824,9 @@ static void QueueTitleUpdateRaceTask() {
 // in site/findings/objects.toml (car dynamics); they are the same in v4.
 namespace car_dynamics {
 constexpr uint32_t kInterface = 0x2D90;      // CCar -> ICarDynamics
+// Base build only: not yet verified in v4, whose dynamics moved some fields.
+constexpr uint32_t kSteerTorque = 48;        // f32, -1..1, the force feedback torque
+constexpr uint32_t kSteerTorqueOn = 3412;    // u32, nonzero while it is computed
 constexpr uint32_t kEngineSpeed = 324;       // f32 rad/s
 constexpr uint32_t kRedline = 452;           // f32 rad/s
 constexpr uint32_t kGear = 2240;             // u8: 0 reverse, 1-8, 9 neutral
@@ -5843,7 +5847,8 @@ static void QueueCarTelemetry() {
   auto* input = rex::input::InputSystem::Live();
   if (!input) return;
   const bool wanted = ds::CurrentTriggerSettings().mode != ds::TriggerMode::kOff ||
-                      ds::CurrentLightbarMode() == ds::LightbarMode::kRpm;
+                      ds::CurrentLightbarMode() == ds::LightbarMode::kRpm ||
+                      REXCVAR_GET(hid_wheel_ffb) || REXCVAR_GET(hid_wheel_ffb_log);
   if (!wanted) return;
   pinyon_shift::mod::EnqueueHostGuestTask([input] {
     namespace cd = car_dynamics;
@@ -5901,6 +5906,17 @@ static void QueueCarTelemetry() {
     // any layout.
     t.driven_front = t.front_slip > t.rear_slip;
     t.driven_rear = !t.driven_front;
+    // The title's steering torque for force feedback wheels (sub_82D35D60):
+    // the front tyres' aligning torque curve, torque steer, its smoothing and
+    // steering damping and surface noise, normalised and clamped to +-1, and
+    // computed while dyn+3412 is set (always, for the player's car).
+    if (!pinyon_shift::fh1::kTitleUpdateV4 && LoadGuestU32(dyn + cd::kSteerTorqueOn) != 0) {
+      const float torque = LoadGuestF32(dyn + cd::kSteerTorque);
+      if (std::isfinite(torque)) {
+        t.has_steer_torque = true;
+        t.steer_torque = std::clamp(torque, -1.0f, 1.0f);
+      }
+    }
     if (!std::isfinite(t.rpm) || !std::isfinite(t.redline_rpm)) return;
     input->SetCarTelemetry(t);
 
