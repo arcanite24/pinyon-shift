@@ -338,7 +338,7 @@ source = """docs/UI_ASSETS.md; tools/inspect-fh1-ui.py parse_vfont, parse_fontma
 [[finding]]
 group = """Movies and camera shots"""
 base = """0x8224BAB4, sub_82E69950, sub_82E5DB08, sub_82E69EC8, sub_82E619D0, sub_82E70DF0, sub_88058310"""
-v4 = """sub_82F1F740 (sub_82E5DB08)"""
+v4 = """sub_82F1F740"""
 name = """CWMVMovie and its audio voice"""
 what = """`CWMVMovie` (class table `0x8224BAB4`, base `IMovie`) is the game's WMV movie object. Slot +4 `sub_82E69950` opens a movie, called through `CUIMovie` slot +4 `sub_82E619D0` and `CUI4MovieResource` slot +60 `sub_82E70DF0`; it fetches FMOD's XAudio2 engine through `CAudioEngine` and hands it to the movie module, whose `sub_88058310` creates a 16-bit PCM source voice on it. Slot +116 `sub_82E5DB08` (from slot +36 `sub_82E69EC8`) sets that voice's volume, kept at member +12, and creates nothing. Movie audio therefore plays through the title's one XAudio2 engine, next to FMOD's voice."""
 how = """RTTI class table; call chains and indirect-site counts from the probe build (NL-2.3); the movie module's generated code (format build and slot +32 call)."""

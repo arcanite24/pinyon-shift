@@ -300,6 +300,17 @@ class RallyPreparationTests(unittest.TestCase):
             self.assertEqual(owned_camera.read_bytes(), camera_before)
             self.assertEqual(save.read_bytes(), b"never change this save")
 
+    def test_disc_paths_match_the_extracted_spelling_without_case(self):
+        # A Linux extraction keeps the disc's lowercase media/stringtables.
+        with tempfile.TemporaryDirectory() as directory:
+            game = Path(directory)
+            tables = game / "media/stringtables"
+            tables.mkdir(parents=True)
+            (tables / "EN.zip").write_bytes(b"")
+            self.assertEqual(rally.disc_path(game, "media/StringTables"), tables)
+            self.assertEqual(rally.disc_path(game, "Media/StringTables/en.zip"), tables / "EN.zip")
+            self.assertEqual(rally.disc_path(game, "media/db/gamedb.slt"), game / "media/db/gamedb.slt")
+
     def test_bad_base_disabled_content_and_widened_licence_never_publish(self):
         with tempfile.TemporaryDirectory() as directory:
             state, game, content, save, dump, package, extract = self.fixture(Path(directory))

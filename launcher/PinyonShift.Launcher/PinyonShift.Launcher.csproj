@@ -25,8 +25,12 @@
     <ApplicationIcon>Branding\pinyon-shift.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The updater both launchers share (FB-10.7). -->
+    <!-- Code both launchers share: the updater (FB-10.7) and the Android
+         share with its QR code (each launcher draws the QR bitmap itself). -->
     <Compile Include="..\Shared\LauncherUpdate.cs" Link="Shared\LauncherUpdate.cs" />
+    <Compile Include="..\Shared\AndroidShare.cs" Link="Shared\AndroidShare.cs" />
+    <Compile Include="..\Shared\AndroidShareContent.cs" Link="Shared\AndroidShareContent.cs" />
+    <Compile Include="..\Shared\QrCode.cs" Link="Shared\QrCode.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Derived from .github/pinyon-shift-logo.png. -->

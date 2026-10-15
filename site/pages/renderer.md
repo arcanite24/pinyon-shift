@@ -46,6 +46,8 @@ Almost all of the game's draws arrive as `PM4_INDIRECT_BUFFER` packets that repl
 
 The decoder hands the recorder register runs (already byte-swapped), single registers, draws, shader loads, and callbacks for packets the CPU can observe. Ordering is the hard part: a race frame has about 280 event writes, 25–30 fence writes, 5 interrupts and one swap. Fence writes are recorded rather than waited for, so the game sees a fence only after the recorder has consumed everything before it. Memory writes, conditional writes, register-to-memory copies and occlusion queries wait for the recorder.
 
+**Shader loads.** The decoder remembers each shader load by guest address and size while a write watch shows the microcode pages unwritten, so a repeated load skips rehashing the microcode and, where recording is inline (Android), the shader lookup too (`gpu_d3d_shader_cache`, on by default). On the Odin race 97 % of loads hit; six in-run A/Bs measured decoder CPU -0.50 ± 0.07 ms and process CPU -0.52 ± 0.27 ms a frame, with 0 mismatches against full hashing over 25.5 M loads.
+
 Splitting decode from recording took the race from 17.67 ms to 16.46–16.75 ms a frame; the split left the decoder mostly idle, and the recorder became the limit at 1x. See [GPU optimizations](gpu-optimizations.md#the-recorder-thread).
 
 ## EDRAM and resolves

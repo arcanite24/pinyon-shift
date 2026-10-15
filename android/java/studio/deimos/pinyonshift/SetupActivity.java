@@ -1,13 +1,21 @@
 package studio.deimos.pinyonshift;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.util.Log;
@@ -48,10 +56,15 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The app's entry point (ONE_CLICK_SETUP_BACKLOG A-4). With the game files
@@ -65,6 +78,15 @@ import java.util.Map;
  * Files go where tools/pinyon.py android push-data puts them: the game in
  * files/game/base, the rest in files/state. A copy that stops resumes where
  * it was. The save is replaced only when chosen here, after a backup.
+ *
+ * The PC's mods (with its custom radio stations and the XE mod) come as a
+ * set: their generated patches were built on the PC for exactly its enabled
+ * mods, so the rows are copied together, each mod folder ends up as on the
+ * PC (files it no longer has move to state/backups), and enabled_mods is set
+ * to the PC's list once the copy is complete.
+ *
+ * When the share offers a newer build of this app than the one installed,
+ * this screen says so and hands it to the system installer.
  */
 public class SetupActivity extends Activity implements View.OnClickListener {
     private static final String TAG = "PinyonShiftSetup";
@@ -79,6 +101,17 @@ public class SetupActivity extends Activity implements View.OnClickListener {
     static final String ARGUMENTS_FILE = "state/config/android-arguments.txt";
     // The app shortcut "Get files from PC" opens this screen with the game installed.
     private static final String SETUP_ACTION = "studio.deimos.pinyonshift.SETUP";
+    // The game's settings, where enabled_mods lives.
+    static final String CONFIG_FILE = "state/config/pinyon_shift.toml";
+    // enabled_mods to set once the game has written its settings file (a mod
+    // set copied before the game's first start), applied by the game activity.
+    static final String PENDING_MODS_FILE = "state/config/pending-enabled-mods.txt";
+    // A mod set being copied, naming its backup folder; and what each mirrored
+    // file was on the PC when copied (size and time), to find changed files.
+    private static final String MODS_INCOMPLETE = "state/cache/pc-share/mods-incomplete";
+    private static final String MODS_INDEX = "state/cache/pc-share/mods-index.json";
+    // The system installer's answer for an app update.
+    private static final String INSTALL_STATUS = "studio.deimos.pinyonshift.INSTALL_STATUS";
 
     private File base;
     private TextView intro;
@@ -93,7 +126,12 @@ public class SetupActivity extends Activity implements View.OnClickListener {
     private TextView progressText;
     private Button folderButton;
     private Button playButton;
+    private TextView updateText;
+    private Button updateButton;
+    private BroadcastReceiver installReceiver;
     private final Map<String, CheckBox> groupChecks = new LinkedHashMap<>();
+    private final Map<String, String> groupSets = new HashMap<>();
+    private boolean linking;
     private JSONObject manifest;
     private String server;
     private volatile boolean busy;
@@ -114,11 +152,20 @@ public class SetupActivity extends Activity implements View.OnClickListener {
         buildLayout();
         refresh();
         startDiscovery();
+        installReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent status) {
+                installStatus(status);
+            }
+        };
+        // Sent by the system through this app's own PendingIntent: not exported.
+        registerReceiver(installReceiver, new IntentFilter(INSTALL_STATUS), Context.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
     protected void onDestroy() {
         discovering = false;
+        if (installReceiver != null) unregisterReceiver(installReceiver);
         super.onDestroy();
     }
 
@@ -206,6 +253,10 @@ public class SetupActivity extends Activity implements View.OnClickListener {
         codeField = field(column, "Six-digit code from the launcher", InputType.TYPE_CLASS_NUMBER);
         codeField.setFilters(new InputFilter[] {new InputFilter.LengthFilter(6)});
         connectButton = button(column, "Connect");
+        updateText = text(column, "", 14, ACCENT, false);
+        updateText.setVisibility(View.GONE);
+        updateButton = button(column, "Install update");
+        updateButton.setVisibility(View.GONE);
         groupsBox = new LinearLayout(this);
         groupsBox.setOrientation(LinearLayout.VERTICAL);
         column.addView(groupsBox);
@@ -241,6 +292,7 @@ public class SetupActivity extends Activity implements View.OnClickListener {
         else if (view == copyButton) startCopy();
         else if (view == folderButton) chooseFolder();
         else if (view == playButton) startGame();
+        else if (view == updateButton) installUpdate();
     }
 
     // UI changes from the worker threads.
@@ -266,13 +318,14 @@ public class SetupActivity extends Activity implements View.OnClickListener {
         boolean ready = gameReady();
         intro.setText(ready
                 ? "The game is installed. Copy more from your PC here: title update v4, DLC, Rally data, "
-                  + "your PC's save or a fresh copy of the game files."
+                  + "the PC's mods and radio stations, your PC's save or a fresh copy of the game files."
                 : "The game files are not on this device yet. They come from your PC, where the game was "
                   + "built from your own disc. About 8 GB is needed.");
         playButton.setEnabled(ready && !busy);
         connectButton.setEnabled(!busy);
         folderButton.setEnabled(!busy);
         copyButton.setEnabled(!busy);
+        updateButton.setEnabled(!busy);
     }
 
     // ---- Discovery and pairing ------------------------------------------
@@ -385,6 +438,7 @@ public class SetupActivity extends Activity implements View.OnClickListener {
                         server = host;
                         manifest = result;
                         showGroups();
+                        showUpdate();
                         progressText.setText("Connected to " + result.optString("name", host) + ".");
                     }
                 });
@@ -424,18 +478,24 @@ public class SetupActivity extends Activity implements View.OnClickListener {
     private void showGroups() {
         groupsBox.removeAllViews();
         groupChecks.clear();
+        groupSets.clear();
         JSONArray groups = manifest.optJSONArray("groups");
         if (groups == null) return;
         boolean ready = gameReady();
         for (int i = 0; i < groups.length(); i++) {
             JSONObject group = groups.optJSONObject(i);
             if (group == null) continue;
-            String id = group.optString("id");
+            final String id = group.optString("id");
             CheckBox check = new CheckBox(this);
             check.setTextColor(Color.WHITE);
             String label = group.optString("label") + " (" + size(group.optLong("bytes")) + ")";
             if (id.equals("save")) {
                 label += ": replaces this device's save; the current one is backed up first";
+            }
+            String set = group.optString("set", "");
+            if (!set.isEmpty()) {
+                groupSets.put(id, set);
+                label += ": copied together with the other mod rows, as this PC plays them";
             }
             check.setText(label);
             boolean selected = group.optBoolean("selected");
@@ -449,6 +509,16 @@ public class SetupActivity extends Activity implements View.OnClickListener {
             check.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 @Override
                 public void onCheckedChanged(CompoundButton view, boolean checked) {
+                    // The mod rows' generated patches were built for all of
+                    // them: they go, or stay, together.
+                    String linked = groupSets.get(id);
+                    if (linked != null && !linking) {
+                        linking = true;
+                        for (Map.Entry<String, CheckBox> entry : groupChecks.entrySet()) {
+                            if (linked.equals(groupSets.get(entry.getKey()))) entry.getValue().setChecked(checked);
+                        }
+                        linking = false;
+                    }
                     updateSpace();
                 }
             });
@@ -532,16 +602,28 @@ public class SetupActivity extends Activity implements View.OnClickListener {
         JSONArray groups = manifest.getJSONArray("groups");
         boolean game = chosen.contains("game");
         boolean titleUpdate = chosen.contains("title_update_v4");
+        // The mod folders the chosen mod rows carry, and their files' paths.
+        Set<String> mods = new HashSet<>();
+        Set<String> mirrored = new HashSet<>();
+        JSONObject index = readModIndex();
         for (int i = 0; i < groups.length(); i++) {
             JSONObject group = groups.getJSONObject(i);
             if (!chosen.contains(group.getString("id"))) continue;
+            boolean mirror = group.optBoolean("mirror");
+            JSONArray names = group.optJSONArray("mods");
+            for (int j = 0; names != null && j < names.length(); j++) {
+                String name = names.getString(j);
+                destination("state/mods/" + name + "/mod.toml");  // a plain folder name
+                mods.add(name);
+            }
             JSONArray list = group.getJSONArray("files");
             for (int j = 0; j < list.length(); j++) {
                 JSONObject file = list.getJSONObject(j);
                 File target = destination(file.getString("path"));
                 long size = file.getLong("size");
                 total += size;
-                if (target.length() != size) needed += size;
+                if (mirror) mirrored.add(file.getString("path"));
+                if (!upToDate(file, target, mirror, index)) needed += size;
                 files.add(file);
             }
         }
@@ -555,24 +637,344 @@ public class SetupActivity extends Activity implements View.OnClickListener {
             incomplete.getParentFile().mkdirs();
             new FileOutputStream(incomplete).close();
         }
+        if (!mods.isEmpty()) beginModSet(mods, mirrored);
         long[] done = {0};
         long started = System.currentTimeMillis();
+        int sinceIndexWrite = 0;
         for (int i = 0; i < files.size(); i++) {
             JSONObject file = files.get(i);
             String path = file.getString("path");
             long size = file.getLong("size");
             File target = destination(path);
-            if (target.length() != size) {
-                fetch(code, file.getInt("index"), target, size, done, total, i + 1, files.size(), started);
+            boolean mirror = mirrored.contains(path);
+            if (!upToDate(file, target, mirror, index)) {
+                fetch(code, "/pinyon/v1/file/" + file.getInt("index"), target, size, done, total, i + 1,
+                        files.size(), started);
+                if (mirror) {
+                    index.put(path, file.optLong("modified") + ":" + size);
+                    if (++sinceIndexWrite >= 64) {
+                        writeModIndex(index);
+                        sinceIndexWrite = 0;
+                    }
+                }
             } else {
                 done[0] += size;
             }
         }
         if (game) incomplete.delete();
+        if (!mods.isEmpty()) {
+            writeModIndex(index);
+            finishModSet();
+        }
         if (titleUpdate) {
             JSONObject extras = manifest.optJSONObject("extras");
             setClubArguments(extras != null && extras.optBoolean("club"));
         }
+    }
+
+    // A file already on the device: the same size, and for a mirrored group
+    // also the same PC file as when it was copied.
+    private static boolean upToDate(JSONObject file, File target, boolean mirror, JSONObject index)
+            throws JSONException {
+        long size = file.getLong("size");
+        if (target.length() != size) return false;
+        if (!mirror) return true;
+        return target.isFile() && (file.optLong("modified") + ":" + size).equals(index.optString(file.getString("path")));
+    }
+
+    // ---- The PC's mods ------------------------------------------------
+
+    private JSONObject readModIndex() {
+        File file = new File(base, MODS_INDEX);
+        if (!file.isFile()) return new JSONObject();
+        try (InputStream in = new FileInputStream(file)) {
+            return new JSONObject(readAll(in));
+        } catch (IOException | JSONException error) {
+            return new JSONObject();
+        }
+    }
+
+    private void writeModIndex(JSONObject index) throws IOException {
+        writeAtomically(new File(base, MODS_INDEX), index.toString());
+    }
+
+    private static void writeAtomically(File file, String text) throws IOException {
+        file.getParentFile().mkdirs();
+        File temp = new File(file.getPath() + ".tmp");
+        try (OutputStream out = new FileOutputStream(temp)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+        if (file.exists() && !file.delete()) throw new IOException("cannot replace " + file);
+        if (!temp.renameTo(file)) throw new IOException("cannot write " + file);
+    }
+
+    // Before a mod set is copied: the device's enabled_mods goes into a
+    // backup folder and is cleared, so a copy that stops plays unmodded, and
+    // files in the PC's mod folders that the PC no longer has move into the
+    // backup. A copy that stopped resumes into the same backup.
+    private void beginModSet(Set<String> mods, Set<String> mirrored) throws IOException {
+        File marker = new File(base, MODS_INCOMPLETE);
+        File backup = null;
+        if (marker.isFile()) {
+            try (InputStream in = new FileInputStream(marker)) {
+                String path = readAll(in).trim();
+                if (!path.isEmpty()) backup = new File(path);
+            }
+        }
+        if (backup == null) {
+            String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+            backup = new File(base, "state/backups/before-pc-mods-" + stamp);
+            backup.mkdirs();
+            String previous = enabledMods();
+            writeAtomically(new File(backup, "enabled_mods.txt"), (previous != null ? previous : "") + "\n");
+            writeAtomically(marker, backup.getAbsolutePath());
+        }
+        if (enabledMods() != null) setEnabledMods("");
+        File root = new File(base, "state/mods");
+        int moved = 0;
+        for (String mod : mods) {
+            moved += moveStale(new File(root, mod), "state/mods/" + mod, mirrored, new File(backup, "mods/" + mod));
+        }
+        if (moved > 0) later(progressText, moved + " file(s) the PC no longer has were moved to " + backup);
+    }
+
+    private static int moveStale(File directory, String path, Set<String> keep, File backup) throws IOException {
+        File[] entries = directory.listFiles();
+        if (entries == null) return 0;
+        int moved = 0;
+        for (File entry : entries) {
+            String child = path + "/" + entry.getName();
+            if (entry.isDirectory()) {
+                moved += moveStale(entry, child, keep, new File(backup, entry.getName()));
+                continue;
+            }
+            // A partial download of a file still listed resumes.
+            String listed = child.endsWith(".part") ? child.substring(0, child.length() - 5) : child;
+            if (keep.contains(listed)) continue;
+            File target = new File(backup, entry.getName());
+            target.getParentFile().mkdirs();
+            if (!entry.renameTo(target)) throw new IOException("cannot move " + entry + " to the backup");
+            moved++;
+        }
+        return moved;
+    }
+
+    // After the whole set is copied: the PC's enabled mods, in its order,
+    // that are now on the device.
+    private void finishModSet() throws IOException {
+        JSONObject extras = manifest.optJSONObject("extras");
+        JSONArray order = extras != null ? extras.optJSONArray("mods_enabled") : null;
+        List<String> enabled = new ArrayList<>();
+        for (int i = 0; order != null && i < order.length(); i++) {
+            String name = order.optString(i);
+            if (!name.isEmpty() && new File(base, "state/mods/" + name + "/mod.toml").isFile()) enabled.add(name);
+        }
+        setEnabledMods(String.join(",", enabled));
+        new File(base, MODS_INCOMPLETE).delete();
+        later(progressText, "Mods enabled: " + (enabled.isEmpty() ? "none" : String.join(", ", enabled)));
+    }
+
+    private static final Pattern ENABLED_MODS =
+            Pattern.compile("^enabled_mods[ \\t]*=[ \\t]*\"([^\"]*)\"[ \\t]*$", Pattern.MULTILINE);
+
+    // enabled_mods in the game's settings, or null without the file.
+    private String enabledMods() throws IOException {
+        File config = new File(base, CONFIG_FILE);
+        if (!config.isFile()) return null;
+        try (InputStream in = new FileInputStream(config)) {
+            Matcher match = ENABLED_MODS.matcher(readAll(in));
+            return match.find() ? match.group(1) : "";
+        }
+    }
+
+    // Sets enabled_mods in the game's settings file. Before the game's first
+    // start there is none, and writing one would skip the defaults the game
+    // writes: the list waits in PENDING_MODS_FILE for the game activity.
+    private void setEnabledMods(String mods) throws IOException {
+        File config = new File(base, CONFIG_FILE);
+        File pending = new File(base, PENDING_MODS_FILE);
+        if (!config.isFile()) {
+            writeAtomically(pending, mods + "\n");
+            return;
+        }
+        pending.delete();
+        applyEnabledMods(config, mods);
+    }
+
+    // Also called by the game activity for a pending list.
+    static void applyEnabledMods(File config, String mods) throws IOException {
+        String text;
+        try (InputStream in = new FileInputStream(config)) {
+            text = readAll(in);
+        }
+        String line = "enabled_mods = \"" + mods + "\"";
+        Matcher match = ENABLED_MODS.matcher(text);
+        if (match.find()) {
+            text = text.substring(0, match.start()) + line + text.substring(match.end());
+        } else if (!mods.isEmpty()) {
+            text = text.replaceAll("\n+$", "") + (text.isEmpty() ? "" : "\n") + line + "\n";
+        } else {
+            return;
+        }
+        writeAtomically(config, text);
+    }
+
+    // ---- App update -----------------------------------------------------
+
+    // The package the PC offers, when it is a newer build of this app.
+    private void showUpdate() {
+        updateText.setVisibility(View.GONE);
+        updateButton.setVisibility(View.GONE);
+        JSONObject apk = manifest.optJSONObject("apk");
+        if (apk == null) return;
+        long offeredCode = apk.optLong("version_code");
+        long installedCode;
+        String installedVersion;
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(),
+                    PackageManager.PackageInfoFlags.of(0));
+            installedCode = info.getLongVersionCode();
+            installedVersion = info.versionName;
+        } catch (PackageManager.NameNotFoundException error) {
+            return;
+        }
+        String installedCreated = "";
+        try (InputStream in = getAssets().open("pinyon_shift_build.json")) {
+            JSONObject own = new JSONObject(readAll(in));
+            installedCreated = own.optString("created_utc");
+        } catch (IOException | JSONException error) {
+            Log.w(TAG, "no build manifest in the package", error);
+        }
+        // A lower version code cannot install over this one. Packages of one
+        // version compare by when they were packaged (ISO 8601 in UTC from
+        // pinyon_android.py), so a rebuild with only app changes counts too.
+        String offeredCreated = apk.optString("created_utc");
+        boolean newer = offeredCode > installedCode
+                || (offeredCode == installedCode && !offeredCreated.isEmpty()
+                    && offeredCreated.compareTo(installedCreated) > 0);
+        if (!newer) return;
+        JSONObject extras = manifest.optJSONObject("extras");
+        boolean offeredV4 = extras != null && extras.optBoolean("title_update_v4");
+        boolean deviceV4 = new File(base, "state/title-update-v4/default.xexp").isFile();
+        String what = "The PC has a newer build of Pinyon Shift (" + apk.optString("version") + ", built "
+                + apk.optString("created_utc").replaceFirst("\\..*$", "").replace('T', ' ')
+                + " UTC; this device has " + installedVersion + "). ";
+        if (deviceV4 && !offeredV4) {
+            // A v4 save cannot be loaded by the base game again.
+            updateText.setText(what + "It is the base game, and this device plays title update v4, whose save "
+                    + "the base game cannot load: build the v4 package on the PC to update.");
+            updateText.setVisibility(View.VISIBLE);
+            return;
+        }
+        updateText.setText(what + (offeredV4 && !deviceV4
+                ? "It plays title update v4: copy the title update v4 row too. A save played on v4 cannot go "
+                  + "back to the base game."
+                : "Your save and settings stay as they are."));
+        updateText.setVisibility(View.VISIBLE);
+        updateButton.setVisibility(View.VISIBLE);
+    }
+
+    private void installUpdate() {
+        if (manifest == null || server == null) return;
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            // Android asks once whether this app may install apps.
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception error) {
+                Log.w(TAG, "no install permission screen", error);
+            }
+            progressText.setText("Allow Pinyon Shift to install apps, come back, and press Install update again.");
+            return;
+        }
+        final JSONObject apk = manifest.optJSONObject("apk");
+        if (apk == null) return;
+        final String code = codeField.getText().toString().trim();
+        busy = true;
+        refresh();
+        progress.setVisibility(View.VISIBLE);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Named by the package, so a copy of another one never resumes.
+                    String build = (apk.optString("created_utc") + apk.optString("build"))
+                            .replaceAll("[^0-9A-Fa-f]", "");
+                    File file = new File(getCacheDir(), "pinyon-shift-update-"
+                            + build.substring(0, Math.min(32, build.length())) + ".apk");
+                    File[] old = getCacheDir().listFiles();
+                    for (int i = 0; old != null && i < old.length; i++) {
+                        String name = old[i].getName();
+                        if (name.startsWith("pinyon-shift-update-") && !name.startsWith(file.getName())) {
+                            old[i].delete();
+                        }
+                    }
+                    long size = apk.optLong("bytes");
+                    if (file.length() != size) {
+                        fetch(code, "/pinyon/v1/apk", file, size, new long[] {0}, size, 1, 1,
+                                System.currentTimeMillis());
+                    }
+                    commitUpdate(file);
+                    finish("The installer asks to confirm the update. The app closes while it updates; "
+                            + "open it again afterwards.", true);
+                } catch (IOException error) {
+                    Log.e(TAG, "update failed", error);
+                    finish("The update stopped: " + error.getMessage() + ". Press Install update to try again.",
+                            false);
+                }
+            }
+        }, "AppUpdate").start();
+    }
+
+    // The package into a system installer session; the system asks the
+    // player to confirm, through INSTALL_STATUS.
+    private void commitUpdate(File file) throws IOException {
+        PackageInstaller installer = getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params =
+                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(getPackageName());
+        params.setSize(file.length());
+        int id = installer.createSession(params);
+        try (PackageInstaller.Session session = installer.openSession(id)) {
+            try (InputStream in = new FileInputStream(file);
+                 OutputStream out = session.openWrite("pinyon-shift.apk", 0, file.length())) {
+                copy(in, out, null);
+                session.fsync(out);
+            }
+            Intent status = new Intent(INSTALL_STATUS).setPackage(getPackageName());
+            // Mutable: the installer adds the result to it.
+            PendingIntent callback = PendingIntent.getBroadcast(this, id, status,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            session.commit(callback.getIntentSender());
+        } catch (IOException | RuntimeException error) {
+            installer.abandonSession(id);
+            throw error instanceof IOException ? (IOException) error : new IOException(error.getMessage());
+        }
+        file.delete();
+    }
+
+    private void installStatus(Intent status) {
+        int result = status.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
+        if (result == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = status.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
+            if (confirm != null) {
+                try {
+                    startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (Exception error) {
+                    progressText.setText("The system installer did not open: " + error.getMessage());
+                }
+            }
+            return;
+        }
+        if (result == PackageInstaller.STATUS_SUCCESS) {
+            progressText.setText("Updated. Open Pinyon Shift again.");
+            return;
+        }
+        String message = status.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+        progressText.setText(result == PackageInstaller.STATUS_FAILURE_ABORTED
+                ? "The update was cancelled."
+                : "The update was not installed" + (message != null ? ": " + message : "") + ".");
     }
 
     // A path from the manifest, inside the app's folder: the game or the state.
@@ -594,7 +996,7 @@ public class SetupActivity extends Activity implements View.OnClickListener {
 
     // One file into <name>.part, resumed from its length, then renamed. A
     // dropped connection is retried a few times.
-    private void fetch(String code, int index, File target, long size, final long[] done, final long total,
+    private void fetch(String code, String resource, File target, long size, final long[] done, final long total,
                        final int number, final int count, final long started) throws IOException {
         File part = new File(target.getPath() + ".part");
         target.getParentFile().mkdirs();
@@ -614,7 +1016,7 @@ public class SetupActivity extends Activity implements View.OnClickListener {
                 offset = 0;
             }
             try {
-                HttpURLConnection connection = open("http://" + server + "/pinyon/v1/file/" + index, code,
+                HttpURLConnection connection = open("http://" + server + resource, code,
                         offset);
                 int status = connection.getResponseCode();
                 if (status == 403) throw new RefusedException(readError(connection));

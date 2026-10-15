@@ -5,16 +5,26 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
-namespace PinyonShift.Launcher;
+namespace PinyonShift.Launcher.Sharing;
 
 // A file the share offers, under a destination path relative to the app's
-// files folder on the device ("game/base/...", "state/...").
-public sealed record ShareFile(string Source, string Destination, long Length);
+// files folder on the device ("game/base/...", "state/..."). Modified is the
+// PC file's last write (Unix milliseconds), sent for a mirrored group so the
+// device can tell a changed file of the same size.
+public sealed record ShareFile(string Source, string Destination, long Length, long? Modified = null);
 
+// Set: groups the device copies only together (the PC's mods, whose
+// generated patches were built for all of them). Mods: the state/mods
+// folders a mod group carries. Mirror: those folders end up as on the PC,
+// files the PC no longer has moved to a backup on the device.
 public sealed record ShareGroup(string Id, string Label, bool Selected, IReadOnlyList<ShareFile> Files)
 {
     public long Bytes => Files.Sum(file => file.Length);
+    public string? Set { get; init; }
+    public IReadOnlyList<string>? Mods { get; init; }
+    public bool Mirror { get; init; }
 }
 
 // Serves the Android package and the game files to the player's device on
@@ -23,8 +33,9 @@ public sealed record ShareGroup(string Id, string Label, bool Selected, IReadOnl
 // answered. The download page and the package need the random token in the
 // QR code's link; everything else needs the six-digit pairing code the
 // panel shows, which changes each time sharing starts, and ten wrong codes
-// stop the share. Only the files listed in the groups are served, by index.
-// Nothing is received from the device.
+// stop the share. Only the files listed in the groups are served, by index,
+// and the package itself, whose build the manifest describes so the app can
+// offer it as an update. Nothing is received from the device.
 public sealed class AndroidShare : IDisposable
 {
     public const int PreferredPort = 47615;
@@ -36,6 +47,7 @@ public sealed class AndroidShare : IDisposable
     private readonly IReadOnlyList<ShareGroup> _groups;
     private readonly List<ShareFile> _files;
     private readonly JsonElement? _extras;
+    private readonly AndroidApkInfo? _apkInfo;
     private readonly CancellationTokenSource _stop = new();
     private TcpListener? _listener;
     private UdpClient? _discovery;
@@ -55,7 +67,13 @@ public sealed class AndroidShare : IDisposable
         _groups = groups;
         _files = groups.SelectMany(group => group.Files).ToList();
         if (extras is not null) _extras = JsonSerializer.SerializeToElement(extras);
+        _apkInfo = AndroidApkInfo.TryRead(apk);
     }
+
+    private static readonly JsonSerializerOptions ManifestOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     // All interfaces by default; a test binds the loopback address, which
     // also leaves discovery off.
@@ -270,15 +288,36 @@ public sealed class AndroidShare : IDisposable
                 schema_version = 1,
                 name = Environment.MachineName,
                 extras = _extras,
+                // The package this PC offers, fetched from /pinyon/v1/apk.
+                apk = _apkInfo is null ? null : new
+                {
+                    version = _apkInfo.Version,
+                    version_code = _apkInfo.VersionCode,
+                    build = _apkInfo.Build,
+                    created_utc = _apkInfo.CreatedUtc,
+                    bytes = _apkInfo.Bytes
+                },
                 groups = _groups.Select(group => new
                 {
                     id = group.Id,
                     label = group.Label,
                     selected = group.Selected,
                     bytes = group.Bytes,
-                    files = group.Files.Select(file => new { index = index++, path = file.Destination, size = file.Length })
+                    set = group.Set,
+                    mods = group.Mods,
+                    mirror = group.Mirror ? true : (bool?)null,
+                    files = group.Files.Select(file => new
+                    {
+                        index = index++, path = file.Destination, size = file.Length, modified = file.Modified
+                    })
                 })
-            }), cancel, head);
+            }, ManifestOptions), cancel, head);
+            return;
+        }
+        if (path == "/pinyon/v1/apk")
+        {
+            if (!head) Activity?.Invoke($"{remote} is downloading the Android package as an update.");
+            await SendFileAsync(stream, _apk, request, "application/vnd.android.package-archive", cancel, head);
             return;
         }
         if (path.StartsWith("/pinyon/v1/file/", StringComparison.Ordinal) &&

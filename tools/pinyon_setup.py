@@ -736,6 +736,25 @@ def discard_unfinished_configure(directory: Path) -> None:
         shutil.rmtree(directory / "CMakeFiles", ignore_errors=True)
 
 
+def run_game_build(command: list, log: Path, progress: Progress, start: float, message: str,
+                   environment: dict, directory: Path, generated: Path) -> None:
+    """The game build. Its dependency-tracked translation step can rewrite a
+    tree's sources.cmake partway through, as when a ShiftGlue update adds a
+    generated file (pinyon_shift_folds.cpp). The graph Ninja started with
+    then misses that file and the link fails; one more build reconfigures
+    from the new lists and finishes. Any other failure stands."""
+    ninja = directory / "build.ninja"
+    configured = ninja.stat().st_mtime if ninja.is_file() else 0.0
+    try:
+        run_logged(command, log, progress, "build", start, 100, message, environment)
+    except SetupError:
+        lists = [generated / tree / "sources.cmake" for tree in ("default", "speech", "xmedia")]
+        if not any(path.is_file() and path.stat().st_mtime > configured for path in lists):
+            raise
+        run_logged(command, log.with_name(log.stem + "-retry" + log.suffix), progress, "build",
+                   start, 100, message, environment)
+
+
 def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
           jobs: int, configuration: str = "Release") -> Path:
     presets = PRESETS[name]
@@ -790,10 +809,10 @@ def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
                 "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
                LOGS / "preview-configure.log", progress, "build", 28, 30,
                "Configuring the game", environment)
-    run_logged([cmake, "--build", "--preset", preset, "--parallel", str(jobs)],
-               LOGS / "preview-build.log", progress, "build", 30, 100,
-               "Building the game", environment)
     directory = ROOT / "out" / "build" / preset
+    run_game_build([cmake, "--build", "--preset", preset, "--parallel", str(jobs)],
+                   LOGS / "preview-build.log", progress, 30, "Building the game", environment,
+                   directory, generated)
     executable = directory / "pinyon_shift"
     if not executable.is_file():
         raise SetupError(f"the build finished without {executable}", "build")
@@ -811,7 +830,7 @@ def git_output(*arguments: str, cwd: Path = ROOT) -> str:
 
 
 def write_provenance(directory: Path, executable: Path, sdk: Path, configuration: str,
-                     baseline: str) -> None:
+                     baseline: str, title_update: str | None = None) -> None:
     payload = ROOT / ".pinyon-source-sha256"
     record = {
         "schema_version": 3,
@@ -829,9 +848,148 @@ def write_provenance(directory: Path, executable: Path, sdk: Path, configuration
         "rexglue_commit": git_output("rev-parse", "HEAD", cwd=sdk),
         "guest_executable_sha256": sha256_file(GAME / "default.xex"),
     }
+    if title_update:
+        # The v4 build records itself only: .local/build.json is the base
+        # build the launchers check for readiness.
+        record["title_update"] = title_update
     text = json.dumps(record, indent=2) + "\n"
-    (LOCAL / "build.json").write_text(text, encoding="utf-8")
+    if not title_update:
+        (LOCAL / "build.json").write_text(text, encoding="utf-8")
     (directory / "pinyon_shift_build.json").write_text(text, encoding="utf-8")
+
+
+# --- Title update v4 ---------------------------------------------------------------
+
+V4_MODULES = ("default", "SpeechFacade_default", "XMediaFacade_default")
+V4_TREES = ("default", "speech", "xmedia")
+V4_BUILD_TARGETS = ("pinyon_shift", "pinyon_shift_fh1_archive_extract",
+                    "pinyon_shift_stage_rexruntime")
+
+
+def shiftglue_root(config: dict) -> Path:
+    """The SDK the base build used, without fetching (Resolve-PinyonRexGlueRoot)."""
+    override = os.environ.get("PINYON_REXSDK_DIR")
+    if override:
+        return Path(override).resolve()
+    rexglue = config["rexglue"]
+    return ROOT / (rexglue["submodule_path"] if (ROOT / ".git").exists()
+                   else rexglue["fallback_path"])
+
+
+def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str, jobs: int,
+             state: Path, game: Path) -> Path:
+    """tools/build-v4.ps1 off Windows: the FH1 v4 title-update executable in
+    out/build/<platform>-v4. The generator applies the player's patches to
+    copies of the disc executables in .local/game/v4-codegen; the disc
+    folder, the update package and the base build are left untouched."""
+    presets = PRESETS[name]
+    update = state / "title-update-v4"
+    for module in V4_MODULES:
+        if not (game / f"{module}.xex").is_file():
+            raise SetupError(f"The disc executable {module}.xex is missing from {game}.", "build")
+        if not (update / f"{module}.xexp").is_file():
+            raise SetupError("Install the verified title update first (pinyon.py title-update "
+                             "import).", "build")
+    generator = sdk / presets["generator"]
+    if not generator.is_file():
+        raise SetupError("The ShiftGlue generator is missing. Build the base game first "
+                         "(pinyon.py setup).", "build")
+    codegen = LOCAL / "game" / "v4-codegen"
+    codegen.mkdir(parents=True, exist_ok=True)
+    for module in V4_MODULES:
+        # copy2 keeps the times, so the build's regeneration step sees no change.
+        shutil.copy2(str(game / f"{module}.xex"), str(codegen / f"{module}.xex"))
+        shutil.copy2(str(update / f"{module}.xexp"), str(codegen / f"{module}.xexp"))
+    environment = build_environment(tools)
+    cmake = str(tools["cmake"])
+    LOGS.mkdir(parents=True, exist_ok=True)
+    # Configure reads the generated tree's sources.cmake, so a first v4 build
+    # generates it here; later builds regenerate through the build's own
+    # dependency-tracked step (#540).
+    generated = LOCAL / "generated-v4"
+    stamps = [generated / "default" / "codegen.build.stamp"] + [
+        generated / tree / "sources.cmake" for tree in V4_TREES]
+    log = LOGS / "codegen-v4.log"
+    if not all(path.is_file() for path in stamps):
+        generated.mkdir(parents=True, exist_ok=True)
+        if log.is_file():
+            log.unlink()
+        try:
+            run_logged([generator, "--log-level", "info", "--log-file", log, "codegen",
+                        "config/rexglue/pinyon_shift_v4_manifest.toml",
+                        "--xex_apply_patches=true"],
+                       LOGS / "codegen-v4-console.log", progress, "build", 0, 10,
+                       "Translating the v4 game code", environment)
+        except SetupError:
+            for tree in V4_TREES:
+                stamp = generated / tree / "codegen.build.stamp"
+                if stamp.is_file():
+                    stamp.unlink()
+            raise SetupError("v4 code generation failed; incomplete generation stamps were "
+                             f"removed. See {LOGS / 'codegen-v4-console.log'}", "build")
+    preset = f"{presets['game']}-v4"
+    baseline = cpu_baseline(name)
+    flags = []
+    if baseline in CPU_BASELINE_FLAGS:
+        # As the base build: the baseline follows this CPU (NN-1.8).
+        flags = [f"-DPINYON_SHIFT_CPU_BASELINE={baseline}",
+                 f"-DCMAKE_C_FLAGS={CPU_BASELINE_FLAGS[baseline]}",
+                 f"-DCMAKE_CXX_FLAGS={CPU_BASELINE_FLAGS[baseline]}"]
+    directory = ROOT / "out" / "build" / preset
+    discard_unfinished_configure(directory)
+    # A release install keeps the SDK in .local/rexglue, not in the submodule
+    # path the preset names (#459).
+    run_logged([cmake, "--preset", preset, f"-DREXSDK_DIR={sdk}", f"-DPYTHON_EXECUTABLE={python}",
+                "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
+               LOGS / "v4-configure.log", progress, "build", 10, 12, "Configuring the v4 build",
+               environment)
+    # The staging target copies librexruntime beside the game. Building only
+    # pinyon_shift skips it (it is an ALL target), and off Windows nothing
+    # else copies the library, so the v4 game would not start.
+    run_game_build([cmake, "--build", str(directory), "--parallel", str(jobs), "--target",
+                    *V4_BUILD_TARGETS],
+                   LOGS / "v4-build.log", progress, 12, "Building the v4 executable",
+                   environment, directory, generated)
+    executable = directory / "pinyon_shift"
+    if not executable.is_file():
+        raise SetupError(f"the v4 build finished without {executable}", "build")
+    runtime = directory / ("librexruntime.dylib" if sys.platform == "darwin" else "librexruntime.so")
+    if not runtime.is_file():
+        raise SetupError(f"the v4 build finished without {runtime}", "build")
+    if log.is_file():
+        check = subprocess.run([str(python), str(ROOT / "tools" / "verify-codegen-log.py"),
+                                str(log), "--allowlist",
+                                str(ROOT / "config/rexglue/accepted-codegen-warnings-v4.json")],
+                               capture_output=True, text=True)
+        if check.returncode:
+            raise SetupError("The v4 code generation log has unreviewed warnings.\n"
+                             f"{check.stdout}{check.stderr}", "build")
+    write_provenance(directory, executable, sdk, "Release", baseline, title_update="v4")
+    controller_db = ROOT / "config" / "gamecontrollerdb.txt"
+    if controller_db.is_file():
+        shutil.copyfile(str(controller_db), str(directory / "gamecontrollerdb.txt"))
+    progress("build", 100, f"v4 build ready: {executable}")
+    return executable
+
+
+def build_v4_from_cli(state: Path, game: Path, jobs: int | None, as_json: bool) -> Path:
+    """`pinyon.py title-update build` on Linux and macOS. Progress goes to
+    stderr, so the command's stdout holds only its result."""
+    progress = Progress(as_json)
+    name = host_platform()
+    config = toolchain_config()
+    stdout = sys.stdout
+    sys.stdout = sys.stderr
+    awake = keep_awake()
+    try:
+        python = provision_python(progress, config, name)
+        tools = provision(progress, config, name)
+        sdk = shiftglue_root(config)
+        return build_v4(progress, tools, sdk, python, name, jobs or job_count(), state, game)
+    finally:
+        sys.stdout = stdout
+        if awake:
+            awake.terminate()
 
 
 # --- Setup ---------------------------------------------------------------------

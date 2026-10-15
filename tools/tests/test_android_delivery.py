@@ -21,7 +21,7 @@ def read(path):
 
 class ShareTests(unittest.TestCase):
     def setUp(self):
-        self.share = read(LAUNCHER / "AndroidShare.cs")
+        self.share = read(ROOT / "launcher" / "Shared" / "AndroidShare.cs")
         self.window = read(LAUNCHER / "MainWindow.xaml.cs")
 
     def test_only_private_addresses_are_answered(self):
@@ -51,7 +51,7 @@ class ShareTests(unittest.TestCase):
         self.assertIn("_androidShare?.Dispose();", self.window)
 
     def test_the_save_is_offered_but_not_preselected(self):
-        groups = self.window[self.window.index("private IReadOnlyList<ShareGroup> AndroidShareGroups"):]
+        groups = read(ROOT / "launcher" / "Shared" / "AndroidShareContent.cs")
         self.assertIn('new ShareGroup("save", "this PC\'s save", false, save)', groups)
         self.assertIn('"user-modded"', groups)
 

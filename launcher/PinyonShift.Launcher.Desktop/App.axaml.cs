@@ -14,12 +14,13 @@ public partial class App : Application
         {
             var window = new MainWindow();
             desktop.MainWindow = window;
-            // --snapshot FILE [setup|building|ready]: render the window to a
+            // --snapshot FILE [STATE] [WIDTHxHEIGHT]: render the window to a
             // PNG and exit, to check the layout without a desktop.
             var args = desktop.Args ?? Array.Empty<string>();
             var index = Array.IndexOf(args, "--snapshot");
             if (index >= 0 && index + 1 < args.Length)
-                window.Snapshot(args[index + 1], index + 2 < args.Length ? args[index + 2] : null);
+                window.Snapshot(args[index + 1], index + 2 < args.Length ? args[index + 2] : null,
+                    index + 3 < args.Length ? args[index + 3] : null);
         }
         base.OnFrameworkInitializationCompleted();
     }

@@ -3,49 +3,79 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
 namespace PinyonShift.Launcher.Desktop;
 
+// The launcher for Linux (Steam Deck included) and macOS. Every feature of
+// the Windows launcher (../PinyonShift.Launcher, the reference for wording)
+// calls a tools/pinyon.py subcommand that prints one JSON object
+// (.local/backlog-research/launcher-parity-2026-10-15/cli.md): setup, launch,
+// dlc, title-update, config, hardware, crash-report, import-save, paths, xe,
+// radio, android and shortcuts. The panels live in the MainWindow.*.cs files.
 public partial class MainWindow : Window
 {
     private const string Repository = "https://github.com/arcanite24/pinyon-shift";
-    private enum Mode { Loading, Setup, Building, Ready, Playing }
+    private enum Mode { Loading, Setup, Building, Ready, Playing, Crashed }
 
     private Installation? _installation;
     private string? _discImage;
     private Mode _mode = Mode.Loading;
     private CancellationTokenSource? _cancel;
     private readonly StringBuilder _log = new();
+    private StreamWriter? _sessionLog;
+    private bool _busy;
+    private bool _updateChecked;
+    private readonly List<string> _portableNotes = [];
 
     public MainWindow()
     {
         InitializeComponent();
         VersionText.Text = $"Pinyon Shift {Installation.Version} · Not affiliated with Microsoft or Playground Games";
         AddHandler(DragDrop.DropEvent, OnDrop);
-        AddHandler(DragDrop.DragOverEvent, (_, e) =>
-            e.DragEffects = _mode == Mode.Setup ? DragDropEffects.Copy : DragDropEffects.None);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, (_, _) => DropOverlay.IsVisible = false);
         Opened += async (_, _) => await LoadAsync();
     }
 
-    private async Task LoadAsync()
+    private IBrush Brush(string key) => (IBrush)this.FindResource(key)!;
+
+    private async Task LoadAsync(string? installRoot = null)
     {
+        _busy = true;
+        IsEnabled = false;
         try
         {
-            _installation = await Installation.OpenAsync();
+            if (Installation.PortableRequested) _portableNotes.AddRange(Installation.PreparePortable());
+            _installation = await Installation.OpenAsync(installRoot);
         }
         catch (Exception error)
         {
-            Headline.Text = "Something is missing";
+            Headline.Text = Installation.PortableRequested && error is IOException
+                ? "Portable folder is not writable" : "Something is missing";
             Subhead.Text = error.Message;
             SetupPanel.IsVisible = false;
             PrimaryButton.IsVisible = false;
             return;
         }
-        _ = StartUpdateCheckAsync();
-        InstallText.Text = $"Installs to {_installation.Root}. The build needs about "
-            + (Installation.IsMac ? "20" : "45") + " GB free and takes 20 to 60 minutes.";
+        finally
+        {
+            _busy = false;
+            IsEnabled = true;
+        }
+        StartSessionLog();
+        foreach (var note in _portableNotes) AppendLog(note);
+        _portableNotes.Clear();
+        AppendLog($"Release source: {_installation.Root}");
+        AppendLog($"State: {_installation.StateRoot}");
+        if (!_updateChecked)
+        {
+            _updateChecked = true;
+            _ = StartUpdateCheckAsync();
+        }
+        ShowInstallLocation();
         if (!Installation.HasAppleDeveloperTools())
         {
             AppleToolsPanel.IsVisible = true;
@@ -55,6 +85,18 @@ public partial class MainWindow : Window
             return;
         }
         ShowMode(_installation.IsReady() ? Mode.Ready : Mode.Setup);
+        if (_mode == Mode.Ready) await DetectPendingReportAsync();
+    }
+
+    // "Portable: <data folder>" for a portable install, otherwise where it installs.
+    private void ShowInstallLocation()
+    {
+        if (_installation is null) return;
+        var size = Installation.IsMac ? "20" : "45";
+        InstallText.Text = Installation.PortableRequested
+            ? $"Portable: {Installation.PortableRoot}. Everything stays in this folder. The build needs about {size} GB free."
+            : $"Installs to {_installation.Root}. The build needs about {size} GB free and takes 20 to 60 minutes.";
+        ChooseInstallRootButton.IsVisible = _installation.CanChooseInstallRoot;
     }
 
     private void ShowMode(Mode mode)
@@ -66,53 +108,98 @@ public partial class MainWindow : Window
         PrimaryButton.IsVisible = true;
         SteamButton.IsVisible = ready && Installation.IsLinux;
         RebuildButton.IsVisible = mode == Mode.Ready;
-        XePanel.IsVisible = mode == Mode.Ready;
-        XeControls.IsEnabled = mode == Mode.Ready;
-        if (mode == Mode.Ready) _ = RefreshXeAsync();
-        RadioPanel.IsVisible = mode == Mode.Ready;
-        RadioControls.IsEnabled = mode == Mode.Ready;
-        RadioList.IsEnabled = mode == Mode.Ready;
-        if (mode == Mode.Ready) _ = ChangeRadioAsync(Array.Empty<string>(), "Reading stations…", null);
-        CancelButton.IsVisible = mode == Mode.Building;
-        if (mode == Mode.Building) ProgressPanel.IsVisible = true;
+        NavPanel.IsVisible = mode == Mode.Ready;
+        CrashPanel.IsVisible = mode == Mode.Crashed;
+        ReportButton.IsVisible = mode != Mode.Crashed;
+        LogsButton.Content = mode == Mode.Crashed ? "Report folder" : "Logs";
+        if (mode != Mode.Ready) ShowPanel(Panel.None);
+        CancelButton.IsVisible = mode is Mode.Building or Mode.Playing;
+        if (mode is Mode.Building or Mode.Playing) ProgressPanel.IsVisible = true;
+        StatusText.Foreground = Brush("MutedBrush");
         switch (mode)
         {
             case Mode.Setup:
                 Headline.Text = "Build your copy";
                 Subhead.Text = "Verified, extracted and compiled on this computer. Nothing is uploaded.";
+                if (_installation is { } installation && File.Exists(installation.Executable))
+                {
+                    Headline.Text = installation.GameFilesMissing ? "Restore your game files" : "Update your build";
+                    Subhead.Text = installation.GameFilesMissing
+                        ? "Choose your disc image to run setup again. Your save stays in place."
+                        : "This release changed the game code. Choose your disc image to rebuild; your save stays in place.";
+                }
                 PrimaryButton.Content = "Verify and build";
-                UpdatePrimary();
                 break;
             case Mode.Building:
                 Headline.Text = "Building";
                 Subhead.Text = "Your computer stays awake until the build is done. Closing this window stops it.";
                 PrimaryButton.Content = "Building…";
-                PrimaryButton.IsEnabled = false;
                 break;
             case Mode.Ready:
                 Headline.Text = "Ready to drive";
-                Subhead.Text = "Vulkan · F6 or the pause menu opens settings in game.";
+                UpdateSummary();
                 PrimaryButton.Content = "▶  Play";
-                PrimaryButton.IsEnabled = true;
                 ProgressPanel.IsVisible = false;
                 break;
             case Mode.Playing:
-                Headline.Text = "Driving";
-                Subhead.Text = "The game is running.";
-                PrimaryButton.Content = "Running…";
-                PrimaryButton.IsEnabled = false;
+                Headline.Text = "Starting";
+                Subhead.Text = "The game opens in its own window.";
+                PrimaryButton.Content = "Starting…";
+                break;
+            case Mode.Crashed:
+                PrimaryButton.Content = "Report crash";
+                ProgressPanel.IsVisible = false;
                 break;
         }
+        UpdateActions();
     }
 
-    private void UpdatePrimary() =>
-        PrimaryButton.IsEnabled = _mode == Mode.Setup && _discImage is not null && OwnershipCheck.IsChecked == true;
+    // Which actions are open: nothing runs twice, and Play waits for a panel's work.
+    private void UpdateActions()
+    {
+        PrimaryButton.IsEnabled = !_busy && _mode switch
+        {
+            Mode.Setup => _discImage is not null && OwnershipCheck.IsChecked == true,
+            Mode.Ready or Mode.Crashed => true,
+            _ => false,
+        };
+        RebuildButton.IsEnabled = !_busy;
+        SteamButton.IsEnabled = !_busy;
+        NavPanel.IsEnabled = !_busy;
+        BrowseButton.IsEnabled = BrowseFolderButton.IsEnabled = ChooseInstallRootButton.IsEnabled = !_busy;
+    }
+
+    private void SetBusy(bool busy)
+    {
+        _busy = busy;
+        UpdateActions();
+    }
+
+    // The resolution the next start uses, under the headline (UpdateSummary on Windows).
+    private void UpdateSummary()
+    {
+        var scale = 1;
+        if (_installation is not null)
+        {
+            var config = Path.Combine(_installation.StateRoot, "config", "pinyon_shift.toml");
+            try
+            {
+                var match = File.Exists(config)
+                    ? System.Text.RegularExpressions.Regex.Match(File.ReadAllText(config),
+                        @"(?m)^\s*draw_resolution_scale_x\s*=\s*([0-9]+)")
+                    : System.Text.RegularExpressions.Match.Empty;
+                if (match.Success) scale = Math.Clamp(int.Parse(match.Groups[1].Value), 1, 4);
+            }
+            catch (IOException) { }
+        }
+        Subhead.Text = $"Vulkan · {scale}× ({1280 * scale} × {720 * scale}) · F6 or the pause menu opens settings in game";
+    }
 
     private void SetDisc(string path)
     {
         _discImage = path;
-        DiscText.Text = Path.GetFileName(path);
-        UpdatePrimary();
+        DiscText.Text = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+        UpdateActions();
     }
 
     private async void Browse_Click(object? sender, RoutedEventArgs e)
@@ -131,20 +218,80 @@ public partial class MainWindow : Window
         if (path is not null) SetDisc(path);
     }
 
-    private void OnDrop(object? sender, DragEventArgs e)
+    private async void BrowseFolder_Click(object? sender, RoutedEventArgs e)
     {
-        if (_mode != Mode.Setup) return;
-        var path = e.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).FirstOrDefault(p => p is not null);
-        if (path is not null && File.Exists(path)) SetDisc(path);
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            { Title = "Choose your extracted Forza Horizon game folder", AllowMultiple = false });
+        var path = folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+        if (path is not null) SetDisc(path);
     }
 
-    private void Ownership_Changed(object? sender, RoutedEventArgs e) => UpdatePrimary();
+    // Dropping selects the game source during setup, or imports DLC while
+    // the DLC panel is open.
+    private string? DroppedPath(DragEventArgs e)
+    {
+        var paths = e.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).OfType<string>().ToList();
+        return paths is { Count: 1 } && (File.Exists(paths[0]) || Directory.Exists(paths[0])) ? paths[0] : null;
+    }
+
+    private bool AcceptsDrop => !_busy && (_mode == Mode.Setup || (_mode == Mode.Ready && _panel == Panel.Dlc));
+
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        var accepted = AcceptsDrop && DroppedPath(e) is not null;
+        e.DragEffects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+        DropOverlayText.Text = _mode == Mode.Setup ? "Drop to use this disc image or folder" : "Drop to import this DLC";
+        DropOverlay.IsVisible = accepted;
+    }
+
+    private async void OnDrop(object? sender, DragEventArgs e)
+    {
+        DropOverlay.IsVisible = false;
+        if (!AcceptsDrop || DroppedPath(e) is not { } path) return;
+        if (_mode == Mode.Setup) SetDisc(path);
+        else await ImportDlcAsync(path);
+    }
+
+    private void Ownership_Changed(object? sender, RoutedEventArgs e) => UpdateActions();
+
+    private async void ChooseInstallRoot_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_installation is not { CanChooseInstallRoot: true } installation || _busy) return;
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose the installation folder (existing installations and saves stay in place)",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } folder) return;
+        // pinyon.py paths --check: writable, free space, a file system that
+        // keeps symlinks and executables.
+        SetBusy(true);
+        StatusText.Text = "Checking the folder…";
+        var check = await installation.RunJsonAsync(new[] { "paths", "--check", folder });
+        SetBusy(false);
+        StatusText.Text = "";
+        if (check.Json is { } json && json.TryGetProperty("check", out var result) &&
+            result.TryGetProperty("problems", out var problems) && problems.GetArrayLength() > 0)
+        {
+            var text = string.Join("\n", problems.EnumerateArray().Select(problem => "· " + problem.GetString()));
+            if (await Dialog.AskAsync(this, "This folder may not work", $"{folder}\n\n{text}",
+                    "Choose another", "Use it anyway") != "Use it anyway")
+                return;
+        }
+        AppendLog($"Installing to {folder}.");
+        await LoadAsync(folder);
+    }
 
     private async void Primary_Click(object? sender, RoutedEventArgs e)
     {
-        if (_installation is null) return;
-        if (_mode == Mode.Setup && _discImage is not null)
-            await BuildAsync(new[] { "setup", "--json", "--iso", _discImage });
+        if (_installation is null || _busy) return;
+        if (_mode == Mode.Crashed)
+            ReportCrash();
+        else if (_mode == Mode.Setup && _discImage is not null)
+        {
+            if (!await ConfirmGraphicsDriverBeforeBuildAsync()) return;
+            await BuildAsync(new[] { "setup", "--json", Directory.Exists(_discImage) ? "--extracted" : "--iso", _discImage });
+        }
         else if (_mode == Mode.Ready)
             await PlayAsync();
     }
@@ -158,7 +305,7 @@ public partial class MainWindow : Window
         _log.Clear();
         LogBox.Text = "";
         StatusText.Text = "";
-        Progress.Value = 0;
+        SetProgress(0, "Starting.");
         ShowMode(Mode.Building);
         _cancel = new CancellationTokenSource();
         string? failure = null;
@@ -185,8 +332,9 @@ public partial class MainWindow : Window
         }
         ShowMode(_installation.IsReady() ? Mode.Ready : Mode.Setup);
         ProgressPanel.IsVisible = true;
-        StatusText.Foreground = (Avalonia.Media.IBrush)this.FindResource("RedBrush")!;
-        StatusText.Text = cancelled ? "Stopped." : failure ?? $"The build stopped (exit {code}). See the details or the logs.";
+        StatusText.Foreground = Brush("RedBrush");
+        StatusText.Text = cancelled ? "Stopped. Start the build again to resume where it stopped."
+            : failure ?? $"The build stopped (exit {code}). See the details or the logs.";
     }
 
     // setup's stages, weighted by how long each one takes.
@@ -204,6 +352,8 @@ public partial class MainWindow : Window
     {
         _log.AppendLine(line);
         if (_log.Length > 200_000) _log.Remove(0, _log.Length - 150_000);
+        try { _sessionLog?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {line}"); }
+        catch (IOException) { _sessionLog = null; }
         if (LogBox.IsVisible)
         {
             LogBox.Text = _log.ToString();
@@ -211,16 +361,47 @@ public partial class MainWindow : Window
         }
     });
 
-    private async Task PlayAsync()
+    // .local/logs/launcher.log, as the Windows launcher keeps it.
+    private void StartSessionLog()
     {
         if (_installation is null) return;
-        ShowMode(Mode.Playing);
-        StatusText.Text = "";
-        var code = await _installation.RunAsync(new[] { "launch" }, _ => { }, AppendLog);
-        ShowMode(Mode.Ready);
-        if (code != 0)
-            StatusText.Text = $"The game stopped unexpectedly (exit {code}). Logs has the details; "
-                + "Report a problem opens an issue.";
+        try
+        {
+            _sessionLog?.Dispose();
+            Directory.CreateDirectory(_installation.Logs);
+            _sessionLog = new StreamWriter(Path.Combine(_installation.Logs, "launcher.log"), append: false)
+                { AutoFlush = true };
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { _sessionLog = null; }
+    }
+
+    private void SetProgress(double percent, string? message)
+    {
+        Progress.IsVisible = true;
+        Progress.IsIndeterminate = percent < 0;
+        if (percent >= 0)
+        {
+            Progress.Value = percent;
+            PercentText.Text = $"{percent:0}%";
+        }
+        else PercentText.Text = "";
+        if (!string.IsNullOrWhiteSpace(message)) ProgressMessage.Text = message;
+    }
+
+    // A failure the player can act on, with Play to try again (SetFailure on Windows).
+    private void ShowFailure(string headline, string message, Mode mode = Mode.Ready)
+    {
+        ShowMode(mode);
+        Headline.Text = headline;
+        Subhead.Text = message;
+        // The panel keeps only the details; the headline says what happened.
+        ProgressPanel.IsVisible = true;
+        CancelButton.IsVisible = false;
+        Progress.IsVisible = false;
+        ProgressMessage.Text = "";
+        PercentText.Text = "";
+        if (mode == Mode.Ready) PrimaryButton.Content = "▶  Try again";
+        AppendLog($"ERROR: {message}");
     }
 
     private async void Steam_Click(object? sender, RoutedEventArgs e)
@@ -238,284 +419,15 @@ public partial class MainWindow : Window
             : "Could not add it to Steam: " + output.ToString().Trim();
     }
 
-    // The XE mod: tools/pinyon.py xe, which prints one JSON object with --json.
-    private bool _xeInstalled, _xeEnabled;
-
-    private async Task<JsonElement> RunXeAsync(params string[] arguments)
-    {
-        if (_installation is null) throw new InvalidOperationException("The installation is not ready.");
-        var lines = new List<string>();
-        var code = await _installation.RunAsync(new[] { "xe" }.Concat(arguments).Append("--json"), _ => { },
-            line => { lock (lines) lines.Add(line); });
-        string? json;
-        lock (lines) json = lines.LastOrDefault(line => line.StartsWith('{'));
-        if (json is null) throw new InvalidOperationException($"XE management stopped (exit {code}).");
-        var result = JsonDocument.Parse(json).RootElement.Clone();
-        if (code != 0 || result.TryGetProperty("error", out _))
-            throw new InvalidOperationException(result.TryGetProperty("error", out var error)
-                ? error.GetString() : $"XE management stopped (exit {code}).");
-        return result;
-    }
-
-    private async Task RefreshXeAsync(string? message = null)
-    {
-        try
-        {
-            var status = await RunXeAsync("status");
-            _xeInstalled = status.GetProperty("installed").GetBoolean();
-            _xeEnabled = _xeInstalled && status.GetProperty("enabled").GetBoolean();
-            var version = _xeInstalled ? status.GetProperty("version").GetString() : null;
-            XeToggleButton.IsEnabled = _xeInstalled;
-            XeToggleButton.Content = _xeEnabled ? "Turn off" : "Use XE";
-            XeInstallButton.Content = _xeInstalled ? "Reinstall" : "Install XE";
-            XeStatusText.Text = message ?? (!_xeInstalled
-                ? "Not installed. Download from ModDB opens both downloads in your browser and installs them when they finish; Install XE takes archives you already have."
-                : _xeEnabled
-                    ? $"XE {version} is on. It plays its own new save and hides Horizon Rally; your save is kept."
-                    : $"XE {version} is installed and off. The game runs as on the disc.");
-        }
-        catch (Exception error)
-        {
-            XeStatusText.Text = message ?? error.Message;
-        }
-    }
-
-    private async Task ChangeXeAsync(string[] arguments, string working, string success)
-    {
-        XeControls.IsEnabled = false;
-        PrimaryButton.IsEnabled = false;
-        XeStatusText.Text = working;
-        string message;
-        try
-        {
-            await RunXeAsync(arguments);
-            message = success;
-        }
-        catch (Exception error)
-        {
-            message = error.Message;
-        }
-        await RefreshXeAsync(message);
-        XeControls.IsEnabled = true;
-        PrimaryButton.IsEnabled = _mode == Mode.Ready;
-    }
-
-    private async void XeInstall_Click(object? sender, RoutedEventArgs e)
-    {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Choose the XE 1.0 download and the 1.01 hotfix",
-            AllowMultiple = true,
-            FileTypeFilter = new[]
-            {
-                new FilePickerFileType("XE mod archives") { Patterns = new[] { "*.7z" } },
-                FilePickerFileTypes.All,
-            },
-        });
-        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToArray();
-        if (paths.Length == 0) return;
-        await ChangeXeAsync(new[] { "install" }.Concat(paths).Append("--replace").ToArray(),
-            "Checking and extracting the XE archives. This takes a few minutes…",
-            "XE is installed and on. Its first start creates a new save.");
-    }
-
-    // ModDB disallows automated downloads, so the player's browser fetches both
-    // archives and the tool installs them from Downloads when they finish (#426).
-    private async void XeDownload_Click(object? sender, RoutedEventArgs e)
-    {
-        await ChangeXeAsync(new[] { "install", "--find", "--open-pages", "--wait", "14400", "--replace" },
-            "Download both files on the ModDB pages that opened (XE by Teancum, 3.7 GB). " +
-            "Installing starts by itself when they finish in your Downloads folder…",
-            "XE is installed and on. Its first start creates a new save.");
-    }
-
-    private async void XeToggle_Click(object? sender, RoutedEventArgs e)
-    {
-        if (!_xeInstalled) return;
-        await ChangeXeAsync(new[] { _xeEnabled ? "disable" : "enable" }, "Updating…",
-            _xeEnabled ? "XE is off. Your own save is used again." : "XE is on. It starts with a new save.");
-    }
-
-    // Custom radio stations: tools/pinyon.py radio, which prints one JSON
-    // object with --json (#445).
-    private async Task<JsonElement> RunRadioAsync(IEnumerable<string> arguments)
-    {
-        if (_installation is null) throw new InvalidOperationException("The installation is not ready.");
-        var lines = new List<string>();
-        var code = await _installation.RunAsync(new[] { "radio" }.Concat(arguments).Append("--json"), _ => { },
-            line => { lock (lines) lines.Add(line); });
-        string? json;
-        lock (lines) json = lines.LastOrDefault(line => line.StartsWith('{'));
-        if (json is null) throw new InvalidOperationException($"Radio management stopped (exit {code}).");
-        var result = JsonDocument.Parse(json).RootElement.Clone();
-        if (code != 0 || result.TryGetProperty("error", out _))
-            throw new InvalidOperationException(result.TryGetProperty("error", out var error)
-                ? error.GetString() : $"Radio management stopped (exit {code}).");
-        return result;
-    }
-
-    // Runs one radio command (none: just list) and shows the stations.
-    private async Task ChangeRadioAsync(string[] arguments, string working, string? success)
-    {
-        RadioControls.IsEnabled = false;
-        RadioList.IsEnabled = false;
-        RadioStatusText.Text = working;
-        string? message = success;
-        try
-        {
-            if (arguments.Length > 0) await RunRadioAsync(arguments);
-        }
-        catch (Exception error)
-        {
-            message = error.Message;
-        }
-        try
-        {
-            ShowRadio(await RunRadioAsync(new[] { "list" }), message);
-        }
-        catch (Exception error)
-        {
-            RadioStatusText.Text = message ?? error.Message;
-        }
-        RadioControls.IsEnabled = _mode == Mode.Ready;
-        RadioList.IsEnabled = _mode == Mode.Ready;
-    }
-
-    private void ShowRadio(JsonElement status, string? message)
-    {
-        RadioList.Children.Clear();
-        var stations = status.GetProperty("stations").EnumerateArray().ToList();
-        foreach (var station in stations) RadioList.Children.Add(RadioRow(station));
-        var ffmpeg = status.GetProperty("ffmpeg").ValueKind == JsonValueKind.String;
-        RadioNewButton.IsEnabled = status.GetProperty("free_slots").GetArrayLength() > 0;
-        RadioFfmpegButton.IsVisible = !ffmpeg;
-        RadioStatusText.Text = message ?? (stations.Count == 0
-            ? "No custom stations yet."
-            : !ffmpeg
-                ? "Building stations needs FFmpeg to encode the music. Install it from your package manager or locate the ffmpeg program."
-                : status.GetProperty("out_of_date").GetBoolean()
-                    ? "Changes are not built yet. Choose Build stations."
-                    : "Built and on. The stations play from the next start.");
-    }
-
-    private Control RadioRow(JsonElement station)
-    {
-        var slot = station.GetProperty("slot").GetString()!;
-        var name = station.GetProperty("name").GetString()!;
-        var tracks = station.GetProperty("tracks").GetInt32();
-        var missing = station.GetProperty("missing").GetArrayLength();
-        var hasLogo = station.GetProperty("logo").ValueKind == JsonValueKind.String;
-        var sources = station.GetProperty("sources").EnumerateArray().Select(s => s.GetString()!).ToArray();
-        var nameBox = new TextBox { Text = name, MaxLength = 40, Width = 280, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left };
-        async Task Rename()
-        {
-            var text = nameBox.Text?.Trim() ?? "";
-            if (text.Length == 0 || text == name) { nameBox.Text = name; return; }
-            await ChangeRadioAsync(new[] { "rename", slot, text }, "Updating…", $"Renamed to {text}.");
-        }
-        nameBox.LostFocus += async (_, _) => await Rename();
-        nameBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) Focus(); };
-        var keep = new CheckBox
-        {
-            IsChecked = station.GetProperty("mode").GetString() == "add",
-            Content = new TextBlock { Text = "Keep the station's own songs too", FontSize = 12 },
-        };
-        keep.IsCheckedChanged += async (_, _) => await ChangeRadioAsync(
-            new[] { "mode", slot, keep.IsChecked == true ? "add" : "replace" }, "Updating…",
-            keep.IsChecked == true ? "Your songs join the station's own." : "Only your songs play on this station.");
-        Button Action(string text, Func<Task> run)
-        {
-            var button = new Button { Content = text, Margin = new Avalonia.Thickness(0, 0, 8, 6) };
-            button.Classes.Add("quiet");
-            button.Click += async (_, _) => await run();
-            return button;
-        }
-        var actions = new WrapPanel();
-        actions.Children.Add(Action("Add folder", async () =>
-        {
-            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                { Title = $"Choose music folders for {name}", AllowMultiple = true });
-            var paths = folders.Select(folder => folder.TryGetLocalPath()).OfType<string>().ToArray();
-            if (paths.Length > 0)
-                await ChangeRadioAsync(new[] { "add", slot }.Concat(paths).ToArray(), "Updating…", "Music added.");
-        }));
-        actions.Children.Add(Action("Add songs", async () =>
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = $"Choose songs for {name}", AllowMultiple = true,
-                FileTypeFilter = new[]
-                {
-                    new FilePickerFileType("Music")
-                        { Patterns = new[] { "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.aac", "*.opus", "*.wma" } },
-                    FilePickerFileTypes.All,
-                },
-            });
-            var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToArray();
-            if (paths.Length > 0)
-                await ChangeRadioAsync(new[] { "add", slot }.Concat(paths).ToArray(), "Updating…", "Songs added.");
-        }));
-        if (sources.Length > 0)
-            actions.Children.Add(Action("Clear music", () => ChangeRadioAsync(
-                new[] { "remove", slot }.Concat(sources).ToArray(), "Updating…",
-                "Music cleared. Your files were not touched.")));
-        actions.Children.Add(Action(hasLogo ? "Change logo" : "Logo", async () =>
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = $"Choose a PNG logo for {name}",
-                FileTypeFilter = new[] { new FilePickerFileType("PNG images") { Patterns = new[] { "*.png" } } },
-            });
-            var path = files.Select(file => file.TryGetLocalPath()).OfType<string>().FirstOrDefault();
-            if (path is not null)
-                await ChangeRadioAsync(new[] { "logo", slot, path }, "Updating…",
-                    "Logo set. It is fitted into 210 by 100 pixels.");
-        }));
-        if (hasLogo)
-            actions.Children.Add(Action("Own logo", () => ChangeRadioAsync(
-                new[] { "logo", slot, "--clear" }, "Updating…", "The station's own logo is back.")));
-        actions.Children.Add(Action("Delete", () => ChangeRadioAsync(new[] { "delete", slot }, "Updating…",
-            "Station deleted; your music files were not touched. Build stations to apply.")));
-        var details = $"Instead of {station.GetProperty("replaces").GetString()} · {tracks} {(tracks == 1 ? "song" : "songs")}"
-            + (missing > 0 ? $" · {missing} missing" : "") + (hasLogo ? " · own logo" : "");
-        var row = new StackPanel { Spacing = 4 };
-        row.Children.Add(nameBox);
-        row.Children.Add(new TextBlock
-        {
-            Text = details, FontSize = 12, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Foreground = (Avalonia.Media.IBrush?)this.FindResource("MutedBrush"),
-        });
-        row.Children.Add(keep);
-        row.Children.Add(actions);
-        return row;
-    }
-
-    private async void RadioNew_Click(object? sender, RoutedEventArgs e) =>
-        await ChangeRadioAsync(new[] { "create", "My Station" }, "Updating…",
-            "Station added. Rename it, add a music folder or songs, then build stations.");
-
-    private async void RadioBuild_Click(object? sender, RoutedEventArgs e)
-    {
-        PrimaryButton.IsEnabled = false;
-        await ChangeRadioAsync(new[] { "build" },
-            "Encoding your music and building the stations. Long playlists take a few minutes…",
-            "Stations built. They play from the next start.");
-        PrimaryButton.IsEnabled = _mode == Mode.Ready;
-    }
-
-    private async void RadioFfmpeg_Click(object? sender, RoutedEventArgs e)
-    {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Choose the ffmpeg program" });
-        var path = files.Select(file => file.TryGetLocalPath()).OfType<string>().FirstOrDefault();
-        if (path is not null)
-            await ChangeRadioAsync(new[] { "ffmpeg", path }, "Updating…", "FFmpeg found. Build stations when ready.");
-    }
-
     private void Details_Click(object? sender, RoutedEventArgs e)
     {
         LogBox.IsVisible = !LogBox.IsVisible;
         DetailsButton.Content = LogBox.IsVisible ? "Hide details" : "Show details";
-        if (LogBox.IsVisible) LogBox.Text = _log.ToString();
+        if (LogBox.IsVisible)
+        {
+            LogBox.Text = _log.ToString();
+            LogBox.CaretIndex = LogBox.Text.Length;
+        }
     }
 
     private void Cancel_Click(object? sender, RoutedEventArgs e) => _cancel?.Cancel();
@@ -535,6 +447,11 @@ public partial class MainWindow : Window
     private void Logs_Click(object? sender, RoutedEventArgs e)
     {
         if (_installation is null) return;
+        if (_mode == Mode.Crashed && _pendingReport is { } report)
+        {
+            Installation.Reveal(report.Bundle);
+            return;
+        }
         // The game's own logs (runtime.log) once it has run, else setup's.
         var gameLogs = Path.Combine(_installation.StateRoot, "logs");
         if (File.Exists(Path.Combine(gameLogs, "runtime.log")))
@@ -551,31 +468,15 @@ public partial class MainWindow : Window
 
     private void GitHub_Click(object? sender, RoutedEventArgs e) => Installation.Open(Repository);
 
-    public void Snapshot(string path, string? state)
-    {
-        Opened += async (_, _) =>
-        {
-            await Task.Delay(1500);
-            if (state == "ready") ShowMode(Mode.Ready);
-            if (state == "building")
-            {
-                ShowMode(Mode.Building);
-                Progress.Value = 47;
-                PercentText.Text = "47%";
-                ProgressMessage.Text = "Building the game (812/2140)";
-            }
-            await Task.Delay(300);
-            var size = new Avalonia.PixelSize((int)Bounds.Width, (int)Bounds.Height);
-            using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
-            bitmap.Render(this);
-            bitmap.Save(path);
-            Close();
-        };
-    }
+    // The README section with GitHub Sponsors and Ko-fi; nothing depends on it.
+    private void Support_Click(object? sender, RoutedEventArgs e) =>
+        Installation.Open($"{Repository}#supporting-the-project");
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         _cancel?.Cancel();
+        StopAndroidShare();
+        _sessionLog?.Dispose();
         base.OnClosing(e);
     }
 }

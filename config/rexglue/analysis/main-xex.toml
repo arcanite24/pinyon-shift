@@ -1528,15 +1528,19 @@ registers = ["r3"]
 #
 # Draw entry points (entry 5, 0x8240F4D8, shares the PERF-11 begin hook).
 # Entry 0 also carries the DL-1.2 D3D-level draw marker (d3d_draw.cpp).
+# Entries 0 and 1 also carry the DL-2.1 slice: with pinyon_shift_d3d_slice
+# 2 a call the slice replaces returns at its entry (return_on_true).
 [[midasm_hook]]
 address = 0x82416380
 name = "PinyonShiftD3dCensusDraw0"
 registers = ["r1", "r3", "r4", "r5", "r6", "r7", "lr"]
+return_on_true = true
 
 [[midasm_hook]]
 address = 0x82415F68
 name = "PinyonShiftD3dCensusDraw1"
-registers = ["r1", "r3", "lr"]
+registers = ["r1", "r3", "r4", "r5", "r6", "lr"]
+return_on_true = true
 
 [[midasm_hook]]
 address = 0x8240DC70

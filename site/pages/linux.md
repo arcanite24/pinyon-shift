@@ -41,4 +41,8 @@ python3 tools/pinyon.py launch
 python3 tools/pinyon.py shortcuts add
 ```
 
+## DLC, title update and saves
+
+The launcher's **DLC** panel imports your own DLC packages and the title update, as on Windows ([DLC and title update](dlc.md)); **Import a save** brings a save from another install or from Xenia. On a Steam Deck the 21 packages give the same 84 DLC cars as on Windows, and the v4 build runs the offline 1000 Club and reaches the Rally stage intro. The launcher also builds the Android app and shares it over Wi-Fi when the Android SDK command-line tools and a JDK 17 are installed.
+
 More detail, including uninstalling and troubleshooting, is in [docs/LINUX.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX.md).

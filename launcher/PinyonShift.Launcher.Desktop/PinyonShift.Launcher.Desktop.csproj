@@ -19,15 +19,24 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Not on macOS: on Apple silicon the precompiled framework code of a
+         compressed bundle (inflated into memory) crashed the launcher with
+         AccessViolationException in about four of five starts, the first time
+         it read a child process's output. Uncompressed: none in 12 starts.
+         The release zip compresses the app anyway. -->
+    <EnableCompressionInSingleFile Condition="!$(RuntimeIdentifier.StartsWith('osx'))">true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishReadyToRun>false</PublishReadyToRun>
     <InvariantGlobalization>true</InvariantGlobalization>
     <DebugType>embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The updater both launchers share (FB-10.7). -->
+    <!-- Code both launchers share: the updater (FB-10.7) and the Android
+         share with its QR code (each launcher draws the QR bitmap itself). -->
     <Compile Include="..\Shared\LauncherUpdate.cs" Link="Shared\LauncherUpdate.cs" />
+    <Compile Include="..\Shared\AndroidShare.cs" Link="Shared\AndroidShare.cs" />
+    <Compile Include="..\Shared\AndroidShareContent.cs" Link="Shared\AndroidShareContent.cs" />
+    <Compile Include="..\Shared\QrCode.cs" Link="Shared\QrCode.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.22" />

@@ -254,6 +254,14 @@ target_include_directories(pinyon_shift_fh1_texture_import PRIVATE
 target_include_directories(pinyon_shift_fh1_archive_extract PRIVATE
     src ${REXSDK_DIR}/include)
 target_link_libraries(pinyon_shift_fh1_archive_extract PRIVATE rex::runtime)
+if(UNIX AND NOT APPLE)
+    # As the game: find librexruntime.so beside the extractor (or in the
+    # build's artifacts) instead of by this build tree's absolute path, so a
+    # copied build (tools/pinyon_deck.py, a Steam Deck) can still import DLC.
+    set_target_properties(pinyon_shift_fh1_archive_extract PROPERTIES
+        INSTALL_RPATH "$ORIGIN:$ORIGIN/rexglue-artifacts"
+        BUILD_WITH_INSTALL_RPATH ON)
+endif()
 
 # FSB4 banks to WAV for the asset export (#446), with the SDK's FFmpeg (MP3
 # and the XMA frame decoder the game's audio runs on).

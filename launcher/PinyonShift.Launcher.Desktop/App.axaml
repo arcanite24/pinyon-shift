@@ -59,6 +59,22 @@
             <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
         </Style>
+        <Style Selector="Button.quiet:disabled /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource FaintBrush}"/>
+        </Style>
+        <!-- The panel buttons under Play; the open one is outlined. -->
+        <Style Selector="Button.nav">
+            <Setter Property="Margin" Value="0,0,10,10"/>
+            <Setter Property="Padding" Value="20,12"/>
+        </Style>
+        <Style Selector="Button.nav.selected">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="Button.nav.selected /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+        </Style>
         <Style Selector="Button.link">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>

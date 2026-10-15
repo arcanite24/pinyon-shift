@@ -135,6 +135,25 @@ The same frame replayed on every device. The results differ enough that no savin
 - **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default.
 - **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate.
 
+## Apple silicon
+
+The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs use pay off there too. The table gives medians of a 40 s scripted drive at 1x, two runs each, with pipelines prewarmed and untiled predicated tiling on (its own saving was measured by toggling it inside one run):
+
+| Switch, M4 Pro | Median frame |
+| --- | ---: |
+| Base | 10.9 ms |
+| Fast pixel math (`spirv_fast_pixel_math`) | 8.6 ms |
+| Texture signs as specialization constants | 9.8 ms |
+| MoltenVK without Metal argument buffers | 10.3 ms |
+| Untiled predicated tiling | about −0.8 ms |
+| All four, the macOS default | 8.35 ms (the 120 Hz cap) |
+| IEEE vertex math | 11.0 ms, no gain |
+| Bindless textures | 11.1 ms, no gain |
+
+With all four on, the GPU frame is 5.6–5.7 ms against 12.3–12.7 ms, and the title waits on GPU fences 6 times a frame instead of 26. Mean luma over the drive is 114.6 against 114.7 on Windows.
+
+The window is hidden in these runs, but Core Animation still hands out drawables at the display rate. MoltenVK takes the drawable while it encodes the present, on the thread that submits everything else, so no run goes past 120 fps on a 120 Hz display. MoltenVK also stamps timestamps at Metal encoder boundaries, so per-pass GPU timing doesn't work there; whole frames do.
+
 ## MSAA, scale and memory
 
 | Change | Measured |

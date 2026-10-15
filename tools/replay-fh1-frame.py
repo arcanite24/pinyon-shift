@@ -73,6 +73,21 @@ def replay(args: argparse.Namespace) -> dict[str, object]:
         command += ["-BuildDirectory", str(args.build_directory.resolve())]
     if args.hidden:
         command.append("-Hidden")
+    if sys.platform != "win32":
+        # No PowerShell off Windows: tools/pinyon.py launch starts the game the
+        # same way, as the render-test runner does (LX-3.7).
+        command = [sys.executable, str(Path(__file__).with_name("pinyon.py")), "launch",
+                   "--state-root", str(state), "--skip-shader-preparation",
+                   "--timeout", str(args.timeout), "--json"]
+        if args.configuration:
+            command += ["--configuration", args.configuration]
+        if args.game_root:
+            command += ["--game-root", str(args.game_root.resolve())]
+        if getattr(args, "build_directory", None):
+            command += ["--build-directory", str(args.build_directory.resolve())]
+        if args.hidden:
+            command.append("--hidden")
+        command += ["--"] + game_arguments
     process = subprocess.run(command, capture_output=True, text=True,
                              timeout=args.timeout + 60, check=False)
     if not result_path.is_file():
@@ -112,6 +127,8 @@ def main() -> int:
     parser.add_argument("--build-directory", type=Path,
                         help="the build to run, such as out/build/win-amd64-vulkan")
     parser.add_argument("--hidden", action="store_true")
+    parser.add_argument("--game-root", type=Path,
+                        help="game files off Windows (default .local/game/base)")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--max-differing-words", type=int,
                         help="fail when more front buffer words differ")

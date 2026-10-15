@@ -7,7 +7,7 @@ description: Import your own Forza Horizon DLC packages and build the optional t
 
 # DLC and title update
 
-DLC comes from your own Xbox 360 packages. The launcher verifies each one against a pinned catalog of 21 *Forza Horizon* packages, then imports it. Imports start disabled, and each package is enabled separately. Close the game before changing DLC.
+DLC comes from your own Xbox 360 packages. The launcher (on Windows, Linux and macOS) verifies each one against a pinned catalog of 21 *Forza Horizon* packages, then imports it. Imports start disabled, and each package is enabled separately. Close the game before changing DLC.
 
 ## Supported packages
 
@@ -25,8 +25,9 @@ Import every copy of a package you own: verified variants of the same package co
 
 The base disc build is the default. The optional v4 build applies title update v4 to the USA disc and runs the original Rally and 1000 Club code. It's built from your disc and your own copy of the update, which is verified page by page before it's installed.
 
-- Windows: `tools/build-v4.ps1` from a repository checkout.
-- Android: `python tools/pinyon.py android build --title-update-v4`.
+- Windows, Linux and macOS: in the launcher's DLC panel, **Import update**, then **Use v4**. **Play** builds the v4 version the first time (about as long as the first build) and starts it; **1000 Club offline** turns on the offline challenges. From a terminal: `python3 tools/pinyon.py title-update import <zip>`, `title-update enable` and `launch`.
+- Linux: on a Steam Deck the v4 build runs the offline 1000 Club and reaches the Horizon Rally stage intro. macOS: the v4 build runs the 1000 Club challenges and reaches the Horizon Rally entry on an M4 Pro.
+- Android: **Build APK** builds the v4 app when v4 is on; `python tools/pinyon.py android build --title-update-v4` from a terminal.
 
 > A save written by the v4 build can't be loaded by the base build afterwards. The launcher backs up the save before the first v4 start.
 

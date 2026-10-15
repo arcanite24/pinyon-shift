@@ -85,6 +85,11 @@ $include = @(
     'tools/pinyon_radio.py', 'tools/manage-radio.ps1', 'tools/build-fh1-radio.py',
     # Linux, the Steam Deck and macOS (docs/LINUX.md, docs/MACOS.md).
     'tools/pinyon_setup.py', 'tools/pinyon_steam.py', 'tools/pinyon_deck.py', 'config/steam',
+    # The launcher backends of pinyon.py on every OS: DLC, title update, saves,
+    # crash bundles, settings, the hardware check, paths and shader preparation.
+    'tools/pinyon_common.py', 'tools/pinyon_dlc.py', 'tools/pinyon_title_update.py',
+    'tools/pinyon_saves.py', 'tools/import-xenia-save.ps1', 'tools/pinyon_crash.py',
+    'tools/pinyon_config.py', 'tools/pinyon_hardware.py', 'tools/pinyon_shaders.py',
     'config/android-toolchain.json', 'android',
     'tools/fh1-profile.py', 'tools/fh1-strings.py', 'tools/inspect-fh1-ui.py',
     'tools/native-shader-pack.py',

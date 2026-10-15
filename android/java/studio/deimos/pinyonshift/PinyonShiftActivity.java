@@ -84,6 +84,7 @@ public class PinyonShiftActivity extends SDLActivity {
         if (new File(base, "state/cache/rally_adapter/rally-stage.toml").isFile()) {
             setDefaultEnvironment("PINYON_SHIFT_RALLY_PREPARED", "1");
         }
+        applyPendingMods(base);
         // The build's provenance, packaged as an asset, for logs and crash
         // reports (the game reads it beside the executable elsewhere).
         File manifest = new File(getFilesDir(), "pinyon_shift_build.json");
@@ -182,6 +183,21 @@ public class PinyonShiftActivity extends SDLActivity {
             }
         }
         return arguments.toArray(new String[0]);
+    }
+
+    // enabled_mods from a mod set the setup screen copied before the game had
+    // written its settings file; the game reads the list at start.
+    private static void applyPendingMods(File base) {
+        File pending = new File(base, SetupActivity.PENDING_MODS_FILE);
+        File config = new File(base, SetupActivity.CONFIG_FILE);
+        if (!pending.isFile() || !config.isFile()) return;
+        try (BufferedReader reader = new BufferedReader(new FileReader(pending))) {
+            String mods = reader.readLine();
+            SetupActivity.applyEnabledMods(config, mods != null ? mods.trim() : "");
+            if (!pending.delete()) Log.w(TAG, "pending mods not removed");
+        } catch (IOException error) {
+            Log.w(TAG, "pending mods not applied", error);
+        }
     }
 
     // The Adreno GPU's model number ("740"), from the kernel driver, or from

@@ -897,11 +897,15 @@ std::unique_ptr<MenuScreen> SettingsPages::Hud() {
   return std::make_unique<MenuScreen>("HUD", std::move(rows));
 }
 
-// Switches from FH1's developer launch options (#477), which the retail game
-// keeps but never reads from a command line; the host sets the flags. All
-// off by default and applied at once.
+// The Treasure Map, then switches from FH1's developer launch options (#477),
+// which the retail game keeps but never reads from a command line; the host
+// sets the flags. Those are all off by default and applied at once.
 std::unique_ptr<MenuScreen> SettingsPages::Gameplay() {
   std::vector<MenuRow> rows;
+  // The Treasure Map add-on (src/dlc_treasure_map.cpp), on by default since
+  // it can no longer be bought; applied in free roam. The reveal is saved
+  // with the profile, so turning it off does not hide the signs again.
+  rows.push_back(Toggle("TREASURE MAP", "pinyon_shift_dlc_treasure_map"));
   // Dialogs wait for their voice-over to end before A closes them.
   rows.push_back(Toggle("SKIP VOICE-OVERS WITH A", "pinyon_shift_skip_voiceover"));
   // The game puts the car back on the road when it strays too far.

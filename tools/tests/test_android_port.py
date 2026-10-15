@@ -67,12 +67,14 @@ class AndroidPortTest(unittest.TestCase):
                 limit = 64 * 1024 if path.suffix == ".java" else 16 * 1024
                 self.assertLess(path.stat().st_size, limit, path.name)
 
-    def test_manifest_asks_only_for_sockets_and_rumble(self):
+    def test_manifest_asks_only_for_sockets_rumble_and_updates(self):
         manifest = (ROOT / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
         permissions = sorted(re.findall(r'uses-permission android:name="([^"]+)"', manifest))
         # Sockets for the title's system link (socket() fails without it and
-        # the title dereferences null), vibration for rumble; nothing else.
+        # the title dereferences null), vibration for rumble, and installing
+        # the newer APK a PC's share offers; nothing else.
         self.assertEqual(permissions, ["android.permission.INTERNET",
+                                       "android.permission.REQUEST_INSTALL_PACKAGES",
                                        "android.permission.VIBRATE"])
         self.assertIn('android:extractNativeLibs="true"', manifest)
         self.assertIn("android.hardware.vulkan.version", manifest)

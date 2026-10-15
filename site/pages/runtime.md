@@ -19,7 +19,7 @@ The `0xE0000000` view starts 4 KB into the physical heap. Windows' classic `MapV
 
 The game's code section (14.7 MB of the image) is never read once the generated code runs, except for 258 `switch` jump tables the compiler placed inside it. On Linux and Android, `pinyon_shift_retire_guest_code=2` makes the rest no-access and releases its pages from the mapping: 14.4 MB, about 12 MB less guest memory on the Odin. Seven test routes ran with it and no access violation, but it stays off by default: a path that reads retired code would end the game, and the routes cannot cover every path. Measuring memory through `/proc/self/smaps` right after the release slowed the next six seconds of a race on the Odin; without that read, races ran as usual.
 
-Writes to memory the GPU has cached are found with page protection: about 60–70 protect calls covering 830 pages per race frame. On hosts with 16 KB pages, one host page holds four guest pages, so its protection must be the union of the four; taking the first guest page's protection made a committed page next to an uncommitted one fault on macOS.
+Writes to memory the GPU has cached are found with page protection: about 60–70 protect calls covering 830 pages per race frame. On hosts with 16 KB pages, one host page holds four guest pages, so its protection must be the union of the four; taking the first guest page's protection made a committed page next to an uncommitted one fault on macOS. The GPU-side tracking still works in 4 KB pages there: a fault reports the exact address, and GPU-written pages elsewhere in the host page stay valid.
 
 ## Kernel
 

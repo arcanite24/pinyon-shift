@@ -12,6 +12,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using PinyonShift.Launcher.Sharing;
 using PinyonShift.Launcher.Updates;
 
 namespace PinyonShift.Launcher;
@@ -1085,6 +1086,7 @@ public partial class MainWindow : Window
     // ---- Android (ONE_CLICK_SETUP_BACKLOG A-1 to A-5) -----------------------
 
     private AndroidShare? _androidShare;
+    private bool _androidSharePreparing;
     private string? _adbDevice;
 
     private string? AndroidApk => _repositoryRoot is null ? null
@@ -1146,7 +1148,7 @@ public partial class MainWindow : Window
         AndroidBuildButton.IsEnabled = !_busy && !unavailable;
         AndroidShowButton.IsEnabled = built;
         AndroidSaveButton.IsEnabled = built;
-        AndroidShareButton.IsEnabled = !_busy && built;
+        AndroidShareButton.IsEnabled = !_busy && built && !_androidSharePreparing;
         AndroidShareButton.Content = _androidShare is null ? "Share on Wi-Fi" : "Stop sharing";
         AndroidUsbButton.IsEnabled = !_busy && built;
     }
@@ -1188,7 +1190,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AndroidShareButton_Click(object sender, RoutedEventArgs e)
+    private async void AndroidShareButton_Click(object sender, RoutedEventArgs e)
     {
         if (_androidShare is not null)
         {
@@ -1196,6 +1198,7 @@ public partial class MainWindow : Window
             AndroidStatusText.Text = "Sharing stopped.";
             return;
         }
+        if (_androidSharePreparing) return;
         if (AndroidApk is not { } apk || !File.Exists(apk) || _repositoryRoot is null || _stateRoot is null) return;
         var addresses = AndroidShare.LocalAddresses();
         if (addresses.Count == 0)
@@ -1204,17 +1207,47 @@ public partial class MainWindow : Window
             return;
         }
         var record = ReadAndroidApkRecord();
-        IReadOnlyList<ShareGroup> groups;
-        try { groups = AndroidShareGroups(record?.TitleUpdateV4 == true); }
+        var repositoryRoot = _repositoryRoot;
+        var stateRoot = _stateRoot;
+        // The mods' generated patches, built for the PC's enabled mods as a
+        // launch builds them, so the device gets what the PC plays.
+        var includeMods = AndroidShareContent.EnabledMods(stateRoot).Count > 0;
+        if (includeMods)
+        {
+            _androidSharePreparing = true;
+            RefreshAndroidPanel();
+            AndroidStatusText.Text = "Preparing this PC's mods for the device…";
+            string? modError;
+            if (AndroidShareContent.ToolchainPython(repositoryRoot) is not { } python)
+                modError = "The local Python runtime is missing.";
+            else
+                modError = await AndroidShareContent.BuildModsAsync(python, repositoryRoot, stateRoot,
+                    Path.Combine(repositoryRoot, ".local", "game", "base"),
+                    _gameExecutable is null ? null
+                        : Path.Combine(Path.GetDirectoryName(_gameExecutable)!, "pinyon_shift_fh1_archive_extract.exe"));
+            _androidSharePreparing = false;
+            if (modError is not null)
+            {
+                AppendLog($"{modError} Sharing without the mods.");
+                includeMods = false;
+            }
+            if (_panel != View.Android || _androidShare is not null) { RefreshAndroidPanel(); return; }
+        }
+        ShareContent content;
+        try { content = AndroidShareContent.Build(repositoryRoot, stateRoot, record?.TitleUpdateV4 == true, includeMods); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             AndroidStatusText.Text = $"The game files cannot be read: {ex.Message}";
+            RefreshAndroidPanel();
             return;
         }
+        var groups = content.Groups;
         var share = new AndroidShare(apk, groups, new
         {
             title_update_v4 = record?.TitleUpdateV4 == true,
-            club = record?.TitleUpdateV4 == true && _titleUpdate?.Club == true
+            club = record?.TitleUpdateV4 == true && _titleUpdate?.Club == true,
+            // The PC's enabled mods the share carries, in load order.
+            mods_enabled = content.ModsEnabled
         });
         share.Activity += message => Dispatcher.BeginInvoke(() =>
         {
@@ -1258,51 +1291,6 @@ public partial class MainWindow : Window
         AndroidQrImage.Source = null;
         AndroidCodeText.Visibility = Visibility.Collapsed;
         RefreshAndroidPanel();
-    }
-
-    // What the device can copy: the extracted game, and from the PC's state
-    // the v4 update (for a v4 package), imported DLC, the Rally overlay and,
-    // only when chosen on the device, the save the PC plays.
-    private IReadOnlyList<ShareGroup> AndroidShareGroups(bool titleUpdateV4)
-    {
-        var groups = new List<ShareGroup>();
-        IReadOnlyList<ShareFile> Tree(string source, string destination, Func<string, bool>? include = null)
-        {
-            if (!Directory.Exists(source)) return [];
-            return Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)
-                .Select(path => (path, relative: Path.GetRelativePath(source, path).Replace('\\', '/')))
-                .Where(entry => include?.Invoke(entry.relative) ?? true)
-                .Select(entry => new ShareFile(entry.path, destination + "/" + entry.relative, new FileInfo(entry.path).Length))
-                .ToList();
-        }
-        var game = Path.Combine(_repositoryRoot!, ".local", "game", "base");
-        if (!File.Exists(Path.Combine(game, "default.xex")))
-            throw new IOException($"The extracted game is not at {game}. Build and play on this PC first.");
-        groups.Add(new ShareGroup("game", "game files", true, Tree(game, "game/base")));
-        var state = _stateRoot!;
-        if (titleUpdateV4)
-        {
-            var update = Tree(Path.Combine(state, "title-update-v4"), "state/title-update-v4",
-                name => !name.Contains('/'));
-            if (update.Count > 0) groups.Add(new ShareGroup("title_update_v4", "title update v4", true, update));
-        }
-        var dlc = Tree(Path.Combine(state, "user", "0000000000000000", "4D5309C9"), "state/user/0000000000000000/4D5309C9")
-            .Concat(Tree(Path.Combine(state, "dlc"), "state/dlc",
-                name => name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && !name.Contains('/')))
-            .ToList();
-        if (dlc.Count > 0) groups.Add(new ShareGroup("dlc", "DLC", true, dlc));
-        var rally = Tree(Path.Combine(state, "cache", "rally_adapter"), "state/cache/rally_adapter");
-        if (rally.Count > 0) groups.Add(new ShareGroup("rally", "Rally", true, rally));
-        // The PC plays from user-modded while cheats or mods are on: offer the
-        // tree written last.
-        static bool IsSave(string name) => !name.StartsWith("0000000000000000/", StringComparison.Ordinal);
-        var save = new[] { "user", "user-modded" }
-            .Select(tree => Tree(Path.Combine(state, tree), "state/user", IsSave))
-            .Where(files => files.Count > 0)
-            .OrderByDescending(files => files.Max(file => File.GetLastWriteTimeUtc(file.Source)))
-            .FirstOrDefault();
-        if (save is not null) groups.Add(new ShareGroup("save", "this PC's save", false, save));
-        return groups;
     }
 
     private static string? FindAdb(string? repositoryRoot)

@@ -112,10 +112,36 @@ In the launcher, once the game plays on the PC, choose **Android**:
    the PC by a broadcast on the local network (or takes the address the panel
    shows), asks for the pairing code and lists what the PC offers: the game
    files (7.2 GB, required), title update v4 (with a v4 package), imported
-   DLC, the Rally overlay and the PC's save. The save is never selected for
-   you; when chosen, the device's own save is first copied to
+   DLC, the Rally overlay, the PC's mods, its custom radio stations, the XE
+   mod and the PC's save. The save is never selected for you; when chosen,
+   the device's own save is first copied to
    `files/state/backups/before-pc-save-<time>`. An interrupted copy resumes
    where it stopped. Then **Play**.
+
+The mod rows carry the mods the PC has enabled, as it plays them. Before
+sharing, the launcher rebuilds their generated patches (`zz-db-patches`,
+`zz-archive-patches`) from the PC's game files, as every PC launch does;
+the device's game files come from the same disc, so the patched archives
+match. Because those patches are built for exactly the PC's set, the mods,
+custom radio and XE rows are copied together. On the device each mod
+folder in `files/state/mods` ends up as on the PC: files the PC no longer
+has move to `files/state/backups/before-pc-mods-<time>`, which also keeps
+the device's previous `enabled_mods`. `enabled_mods` is cleared while the
+copy runs (an interrupted copy plays unmodded) and set to the PC's list
+when it completes. Mods that only change how the game looks keep your save;
+XE plays its own new save (`user-xe`), as on the PC. Not shared: native
+mods (their library is a PC binary) and XE with a v4 package (XE is made
+for the base game). If the game has never started on the device, the list
+is applied at the second start, after the game has written its settings.
+
+When the PC shares a newer build of the app than the one installed (a
+higher version, or a later build of the same version), the setup screen
+says so after connecting and offers **Install update**. The app downloads
+the package from the share and hands it to Android's installer, which asks
+to confirm; Android also asks once to allow Pinyon Shift to install apps.
+The app closes while it updates; the save, settings and game files stay.
+A base package is not offered to a device that has title update v4
+installed, since a v4 save cannot be loaded by the base game again.
 
 The launcher serves only while its Android panel is open and sharing, only to
 private network addresses, and only the files it listed. Every request but
@@ -123,8 +149,8 @@ the download page and the package needs the pairing code, which changes each
 time sharing starts; ten wrong codes stop the share. Nothing goes from the
 device to the PC.
 
-To copy more later, such as DLC imported afterwards, long-press the app icon
-and choose **Get files from PC**. Without a network, copy the extracted game
+To copy more later, such as DLC imported afterwards, changed mods or a
+rebuilt app, long-press the app icon and choose **Get files from PC**. Without a network, copy the extracted game
 folder (`.local\game\base` in the install folder, the one holding
 `default.xex`) to the device over USB and choose it with **Choose folder** on
 the setup screen.

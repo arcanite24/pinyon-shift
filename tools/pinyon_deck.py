@@ -46,7 +46,11 @@ WORK = ROOT / ".local" / "deck"
 REMOTE = "pinyon-shift-dev"
 # What a Linux build directory needs at run time: the game, its modules, the
 # GPU plugin and the build's provenance.
-BUILD_FILES = ("pinyon_shift", "*.so", "pinyon_shift_build.json", "gamecontrollerdb.txt")
+# The archive extractor goes too: `pinyon.py dlc` and Rally preparation run it
+# beside the game on the Deck.
+BUILD_FILES = ("pinyon_shift", "pinyon_shift_fh1_archive_extract", "*.so",
+               "pinyon_shift_build.json", "gamecontrollerdb.txt")
+EXECUTABLES = ("pinyon_shift", "pinyon_shift_fh1_archive_extract")
 
 
 class DeckError(RuntimeError):
@@ -100,7 +104,7 @@ class Deck:
                 info.uname = info.gname = ""
                 if os.access(source, os.X_OK) and not WINDOWS:
                     info.mode = 0o755
-                elif name.endswith(".so") or "/" not in name and name == "pinyon_shift":
+                elif name.endswith(".so") or "/" not in name and name in EXECUTABLES:
                     info.mode = 0o755
                 with source.open("rb") as stream:
                     archive.addfile(info, stream)
@@ -224,7 +228,8 @@ def install(args: argparse.Namespace) -> int:
                     if path.is_file()})
     deck = Deck(args)
     sync(deck, build, files, f"{deck.root}/build", hashes=True)
-    deck.run(f"chmod +x {deck.root}/build/pinyon_shift")
+    deck.run(" ".join(["chmod +x"] + [f"{deck.root}/build/{name}" for name in EXECUTABLES
+                                      if (build / name).is_file()]))
     return 0
 
 

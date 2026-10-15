@@ -179,16 +179,24 @@ def stage_inputs(source: Path, temporary: Path, manifest: dict) -> list[tuple[Pa
             with path.open("rb") as stream:
                 accept(stream, path.stat().st_size)
         elif zipfile.is_zipfile(path):
-            with zipfile.ZipFile(path) as archive:
-                for member in archive.infolist():
-                    safe_archive_path(member.filename)
-                    if member.is_dir():
-                        continue
-                    with archive.open(member) as stream:
-                        prefix = stream.read(4)
-                    if prefix in MAGIC:
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    for member in archive.infolist():
+                        safe_archive_path(member.filename)
+                        if member.is_dir():
+                            continue
                         with archive.open(member) as stream:
-                            accept(stream, member.file_size)
+                            prefix = stream.read(4)
+                        if prefix in MAGIC:
+                            with archive.open(member) as stream:
+                                accept(stream, member.file_size)
+            except (NotImplementedError, zipfile.BadZipFile):
+                # A folder can hold game ZIPs that are not DLC wrappers, such
+                # as an installed package's Media/DLCZips (an unsupported
+                # compression method): skip them. A chosen ZIP must be read.
+                if not source.is_dir():
+                    raise ValueError("the ZIP cannot be read (damaged, or an unsupported "
+                                     "compression method)") from None
         elif not source.is_dir():
             raise ValueError("choose a raw DLC package, DLC folder or ZIP")
     if not found:
@@ -217,6 +225,11 @@ def mutation_lock(state: Path):
                     ["tasklist.exe", "/FI", "IMAGENAME eq pinyon_shift.exe", "/FO", "CSV", "/NH"],
                     creationflags=subprocess.CREATE_NO_WINDOW)
                 if b'"pinyon_shift.exe"' in running.lower():
+                    raise ValueError("close the game before changing DLC")
+            elif shutil.which("pgrep") and not os.environ.get("PINYON_SHIFT_TEST_ALLOW_RUNNING_GAME"):
+                # Linux and macOS: the game reads the content tree while it runs.
+                if subprocess.call(["pgrep", "-x", "pinyon_shift"], stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL) == 0:
                     raise ValueError("close the game before changing DLC")
             yield
         finally:

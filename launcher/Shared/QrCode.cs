@@ -1,8 +1,6 @@
 using System.Text;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
-namespace PinyonShift.Launcher;
+namespace PinyonShift.Launcher.Sharing;
 
 // A QR code (ISO/IEC 18004) for the Android panel's download link: byte
 // mode, error correction level M, versions 1 to 10 (up to 213 bytes, far
@@ -83,20 +81,19 @@ public sealed class QrCode
         return qr;
     }
 
-    // One pixel per module with a four-module quiet zone; shown scaled with
+    // One 8-bit gray pixel per module (0 dark, 255 light) with a quiet zone
+    // of `border` modules, row by row: Side x Side bytes. Each launcher's
+    // adapter turns it into its UI toolkit's bitmap, shown scaled with
     // nearest-neighbour sampling.
-    public BitmapSource ToBitmap()
+    public QrBitmap ToGray8(int border = 4)
     {
-        const int border = 4;
         var side = Size + border * 2;
         var pixels = new byte[side * side];
         Array.Fill(pixels, (byte)255);
         for (var y = 0; y < Size; y++)
             for (var x = 0; x < Size; x++)
                 if (_modules[y, x]) pixels[(y + border) * side + x + border] = 0;
-        var bitmap = BitmapSource.Create(side, side, 96, 96, PixelFormats.Gray8, null, pixels, side);
-        bitmap.Freeze();
-        return bitmap;
+        return new QrBitmap(side, pixels);
     }
 
     private static int RawDataModules(int version)
@@ -369,3 +366,6 @@ public sealed class QrCode
         return (core && h[0] >= n * 4 && h[6] >= n ? 1 : 0) + (core && h[6] >= n * 4 && h[0] >= n ? 1 : 0);
     }
 }
+
+// A square 8-bit gray image of a QR code (QrCode.ToGray8).
+public sealed record QrBitmap(int Side, byte[] Pixels);

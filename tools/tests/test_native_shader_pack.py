@@ -424,7 +424,7 @@ class NativeShaderPackTests(unittest.TestCase):
             "D445FABAE890A455",
         ):
             self.assertIn(shader_hash, pipeline)
-        report = (ROOT / "tools/create-crash-report.ps1").read_text(
+        report = (ROOT / "tools/pinyon_crash.py").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("native_shader_pack =", report)

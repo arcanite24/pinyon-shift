@@ -17,8 +17,8 @@
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
 
-// On by default: the launcher offers it as a setting, since the purchase can
-// no longer be made.
+// On by default, since the purchase can no longer be made: the launcher's
+// Settings and the in-game GAMEPLAY page offer it as a setting.
 REXCVAR_DEFINE_BOOL(pinyon_shift_dlc_treasure_map, true, "Pinyon Shift",
                     "Own the Treasure Map add-on: every discount sign, and each barn find's "
                     "exact location once its rumour starts, show on the map, as buying it did. "

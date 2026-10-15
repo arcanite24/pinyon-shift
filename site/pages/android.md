@@ -20,9 +20,11 @@ A developer alpha. The Android build is the same recompiled game, cross-compiled
 
 1. In the launcher, choose **Android**, then **Build APK**. The first build takes 20 to 60 minutes.
 2. Choose **Share on Wi-Fi**. Scan the QR code with the device's camera, download the app and open it. Android asks once to allow the browser to install apps; Windows asks once to allow the launcher on private networks.
-3. The app finds the PC on the local network and asks for the six-digit code the launcher shows. It then lists what the PC offers: the game files (7.2 GB, required), title update v4, imported DLC and your PC save. Then **Play**.
+3. The app finds the PC on the local network and asks for the six-digit code the launcher shows. It then lists what the PC offers: the game files (7.2 GB, required), title update v4, imported DLC, the PC's enabled mods, custom radio stations and the XE mod, and your PC save. Then **Play**.
 
-No USB debugging is needed. Your PC save is never copied unless you select it, and the device's own save is backed up first. An interrupted copy resumes where it stopped. To copy more later, long-press the app icon and choose **Get files from PC**.
+No USB debugging is needed. Your PC save is never copied unless you select it, and the device's own save is backed up first. An interrupted copy resumes where it stopped. To copy more later, long-press the app icon and choose **Get files from PC**. When the PC offers a newer build of the app, the setup screen says so and offers **Install update**; a base build is never offered to a device that has title update v4.
+
+Mods, radio and XE copy together, because the patches the PC builds for them match exactly its set of enabled mods. Files the PC no longer has are moved to `backups` on the device. Native mods (a PC library) aren't shared, and XE isn't shared to a v4 app.
 
 The launcher serves only while sharing is on, only to private network addresses, and only the files it listed. The pairing code changes each time sharing starts, and ten wrong codes stop the share. Nothing goes from the device to the PC.
 

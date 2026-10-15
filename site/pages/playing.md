@@ -66,7 +66,7 @@ On an HDR display, turn on HDR in the system first (on Windows, **Settings > Dis
 
 ## Immersive camera
 
-**F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. Choose OFF, SUBTLE, DEFAULT or STRONG, or set G-force, lean, speed shake and head motion on their own rows (CUSTOM). Changes apply at once and keep your own save. The immersive camera isn't available on Android or with the v4 title update yet.
+**F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. Choose OFF, SUBTLE, DEFAULT or STRONG, or set G-force, lean, speed shake and head motion on their own rows (CUSTOM). Changes apply at once and keep your own save. On Android it comes with the mods the PC shares over Wi-Fi (not yet tried in a race there). It isn't available with the v4 title update yet.
 
 ## Sound mix
 
@@ -78,7 +78,7 @@ On an HDR display, turn on HDR in the system first (on Windows, **Settings > Dis
 
 ## Custom radio stations
 
-The launcher's **Radio** button turns your music into radio stations. Each one takes the place of Horizon Bass Arena, Pulse or Rocks, so you can have up to three. Give a station a name, add music folders or songs (any format FFmpeg reads), and optionally a PNG logo, which is fitted into 210 by 100 pixels for the station popup. **Keep the station's own songs too** adds your music to the station's playlist instead of replacing it. **Build stations** encodes the music and turns the stations on from the next start; the name shows in the game's radio options and loading tips in every language. Building needs [FFmpeg](https://ffmpeg.org/download.html) (on Windows, `winget install Gyan.FFmpeg`); **Locate FFmpeg** points the launcher at it. The stations copy the game's 680 MB radio bank, so they need that much disk space, and your music files are never changed. Deleting a station brings the original back after the next build.
+The launcher's **Radio** button turns your music into radio stations. Each one takes the place of Horizon Bass Arena, Pulse or Rocks, so you can have up to three. Give a station a name, add music folders or songs (any format FFmpeg reads), and optionally a PNG logo, which is fitted into 210 by 100 pixels for the station popup. **Keep the station's own songs too** adds your music to the station's playlist instead of replacing it. **Build stations** encodes the music and turns the stations on from the next start; the name shows in the game's radio options and loading tips in every language. Building needs [FFmpeg](https://ffmpeg.org/download.html) (on Windows, `winget install Gyan.FFmpeg`); **Locate FFmpeg** points the launcher at it. The stations copy the game's 680 MB radio bank, so they need that much disk space, and your music files are never changed. Deleting a station brings the original back after the next build. Android gets the stations the PC built through the Wi-Fi share.
 
 ## Language
 
@@ -151,7 +151,8 @@ Saves are in the install's state folder, `%LOCALAPPDATA%\PinyonShift\source\<ver
 
 - **Backups.** After each save, the save files are copied to `backups\saves`. The last 10 are kept. Restore one from **SETTINGS > PROFILE > SAVE BACKUPS**.
 - **Photos.** <kbd>F8</kbd> writes PNGs to the `photos` folder in the state folder. Press <kbd>F2</kbd> first for a photo without the HUD.
-- **Saves from Xenia.** A Xenia save is signed with its profile's XUID, so copying it over doesn't work. Import it with the tool from a repository checkout:
+- **A save from another install.** On Linux and macOS, the launcher's **Import a save** takes another Pinyon Shift install folder or a ZIP of one; the current save is backed up first, and a save from the cheats or mods tree stays in that tree. From a terminal on any system: `python3 tools/pinyon.py import-save <folder-or-zip>`.
+- **Saves from Xenia.** A Xenia save is signed with its profile's XUID, so copying it over doesn't work. On Linux and macOS, **Import a save** has a Xenia option; on any system, `python3 tools/pinyon.py import-save --xenia <folder>` does it, or on Windows the tool from a repository checkout:
 
 ```powershell
 .\tools\import-xenia-save.ps1 -StateRoot .local\preview -Source 'C:\Xenia\content\E030000012345678\4D5309C9'
@@ -169,4 +170,4 @@ Turn cheats on in **SETTINGS > CHEATS** and restart. The game then plays a separ
 
 ## Treasure Map
 
-The Treasure Map add-on was sold through a service that no longer exists. It's included and on by default. Turn it off in the launcher's **Settings**. Once a save's map is revealed it stays revealed.
+The Treasure Map add-on was sold through a service that no longer exists. It's included and on by default. Turn it off with **F6 > GAMEPLAY > TREASURE MAP** or in the launcher's **Settings**. Once a save's map is revealed it stays revealed.

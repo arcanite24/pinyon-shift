@@ -31,8 +31,9 @@ verifies it, builds the game on your Mac and starts it.
    awake until the build is done: about 20 minutes on an M4 Pro.
 5. Choose **Play**. Press **F6** in game for settings.
 
-On an M4 Pro, free roam runs at a median of about 105 fps at the default 1x
-resolution.
+On an M4 Pro, free roam holds 120 fps on a 120 Hz display at the default 1x
+resolution (median 8.35 ms a frame). Other busy apps on the Mac cause most of
+the slow frames that remain.
 
 ## From a terminal
 
@@ -66,6 +67,12 @@ external drive.
   step 2 above.
 - **Setup failed.** The launcher names the step and the log. The same report
   is in `.local/logs/setup-error.json`; attach it when you file an issue.
+- **The window turns black or one colour after a resize.** Fixed in ShiftGlue
+  f4131ff (2026-10-15): the presenter now recreates the Vulkan surface on
+  each resize. Rebuild if your build is older.
+- **Free roam is too bright and flashes.** Fixed in ShiftGlue 6e3f434
+  (2026-10-15): GPU memory tracking used 16 KB host pages, so CPU writes
+  next to the 4 KB exposure resolve discarded it. It now tracks 4 KB pages.
 - **The build cannot find a compiler.** Run `xcode-select --install` in
   Terminal, or reinstall the Command Line Tools from Apple's developer site.
 
@@ -78,8 +85,16 @@ delete the app and `~/Library/Application Support/PinyonShift`.
 
 | System | Status |
 | --- | --- |
-| Mac mini, M4 Pro, macOS 26 | Release app to a built game in 18 minutes, installed on an external drive; free roam route passes |
+| Mac mini, M4 Pro, macOS 26 | Release app to a built game in 18 minutes, installed on an external drive; free roam route passes. Dev 04feee2 (2026-10-15): base and v4 builds, all 21 DLC packages imported from a ZIP and enabled, 1000 Club offline and the Horizon Rally entry on v4 |
 | Other Apple silicon Macs | Not tested yet |
 
-DLC import, the title update build and crash bundles are not available on
-macOS yet.
+DLC, the title update, saves from another PC or from Xenia, crash reports,
+the hardware check and the Android app use the same launcher panels and
+commands as on Linux; see
+[DLC, the title update and saves](LINUX.md#dlc-the-title-update-and-saves).
+On a Mac, `portable.txt` goes in the folder that holds `Pinyon Shift.app`.
+DLC import and the hardware check (through the MoltenVK the build ships)
+were checked on the Mac mini. On 2026-10-15 the title update was imported from
+its ZIP and `pinyon.py title-update build` made `macos-arm64-v4` in about 4.5
+minutes after the base build; v4 started from `pinyon.py launch` with its
+profile backup, shader preparation and offline 1000 Club.

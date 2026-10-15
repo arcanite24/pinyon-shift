@@ -144,6 +144,18 @@
       }
     },
     {
+      "name": "linux-amd64-v4",
+      "displayName": "Linux AMD64 Release, FH1 v4 title update",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
+        "PINYON_SHIFT_MANIFEST": "${sourceDir}/config/rexglue/pinyon_shift_v4_manifest.toml",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated-v4",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated-v4/default"
+      }
+    },
+    {
       "name": "macos-base",
       "hidden": true,
       "generator": "Ninja",
@@ -187,6 +199,18 @@
       "inherits": "macos-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-arm64-v4",
+      "displayName": "macOS Apple silicon Release, FH1 v4 title update",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
+        "PINYON_SHIFT_MANIFEST": "${sourceDir}/config/rexglue/pinyon_shift_v4_manifest.toml",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated-v4",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated-v4/default"
       }
     },
     {
@@ -286,6 +310,10 @@
       "configurePreset": "linux-amd64-v3"
     },
     {
+      "name": "linux-amd64-v4",
+      "configurePreset": "linux-amd64-v4"
+    },
+    {
       "name": "macos-arm64-debug",
       "configurePreset": "macos-arm64-debug"
     },
@@ -296,6 +324,10 @@
     {
       "name": "macos-arm64-release",
       "configurePreset": "macos-arm64-release"
+    },
+    {
+      "name": "macos-arm64-v4",
+      "configurePreset": "macos-arm64-v4"
     },
     {
       "name": "android-arm64-debug",

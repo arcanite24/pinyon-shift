@@ -126,7 +126,7 @@ cells = [
   "yes: launcher ZIP",
   "yes: launcher archive; **Add to Steam** for Game Mode",
   "partly: launcher app; not notarized, so it is approved once in System Settings",
-  "partly: an APK built by the Windows launcher, installed over Wi-Fi or USB",
+  "partly: an APK built by the PC launcher, installed over Wi-Fi or USB (built off Windows: untested)",
 ]
 
 [[platform]]
@@ -136,7 +136,7 @@ cells = [
   "yes: in the launcher",
   "yes: in the launcher",
   "yes: in the launcher",
-  "partly: rebuild the APK on the PC",
+  "partly: rebuild the APK on the PC; the app offers it",
 ]
 
 [[platform]]
@@ -172,7 +172,7 @@ cells = [
 [[platform]]
 feature = "Immersive camera"
 link = "playing.md#immersive-camera"
-cells = ["yes", "yes", "yes", "not yet"]
+cells = ["yes", "yes", "yes", "partly: shared from the PC with its mods; not tried in a race yet"]
 
 [[platform]]
 feature = "Sound mix"
@@ -192,7 +192,7 @@ cells = ["yes: MP3 and WAV", "yes: MP3 and WAV", "partly: WAV only", "partly: WA
 [[platform]]
 feature = "Custom radio stations"
 link = "playing.md#custom-radio-stations"
-cells = ["yes", "yes", "yes", "not yet"]
+cells = ["yes", "yes", "yes", "partly: built on the PC and shared; not listened to yet"]
 
 [[platform]]
 feature = "Asset and texture mods"
@@ -202,15 +202,15 @@ cells = ["yes", "yes", "yes", "partly: DXT texture replacements need a GPU with 
 [[platform]]
 feature = "Forza Horizon XE"
 link = "modding.md#the-xe-mod"
-cells = ["yes", "yes", "yes", "not yet"]
+cells = ["yes", "yes", "yes", "partly: shared from the PC to the base app; loads, not played through yet"]
 
 [[platform]]
 feature = "DLC import"
 link = "dlc.md"
 cells = [
   "yes",
-  "not yet: [Linux backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX_PORT_BACKLOG.md)",
-  "not yet",
+  "yes: in the launcher; on the Steam Deck a DLC car bought from the Autoshow and driven",
+  "partly: in the launcher; on a Mac the DLC cars load and drive in a scripted route",
   "partly: imported on the PC, copied with the game",
 ]
 
@@ -219,8 +219,8 @@ feature = "Title update v4"
 link = "dlc.md#title-update-v4"
 cells = [
   "yes",
-  "not yet: [Linux backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX_PORT_BACKLOG.md)",
-  "not yet",
+  "partly: in the launcher; on the Steam Deck 1000 Club runs and the Rally reaches its stage intro",
+  "partly: in the launcher; 1000 Club and the Rally entry reached in scripted routes",
   "partly: built on the PC",
 ]
 

@@ -27,6 +27,22 @@ def tool(name):
 
 dlc = tool("manage-fh1-dlc")
 RALLY = dlc.RALLY
+
+
+def disc_path(game: Path, relative: str) -> Path:
+    """game/relative, matched without case: an extracted disc keeps the
+    disc's spelling (media/stringtables), and Linux file systems tell it
+    apart from the names used here. Falls back to the plain path."""
+    current = game
+    for part in relative.split("/"):
+        exact = current / part
+        if not exact.exists() and current.is_dir():
+            exact = next((child for child in current.iterdir()
+                          if child.name.lower() == part.lower()), exact)
+        current = exact
+    return current
+
+
 STAGE_ROUTES = (*range(1, 22), *range(41, 48))
 SERIES_ROUTES = ((11, 10, 12, 44), (13, 14, 15, 45), (4, 5, 6, 42),
                  (19, 20, 21, 47), (7, 8, 9, 43), (16, 17, 18, 46), (1, 2, 3, 41))
@@ -248,7 +264,7 @@ def prepare_entry(content: Path, game: Path, extractor: Path, output: Path, stag
         subprocess.run([str(extractor), "--archive-member", str(source), member, str(target)],
                        check=True, capture_output=True, text=True)
         return target.read_bytes()
-    modes = game / "media/gamemodes.zip"
+    modes = disc_path(game, "media/gamemodes.zip")
     activities = extract(modes, "Colorado/activities.xml", "base-activities.xml")
     flow = extract(modes, "game_festival_race_flow.xml", "base-race-flow.xml")
     owned = content / "Media/DLCZips/1600_pri_65/Media/gamemodes/ColoradoDirt/rally_event_activations.xml"
@@ -267,7 +283,7 @@ def prepare_entry(content: Path, game: Path, extractor: Path, output: Path, stag
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
     localized = content / "Media/DLCZips/StringTables_pri_1750.zip"
-    languages = [p for p in (game / "media/StringTables").glob("*.zip") if p.stem not in ("DEV", "LOC")]
+    languages = [p for p in disc_path(game, "media/StringTables").glob("*.zip") if p.stem not in ("DEV", "LOC")]
     if not languages or not any(p.stem == "EN" for p in languages):
         raise ValueError("base-disc localized string tables are missing")
     for source in languages:
@@ -316,7 +332,7 @@ def verify_base(game: Path) -> dict:
     manifest = json.loads((ROOT / "config/supported-dumps.json").read_text(encoding="utf-8"))
     base = next(d for d in manifest["dumps"] if d["id"] == "forza-horizon-usa-ms-2505-retail-base")
     for entry in (*base["executables"], *base["rally_adapter_inputs"]):
-        path = game / entry["guest_path"]
+        path = disc_path(game, entry["guest_path"])
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest().upper()
         if path.stat().st_size != entry["size_bytes"] or digest != entry["sha256"]:
@@ -370,7 +386,7 @@ def build_assets(content: Path, game: Path, extractor: Path, output: Path,
     merge = extract("media/db/patch/1600000_merge.slt", "rally.slt")
     database = media / "db/gamedb.slt"
     database.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(game / "media/db/gamedb.slt", database)
+    shutil.copy2(disc_path(game, "media/db/gamedb.slt"), database)
     with closing(sqlite3.connect(database)) as db, db:
         prepare_upgrade_data(db)
         db.execute("ATTACH DATABASE ? AS rally", (str(merge),))

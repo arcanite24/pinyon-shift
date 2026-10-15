@@ -99,6 +99,27 @@ class DlcImportTests(unittest.TestCase):
                 dlc.stage_inputs(root / "bad.zip", root, manifest)
             self.assertFalse((root.parent / "escape").exists())
 
+    def test_unreadable_game_zips_in_a_folder_are_skipped(self):
+        # An installed package's Media/DLCZips use a method Python cannot
+        # inflate; choosing such a folder names the problem, not a traceback.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, manifest, _ = self.fixture(root)
+            folder = root / "installed/Media/DLCZips"
+            folder.mkdir(parents=True)
+            archive_path = folder / "1300_pri_65.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("Media/cars/a.bin", b"LIVE game data")
+            data = bytearray(archive_path.read_bytes())
+            for signature, offset in ((b"PK\x03\x04", 8), (b"PK\x01\x02", 10)):
+                at = data.index(signature) + offset
+                data[at:at + 2] = (9).to_bytes(2, "little")  # Deflate64
+            archive_path.write_bytes(data)
+            with self.assertRaisesRegex(ValueError, "no FH1 DLC packages found"):
+                dlc.stage_inputs(root / "installed", root, manifest)
+            with self.assertRaisesRegex(ValueError, "cannot be read"):
+                dlc.stage_inputs(archive_path, root, manifest)
+
     def test_failed_extraction_never_publishes_and_retry_preserves_save(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

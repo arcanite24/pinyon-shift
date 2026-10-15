@@ -542,18 +542,21 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
         self.assertIn("constexpr uint32_t kConfigSchema = 29", app)
         self.assertIn(".schema", app)
+        # create-crash-report.ps1 is a wrapper over tools/pinyon_crash.py, the
+        # crash bundler every OS uses (LX-3.5).
+        crash_report = (ROOT / "tools/pinyon_crash.py").read_text(encoding="utf-8")
         for setting in ("anisotropic_override", "swap_post_effect", "draw_resolution_scale_x"):
             self.assertIn(setting, app)
-            self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+            self.assertIn(setting, crash_report)
         for setting in ("host_present_fps_limit", "host_present_sleep_spin",
                         "pinyon_shift_fh1_render_fps_limit"):
             self.assertIn(setting, app)
             self.assertIn(setting, (ROOT / "tools/set-graphics-experiment.ps1").read_text(encoding="utf-8"))
-            self.assertIn(setting, (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8"))
+            self.assertIn(setting, (ROOT / "tools/pinyon_config.py").read_text(encoding="utf-8"))
+            self.assertIn(setting, crash_report)
         # The native renderer is the only renderer: crash reports carry it as
         # a constant rather than reading a retired renderer choice.
-        crash_report = (ROOT / "tools/create-crash-report.ps1").read_text(encoding="utf-8")
-        self.assertIn("renderer = 'native'", crash_report)
+        self.assertIn('"renderer": "native"', crash_report)
         for retired in ("fh1_renderer", "pinyon_shift_native_renderer", "xenos_authority",
                         "'xenos'"):
             self.assertNotIn(retired, crash_report)

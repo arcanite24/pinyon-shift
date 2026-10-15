@@ -88,8 +88,10 @@ class PortableLauncherContractTests(unittest.TestCase):
         for name in ('"TEMP"', '"TMP"', '"PSModuleAnalysisCachePath"', '"PINYON_SHIFT_INSTALL_ROOT"',
                      '"PINYON_SHIFT_STATE_ROOT"', '"PINYON_SHIFT_GAME_ROOT"'):
             self.assertIn(name, self.portable)
-        # Crash reports stage in the temporary folder the launcher hands down.
-        self.assertIn("[IO.Path]::GetTempPath()", read("tools/create-crash-report.ps1"))
+        # Crash reports stage in the temporary folder the launcher hands down
+        # (create-crash-report.ps1 is a wrapper over tools/pinyon_crash.py).
+        self.assertIn("pinyon.py", read("tools/create-crash-report.ps1"))
+        self.assertIn("tempfile.gettempdir()", read("tools/pinyon_crash.py"))
 
     def test_location_line_shows_portable_mode(self):
         xaml = read("launcher/PinyonShift.Launcher/MainWindow.xaml")

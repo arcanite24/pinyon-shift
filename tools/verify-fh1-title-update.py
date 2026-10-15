@@ -146,7 +146,10 @@ def install(extracted: Path, update: dict, state_root: Path) -> dict:
 
 def verify(package: Path, base_root: Path, extractor: Path, install_root: Path | None = None) -> dict:
     if package.is_dir():
-        candidates = list(package.rglob("tu00000001_00000000"))
+        # Without case: a folder copied from Windows may spell it TU00000001_00000000,
+        # and ext4 (or case-sensitive APFS) tells the spellings apart (LX-3.6).
+        candidates = [path for path in package.rglob("*")
+                      if path.name.lower() == "tu00000001_00000000" and path.is_file()]
         if len(candidates) != 1:
             raise ValueError("expected exactly one tu00000001_00000000 package in the folder")
         package = candidates[0]

@@ -33,38 +33,46 @@
         <Image Grid.Row="0" Source="avares://PinyonShiftLauncher/Branding/logo-light.png" Height="22"
                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="32,0,0,0"/>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="72,40,72,40" MaxWidth="760" HorizontalAlignment="Left" Spacing="0">
-                <TextBlock x:Name="Headline" Text="Build your copy" FontSize="46" FontWeight="Bold"/>
+        <ScrollViewer Grid.Row="1" x:Name="BodyScroll" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="64,32,64,40" MaxWidth="880" HorizontalAlignment="Left" Spacing="0">
+                <TextBlock x:Name="Headline" Text="Build your copy" FontSize="46" FontWeight="Bold"
+                           TextWrapping="Wrap"/>
                 <TextBlock x:Name="Subhead" Margin="0,10,0,0" FontSize="16" TextWrapping="Wrap"
                            Foreground="{StaticResource MutedBrush}"
                            Text="Verified, extracted and compiled on this computer. Nothing is uploaded."/>
 
-                <!-- Choosing the disc. -->
-                <Border x:Name="SetupPanel" Margin="0,30,0,0" Padding="26,22" CornerRadius="14"
+                <!-- Choosing the disc image or an extracted game folder. -->
+                <Border x:Name="SetupPanel" Margin="0,28,0,0" Padding="26,22" CornerRadius="14"
                         Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}"
                         BorderThickness="1">
                     <StackPanel Spacing="14">
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" x:Name="BrowseButton" Classes="quiet"
-                                    Content="Choose disc image" Click="Browse_Click"/>
-                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock x:Name="DiscText" Text="Drop your Forza Horizon disc image (.iso) here"
-                                           FontSize="15" TextWrapping="Wrap"/>
-                                <TextBlock Text="The USA retail disc (MS-2505), dumped from your own copy." Margin="0,4,0,0"
-                                           FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </DockPanel>
-                        <CheckBox x:Name="OwnershipCheck" IsCheckedChanged="Ownership_Changed">
+                        <StackPanel>
+                            <TextBlock x:Name="DiscText" Text="Drop your Forza Horizon disc image (.iso) or extracted folder here"
+                                       FontSize="15" TextWrapping="Wrap"/>
+                            <TextBlock Text="The USA retail disc (MS-2505), dumped from your own copy." Margin="0,4,0,0"
+                                       FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <WrapPanel>
+                            <Button x:Name="BrowseButton" Classes="quiet" Content="Choose disc image"
+                                    Click="Browse_Click" Margin="0,0,10,0"/>
+                            <Button x:Name="BrowseFolderButton" Classes="quiet" Content="Choose extracted folder"
+                                    Click="BrowseFolder_Click"/>
+                        </WrapPanel>
+                        <CheckBox x:Name="OwnershipCheck" AutomationProperties.Name="I own this copy" IsCheckedChanged="Ownership_Changed">
                             <TextBlock Text="I own this copy and dumped it from my own disc." TextWrapping="Wrap"/>
                         </CheckBox>
-                        <TextBlock x:Name="InstallText" FontSize="12" Foreground="{StaticResource FaintBrush}"
-                                   TextWrapping="Wrap"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" x:Name="ChooseInstallRootButton" Classes="link"
+                                    Content="Change" IsVisible="False" Click="ChooseInstallRoot_Click"
+                                    ToolTip.Tip="Existing files and saves stay where they are."/>
+                            <TextBlock x:Name="InstallText" FontSize="12" Foreground="{StaticResource FaintBrush}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </DockPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- Apple's developer tools, before anything else on a Mac. -->
-                <Border x:Name="AppleToolsPanel" IsVisible="False" Margin="0,30,0,0" Padding="26,22"
+                <Border x:Name="AppleToolsPanel" IsVisible="False" Margin="0,28,0,0" Padding="26,22"
                         CornerRadius="14" Background="{StaticResource SurfaceBrush}"
                         BorderBrush="{StaticResource AmberBrush}" BorderThickness="1">
                     <StackPanel Spacing="12">
@@ -78,63 +86,271 @@
                     </StackPanel>
                 </Border>
 
-                <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,30,0,0">
+                <WrapPanel Margin="0,28,0,0">
                     <Button x:Name="PrimaryButton" Classes="primary" Content="Verify and build"
-                            Click="Primary_Click" IsEnabled="False"/>
+                            Click="Primary_Click" IsEnabled="False" Margin="0,0,14,10"/>
                     <Button x:Name="SteamButton" Classes="quiet" Content="Add to Steam" IsVisible="False"
-                            Click="Steam_Click" VerticalAlignment="Stretch"/>
+                            Click="Steam_Click" VerticalAlignment="Stretch"
+                            VerticalContentAlignment="Center" Margin="0,0,14,10"/>
                     <Button x:Name="RebuildButton" Classes="quiet" Content="Rebuild" IsVisible="False"
-                            Click="Rebuild_Click" VerticalAlignment="Stretch"/>
-                </StackPanel>
-                <TextBlock x:Name="StatusText" Margin="0,16,0,0" FontSize="13" TextWrapping="Wrap"
+                            Click="Rebuild_Click" VerticalAlignment="Stretch"
+                            VerticalContentAlignment="Center" Margin="0,0,14,10"/>
+                </WrapPanel>
+
+                <!-- One panel at a time below Play, as the Windows launcher's
+                     Settings, DLC, Radio and Android buttons. -->
+                <WrapPanel x:Name="NavPanel" IsVisible="False" Margin="0,4,0,0">
+                    <Button x:Name="SettingsButton" Classes="quiet nav" Content="Settings" Click="SettingsButton_Click"
+                            ToolTip.Tip="Choose the resolution, output scaling and the Treasure Map."/>
+                    <Button x:Name="DlcButton" Classes="quiet nav" Content="DLC and v4" Click="DlcButton_Click"
+                            ToolTip.Tip="Import and manage your owned downloadable content and title update v4."/>
+                    <Button x:Name="RadioButton" Classes="quiet nav" Content="Radio" Click="RadioButton_Click"
+                            ToolTip.Tip="Make radio stations from your own music."/>
+                    <Button x:Name="AndroidButton" Classes="quiet nav" Content="Android" Click="AndroidButton_Click"
+                            ToolTip.Tip="Build the game for your Android device and install it over Wi-Fi."/>
+                    <Button x:Name="SavesButton" Classes="quiet nav" Content="Import a save" Click="SavesButton_Click"
+                            ToolTip.Tip="Bring a save from another install, a ZIP or Xenia."/>
+                </WrapPanel>
+
+                <TextBlock x:Name="StatusText" Margin="0,12,0,0" FontSize="13" TextWrapping="Wrap"
                            Foreground="{StaticResource MutedBrush}"/>
 
-                <!-- The optional Forza Horizon XE mod, from the player's own downloads. -->
-                <Border x:Name="XePanel" IsVisible="False" Margin="0,24,0,0" Padding="22,18"
+                <!-- A caught crash (pinyon.py launch / crash-report). -->
+                <Border x:Name="CrashPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22" CornerRadius="14"
+                        Background="#1D1512" BorderBrush="{StaticResource RedBrush}" BorderThickness="1">
+                    <StackPanel Spacing="14">
+                        <TextBlock Foreground="#E3D3CC" TextWrapping="Wrap" LineHeight="21" FontSize="14"
+                                   Text="A privacy-safe diagnostic ZIP is ready. Report crash opens a prefilled GitHub issue and shows the ZIP to attach. It holds no game files, saves, generated code or memory dump."/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Crash ID" FontSize="12.5" Foreground="#C8B7AF" VerticalAlignment="Center"/>
+                            <SelectableTextBlock x:Name="CrashIdText" FontFamily="monospace" FontSize="12.5"
+                                                 Foreground="{StaticResource FogBrush}" Text="pscrash-v1-pending"/>
+                        </StackPanel>
+                        <WrapPanel>
+                            <Button Classes="quiet" Content="Dismiss" Click="DismissCrash_Click"
+                                    ToolTip.Tip="Keep the report in the reports folder and return to Play."/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Settings read before the game starts (pinyon.py config, hardware). -->
+                <Border x:Name="SettingsPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22"
                         CornerRadius="14" Background="{StaticResource SurfaceBrush}">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" x:Name="XeControls" Orientation="Horizontal"
-                                    Spacing="10" VerticalAlignment="Center">
-                            <Button x:Name="XeDownloadButton" Classes="quiet" Content="Download from ModDB"
-                                    Click="XeDownload_Click"/>
-                            <Button x:Name="XeInstallButton" Classes="quiet" Content="Install XE" Click="XeInstall_Click"/>
-                            <Button x:Name="XeToggleButton" Classes="quiet" Content="Use XE" IsEnabled="False"
-                                    Click="XeToggle_Click" MinWidth="88"/>
-                        </StackPanel>
-                        <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
-                            <TextBlock Text="Forza Horizon XE mod" FontSize="14"/>
-                            <TextBlock x:Name="XeStatusText" Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap"
+                    <StackPanel Spacing="14">
+                        <Grid ColumnDefinitions="*,18,*,18,*" RowDefinitions="Auto,Auto">
+                            <TextBlock Text="Graphics API" FontSize="13" Foreground="{StaticResource MutedBrush}"/>
+                            <TextBlock Grid.Row="1" Text="Vulkan" Margin="0,8,0,0" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="Internal resolution" FontSize="13"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ResolutionCombo" Margin="0,8,0,0"
+                                      HorizontalAlignment="Stretch" SelectedIndex="0"
+                                      SelectionChanged="GraphicsChoice_Changed">
+                                <ComboBoxItem Tag="1">1×</ComboBoxItem>
+                                <ComboBoxItem Tag="2">2×</ComboBoxItem>
+                                <ComboBoxItem Tag="3">3×</ComboBoxItem>
+                                <ComboBoxItem Tag="4">4×</ComboBoxItem>
+                            </ComboBox>
+                            <TextBlock Grid.Column="4" Text="Output scaling" FontSize="13"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="4" x:Name="OutputScalingCombo" Margin="0,8,0,0"
+                                      HorizontalAlignment="Stretch" SelectedIndex="0"
+                                      SelectionChanged="GraphicsChoice_Changed">
+                                <ComboBoxItem Tag="bilinear">Bilinear</ComboBoxItem>
+                                <ComboBoxItem Tag="cas">CAS sharpening</ComboBoxItem>
+                                <ComboBoxItem Tag="fsr">FSR 1</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
+                        <TextBlock x:Name="ResolutionLineText" FontSize="13.5" TextWrapping="Wrap"/>
+                        <DockPanel Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Right" x:Name="UseRecommendedButton" Classes="quiet"
+                                    Content="Use recommended" VerticalAlignment="Center" Margin="16,0,0,0"
+                                    IsEnabled="False" Click="UseRecommended_Click"/>
+                            <StackPanel>
+                                <TextBlock Text="This computer" FontSize="13" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="HardwareText" Margin="0,6,0,0" FontSize="13.5" TextWrapping="Wrap"
+                                           Text="Checking the graphics card…"/>
+                                <TextBlock x:Name="RecommendationText" Margin="0,4,0,0" FontSize="12.5" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="HardwareWarningText" Margin="0,6,0,0" FontSize="12.5" TextWrapping="Wrap"
+                                           Foreground="{StaticResource AmberBrush}" IsVisible="False"/>
+                                <Button x:Name="DriverPageButton" Classes="link" Margin="-8,2,0,0" IsVisible="False"
+                                        Content="Open the driver download page" Click="DriverPage_Click"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <CheckBox x:Name="TreasureMapCheck" AutomationProperties.Name="Treasure Map" IsChecked="True">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="Treasure Map"/><Run Foreground="{StaticResource MutedBrush}"
+                                     Text=" · Every discount sign and barn find on the map. Once applied, it stays with that save."/>
+                            </TextBlock>
+                        </CheckBox>
+                        <TextBlock x:Name="GraphicsStatusText" TextWrapping="Wrap" FontSize="12.5"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Text="Everything else is in the game: press F6 while playing."/>
+                        <WrapPanel x:Name="GraphicsControls">
+                            <Button x:Name="SaveGraphicsButton" Classes="quiet" Content="Save" MinWidth="96"
+                                    Click="SaveGraphics_Click" Margin="0,0,10,8"/>
+                            <Button Classes="quiet" Content="Cancel" Click="CloseGraphics_Click" Margin="0,0,10,8"/>
+                            <Button x:Name="ResetGraphicsButton" Classes="link" Content="Reset to defaults"
+                                    Click="ResetGraphics_Click" Margin="0,0,4,8" VerticalAlignment="Center"/>
+                            <Button x:Name="RestoreGraphicsButton" Classes="link" Content="Restore backup"
+                                    Click="RestoreGraphics_Click" Margin="0,0,0,8" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- DLC, title update v4 and the XE mod (pinyon.py dlc, title-update, xe). -->
+                <Border x:Name="DlcPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Spacing="12">
+                        <TextBlock FontSize="13" TextWrapping="Wrap" LineHeight="20" Foreground="{StaticResource MutedBrush}"
+                                   Text="Import your own FH1 packages, folders or ZIPs (or drop them here). Imports start disabled. Gameplay support, including Rally on the base disc, is still being verified."/>
+                        <TextBlock x:Name="DlcSummaryText" FontSize="14"/>
+                        <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="DlcList" Spacing="10" Margin="0,0,14,0"/>
+                        </ScrollViewer>
+                        <TextBlock x:Name="DlcStatusText" TextWrapping="Wrap" FontSize="12.5"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                        <WrapPanel x:Name="DlcControls">
+                            <Button Classes="quiet" Content="Import package or ZIP" Click="ImportDlc_Click" Margin="0,0,10,8"/>
+                            <Button Classes="quiet" Content="Import folder" Click="ImportDlcFolder_Click" Margin="0,0,10,8"/>
+                        </WrapPanel>
+
+                        <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4,0,4"/>
+                        <!-- Optional FH1 v4 title update (TITLE_UPDATE_V4_BACKLOG TU-2). -->
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="FH1 title update v4" FontSize="14"/>
+                            <TextBlock x:Name="TitleUpdateStatusText" FontSize="12" TextWrapping="Wrap"
                                        Foreground="{StaticResource MutedBrush}" Text="Checking…"/>
+                            <CheckBox x:Name="TitleUpdateClubCheck" AutomationProperties.Name="1000 Club offline" Margin="0,2,0,4" IsEnabled="False"
+                                      Click="TitleUpdateClub_Click">
+                                <TextBlock TextWrapping="Wrap" FontSize="12">
+                                    <Run Text="1000 Club offline"/><Run Foreground="{StaticResource MutedBrush}"
+                                         Text=" · Goals are confirmed locally instead of by the closed Forza server."/>
+                                </TextBlock>
+                            </CheckBox>
+                            <WrapPanel x:Name="TitleUpdateControls">
+                                <Button x:Name="TitleUpdateToggleButton" Classes="quiet" Content="Use v4" IsEnabled="False"
+                                        MinWidth="88" Click="TitleUpdateToggle_Click" Margin="0,0,10,8"/>
+                                <Button Classes="quiet" Content="Import update" Click="ImportTitleUpdate_Click"
+                                        Margin="0,0,10,8" ToolTip.Tip="Choose the title update package or a ZIP of it."/>
+                                <Button Classes="quiet" Content="Import update folder" Click="ImportTitleUpdateFolder_Click"
+                                        Margin="0,0,10,8" ToolTip.Tip="Choose the folder that holds your title update."/>
+                            </WrapPanel>
                         </StackPanel>
-                    </DockPanel>
+
+                        <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4,0,4"/>
+                        <!-- The optional Forza Horizon XE mod, from the player's own downloads. -->
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Forza Horizon XE mod" FontSize="14"/>
+                            <TextBlock x:Name="XeStatusText" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}" Text="Checking…"/>
+                            <WrapPanel x:Name="XeControls" Margin="0,6,0,0">
+                                <Button x:Name="XeToggleButton" Classes="quiet" Content="Use XE" IsEnabled="False"
+                                        Click="XeToggle_Click" MinWidth="88" Margin="0,0,10,8"/>
+                                <Button x:Name="XeDownloadButton" Classes="quiet" Content="Download from ModDB"
+                                        Click="XeDownload_Click" Margin="0,0,10,8"/>
+                                <Button x:Name="XeInstallButton" Classes="quiet" Content="Install XE"
+                                        Click="XeInstall_Click" Margin="0,0,10,8"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
 
                 <!-- Custom radio stations (#445): each takes over Bass Arena, Pulse or Rocks. -->
-                <Border x:Name="RadioPanel" IsVisible="False" Margin="0,16,0,0" Padding="22,18"
+                <Border x:Name="RadioPanel" IsVisible="False" Margin="0,20,0,0" Padding="22,18"
                         CornerRadius="14" Background="{StaticResource SurfaceBrush}">
                     <StackPanel Spacing="12">
-                        <StackPanel>
-                            <TextBlock Text="Custom radio stations" FontSize="14"/>
-                            <TextBlock Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{StaticResource MutedBrush}"
-                                       Text="Each station takes the place of Bass Arena, Pulse or Rocks, with your name, logo and music. Build stations when you are done; they play from the next start."/>
-                        </StackPanel>
+                        <TextBlock FontSize="13" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
+                                   Text="Each station takes the place of Bass Arena, Pulse or Rocks, with your name, logo and music. Build stations when you are done; they play from the next start."/>
                         <StackPanel x:Name="RadioList" Spacing="14"/>
                         <TextBlock x:Name="RadioStatusText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{StaticResource MutedBrush}" Text="Checking…"/>
                         <WrapPanel x:Name="RadioControls">
                             <Button x:Name="RadioBuildButton" Classes="quiet" Content="Build stations"
-                                    Click="RadioBuild_Click" Margin="0,0,10,0"/>
+                                    Click="RadioBuild_Click" Margin="0,0,10,8"/>
                             <Button x:Name="RadioNewButton" Classes="quiet" Content="New station"
-                                    Click="RadioNew_Click" Margin="0,0,10,0"/>
+                                    Click="RadioNew_Click" Margin="0,0,10,8"/>
                             <Button x:Name="RadioFfmpegButton" Classes="quiet" Content="Locate FFmpeg"
-                                    Click="RadioFfmpeg_Click" IsVisible="False"/>
+                                    Click="RadioFfmpeg_Click" IsVisible="False" Margin="0,0,10,8"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
 
+                <!-- Android: the package, and installing it with the game files over Wi-Fi or USB. -->
+                <Border x:Name="AndroidPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Android package" FontSize="14"/>
+                            <TextBlock x:Name="AndroidApkText" Margin="0,0,0,8" FontSize="12.5" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}" Text="Not built yet."/>
+                            <WrapPanel>
+                                <Button x:Name="AndroidBuildButton" Classes="quiet" Content="Build APK"
+                                        Click="AndroidBuild_Click" Margin="0,0,10,8"
+                                        ToolTip.Tip="Build the Android package from this computer's game build."/>
+                                <Button x:Name="AndroidShowButton" Classes="quiet" Content="Show in folder"
+                                        Click="AndroidShow_Click" Margin="0,0,10,8"/>
+                                <Button x:Name="AndroidSaveButton" Classes="quiet" Content="Save a copy…"
+                                        Click="AndroidSave_Click" Margin="0,0,0,8"/>
+                            </WrapPanel>
+                            <TextBlock Text="Install over Wi-Fi" FontSize="14" Margin="0,12,0,0"/>
+                            <TextBlock x:Name="AndroidShareText" Margin="0,0,0,8" FontSize="12.5" TextWrapping="Wrap"
+                                       LineHeight="19" Foreground="{StaticResource MutedBrush}"
+                                       Text="No USB cable or developer options: share on Wi-Fi, scan the code with the device's camera and install the app. When it opens, it finds this computer and copies the game files, the v4 update, DLC, Rally data and your mods."/>
+                            <StackPanel x:Name="AndroidCodePanel" IsVisible="False" Margin="0,0,0,8" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="Pairing code" FontSize="13" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="AndroidCodeText" FontSize="26" FontWeight="SemiBold"
+                                               Foreground="{StaticResource AmberBrush}"/>
+                                </StackPanel>
+                                <SelectableTextBlock x:Name="AndroidUrlText" FontSize="12" TextWrapping="Wrap"
+                                                     Foreground="{StaticResource MutedBrush}"/>
+                            </StackPanel>
+                            <WrapPanel>
+                                <Button x:Name="AndroidShareButton" Classes="quiet" Content="Share on Wi-Fi"
+                                        Click="AndroidShare_Click" Margin="0,0,10,8"/>
+                                <Button x:Name="AndroidUsbButton" Classes="quiet" Content="Install over USB"
+                                        Click="AndroidUsb_Click" Margin="0,0,10,8" IsVisible="False"
+                                        ToolTip.Tip="For a device with USB debugging on: install the app and copy the game with adb."/>
+                            </WrapPanel>
+                            <TextBlock x:Name="AndroidStatusText" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                        </StackPanel>
+                        <StackPanel x:Name="AndroidQrPanel" Grid.Column="1" Margin="22,0,0,0" IsVisible="False"
+                                    VerticalAlignment="Top">
+                            <Border Background="White" CornerRadius="10" Padding="6">
+                                <Image x:Name="AndroidQrImage" Width="196" Height="196"
+                                       RenderOptions.BitmapInterpolationMode="None"/>
+                            </Border>
+                            <TextBlock Text="Scan with the device's camera" FontSize="12" Margin="0,8,0,0"
+                                       HorizontalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Bringing a save from another install or Xenia (pinyon.py import-save). -->
+                <Border x:Name="SavesPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Spacing="12">
+                        <TextBlock FontSize="13" TextWrapping="Wrap" LineHeight="20" Foreground="{StaticResource MutedBrush}"
+                                   Text="Bring your save from another Pinyon Shift install (its folder, its user folder or a ZIP of either, for example from another computer) or from Xenia. Every profile here is backed up first to backups/before-import-&lt;time&gt; in the saves folder; imported DLC and the other install are not changed."/>
+                        <WrapPanel x:Name="SavesControls">
+                            <Button Classes="quiet" Content="From an install folder" Click="ImportSaveFolder_Click" Margin="0,0,10,8"
+                                    ToolTip.Tip="Another install's .local/preview, its user folder, or the folder holding it."/>
+                            <Button Classes="quiet" Content="From a ZIP" Click="ImportSaveZip_Click" Margin="0,0,10,8"/>
+                            <Button Classes="quiet" Content="From Xenia" Click="ImportXeniaSave_Click" Margin="0,0,10,8"
+                                    ToolTip.Tip="Xenia's content/&lt;profile&gt;/4D5309C9 folder."/>
+                            <Button Classes="link" Content="Open the saves folder" Click="Saves_Click" Margin="0,0,0,8"
+                                    VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="SavesStatusText" FontSize="12.5" TextWrapping="Wrap"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Progress and the log. -->
-                <Border x:Name="ProgressPanel" IsVisible="False" Margin="0,24,0,0" Padding="22,18"
+                <Border x:Name="ProgressPanel" IsVisible="False" Margin="0,20,0,0" Padding="22,18"
                         CornerRadius="14" Background="{StaticResource SurfaceBrush}">
                     <StackPanel Spacing="10">
                         <DockPanel>
@@ -158,16 +374,27 @@
         </ScrollViewer>
 
         <DockPanel Grid.Row="2" Background="#0A0F0C" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" x:Name="VersionText" Margin="58,0,0,0" VerticalAlignment="Center"
-                       FontSize="12.5" Foreground="{StaticResource FaintBrush}"/>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,50,0" VerticalAlignment="Center">
+            <TextBlock DockPanel.Dock="Left" x:Name="VersionText" Margin="40,0,0,0" VerticalAlignment="Center"
+                       FontSize="12.5" Foreground="{StaticResource FaintBrush}" TextTrimming="CharacterEllipsis"/>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,32,0" VerticalAlignment="Center">
                 <Button x:Name="UpdateButton" Classes="link" IsVisible="False" Click="Update_Click"
                         Foreground="{StaticResource AccentBrush}"/>
                 <Button Classes="link" Content="Saves" Click="Saves_Click"/>
-                <Button Classes="link" Content="Logs" Click="Logs_Click"/>
-                <Button Classes="link" Content="Report a problem" Click="Report_Click"/>
+                <Button x:Name="LogsButton" Classes="link" Content="Logs" Click="Logs_Click"/>
+                <Button x:Name="ReportButton" Classes="link" Content="Report a problem" Click="Report_Click"/>
                 <Button Classes="link" Content="GitHub" Click="GitHub_Click"/>
+                <Button Classes="link" Content="Support" Click="Support_Click"
+                        ToolTip.Tip="The optional ways to support development. Pinyon Shift stays free."/>
             </StackPanel>
         </DockPanel>
+
+        <!-- Shown while a disc image, folder or DLC is dragged over the window. -->
+        <Border x:Name="DropOverlay" Grid.RowSpan="3" Background="#E60A0F0C" IsVisible="False"
+                IsHitTestVisible="False">
+            <Border BorderBrush="{StaticResource AccentBrush}" BorderThickness="2" CornerRadius="18" Margin="40">
+                <TextBlock x:Name="DropOverlayText" Text="Drop to use this disc image" FontSize="26" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+        </Border>
     </Grid>
 </Window>

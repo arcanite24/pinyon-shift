@@ -43,6 +43,12 @@
          PC has no certificate a phone would trust, and a pairing code guards
          the transfer. -->
 
+    <!-- When the PC's share offers a newer build of this app, the setup
+         screen hands it to the system installer (PackageInstaller), which
+         asks the player to confirm. Android also asks once to allow this app
+         to install apps. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:label="Pinyon Shift"
         android:icon="@mipmap/ic_launcher"

@@ -117,13 +117,16 @@ def rexsdk_dir() -> Path:
 
 
 def _pinned_tool(name: str) -> Path | None:
-    """CMake or Ninja from the Windows build's pinned toolchain
-    (config/release-toolchain.json, provisioned with the PC build)."""
-    if not WINDOWS:
-        return None
+    """CMake or Ninja from the PC build's pinned toolchain
+    (config/release-toolchain.json, provisioned with the PC build; the
+    "posix" entries on Linux and macOS, which keep them off PATH)."""
     try:
-        entry = json.loads((ROOT / "config" / "release-toolchain.json").read_text(
-            encoding="utf-8"))[name]
+        config = json.loads((ROOT / "config" / "release-toolchain.json").read_text(encoding="utf-8"))
+        if WINDOWS:
+            entry = config[name]
+        else:
+            host = "macos-arm64" if platform.system() == "Darwin" else "linux-x86_64"
+            entry = config["posix"][host][name]
     except (OSError, KeyError, json.JSONDecodeError):
         return None
     path = ROOT / entry["install_path"] / entry["executable"]
@@ -470,6 +473,12 @@ def package(args: argparse.Namespace, tools: Tools | None = None) -> int:
     run([tools.apksigner, "sign", "--ks", keystore, "--ks-pass", "pass:pinyon-local",
          "--key-pass", "pass:pinyon-local", "--out", output, aligned])
     size = output.stat().st_size
+    # What the package holds, for the launchers' Android panels (the same
+    # record tools/build-android.ps1 writes after the build).
+    (WORK / "pinyon-shift.json").write_text(json.dumps({
+        "schema_version": 1, "title_update_v4": bool(getattr(args, "title_update_v4", False)),
+        "built_utc": datetime.now(timezone.utc).isoformat(), "bytes": size}, indent=2) + "\n",
+        encoding="utf-8")
     print(json.dumps({"apk": str(output), "bytes": size, "version": version_name,
                       "libraries": [path.name for path in stripped]}))
     return 0

@@ -14,6 +14,9 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <string>
+
+#include <fmt/format.h>
 
 #include <rex/cvar.h>
 #include <rex/logging/macros.h>
@@ -36,6 +39,16 @@ REXCVAR_DEFINE_INT32(pinyon_shift_d3d_draw_scope, 0, "Pinyon Shift",
                      "is 2_10_10_10_AS_10_10_10_10), 1 every indexed draw call outside tiling "
                      "and predication (in draw mode, not those recorded into command buffers)")
     .range(0, 1)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(pinyon_shift_d3d_slice, 0, "Pinyon Shift",
+                     "D3D_RENDERER_RESEARCH DL-2.1, the first native slice: the title's "
+                     "indexed and auto-index D3D draw calls outside command-buffer recording "
+                     "whose state flush is plain (no shader bind, per-tile state, clip planes "
+                     "or wait) are replaced by a description of the call, and the GPU "
+                     "decoder runs display lists from a compiled form (0: off; 1: verify, "
+                     "the calls still run and lists still decode, both are compared; 2: on). "
+                     "Applied at the next frame. Base-disc build")
+    .range(0, 2)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 namespace pinyon_shift::native_renderer {
@@ -65,6 +78,11 @@ constexpr uint32_t kIndexBuffer = 12812;
 // The draw packet's viz query word: a byte index at +12563 into a table at
 // +12498.
 constexpr uint32_t kVizIndex = 12563, kVizTable = 12498;
+// The mask ANDed with the state mask for the per-tile state (0x8240F148).
+constexpr uint32_t kMaskPerTile = 40;
+// Bits 6 and 7 make the call write WAIT_UNTIL and 0x0E00/0x0E40 for mask
+// +32 bits 62-63 (0x824091B8).
+constexpr uint32_t kWaitFlags = 11072;
 
 struct RegisterGroup {
   uint32_t mask;      // dirty-mask offset
@@ -94,6 +112,7 @@ uint64_t Load64(uint32_t address) { return rex::byte_swap(*Guest<uint64_t>(addre
 uint16_t Load16(uint32_t address) { return rex::byte_swap(*Guest<uint16_t>(address)); }
 uint8_t Load8(uint32_t address) { return *Guest<uint8_t>(address); }
 void Store32(uint32_t address, uint32_t value) { *Guest<uint32_t>(address) = rex::byte_swap(value); }
+void Store64(uint32_t address, uint64_t value) { *Guest<uint64_t>(address) = rex::byte_swap(value); }
 
 // The runtime's GPU address of a CPU address (0xE0000000 and up is offset by
 // a page).
@@ -199,20 +218,11 @@ class Writer {
   bool overflow_ = false;
 };
 
-void Describe(Pending& pending, d3d_draw::Description& description) {
-  const uint32_t device = pending.device;
-  description.flags = 0;
-  description.word_count = 0;
-  const uint32_t scope = uint32_t(REXCVAR_GET(pinyon_shift_d3d_draw_scope));
-  if (scope == 0 && ((Load32(device + kColorInfoShadow) >> 16) & 0xF) != 10) {
-    description.flags = d3d_draw::kFlagDeclined;
-    return;
-  }
-  if (pending.overflow) {
-    description.flags = d3d_draw::kFlagOverflow;
-    return;
-  }
-  Writer writer(description);
+// The registers and loads the call's state flush writes, in its order, then
+// VGT_INDX_OFFSET (written by the call itself). With fetch_flush, also the
+// fetch constant flush's trailing 0x5000-0x5002 write (DL-1.2 leaves it to
+// the packets; a replaced call writes none).
+void DescribeFlush(const Pending& pending, uint32_t device, Writer& writer, bool fetch_flush) {
   const uint64_t* masks = pending.masks;
   // Float constants, 4 float4 a bit.
   writer.Blocks(masks[0], 0x4000, 16, device + kVsConstantShadow);
@@ -249,6 +259,15 @@ void Describe(Pending& pending, d3d_draw::Description& description) {
   for (const RegisterGroup& group : kStateGroups) writer.Group(group, masks[2], device);
   // Fetch constants, 6 registers a bit (low 32 bits).
   writer.Blocks(masks[3] << 32, 0x4800, 6, device + kFetchShadow);
+  if (fetch_flush && uint32_t(masks[3])) {
+    // 0x82415D50 ends with 0x5000-0x5002 = 0, 0x25000, 0 (verified in the
+    // decoder, DL-2.1 verify).
+    if (uint32_t* payload = writer.Entry(d3d_draw::kEntryRegisters, 0x5000, 3, 3)) {
+      payload[0] = 0;
+      payload[1] = rex::byte_swap(uint32_t(0x00025000));
+      payload[2] = 0;
+    }
+  }
   writer.Group(kFetchGroup2280, masks[3], device);
   writer.Group(kMiscGroup2380, masks[4], device);
   // Clip planes, 4 registers a bit (mask bits 54-49).
@@ -264,31 +283,195 @@ void Describe(Pending& pending, d3d_draw::Description& description) {
   if (uint32_t* payload = writer.Entry(d3d_draw::kEntryRegisters, 0x2102, 1, 1)) {
     payload[0] = rex::byte_swap(pending.base_vertex);
   }
-  // The draw packet.
+}
+
+// The draw packet's viz query word: a byte index at +12563 into a table at
+// +12498.
+uint32_t VizWord(uint32_t device) {
+  const uint8_t viz_index = Load8(device + kVizIndex);
+  return (uint32_t(Load8(device + kVizTable + viz_index)) | (viz_index ? 0x100u : 0u)) & 0x13Fu;
+}
+
+// The indexed call's draw packet (0x82416380), a predicated DRAW_INDX of
+// four words: viz query word, initiator, index base and size.
+void DescribeIndexedDraw(const Pending& pending, uint32_t device,
+                         d3d_draw::Description& description) {
   const uint32_t index_buffer = Load32(device + kIndexBuffer);
   const uint32_t ib_flags = Load32(index_buffer);
   const uint32_t ib_base = Load32(index_buffer + 24);
   const bool index32 = (ib_flags & 0x80000000u) != 0;
   const uint32_t endian = (ib_flags << 1) & 0xC0000000u;
-  const uint8_t viz_index = Load8(device + kVizIndex);
-  const uint32_t viz =
-      (uint32_t(Load8(device + kVizTable + viz_index)) | (viz_index ? 0x100u : 0u)) & 0x13Fu;
-  description.draw[0] = viz;
+  description.draw[0] = VizWord(device);
   description.draw[1] = (pending.count << 16) | pending.prim | (index32 ? 0x800u : 0u);
   description.draw[2] = GpuAddress(ib_base + pending.start * (index32 ? 4 : 2));
   description.draw[3] =
       (index32 ? ((pending.count << 1) & 0x00FFFFFEu) : (pending.count & 0x00FFFFFFu)) | endian;
+  description.packet = 0xC0032201u;
+}
+
+void Describe(Pending& pending, d3d_draw::Description& description) {
+  const uint32_t device = pending.device;
+  description.flags = 0;
+  description.word_count = 0;
+  const uint32_t scope = uint32_t(REXCVAR_GET(pinyon_shift_d3d_draw_scope));
+  if (scope == 0 && ((Load32(device + kColorInfoShadow) >> 16) & 0xF) != 10) {
+    description.flags = d3d_draw::kFlagDeclined;
+    return;
+  }
+  if (pending.overflow) {
+    description.flags = d3d_draw::kFlagOverflow;
+    return;
+  }
+  Writer writer(description);
+  DescribeFlush(pending, device, writer, false);
+  DescribeIndexedDraw(pending, device, description);
   if (writer.overflow()) {
     description.flags = d3d_draw::kFlagOverflow;
     description.word_count = 0;
   }
 }
 
+// --- DL-2.1 slice: replaced draw calls ---
+
+enum SliceReason : uint32_t {
+  kSliceRecording,
+  kSliceQuery,
+  kSliceBind,
+  kSlicePerTile,
+  kSliceClip,
+  kSliceWait,
+  kSliceCount,
+  kSliceSpace,
+  kSliceOverflow,
+  kSliceArena,
+  kSliceReasonCount,
+};
+constexpr const char* kSliceReasonName[] = {"recording",   "query",    "shader bind",
+                                            "per-tile",    "clip",     "wait",
+                                            "count",       "no space", "overflow",
+                                            "arena full"};
+
+struct SliceStats {
+  // By entry: 0 the indexed call, 1 the auto-index call.
+  std::atomic<uint64_t> calls[2] = {}, taken[2] = {};
+  std::atomic<uint64_t> words{0};
+  std::atomic<uint64_t> not_taken[2][kSliceReasonCount] = {};
+};
+SliceStats g_slice;
+
+// The call at entry `entry` (0: 0x82416380, r4 primitive, r5 base vertex, r6
+// start index, r7 index count; 1: 0x82415F68, r4 primitive, r5 start vertex,
+// r6 vertex count). True if the call was replaced: the hook then returns
+// from the call at once.
+bool SliceCall(uint32_t entry, uint32_t mode, uint32_t device, uint32_t prim,
+               uint32_t base_vertex, uint32_t start, uint32_t count) {
+  SliceStats& stats = g_slice;
+  stats.calls[entry].fetch_add(1, std::memory_order_relaxed);
+  auto decline = [&](SliceReason reason) {
+    stats.not_taken[entry][reason].fetch_add(1, std::memory_order_relaxed);
+    return false;
+  };
+  const uint8_t record_flags = Load8(device + kRecordFlags);
+  // Recorded calls stay: a command buffer's fixups point into its packets.
+  if (record_flags & 0x80) return decline(kSliceRecording);
+  if (record_flags & 0x01) return decline(kSliceQuery);
+  Pending& pending = t_pending;
+  pending.active = false;
+  pending.masks[0] = Load64(device + kMaskVsConstants);
+  pending.masks[1] = Load64(device + kMaskPsConstants);
+  pending.masks[2] = Load64(device + kMaskState);
+  pending.masks[3] = Load64(device + kMaskFetch);
+  pending.masks[4] = Load64(device + kMaskMisc);
+  // The flushes that do more than write registers from the shadows stay with
+  // the guest call: the shader bind (+16 bits 17-20), the per-tile state, the
+  // clip planes (with a coherency wait; +32 bits 49-54) and the wait (+32 bits
+  // 62-63 with a wait flag set).
+  if (pending.masks[2] & 0x1E0000u) return decline(kSliceBind);
+  if (Load64(device + kMaskPerTile) & pending.masks[2]) return decline(kSlicePerTile);
+  if (pending.masks[4] & (uint64_t(0x3F) << 49)) return decline(kSliceClip);
+  if ((pending.masks[4] >> 62) && (Load8(device + kWaitFlags) & 0xC0)) {
+    return decline(kSliceWait);
+  }
+  // The calls split counts over 65535.
+  if (!count || count > 65535) return decline(kSliceCount);
+  const uint32_t write = Load32(device + kWritePointer);
+  if (write + 16 > Load32(device + kSegmentLimit)) return decline(kSliceSpace);
+
+  d3d_draw::Description& description = t_description;
+  description.id = d3d_draw::NextId() & 0x3FFFFFFFu;
+  if (!description.id) description.id = 1;
+  description.flags = 0;
+  description.word_count = 0;
+  pending.device = device;
+  pending.prim = prim & 63;
+  pending.base_vertex = base_vertex;
+  pending.start = start;
+  pending.count = count;
+  pending.load_count = 0;
+  pending.overflow = false;
+  Writer writer(description);
+  DescribeFlush(pending, device, writer, true);
+  if (entry == 0) {
+    DescribeIndexedDraw(pending, device, description);
+  } else {
+    // An auto-index, predicated DRAW_INDX of two words (0x82415F68).
+    description.flags = d3d_draw::kFlagAutoIndex;
+    description.draw[0] = VizWord(device);
+    description.draw[1] = (count << 16) | pending.prim | 0x80u;
+    description.draw[2] = description.draw[3] = 0;
+    description.packet = 0xC0012201u;
+  }
+  if (writer.overflow()) return decline(kSliceOverflow);
+  const uint32_t offset = d3d_draw::PublishArena(description);
+  if (!offset) return decline(kSliceArena);
+  // The marker, where the call's packets would start.
+  Store32(write + 4, d3d_draw::kMarkerHeader);
+  Store32(write + 8, d3d_draw::kReplaceMagic);
+  Store32(write + 12, offset - 1);
+  Store32(write + 16, (description.id << 2) | mode);
+  Store32(device + kWritePointer, write + 16);
+  stats.taken[entry].fetch_add(1, std::memory_order_relaxed);
+  stats.words.fetch_add(description.word_count, std::memory_order_relaxed);
+  if (mode != d3d_draw::kSliceOn) return false;
+  // Replaced. The call's flushes store 0 into each non-zero mask; on this path
+  // nothing else of the device changes but the write pointer.
+  for (uint32_t mask = kMaskVsConstants; mask <= kMaskMisc; mask += 8) Store64(device + mask, 0);
+  return true;
+}
+
+void SliceLog() {
+  SliceStats& stats = g_slice;
+  const uint64_t calls0 = stats.calls[0].exchange(0, std::memory_order_relaxed);
+  const uint64_t calls1 = stats.calls[1].exchange(0, std::memory_order_relaxed);
+  if (!calls0 && !calls1) return;
+  std::string reasons;
+  for (uint32_t entry = 0; entry < 2; ++entry) {
+    reasons += entry ? "; auto-index:" : " indexed:";
+    for (uint32_t r = 0; r < kSliceReasonCount; ++r) {
+      const uint64_t n = stats.not_taken[entry][r].exchange(0, std::memory_order_relaxed);
+      if (n) reasons += fmt::format(" {} {},", kSliceReasonName[r], n);
+    }
+  }
+  const uint64_t taken0 = stats.taken[0].exchange(0, std::memory_order_relaxed);
+  const uint64_t taken1 = stats.taken[1].exchange(0, std::memory_order_relaxed);
+  const uint64_t words = stats.words.exchange(0, std::memory_order_relaxed);
+  REXLOG_INFO(
+      "D3D slice DL-2.1 (600 frames): indexed calls {} taken {}, auto-index calls {} taken {}, "
+      "{:.1f} words a description; not taken by reason:{}",
+      calls0, taken0, calls1, taken1,
+      (taken0 + taken1) ? double(words) / double(taken0 + taken1) : 0.0, reasons);
+}
+
 }  // namespace
 
 void D3dDrawFrame() {
+  // DL-2.1: the slice mode for the next frame (the decoder reads it at its
+  // swaps), and the frame that arena descriptions are tagged with.
+  d3d_draw::SetSliceMode(uint32_t(REXCVAR_GET(pinyon_shift_d3d_slice)));
+  d3d_draw::GuestFrame();
   if (++g_frames < 600) return;
   g_frames = 0;
+  SliceLog();
   const uint64_t calls = g_stats.calls.exchange(0, std::memory_order_relaxed);
   if (!calls) return;
   REXLOG_INFO(
@@ -323,14 +506,32 @@ void D3dDrawFrame() {
 namespace d3d_draw_impl = pinyon_shift::native_renderer;
 using d3d_draw_impl::t_pending;
 
+// 0x82415F68, the auto-index draw call (r3 the device, r4 the primitive, r5
+// the start vertex, r6 the vertex count). Shared with the D3D census's draw
+// entry 1. True: the DL-2.1 slice replaced the call, which returns at once.
+bool PinyonShiftD3dCensusDraw1(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4,
+                               PPCRegister& r5, PPCRegister& r6, uint64_t& lr) {
+  pinyon_shift::native_renderer::D3dCensusDrawEntry(1, r1.u32, r3.u32, uint32_t(lr));
+  const uint32_t slice = rex::system::d3d_draw::GetSliceMode();
+  return slice && d3d_draw_impl::SliceCall(1, slice, r3.u32, r4.u32, r5.u32, 0, r6.u32);
+}
+
 // 0x82416380, the indexed draw call (r3 the device, r4 the primitive, r5 the
 // base vertex, r6 the start index, r7 the index count). Shared with the D3D
-// census's draw entry 0.
-void PinyonShiftD3dCensusDraw0(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4,
+// census's draw entry 0. True: the DL-2.1 slice replaced the call, which
+// returns at once.
+bool PinyonShiftD3dCensusDraw0(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4,
                                PPCRegister& r5, PPCRegister& r6, PPCRegister& r7, uint64_t& lr) {
   pinyon_shift::native_renderer::D3dCensusDrawEntry(0, r1.u32, r3.u32, uint32_t(lr));
+  if (const uint32_t slice = rex::system::d3d_draw::GetSliceMode()) {
+    d3d_draw_impl::t_pending.active = false;
+    if (d3d_draw_impl::SliceCall(0, slice, r3.u32, r4.u32, r5.u32, r6.u32, r7.u32)) return true;
+    // Verify, or a call the slice declined: as without the slice. A verified
+    // call has a slice marker; DL-1.2 does not describe it as well.
+    if (slice == rex::system::d3d_draw::kSliceVerify) return false;
+  }
   const int32_t mode = REXCVAR_GET(pinyon_shift_d3d_draw);
-  if (!mode) return;
+  if (!mode) return false;
   using namespace d3d_draw_impl;
   auto& stats = d3d_draw_impl::g_stats;
   stats.calls.fetch_add(1, std::memory_order_relaxed);
@@ -355,23 +556,23 @@ void PinyonShiftD3dCensusDraw0(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4
       stats.not_ring[i].fetch_add(1, std::memory_order_relaxed);
       if (hud) stats.hud_not_ring[i].fetch_add(1, std::memory_order_relaxed);
     }
-    return;
+    return false;
   }
   // The HUD scope by the target at entry (the exit check stays: the bind can
   // change it): no marker, so no description slot, for other draws.
   if (REXCVAR_GET(pinyon_shift_d3d_draw_scope) == 0 && !hud) {
     stats.not_hud.fetch_add(1, std::memory_order_relaxed);
-    return;
+    return false;
   }
   const uint32_t count = r7.u32;
   if (!count || count > 65535) {
     stats.too_long.fetch_add(1, std::memory_order_relaxed);
-    return;
+    return false;
   }
   const uint32_t write = Load32(device + kWritePointer);
   if (write + 16 > Load32(device + kSegmentLimit)) {
     stats.no_space.fetch_add(1, std::memory_order_relaxed);
-    return;
+    return false;
   }
   Pending& pending = t_pending;
   pending.active = true;
@@ -399,6 +600,7 @@ void PinyonShiftD3dCensusDraw0(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4
     stats.not_ring[0].fetch_add(1, std::memory_order_relaxed);
     if (hud) stats.hud_not_ring[0].fetch_add(1, std::memory_order_relaxed);
   }
+  return false;
 }
 
 // 0x82416438, after the shader bind and the per-tile state: r30 the state
