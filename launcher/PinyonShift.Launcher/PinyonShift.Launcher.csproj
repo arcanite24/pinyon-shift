@@ -33,6 +33,14 @@
     <Compile Include="..\Shared\QrCode.cs" Link="Shared\QrCode.cs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The wheel screen reads joysticks and plays force feedback through SDL3, built from the
+         game SDK's own SDL3 source (tools/wheel-setup/native) so device names and numbering match
+         the game. It is built, not committed; without it the wheel screen says it cannot read
+         controllers. -->
+    <None Include="Wheel\Native\SDL3.dll" Condition="Exists('Wheel\Native\SDL3.dll')" Link="SDL3.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Derived from .github/pinyon-shift-logo.png. -->
     <Resource Include="Branding\pinyon-shift.ico" />
     <Resource Include="Branding\logo-light.png" />
