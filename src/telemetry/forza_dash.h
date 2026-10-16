@@ -21,6 +21,14 @@ struct CarSample {
   // Slip angle per wheel, also 1 at the tyre's peak grip.
   std::array<float, 4> wheel_slip_angle{};
   std::array<float, 4> wheel_speed_rad_s{};  // wheel rotation speed
+  // Suspension compression from the spring's rest point, in metres
+  // (positive compressed), and the same over the travel seen so far, 0
+  // fully extended to 1 fully compressed.
+  std::array<float, 4> suspension_m{};
+  std::array<float, 4> suspension_normalized{};
+  // The game's own rumble for bumps, kerbs and impacts (its low-frequency
+  // motor, 0-1), the feel its designers gave a controller.
+  std::array<float, 4> surface_rumble{};
   // The car's controls after the game's own input handling (assists, the
   // automatic clutch), so a pad, a wheel and the keyboard all report here.
   float throttle = 0.0f;   // 0-1

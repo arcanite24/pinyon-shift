@@ -15,10 +15,13 @@ constexpr size_t kTimestampMs = 4;       // u32
 constexpr size_t kEngineMaxRpm = 8;      // f32
 constexpr size_t kEngineIdleRpm = 12;    // f32
 constexpr size_t kCurrentEngineRpm = 16; // f32
+constexpr size_t kNormalizedSuspensionTravel = 68;  // 4 x f32, 0 extended, 1 compressed
 constexpr size_t kTireSlipRatio = 84;    // 4 x f32, FL FR RL RR
 constexpr size_t kWheelRotationSpeed = 100;  // 4 x f32 rad/s
+constexpr size_t kSurfaceRumble = 148;   // 4 x f32
 constexpr size_t kTireSlipAngle = 164;   // 4 x f32
 constexpr size_t kTireCombinedSlip = 180;  // 4 x f32
+constexpr size_t kSuspensionTravelMeters = 196;  // 4 x f32
 constexpr size_t kSpeed = 244;           // f32 m/s
 constexpr size_t kAccel = 303;           // u8 0-255
 constexpr size_t kBrake = 304;           // u8 0-255
@@ -74,6 +77,9 @@ std::array<uint8_t, kDashPacketSize> EncodeDash(const CarSample& sample, uint32_
     const float angle = sample.wheel_slip_angle[wheel];
     out.F32(kTireSlipRatio + 4 * wheel, ratio);
     out.F32(kWheelRotationSpeed + 4 * wheel, sample.wheel_speed_rad_s[wheel]);
+    out.F32(kNormalizedSuspensionTravel + 4 * wheel, sample.suspension_normalized[wheel]);
+    out.F32(kSuspensionTravelMeters + 4 * wheel, sample.suspension_m[wheel]);
+    out.F32(kSurfaceRumble + 4 * wheel, sample.surface_rumble[wheel]);
     out.F32(kTireSlipAngle + 4 * wheel, angle);
     // Both slips are normalised to the tyre's peak, so their length is 1
     // where the tyre lets go in any direction, as FM7 reports it.
