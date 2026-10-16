@@ -4,6 +4,7 @@
              xmlns:c="clr-namespace:PinyonShift.Launcher.Wheel.Controls"
              Background="{StaticResource InkBrush}" Foreground="{DynamicResource TextBrush}"
              FontSize="13" UseLayoutRounding="True" Focusable="True"
+             TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale"
              PreviewKeyDown="View_PreviewKeyDown">
 
     <UserControl.Resources>
@@ -51,11 +52,11 @@
                     BorderBrush="Transparent" Background="Transparent">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="132"/>
-                        <ColumnDefinition Width="*" MinWidth="120"/>
+                        <ColumnDefinition Width="124"/>
+                        <ColumnDefinition Width="*" MinWidth="110"/>
                         <ColumnDefinition Width="64"/>
-                        <ColumnDefinition Width="44"/>
-                        <ColumnDefinition Width="66"/>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="86"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
@@ -70,7 +71,7 @@
                              Fill="{DynamicResource ControlBorderBrush}"/>
                     <TextBlock Grid.Column="3" Text="{Binding ValueText}" Style="{StaticResource SecondaryText}"
                                VerticalAlignment="Center" HorizontalAlignment="Right" TextWrapping="NoWrap"/>
-                    <CheckBox x:Name="Invert" Grid.Column="4" Content="Invert" Margin="12,0,0,0" VerticalAlignment="Center"
+                    <CheckBox x:Name="Invert" Grid.Column="4" Content="Invert" Margin="6,0,0,0" VerticalAlignment="Center"
                               IsChecked="{Binding Invert, Mode=TwoWay}" Click="RowInvert_Click"
                               ToolTip="Reverse this axis. Use it if the live bar moves the wrong way."/>
                     <Button Grid.Column="5" Content="Bind" Margin="6,0,0,0" MinWidth="56" Padding="10,0" Click="RowBind_Click" Tag="{Binding}"
@@ -665,11 +666,11 @@
                     <Grid DockPanel.Dock="Top" Margin="11,0,25,4">
                         <!-- the same columns as a BindingRow -->
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="132"/>
-                            <ColumnDefinition Width="*" MinWidth="120"/>
+                            <ColumnDefinition Width="124"/>
+                            <ColumnDefinition Width="*" MinWidth="110"/>
                             <ColumnDefinition Width="64"/>
-                            <ColumnDefinition Width="44"/>
-                            <ColumnDefinition Width="66"/>
+                            <ColumnDefinition Width="40"/>
+                            <ColumnDefinition Width="86"/>
                             <ColumnDefinition Width="140"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Control" Style="{StaticResource SecondaryText}"/>
