@@ -8,18 +8,23 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using PinyonWheelSetup.Bindings;
-using PinyonWheelSetup.Diagnostics;
-using PinyonWheelSetup.Input;
-using PinyonWheelSetup.Theming;
-using InputType = PinyonWheelSetup.Bindings.InputType;
+using PinyonShift.Launcher.Wheel.Bindings;
+using PinyonShift.Launcher.Wheel.Diagnostics;
+using PinyonShift.Launcher.Wheel.Input;
+using InputType = PinyonShift.Launcher.Wheel.Bindings.InputType;
 
-namespace PinyonWheelSetup;
+namespace PinyonShift.Launcher.Wheel;
 
-public partial class MainWindow : Window
+// The launcher's wheel screen (it was the standalone Pinyon Shift Configure app).
+// The launcher opens it with its game config and closes it with Done; SDL runs only while it is open.
+
+public partial class WheelSetupView : UserControl
 {
-    private readonly AppSettings settings;
-    private readonly string[] args;
+    private readonly WheelSettings settings = WheelSettings.Load();
+    private bool open;
+
+    /// <summary>Done, or the end of a self-test: the launcher hides the screen.</summary>
+    public event EventHandler? DoneRequested;
     private readonly DeviceManager devices = new();
     private readonly BindingSet set = new();
     private readonly DisplaySettings display = new();
@@ -50,60 +55,62 @@ public partial class MainWindow : Window
         public override string ToString() => Text;
     }
 
-    public MainWindow(AppSettings settings, string[] args)
+    public WheelSetupView()
     {
-        this.settings = settings;
-        this.args = args;
         InitializeComponent();
-        Height = Math.Min(Height, SystemParameters.WorkArea.Height - 40);
         pulse = (Storyboard)FindResource("PulseStoryboard");
-
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        VersionText.Text = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "";
-        loadingUi = true;
-        ThemeBox.SelectedIndex = (int)settings.Theme;
-        loadingUi = false;
 
         FovBox.ItemsSource = DisplaySettings.FovScales.Select(f => $"{f * 100:0} %").ToList();
         BindingList.ItemsSource = set.Items;
         ChipList.ItemsSource = set.Buttons.ToList();
         DeviceList.ItemsSource = devices.Devices;
         devices.DevicesChanged += OnDevicesChanged;
-        Loaded += Window_Loaded;
+        timer.Tick += (_, _) => Tick();
     }
 
-    private void Window_SourceInitialized(object? sender, EventArgs e) => ThemeManager.ApplyTitleBar(this);
-
-    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    /// <summary>Opens the screen on <paramref name="gameConfig"/> (the launcher's
+    /// pinyon_shift.toml), logging to <paramref name="logDirectory"/>. With
+    /// <paramref name="selfTestDirectory"/> it drives every step with virtual devices, saves
+    /// screenshots there and then asks to close.</summary>
+    public async Task OpenAsync(string? gameConfig, string? logDirectory, string? selfTestDirectory = null)
     {
+        if (open) return;
+        open = true;
+        Log.Start(logDirectory);
+        Log.Watching(true);
+        HideBanner();
+        info = null;
+        error = null;
         if (!devices.Start())
         {
-            ShowBanner(devices.InitError + $" The setup cannot read controllers. Details: {Log.FilePath}");
+            ShowBanner(devices.InitError + $" The launcher cannot read controllers. Details: {Log.FilePath}");
         }
-        selfTest = args.Length >= 3 && args[0] == "--selftest";
-        if (selfTest)
-        {
-            configPath = args[1];
-        }
-        else
-        {
-            var found = GameConfig.Find();
-            foreach (var f in found) Log.Write($"config found: {f}");
-            configPath = settings.ConfigPath is { } chosen && File.Exists(chosen) ? chosen : found.FirstOrDefault();
-        }
+        selfTest = selfTestDirectory != null;
+        configPath = gameConfig;
         Log.Write($"config in use: {configPath ?? "(none)"}");
         LoadConfig();
         foreach (var key in Cards.Keys) SetCardExpanded(key, settings.ExpandedCards.GetValueOrDefault(key), save: false);
-        timer.Tick += (_, _) => Tick();
         timer.Start();
-        if (selfTest) await RunSelfTestAsync(args[2]);
+        Focus();
+        if (selfTestDirectory != null) await RunSelfTestAsync(selfTestDirectory);
     }
 
-    private void Window_Closed(object? sender, EventArgs e)
+    /// <summary>Stops reading devices (SDL is closed) and keeps the card layout.</summary>
+    public void Shutdown()
     {
+        if (!open) return;
+        open = false;
+        if (capture != null) EndCapture(finished: false);
         timer.Stop();
         devices.Dispose();
+        Log.Watching(false);
         if (!selfTest) settings.Save();
+    }
+
+    private void Done_Click(object sender, RoutedEventArgs e)
+    {
+        if (dirty && set.Steering.Input != null && !gameRunning) SaveToGame(null);
+        DoneRequested?.Invoke(this, EventArgs.Empty);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -171,10 +178,8 @@ public partial class MainWindow : Window
             InitialDirectory = configPath != null ? Path.GetDirectoryName(configPath) :
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyonShift"),
         };
-        if (dialog.ShowDialog(this) != true) return;
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
         configPath = dialog.FileName;
-        settings.ConfigPath = configPath;
-        settings.Save();
         LoadConfig();
     }
 
@@ -238,7 +243,7 @@ public partial class MainWindow : Window
         {
             string dir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
             File.WriteAllLines(Path.Combine(dir, "last-wheel-bindings.toml"),
-                new[] { $"# Pinyon Shift Configure {DateTime.Now:yyyy-MM-dd HH:mm}" }.Concat(lines.Select(l => $"{l.Key} = {l.Value}")));
+                new[] { $"# Pinyon Shift wheel screen {DateTime.Now:yyyy-MM-dd HH:mm}" }.Concat(lines.Select(l => $"{l.Key} = {l.Value}")));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
@@ -549,7 +554,7 @@ public partial class MainWindow : Window
         UpdateStatus();
     }
 
-    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void View_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (capture == null || Keyboard.FocusedElement is ComboBox or ComboBoxItem or TextBox) return;
         if (e.Key == Key.Enter && capture.Detected)
@@ -849,14 +854,6 @@ public partial class MainWindow : Window
 
     private void HideBanner() => Banner.Visibility = Visibility.Collapsed;
 
-    private void ThemeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (loadingUi) return;
-        settings.Theme = (ThemeChoice)Math.Max(0, ThemeBox.SelectedIndex);
-        ThemeManager.Apply(settings.Theme);
-        if (!selfTest) settings.Save();
-        UpdateStatus();
-    }
 
     // -----------------------------------------------------------------------------------------
     // Self-test: --selftest <toml> <screenshot dir>. Plugs in SDL virtual devices and drives every
@@ -952,11 +949,6 @@ public partial class MainWindow : Window
             Hat(wheel, WheelMath.HatLeft);
             await Task.Delay(400);
             Snap(outDir, "06-live-view");
-            ThemeManager.Apply(ThemeChoice.Light);
-            await Task.Delay(300);
-            Snap(outDir, "07-live-view-light");
-            ThemeManager.Apply(ThemeChoice.Dark);
-            await Task.Delay(200);
 
             Save_Click(this, new RoutedEventArgs());
             await Task.Delay(300);
@@ -1039,7 +1031,7 @@ public partial class MainWindow : Window
             log.Add("FAILED: " + ex);
         }
         File.WriteAllLines(Path.Combine(outDir, "selftest.log"), log);
-        Close();
+        DoneRequested?.Invoke(this, EventArgs.Empty);
 
         void Next()
         {
@@ -1051,7 +1043,7 @@ public partial class MainWindow : Window
     private void Snap(string dir, string name)
     {
         UpdateLayout();
-        if (Content is not FrameworkElement root) return;
+        FrameworkElement root = this;
         var dpi = VisualTreeHelper.GetDpi(this);
         var bitmap = new RenderTargetBitmap((int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY),
                                             dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);

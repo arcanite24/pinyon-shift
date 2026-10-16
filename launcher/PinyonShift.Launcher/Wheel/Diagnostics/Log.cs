@@ -2,10 +2,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace PinyonWheelSetup.Diagnostics;
+namespace PinyonShift.Launcher.Wheel.Diagnostics;
 
 /// <summary>
-/// PinyonShiftConfigure.log beside the EXE (or in %TEMP% if that folder is read-only), for
+/// wheel-setup.log in the launcher's logs folder (or %TEMP% if that is not writable), for
 /// troubleshooting. Every line is flushed at once so a hang or crash still leaves the last step.
 /// A watchdog thread records the step the UI thread was in if it stops responding.
 /// </summary>
@@ -22,14 +22,17 @@ public static class Log
 
     public static string? FilePath { get; private set; }
 
-    public static void Start(string[] args)
+    public static void Start(string? directory)
     {
-        string dir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        foreach (string candidate in new[] { dir, Path.GetTempPath() })
+        if (writer != null) return;
+        string[] args = [];
+        foreach (string candidate in new[] { directory ?? "", Path.GetTempPath() })
         {
+            if (candidate.Length == 0) continue;
             try
             {
-                string path = Path.Combine(candidate, "PinyonShiftConfigure.log");
+                Directory.CreateDirectory(candidate);
+                string path = Path.Combine(candidate, "wheel-setup.log");
                 writer = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite),
                                           new UTF8Encoding(false)) { AutoFlush = true };
                 FilePath = path;
@@ -38,7 +41,7 @@ public static class Log
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         var version = typeof(Log).Assembly.GetName().Version;
-        Write($"Pinyon Shift Configure {version} started");
+        Write($"Pinyon Shift wheel setup (launcher {version}) started");
         Write($"  exe: {Environment.ProcessPath}");
         Write($"  args: {string.Join(' ', args)}");
         Write($"  OS: {Environment.OSVersion}, 64-bit process: {Environment.Is64BitProcess}, .NET {Environment.Version}");
@@ -68,12 +71,21 @@ public static class Log
 
     public static void Beat() => Interlocked.Exchange(ref lastBeat, Environment.TickCount64);
 
+    // The watchdog only watches while the wheel screen is open and beating.
+    private static volatile bool watching;
+    public static void Watching(bool on)
+    {
+        Beat();
+        watching = on;
+    }
+
     private static void Watch()
     {
         bool reported = false;
         while (true)
         {
             Thread.Sleep(1000);
+            if (!watching) { reported = false; continue; }
             long silent = Environment.TickCount64 - Interlocked.Read(ref lastBeat);
             if (silent > 3000 && !reported)
             {

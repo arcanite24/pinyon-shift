@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PinyonWheelSetup.Input;
+namespace PinyonShift.Launcher.Wheel.Input;
 
 /// <summary>The few SDL3 calls the setup needs: joysticks, haptics and virtual devices (self-test).</summary>
 internal static class Sdl

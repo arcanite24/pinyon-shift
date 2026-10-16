@@ -80,7 +80,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        ShowConfigureWheelButton();
         RouteList.ItemsSource = _steps;
         BuildLocationRun.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyonShift");
@@ -106,6 +105,7 @@ public partial class MainWindow : Window
         };
         Closing += (_, _) =>
         {
+            CloseWheel();
             _androidShare?.Dispose();
             _cancellation?.Cancel();
             _sessionLog?.Dispose();
@@ -114,6 +114,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        if (await RunWheelSelfTestIfAskedAsync()) return;
         await InitializeSourceAsync();
         ReportUpdateAndCleanUp();
         // Started by Windows after the restart that setup asked for: continue
@@ -1117,6 +1118,8 @@ public partial class MainWindow : Window
         DlcButton.IsEnabled = !_busy;
         RadioButton.Visibility = DlcButton.Visibility;
         RadioButton.IsEnabled = !_busy;
+        WheelButton.Visibility = DlcButton.Visibility;
+        WheelButton.IsEnabled = !_busy;
         GraphicsSettingsButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Radio);
     }
 

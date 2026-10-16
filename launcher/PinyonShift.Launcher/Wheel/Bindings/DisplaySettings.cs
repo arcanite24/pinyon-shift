@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 
-namespace PinyonWheelSetup.Bindings;
+namespace PinyonShift.Launcher.Wheel.Bindings;
 
 /// <summary>The game's display settings this app sets: full screen, the ultrawide wider view,
 /// resolution scale and field of view, with the same keys F6 > SETTINGS writes.

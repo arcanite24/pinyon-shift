@@ -1,6 +1,7 @@
 <Window x:Class="PinyonShift.Launcher.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wheel="clr-namespace:PinyonShift.Launcher.Wheel"
         Title="Pinyon Shift" Width="1120" Height="720" MinWidth="940" MinHeight="640"
         WindowStartupLocation="CenterScreen" Background="{StaticResource InkBrush}"
         Foreground="{StaticResource FogBrush}" Icon="Branding/pinyon-shift.ico"
@@ -120,6 +121,10 @@
                     <Button x:Name="RadioButton" Content="Radio" Style="{StaticResource QuietButton}"
                             Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
                             Click="RadioButton_Click" AutomationProperties.HelpText="Make radio stations from your own music."/>
+                    <Button x:Name="WheelButton" Content="Wheel" Style="{StaticResource QuietButton}"
+                            Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
+                            Click="WheelButton_Click"
+                            AutomationProperties.HelpText="Bind a racing wheel, pedals and buttons, and set force feedback and telemetry."/>
                 </StackPanel>
 
                 <!-- Setup steps, while there is setup left to do. -->
@@ -509,8 +514,8 @@
                                 <Button x:Name="ResetGraphicsButton" Content="Reset to defaults" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Margin="4,0,14,0" Click="ResetGraphicsButton_Click"/>
                                 <Button x:Name="ConfigureWheelButton" Content="Configure Wheel" Style="{StaticResource QuietButton}"
-                                        Margin="0,0,10,0" Visibility="Collapsed" Click="ConfigureWheelButton_Click"
-                                        ToolTip="Open Pinyon Shift Configure: bind the wheel, pedals and buttons, force feedback and telemetry"/>
+                                        Margin="0,0,10,0" Click="WheelButton_Click"
+                                        ToolTip="Bind the wheel, pedals and buttons, and set force feedback and telemetry"/>
                                 <Button Content="Cancel" Style="{StaticResource QuietButton}" Margin="0,0,10,0"
                                         Click="CloseGraphicsButton_Click"/>
                                 <Button x:Name="SaveGraphicsButton" Content="Save" Style="{StaticResource ActionButton}"
@@ -527,6 +532,9 @@
             </StackPanel>
             </Grid>
             </ScrollViewer>
+
+            <!-- The wheel screen (what was Pinyon Shift Configure) over the body while it is open. -->
+            <wheel:WheelSetupView x:Name="WheelView" Grid.Row="1" Visibility="Collapsed"/>
 
             <!-- Footer. -->
             <DockPanel Grid.Row="2" Margin="46,0,46,0" LastChildFill="False">
