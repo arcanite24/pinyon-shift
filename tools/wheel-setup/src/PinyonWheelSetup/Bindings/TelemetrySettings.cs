@@ -7,7 +7,13 @@ public sealed class TelemetrySettings
     public bool Enabled { get; set; }
     public bool Horizon { get; set; } = true;  // Forza Horizon layout (the game's default), or Forza Motorsport 7
     public bool MovingOnly { get; set; }
-    public string Target { get; set; } = "127.0.0.1:5300";
+    public const string DefaultTarget = "127.0.0.1:8000";  // where Forza Horizon sends Data Out
+    // The game's default before it moved to the Horizon port.
+    public const string OldDefaultTarget = "127.0.0.1:5300";
+
+    public string Target { get; set; } = DefaultTarget;
+    /// <summary>The config held the old default, which Load moved to 8000; save to keep it.</summary>
+    public bool MovedFromOldDefault { get; private set; }
 
     public void Load(IReadOnlyDictionary<string, string> config)
     {
@@ -15,7 +21,9 @@ public sealed class TelemetrySettings
         Enabled = Bool("telemetry_udp");
         MovingOnly = Bool("telemetry_udp_moving_only");
         Horizon = !(config.TryGetValue("telemetry_udp_format", out var f) && f.Equals("fm7", StringComparison.OrdinalIgnoreCase));
-        Target = config.TryGetValue("telemetry_udp_target", out var t) && t.Contains(':') ? t : "127.0.0.1:5300";
+        Target = config.TryGetValue("telemetry_udp_target", out var t) && t.Contains(':') ? t : DefaultTarget;
+        MovedFromOldDefault = Target == OldDefaultTarget;
+        if (MovedFromOldDefault) Target = DefaultTarget;
     }
 
     public List<(string Key, string Value)> ConfigLines() =>
