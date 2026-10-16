@@ -1671,7 +1671,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
   // The raw wheel path (wheel_enabled): the base, pedals and buttons each
-  // from their own USB device, bound by tools/wheel-setup into the wheel_*
+  // from their own USB device, bound by the launcher's Wheel screen into the wheel_*
   // cvars, and the game's own Xbox 360 force feedback effects played on the
   // base. The rows below apply to that path only.
   rows.push_back(Toggle("SEPARATE DEVICES", "wheel_enabled"));
@@ -1694,7 +1694,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
       "A wheel drives through its controller mapping: steering on the left stick, throttle on "
       "the right trigger and brake on the left trigger. If the game does not see it, choose MAP "
       "A WHEEL, then the wheel, and mark it as a racing wheel. SEPARATE DEVICES reads the "
-      "wheel, pedals and buttons from the devices bound with Pinyon Shift Configure instead, and "
+      "wheel, pedals and buttons from the devices bound in the launcher's Wheel screen instead, and "
       "plays the game's own force feedback; keep its strength low on a direct-drive base.");
   return screen;
 }

@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace PinyonWheelSetup.Controls;
+namespace PinyonShift.Launcher.Wheel.Controls;
 
 /// <summary>
 /// A rounded meter: 0..1 filled from the start (pedals, buttons) or −1..1 filled out from the

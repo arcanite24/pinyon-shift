@@ -1,4 +1,4 @@
-namespace PinyonWheelSetup.Input;
+namespace PinyonShift.Launcher.Wheel.Input;
 
 /// <summary>
 /// The game's wheel math, ported from shiftglue-sdk src/input/sdl/wheel_mapping.cpp, so the live

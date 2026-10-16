@@ -1,8 +1,8 @@
 using System.ComponentModel;
 using System.Globalization;
-using PinyonWheelSetup.Input;
+using PinyonShift.Launcher.Wheel.Input;
 
-namespace PinyonWheelSetup.Bindings;
+namespace PinyonShift.Launcher.Wheel.Bindings;
 
 public enum BindKind { Steering, Pedal, Button }
 public enum InputType { Axis, Button, Hat }

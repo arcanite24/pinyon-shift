@@ -58,6 +58,11 @@ $release = Get-Content (Join-Path $root 'config/release.json') -Raw | ConvertFro
 # Keep AssemblyVersion (the existing installation directory) stable so updates
 # retain user state, while Windows file/product metadata identifies this release.
 $fileVersion = ($release.version -split '-', 2)[0] + '.0'
+# The wheel screen reads devices through SDL3.dll, built from the SDK's SDL3 source.
+if (-not (Test-Path -LiteralPath (Join-Path $root 'launcher/PinyonShift.Launcher/Wheel/Native/SDL3.dll'))) {
+    & (Join-Path $root 'tools/wheel-setup/build-sdl.ps1')
+    if ($LASTEXITCODE -ne 0) { throw 'Building SDL3.dll for the wheel screen failed.' }
+}
 & dotnet publish (Join-Path $root 'launcher/PinyonShift.Launcher/PinyonShift.Launcher.csproj') `
     -c $Configuration -r win-x64 --self-contained true -o $publish `
     "-p:BaseOutputPath=$(Join-Path $artifacts 'build')/" `

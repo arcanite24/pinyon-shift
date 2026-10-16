@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using PinyonWheelSetup.Diagnostics;
+using PinyonShift.Launcher.Wheel.Diagnostics;
 
-namespace PinyonWheelSetup.Input;
+namespace PinyonShift.Launcher.Wheel.Input;
 
 /// <summary>One SDL joystick, opened raw the way the game's wheel driver opens it.</summary>
 public sealed class Device : INotifyPropertyChanged
@@ -325,6 +325,8 @@ public sealed class DeviceManager : IDisposable
         foreach (var d in Devices) Sdl.SDL_CloseJoystick(d.Handle);
         Devices.Clear();
         try { Sdl.SDL_Quit(); } catch (DllNotFoundException) { }
+        // The launcher closes and opens the wheel screen; Start initialises SDL again.
+        started = false;
         Log.Write("closed");
     }
 }

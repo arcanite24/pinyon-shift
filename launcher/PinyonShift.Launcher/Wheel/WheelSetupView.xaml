@@ -1,15 +1,16 @@
-<Window x:Class="PinyonWheelSetup.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:c="clr-namespace:PinyonWheelSetup.Controls"
-        Title="Pinyon Shift Configure" Width="1240" Height="940" MinWidth="1040" MinHeight="680"
-        WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}"
-        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13" UseLayoutRounding="True"
-        SourceInitialized="Window_SourceInitialized" PreviewKeyDown="Window_PreviewKeyDown"
-        Closed="Window_Closed">
+<UserControl x:Class="PinyonShift.Launcher.Wheel.WheelSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:PinyonShift.Launcher.Wheel.Controls"
+             Background="{StaticResource InkBrush}" Foreground="{DynamicResource TextBrush}"
+             FontSize="13" UseLayoutRounding="True" Focusable="True"
+             PreviewKeyDown="View_PreviewKeyDown">
 
-    <Window.Resources>
+    <UserControl.Resources>
+        <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary Source="WheelTheme.xaml"/>
+        </ResourceDictionary.MergedDictionaries>
         <!-- A card's header that collapses and expands it -->
         <Style x:Key="CardToggle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -50,11 +51,11 @@
                     BorderBrush="Transparent" Background="Transparent">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="190"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="110"/>
-                        <ColumnDefinition Width="56"/>
-                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="132"/>
+                        <ColumnDefinition Width="*" MinWidth="120"/>
+                        <ColumnDefinition Width="64"/>
+                        <ColumnDefinition Width="44"/>
+                        <ColumnDefinition Width="66"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
@@ -72,7 +73,7 @@
                     <CheckBox x:Name="Invert" Grid.Column="4" Content="Invert" Margin="12,0,0,0" VerticalAlignment="Center"
                               IsChecked="{Binding Invert, Mode=TwoWay}" Click="RowInvert_Click"
                               ToolTip="Reverse this axis. Use it if the live bar moves the wrong way."/>
-                    <Button Grid.Column="5" Content="Bind" Margin="8,0,0,0" MinWidth="64" Click="RowBind_Click" Tag="{Binding}"
+                    <Button Grid.Column="5" Content="Bind" Margin="6,0,0,0" MinWidth="56" Padding="10,0" Click="RowBind_Click" Tag="{Binding}"
                             ToolTip="Bind only this control"/>
                     <Button x:Name="AddInput" Grid.Column="6" Margin="6,0,0,0" Padding="7,3" MinHeight="26" Click="RowAdd_Click"
                             Tag="{Binding}" ToolTip="Add another input that presses this same button (e.g. a handbrake lever and a rim button for B)">
@@ -128,34 +129,30 @@
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
-    </Window.Resources>
+            </ResourceDictionary>
+    </UserControl.Resources>
 
-    <Grid Margin="20,16,20,20">
+    <Grid Margin="40,8,40,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="362"/>
+            <ColumnDefinition Width="330"/>
             <ColumnDefinition Width="12"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- Header -->
         <DockPanel Grid.ColumnSpan="3" Margin="0,0,0,14" LastChildFill="False">
-            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                <TextBlock Text="Pinyon Shift Configure" FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock x:Name="VersionText" Style="{StaticResource SecondaryText}" Margin="10,0,0,4" VerticalAlignment="Bottom"/>
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="Wheel" FontFamily="Bahnschrift SemiBold" FontSize="30"/>
+                <TextBlock x:Name="VersionText" Style="{StaticResource SecondaryText}" Margin="0,2,0,0"
+                           Text="Bind your wheel, pedals and buttons from any USB devices, and set force feedback and telemetry. Changes apply from the next game start."/>
             </StackPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Theme" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                <ComboBox x:Name="ThemeBox" Width="116" SelectionChanged="ThemeBox_SelectionChanged">
-                    <ComboBoxItem Content="Dark"/>
-                    <ComboBoxItem Content="Light"/>
-                    <ComboBoxItem Content="System"/>
-                </ComboBox>
-            </StackPanel>
+            <Button DockPanel.Dock="Right" Content="Done" Style="{StaticResource QuietButton}" MinWidth="96"
+                    VerticalAlignment="Center" Click="Done_Click"/>
         </DockPanel>
 
         <!-- Banner -->
@@ -328,7 +325,7 @@
                         <TextBlock x:Name="NoDevicesText" Style="{StaticResource SecondaryText}" Visibility="Collapsed"
                                    Text="No game controllers found. Connect your wheel, pedals and other devices; the list updates by itself."/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="0,4,0,0"
-                                   Text="A device lights up green while you move it, so you can tell which is which."/>
+                                   Text="A device lights up while you move it, so you can tell which is which."/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -668,13 +665,12 @@
                     <Grid DockPanel.Dock="Top" Margin="11,0,25,4">
                         <!-- the same columns as a BindingRow -->
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="190"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="110"/>
-                            <ColumnDefinition Width="56"/>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="72"/>
-                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="132"/>
+                            <ColumnDefinition Width="*" MinWidth="120"/>
+                            <ColumnDefinition Width="64"/>
+                            <ColumnDefinition Width="44"/>
+                            <ColumnDefinition Width="66"/>
+                            <ColumnDefinition Width="140"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Control" Style="{StaticResource SecondaryText}"/>
                         <TextBlock Grid.Column="1" Text="Bound to" Style="{StaticResource SecondaryText}"/>
@@ -698,11 +694,11 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock x:Name="StatusText" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             <TextBlock x:Name="HintText" Style="{StaticResource SecondaryText}" Margin="0,2,0,0"
-                                       Text="Enter: next step · Esc: stop the setup · Bind on any row binds just that control · A log is written to PinyonShiftConfigure.log beside this app"/>
+                                       Text="Enter: next step · Esc: stop the setup · Bind on any row binds just that control · A log is written to wheel-setup.log in the launcher's logs folder."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
             </Grid>
         </Border>
     </Grid>
-</Window>
+</UserControl>

@@ -1,6 +1,6 @@
-using PinyonWheelSetup.Input;
+using PinyonShift.Launcher.Wheel.Input;
 
-namespace PinyonWheelSetup.Bindings;
+namespace PinyonShift.Launcher.Wheel.Bindings;
 
 /// <summary>
 /// Listens for the input a step asks for: the axis that moves furthest (steering, pedals), or the

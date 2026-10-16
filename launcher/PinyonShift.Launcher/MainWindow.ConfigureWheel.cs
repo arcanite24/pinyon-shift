@@ -1,34 +1,63 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 
 namespace PinyonShift.Launcher;
 
-// Settings > Configure Wheel opens Pinyon Shift Configure (tools/wheel-setup), the racing wheel
-// binder, when its EXE sits beside the launcher. Without it the button stays hidden.
+// The wheel screen (Wheel/WheelSetupView, what was Pinyon Shift Configure): Wheel on the main
+// screen and Settings > Configure Wheel open it over the body; Done closes it. It reads and writes
+// the game's pinyon_shift.toml, and reads devices through SDL only while it is open.
+//
+// --wheel-selftest <pinyon_shift.toml> <folder> opens it on that config, drives every binding step
+// with SDL virtual devices, saves screenshots and selftest.log to the folder and quits.
 public partial class MainWindow
 {
-    private const string ConfigureWheelExe = "PinyonShiftConfigure.exe";
+    private const string WheelSelfTestArgument = "--wheel-selftest";
+    private bool _wheelOpen;
 
-    private static string ConfigureWheelPath => Path.Combine(AppContext.BaseDirectory, ConfigureWheelExe);
+    private string? WheelConfigPath =>
+        _stateRoot is null ? null : Path.Combine(_stateRoot, "config", "pinyon_shift.toml");
 
-    private void ShowConfigureWheelButton() =>
-        ConfigureWheelButton.Visibility = File.Exists(ConfigureWheelPath) ? Visibility.Visible : Visibility.Collapsed;
+    private string? WheelLogDirectory =>
+        _repositoryRoot is null ? null : Path.Combine(_repositoryRoot, ".local", "logs");
 
-    private void ConfigureWheelButton_Click(object sender, RoutedEventArgs e)
+    private async void WheelButton_Click(object sender, RoutedEventArgs e) => await OpenWheelAsync(null, null);
+
+    private async Task OpenWheelAsync(string? config, string? selfTest)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(ConfigureWheelPath)
-            {
-                UseShellExecute = true,
-                WorkingDirectory = AppContext.BaseDirectory,
-            });
-            GraphicsStatusText.Text = "Pinyon Shift Configure is open. Its settings apply from the next game start.";
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
-        {
-            GraphicsStatusText.Text = $"{ConfigureWheelExe} could not start: {ex.Message}";
-        }
+        if (_wheelOpen) return;
+        _wheelOpen = true;
+        WheelView.DoneRequested -= WheelView_DoneRequested;
+        WheelView.DoneRequested += WheelView_DoneRequested;
+        BodyScroll.Visibility = Visibility.Collapsed;
+        WheelView.Visibility = Visibility.Visible;
+        await WheelView.OpenAsync(config ?? WheelConfigPath, WheelLogDirectory ?? Path.GetTempPath(), selfTest);
+    }
+
+    private void CloseWheel()
+    {
+        if (!_wheelOpen) return;
+        _wheelOpen = false;
+        WheelView.Shutdown();
+        WheelView.Visibility = Visibility.Collapsed;
+        BodyScroll.Visibility = Visibility.Visible;
+    }
+
+    private void WheelView_DoneRequested(object? sender, EventArgs e)
+    {
+        CloseWheel();
+        if (_wheelSelfTest) Application.Current.Shutdown();
+    }
+
+    private bool _wheelSelfTest;
+
+    /// <summary>Runs the wheel screen's self-test when the launcher was started for it.</summary>
+    private async Task<bool> RunWheelSelfTestIfAskedAsync()
+    {
+        var arguments = Environment.GetCommandLineArgs();
+        int at = Array.IndexOf(arguments, WheelSelfTestArgument);
+        if (at < 0 || at + 2 >= arguments.Length) return false;
+        _wheelSelfTest = true;
+        await OpenWheelAsync(arguments[at + 1], arguments[at + 2]);
+        return true;
     }
 }

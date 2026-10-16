@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace PinyonWheelSetup.Bindings;
+namespace PinyonShift.Launcher.Wheel.Bindings;
 
 /// <summary>Finds, reads and updates the game's pinyon_shift.toml (flat top-level keys).</summary>
 public static class GameConfig
@@ -126,7 +126,7 @@ public static class GameConfig
         }
         if (added.Count > 0)
         {
-            added.Insert(0, "# Set by Pinyon Shift Configure");
+            added.Insert(0, "# Set by the Pinyon Shift launcher's wheel screen");
             rows.InsertRange(table, added);
         }
 

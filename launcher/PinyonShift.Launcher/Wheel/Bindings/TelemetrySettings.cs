@@ -1,4 +1,4 @@
-namespace PinyonWheelSetup.Bindings;
+namespace PinyonShift.Launcher.Wheel.Bindings;
 
 /// <summary>Telemetry out for SimHub, dashboards and shakers: the same keys as F6 > GAMEPLAY >
 /// TELEMETRY OUT and the telemetry_udp_* settings.</summary>
