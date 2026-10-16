@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:PinyonWheelSetup.Controls"
-        Title="Pinyon Wheel Setup" Width="1240" Height="940" MinWidth="1040" MinHeight="680"
+        Title="Pinyon Shift Configure" Width="1240" Height="940" MinWidth="1040" MinHeight="680"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13" UseLayoutRounding="True"
@@ -137,7 +137,7 @@
         <!-- Header -->
         <DockPanel Grid.ColumnSpan="3" Margin="0,0,0,14" LastChildFill="False">
             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                <TextBlock Text="Pinyon Wheel Setup" FontSize="22" FontWeight="SemiBold"/>
+                <TextBlock Text="Pinyon Shift Configure" FontSize="22" FontWeight="SemiBold"/>
                 <TextBlock x:Name="VersionText" Style="{StaticResource SecondaryText}" Margin="10,0,0,4" VerticalAlignment="Bottom"/>
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -185,6 +185,52 @@
                                    TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="0,8,0,0"
                                    Text="pinyon_shift.toml, found where the launcher keeps it. Run the game once first so it exists. Saving keeps a backup."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="display" Click="CardToggle_Click"
+                                AutomationProperties.Name="Display">
+                            <DockPanel>
+                                <TextBlock x:Name="DisplayChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="DisplaySummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Display" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="DisplayBody" Margin="0,12,0,0" Visibility="Collapsed">
+                        <CheckBox x:Name="FullscreenBox" Content="Full screen" Margin="0,0,0,2" Click="Display_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
+                                   Text="Full screen uses your display's own resolution. Turn it off to use a window size below."/>
+                        <TextBlock Text="Window size" Style="{StaticResource SecondaryText}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="SizeBox" SelectionChanged="Display_Changed"/>
+                        <CheckBox x:Name="WiderBox" Content="Ultrawide: wider view" Margin="0,12,0,2" Click="Display_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
+                                   Text="Shows more of the world to the sides on a display wider than 16:9, with the HUD kept at 16:9. Turned on for you when you pick a 21:9, 32:9 or 64:9 size."/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="128"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Resolution scale" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="ScaleBox" Grid.Column="1" SelectionChanged="Display_Changed">
+                                <ComboBoxItem Content="1× (1280 × 720)"/>
+                                <ComboBoxItem Content="2× (2560 × 1440)"/>
+                                <ComboBoxItem Content="3× (3840 × 2160)"/>
+                                <ComboBoxItem Content="4× (5120 × 2880)"/>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Text="Field of view" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <ComboBox x:Name="FovBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Display_Changed"/>
+                        </Grid>
+                        <TextBlock x:Name="DisplayNote" Style="{StaticResource SecondaryText}" Margin="0,10,0,0"
+                                   Text="Saved as soon as you change it; applies from the next game start. The game renders a 16:9 image that is stretched to wider windows, so a higher resolution scale keeps them sharper."/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -602,7 +648,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock x:Name="StatusText" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             <TextBlock x:Name="HintText" Style="{StaticResource SecondaryText}" Margin="0,2,0,0"
-                                       Text="Enter: next step · Esc: stop the setup · Bind on any row binds just that control · A log is written to PinyonWheelSetup.log beside this app"/>
+                                       Text="Enter: next step · Esc: stop the setup · Bind on any row binds just that control · A log is written to PinyonShiftConfigure.log beside this app"/>
                         </StackPanel>
                     </DockPanel>
                 </Border>

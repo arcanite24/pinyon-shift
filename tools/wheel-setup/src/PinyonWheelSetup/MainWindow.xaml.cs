@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly string[] args;
     private readonly DeviceManager devices = new();
     private readonly BindingSet set = new();
+    private readonly DisplaySettings display = new();
     private readonly DispatcherTimer timer = new(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(15) };
     private readonly Storyboard pulse;
 
@@ -61,6 +62,8 @@ public partial class MainWindow : Window
         ThemeBox.SelectedIndex = (int)settings.Theme;
         loadingUi = false;
 
+        SizeBox.ItemsSource = DisplaySettings.Sizes;
+        FovBox.ItemsSource = DisplaySettings.FovScales.Select(f => $"{f * 100:0} %").ToList();
         BindingList.ItemsSource = set.Items;
         ChipList.ItemsSource = set.Buttons.ToList();
         DeviceList.ItemsSource = devices.Devices;
@@ -132,6 +135,8 @@ public partial class MainWindow : Window
         foreach (var (key, value) in configValues.Where(kv => kv.Key.StartsWith("wheel_")))
             Log.Write($"config {key} = {value}");
         set.Load(configValues, devices.Devices);
+        display.Load(configValues);
+        DisplayFromModel();
         dirty = false;
         UiFromSet();
         UpdateCardSummaries();
@@ -224,7 +229,7 @@ public partial class MainWindow : Window
         {
             string dir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
             File.WriteAllLines(Path.Combine(dir, "last-wheel-bindings.toml"),
-                new[] { $"# Pinyon Wheel Setup {DateTime.Now:yyyy-MM-dd HH:mm}" }.Concat(lines.Select(l => $"{l.Key} = {l.Value}")));
+                new[] { $"# Pinyon Shift Configure {DateTime.Now:yyyy-MM-dd HH:mm}" }.Concat(lines.Select(l => $"{l.Key} = {l.Value}")));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
@@ -641,11 +646,89 @@ public partial class MainWindow : Window
     }
 
     // -----------------------------------------------------------------------------------------
+    // Display: saved on every change, independent of the wheel bindings.
+
+    private void DisplayFromModel()
+    {
+        loadingUi = true;
+        FullscreenBox.IsChecked = display.Fullscreen;
+        var size = display.CurrentSize;
+        if (!DisplaySettings.Sizes.Contains(size))
+            SizeBox.ItemsSource = DisplaySettings.Sizes.Append(size).ToList();
+        SizeBox.SelectedItem = size;
+        WiderBox.IsChecked = display.WiderView;
+        ScaleBox.SelectedIndex = display.Scale - 1;
+        int fov = Array.FindIndex(DisplaySettings.FovScales, f => Math.Abs(f - display.Fov) < 0.01);
+        FovBox.SelectedIndex = fov >= 0 ? fov : 1;
+        loadingUi = false;
+    }
+
+    private void Display_Changed(object sender, RoutedEventArgs e)
+    {
+        if (loadingUi || !IsLoaded) return;
+        var size = SizeBox.SelectedItem as DisplaySettings.Size ?? DisplaySettings.Sizes[0];
+        // Picking a size wider than 16:9 turns the wider view on (and a window: full screen
+        // would use the display's own size instead).
+        if (ReferenceEquals(sender, SizeBox) && size.Wide)
+        {
+            loadingUi = true;
+            WiderBox.IsChecked = true;
+            loadingUi = false;
+        }
+        if (ReferenceEquals(sender, SizeBox) && size.Width > 0)
+        {
+            loadingUi = true;
+            FullscreenBox.IsChecked = false;
+            loadingUi = false;
+        }
+        display.Width = size.Width;
+        display.Height = size.Height;
+        display.Fullscreen = FullscreenBox.IsChecked == true;
+        display.WiderView = WiderBox.IsChecked == true;
+        display.Scale = Math.Clamp(ScaleBox.SelectedIndex + 1, 1, 4);
+        display.Fov = DisplaySettings.FovScales[Math.Clamp(FovBox.SelectedIndex, 0, DisplaySettings.FovScales.Length - 1)];
+        SaveDisplay();
+        UpdateCardSummaries();
+        UpdateStatus();
+    }
+
+    private void SaveDisplay()
+    {
+        info = null;
+        error = null;
+        if (configPath == null || !File.Exists(configPath))
+        {
+            error = "There is no game config to save to. Run the game once from the launcher, close it, then try again.";
+            return;
+        }
+        if (gameRunning && !selfTest)
+        {
+            error = "Close Pinyon Shift first. It saves its own settings over the config when it exits.";
+            return;
+        }
+        try
+        {
+            var lines = display.ConfigLines();
+            foreach (var (k, v) in lines) Log.Write($"save {k} = {v}");
+            string? backup = GameConfig.Update(configPath, lines, backup: !backedUp);
+            if (backup != null) backedUp = true;
+            configValues = GameConfig.Read(configPath);
+            info = $"Display saved: {display.Summary()}. It applies from the next game start.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = "Could not save: " + ex.Message;
+            Log.Error("save display", ex);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Collapsible cards
 
     private Dictionary<string, (FrameworkElement Body, TextBlock Chevron)> Cards => new()
     {
         ["config"] = (ConfigBody, ConfigChevron),
+        ["display"] = (DisplayBody, DisplayChevron),
         ["devices"] = (DevicesBody, DevicesChevron),
         ["ffb"] = (FfbBody, FfbChevron),
         ["steering"] = (SteeringBody, SteeringChevron),
@@ -680,6 +763,7 @@ public partial class MainWindow : Window
             _ => $"On · {set.FfbStrength} %" + (set.FfbInvert ? " · reversed" : ""),
         };
         SteeringSummary.Text = set.Wheel900 ? "900°" : "speed-sensitive";
+        DisplaySummary.Text = display.Summary();
     }
 
     private void UpdateTuningText()
@@ -877,6 +961,18 @@ public partial class MainWindow : Window
             log.Add($"single bind THROTTLE after release: {set.Get("THROTTLE").BindingText}, capture open: {capture != null}, status: {StatusText.Text}");
             log.Add("status: " + StatusText.Text);
             foreach (var item in set.Items) log.Add($"{item.Key}: {item.BindingText}");
+
+            // Display: picking 32:9 turns on the wider view and a window, and saves at once.
+            LeftScroll.ScrollToHome();
+            SizeBox.SelectedItem = DisplaySettings.Sizes.First(z => z.Width == 5120);
+            ScaleBox.SelectedIndex = 1;
+            await Task.Delay(300);
+            var saved = GameConfig.Read(configPath!);
+            string Get(string k) => saved.TryGetValue(k, out var v) ? v : "(missing)";
+            log.Add($"display: {DisplaySummary.Text}; window {Get("window_width")}x{Get("window_height")}, fullscreen {Get("fullscreen")}, " +
+                    $"hor_plus {Get("pinyon_shift_hor_plus")}, letterbox {Get("present_letterbox")}, scale {Get("draw_resolution_scale_x")}/{Get("draw_resolution_scale_y")}, fov {Get("pinyon_shift_fov_scale")}");
+            log.Add("display status: " + StatusText.Text);
+            Snap(outDir, "12-display");
         }
         catch (Exception ex)
         {

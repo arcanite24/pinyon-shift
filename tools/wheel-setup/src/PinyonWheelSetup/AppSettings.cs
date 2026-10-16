@@ -5,7 +5,7 @@ using PinyonWheelSetup.Theming;
 
 namespace PinyonWheelSetup;
 
-/// <summary>The setup's own preferences (%APPDATA%\PinyonWheelSetup\settings.json).</summary>
+/// <summary>The app's own preferences (%APPDATA%\PinyonShiftConfigure\settings.json).</summary>
 public sealed class AppSettings
 {
     public ThemeChoice Theme { get; set; } = ThemeChoice.Dark;
@@ -21,14 +21,18 @@ public sealed class AppSettings
     };
 
     private static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PinyonShiftConfigure", "settings.json");
+    // Where the app kept them while it was Pinyon Wheel Setup.
+    private static string OldFilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PinyonWheelSetup", "settings.json");
 
     public static AppSettings Load()
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Options) ?? new AppSettings();
+            string path = File.Exists(FilePath) ? FilePath : OldFilePath;
+            if (File.Exists(path))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Options) ?? new AppSettings();
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { }
         return new AppSettings();

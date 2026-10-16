@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(pinyon_wheel_sdl C CXX)
-# SDL3.dll for PinyonWheelSetup, from the SDK's own SDL3 source with the
+# SDL3.dll for Pinyon Shift Configure, from the SDK's own SDL3 source with the
 # SDK's subsystem options, so joystick names, paths and numbering match the
 # game's. Render, audio and the rest are off: only input and haptics are used.
 set(SHIFTGLUE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../../../thirdparty/shiftglue-sdk" CACHE PATH "ShiftGlue SDK checkout")

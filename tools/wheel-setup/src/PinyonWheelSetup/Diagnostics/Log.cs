@@ -5,7 +5,7 @@ using System.Text;
 namespace PinyonWheelSetup.Diagnostics;
 
 /// <summary>
-/// PinyonWheelSetup.log beside the EXE (or in %TEMP% if that folder is read-only), for
+/// PinyonShiftConfigure.log beside the EXE (or in %TEMP% if that folder is read-only), for
 /// troubleshooting. Every line is flushed at once so a hang or crash still leaves the last step.
 /// A watchdog thread records the step the UI thread was in if it stops responding.
 /// </summary>
@@ -29,7 +29,7 @@ public static class Log
         {
             try
             {
-                string path = Path.Combine(candidate, "PinyonWheelSetup.log");
+                string path = Path.Combine(candidate, "PinyonShiftConfigure.log");
                 writer = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite),
                                           new UTF8Encoding(false)) { AutoFlush = true };
                 FilePath = path;
@@ -38,7 +38,7 @@ public static class Log
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         var version = typeof(Log).Assembly.GetName().Version;
-        Write($"Pinyon Wheel Setup {version} started");
+        Write($"Pinyon Shift Configure {version} started");
         Write($"  exe: {Environment.ProcessPath}");
         Write($"  args: {string.Join(' ', args)}");
         Write($"  OS: {Environment.OSVersion}, 64-bit process: {Environment.Is64BitProcess}, .NET {Environment.Version}");

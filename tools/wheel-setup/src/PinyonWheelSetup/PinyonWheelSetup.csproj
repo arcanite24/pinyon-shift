@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -6,12 +6,12 @@
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>PinyonWheelSetup</AssemblyName>
+    <AssemblyName>PinyonShiftConfigure</AssemblyName>
     <RootNamespace>PinyonWheelSetup</RootNamespace>
-    <Product>Pinyon Wheel Setup</Product>
-    <AssemblyTitle>Pinyon Wheel Setup - racing wheel bindings for Pinyon Shift</AssemblyTitle>
+    <Product>Pinyon Shift Configure</Product>
+    <AssemblyTitle>Pinyon Shift Configure - racing wheel bindings and display settings for Pinyon Shift</AssemblyTitle>
     <Company>rosscarlson</Company>
-    <Version>0.2.8</Version>
+    <Version>0.3.0</Version>
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
