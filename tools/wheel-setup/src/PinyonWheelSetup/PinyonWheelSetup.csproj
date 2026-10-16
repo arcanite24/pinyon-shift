@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -11,7 +11,7 @@
     <Product>Pinyon Shift Configure</Product>
     <AssemblyTitle>Pinyon Shift Configure - racing wheel bindings and display settings for Pinyon Shift</AssemblyTitle>
     <Company>rosscarlson</Company>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

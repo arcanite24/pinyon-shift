@@ -35,6 +35,7 @@ public partial class MainWindow : Window
 
     // Binding step state
     private Capture? capture;
+    private bool addingInput;  // the step adds an input to a button instead of replacing its binding
     private bool guided;
     private int stepIndex;
 
@@ -404,7 +405,7 @@ public partial class MainWindow : Window
         if (capture.RestsMidRange)
             warning = "This axis rests in the middle of its range, so the game would read it as half pressed. Calibrate it to its full range in the device's own software, or Rebind.";
         else if (item.Kind == BindKind.Button &&
-                 set.Buttons.FirstOrDefault(b => b != item && b.Input != null && b.Input.SameInput(candidate)) is { } other)
+                 set.Buttons.FirstOrDefault(b => b != item && b.AllInputs.Any(i => i.SameInput(candidate))) is { } other)
             warning = $"This is also bound to {other.Label}. Next moves it here.";
         StepWarning.Text = warning ?? "";
         StepWarning.Visibility = warning != null ? Visibility.Visible : Visibility.Collapsed;
@@ -442,10 +443,12 @@ public partial class MainWindow : Window
         var item = capture.Item;
         if (item.Kind == BindKind.Button)
         {
-            foreach (var other in set.Buttons.Where(b => b != item && b.Input != null && b.Input.SameInput(candidate)).ToList())
-                other.Input = null;
+            foreach (var other in set.Buttons.Where(b => b != item).ToList())
+                other.RemoveInput(candidate);
         }
-        item.Input = candidate;
+        if (addingInput && item.Kind == BindKind.Button) item.AddInput(candidate);
+        else item.Input = candidate;
+        addingInput = false;
         Log.Write($"bound {item.Key} -> {item.BindingText} (inverted {candidate.Inverted})");
         dirty = true;
         if (item.Kind == BindKind.Steering) RefreshFfbChoices();
@@ -457,7 +460,7 @@ public partial class MainWindow : Window
     private void StepUnbind_Click(object sender, RoutedEventArgs e)
     {
         if (capture == null) return;
-        capture.Item.Input = null;
+        capture.Item.ClearInputs();
         dirty = true;
         Advance();
     }
@@ -494,6 +497,7 @@ public partial class MainWindow : Window
 
     private void EndCapture(bool finished)
     {
+        addingInput = false;
         bool wasGuided = guided;
         capture = null;
         guided = false;
@@ -513,13 +517,27 @@ public partial class MainWindow : Window
         info = null;
         error = null;
         guided = false;
+        addingInput = false;
         BeginStep(item);
+    }
+
+    /// <summary>+ on a button row: one more input for the same game button, kept with the others.</summary>
+    private void RowAdd_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not BindingItem item || item.Kind != BindKind.Button) return;
+        info = null;
+        error = null;
+        guided = false;
+        BeginStep(item);
+        addingInput = true;
+        info = $"Press another input for {item.Label}; it keeps {item.BindingText}.";
+        UpdateStatus();
     }
 
     private void RowClear_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not BindingItem item) return;
-        item.Input = null;
+        item.ClearInputs();
         dirty = true;
         if (item.Kind == BindKind.Steering) RefreshFfbChoices();
         UpdateStatus();
@@ -967,6 +985,21 @@ public partial class MainWindow : Window
             Snap(outDir, "11-single-bind-button");
             Btn(wheel, 7, false);
             await Task.Delay(200);
+            // + adds a second input for the same game button; both press it, both are saved.
+            RowAdd_Click(new Button { Tag = set.Get("LB") }, new RoutedEventArgs());
+            await Task.Delay(250);
+            Btn(box, 9, true);
+            await Task.Delay(300);
+            Btn(box, 9, false);
+            await Task.Delay(200);
+            Btn(box, 9, true);
+            await Task.Delay(150);
+            log.Add($"second input LB: {set.Get("LB").BindingText}; pressed by the box: {set.Get("LB").Pressed}");
+            Btn(box, 9, false);
+            await Task.Delay(150);
+            var afterAdd = GameConfig.Read(configPath!);
+            log.Add("saved wheel_buttons: " + (afterAdd.TryGetValue("wheel_buttons", out var wb) ? wb : "(missing)"));
+            Snap(outDir, "11b-second-input");
             BindRow("THROTTLE");
             await Task.Delay(250);
             Axis(pedals, 2, 32767);

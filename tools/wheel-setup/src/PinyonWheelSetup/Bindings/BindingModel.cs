@@ -60,11 +60,54 @@ public sealed class BindingItem : INotifyPropertyChanged
         set
         {
             input = value;
-            Changed(nameof(Input)); Changed(nameof(IsBound)); Changed(nameof(BindingText));
-            Changed(nameof(Invert)); Changed(nameof(DeviceText));
+            if (input == null && extras.Count > 0)
+            {
+                // The first extra input takes the place of a removed main one.
+                input = extras[0];
+                extras.RemoveAt(0);
+            }
+            ChangedInputs();
         }
     }
     public bool IsBound => input != null;
+
+    // A button may have more inputs than one (the game ORs them: "B=lever,B=button"), e.g. a
+    // handbrake lever and a rim button that both press B.
+    private readonly List<InputRef> extras = new();
+    public IReadOnlyList<InputRef> Extras => extras;
+    public IEnumerable<InputRef> AllInputs => input == null ? extras : extras.Prepend(input);
+    public bool CanAddInput => Kind == BindKind.Button && input != null;
+
+    public void AddInput(InputRef extra)
+    {
+        if (input == null) { Input = extra; return; }
+        if (AllInputs.Any(i => i.SameInput(extra))) return;
+        extras.Add(extra);
+        ChangedInputs();
+    }
+
+    /// <summary>Removes <paramref name="other"/> wherever it is bound here; true if it was.</summary>
+    public bool RemoveInput(InputRef other)
+    {
+        if (input != null && input.SameInput(other)) { Input = null; return true; }
+        int i = extras.FindIndex(e => e.SameInput(other));
+        if (i < 0) return false;
+        extras.RemoveAt(i);
+        ChangedInputs();
+        return true;
+    }
+
+    public void ClearInputs()
+    {
+        extras.Clear();
+        Input = null;
+    }
+
+    private void ChangedInputs()
+    {
+        Changed(nameof(Input)); Changed(nameof(IsBound)); Changed(nameof(BindingText));
+        Changed(nameof(Invert)); Changed(nameof(DeviceText)); Changed(nameof(CanAddInput));
+    }
 
     public bool Invert
     {
@@ -74,7 +117,11 @@ public sealed class BindingItem : INotifyPropertyChanged
 
     public string DeviceText => input == null ? "" :
         input.Device?.Name ?? (input.Unresolved is { } u ? $"{u} (not connected)" : "");
-    public string BindingText => input == null ? "Not bound" : $"{DeviceText} · {input.Describe()}";
+    public string BindingText => input == null ? "Not bound" :
+        string.Join("  +  ", AllInputs.Select(i => $"{DeviceName(i)} · {i.Describe()}"));
+
+    private static string DeviceName(InputRef i) =>
+        i.Device?.Name ?? (i.Unresolved is { } u ? $"{u} (not connected)" : "");
 
     // Live state, as the game would see it.
     private double value;
@@ -186,6 +233,11 @@ public sealed class BindingSet
                 continue;
             }
             Evaluate(item, item.Input, dev, out double value, out bool pressed, out string text);
+            foreach (var extra in item.Extras)
+            {
+                if (pressed || Resolve(extra.Device, devices) is not { } extraDev) continue;
+                Evaluate(item, extra, extraDev, out value, out pressed, out text);
+            }
             item.Value = value;
             item.Pressed = pressed;
             item.ValueText = text;
@@ -285,7 +337,7 @@ public sealed class BindingSet
         foreach (var (key, cvar) in new[] { ("THROTTLE", "wheel_throttle"), ("BRAKE", "wheel_brake"), ("CLUTCH", "wheel_clutch") })
             Get(key).Input = ParseAxis(Str(cvar, ""), devices, wheel);
 
-        foreach (var b in Buttons) b.Input = null;
+        foreach (var b in Buttons) b.ClearInputs();
         string buttons = Str("wheel_buttons", "UP=h0.up,DOWN=h0.down,LEFT=h0.left,RIGHT=h0.right");
         string? target = null;
         foreach (string rawPart in buttons.Split(','))
@@ -300,8 +352,7 @@ public sealed class BindingSet
                 text = part[(eq + 1)..];
             }
             if (target == null || Items.FirstOrDefault(i => i.Key == target && i.Kind == BindKind.Button) is not { } item) continue;
-            if (item.Input != null) continue;  // one input per control here; extras are dropped
-            item.Input = ParseButton(text, devices, wheel);
+            if (ParseButton(text, devices, wheel) is { } parsed) item.AddInput(parsed);
         }
 
         string ffb = Str("wheel_ffb_device", "");
@@ -403,7 +454,7 @@ public sealed class BindingSet
     public List<(string Key, string Value)> ConfigLines(IList<Device> devices)
     {
         var steer = Steering.Input!;
-        var buttons = string.Join(",", Buttons.Where(b => b.Input != null).Select(b => $"{b.Key}={ButtonText(b.Input!, devices)}"));
+        var buttons = string.Join(",", Buttons.SelectMany(b => b.AllInputs.Select(i => $"{b.Key}={ButtonText(i, devices)}")));
         string ffbDevice = FfbDevice != null || FfbDeviceUnresolved != null ? Match(FfbDevice, FfbDeviceUnresolved, devices) : "";
         return
         [
