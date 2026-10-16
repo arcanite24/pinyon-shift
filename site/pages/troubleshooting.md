@@ -30,6 +30,14 @@ When the Visual Studio Installer stops, the error gives its exit code and, for t
 
 Update the GPU driver and check that the GPU supports Vulkan 1.3. To reset the runtime settings, delete `.local/preview/config/pinyon_shift.toml`. Security software may quarantine the newly compiled, unsigned executable. Restore it only if it was built by your own install.
 
+## A partial settings file or black frames on a fresh state
+
+When `pinyon_shift.toml` exists without its configuration schema line, startup
+backs it up as `pinyon_shift.toml.noschema.bak`, fills in the current defaults
+(including Vulkan), and reapplies the settings already in the file. This also
+covers a new state where the mod builders wrote only `enabled_mods` before the
+first game launch. Existing explicit values keep precedence over defaults.
+
 ## The game runs on the wrong GPU
 
 On a PC with two GPUs, such as a laptop, the game asks for the high-performance one. To pick another with Vulkan, find the "Available Vulkan physical devices" list near the top of `.local/preview/logs/runtime.log` and add its number to `.local/preview/config/pinyon_shift.toml`, for example `vulkan_device = 1`. Direct3D 12 takes `d3d12_adapter`, numbered in Windows' adapter order. `-1` goes back to the automatic choice. Windows' **Settings → System → Display → Graphics** can also assign `pinyon_shift.exe` (not the launcher) to a GPU.

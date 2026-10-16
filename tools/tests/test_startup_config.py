@@ -25,10 +25,12 @@ class StartupConfigTests(unittest.TestCase):
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.root = Path(cls.temporary.name)
         app = (ROOT / 'src/pinyon_shift_app.cpp').read_text(encoding='utf-8')
-        start = app.index('bool EnsureSupportedConfig(')
-        end = app.index('\n}  // namespace', start)
+        helper = app.find('std::string DefaultConfigText(')
+        start = helper if helper >= 0 else app.index('bool EnsureSupportedConfig(')
+        gate = app.index('bool EnsureSupportedConfig(')
+        end = app.index('\n}\n', gate) + len('\n}')
         cls.schema = int(re.search(r'constexpr uint32_t kConfigSchema = (\d+);', app)[1])
-        source = '#include <filesystem>\n#include <fstream>\n#include <sstream>\n#include <regex>\n#include <string>\n#include <cstdint>\n#include <iostream>\n#include "platform/host_platform.h"\n#include "config/host_config.h"\n'
+        source = '#include <filesystem>\n#include <fstream>\n#include <sstream>\n#include <regex>\n#include <string>\n#include <cstdint>\n#include <iostream>\n#include "platform/host_platform.h"\n#include "config/host_config.h"\n#include "config/default_keys.h"\n'
         source += f'constexpr uint32_t kConfigSchema = {cls.schema};\n' + app[start:end]
         source += '\nint main(int argc,char** argv) { bool created=false,migrated=false; bool valid=EnsureSupportedConfig(argv[1],created,migrated); std::cout<<valid<<" "<<created<<" "<<migrated; return valid?0:2; }\n'
         cpp = cls.root / 'gate.cpp'
@@ -45,7 +47,8 @@ class StartupConfigTests(unittest.TestCase):
     def run_gate(self, data):
         directory = Path(tempfile.mkdtemp(dir=self.root))
         path = directory / 'pinyon_shift.toml'
-        path.write_bytes(data)
+        if data is not None:
+            path.write_bytes(data)
         result = subprocess.run([str(self.exe), str(path)], capture_output=True, text=True)
         return path, result
 
@@ -71,12 +74,48 @@ class StartupConfigTests(unittest.TestCase):
         self.assertEqual((again.returncode, again.stdout), (0, '1 0 0'))
         self.assertEqual(path.read_bytes(), updated)
 
-    def test_unsupported_or_missing_schema_stays_untouched(self):
+    def test_unsupported_or_invalid_schema_stays_untouched(self):
         for body in (f'pinyon_shift_config_schema = {self.schema + 1}\n',
                      'pinyon_shift_config_schema = 0\n',
-                     'pinyon_shift_config_schema = "invalid"\n', 'vsync = false\n'):
+                     'pinyon_shift_config_schema = "invalid"\n'):
             data = ('\ufeff' + body).encode()
             path, result = self.run_gate(data)
             self.assertEqual((result.returncode, result.stdout), (2, '0 0 0'))
             self.assertEqual(path.read_bytes(), data)
             self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_mod_builder_config_gains_all_fresh_start_defaults(self):
+        fresh, created = self.run_gate(None)
+        self.assertEqual((created.returncode, created.stdout), (0, '1 1 0'))
+        data = b'enabled_mods = "immersive_camera"\n'
+        path, result = self.run_gate(data)
+        self.assertEqual((result.returncode, result.stdout), (0, '1 0 1'))
+        repaired = path.read_bytes()
+        self.assertEqual(Path(str(path) + '.noschema.bak').read_bytes(), data)
+        for line in fresh.read_bytes().splitlines():
+            if b'=' in line:
+                self.assertIn(line + b'\n', repaired)
+        self.assertIn(b'gpu_backend = "vulkan"\n', repaired)
+        self.assertIn(data, repaired)
+        again = subprocess.run([str(self.exe), str(path)], capture_output=True, text=True)
+        self.assertEqual((again.returncode, again.stdout), (0, '1 0 0'))
+        self.assertEqual(path.read_bytes(), repaired)
+        self.assertEqual(Path(str(path) + '.noschema.bak').read_bytes(), data)
+
+    def test_schema_repair_keeps_saved_values_and_exact_backup(self):
+        for newline in ('\n', '\r\n'):
+            data = ('\ufeff# saved settings' + newline +
+                    'vsync = false' + newline +
+                    'draw_resolution_scale_x = 2' + newline +
+                    'keybind_a = "Space,LMB"' + newline +
+                    'custom_value = 77' + newline).encode()
+            path, result = self.run_gate(data)
+            self.assertEqual((result.returncode, result.stdout), (0, '1 0 1'))
+            self.assertEqual(Path(str(path) + '.noschema.bak').read_bytes(), data)
+            repaired = path.read_bytes()
+            for line in (b'vsync = false', b'draw_resolution_scale_x = 2',
+                         b'keybind_a = "Space,LMB"', b'custom_value = 77',
+                         b'gpu_backend = "vulkan"', b'gpu_record_thread = true'):
+                self.assertIn(line + b'\n', repaired)
+            self.assertEqual(repaired.count(b'keybind_a = '), 1)
+            self.assertFalse(repaired.startswith(b'\xef\xbb\xbf'))
