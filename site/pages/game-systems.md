@@ -67,6 +67,12 @@ Pinyon Shift's **AI OPPONENTS** setting ([Playing](playing.md#ai-opponents)) rew
 
 {{findings:systems/AI opponents}}
 
+## Wheel force feedback
+
+With a wheel that reports force feedback, the game does not rumble it through the controller call. It drives the wheel through the kernel's XInputdFF calls instead, as it drove the Microsoft Wireless Racing Wheel: it downloads five effects (inertia, friction, damper, a spring that stiffens with speed and a constant force), starts them, then updates the constant force every frame. The SDK answers those calls, and its raw wheel path (**F6 > CONTROLS > RACING WHEEL > SEPARATE DEVICES**, [Playing](playing.md#racing-wheels)) plays them on the wheel.
+
+{{findings:systems/Wheel force feedback}}
+
 ## Data and tuning files
 
 {{findings:systems/Data and tuning files}}
