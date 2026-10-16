@@ -197,7 +197,10 @@
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource Card}">
+                <!-- Display (full screen, wider view, resolution across and down, field of view) is
+                     hidden: the game's own settings already do what is needed. Remove
+                     Visibility="Collapsed" to bring the card back; its code still runs. -->
+                <Border Style="{StaticResource Card}" Visibility="Collapsed">
                     <StackPanel>
                         <Button Style="{StaticResource CardToggle}" Tag="display" Click="CardToggle_Click"
                                 AutomationProperties.Name="Display">
