@@ -679,7 +679,7 @@ public partial class MainWindow : Window
     {
         loadingUi = true;
         TelemetryBox.IsChecked = telemetry.Enabled;
-        TelemetryFormatBox.SelectedIndex = telemetry.Horizon ? 1 : 0;
+        TelemetryFormatBox.SelectedIndex = telemetry.Horizon ? 0 : 1;
         TelemetryTargetBox.Text = telemetry.Target;
         MovingOnlyBox.IsChecked = telemetry.MovingOnly;
         loadingUi = false;
@@ -691,7 +691,7 @@ public partial class MainWindow : Window
         string target = TelemetryTargetBox.Text.Trim();
         if (target.Length > 0 && !target.Contains(':')) target += ":5300";
         telemetry.Enabled = TelemetryBox.IsChecked == true;
-        telemetry.Horizon = TelemetryFormatBox.SelectedIndex == 1;
+        telemetry.Horizon = TelemetryFormatBox.SelectedIndex != 1;
         telemetry.MovingOnly = MovingOnlyBox.IsChecked == true;
         telemetry.Target = target.Length > 0 ? target : "127.0.0.1:5300";
         TelemetryTargetBox.Text = telemetry.Target;
@@ -987,6 +987,8 @@ public partial class MainWindow : Window
             TelemetryBox.IsChecked = true;
             Telemetry_Changed(TelemetryBox, new RoutedEventArgs());
             TelemetryFormatBox.SelectedIndex = 1;
+            await Task.Delay(100);
+            TelemetryFormatBox.SelectedIndex = 0;
             await Task.Delay(200);
             saved = GameConfig.Read(configPath!);
             log.Add($"telemetry: {TelemetrySummary.Text}; udp {Get("telemetry_udp")}, format {Get("telemetry_udp_format")}, " +

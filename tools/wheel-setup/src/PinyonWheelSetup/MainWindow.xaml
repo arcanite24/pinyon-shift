@@ -261,8 +261,8 @@
                             </Grid.RowDefinitions>
                             <TextBlock Text="Game in SimHub" VerticalAlignment="Center"/>
                             <ComboBox x:Name="TelemetryFormatBox" Grid.Column="1" SelectionChanged="Telemetry_Changed">
+                                <ComboBoxItem Content="Forza Horizon 4 / 5 / 6"/>
                                 <ComboBoxItem Content="Forza Motorsport 7"/>
-                                <ComboBoxItem Content="Forza Horizon 4 / 5"/>
                             </ComboBox>
                             <TextBlock Grid.Row="1" Text="Send to" VerticalAlignment="Center" Margin="0,8,0,0"/>
                             <TextBox x:Name="TelemetryTargetBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" LostFocus="Telemetry_Changed"/>
