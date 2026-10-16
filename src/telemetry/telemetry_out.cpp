@@ -24,6 +24,11 @@ REXCVAR_DEFINE_BOOL(telemetry_udp, false, "Telemetry",
                     "Send the player car's telemetry over UDP in Forza Motorsport 7's Data Out "
                     "Dash layout, for SimHub, dashboards and motion software")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_STRING(telemetry_udp_format, "fm7", "Telemetry",
+                      "Packet layout: fm7 (Forza Motorsport 7 Dash, 311 bytes) or horizon "
+                      "(Forza Horizon 4/5, 324 bytes); pick the matching game in the tool")
+    .allowed({"fm7", "horizon"})
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(telemetry_udp_moving_only, false, "Telemetry",
                     "Send telemetry only while the car moves; standing still (and the menus) "
                     "sends race off, which silences shakers")
@@ -117,12 +122,17 @@ bool MovingOnly() { return REXCVAR_GET(telemetry_udp_moving_only); }
 
 void Send(const CarSample& sample) {
   if (!REXCVAR_GET(telemetry_udp)) return;
-  const auto packet = EncodeDash(sample, TimestampMs());
+  const uint32_t timestamp = TimestampMs();
+  const bool horizon = REXCVAR_GET(telemetry_udp_format) == "horizon";
+  const auto dash = horizon ? std::array<uint8_t, kDashPacketSize>{} : EncodeDash(sample, timestamp);
+  const auto wide = horizon ? EncodeHorizon(sample, timestamp)
+                            : std::array<uint8_t, kHorizonPacketSize>{};
+  const char* data = reinterpret_cast<const char*>(horizon ? wide.data() : dash.data());
+  const int size = int(horizon ? wide.size() : dash.size());
   std::lock_guard lock(g_mutex);
   if (!Open(REXCVAR_GET(telemetry_udp_target))) return;
   // Fire and forget: a listener that is not running costs nothing here.
-  sendto(g_socket, reinterpret_cast<const char*>(packet.data()), int(packet.size()), 0,
-         reinterpret_cast<const sockaddr*>(&g_address), g_address_size);
+  sendto(g_socket, data, size, 0, reinterpret_cast<const sockaddr*>(&g_address), g_address_size);
 }
 
 }  // namespace pinyon_shift::telemetry
