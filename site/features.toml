@@ -258,7 +258,7 @@ cells = ["yes", "yes", "yes: Cmd shortcuts for the F-keys", "n/a"]
 feature = "Racing wheels"
 link = "playing.md#racing-wheels"
 cells = [
-  "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+  "partly: steering and pedals with saturation, deadzones and a curve; experimental force feedback with devices bound by the wheel setup tool ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",

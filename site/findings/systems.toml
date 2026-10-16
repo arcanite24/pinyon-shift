@@ -560,3 +560,52 @@ how = """Guard hook added after a crash dump."""
 confidence = """probable"""
 note = """The function's purpose is not established."""
 source = """config/rexglue/analysis/main-xex.toml midasm_hook 0x82C6DFA8"""
+
+# ------------------------------------------------------ Wheel force feedback
+
+[[finding]]
+group = """Wheel force feedback"""
+base = """0x835091F0-0x83509214, sub_8310C788"""
+name = """XInputdFF function table"""
+what = """Ten function pointers the game resolves at start through `sub_8310C788` (a `XexGetModuleHandle`/`XexGetProcedureAddress` helper over xboxkrnl and xam ordinals): `+0` XInputdFFSetRumble, `+8` XInputdFFDeviceControl, `+C` XInputdFFCancelIo, `+10` and `+14` the effect download and operation calls, `+18` XamInputGetUserVibrationLevel (xam ordinal 442), `+1C` XInputdFFGetDeviceInfo, `+20` the device-context call, `+24` the effect update call."""
+how = """The runtime log's stub callers (`8310C9B0`, `8310CCE0`, `8310CBAC`, `8310CB3C`) matched to the wrappers that load each slot; the effect slots by their arguments."""
+confidence = """probable"""
+note = """Confirmed for the four slots seen in the log; probable for the three effect calls, which the SDK also recognises by their arguments."""
+issue = """#337"""
+
+[[finding]]
+group = """Wheel force feedback"""
+base = """sub_8310C7E0, sub_8310C898"""
+name = """XInputdFF device handle and status"""
+what = """Every XInputdFF wrapper opens a device context for the user (the capabilities must carry the force-feedback flag, else error 22), calls its slot with it first, and maps the NTSTATUS to a Win32 error (`STATUS_PENDING` to 997, `0xC000009D` to 1167)."""
+how = """Read in the generated code."""
+confidence = """confirmed"""
+issue = """#337"""
+
+[[finding]]
+group = """Wheel force feedback"""
+base = """sub_82BFBE20"""
+name = """wheel force feedback set-up"""
+what = """A per-frame state machine in the input object (state at +1360), run when the capabilities report subtype 2 (wheel) with the force-feedback flag: 1 checks the wheel and needs XInputdFFGetDeviceInfo's word at +4 to be at least 5; 2 sends DeviceControl 3; 3 builds five effect descriptors; 4 downloads them; 5 starts them (operation 2); 6 marks the wheel ready (+1372). Each step waits for its XOVERLAPPED (eight 36-byte slots at +676) to leave 997. With the SDK's stubs the device info was unwritten, so on one rig state 1 failed and restarted every frame (236 calls in 12 s) and the game never drew past its splash screen; on another it passed by chance."""
+how = """Read in the generated code; the runtime log's GetDeviceInfo calls; a Fanatec CSL DD and a Thrustmaster T248."""
+confidence = """confirmed"""
+issue = """#337"""
+
+[[finding]]
+group = """Wheel force feedback"""
+base = """sub_82BF8168"""
+name = """wheel effect descriptors"""
+what = """116-byte descriptors of big-endian words: +0 id, +4 type (USB HID PID ordinals), +12 gain (255), then the type's block from +44. Five effects: #1 inertia (10), #2 friction (11), #3 damper (9), #4 spring (8), #5 constant force (1). The condition effects take their coefficients (+48, +52), saturations (+56, +60) and dead band (+64) from `ControllerFFB.ini` values times an overall strength (+1340); the constant force's gain comes from that strength."""
+how = """Read in the generated code; a force feedback trace (`wheel_ffb_trace`) of the decoded descriptors on a CSL DD."""
+confidence = """confirmed"""
+note = """The layout is confirmed; the value scale (bytes, so 127 is full) comes from one trace."""
+issue = """#337"""
+
+[[finding]]
+group = """Wheel force feedback"""
+base = """sub_82BFC2D8, sub_8310CBC8"""
+name = """per-frame wheel effects"""
+what = """Once the wheel is ready, every frame the game copies the constant force, sets its magnitude (+44) from a steering-force value (+1336, mapped from 0..1 to a signed range) and updates it (flags `0x400`); when the speed-dependent spring scale (+1344) changes it updates the spring's gain (+12, flags `0x100`). Rumble goes separately through `sub_8310CBC8`, which scales the two motors by the profile vibration level (xam ordinal 442) and sends them with XInputdFFSetRumble."""
+how = """Read in the generated code; the force feedback trace."""
+confidence = """confirmed"""
+issue = """#337"""
