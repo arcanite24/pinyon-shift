@@ -9,7 +9,9 @@ verifies it, builds the game on your Mac and starts it.
 
 - An Apple silicon Mac (M1 or newer) with macOS 13 Ventura or newer. Intel
   Macs are not supported.
-- Your ISO of the USA retail disc (`MS-2505`).
+- Your ISO of the USA retail disc (`MS-2505`), or that game extracted to a
+  folder. The Games on Demand release of the same build is accepted too;
+  see [Use an extracted game folder](EXTRACTED_GAME_INPUT.md).
 - About 20 GB free.
 - Apple's Command Line Tools, which provide the compiler. The launcher
   offers to install them if they are missing; nothing else needs installing.
@@ -45,6 +47,8 @@ repository checkout:
 
 ```bash
 python3 tools/pinyon.py setup --iso ~/Downloads/forza-horizon.iso
+# or, from an already extracted game folder:
+python3 tools/pinyon.py setup --extracted ~/Games/forza-horizon
 python3 tools/pinyon.py launch
 ```
 

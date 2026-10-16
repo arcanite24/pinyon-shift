@@ -24,6 +24,13 @@ expected file must have the cataloged size and SHA-256 hash. Missing, modified,
 extra, or linked game files are rejected before building. The disc's
 `$SystemUpdate` directory is ignored, as it is during ISO extraction.
 
+On Linux and macOS (`pinyon.py setup`), the Games on Demand release of the
+same build is accepted too: its three executables and the dashboard art
+package (`nxeart`) are re-signed and hash differently, and are listed as the
+`games-on-demand` revision in `config/supported-dumps.json`; all other files
+match the disc catalog. The four files must all come from one release. The
+Windows launcher and `verify-extracted-game.ps1` still accept only the disc.
+
 The catalog was generated from a fresh extraction of the exact supported ISO.
 A folder match identifies those game files; it does not claim to establish the
 whole-file hash of an ISO that was not supplied. Setup copies verified game

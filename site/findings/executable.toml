@@ -53,6 +53,16 @@ confidence = """confirmed"""
 note = """Which heap holds which objects comes from scans, not from reading the allocator."""
 source = """docs/native-renderer/FH1_RENDER_TEST_AUTOMATION.md; src/save/live_profile.cpp; src/pinyon_shift_runtime_hooks.cpp"""
 
+[[finding]]
+group = """Image layout"""
+base = """media 43C5F3C0"""
+name = """Games on Demand release"""
+what = """The Xbox 360 Games on Demand release of Forza Horizon is the disc build (`MS-2505`, media `2DC7007B`, title `4D5309C9`, version 0.0.0.10) re-signed: only `default.xex`, the two facade executables and the dashboard art package `nxeart` hash differently, at the same sizes; all 2396 other files match the disc catalog byte for byte. The executables carry the same load addresses, and ReXGlue translation of either set produces byte-identical functions and module metadata, so the disc's analysis configuration (hooks, patches, symbols) applies unchanged. Recorded as the `games-on-demand` revision in `config/supported-dumps.json`."""
+how = """Hashing a direct extraction of the Games on Demand package against the disc catalog (2026-10-15); XEX header fields read with the same parser `verify-fh1-title-update.py` uses; the byte-identical codegen comparison was made in an earlier ReXGlue-based project on the same two sets of executables."""
+confidence = """probable"""
+note = """Confirmed for the file set and headers. Probable for the codegen identity on this repository's pinned ShiftGlue: the macOS build from the Games on Demand files translated with no unexpected warnings, loaded both executables and rendered 90 s of the front end at 60 fps on an M-series Mac (2026-10-15)."""
+source = """tools/pinyon_setup.py; config/supported-dumps.json"""
+
 # --------------------------------------------------------- Imports and modules
 
 [[finding]]

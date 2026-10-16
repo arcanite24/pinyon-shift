@@ -12,7 +12,7 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 ## Requirements
 
 - An Apple silicon Mac (M1 or newer) with macOS 13 or newer.
-- Your ISO of the USA retail disc (`MS-2505`) and about 20 GB free.
+- Your ISO of the USA retail disc (`MS-2505`), or the game extracted to a folder (the Games on Demand release of the same build works too), and about 20 GB free.
 - Apple's Command Line Tools. The launcher offers to install them.
 
 ## Install and play

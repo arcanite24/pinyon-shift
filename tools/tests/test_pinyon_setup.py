@@ -106,6 +106,36 @@ class DiscImageTests(unittest.TestCase):
         self.assertEqual(len(expected), dump["extraction"]["file_count"])
         self.assertIn("default.xex", expected)
 
+    def test_games_on_demand_executables_are_a_second_accepted_revision(self):
+        """The Games on Demand release of the same build ships re-signed
+        executables and dashboard art; every other file matches the disc."""
+        dump, expected = pinyon_setup.load_catalog()
+        accepted = pinyon_setup.executable_hashes(dump, expected)
+        revisions = [r["id"] for r in dump["executable_revisions"]]
+        self.assertEqual(revisions, ["games-on-demand"])
+        for item in dump["executable_revisions"][0]["files"]:
+            key = item["guest_path"].lower()
+            self.assertIn(key, expected)
+            self.assertEqual(item["size_bytes"], expected[key]["size_bytes"])
+            self.assertNotEqual(item["sha256"], expected[key]["sha256"])
+            self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
+            self.assertEqual(sorted(accepted[key].values()), ["disc", "games-on-demand"])
+        self.assertEqual(sorted(accepted), ["default.xex", "nxeart", "speechfacade_default.xex",
+                                            "xmediafacade_default.xex"])
+
+    def test_executable_revision_refuses_mixed_or_unknown_executables(self):
+        dump, expected = pinyon_setup.load_catalog()
+        disc = {e["guest_path"]: e["sha256"] for e in dump["executables"]}
+        god = {f["guest_path"]: f["sha256"] for f in dump["executable_revisions"][0]["files"]}
+        self.assertEqual(pinyon_setup.executable_revision(disc, dump, expected), "disc")
+        self.assertEqual(pinyon_setup.executable_revision(god, dump, expected), "games-on-demand")
+        mixed = dict(disc, **{"nxeart": god["nxeart"]})
+        with self.assertRaises(pinyon_setup.SetupError):
+            pinyon_setup.executable_revision(mixed, dump, expected)
+        unknown = dict(disc, **{"default.xex": "00" * 32})
+        with self.assertRaises(pinyon_setup.SetupError):
+            pinyon_setup.executable_revision(unknown, dump, expected)
+
 
 class ToolchainPinTests(unittest.TestCase):
     def test_posix_downloads_are_https_and_sha256_pinned(self):

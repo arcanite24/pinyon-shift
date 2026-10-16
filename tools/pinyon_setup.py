@@ -498,6 +498,38 @@ def load_catalog() -> tuple[dict, dict]:
     return dump, {entry["guest_path"].lower(): entry for entry in catalog["files"]}
 
 
+def executable_hashes(dump: dict, expected: dict) -> dict[str, dict[str, str]]:
+    """guest path (lower case) -> accepted SHA-256 -> revision id. The disc's
+    files are the "disc" revision; supported-dumps.json may list other
+    releases of the same build (Games on Demand) whose executables, and the
+    dashboard art package, hash differently but translate to the same code."""
+    accepted: dict[str, dict[str, str]] = {}
+    for executable in dump["executables"]:
+        accepted.setdefault(executable["guest_path"].lower(), {})[
+            executable["sha256"].upper()] = "disc"
+    for revision in dump.get("executable_revisions", []):
+        for item in revision["files"]:
+            key = item["guest_path"].lower()
+            accepted.setdefault(key, {})[expected[key]["sha256"].upper()] = "disc"
+            accepted[key][item["sha256"].upper()] = revision["id"]
+    return accepted
+
+
+def executable_revision(digests: dict[str, str], dump: dict, expected: dict) -> str:
+    """The one revision every executable belongs to; mixing is refused."""
+    accepted = executable_hashes(dump, expected)
+    found = set()
+    for path, digest in digests.items():
+        revision = accepted[path.lower()].get(digest.upper())
+        if revision is None:
+            raise SetupError(f"This folder is not the supported dump: {path} differs", "verify")
+        found.add(revision)
+    if len(found) != 1:
+        raise SetupError("The game executables come from different releases "
+                         f"({', '.join(sorted(found))}); use one complete dump", "verify")
+    return found.pop()
+
+
 def check_paths(files: list[tuple[str, int, int]], expected: dict) -> list[str]:
     names = {path.lower() for path, _, _ in files}
     mismatches = [f"Missing: {entry['guest_path']}" for key, entry in expected.items()
@@ -507,10 +539,13 @@ def check_paths(files: list[tuple[str, int, int]], expected: dict) -> list[str]:
     return mismatches
 
 
-def extract_iso(iso: Path, progress: Progress) -> dict:
+def extract_iso(iso: Path, progress: Progress) -> tuple[dict, str]:
     """Copies the game out of the disc image, checking each file against the
-    catalog; an image that is not the supported dump leaves nothing behind."""
+    catalog; an image that is not the supported dump leaves nothing behind.
+    Returns the dump and the executables' revision (disc or games-on-demand)."""
     dump, expected = load_catalog()
+    accepted = executable_hashes(dump, expected)
+    digests = {}
     disc = DiscImage(iso)
     try:
         files = [entry for entry in disc.files()
@@ -530,7 +565,14 @@ def extract_iso(iso: Path, progress: Progress) -> dict:
             entry = expected[path.lower()]
             target = staging / entry["guest_path"]
             target.parent.mkdir(parents=True, exist_ok=True)
-            if size != entry["size_bytes"] or disc.copy(sector, size, target) != entry["sha256"]:
+            digest = disc.copy(sector, size, target) if size == entry["size_bytes"] else None
+            key = path.lower()
+            if key in accepted:
+                digests[key] = digest or ""
+                ok = digest in accepted[key]
+            else:
+                ok = digest == entry["sha256"]
+            if not ok:
                 shutil.rmtree(staging)
                 raise SetupError(f"This disc image is not the supported dump: "
                                  f"{entry['guest_path']} differs", "verify")
@@ -538,15 +580,23 @@ def extract_iso(iso: Path, progress: Progress) -> dict:
             if index % 40 == 0:
                 progress("extract", 100 * done / total,
                          f"Copying the game files ({done / 1e9:.1f} of {total / 1e9:.1f} GB)")
+        try:
+            revision = executable_revision(digests, dump, expected)
+        except SetupError:
+            shutil.rmtree(staging)
+            raise
     finally:
         disc.close()
     replace_game(staging)
-    return dump
+    return dump, revision
 
 
-def verify_folder(source: Path, progress: Progress) -> dict:
-    """An already extracted game folder: same catalog, copied in."""
+def verify_folder(source: Path, progress: Progress) -> tuple[dict, str]:
+    """An already extracted game folder: same catalog, copied in. Returns the
+    dump and the executables' revision (disc or games-on-demand)."""
     dump, expected = load_catalog()
+    accepted = executable_hashes(dump, expected)
+    digests = {}
     files = []
     for directory, folders, names in os.walk(str(source)):
         relative = Path(directory).relative_to(source).as_posix()
@@ -571,15 +621,27 @@ def verify_folder(source: Path, progress: Progress) -> dict:
         target = staging / entry["guest_path"]
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(str(source / path), str(target))
-        if size != entry["size_bytes"] or sha256_file(target) != entry["sha256"]:
+        digest = sha256_file(target) if size == entry["size_bytes"] else None
+        key = path.lower()
+        if key in accepted:
+            digests[key] = digest or ""
+            ok = digest in accepted[key]
+        else:
+            ok = digest == entry["sha256"]
+        if not ok:
             shutil.rmtree(staging)
             raise SetupError(f"This folder is not the supported dump: {path} differs", "verify")
         done += size
         if index % 40 == 0:
             progress("extract", 100 * done / total, f"Checking the game files "
                      f"({done / 1e9:.1f} of {total / 1e9:.1f} GB)")
+    try:
+        revision = executable_revision(digests, dump, expected)
+    except SetupError:
+        shutil.rmtree(staging)
+        raise
     replace_game(staging)
-    return dump
+    return dump, revision
 
 
 def replace_game(staging: Path) -> None:
@@ -592,12 +654,12 @@ def replace_game(staging: Path) -> None:
 
 def game_ready() -> bool:
     """The extracted game is there and its executables still match."""
-    dump, _ = load_catalog()
+    dump, expected = load_catalog()
     for executable in dump["executables"]:
         path = GAME / executable["guest_path"]
         if not path.is_file() or path.stat().st_size != executable["size_bytes"]:
             return False
-    return sha256_file(GAME / "default.xex") == dump["executables"][0]["sha256"]
+    return sha256_file(GAME / "default.xex") in executable_hashes(dump, expected)["default.xex"]
 
 
 # --- ShiftGlue -----------------------------------------------------------------
@@ -1117,6 +1179,7 @@ def run_setup(args: argparse.Namespace) -> int:
             return 0
         dump = None
         source_kind = None
+        revision = None
         if args.iso or args.extracted:
             progress("verify", 0, "Checking the game")
             if args.iso:
@@ -1134,10 +1197,10 @@ def run_setup(args: argparse.Namespace) -> int:
                         raise SetupError(f"Not the supported dump: {mismatches[0]}", "verify")
                     progress("verify", 100, "The disc image has the supported dump's files")
                     return 0
-                dump = extract_iso(args.iso, progress)
+                dump, revision = extract_iso(args.iso, progress)
             else:
                 source_kind = "extracted"
-                dump = verify_folder(args.extracted.resolve(), progress)
+                dump, revision = verify_folder(args.extracted.resolve(), progress)
             progress("extract", 100, "Game files ready")
         elif not game_ready():
             raise SetupError("choose your disc image (--iso) first", "verify")
@@ -1146,11 +1209,14 @@ def run_setup(args: argparse.Namespace) -> int:
         jobs = args.jobs or job_count()
         build(progress, tools, sdk, python, name, jobs, args.configuration)
         if dump is None:
-            dump, _ = load_catalog()
+            dump, expected = load_catalog()
+            revision = executable_hashes(dump, expected)["default.xex"].get(
+                sha256_file(GAME / "default.xex"))
         state = {
             "schema_version": 1,
             "completed_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "dump_id": dump["id"],
+            "executable_revision": revision,
             "source_kind": source_kind or "existing",
             "iso_sha256": None,
             "verified_by": "extracted-file-catalog",

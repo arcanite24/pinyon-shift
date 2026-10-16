@@ -9,7 +9,7 @@ description: Fixes for rejected disc images, failed builds, startup problems, co
 
 ## The ISO is rejected
 
-Only the USA retail base disc (`MS-2505`) is supported. A bad dump, another region, a title update or a modified image won't match. The launcher doesn't accept near matches and can't download or repair an image.
+Only the USA retail base disc (`MS-2505`) is supported. A bad dump, another region, a title update or a modified image won't match. The launcher doesn't accept near matches and can't download or repair an image. On Linux and macOS, setup from a terminal also accepts the Games on Demand release of the same build, whose re-signed executables are listed in `config/supported-dumps.json`.
 
 ## Defender reports a Trojan or quarantines a file
 

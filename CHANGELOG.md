@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Setup on Linux and macOS accepts the Games on Demand release of the game,
+  whose re-signed executables and dashboard art are catalogued as a second
+  revision of the supported dump.
+
 ## 0.7.1 - 2026-10-27
 
 - Fixed: Windows setup failed to download ShiftGlue ("schannel: failed

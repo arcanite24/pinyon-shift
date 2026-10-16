@@ -5,7 +5,9 @@
 Only the USA retail base disc listed in `config/supported-dumps.json` is
 supported. A bad dump, another region, a title update, or a modified image will
 not match. The launcher does not accept nearly matching images and cannot
-download or repair one.
+download or repair one. On Linux and macOS, `pinyon.py setup` also accepts the
+Games on Demand release of the same build, whose re-signed executables are
+listed in the same file.
 
 ## Setup asks for administrator permission
 
