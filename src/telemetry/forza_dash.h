@@ -49,4 +49,12 @@ constexpr uint8_t kDashNeutralGear = 11;
 
 std::array<uint8_t, kDashPacketSize> EncodeDash(const CarSample& sample, uint32_t timestamp_ms);
 
+// Forza Horizon 4 and 5 send the same fields with 12 more bytes between the
+// Sled block and the dash fields (324 bytes); tools read that layout under
+// their Forza Horizon profile.
+constexpr size_t kHorizonPacketSize = 324;
+constexpr size_t kHorizonGapOffset = 232;
+std::array<uint8_t, kHorizonPacketSize> EncodeHorizon(const CarSample& sample,
+                                                      uint32_t timestamp_ms);
+
 }  // namespace pinyon_shift::telemetry

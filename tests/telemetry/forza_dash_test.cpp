@@ -110,6 +110,21 @@ int main() {
     assert(packet[307] == pinyon_shift::telemetry::kDashNeutralGear);
   }
 
+  // The Horizon layout: the same fields, the dash part 12 bytes later.
+  {
+    CarSample sample;
+    sample.driving = true;
+    sample.rpm = 4000.0f;
+    sample.speed_mps = 20.0f;
+    sample.gear = 2;
+    const auto packet = pinyon_shift::telemetry::EncodeHorizon(sample, 7);
+    static_assert(pinyon_shift::telemetry::kHorizonPacketSize == 324);
+    assert(U32(packet.data(), 0) == 1 && U32(packet.data(), 4) == 7);
+    assert(F32(packet.data(), 16) == 4000.0f);
+    assert(F32(packet.data(), 244 + 12) == 20.0f);
+    assert(packet[307 + 12] == 2);
+  }
+
   std::puts("forza_dash: all checks passed");
   return 0;
 }

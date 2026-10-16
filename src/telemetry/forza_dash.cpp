@@ -99,4 +99,13 @@ std::array<uint8_t, kDashPacketSize> EncodeDash(const CarSample& sample, uint32_
   return packet;
 }
 
+std::array<uint8_t, kHorizonPacketSize> EncodeHorizon(const CarSample& sample,
+                                                      uint32_t timestamp_ms) {
+  const auto dash = EncodeDash(sample, timestamp_ms);
+  std::array<uint8_t, kHorizonPacketSize> packet{};
+  std::copy(dash.begin(), dash.begin() + kHorizonGapOffset, packet.begin());
+  std::copy(dash.begin() + kHorizonGapOffset, dash.end(), packet.begin() + kHorizonGapOffset + 12);
+  return packet;
+}
+
 }  // namespace pinyon_shift::telemetry
