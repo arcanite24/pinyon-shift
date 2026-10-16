@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ShowConfigureWheelButton();
         RouteList.ItemsSource = _steps;
         BuildLocationRun.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyonShift");
