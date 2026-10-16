@@ -42,13 +42,24 @@ present is then a real frame.
   about 29 ms on the M1 at the default. If N+1 arrives before N was
   presented, N is dropped (it lives on inside G(N, N+1)) and counted as a
   dropped present.
-- **Threads.** The game's swap, the generation and the generated present run
-  on the GPU Submission thread as today; the delayed real present runs on a
-  presenter-owned pacing thread, so the submission thread never waits.
-- **When it runs.** Only while the presenter paints from the guest output
-  thread: no menus or overlays, no FIFO swapchain, presentation from the
-  non-UI thread allowed. Otherwise every present is a real frame and the
-  history is reset.
+- **Threads.** The game's swap publishes the frame on the GPU Submission
+  thread as today. Where the presenter paints from that thread (a mailbox
+  swapchain, no menus), it paints the generated frame there and a
+  presenter-owned pacing thread paints the real one later, so the submission
+  thread never waits. Where the UI thread paints on request (MoltenVK offers
+  only FIFO and immediate present modes, so with vsync on macOS always paints
+  from the UI thread), the publish and the pacer each ask the window for a
+  paint and the UI thread paints the generated or the real frame; a real
+  frame waiting to be painted goes before a newer generated one.
+- **When it runs.** Only without menus or overlays (they show real frames and
+  the pair history starts over), and only while twice the base rate fits
+  under what the host shows: the frame rate limit, and the display's refresh
+  on a FIFO swapchain. On a 60 Hz panel that means a base rate of 30 fps or
+  less; above it the presenter waits, logs why once, and shows real frames.
+- **Dropped frames.** A real frame the display could not take before the next
+  frame arrived is dropped (it lives on inside the next generated frame) and
+  counted in `dropped_present_count`; a generated frame whose pair was
+  superseded is simply not shown.
 - **Images.** The presenter keeps its own copies of the last two frames (the
   mailbox releases a frame as soon as the next is taken), a generated image,
   and later the scene without the HUD, the depth and the motion vectors.
@@ -91,7 +102,7 @@ and the route's captures bit-exact (captures are real frames).
 | Stage | Result |
 | --- | --- |
 | 0: settings, backend abstraction, counters | Landed; no visible change. |
-| 1: history, generated present, pacing (`repeat`) | |
+| 1: history, generated present, pacing (`repeat`) | M1, `fh1-open-world-performance` at the game's 20 fps limit (so twice the base rate fits the 60 Hz panel), 779 title frames each: control 16.8 presents a second, all real; `repeat` 28.3 presents a second, of which 14.5 generated and 13.8 real, 24 real frames dropped, GPU median unchanged (52.0 against 52.2 ms). The missing real frames are the FIFO limit: the UI thread paints every frame on macOS and one paint blocks for a vblank, so when the title releases a frame early the generated frame of the previous pair gives way to it. `fh1-hfr-modes-control` with `repeat` against a control run: four of its five capture gates pass; the map capture's changed-pixel ratio is 0.29 against its 0.15 limit at a mean error of 3.4 (limit 4), the drive's timing noise, and the content matches. `fh1-smoke` passes. The `fh1-source-60` gate (55 distinct frames a second) is out of the M1's reach with or without generation. |
 | 2: MetalFX, depth, zero motion | |
 | 3: HUD as its own layer | |
 | 4: camera motion vectors | |
