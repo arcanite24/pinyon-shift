@@ -1,0 +1,612 @@
+<Window x:Class="PinyonWheelSetup.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:PinyonWheelSetup.Controls"
+        Title="Pinyon Wheel Setup" Width="1240" Height="940" MinWidth="1040" MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13" UseLayoutRounding="True"
+        SourceInitialized="Window_SourceInitialized" PreviewKeyDown="Window_PreviewKeyDown"
+        Closed="Window_Closed">
+
+    <Window.Resources>
+        <!-- A card's header that collapses and expands it -->
+        <Style x:Key="CardToggle" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Overlay" CornerRadius="4" Margin="-6,-4" Background="{DynamicResource OverlayBrush}" Opacity="0"/>
+                            <Border x:Name="Focus" CornerRadius="4" Margin="-6,-4" BorderThickness="1" BorderBrush="Transparent"/>
+                            <ContentPresenter HorizontalAlignment="Stretch"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Overlay" Property="Opacity" Value="0.06"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Overlay" Property="Opacity" Value="0.12"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Focus" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Storyboard x:Key="PulseStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.3" Duration="0:0:0.7"/>
+        </Storyboard>
+
+        <!-- One row of the bindings table -->
+        <DataTemplate x:Key="BindingRow">
+            <Border x:Name="Row" CornerRadius="4" Padding="10,5" Margin="0,0,0,2" BorderThickness="1"
+                    BorderBrush="Transparent" Background="Transparent">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="190"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="56"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="BindingText" Grid.Column="1" Text="{Binding BindingText}" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Margin="0,0,12,0" ToolTip="{Binding BindingText}"/>
+                    <!-- live value: a meter for axes, a dot for buttons -->
+                    <c:ValueBar x:Name="Meter" Grid.Column="2" Height="8" VerticalAlignment="Center" Value="{Binding Value}"
+                                Fill="{DynamicResource AccentBrush}" Track="{DynamicResource ControlBorderBrush}"/>
+                    <Ellipse x:Name="Dot" Grid.Column="2" Width="12" Height="12" HorizontalAlignment="Left" Visibility="Collapsed"
+                             Fill="{DynamicResource ControlBorderBrush}"/>
+                    <TextBlock Grid.Column="3" Text="{Binding ValueText}" Style="{StaticResource SecondaryText}"
+                               VerticalAlignment="Center" HorizontalAlignment="Right" TextWrapping="NoWrap"/>
+                    <CheckBox x:Name="Invert" Grid.Column="4" Content="Invert" Margin="12,0,0,0" VerticalAlignment="Center"
+                              IsChecked="{Binding Invert, Mode=TwoWay}" Click="RowInvert_Click"
+                              ToolTip="Reverse this axis. Use it if the live bar moves the wrong way."/>
+                    <Button Grid.Column="5" Content="Bind" Margin="8,0,0,0" MinWidth="64" Click="RowBind_Click" Tag="{Binding}"
+                            ToolTip="Bind only this control"/>
+                    <Button Grid.Column="6" Margin="6,0,0,0" Padding="7,3" MinHeight="26" Click="RowClear_Click" Tag="{Binding}"
+                            ToolTip="Clear this binding">
+                        <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10"/>
+                    </Button>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Kind}" Value="Steering">
+                    <Setter TargetName="Meter" Property="Centered" Value="True"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsAxis}" Value="False">
+                    <Setter TargetName="Meter" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                    <Setter TargetName="Invert" Property="Visibility" Value="Hidden"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Pressed}" Value="True">
+                    <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource SoundingBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsBound}" Value="False">
+                    <Setter TargetName="BindingText" Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                    <Setter TargetName="Invert" Property="IsEnabled" Value="False"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                    <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                    <Setter TargetName="Row" Property="Background" Value="{DynamicResource ControlBrush}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- A button chip on the live view -->
+        <DataTemplate x:Key="ButtonChip">
+            <Border x:Name="Chip" Width="62" Height="30" Margin="4" CornerRadius="15" BorderThickness="1"
+                    Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}">
+                <TextBlock x:Name="ChipText" Text="{Binding Short}" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsBound}" Value="False">
+                    <Setter TargetName="Chip" Property="Opacity" Value="0.45"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Pressed}" Value="True">
+                    <Setter TargetName="Chip" Property="Background" Value="{DynamicResource SoundingBrush}"/>
+                    <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource SoundingBrush}"/>
+                    <Setter TargetName="ChipText" Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="20,16,20,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="362"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Header -->
+        <DockPanel Grid.ColumnSpan="3" Margin="0,0,0,14" LastChildFill="False">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                <TextBlock Text="Pinyon Wheel Setup" FontSize="22" FontWeight="SemiBold"/>
+                <TextBlock x:Name="VersionText" Style="{StaticResource SecondaryText}" Margin="10,0,0,4" VerticalAlignment="Bottom"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Theme" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <ComboBox x:Name="ThemeBox" Width="116" SelectionChanged="ThemeBox_SelectionChanged">
+                    <ComboBoxItem Content="Dark"/>
+                    <ComboBoxItem Content="Light"/>
+                    <ComboBoxItem Content="System"/>
+                </ComboBox>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Banner -->
+        <Border x:Name="Banner" Grid.Row="1" Grid.ColumnSpan="3" Visibility="Collapsed" Margin="0,0,0,12" Padding="14,8"
+                CornerRadius="8" BorderThickness="1" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource AccentBrush}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                           VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource AccentBrush}"/>
+                <TextBlock x:Name="BannerText" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Left column -->
+        <ScrollViewer x:Name="LeftScroll" Grid.Row="2" Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,10,0">
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="config" Click="CardToggle_Click"
+                                AutomationProperties.Name="Game config">
+                            <DockPanel>
+                                <TextBlock x:Name="ConfigChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="ConfigSummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Game config" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="ConfigBody" Margin="0,12,0,0" Visibility="Collapsed">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse…" Click="Browse_Click" Margin="10,0,0,0" VerticalAlignment="Top"/>
+                            <TextBlock x:Name="ConfigPathText" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock x:Name="ConfigWarning" Foreground="{DynamicResource ErrorTextBrush}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,8,0,0"
+                                   Text="pinyon_shift.toml, found where the launcher keeps it. Run the game once first so it exists. Saving keeps a backup."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="devices" Click="CardToggle_Click"
+                                AutomationProperties.Name="Devices">
+                            <DockPanel>
+                                <TextBlock x:Name="DevicesChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="DeviceCount" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Devices" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="DevicesBody" Margin="0,12,0,0" Visibility="Collapsed">
+
+                        <ItemsControl x:Name="DeviceList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,9">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="18"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse x:Name="Dot" Width="8" Height="8" VerticalAlignment="Top" Margin="0,6,0,0"
+                                                 HorizontalAlignment="Left" Fill="{DynamicResource ControlBorderBrush}"/>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource SecondaryText}"/>
+                                            <TextBlock x:Name="Activity" Text="{Binding Activity}" FontSize="12"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                            <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource SoundingBrush}"/>
+                                            <Setter TargetName="Activity" Property="Foreground" Value="{DynamicResource SoundingBrush}"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="NoDevicesText" Style="{StaticResource SecondaryText}" Visibility="Collapsed"
+                                   Text="No game controllers found. Connect your wheel, pedals and other devices; the list updates by itself."/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,4,0,0"
+                                   Text="A device lights up green while you move it, so you can tell which is which."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="ffb" Click="CardToggle_Click"
+                                AutomationProperties.Name="Force feedback">
+                            <DockPanel>
+                                <TextBlock x:Name="FfbChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="FfbSummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Force feedback" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="FfbBody" Margin="0,12,0,0" Visibility="Collapsed">
+
+                        <TextBlock Text="Device that receives the forces" Style="{StaticResource SecondaryText}" Margin="0,0,0,4"/>
+                        <DockPanel>
+                            <Button x:Name="TestButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="TestFfb_Click"
+                                    ToolTip="Pulls the wheel LEFT, then RIGHT, gently (15 %)">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Test" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <ComboBox x:Name="FfbDeviceBox" SelectionChanged="FfbDeviceBox_SelectionChanged"/>
+                        </DockPanel>
+                        <TextBlock x:Name="FfbTestText" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" Visibility="Collapsed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,6,0,12"
+                                   Text="Pick your wheel base. Test pulls the wheel LEFT, then RIGHT. If it pulls right first, tick Reverse force direction. A base can appear twice; if Test does not move the wheel, pick the other entry."/>
+
+                        <TextBlock Text="Force feedback" Style="{StaticResource SecondaryText}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="FfbModeBox" SelectionChanged="Tuning_Changed">
+                            <ComboBoxItem Content="On: the game's own wheel effects"/>
+                            <ComboBoxItem Content="Rumble only"/>
+                            <ComboBoxItem Content="Off"/>
+                        </ComboBox>
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="104"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Strength" VerticalAlignment="Center" Margin="0,0,0,0" ToolTip="Overall force feedback strength"/>
+                            <Slider x:Name="StrengthSlider" Grid.Row="0" Grid.Column="1" Margin="10,0,10,0" Minimum="0" Maximum="100"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="Overall force feedback strength"/>
+                            <TextBlock x:Name="StrengthValue" Grid.Row="0" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                            <TextBlock Grid.Row="1" Text="Minimum force" VerticalAlignment="Center" Margin="0,8,0,0" ToolTip="Lifts small forces past a geared or belted wheel&apos;s friction. A direct-drive base needs 0."/>
+                            <Slider x:Name="MinForceSlider" Grid.Row="1" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="30"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="Lifts small forces past a geared or belted wheel&apos;s friction. A direct-drive base needs 0."/>
+                            <TextBlock x:Name="MinForceValue" Grid.Row="1" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="2" Text="Spring" VerticalAlignment="Center" Margin="0,8,0,0" ToolTip="The game&apos;s centring spring, which stiffens with speed"/>
+                            <Slider x:Name="SpringSlider" Grid.Row="2" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="200"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="The game&apos;s centring spring, which stiffens with speed"/>
+                            <TextBlock x:Name="SpringValue" Grid.Row="2" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="3" Text="Damper" VerticalAlignment="Center" Margin="0,8,0,0" ToolTip="The game&apos;s damper (resists fast wheel movement)"/>
+                            <Slider x:Name="DamperSlider" Grid.Row="3" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="200"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="The game&apos;s damper (resists fast wheel movement)"/>
+                            <TextBlock x:Name="DamperValue" Grid.Row="3" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="4" Text="Friction" VerticalAlignment="Center" Margin="0,8,0,0" ToolTip="The game&apos;s friction effect"/>
+                            <Slider x:Name="FrictionSlider" Grid.Row="4" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="200"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="The game&apos;s friction effect"/>
+                            <TextBlock x:Name="FrictionValue" Grid.Row="4" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="5" Text="Inertia" VerticalAlignment="Center" Margin="0,8,0,0" ToolTip="The game&apos;s inertia effect"/>
+                            <Slider x:Name="InertiaSlider" Grid.Row="5" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="200"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed" ToolTip="The game&apos;s inertia effect"/>
+                            <TextBlock x:Name="InertiaValue" Grid.Row="5" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        </Grid>
+                        <CheckBox x:Name="FfbInvertBox" Content="Reverse force direction" Margin="0,10,0,9" Click="Tuning_Changed"
+                                  ToolTip="Leave off unless the wheel pushes away from centre in corners"/>
+                        <CheckBox x:Name="FfbTraceBox" Content="Record force feedback trace" Click="Tuning_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,2,0,0"
+                                   Text="Writes ffb-trace-*.csv beside the game's runtime log, to work out how the game's 360 wheel forces map onto your base."/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,10,0,0"
+                                   Text="Start low on a direct-drive base. F6 › CONTROLS in game changes these too."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="steering" Click="CardToggle_Click"
+                                AutomationProperties.Name="Steering and pedals">
+                            <DockPanel>
+                                <TextBlock x:Name="SteeringChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="SteeringSummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Steering and pedals" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="SteeringBody" Margin="0,12,0,0" Visibility="Collapsed">
+
+                        <CheckBox x:Name="Wheel900Box" Content="900° steering (FH1's linear wheel mode)" Margin="0,0,0,4" Click="Tuning_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
+                                   Text="Set your wheel base to 900°. Without it the game cuts steering at speed. Applies from the next game start."/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="128"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Steering sensitivity" VerticalAlignment="Center"/>
+                            <Slider x:Name="ScaleSlider" Grid.Column="1" Margin="10,0" Minimum="50" Maximum="450"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="ScaleValue" Grid.Column="2" MinWidth="48" TextAlignment="Right" FontWeight="SemiBold" VerticalAlignment="Center"/>
+
+                            <TextBlock Grid.Row="1" Text="Steering deadzone" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <Slider x:Name="SteerDeadzoneSlider" Grid.Row="1" Grid.Column="1" Margin="10,8,10,0" Minimum="0" Maximum="20"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="SteerDeadzoneValue" Grid.Row="1" Grid.Column="2" MinWidth="48" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,8,0,0"/>
+
+                        </Grid>
+                        <TextBlock Text="Pedal dead zones" FontWeight="SemiBold" Margin="0,14,0,2"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,0,0,8"
+                                   Text="Bottom: travel at rest the game ignores. Top: the last part of travel that already counts as 100 %, so you reach full throttle or brake without bottoming out."/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="64"/>
+                                <ColumnDefinition Width="50"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Throttle" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="Bottom" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                            <Slider x:Name="ThrottleBottomSlider" Grid.Row="0" Grid.Column="2" Margin="8,0,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="ThrottleBottomValue" Grid.Row="0" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Top" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <Slider x:Name="ThrottleTopSlider" Grid.Row="1" Grid.Column="2" Margin="8,4,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="ThrottleTopValue" Grid.Row="1" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="2" Text="Brake" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="Bottom" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <Slider x:Name="BrakeBottomSlider" Grid.Row="2" Grid.Column="2" Margin="8,10,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="BrakeBottomValue" Grid.Row="2" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="Top" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <Slider x:Name="BrakeTopSlider" Grid.Row="3" Grid.Column="2" Margin="8,4,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="BrakeTopValue" Grid.Row="3" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="4" Text="Clutch" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="Bottom" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <Slider x:Name="ClutchBottomSlider" Grid.Row="4" Grid.Column="2" Margin="8,10,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="ClutchBottomValue" Grid.Row="4" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="Top" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <Slider x:Name="ClutchTopSlider" Grid.Row="5" Grid.Column="2" Margin="8,4,8,0" Minimum="0" Maximum="25"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Tuning_Changed"/>
+                            <TextBlock x:Name="ClutchTopValue" Grid.Row="5" Grid.Column="3" MinWidth="40" TextAlignment="Right"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,10,0,0"
+                                   Text="Sensitivity 200 % reaches full lock at half your wheel's rotation. The live view uses all of these values."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Main card -->
+        <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource Card}" Margin="0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="5*" MinHeight="170"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="6*" MinHeight="160"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header row -->
+                <DockPanel Margin="0,0,0,12">
+                    <Button x:Name="GuidedButton" DockPanel.Dock="Right" Style="{StaticResource AccentButton}" Click="Guided_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="GuidedIcon" Text="&#xE768;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="GuidedLabel" Text="Start guided setup" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <StackPanel>
+                        <TextBlock Text="Wheel, pedals and buttons" Style="{StaticResource CardHeader}" Margin="0,0,0,2"/>
+                        <TextBlock Style="{StaticResource SecondaryText}"
+                                   Text="Live: exactly what the game will see with these bindings."/>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Live view -->
+                <Border Grid.Row="1" CornerRadius="16" Background="{DynamicResource RoomBrush}" Padding="12">
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="740" Height="270">
+                            <!-- Wheel -->
+                            <Grid x:Name="WheelGroup" Canvas.Left="20" Canvas.Top="4" Width="220" Height="220" RenderTransformOrigin="0.5,0.5">
+                                <Grid.RenderTransform>
+                                    <RotateTransform x:Name="WheelRotation" Angle="0"/>
+                                </Grid.RenderTransform>
+                                <Ellipse Margin="10" StrokeThickness="18" Stroke="{DynamicResource ControlBorderStrongBrush}"/>
+                                <Rectangle Width="184" Height="16" RadiusX="6" RadiusY="6" Fill="{DynamicResource ControlBorderStrongBrush}"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                <Rectangle Width="16" Height="92" RadiusX="6" RadiusY="6" Fill="{DynamicResource ControlBorderStrongBrush}"
+                                           VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,18"/>
+                                <Ellipse Width="58" Height="58" Fill="{DynamicResource ControlBrush}" Stroke="{DynamicResource ControlBorderStrongBrush}" StrokeThickness="3"/>
+                                <Rectangle Width="12" Height="24" RadiusX="3" RadiusY="3" Fill="{DynamicResource AccentBrush}"
+                                           VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,7,0,0"/>
+                            </Grid>
+                            <TextBlock Canvas.Left="20" Canvas.Top="236" Width="220" TextAlignment="Center" FontSize="14">
+                                <Run Text="Steering" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <Run x:Name="SteerText" Text="—" FontWeight="SemiBold"/>
+                            </TextBlock>
+
+                            <!-- Pedals -->
+                            <StackPanel Canvas.Left="290" Canvas.Top="14" Orientation="Horizontal">
+                                <StackPanel Width="64">
+                                    <c:ValueBar x:Name="ClutchBar" Orientation="Vertical" Width="40" Height="188"
+                                                Fill="{DynamicResource AccentBrush}" Track="{DynamicResource ControlBorderBrush}"/>
+                                    <TextBlock Text="Clutch" HorizontalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    <TextBlock x:Name="ClutchText" Text="—" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                </StackPanel>
+                                <StackPanel Width="64">
+                                    <c:ValueBar x:Name="BrakeBar" Orientation="Vertical" Width="40" Height="188"
+                                                Fill="{DynamicResource AccentBrush}" Track="{DynamicResource ControlBorderBrush}"/>
+                                    <TextBlock Text="Brake" HorizontalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    <TextBlock x:Name="BrakeText" Text="—" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                </StackPanel>
+                                <StackPanel Width="64">
+                                    <c:ValueBar x:Name="ThrottleBar" Orientation="Vertical" Width="40" Height="188"
+                                                Fill="{DynamicResource SoundingBrush}" Track="{DynamicResource ControlBorderBrush}"/>
+                                    <TextBlock Text="Throttle" HorizontalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    <TextBlock x:Name="ThrottleText" Text="—" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Buttons -->
+                            <ItemsControl x:Name="ChipList" Canvas.Left="500" Canvas.Top="14" Width="230"
+                                          ItemTemplate="{StaticResource ButtonChip}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </Canvas>
+                    </Viewbox>
+                </Border>
+
+                <!-- Binding step (guided setup or a single Bind) -->
+                <Border x:Name="StepPanel" Grid.Row="2" Margin="0,12,0,0" Padding="16,12" CornerRadius="8" BorderThickness="1"
+                        Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource AccentBrush}" Visibility="Collapsed">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBlock x:Name="StepCounter" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StepTitle" FontSize="18" FontWeight="SemiBold"/>
+                        </DockPanel>
+                        <TextBlock x:Name="StepPrompt" TextWrapping="Wrap" Margin="0,4,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="ListenDot" Width="10" Height="10" Fill="{DynamicResource SoundingBrush}" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="DetectText" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Grid x:Name="StepLive" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <c:ValueBar x:Name="StepBar" Height="10" VerticalAlignment="Center"
+                                        Fill="{DynamicResource AccentBrush}" Track="{DynamicResource ControlBorderBrush}"/>
+                            <TextBlock x:Name="StepValue" Grid.Column="1" MinWidth="140" Margin="16,0,0,0" TextAlignment="Right" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <CheckBox x:Name="StepInvert" Grid.Column="2" Content="Invert" Margin="16,0,0,0" VerticalAlignment="Center"
+                                      Click="StepInvert_Click" ToolTip="Reverse this axis if the bar moves the wrong way"/>
+                        </Grid>
+                        <TextBlock x:Name="StepWarning" Foreground="{DynamicResource ErrorTextBrush}" FontSize="12" TextWrapping="Wrap"
+                                   Margin="0,6,0,0" Visibility="Collapsed"/>
+                        <DockPanel Margin="0,12,0,0" LastChildFill="False">
+                            <Button x:Name="BackButton" DockPanel.Dock="Left" Click="StepBack_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72B;" FontFamily="{StaticResource IconFont}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Back" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="NextButton" DockPanel.Dock="Right" Style="{StaticResource AccentButton}" MinWidth="110" Click="StepNext_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="NextLabel" Text="Next" VerticalAlignment="Center"/>
+                                    <TextBlock Text="&#xE72A;" FontFamily="{StaticResource IconFont}" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="RebindButton" DockPanel.Dock="Right" Margin="0,0,8,0" Click="StepRebind_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Rebind" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="SkipButton" DockPanel.Dock="Right" Margin="0,0,8,0" Content="Skip" Click="StepSkip_Click"
+                                    ToolTip="Keep this control as it is and go on"/>
+                            <Button x:Name="UnbindButton" DockPanel.Dock="Right" Margin="0,0,8,0" Content="Leave unbound" Click="StepUnbind_Click"
+                                    ToolTip="This control has nothing on your rig"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bindings table -->
+                <DockPanel Grid.Row="3" Margin="0,12,0,0">
+                    <Grid DockPanel.Dock="Top" Margin="11,0,25,4">
+                        <!-- the same columns as a BindingRow -->
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="72"/>
+                            <ColumnDefinition Width="32"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Control" Style="{StaticResource SecondaryText}"/>
+                        <TextBlock Grid.Column="1" Text="Bound to" Style="{StaticResource SecondaryText}"/>
+                        <TextBlock Grid.Column="2" Text="Live" Style="{StaticResource SecondaryText}"/>
+                    </Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="BindingList" ItemTemplate="{StaticResource BindingRow}" Margin="0,0,6,0"/>
+                    </ScrollViewer>
+                </DockPanel>
+
+                <!-- Status and save -->
+                <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="0,12,0,0" Margin="0,8,0,0">
+                    <DockPanel>
+                        <Button x:Name="SaveButton" DockPanel.Dock="Right" Style="{StaticResource AccentButton}" MinWidth="136" MinHeight="42"
+                                Margin="12,0,0,0" Click="Save_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE74E;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="Save to game" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="StatusText" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="HintText" Style="{StaticResource SecondaryText}" Margin="0,2,0,0"
+                                       Text="Enter: next step · Esc: stop the setup · Bind on any row binds just that control · A log is written to PinyonWheelSetup.log beside this app"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
