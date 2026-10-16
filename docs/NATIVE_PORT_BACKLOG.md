@@ -797,7 +797,9 @@ Ideas considered and not scheduled; add to a slice when a train has room.
   once NP-4.4 finds it.
 - DualSense adaptive triggers and a Deck controls layout beyond defaults.
 - HDR output and a true wider back buffer (recorded under NP-4.8).
-- Frame generation: planned since 2026-10-11 by the maintainer's decision,
+- Frame generation: in progress since 2026-10-16 (docs/FRAME_GENERATION.md;
+  MetalFX frame interpolation first, for the M1, FSR 3.1 as a stub), planned
+  since 2026-10-11 by the maintainer's decision,
   opt-in and off by default, on the inputs of
   [#523](https://github.com/arcanite24/pinyon-shift/issues/523) (FSR 3.1), with FSR 4 ([#524](https://github.com/arcanite24/pinyon-shift/issues/524)), DLSS from a
   player-supplied DLL ([#525](https://github.com/arcanite24/pinyon-shift/issues/525)) and Lossless Scaling from the

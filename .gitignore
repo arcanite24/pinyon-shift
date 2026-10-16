@@ -62,6 +62,7 @@ private/
 !/docs/ANDROID.md
 !/docs/LINUX.md
 !/docs/MACOS.md
+!/docs/FRAME_GENERATION.md
 !/docs/android/
 !/docs/android/*.json
 !/docs/MODDING.md

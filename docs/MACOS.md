@@ -307,3 +307,7 @@ native Space transitions and HDR remain **unqualified visually**. No privacy
 permissions or normal install settings were changed. Before closing #548,
 check these transitions interactively and retest the original M1 Max scene
 and save; QUALITY 60 still fails its performance budget on this M4 Pro.
+
+Frame generation (docs/FRAME_GENERATION.md) is being built for the M1 with
+MetalFX frame interpolation, which needs macOS 26; it is off by default and
+has no measured result yet.

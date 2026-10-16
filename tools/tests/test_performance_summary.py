@@ -96,6 +96,44 @@ class PerformanceSummaryTests(unittest.TestCase):
             self.assertEqual(pacing["mean_delta_ms"]["present"], 33.333)
             self.assertEqual(pacing["counters"]["present_deadline_misses"], 1)
 
+    def test_separates_generated_presents_from_distinct_frames(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capture = pathlib.Path(temporary) / "capture.csv"
+            fields = (
+                FIELDS
+                + list(MODULE.PRESENTATION_COLUMNS)
+                + list(MODULE.FRAME_GENERATION_COLUMNS)
+            )
+            with capture.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                base = dict.fromkeys(fields, 0)
+                # Each title frame is presented once and followed by one
+                # generated frame; one present repeats a frame.
+                for _ in range(2):
+                    writer.writerow(base | {
+                        "frame_time_us": 20_000, "guest_vblank_count": 1,
+                        "simulation_tick_count": 1, "source_frame_count": 1,
+                        "present_count": 2, "generated_present_count": 1,
+                        "frame_generation_gpu_time_ns": 3_000_000,
+                    })
+                writer.writerow(base | {
+                    "frame_time_us": 20_000, "guest_vblank_count": 1,
+                    "simulation_tick_count": 1, "source_frame_count": 1,
+                    "present_count": 3, "generated_present_count": 1,
+                    "duplicate_present_count": 1,
+                    "frame_generation_gpu_time_ns": 3_000_000,
+                    "frame_generation_skipped": 1,
+                })
+            pacing = MODULE.summarize(capture)["presentation"]
+            # 60 ms of frames: 7 presents, 3 generated, 1 duplicate, 3 distinct.
+            self.assertEqual(pacing["counters"]["generated_present_count"], 3)
+            self.assertAlmostEqual(pacing["cadence_hz"]["present"], 116.667, places=3)
+            self.assertAlmostEqual(pacing["cadence_hz"]["generated_present"], 50.0, places=3)
+            self.assertAlmostEqual(pacing["cadence_hz"]["distinct_present"], 50.0, places=3)
+            self.assertEqual(pacing["frame_generation"]["mean_gpu_ms"], 3.0)
+            self.assertEqual(pacing["frame_generation"]["skipped"], 1)
+
     def test_emits_title_simulation_time_ratio(self):
         with tempfile.TemporaryDirectory() as temporary:
             capture = pathlib.Path(temporary) / "capture.csv"

@@ -220,7 +220,9 @@ regression on RADV.
   - fast pixel math, implicit LOD and robustness off at 3x;
   - the 1x shadow pass via blits;
   - band merge;
-  - frame interpolation for high frame rates.
+  - a colour-only warp of the finished frame as frame interpolation (the
+    2026-09 prototype; frame generation with depth, a HUD layer and camera
+    motion is a separate decision, docs/FRAME_GENERATION.md).
 
 ## Risks and open questions
 
