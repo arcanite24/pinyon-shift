@@ -5,7 +5,7 @@ namespace PinyonWheelSetup.Bindings;
 public sealed class TelemetrySettings
 {
     public bool Enabled { get; set; }
-    public bool Horizon { get; set; }  // Forza Horizon 4/5 layout instead of Forza Motorsport 7
+    public bool Horizon { get; set; } = true;  // Forza Horizon layout (the game's default), or Forza Motorsport 7
     public bool MovingOnly { get; set; }
     public string Target { get; set; } = "127.0.0.1:5300";
 
@@ -14,7 +14,7 @@ public sealed class TelemetrySettings
         bool Bool(string key) => config.TryGetValue(key, out var v) && v.Equals("true", StringComparison.OrdinalIgnoreCase);
         Enabled = Bool("telemetry_udp");
         MovingOnly = Bool("telemetry_udp_moving_only");
-        Horizon = config.TryGetValue("telemetry_udp_format", out var f) && f.Equals("horizon", StringComparison.OrdinalIgnoreCase);
+        Horizon = !(config.TryGetValue("telemetry_udp_format", out var f) && f.Equals("fm7", StringComparison.OrdinalIgnoreCase));
         Target = config.TryGetValue("telemetry_udp_target", out var t) && t.Contains(':') ? t : "127.0.0.1:5300";
     }
 
