@@ -32,7 +32,7 @@ REXCVAR_DEFINE_BOOL(telemetry_udp_moving_only, false, "Telemetry",
                     "Send telemetry only while the car moves; standing still (and the menus) "
                     "sends race off, which silences shakers")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_STRING(telemetry_udp_target, "127.0.0.1:5300", "Telemetry",
+REXCVAR_DEFINE_STRING(telemetry_udp_target, "127.0.0.1:8000", "Telemetry",
                       "Where telemetry_udp sends its packets, as host:port")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
