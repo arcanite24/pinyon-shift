@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private readonly DeviceManager devices = new();
     private readonly BindingSet set = new();
     private readonly DisplaySettings display = new();
+    private readonly TelemetrySettings telemetry = new();
     private readonly DispatcherTimer timer = new(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(15) };
     private readonly Storyboard pulse;
 
@@ -62,7 +63,6 @@ public partial class MainWindow : Window
         ThemeBox.SelectedIndex = (int)settings.Theme;
         loadingUi = false;
 
-        SizeBox.ItemsSource = DisplaySettings.Sizes;
         FovBox.ItemsSource = DisplaySettings.FovScales.Select(f => $"{f * 100:0} %").ToList();
         BindingList.ItemsSource = set.Items;
         ChipList.ItemsSource = set.Buttons.ToList();
@@ -137,6 +137,8 @@ public partial class MainWindow : Window
         set.Load(configValues, devices.Devices);
         display.Load(configValues);
         DisplayFromModel();
+        telemetry.Load(configValues);
+        TelemetryFromModel();
         dirty = false;
         UiFromSet();
         UpdateCardSummaries();
@@ -652,47 +654,54 @@ public partial class MainWindow : Window
     {
         loadingUi = true;
         FullscreenBox.IsChecked = display.Fullscreen;
-        var size = display.CurrentSize;
-        if (!DisplaySettings.Sizes.Contains(size))
-            SizeBox.ItemsSource = DisplaySettings.Sizes.Append(size).ToList();
-        SizeBox.SelectedItem = size;
         WiderBox.IsChecked = display.WiderView;
         ScaleBox.SelectedIndex = display.Scale - 1;
         int fov = Array.FindIndex(DisplaySettings.FovScales, f => Math.Abs(f - display.Fov) < 0.01);
         FovBox.SelectedIndex = fov >= 0 ? fov : 1;
         loadingUi = false;
+        RenderText.Text = display.RenderText();
     }
 
     private void Display_Changed(object sender, RoutedEventArgs e)
     {
         if (loadingUi || !IsLoaded) return;
-        var size = SizeBox.SelectedItem as DisplaySettings.Size ?? DisplaySettings.Sizes[0];
-        // Picking a size wider than 16:9 turns the wider view on (and a window: full screen
-        // would use the display's own size instead).
-        if (ReferenceEquals(sender, SizeBox) && size.Wide)
-        {
-            loadingUi = true;
-            WiderBox.IsChecked = true;
-            loadingUi = false;
-        }
-        if (ReferenceEquals(sender, SizeBox) && size.Width > 0)
-        {
-            loadingUi = true;
-            FullscreenBox.IsChecked = false;
-            loadingUi = false;
-        }
-        display.Width = size.Width;
-        display.Height = size.Height;
         display.Fullscreen = FullscreenBox.IsChecked == true;
         display.WiderView = WiderBox.IsChecked == true;
         display.Scale = Math.Clamp(ScaleBox.SelectedIndex + 1, 1, 4);
         display.Fov = DisplaySettings.FovScales[Math.Clamp(FovBox.SelectedIndex, 0, DisplaySettings.FovScales.Length - 1)];
-        SaveDisplay();
+        RenderText.Text = display.RenderText();
+        SaveSettings(display.ConfigLines(), "Display", display.Summary());
         UpdateCardSummaries();
         UpdateStatus();
     }
 
-    private void SaveDisplay()
+    private void TelemetryFromModel()
+    {
+        loadingUi = true;
+        TelemetryBox.IsChecked = telemetry.Enabled;
+        TelemetryFormatBox.SelectedIndex = telemetry.Horizon ? 1 : 0;
+        TelemetryTargetBox.Text = telemetry.Target;
+        MovingOnlyBox.IsChecked = telemetry.MovingOnly;
+        loadingUi = false;
+    }
+
+    private void Telemetry_Changed(object sender, RoutedEventArgs e)
+    {
+        if (loadingUi || !IsLoaded) return;
+        string target = TelemetryTargetBox.Text.Trim();
+        if (target.Length > 0 && !target.Contains(':')) target += ":5300";
+        telemetry.Enabled = TelemetryBox.IsChecked == true;
+        telemetry.Horizon = TelemetryFormatBox.SelectedIndex == 1;
+        telemetry.MovingOnly = MovingOnlyBox.IsChecked == true;
+        telemetry.Target = target.Length > 0 ? target : "127.0.0.1:5300";
+        TelemetryTargetBox.Text = telemetry.Target;
+        SaveSettings(telemetry.ConfigLines(), "Telemetry", telemetry.Summary());
+        UpdateCardSummaries();
+        UpdateStatus();
+    }
+
+    /// <summary>Writes one card's keys into the game config at once, apart from the bindings.</summary>
+    private void SaveSettings(List<(string Key, string Value)> lines, string what, string summary)
     {
         info = null;
         error = null;
@@ -708,17 +717,16 @@ public partial class MainWindow : Window
         }
         try
         {
-            var lines = display.ConfigLines();
             foreach (var (k, v) in lines) Log.Write($"save {k} = {v}");
             string? backup = GameConfig.Update(configPath, lines, backup: !backedUp);
             if (backup != null) backedUp = true;
             configValues = GameConfig.Read(configPath);
-            info = $"Display saved: {display.Summary()}. It applies from the next game start.";
+            info = $"{what} saved: {summary}. It applies from the next game start.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             error = "Could not save: " + ex.Message;
-            Log.Error("save display", ex);
+            Log.Error("save " + what, ex);
         }
     }
 
@@ -729,6 +737,7 @@ public partial class MainWindow : Window
     {
         ["config"] = (ConfigBody, ConfigChevron),
         ["display"] = (DisplayBody, DisplayChevron),
+        ["telemetry"] = (TelemetryBody, TelemetryChevron),
         ["devices"] = (DevicesBody, DevicesChevron),
         ["ffb"] = (FfbBody, FfbChevron),
         ["steering"] = (SteeringBody, SteeringChevron),
@@ -764,6 +773,7 @@ public partial class MainWindow : Window
         };
         SteeringSummary.Text = set.Wheel900 ? "900°" : "speed-sensitive";
         DisplaySummary.Text = display.Summary();
+        TelemetrySummary.Text = telemetry.Summary();
     }
 
     private void UpdateTuningText()
@@ -962,16 +972,25 @@ public partial class MainWindow : Window
             log.Add("status: " + StatusText.Text);
             foreach (var item in set.Items) log.Add($"{item.Key}: {item.BindingText}");
 
-            // Display: picking 32:9 turns on the wider view and a window, and saves at once.
+            // Display: on a 32:9 display the wider view at 2x renders 4x across; saved at once.
             LeftScroll.ScrollToHome();
-            SizeBox.SelectedItem = DisplaySettings.Sizes.First(z => z.Width == 5120);
+            display.DisplaySize = (5120, 1440);
+            WiderBox.IsChecked = true;
+            Display_Changed(WiderBox, new RoutedEventArgs());
             ScaleBox.SelectedIndex = 1;
             await Task.Delay(300);
             var saved = GameConfig.Read(configPath!);
             string Get(string k) => saved.TryGetValue(k, out var v) ? v : "(missing)";
-            log.Add($"display: {DisplaySummary.Text}; window {Get("window_width")}x{Get("window_height")}, fullscreen {Get("fullscreen")}, " +
+            log.Add($"display: {DisplaySummary.Text}; {RenderText.Text}; fullscreen {Get("fullscreen")}, " +
                     $"hor_plus {Get("pinyon_shift_hor_plus")}, letterbox {Get("present_letterbox")}, scale {Get("draw_resolution_scale_x")}/{Get("draw_resolution_scale_y")}, fov {Get("pinyon_shift_fov_scale")}");
             log.Add("display status: " + StatusText.Text);
+            TelemetryBox.IsChecked = true;
+            Telemetry_Changed(TelemetryBox, new RoutedEventArgs());
+            TelemetryFormatBox.SelectedIndex = 1;
+            await Task.Delay(200);
+            saved = GameConfig.Read(configPath!);
+            log.Add($"telemetry: {TelemetrySummary.Text}; udp {Get("telemetry_udp")}, format {Get("telemetry_udp_format")}, " +
+                    $"moving only {Get("telemetry_udp_moving_only")}, target {Get("telemetry_udp_target")}");
             Snap(outDir, "12-display");
         }
         catch (Exception ex)
