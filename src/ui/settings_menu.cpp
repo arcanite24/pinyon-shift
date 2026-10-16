@@ -1670,6 +1670,17 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
   map.label = "MAP A WHEEL";
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
+  // The raw wheel path (wheel_enabled): the base, pedals and buttons each
+  // from their own USB device, bound by tools/wheel-setup into the wheel_*
+  // cvars, and the game's own Xbox 360 force feedback effects played on the
+  // base. The rows below apply to that path only.
+  rows.push_back(Toggle("SEPARATE DEVICES", "wheel_enabled"));
+  rows.push_back(Setting("FORCE FEEDBACK", {{"OFF", {{"wheel_ffb_mode", "\"off\""}}},
+                                            {"ON", {{"wheel_ffb_mode", "\"difference\""}}},
+                                            {"RUMBLE ONLY", {{"wheel_ffb_mode", "\"rumble\""}}}}));
+  rows.push_back(Setting("FFB STRENGTH", percents("wheel_ffb_strength", {10, 25, 50, 75, 100})));
+  rows.push_back(Toggle("REVERSE FORCES", "wheel_ffb_invert"));
+  rows.push_back(Toggle("RECORD FFB TRACE", "wheel_ffb_trace"));
   auto screen = std::make_unique<MenuScreen>("RACING WHEEL", std::move(rows), [] {
     int wheels = 0;
     for (const auto& joystick : rex::input::sdl::ListJoysticks()) {
@@ -1682,8 +1693,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
   screen->set_body(
       "A wheel drives through its controller mapping: steering on the left stick, throttle on "
       "the right trigger and brake on the left trigger. If the game does not see it, choose MAP "
-      "A WHEEL, then the wheel, and mark it as a racing wheel. Force feedback is not supported "
-      "yet.");
+      "A WHEEL, then the wheel, and mark it as a racing wheel. SEPARATE DEVICES reads the "
+      "wheel, pedals and buttons from the devices bound with the wheel setup tool instead, and "
+      "plays the game's own force feedback; keep its strength low on a direct-drive base.");
   return screen;
 }
 
