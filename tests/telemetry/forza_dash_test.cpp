@@ -60,6 +60,33 @@ int main() {
     assert(p[307] == 3);
   }
 
+  // Idle RPM, wheel speeds, slip angles and the combined slip, and the
+  // clutch, handbrake and steering, at FM7's offsets.
+  {
+    CarSample sample;
+    sample.driving = true;
+    sample.idle_rpm = 750.0f;
+    sample.wheel_slip = {0.6f, 0.0f, 0.0f, 0.0f};
+    sample.wheel_slip_angle = {0.8f, -0.5f, 0.0f, 0.0f};
+    sample.wheel_speed_rad_s = {40.0f, 41.0f, 42.0f, 43.0f};
+    sample.clutch = 1.0f;
+    sample.handbrake = 0.25f;
+    sample.steer = -1.0f;
+    auto packet = EncodeDash(sample, 0);
+    const uint8_t* p = packet.data();
+    assert(F32(p, 12) == 750.0f);
+    assert(F32(p, 100) == 40.0f && F32(p, 112) == 43.0f);
+    assert(F32(p, 164) == 0.8f && F32(p, 168) == -0.5f);
+    assert(F32(p, 180) > 0.9999f && F32(p, 180) < 1.0001f);  // |(0.6, 0.8)| = 1
+    assert(F32(p, 184) == 0.5f);
+    assert(p[305] == 255);
+    assert(p[306] == 64);
+    assert(int8_t(p[308]) == -127);
+    sample.steer = 0.5f;
+    packet = EncodeDash(sample, 0);
+    assert(int8_t(packet[308]) == 64);
+  }
+
   // Reverse is 0 and neutral 11, as FM7 sends them; a non-finite value is
   // sent as 0 rather than NaN.
   {

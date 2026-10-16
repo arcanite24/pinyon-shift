@@ -5829,14 +5829,27 @@ namespace car_dynamics {
 constexpr uint32_t kInterface = 0x2D90;      // CCar -> ICarDynamics
 constexpr uint32_t kEngineSpeed = 324;       // f32 rad/s
 constexpr uint32_t kRedline = 452;           // f32 rad/s
+constexpr uint32_t kIdle = 1228;             // f32 rad/s
 constexpr uint32_t kGear = 2240;             // u8: 0 reverse, 1-8, 9 neutral
 constexpr uint32_t kAbsActive = 3020;        // s32, rewritten every step
 constexpr uint32_t kAbsAssist = 3436;        // the ABS assist setting
 constexpr uint32_t kSpeed = 3128;            // f32 m/s
 constexpr uint32_t kWheels = 3936;           // four 1024-byte wheel blocks
 constexpr uint32_t kWheelStride = 1024;
+constexpr uint32_t kWheelSpeed = 12;         // f32 rad/s
 constexpr uint32_t kWheelSlip = 496;         // f32 smoothed slip, 1.0 = peak grip
+// f32 smoothed slip angle over the tyre's peak (pinyon-shift #605).
+constexpr uint32_t kWheelSlipAngle = 520;
 constexpr uint32_t kWheelContact = 796;      // u8
+// The car's controls as the game built them from the player's input
+// (sub_82487650, pinyon-shift #605): f32 gas, brake, steer (-1 to 1),
+// clutch and handbrake.
+constexpr uint32_t kControls = 3904;
+constexpr uint32_t kControlGas = 0;
+constexpr uint32_t kControlBrake = 4;
+constexpr uint32_t kControlSteer = 8;
+constexpr uint32_t kControlClutch = 12;
+constexpr uint32_t kControlHandbrake = 16;
 constexpr float kRadPerSecToRpm = 9.5492966f;
 // The car's driver type, 0 for the player's car (same offset in v4).
 constexpr uint32_t kDriverType = 11728;
@@ -5914,10 +5927,24 @@ static void QueueCarTelemetry() {
     pinyon_shift::telemetry::CarSample sample;
     sample.driving = !narrow;
     sample.rpm = t.rpm;
+    sample.idle_rpm = LoadGuestF32(dyn + cd::kIdle) * cd::kRadPerSecToRpm;
     sample.redline_rpm = t.redline_rpm;
     sample.gear = t.gear;
     sample.speed_mps = t.speed_mps;
-    for (int w = 0; w < 4; ++w) sample.wheel_slip[w] = direction * slip[w];
+    for (uint32_t w = 0; w < 4; ++w) {
+      const uint32_t wheel = dyn + cd::kWheels + w * cd::kWheelStride;
+      sample.wheel_slip[w] = direction * slip[w];
+      const float angle = LoadGuestF32(wheel + cd::kWheelSlipAngle);
+      sample.wheel_slip_angle[w] =
+          std::isfinite(angle) && LoadGuestU8(wheel + cd::kWheelContact) ? angle : 0.0f;
+      sample.wheel_speed_rad_s[w] = LoadGuestF32(wheel + cd::kWheelSpeed);
+    }
+    const uint32_t controls = dyn + cd::kControls;
+    sample.throttle = LoadGuestF32(controls + cd::kControlGas);
+    sample.brake = LoadGuestF32(controls + cd::kControlBrake);
+    sample.steer = LoadGuestF32(controls + cd::kControlSteer);
+    sample.clutch = LoadGuestF32(controls + cd::kControlClutch);
+    sample.handbrake = LoadGuestF32(controls + cd::kControlHandbrake);
     pinyon_shift::telemetry::Send(sample);
 
     if (log) {
