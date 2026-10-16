@@ -5983,6 +5983,27 @@ static void QueueCarTelemetry() {
     const uint32_t pad = pads ? pointer(pads, 16 + cd::kPadStride) : 0;
     const float rumble_low = pad ? LoadGuestF32(pad + 16 + cd::kPadRumbleLow) : 0.0f;
     if (std::isfinite(rumble_low)) sample.surface_rumble.fill(std::clamp(rumble_low, 0.0f, 1.0f));
+    // Forward velocity in the car's frame, for tools that take the speed from
+    // the velocity rather than the speed field.
+    sample.velocity_forward_mps = direction * sample.speed_mps;
+    // The pause menu and other screens drawn over the stopped game keep the
+    // gameplay view, so the car is still "driving" above. The simulation is
+    // stopped there: engine, wheels and suspension hold exactly the same
+    // values, where a running car, even idling, never does. After half a
+    // second of that, telemetry says the race is off, as the game's own Data
+    // Out does in menus.
+    static std::array<float, 10> still_values{};
+    static uint32_t still_frames = 0;
+    const std::array<float, 10> values = {
+        sample.rpm, sample.speed_mps, sample.wheel_speed_rad_s[0], sample.wheel_speed_rad_s[1],
+        sample.wheel_speed_rad_s[2], sample.wheel_speed_rad_s[3], sample.suspension_m[0],
+        sample.suspension_m[1], sample.suspension_m[2], sample.suspension_m[3]};
+    still_frames = values == still_values ? still_frames + 1 : 0;
+    still_values = values;
+    if (still_frames >= 30) sample.driving = false;
+    if (pinyon_shift::telemetry::MovingOnly() && std::fabs(sample.speed_mps) < 0.5f) {
+      sample.driving = false;
+    }
     pinyon_shift::telemetry::Send(sample);
 
     // telemetry_probe: candidate fields to confirm against a drive before

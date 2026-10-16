@@ -29,6 +29,9 @@ struct CarSample {
   // The game's own rumble for bumps, kerbs and impacts (its low-frequency
   // motor, 0-1), the feel its designers gave a controller.
   std::array<float, 4> surface_rumble{};
+  // Velocity along the car's forward axis (FM7's VelocityZ), m/s; negative
+  // reversing.
+  float velocity_forward_mps = 0.0f;
   // The car's controls after the game's own input handling (assists, the
   // automatic clutch), so a pad, a wheel and the keyboard all report here.
   float throttle = 0.0f;   // 0-1

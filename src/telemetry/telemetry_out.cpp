@@ -23,6 +23,10 @@ REXCVAR_DEFINE_BOOL(telemetry_udp, false, "Telemetry",
                     "Send the player car's telemetry over UDP in Forza Motorsport 7's Data Out "
                     "Dash layout, for SimHub, dashboards and motion software")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(telemetry_udp_moving_only, false, "Telemetry",
+                    "Send telemetry only while the car moves; standing still (and the menus) "
+                    "sends race off, which silences shakers")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_STRING(telemetry_udp_target, "127.0.0.1:5300", "Telemetry",
                       "Where telemetry_udp sends its packets, as host:port")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
@@ -108,6 +112,7 @@ uint32_t TimestampMs() {
 }  // namespace
 
 bool Wanted() { return REXCVAR_GET(telemetry_udp); }
+bool MovingOnly() { return REXCVAR_GET(telemetry_udp_moving_only); }
 
 void Send(const CarSample& sample) {
   if (!REXCVAR_GET(telemetry_udp)) return;
