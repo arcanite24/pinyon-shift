@@ -73,9 +73,15 @@ int main() {
     sample.clutch = 1.0f;
     sample.handbrake = 0.25f;
     sample.steer = -1.0f;
+    sample.suspension_m = {0.01f, 0.02f, 0.03f, 0.04f};
+    sample.suspension_normalized = {0.25f, 0.5f, 0.75f, 1.0f};
+    sample.surface_rumble = {0.3f, 0.3f, 0.3f, 0.3f};
     auto packet = EncodeDash(sample, 0);
     const uint8_t* p = packet.data();
     assert(F32(p, 12) == 750.0f);
+    assert(F32(p, 68) == 0.25f && F32(p, 80) == 1.0f);
+    assert(F32(p, 148) == 0.3f && F32(p, 160) == 0.3f);
+    assert(F32(p, 196) == 0.01f && F32(p, 208) == 0.04f);
     assert(F32(p, 100) == 40.0f && F32(p, 112) == 43.0f);
     assert(F32(p, 164) == 0.8f && F32(p, 168) == -0.5f);
     assert(F32(p, 180) > 0.9999f && F32(p, 180) < 1.0001f);  // |(0.6, 0.8)| = 1
