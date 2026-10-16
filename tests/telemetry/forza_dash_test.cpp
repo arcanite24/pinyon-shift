@@ -76,9 +76,11 @@ int main() {
     sample.suspension_m = {0.01f, 0.02f, 0.03f, 0.04f};
     sample.suspension_normalized = {0.25f, 0.5f, 0.75f, 1.0f};
     sample.surface_rumble = {0.3f, 0.3f, 0.3f, 0.3f};
+    sample.velocity_forward_mps = 12.5f;
     auto packet = EncodeDash(sample, 0);
     const uint8_t* p = packet.data();
     assert(F32(p, 12) == 750.0f);
+    assert(F32(p, 40) == 12.5f);
     assert(F32(p, 68) == 0.25f && F32(p, 80) == 1.0f);
     assert(F32(p, 148) == 0.3f && F32(p, 160) == 0.3f);
     assert(F32(p, 196) == 0.01f && F32(p, 208) == 0.04f);
