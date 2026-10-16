@@ -508,6 +508,9 @@
                                         VerticalAlignment="Center" Click="RestoreGraphicsButton_Click"/>
                                 <Button x:Name="ResetGraphicsButton" Content="Reset to defaults" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Margin="4,0,14,0" Click="ResetGraphicsButton_Click"/>
+                                <Button x:Name="ConfigureWheelButton" Content="Configure Wheel" Style="{StaticResource QuietButton}"
+                                        Margin="0,0,10,0" Visibility="Collapsed" Click="ConfigureWheelButton_Click"
+                                        ToolTip="Open Pinyon Shift Configure: bind the wheel, pedals and buttons, force feedback and telemetry"/>
                                 <Button Content="Cancel" Style="{StaticResource QuietButton}" Margin="0,0,10,0"
                                         Click="CloseGraphicsButton_Click"/>
                                 <Button x:Name="SaveGraphicsButton" Content="Save" Style="{StaticResource ActionButton}"
