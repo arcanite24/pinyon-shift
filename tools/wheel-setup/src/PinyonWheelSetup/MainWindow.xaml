@@ -204,12 +204,10 @@
                         <StackPanel x:Name="DisplayBody" Margin="0,12,0,0" Visibility="Collapsed">
                         <CheckBox x:Name="FullscreenBox" Content="Full screen" Margin="0,0,0,2" Click="Display_Changed"/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
-                                   Text="Full screen uses your display's own resolution. Turn it off to use a window size below."/>
-                        <TextBlock Text="Window size" Style="{StaticResource SecondaryText}" Margin="0,0,0,4"/>
-                        <ComboBox x:Name="SizeBox" SelectionChanged="Display_Changed"/>
-                        <CheckBox x:Name="WiderBox" Content="Ultrawide: wider view" Margin="0,12,0,2" Click="Display_Changed"/>
+                                   Text="Full screen uses your display's own resolution. A window can be any size: the game fills it."/>
+                        <CheckBox x:Name="WiderBox" Content="Ultrawide: wider view" Margin="0,0,0,2" Click="Display_Changed"/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
-                                   Text="Shows more of the world to the sides on a display wider than 16:9, with the HUD kept at 16:9. Turned on for you when you pick a 21:9, 32:9 or 64:9 size."/>
+                                   Text="On a display wider than 16:9 (21:9, 32:9, 64:9), the game shows more of the world to the sides and renders at the display's full width, with the HUD kept at 16:9."/>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="128"/>
@@ -219,18 +217,59 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Resolution scale" VerticalAlignment="Center"/>
+                            <TextBlock Text="Resolution (down)" VerticalAlignment="Center"/>
                             <ComboBox x:Name="ScaleBox" Grid.Column="1" SelectionChanged="Display_Changed">
-                                <ComboBoxItem Content="1× (1280 × 720)"/>
-                                <ComboBoxItem Content="2× (2560 × 1440)"/>
-                                <ComboBoxItem Content="3× (3840 × 2160)"/>
-                                <ComboBoxItem Content="4× (5120 × 2880)"/>
+                                <ComboBoxItem Content="1× (720 lines)"/>
+                                <ComboBoxItem Content="2× (1440 lines)"/>
+                                <ComboBoxItem Content="3× (2160 lines)"/>
+                                <ComboBoxItem Content="4× (2880 lines)"/>
                             </ComboBox>
                             <TextBlock Grid.Row="1" Text="Field of view" VerticalAlignment="Center" Margin="0,8,0,0"/>
                             <ComboBox x:Name="FovBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Display_Changed"/>
                         </Grid>
-                        <TextBlock x:Name="DisplayNote" Style="{StaticResource SecondaryText}" Margin="0,10,0,0"
-                                   Text="Saved as soon as you change it; applies from the next game start. The game renders a 16:9 image that is stretched to wider windows, so a higher resolution scale keeps them sharper."/>
+                        <TextBlock x:Name="RenderText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,6,0,0"
+                                   Text="Saved as soon as you change it; applies from the next game start. Changing RESOLUTION SCALE in F6 sets across and down the same again, so set it here."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button Style="{StaticResource CardToggle}" Tag="telemetry" Click="CardToggle_Click"
+                                AutomationProperties.Name="Telemetry">
+                            <DockPanel>
+                                <TextBlock x:Name="TelemetryChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="TelemetrySummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
+                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
+                                <TextBlock Text="Telemetry" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="TelemetryBody" Margin="0,12,0,0" Visibility="Collapsed">
+                        <CheckBox x:Name="TelemetryBox" Content="Send telemetry (SimHub, dashboards, shakers)" Margin="0,0,0,2" Click="Telemetry_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
+                                   Text="RPM, gear, speed, pedals, wheel slip, suspension and the game's road rumble, in Forza's Data Out format. Menus and the pause screen send race off."/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="128"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Game in SimHub" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="TelemetryFormatBox" Grid.Column="1" SelectionChanged="Telemetry_Changed">
+                                <ComboBoxItem Content="Forza Motorsport 7"/>
+                                <ComboBoxItem Content="Forza Horizon 4 / 5"/>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Text="Send to" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                            <TextBox x:Name="TelemetryTargetBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" LostFocus="Telemetry_Changed"/>
+                        </Grid>
+                        <CheckBox x:Name="MovingOnlyBox" Content="Only while the car moves" Margin="0,12,0,2" Click="Telemetry_Changed"/>
+                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,0"
+                                   Text="Silent while standing still too, not just in menus. Pick the same game in SimHub as above; its default port is 5300."/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

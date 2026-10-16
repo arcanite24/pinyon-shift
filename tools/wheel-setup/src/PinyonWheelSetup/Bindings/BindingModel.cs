@@ -104,30 +104,33 @@ public sealed class BindingSet
         new() { Key = "CLUTCH", Label = "Clutch", Kind = BindKind.Pedal,
                 Prompt = "Press the CLUTCH pedal all the way down, then release it. The game reads it as an analog clutch; choose a manual-with-clutch gearbox in the game to use it." },
         // FH1's wheel layout 1, the one it uses for a wheel by default (its WheelLayouts table,
-        // traced by Ty Crowther in pinyon-shift PR #605): paddles on the shoulders, A clutch,
-        // B handbrake, X activate, Y rewind. The stick clicks are not documented and carry a "?".
-        Button("RB", "Shift up", "Shift+", "RB"),
-        Button("LB", "Shift down", "Shift\u2212", "LB"),
-        Button("B", "Handbrake", "Hbrake", "B"),
-        Button("A", "Clutch button", "Clutch", "A",
+        // traced by Ty Crowther in pinyon-shift PR #605). Each row is the Xbox button the game
+        // receives, with what we think it does in FH1 in brackets; drives confirmed the paddles
+        // and that Back changes the view. The stick clicks are guesses and carry a "?".
+        Button("RB", "RB", "shift up"),
+        Button("LB", "LB", "shift down"),
+        Button("B", "B", "handbrake"),
+        Button("A", "A", "clutch",
                "Only if you want a clutch on a button: a clutch pedal is bound in its own step."),
-        Button("Y", "Rewind", "Rewind", "Y"),
-        Button("X", "Activate", "Activate", "X"),
-        Button("BACK", "Map", "Map", "Back"),
-        Button("START", "Pause", "Pause", "Start"),
-        Button("LS", "Horn?", "Horn?", "LS, left stick click"),
-        Button("RS", "Look back?", "Look?", "RS, right stick click"),
-        Button("UP", "D-pad up", "\u2191", "D-pad up"),
-        Button("DOWN", "D-pad down", "\u2193", "D-pad down"),
-        Button("LEFT", "D-pad left", "\u2190", "D-pad left"),
-        Button("RIGHT", "D-pad right", "\u2192", "D-pad right"),
+        Button("Y", "Y", "rewind"),
+        Button("X", "X", "activate"),
+        Button("BACK", "Back", "view"),
+        Button("START", "Start", "pause"),
+        Button("LS", "LS", "horn?", "LS is the left stick click."),
+        Button("RS", "RS", "look back?", "RS is the right stick click."),
+        Button("UP", "D-pad up", null),
+        Button("DOWN", "D-pad down", null),
+        Button("LEFT", "D-pad left", null),
+        Button("RIGHT", "D-pad right", null),
     ];
 
-    private static BindingItem Button(string key, string role, string chip, string xbox, string? note = null) => new()
+    private static BindingItem Button(string key, string xbox, string? role, string? note = null) => new()
     {
-        Key = key, Label = role == xbox ? role : $"{role} ({xbox.Split(',')[0]})", Kind = BindKind.Button, Chip = chip,
-        Prompt = $"Press the button you want for {role.TrimEnd('?').ToUpperInvariant()} (Xbox {xbox})." +
-                 (role.EndsWith('?') ? " This role is our best guess for FH1." : "") +
+        Key = key, Label = role == null ? xbox : $"{xbox} ({role})", Kind = BindKind.Button,
+        Chip = key switch { "UP" => "↑", "DOWN" => "↓", "LEFT" => "←", "RIGHT" => "→", _ => xbox },
+        Prompt = $"Press the button you want for Xbox {xbox.ToUpperInvariant()}" +
+                 (role != null ? $" (in FH1 we think: {role.TrimEnd('?')})." : ".") +
+                 (role?.EndsWith('?') == true ? " That role is our best guess." : "") +
                  (note != null ? " " + note : "") +
                  " Any device works: the rim, a button box, a shifter, a hat or a lever.",
     };
