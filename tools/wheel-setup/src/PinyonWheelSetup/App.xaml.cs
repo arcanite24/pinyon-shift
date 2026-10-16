@@ -27,7 +27,7 @@ public partial class App : Application
             if (shownErrors.Add(a.Exception.GetType().FullName + a.Exception.Message))
             {
                 MessageBox.Show($"{a.Exception.Message}\n\nDetails are in {Log.FilePath}.",
-                                "Pinyon Wheel Setup", MessageBoxButton.OK, MessageBoxImage.Error);
+                                "Pinyon Shift Configure", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         };
         var settings = AppSettings.Load();

@@ -1,4 +1,4 @@
-# Builds PinyonWheelSetup.exe: one self-contained EXE (the .NET runtime and SDL3.dll inside).
+# Builds PinyonShiftConfigure.exe: one self-contained EXE (the .NET runtime and SDL3.dll inside).
 #   powershell -File tools\wheel-setup\build.ps1 [-Sdk <shiftglue-sdk checkout>] [-Out <folder>]
 # Needs the VS 2022 C++ build tools (for SDL3.dll), CMake, Ninja and the .NET 8 SDK. SDL3.dll is
 # built from the SDK's own SDL3 source so joystick numbering matches the game.
@@ -20,4 +20,4 @@ Copy-Item (Join-Path $build 'sdl3\SDL3.dll') (Join-Path $app 'Native\SDL3.dll') 
 if (-not (Test-Path (Join-Path $app 'Assets\App.ico'))) { & (Join-Path $PSScriptRoot 'tools\make-icon.ps1') }
 dotnet publish $app -c Release -o $Out
 if ($LASTEXITCODE -ne 0) { throw 'publish failed' }
-Write-Host "Built $(Join-Path $Out 'PinyonWheelSetup.exe')"
+Write-Host "Built $(Join-Path $Out 'PinyonShiftConfigure.exe')"

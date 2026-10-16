@@ -1694,7 +1694,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
       "A wheel drives through its controller mapping: steering on the left stick, throttle on "
       "the right trigger and brake on the left trigger. If the game does not see it, choose MAP "
       "A WHEEL, then the wheel, and mark it as a racing wheel. SEPARATE DEVICES reads the "
-      "wheel, pedals and buttons from the devices bound with the wheel setup tool instead, and "
+      "wheel, pedals and buttons from the devices bound with Pinyon Shift Configure instead, and "
       "plays the game's own force feedback; keep its strength low on a direct-drive base.");
   return screen;
 }

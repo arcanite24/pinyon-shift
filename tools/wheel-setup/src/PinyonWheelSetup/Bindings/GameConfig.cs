@@ -126,7 +126,7 @@ public static class GameConfig
         }
         if (added.Count > 0)
         {
-            added.Insert(0, "# Racing wheel bindings (Pinyon Wheel Setup)");
+            added.Insert(0, "# Set by Pinyon Shift Configure");
             rows.InsertRange(table, added);
         }
 
