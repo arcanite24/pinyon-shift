@@ -57,6 +57,7 @@
                         <ColumnDefinition Width="80"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     <TextBlock x:Name="BindingText" Grid.Column="1" Text="{Binding BindingText}" VerticalAlignment="Center"
@@ -73,8 +74,12 @@
                               ToolTip="Reverse this axis. Use it if the live bar moves the wrong way."/>
                     <Button Grid.Column="5" Content="Bind" Margin="8,0,0,0" MinWidth="64" Click="RowBind_Click" Tag="{Binding}"
                             ToolTip="Bind only this control"/>
-                    <Button Grid.Column="6" Margin="6,0,0,0" Padding="7,3" MinHeight="26" Click="RowClear_Click" Tag="{Binding}"
-                            ToolTip="Clear this binding">
+                    <Button x:Name="AddInput" Grid.Column="6" Margin="6,0,0,0" Padding="7,3" MinHeight="26" Click="RowAdd_Click"
+                            Tag="{Binding}" ToolTip="Add another input that presses this same button (e.g. a handbrake lever and a rim button for B)">
+                        <TextBlock Text="&#xE710;" FontFamily="{StaticResource IconFont}" FontSize="10"/>
+                    </Button>
+                    <Button Grid.Column="7" Margin="6,0,0,0" Padding="7,3" MinHeight="26" Click="RowClear_Click" Tag="{Binding}"
+                            ToolTip="Clear this binding (every input of it)">
                         <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10"/>
                     </Button>
                 </Grid>
@@ -82,6 +87,9 @@
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding Kind}" Value="Steering">
                     <Setter TargetName="Meter" Property="Centered" Value="True"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CanAddInput}" Value="False">
+                    <Setter TargetName="AddInput" Property="Visibility" Value="Hidden"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsAxis}" Value="False">
                     <Setter TargetName="Meter" Property="Visibility" Value="Collapsed"/>
