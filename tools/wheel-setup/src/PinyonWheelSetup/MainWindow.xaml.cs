@@ -139,6 +139,12 @@ public partial class MainWindow : Window
         DisplayFromModel();
         telemetry.Load(configValues);
         TelemetryFromModel();
+        // Saved before the game moved to Forza Horizon's port: follow it.
+        if (telemetry.MovedFromOldDefault && configPath != null && File.Exists(configPath) &&
+            System.Diagnostics.Process.GetProcessesByName("pinyon_shift").Length == 0)
+        {
+            SaveSettings(telemetry.ConfigLines(), "Telemetry", $"port moved to 8000, Forza Horizon's");
+        }
         dirty = false;
         UiFromSet();
         UpdateCardSummaries();
@@ -689,11 +695,11 @@ public partial class MainWindow : Window
     {
         if (loadingUi || !IsLoaded) return;
         string target = TelemetryTargetBox.Text.Trim();
-        if (target.Length > 0 && !target.Contains(':')) target += ":5300";
+        if (target.Length > 0 && !target.Contains(':')) target += ":8000";
         telemetry.Enabled = TelemetryBox.IsChecked == true;
         telemetry.Horizon = TelemetryFormatBox.SelectedIndex != 1;
         telemetry.MovingOnly = MovingOnlyBox.IsChecked == true;
-        telemetry.Target = target.Length > 0 ? target : "127.0.0.1:5300";
+        telemetry.Target = target.Length > 0 ? target : TelemetrySettings.DefaultTarget;
         TelemetryTargetBox.Text = telemetry.Target;
         SaveSettings(telemetry.ConfigLines(), "Telemetry", telemetry.Summary());
         UpdateCardSummaries();

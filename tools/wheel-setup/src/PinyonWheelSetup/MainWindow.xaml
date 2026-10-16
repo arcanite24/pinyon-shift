@@ -269,7 +269,7 @@
                         </Grid>
                         <CheckBox x:Name="MovingOnlyBox" Content="Only while the car moves" Margin="0,12,0,2" Click="Telemetry_Changed"/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,0"
-                                   Text="Silent while standing still too, not just in menus. Pick the same game in SimHub as above; its default port is 5300."/>
+                                   Text="Silent while standing still too, not just in menus. Pick the same game in SimHub as above; Forza Horizon's port is 8000."/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
