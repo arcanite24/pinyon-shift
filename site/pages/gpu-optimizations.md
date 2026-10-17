@@ -153,16 +153,16 @@ Fast math has a trap: Direct3D 9 shaders rely on 0 × ∞ = 0. Dropping that rul
 
 The same frame replayed on every device. The results differ enough that no saving measured on one GPU was assumed for another:
 
-| Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | Steam Deck, 1x | Image |
-| --- | ---: | ---: | ---: | --- |
-| Default | 6.24 ms | 12.67 / 29.9 ms | 11.19 ms | |
-| Quads as triangle lists | −3 % | — / −5 % | about −1 % | mean difference 0.02/255 |
-| Coarse 2 × 2 shading | about −3 % | not in MoltenVK | −7 % (−9 % with alpha-tested draws) | slightly softer |
-| TEXTURE GAMMA FAST | none | −8 % / — | −2 % | darker midtones |
+| Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | M1, 1x free roam | Steam Deck, 1x | Image |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Default | 6.24 ms | 12.67 / 29.9 ms | 56 ms (driving frames) | 11.19 ms | |
+| Quads as triangle lists | −3 % | — / −5 % | — | about −1 % | mean difference 0.02/255 |
+| Coarse 2 × 2 shading | about −3 % | not in MoltenVK | not in MoltenVK | −7 % (−9 % with alpha-tested draws) | slightly softer |
+| TEXTURE GAMMA FAST | none | −8 % / — | −7 % (p95 −14 ms) | −2 % | darker midtones |
 
 - **Quads.** Quad lists were expanded in a geometry shader, which Adreno runs slowly; 77 of 220 driving pipelines had one. Converting them to triangle lists saved about 1.2 ms on the Odin and is the default everywhere.
 - **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default.
-- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate.
+- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate. That it is the one shading-side switch that moves the M1 (the game's own anisotropy instead of forced 4x does nothing there) says the M1's main pass is bound by shader arithmetic rather than by sampling.
 
 ## Apple silicon
 
