@@ -92,6 +92,14 @@ REXCVAR_DEFINE_INT32(fh1_frame_inspector_view, 0, "GPU",
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 #endif
 
+// The Metal performance HUD (frame rate, frame time, GPU time and memory,
+// drawn by the system over the window). Metal reads MTL_HUD_ENABLED when the
+// first layer is created, so this is applied at startup and needs a restart.
+REXCVAR_DEFINE_BOOL(pinyon_shift_metal_hud, false, "Pinyon Shift",
+                    "macOS: show Apple's Metal performance HUD (frame rate, frame time, GPU "
+                    "time) over the game window")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
 REXCVAR_DEFINE_BOOL(pinyon_shift_touch_controls, REX_PLATFORM_ANDROID, "Pinyon Shift",
                     "On-screen controls for touch screens: a steering stick, throttle, brake "
                     "and buttons, shown on a touch and hidden after a while without one")
@@ -771,6 +779,14 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
     REXCVAR_SET(hid_user_mappings_file,
                 rex::path_to_utf8(paths.config_path.parent_path() / "controller_mappings.txt"));
   }
+
+#if defined(__APPLE__)
+  // Before any Metal layer exists: the HUD setting is read once, at creation.
+  // An MTL_HUD_ENABLED already in the environment (a launcher's) is kept.
+  if (REXCVAR_GET(pinyon_shift_metal_hud)) {
+    setenv("MTL_HUD_ENABLED", "1", 0);
+  }
+#endif
 
   diagnostics::RecordEvent(
       "paths.configured",

@@ -520,6 +520,11 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
 #endif
     rows.push_back(Setting("FRAME GENERATION", std::move(backends)));
   }
+#if defined(__APPLE__)
+  // Apple's Metal performance HUD over the window: frame rate, frame time,
+  // GPU time and memory, drawn by the system. Applies at the next start.
+  rows.push_back(Toggle("METAL PERFORMANCE HUD", "pinyon_shift_metal_hud"));
+#endif
   // HDR output (#417, #442): the image on an HDR (scRGB) swapchain with its
   // white at the paper white, so an HDR desktop does not wash it out, and the
   // scene's highlights (not the HUD or menus) expanded towards the display's
