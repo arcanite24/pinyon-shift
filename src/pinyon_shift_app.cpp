@@ -11,6 +11,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 
@@ -116,6 +117,17 @@ std::filesystem::path LongHostPath(std::filesystem::path path) {
 #endif
   return path;
 }
+
+#if defined(__ANDROID__)
+// Set by PinyonShiftActivity before it starts SDL. Do not infer this from the
+// Vulkan renderer string: an imported driver may name a different Adreno.
+bool IsAdreno6xx() {
+  const char* model = std::getenv("PINYON_SHIFT_ADRENO_MODEL");
+  const std::string_view number = model ? std::string_view(model) : std::string_view();
+  return number.size() == 3 && number[0] == '6' && number[1] >= '0' && number[1] <= '9' &&
+         number[2] >= '0' && number[2] <= '9';
+}
+#endif
 
 // Schema 22 added the renderer choice (fh1_renderer) and schema 23 made the
 // native renderer its default. Schema 24 retires the choice: the native
@@ -582,6 +594,19 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   }
 
   config_created_ = config_created;
+#if defined(__ANDROID__)
+  // A6xx drivers have reported corrupted terrain and road textures while
+  // sampling the game's BC-compressed assets. The renderer has an exact
+  // decode fallback for devices without BC; use it on an A6xx only until the
+  // player chooses otherwise. It costs considerably more texture memory, so
+  // the GRAPHICS page leaves the switch visible and reversible.
+  if (IsAdreno6xx() && host_config_->Load() && !host_config_->Get("vulkan_force_bc_decode")) {
+    host_config_->Set("vulkan_force_bc_decode", "true");
+    if (!host_config_->Save()) {
+      REXLOG_WARN("Could not save the Adreno 6xx texture compatibility setting");
+    }
+  }
+#endif
   if (REXCVAR_GET(log_file).empty()) {
     REXCVAR_SET(log_file, rex::path_to_utf8(state_root / "logs" / "runtime.log"));
   }
@@ -921,6 +946,16 @@ void PinyonShiftApp::OnPostSetup() {
   // Saved games still use the active user root chosen in OnConfigurePaths.
   runtime()->kernel_state()->content_manager()->SetMarketplaceRoot(
       LongHostPath(pinyon_shift::diagnostics::StateRoot() / "user"));
+#if defined(__ANDROID__)
+  // Some Android compositor / Vulkan swapchain combinations expose a surface
+  // and render target with different horizontal origins. The generic 16:9
+  // letterbox path then clears only one side of an ultrawide display. Reset
+  // legacy saved defaults as well, so an APK upgrade fixes existing installs.
+  // LETTERBOX and CROP remain selectable for the running session in SETTINGS.
+  rex::cvar::SetFlagByName("present_letterbox", "false");
+  rex::cvar::SetFlagByName("present_allow_overscan_cutoff", "false");
+  pinyon_shift::diagnostics::RecordEvent("display.android_fill_default", {{"enabled", "1"}});
+#endif
   if (window() && !resize_listener_added_) {
     window()->AddListener(&resize_listener_);
     resize_listener_added_ = true;

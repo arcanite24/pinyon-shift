@@ -51,6 +51,8 @@ Both draw the game's three predicated tiles in one pass and redraw the reflectio
 
 On Adreno 7xx and 8xx the bundled Mesa Turnip driver (Gen8 V37) is chosen automatically. It is much faster than the stock driver on the Adreno 740 and takes about a fifth less GPU time on the Adreno 830. Other GPUs use the system driver. **SETTINGS > GRAPHICS > GPU DRIVER** picks the driver for the next start. **IMPORT DRIVER (.ZIP)** adds an adrenotools package, including Qualcomm driver packages; the log's `Vulkan device` line shows which driver version runs.
 
+On a detected Adreno 6xx, the first run selects **TEXTURE COMPATIBILITY > SAFE**. It decodes the game's compressed road and terrain textures before the driver samples them, avoiding corruption on some older drivers. This uses more graphics memory and needs a restart; choose **DIRECT** only if the device renders correctly without it. An Adreno 619 build may additionally bundle a player-supplied Turnip driver; without it, AUTO uses the system driver. Adreno 6xx remains experimental, not a supported performance target.
+
 ## Measured devices
 
 | Device | SoC and GPU | Driver | SMOOTH 60 |

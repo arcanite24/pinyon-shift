@@ -20,11 +20,20 @@ notice is in `android/drivers/turnip-gen8-v37/NOTICE.txt`) and installs it
 into `files/state/drivers` at start. SETTINGS > GRAPHICS > GPU DRIVER picks
 the Vulkan driver loaded at the next start (`android_gpu_driver`): AUTO, the
 default, loads the one recommended for the GPU (Turnip Gen8 V37 on Adreno
-7xx and 8xx, the system's elsewhere), SYSTEM the device's own, and every
+7xx and 8xx, the player-supplied Turnip build on Adreno 619 when packaged,
+the system's elsewhere), SYSTEM the device's own, and every
 folder under `files/state/drivers` by name. IMPORT DRIVER (.ZIP) opens the
 system's file picker for an adrenotools package (a `.zip` with `meta.json`
 and the driver `.so`), which is unpacked into a folder named after the zip.
 The page's note names the driver in use.
+
+The experimental Adreno 619 build can bundle the player-supplied
+`Turnip-v26.3.0-20261005-8G2-OneUI.zip`: unpack its `meta.json` and
+`libvulkan_freedreno.so` into `.local/android/drivers/turnip-a619-oneui`
+before building. The driver binary is not committed to this repository.
+Without that folder, the package omits the driver and AUTO falls back to the
+system driver. This build has not been validated on physical Adreno 619
+hardware; SYSTEM remains available if Turnip fails to start.
 
 On the Adreno 830 (Snapdragon 8 Elite, Android 15) Turnip Gen8 V37 takes
 20.2 ms of GPU per frame in the race at 1x with MSAA off, against 24.8 ms
@@ -58,6 +67,14 @@ about 6 ms a frame on the Odin). With these, MSAA off and the frame limits
 at 60 (`host_present_fps_limit` and `pinyon_shift_fh1_render_fps_limit`),
 the Odin 2 Portal holds 60 fps in free roam and races on Turnip Gen8 V37
 (15.5 ms of GPU a frame); with 4x MSAA it runs near 52 fps.
+
+On an Adreno 6xx detected by the activity, the first run enables **TEXTURE
+COMPATIBILITY: SAFE**. It decodes the game's BC-compressed road and terrain
+textures to ordinary images before sampling them, avoiding corruption seen on
+some older drivers. This needs substantially more graphics memory and takes
+effect after a restart. In **SETTINGS > GRAPHICS**, choose **DIRECT** to undo
+it on a device that renders correctly and has limited memory. Adreno 6xx
+remains experimental: the supported target is Adreno 740 or newer.
 
 ## What stays private
 
@@ -206,6 +223,7 @@ keyboard; SETTINGS > CONTROLLER > PERFORMANCE PANEL changes the buttons
 | The setup screen does not find the PC | The device and the PC are on different networks, the network blocks broadcasts, or Windows Firewall blocked the launcher: enter the address the launcher shows, and allow the launcher on private networks. |
 | The app closes at once | Started from adb without the game files: open it from the app icon, or run `push-data`. If logcat says `Cannot create the state folder`, files were copied into the app's folder by hand: run `push-data` again, which lets the app use them. |
 | `VULKAN_CAPABILITY_REPORT` in the log | The device's features, formats and memory, logged at every start; attach it to reports. |
+| A black bar appears on only one side of a wide screen | The Android build fills the screen by default, avoiding a Vulkan/compositor letterbox mismatch on some devices. To use 16:9 deliberately, open **SETTINGS > DISPLAY > ASPECT RATIO** and select **LETTERBOX** or **CROP**. |
 | RESOLUTION SCALE offers only 1X | Higher scales need resolve buffers larger than a phone's shared memory holds; `android_allow_resolution_scale` lifts the limit for testing. |
 | `skipped a resolve` in the log | A guest copy the renderer cannot pack yet (one is known, in the title screen's attract sequence); the frame continues without it. |
 | No sound | No output device could be opened; the game runs silently instead of stopping. |

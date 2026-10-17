@@ -159,7 +159,10 @@ public class PinyonShiftActivity extends SDLActivity {
         try (BufferedReader reader = new BufferedReader(
                 new FileReader("/sys/class/kgsl/kgsl-3d0/gpu_model"))) {
             String line = reader.readLine();
-            Matcher match = line != null ? Pattern.compile("Adreno(\\d{3})").matcher(line) : null;
+            Matcher match = line != null
+                    ? Pattern.compile("Adreno[^0-9]{0,12}(\\d{3})", Pattern.CASE_INSENSITIVE)
+                            .matcher(line)
+                    : null;
             if (match != null && match.find()) {
                 return match.group(1);
             }
@@ -169,6 +172,7 @@ public class PinyonShiftActivity extends SDLActivity {
         if (Build.VERSION.SDK_INT >= 31) {
             switch (Build.SOC_MODEL) {
                 case "SM8450": case "SM8475": return "730";
+                case "SM6350": case "SM6375": case "SM7225": return "619";
                 case "SM8550": case "QCS8550": return "740";
                 case "SM8635": return "735";
                 case "SM8650": return "750";
@@ -182,10 +186,11 @@ public class PinyonShiftActivity extends SDLActivity {
         return null;
     }
 
-    // Adreno 7xx and 8xx: Mesa Turnip Gen8 V37 (measured on the Adreno 740
-    // and 830 against the system driver, and on the 740 against newer Turnip
-    // builds). Others keep the system's.
+    // Use the player-supplied Turnip build on the Adreno 619, where the
+    // system driver has shown corrupted terrain and road textures. Keep the
+    // separately validated Gen8 build for Adreno 7xx and 8xx.
     private static String recommendedDriver(String adreno) {
+        if (adreno.equals("619")) return "turnip-a619-oneui";
         return adreno.startsWith("7") || adreno.startsWith("8") ? "turnip-gen8-v37" : null;
     }
 
