@@ -184,6 +184,26 @@ confidence = """confirmed"""
 note = """The surface index was not enumerated at run time."""
 source = """docs/DUALSENSE_BACKLOG.md DS-3"""
 
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D2EC70"""
+name = """suspension position and spring"""
+what = """Each wheel's suspension model reads its block's `+0` as the suspension position and `+860` as the spring's rest point: the spring force is (`+0` − `+860`) × the rate at `+828`, added to a preload at `+716`, so the suspension compresses as `+0` rises past `+860`. The damper multiplies the suspension velocity (from a virtual call) by the bump (`+832`) or rebound (`+840`) rate by its sign and clamps it between `+836` and −`+844`; the total goes to `+676` (Ty Crowther's normal-load field, with the anti-roll bar at `+700`). `sub_82D1D7B0` copies `+864` into `+0`, which looks like a reset to a target position. Telemetry out sends `+0` − `+860` as the suspension travel."""
+how = """Static reading of the generated suspension model and the wheel getters (`sub_82D1E058` returns `+0`)."""
+confidence = """probable"""
+note = """The sign, the units (assumed metres) and the travel limits are not checked at run time; `telemetry_probe` records them for that."""
+issue = """#481"""
+
+[[finding]]
+group = """Car dynamics"""
+base = """sub_8248AB08"""
+name = """rumble input block"""
+what = """Each frame, per car, the rumble builder fills a block on its stack: the engine as (RPM − idle) / (limiter − idle) at `+0`; a transmission value (`+4`); three collision pulses from car getters `sub_8249E6F0`, `sub_8249E6F8` and `sub_8249E700` (`+8`, `+12`, `+16`), which it then clears through `sub_8249E720`, `sub_8249E728` and `sub_8249E730`; tyre traction overall, front and rear as the load-weighted average of a per-wheel value (`+20`, `+24`, `+28`); a further dynamics value (`+32`); surface bumpiness, the largest over the four wheels of each wheel's surface (byte `+1` of the contact block that a virtual getter returns, looked up through `sub_82E54050` in the surface table) times a speed factor (`+36`); two scripted motor adds (`+40`, `+44`, from `sub_8249E710` and `sub_8249E708`); and sputter, shift-in-progress (the gear state 4) and backfire flags (bytes `+48` to `+50`). `sub_82BFB8C8` takes the block."""
+how = """Static reading of the generated rumble builder."""
+confidence = """probable"""
+note = """Which dynamics slots the virtual calls reach (`+148`, `+232`, `+612`, `+744`, `+924`, `+1020`) is not resolved, so the per-wheel traction and the transmission value are not mapped to fields yet."""
+issue = """#481"""
+
 # ------------------------------------------------ Activities and collectibles
 
 [[finding]]

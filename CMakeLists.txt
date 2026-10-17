@@ -35,6 +35,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/dev_options.cpp
     src/telemetry/forza_dash.cpp
     src/telemetry/telemetry_out.cpp
+    src/telemetry/telemetry_probe.cpp
     src/dlc_token_unlocks.cpp
     src/dlc_treasure_map.cpp
     src/hud_toggle.cpp
