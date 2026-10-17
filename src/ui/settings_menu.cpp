@@ -625,6 +625,13 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // Portal with shadows. Applies at the next start.
   rows.push_back(Setting("TEXTURE GAMMA", {{"ACCURATE", {{"texture_gamma_host_srgb", "false"}}},
                                            {"FAST", {{"texture_gamma_host_srgb", "true"}}}}));
+  // Some older Adreno drivers corrupt the game's BC-compressed road and
+  // terrain textures. SAFE decodes the same assets to ordinary uncompressed
+  // images before sampling them. It needs more memory and takes effect after
+  // a restart, so capable devices should keep DIRECT.
+  rows.push_back(Setting("TEXTURE COMPATIBILITY",
+                         {{"DIRECT", {{"vulkan_force_bc_decode", "false"}}},
+                          {"SAFE", {{"vulkan_force_bc_decode", "true"}}}}));
   // The Vulkan driver loaded at the next start: AUTO is the one recommended
   // for the GPU (Mesa Turnip Gen8 V37, bundled, on Adreno 7xx), SYSTEM the
   // device's own, and every package under state/drivers (bundled or

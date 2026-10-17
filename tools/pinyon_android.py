@@ -364,7 +364,7 @@ def _build_manifest(tools: Tools, version_name: str, libraries: list[Path]) -> d
 # into state/drivers and android_gpu_driver "auto" picks by GPU: the binary
 # from .local/android/drivers/<name> (not in the repository), its notice from
 # android/drivers/<name>.
-BUNDLED_DRIVERS = ["turnip-gen8-v37"]
+BUNDLED_DRIVERS = ["turnip-gen8-v37", "turnip-a619-oneui"]
 
 
 def bundled_driver_files() -> list[tuple[Path, str]]:
