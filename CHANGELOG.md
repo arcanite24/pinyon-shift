@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0 - 2026-10-17
+
+- Temporal FSR 2 and FSR 3 in OUTPUT SCALING, fed with depth, camera and
+  object motion, a jittered scene and a HUD-less frame; SHARPENING; motion
+  blur and depth of field off under them. FidelityFX builds from source on
+  Linux, macOS and Android; Windows needs AMD's runtime beside the game.
+- DualSense adaptive triggers, lightbar, player lights, tilt steering and
+  PlayStation button marks (#561); racing wheel steering and pedal shaping.
+- Ultra Low 30 preset, TEXTURE SIZE cap, FXAA on the world only (#528),
+  COLOUR LUT (#521), HUD SCALE and SAFE ZONE (#520), F2 hides the HUD
+  (#519).
+- SKIP INTRO MOVIES and START IN SINGLE PLAYER (#617), developer-build
+  switches (#477), photo camera through walls and wider limits (#488), AI
+  without rubber-banding or one level harder (#482), trainer DAY LENGTH
+  (#483) and ANY CAR IN ANY EVENT (#479).
+- Sound mixer per category with the compressor on or off (#486).
+- Car telemetry over UDP in Forza Motorsport 7's Data Out layout (#481).
+- Texture packs on Vulkan (#518), hidden traffic and showcase cars for sale
+  (#484), cars reusing an existing model (#505), new archive members and
+  string table keys (#503).
+- Every Windows launcher panel on Linux and macOS, including DLC, title
+  update v4 and Xenia save import.
+- Android: mods, radio and XE in the Wi-Fi share, APK updates offered by
+  the app, and a shader-pack command.
+- Faster: CTR, XER and LR in locals, host fibers, literal folding and direct
+  strong-body calls in the recompiled code; FMOD output without the guest
+  XAudio2 pass, native ParamEQ, worker XMA decoding, FMOD stereo on Android
+  and Linux; shader-load cache; parallel pipeline builds and an off-thread
+  pipeline cache save; indexed v4 car restrictions; Deck x86-64-v3, small
+  code model and thread placement; macOS 120 Hz defaults and no black
+  screen while pipelines compile.
+- Fixed: white window without `gpu_backend` (#627, #613), judder at a
+  steady frame rate (#381), controllers routed to user 0 (#553), headlights
+  at night with shadows off (#532), macOS resize black screen (#623, #475,
+  #578), overbright free roam and launcher crashes on macOS, crashes (#584,
+  #638, #552), a newer settings file (#536), Xenia DLC folders (#596), the
+  damaged Rally dump (#573, #610), the v4 save hint (#555), and setup
+  (#599, #639, #604, #580, #597, #560, #574, #567, #649, #616, #624),
+  launcher scaling (#594).
+- Crash reports name the faulting module and driver and say when the GPU
+  driver or graphics memory was the cause (#558); the build label shows in
+  the title and F3 (#545).
+
 ## 0.5.1 - 2026-10-12
 
 - VSYNC on no longer tears on Vulkan, and changing it applies at once (#539).
