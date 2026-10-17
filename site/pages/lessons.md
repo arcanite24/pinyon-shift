@@ -222,6 +222,8 @@ loaded baseline so resetting retains another mod's tuning. See
 
 ## What didn't pay off here
 
+**Read the compiled shader, not the source, before optimizing arithmetic (Apple M1, MoltenVK).** `xcrun metal -S -emit-llvm` on the MSL that `MVK_CONFIG_SHADER_DUMP_DIR` writes shows what Metal actually runs. The free-roam pixel shaders turned out to be 40 % function calls: SPIRV-Cross emits a non-inlined `[[clang::optnone]]` helper for every multiply and add decorated `NoContraction`, which the translator puts on all pixel ALU results so that passes match bit for bit. Dropping the decoration (`spirv_fast_pixel_math`) halved the M1's drive frame (53 to 28 ms) where a week of fp16 work had found 4 ms. Any Xbox 360 recompiler that keeps `NoContraction` for pass-to-pass invariance pays this on MoltenVK.
+
 Negative results, so they aren't retried without a new reason:
 
 | Idea | Result |
