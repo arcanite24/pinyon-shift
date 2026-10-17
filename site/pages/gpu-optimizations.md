@@ -135,6 +135,7 @@ Partial resolves leave texels outside the resolved area with their older content
 | Turnip without shader preambles | 13.88 to 13.65 ms |
 | Hot shaders hand-edited to drop per-operation NaN guards, matched by guest hash and SPIR-V hash | 17.73 to 17.52 ms; identical images |
 | Fast pixel math (`spirv_fast_pixel_math`: no `NoContraction` on pixel ALU results, the Direct3D 9 multiply rule only on NaN products) | desktop noise; Odin 36.2 to 32.4 ms; **Apple M1 53 to 28 ms** (−47 %, two runs against three controls, image unchanged on the fixed-clock route): MoltenVK's SPIRV-Cross turns every `NoContraction` multiply and add into a non-inlined `[[clang::optnone]]` helper call, 398 of them in the largest free-roam fragment shader |
+| Fast vertex math (`spirv_fast_vertex_math`: no `NoContraction` on vertex ALU results; the macOS default) | **Apple M1 28.5 to 21.1 ms** (−26 %); the same helper calls, 324 in the largest vertex shader, 64 of 66 vertex shaders carried them. Positions stay `Invariant`; the fixed-clock captures match the controls with no depth fighting |
 
 Fast math has a trap: Direct3D 9 shaders rely on 0 × ∞ = 0. Dropping that rule smeared motion blur on Adreno ([#403](https://github.com/arcanite24/pinyon-shift/issues/403)), and it was restored.
 
@@ -157,7 +158,7 @@ The same frame replayed on every device. The results differ enough that no savin
 
 | Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | M1, 1x free roam | Steam Deck, 1x | Image |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Default | 6.24 ms | 12.67 / 29.9 ms | 56 ms (driving frames; 28 ms since fast pixel math became the macOS default) | 11.19 ms | |
+| Default | 6.24 ms | 12.67 / 29.9 ms | 56 ms (driving frames; 21 ms since fast pixel and vertex math became the macOS defaults) | 11.19 ms | |
 | Quads as triangle lists | −3 % | — / −5 % | — | about −1 % | mean difference 0.02/255 |
 | Coarse 2 × 2 shading | about −3 % | not in MoltenVK | not in MoltenVK | −7 % (−9 % with alpha-tested draws) | slightly softer |
 | TEXTURE GAMMA FAST | none | −8 % / — | −7 % (p95 −14 ms) | −2 % | darker midtones |
