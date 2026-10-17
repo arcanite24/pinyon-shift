@@ -102,6 +102,7 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | | Apple M1, 1x free roam (driving frames) | 83.7 against 70.6–72.4 ms: worse, one run; the saved bands are a few of ~290 restarts a frame |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
 | Shared-memory uploads a draw needs moved ahead of the open rendering's begin in the recorded command stream, instead of ending the rendering (`fh1_hoist_uploads`) | Apple M1, 1x free roam (driving frames) | GPU 71.8 to 56.4–57.0 ms (three runs); renderings a frame about 210–300 to 90–175; image inside control noise |
+| The uploads hoisted into one rendering merged into one barrier pair and one run of copies (`fh1_hoist_uploads_merge`) | Apple M1, 1x free roam (driving frames) | GPU 56.8–60.9 to 53.9 ms (bracketed controls); hoisted barrier pairs a frame about 160 to 13, barrier batches halved |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
 
