@@ -70,6 +70,10 @@ The backup keeps the original bytes, including a UTF-8 BOM or Windows line endin
 Invalid TOML is left for you to correct before retrying. A configuration from a
 newer build is accepted without changing its schema or dropping unknown settings.
 
+## The game starts but shows nothing (macOS)
+
+On a Mac that is low on memory (swap in use after a long session of other work, or a second copy of the game still running), the start can stall while the Vulkan pipeline cache in `.local/preview/cache/shaders` is read back; the runtime log then ends after "Initializing shader storage" with no frame. Quit it, make sure no other `pinyon_shift` process is running (Activity Monitor), and start again; it takes about two seconds on a machine with free memory. Deleting the cache file only costs one slower first drive while shaders are compiled again.
+
 ## The game runs on the wrong GPU
 
 On a PC with two GPUs, such as a laptop, the game asks for the high-performance one. To pick another with Vulkan, find the "Available Vulkan physical devices" list near the top of `.local/preview/logs/runtime.log` and add its number to `.local/preview/config/pinyon_shift.toml`, for example `vulkan_device = 1`. Direct3D 12 takes `d3d12_adapter`, numbered in Windows' adapter order. `-1` goes back to the automatic choice. Windows' **Settings → System → Display → Graphics** can also assign `pinyon_shift.exe` (not the launcher) to a GPU.
