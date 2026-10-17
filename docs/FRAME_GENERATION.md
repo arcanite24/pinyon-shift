@@ -15,15 +15,16 @@ parking lot), FB-14.6 to FB-14.9 (docs/FEATURE_BACKLOG.md), DR-5.4
 finished frame was built and rejected in 2026-09 (it looked like 30 fps and
 flickered in the UI and sky); the old `pinyon_shift_fh1_frame_interpolation`
 key is stripped by config migration. This design differs in its inputs
-(depth, the HUD as its own layer, camera motion) and in using a model built
-for the job.
+(the HUD as its own layer, optionally depth and camera motion) and in using
+a model built for the job: MetalFX runs its own optical flow, so it finds the
+motion between the two finished frames rather than warping one of them.
 
 ## Backends
 
 | Setting | Backend | Status |
 | --- | --- | --- |
 | `off` | none | default |
-| `metalfx` | Apple MetalFX frame interpolation (`MTLFXFrameInterpolator`, macOS 26, Apple silicon). The presenter's Vulkan images are exported to Metal through `VK_EXT_metal_objects` (MoltenVK) | stage 2 |
+| `metalfx` | Apple MetalFX frame interpolation (`MTLFXFrameInterpolator`, macOS 26, Apple silicon). The presenter's history and output images are exported to Metal through `VK_EXT_metal_objects` (MoltenVK) and the interpolator runs on the Metal queue MoltenVK exports from the Vulkan graphics queue | on, colour only |
 | `fsr3` | AMD FidelityFX FSR 3.1 frame generation, dispatched into the presenter's own images without the FidelityFX swapchain (which would fight present IDs, `vulkan_present_wait` and the UI drawers) | stub: reports unavailable |
 | `repeat` | development only, never in the menu: re-presents the previous frame as the generated one, to measure the pacing and counters without a backend | stage 1 |
 
@@ -64,16 +65,20 @@ present is then a real frame.
   mailbox releases a frame as soon as the next is taken), a generated image,
   and later the scene without the HUD, the depth and the motion vectors.
   Generation runs at the game's resolution, before output scaling.
-- **Inputs by stage.** Stage 2: the two frames and the depth the executor
-  already keeps current, with zero motion vectors (ghosting on camera
-  motion expected). Stage 3: the scene before the HUD as the colour and the
-  composited frame as the UI layer, so the HUD is never warped. Stage 4:
-  camera motion vectors from the depth and the previous and current
-  view-projection matrices.
+- **Inputs by stage.** Stage 2: the two finished frames only. A probe on the
+  M1 (below) showed MetalFX interpolating correctly from the colour pair with
+  no depth and no motion texture, both of which its interface marks optional,
+  so neither is plumbed yet. Stage 3: the scene before the HUD as the colour
+  and the composited frame as the UI layer, so the HUD is never warped.
+  Stage 4: depth and camera motion vectors, if a measurement shows they
+  reduce ghosting enough to be worth the extra passes and the matrix hook.
 - **History reset.** The first frame after enabling; a size or bit-depth
   change; a publish gap above max(3 × median, 250 ms) (loading, pause,
-  video, alt-tab); leaving guest-thread painting; a frame without a pre-HUD
-  snapshot (menus, video, photo mode); a backend failure.
+  video, alt-tab); leaving guest-thread painting; a backend failure. From
+  stage 3 on, also a frame without a pre-HUD snapshot (menus, video, photo
+  mode). MetalFX needs two frames after a reset before it interpolates (the
+  probe showed the first generated frame equal to the current one); the
+  pacer's one-frame-since-reset skip already covers this.
 
 ## Counters
 
@@ -103,20 +108,39 @@ and the route's captures bit-exact (captures are real frames).
 | --- | --- |
 | 0: settings, backend abstraction, counters | Landed; no visible change. |
 | 1: history, generated present, pacing (`repeat`) | M1, `fh1-open-world-performance` at the game's 20 fps limit (so twice the base rate fits the 60 Hz panel), 779 title frames each: control 16.8 presents a second, all real; `repeat` 28.3 presents a second, of which 14.5 generated and 13.8 real, 24 real frames dropped, GPU median unchanged (52.0 against 52.2 ms). The missing real frames are the FIFO limit: the UI thread paints every frame on macOS and one paint blocks for a vblank, so when the title releases a frame early the generated frame of the previous pair gives way to it. `fh1-hfr-modes-control` with `repeat` against a control run: four of its five capture gates pass; the map capture's changed-pixel ratio is 0.29 against its 0.15 limit at a mean error of 3.4 (limit 4), the drive's timing noise, and the content matches. `fh1-smoke` passes. The `fh1-source-60` gate (55 distinct frames a second) is out of the M1's reach with or without generation. |
-| 2: MetalFX, depth, zero motion | |
+| 2: MetalFX, colour only | M1, `fh1-open-world-performance` at the game's 20 fps limit, 805 source frames in 46.7 s. MetalFX ran its own optical flow over the colour pair, no depth or motion texture. Present rate 21.8 a second (17.2 source, 10.1 generated, 11.7 distinct real), against the control's 16.6, all real. The frame-time median was unchanged (50.8 against 51.6 ms): the interpolation runs on the Metal queue between frames, not inside a frame. The generation cost 7.3 ms a frame (Metal GPU timestamps), close to the 6.3 ms the probe measured. 153 real frames were dropped and 436 generations skipped: the first MetalFX version waits for the Metal command buffer to complete inside the paint, so each generated frame holds the paint thread about 7 ms, and on the FIFO/UI-thread path that time comes out of the real frames. The asynchronous handoff reserved in the inputs (a Metal shared event from the timeline semaphore) is the next measurement; it should return the distinct rate to the control. The route's free-roam captures are wall-clock nondeterministic (two control runs differ by MAE 92-98, against MetalFX-to-control MAE 20-27), so they do not gate this stage. |
 | 3: HUD as its own layer | |
-| 4: camera motion vectors | |
+| 4: depth and camera motion vectors (if measured worthwhile) | |
 
-## Open questions
+## What the M1 probe settled (2026-10-16)
 
-- Whether MetalFX accepts the presenter's `RGB10A2Unorm` colour and an
-  `R32Float` depth (fall back to `RGBA16Float` and a conversion pass).
+A standalone Metal probe (not in the build; MetalFX framework only, Apple M1,
+macOS 26) answered the questions that shaped stage 2:
+
+- **Colour-only interpolation works.** With `RGB10A2Unorm` colour and output,
+  no depth texture and no motion texture, `MTLFXFrameInterpolator` produced a
+  correct temporal midpoint: a bar moving ten pixels a frame landed within one
+  pixel of the midpoint once the history had two frames. Supplying a correct
+  motion texture changed nothing; supplying none changed nothing. MetalFX runs
+  its own optical flow over the colour pair.
+- **The first frame after a reset is a copy.** With `shouldResetHistory`, and
+  on a flat fill with no features, the output equalled the current frame; the
+  midpoint appeared only from the third encode. The pacer's existing skip of
+  the one-frame-since-reset case matches this.
+- **Cost is 6.3 ms a frame at 1280 × 720** on the M1 (mean of 100,
+  `GPUEndTime − GPUStartTime`), higher than the 2-4 ms guessed. At the game's
+  20 fps that is about 13 ms of generation a second, well inside the headroom
+  to the 60 Hz panel, but it is added GPU work the real frames share.
+- **Formats:** the interpolator was created for `RGB10A2Unorm` colour and
+  output and `RG16Float` motion; it rejected an invalid colour format but
+  accepted an invalid (absent) depth and motion format. No `RGBA16Float`
+  conversion pass is needed.
+
+Open, deferred to their stages:
+
 - Whether a MoltenVK device-local image exports as a private Metal texture
-  with the usage the interpolator asks for.
-- Whether MoltenVK's timeline semaphore values match the exported
-  `MTLSharedEvent` values directly (fallback: in-order commits on the
-  exported queue, valid while MoltenVK's synchronous submits are on).
-- The host depth encoding and the game's depth direction.
-- The generation cost at 1280 × 720 on the M1's 8-core GPU (expected 2-4 ms).
-- Where the game writes its view and projection matrices (stage 4; recorded
-  in docs/REVERSE_ENGINEERING.md when found).
+  with the usage the interpolator asks for (stage 2 logs it at startup).
+- Whether depth and camera motion vectors reduce camera-pan ghosting enough
+  to justify the depth snapshot and the matrix hook (stage 4; the game's
+  depth direction and where it writes its matrices are recorded in
+  docs/REVERSE_ENGINEERING.md if that work happens).

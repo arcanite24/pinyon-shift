@@ -170,6 +170,16 @@ cells = [
 ]
 
 [[platform]]
+feature = "Frame generation"
+link = "playing.md#frame-generation"
+cells = [
+  "not yet",
+  "not yet",
+  "yes: MetalFX interpolation on macOS 26 and Apple silicon, opt-in and off by default",
+  "not yet",
+]
+
+[[platform]]
 feature = "Immersive camera"
 link = "playing.md#immersive-camera"
 cells = ["yes", "yes", "yes", "partly: shared from the PC with its mods; not tried in a race yet"]

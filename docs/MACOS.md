@@ -308,6 +308,12 @@ permissions or normal install settings were changed. Before closing #548,
 check these transitions interactively and retest the original M1 Max scene
 and save; QUALITY 60 still fails its performance budget on this M4 Pro.
 
-Frame generation (docs/FRAME_GENERATION.md) is being built for the M1 with
-MetalFX frame interpolation, which needs macOS 26; it is off by default and
-has no measured result yet.
+Frame generation (docs/FRAME_GENERATION.md) is on for the M1 with MetalFX
+frame interpolation, which needs macOS 26 and Apple silicon; it is off by
+default (F6 > DISPLAY > FRAME GENERATION). On the M1, at the game's 20 fps
+render limit so the generated frames fit the 60 Hz panel, free roam presents
+about 22 frames a second against 17 without it. MetalFX runs its own optical
+flow over the two finished frames, so no depth or motion vectors are plumbed;
+each generated frame costs about 7 ms of the GPU. The first version waits for
+the Metal work on the paint thread, so some real frames are dropped to make
+room; an asynchronous handoff is the next step.
