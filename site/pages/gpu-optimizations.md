@@ -99,9 +99,12 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | EDRAM clears folded into the next rendering's load | 8 Elite | renderings about 280 to 210; frame −1.6 to −2.6 ms, GPU −0.5 ms |
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
+| | Apple M1, 1x free roam (driving frames) | 83.7 against 70.6–72.4 ms: worse, one run; the saved bands are a few of ~290 restarts a frame |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
+
+On the Apple M1 (8-core GPU, MoltenVK) the Vulkan timestamp queries do not work, but a Metal System Trace attached to the running game does: in free roam at 1x it shows a 72 ms frame as about 31 ms of shading in 27 heavy render encoders and about 40 ms of starting, stopping and idling (19 ms of GPU idle in some 670 gaps of 20–40 µs) around the other ~710 encoders a frame. About 180 of the ~290 render-pass restarts a frame are vertex and index uploads the draws discover mid-pass, the rest resolves; the measurements and method are in [REVERSE_ENGINEERING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/REVERSE_ENGINEERING.md) (Host performance).
 
 ## Resolves and texture loads
 
