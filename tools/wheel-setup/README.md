@@ -41,5 +41,5 @@ All in `pinyon_shift.toml`, read by shiftglue-sdk's SDL input driver:
 `wheel_steering_axis`, `wheel_throttle`, `wheel_brake`, `wheel_clutch`,
 `wheel_buttons` (`NAME=input`, repeatable for several inputs on one button),
 the per-pedal `wheel_<pedal>_deadzone_bottom` / `_top`, and the `wheel_ffb_*`
-force feedback settings. Each setting's description is in shiftglue-sdk
-`src/input/sdl/sdl_input_driver.cpp`.
+force feedback settings. shiftglue-sdk's `docs/RACING_WHEELS.md` describes each one,
+with its default, and how devices and inputs are named.
