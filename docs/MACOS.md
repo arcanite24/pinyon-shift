@@ -109,7 +109,8 @@ external drive.
 - **Fullscreen was black and windowed blue (builds before 2026-10-18).** The
   swapchain was rebuilt mid-transition; fixed by rebuilding it again when the
   transition finishes. The Metal performance HUD grows with the fullscreen
-  layer's pixel size; its menu-bar item has smaller sizes.
+  layer's pixel size and keeps that size back in the window; Apple offers
+  no size setting (only on, off and logging), so use its menu-bar item.
 - **The build cannot find a compiler.** Run `xcode-select --install` in
   Terminal, or reinstall the Command Line Tools from Apple's developer site.
 
