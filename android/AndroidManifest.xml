@@ -68,7 +68,7 @@
         <profileable android:shell="true" />
 
         <!-- The title's 16:9 at any width; letterboxed by the presenter. -->
-        <meta-data android:name="android.max_aspect" android:value="3.0" />
+        <meta-data android:name="android.max_aspect" android:value="2.4" />
         <!-- PERFORMANCE and BATTERY game modes (res/xml/game_mode_config.xml). -->
         <meta-data android:name="android.game_mode_config"
             android:resource="@xml/game_mode_config" />
@@ -79,6 +79,7 @@
             android:name="studio.deimos.pinyonshift.SetupActivity"
             android:label="Pinyon Shift"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
             android:exported="true">
             <intent-filter>
@@ -96,9 +97,10 @@
         <activity
             android:name="studio.deimos.pinyonshift.PinyonShiftActivity"
             android:label="Pinyon Shift"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:process=":game"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
             android:screenOrientation="sensorLandscape"
-            android:resizeableActivity="false"
+            android:resizeableActivity="true"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
             android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"

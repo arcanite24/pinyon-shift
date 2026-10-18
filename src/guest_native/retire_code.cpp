@@ -29,11 +29,13 @@ REXCVAR_DEFINE_UINT32(pinyon_shift_retire_guest_code, 0, "Pinyon Shift",
     .range(0, 2)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+[[gnu::weak]] const PPCFoldedRange PPCJumpTableRanges[] = {{0, 0}};
+
 namespace pinyon_shift::guest_native {
 
 void RetireGuestCode(rex::memory::Memory* memory) {
   const uint32_t mode = REXCVAR_GET(pinyon_shift_retire_guest_code);
-  if (!mode || !memory) return;
+  if (!mode || !memory || !PPCJumpTableRanges[0].size) return;
   const uint32_t code_base = pinyon_shift::fh1::kTitleUpdateV4 ? 0x82410000u : 0x823E0000u;
   const uint32_t code_size = pinyon_shift::fh1::kTitleUpdateV4 ? 0xEAA19Cu : 0xE0F59Cu;
   const size_t matched = CheckAllGuestCode(memory->virtual_membase());

@@ -40,6 +40,7 @@
 #include <rex/ui/windowed_app_context.h>
 #include <rex/ui/window.h>
 
+#include <SDL3/SDL_hints.h>
 #if !defined(_WIN32) && !defined(__ANDROID__)
 #include <SDL3/SDL_video.h>
 #endif
@@ -517,6 +518,12 @@ void OnHostGpuLoss() {
 
 }  // namespace
 
+static PinyonShiftApp* s_pinyon_shift_instance = nullptr;
+
+PinyonShiftApp* PinyonShiftApp::Instance() {
+  return s_pinyon_shift_instance;
+}
+
 std::unique_ptr<rex::ui::WindowedApp> PinyonShiftApp::Create(
     rex::ui::WindowedAppContext& context) {
   if (!pinyon_shift::diagnostics::InitializeEarly()) {
@@ -526,8 +533,13 @@ std::unique_ptr<rex::ui::WindowedApp> PinyonShiftApp::Create(
     std::_Exit(EXIT_FAILURE);
 #endif
   }
-  return std::unique_ptr<PinyonShiftApp>(
+#if defined(__ANDROID__)
+  SDL_SetHint("SDL_ACCELEROMETER_AS_JOYSTICK", "0");
+#endif
+  auto app = std::unique_ptr<PinyonShiftApp>(
       new PinyonShiftApp(context, "pinyon_shift", PPCImageConfig));
+  s_pinyon_shift_instance = app.get();
+  return app;
 }
 
 void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
@@ -829,9 +841,29 @@ void PinyonShiftApp::OnPostLoadXexImage() {
   pinyon_shift::diagnostics::RecordEvent("xex.loaded", {{"title_id", title}});
 }
 
-PinyonShiftApp::~PinyonShiftApp() = default;
+PinyonShiftApp::~PinyonShiftApp() {
+  if (s_pinyon_shift_instance == this) {
+    s_pinyon_shift_instance = nullptr;
+  }
+}
+
+void PinyonShiftApp::TriggerPhoto() {
+  pinyon_shift::ui::SavePhoto(runtime() && runtime()->graphics_system()
+                                  ? runtime()->graphics_system()->presenter()
+                                  : nullptr);
+}
 
 void PinyonShiftApp::ToggleGameMenu() {
+  if (window()) {
+    window()->app_context().CallInUIThreadDeferred([this] {
+      if (host_ui_ && host_ui_->is_open()) {
+        host_ui_->Close();
+        return;
+      }
+      OpenSettingsMenu();
+    });
+    return;
+  }
   if (host_ui_ && host_ui_->is_open()) {
     host_ui_->Close();
     return;
@@ -984,14 +1016,19 @@ void PinyonShiftApp::UpdateHorPlus() {
 }
 
 void PinyonShiftApp::ApplyMapView(bool open) {
-  map_view_open_ = open;
   // The HUD scale (#520) is for the gameplay HUD; the map's and the menus'
   // screens are drawn through the same HUD view and keep their size.
   rex::cvar::SetFlagByName("fh1_hud_scale_suspended", open ? "true" : "false");
+#if defined(__ANDROID__)
+  if (REXCVAR_GET(pinyon_shift_hor_plus)) {
+    rex::cvar::SetFlagByName("present_letterbox", "false");
+  }
+#else
   if (!REXCVAR_GET(pinyon_shift_hor_plus)) return;
   // Wider View stretches the widened gameplay frame over the window; the
   // title's 16:9 screens (menus, Autoshow, map) are letterboxed (#363).
   rex::cvar::SetFlagByName("present_letterbox", open ? "true" : "false");
+#endif
   UpdateHorPlus();
   pinyon_shift::diagnostics::RecordEvent("display.hor_plus_view", {{"wide", open ? "0" : "1"}});
 }
@@ -1012,6 +1049,9 @@ void PinyonShiftApp::OnPostSetup() {
                                             [this] { ApplyMapView(map_view_open_); UpdateHorPlus(); });
                                       }
                                     });
+  if (REXCVAR_GET(pinyon_shift_hor_plus)) {
+    rex::cvar::SetFlagByName("present_letterbox", "false");
+  }
   UpdateHorPlus();
   // Until the player has a car, DualSense trigger effects stay slack.
   if (auto* input = runtime() ? dynamic_cast<rex::input::InputSystem*>(runtime()->input_system())

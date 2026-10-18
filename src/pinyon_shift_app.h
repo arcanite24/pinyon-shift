@@ -30,6 +30,12 @@ class PinyonShiftApp final : public rex::ReXApp {
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& context);
 
+  static PinyonShiftApp* Instance();
+  void TriggerPhoto();
+  void ToggleGameMenu();
+  // NP-4.4 Hor+: the title's aspect for the window's (pinyon_shift_hor_plus).
+  void UpdateHorPlus();
+
  protected:
   void OnConfigurePaths(rex::PathConfig& paths) override;
   std::optional<rex::PathConfig> OnFinalizePaths(
@@ -51,7 +57,7 @@ class PinyonShiftApp final : public rex::ReXApp {
   bool OnWindowCloseRequested() override;
   void OnShutdown() override;
   // Achievements use the host UI: F7 toggles its list, unlocks show its
-  // toast, so the ImGui overlay and toast are not created.
+  // touch, so the ImGui overlay and toast are not created.
   std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog()
       override {
@@ -60,14 +66,11 @@ class PinyonShiftApp final : public rex::ReXApp {
 
  private:
   void RecordShutdownOnce();
-  void ToggleGameMenu();
   // Opens the settings screen unless it is open; UI thread.
   void OpenSettingsMenu();
   // Creates the host UI and installs its XAM dialogs once presentation is
   // ready; UI thread.
   bool EnsureHostUi();
-  // NP-4.4 Hor+: the title's aspect for the window's (pinyon_shift_hor_plus).
-  void UpdateHorPlus();
   // Under Hor+, present frames without the gameplay view 16:9 letterboxed.
   void ApplyMapView(bool open);
   bool map_view_open_ = false;
