@@ -72,7 +72,9 @@ newer build is accepted without changing its schema or dropping unknown settings
 
 ## The game starts but shows nothing (macOS)
 
-On a Mac that is low on memory (swap in use after a long session of other work, or a second copy of the game still running), the start can stall while the Vulkan pipeline cache in `.local/preview/cache/shaders` is read back; the runtime log then ends after "Initializing shader storage" with no frame. Quit it, make sure no other `pinyon_shift` process is running (Activity Monitor), and start again; it takes about two seconds on a machine with free memory. Deleting the cache file only costs one slower first drive while shaders are compiled again.
+The first start after an install or an update builds every pipeline the game saved from earlier sessions before it shows a frame, and macOS compiles each one from scratch the first time (the next start finds them in the system's Metal shader cache). On an M1 that is about 20 seconds for 600 pipelines; a line at the bottom of the window counts them, "LOADING SHADERS 86 / 611", and the same progress goes to `.local/preview/logs/runtime.log` as "Shader status". Wait for it; the second start of the same build takes under a second. The line also appears during play as "COMPILING SHADERS n LEFT" when a scene needs shaders the cache has not seen.
+
+If the line never appears and the log ends after "Initializing shader storage", the machine is short of memory (swap in use after a long session of other work, or a second copy of the game still running). Quit it, make sure no other `pinyon_shift` process is running (Activity Monitor), and start again. Deleting `.local/preview/cache/shaders` only costs one slower first drive while shaders are compiled again.
 
 ## The game runs on the wrong GPU
 

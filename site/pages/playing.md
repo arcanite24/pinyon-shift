@@ -9,6 +9,8 @@ description: Keyboard shortcuts, graphics presets, language, controllers, saves 
 
 Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and the language are among the few that need a restart.
 
+A line at the bottom of the window, "LOADING SHADERS 86 / 611" or "COMPILING SHADERS 12 LEFT", means the renderer is still building pipelines and is holding frames back until it has them; it goes away by itself. The first start of a new build shows it for a while (see [Troubleshooting](troubleshooting.md#the-game-starts-but-shows-nothing-macos)).
+
 ## Keys
 
 | Key | Action |

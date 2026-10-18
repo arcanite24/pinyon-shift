@@ -101,6 +101,11 @@ external drive.
   Rebuild an older version; see the qualification results below. The M4 Pro
   route did not reproduce the reported bright pulses, so the original M1 Max
   exposure case still needs retesting. HDR brightness is a separate check.
+- **Black window for a while on the first start.** The game is building the
+  pipelines it saved from earlier sessions, and macOS compiles each one the
+  first time it sees a new build; a "LOADING SHADERS n / total" line at the
+  bottom of the window counts them (about 20 s for 600 on an M1). The next
+  start of the same build takes under a second.
 - **The build cannot find a compiler.** Run `xcode-select --install` in
   Terminal, or reinstall the Command Line Tools from Apple's developer site.
 
