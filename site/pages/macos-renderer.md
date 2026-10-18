@@ -7,7 +7,7 @@ description: How the free-roam frame on an M1 went from 131 to 19 ms on MoltenVK
 
 # macOS renderer performance
 
-A guide for bringing a recompiled Xbox 360 game to Apple silicon through MoltenVK, drawn from the four days (2026-10-15 to 2026-10-18) in which Pinyon Shift's free-roam frame on a MacBook Pro M1 (8-core GPU, 16 GB, macOS 26, MoltenVK 1.4.1) went from 131 ms to 19 ms. The full text, with every measurement, is [docs/MACOS_RENDERER_OPTIMIZATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS_RENDERER_OPTIMIZATION.md); the same guide is published on its own for other projects in the [xbox360-macos-renderer-guide](https://github.com/jamesonricks/xbox360-macos-renderer-guide) repository.
+A guide for bringing a recompiled Xbox 360 game to Apple silicon through MoltenVK, drawn from the four days (2026-10-15 to 2026-10-18) in which Pinyon Shift's free-roam frame on a MacBook Pro M1 (8-core GPU, 16 GB, macOS 26, MoltenVK 1.4.1) went from 131 ms to 19 ms. The full text, with every measurement, is [docs/MACOS_RENDERER_OPTIMIZATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS_RENDERER_OPTIMIZATION.md); the same guide is published on its own for other projects in the [xbox360-macos-renderer-guide](https://github.com/jricks92/xbox360-macos-renderer-guide) repository.
 
 ## The frame, step by step
 
