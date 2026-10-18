@@ -1,7 +1,7 @@
 ---
 title: Lessons
 section: Internals
-order: 7
+order: 8
 description: What Pinyon Shift's work on Forza Horizon suggests for other Xbox 360 static recompilations, including the ideas that were measured and didn't pay off.
 ---
 

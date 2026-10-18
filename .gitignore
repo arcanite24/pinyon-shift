@@ -31,6 +31,8 @@ private/
 !/docs/INSTALLING.md
 !/docs/PERFORMANCE.md
 !/docs/HITCH_QUALIFICATION.md
+
+!/docs/MACOS_RENDERER_OPTIMIZATION.md
 !/docs/ROADMAP.md
 !/docs/DEVELOPMENT.md
 !/docs/UI_API_PLAN.md

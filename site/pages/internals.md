@@ -14,6 +14,7 @@ These pages record how Pinyon Shift works and what was measured along the way, s
 - [Native renderer](renderer.md): the threads, the frame contract, EDRAM and resolves, textures, shaders and the present path.
 - [GPU optimizations](gpu-optimizations.md): what was slow on the GPU and the recorder thread, what changed and what it measured.
 - [Platform ports](platforms.md): Windows, Linux and the Steam Deck, macOS and Android.
+- [macOS renderer performance](macos-renderer.md): the M1 frame from 131 to 19 ms on MoltenVK, as a method for other recompilations.
 - [Lessons](lessons.md): what carries over to other projects, including what didn't work.
 
 ## The system
@@ -57,7 +58,7 @@ These pages summarize. The engineering record, with every measurement and the re
 | Desktop CPU and GPU work | [PERFORMANCE_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/PERFORMANCE_BACKLOG.md), [DESKTOP_RENDERER_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DESKTOP_RENDERER_BACKLOG.md), [RECORDER_PER_DRAW_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RECORDER_PER_DRAW_BACKLOG.md), [RECORDER_REPLAY_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RECORDER_REPLAY_BACKLOG.md) |
 | Smaller PCs | [LOW_SPEC_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LOW_SPEC_BACKLOG.md) |
 | Android | [ANDROID_PORT_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID_PORT_BACKLOG.md), [ANDROID_60FPS_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID_60FPS_BACKLOG.md), [ANDROID_ODIN_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID_ODIN_BACKLOG.md) |
-| Linux and macOS | [LINUX_PORT_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX_PORT_BACKLOG.md), [MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md) |
+| Linux and macOS | [LINUX_PORT_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX_PORT_BACKLOG.md), [MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md), [MACOS_RENDERER_OPTIMIZATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS_RENDERER_OPTIMIZATION.md) |
 | The title update | [TITLE_UPDATE_V4_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/TITLE_UPDATE_V4_BACKLOG.md) |
 | Game internals found so far | [Reverse engineering](reverse-engineering.md), [Address index](game-addresses.md) |
 | Other recompilers' optimizations | [RECOMP_OPTIMIZATION_SURVEY.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RECOMP_OPTIMIZATION_SURVEY.md) |
