@@ -76,6 +76,10 @@ The first start after an install or an update builds every pipeline the game sav
 
 If the line never appears and the log ends after "Initializing shader storage", the machine is short of memory (swap in use after a long session of other work, or a second copy of the game still running). Quit it, make sure no other `pinyon_shift` process is running (Activity Monitor), and start again. Deleting `.local/preview/cache/shaders` only costs one slower first drive while shaders are compiled again.
 
+## Fullscreen is black, windowed is blue (macOS, builds before 2026-10-18)
+
+Going fullscreen with the green button or <kbd>Ctrl</kbd>+<kbd>Cmd</kbd>+<kbd>F</kbd> showed black, and coming back showed a blue window, while the sound and the controller kept working. macOS animates the window into its fullscreen Space, and the game rebuilt its swapchain while the animation was still running, against a layer state the end of the transition replaces; the frames kept presenting and nothing reached the screen until something else rebuilt the connection (opening a menu that changed a display setting did). Fixed: the window now rebuilds the connection when SDL reports the transition finished. Apple's performance HUD grows when the window goes fullscreen on a Retina panel, since it scales with the layer's pixel size; pick a smaller size from its menu-bar item.
+
 ## The game runs on the wrong GPU
 
 On a PC with two GPUs, such as a laptop, the game asks for the high-performance one. To pick another with Vulkan, find the "Available Vulkan physical devices" list near the top of `.local/preview/logs/runtime.log` and add its number to `.local/preview/config/pinyon_shift.toml`, for example `vulkan_device = 1`. Direct3D 12 takes `d3d12_adapter`, numbered in Windows' adapter order. `-1` goes back to the automatic choice. Windows' **Settings → System → Display → Graphics** can also assign `pinyon_shift.exe` (not the launcher) to a GPU.

@@ -106,6 +106,10 @@ external drive.
   first time it sees a new build; a "LOADING SHADERS n / total" line at the
   bottom of the window counts them (about 20 s for 600 on an M1). The next
   start of the same build takes under a second.
+- **Fullscreen was black and windowed blue (builds before 2026-10-18).** The
+  swapchain was rebuilt mid-transition; fixed by rebuilding it again when the
+  transition finishes. The Metal performance HUD grows with the fullscreen
+  layer's pixel size; its menu-bar item has smaller sizes.
 - **The build cannot find a compiler.** Run `xcode-select --install` in
   Terminal, or reinstall the Command Line Tools from Apple's developer site.
 

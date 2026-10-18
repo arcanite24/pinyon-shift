@@ -37,7 +37,7 @@ interactive check on the affected Macs.
 
 The launcher's **DLC** panel imports your own DLC packages ([DLC and title update](dlc.md)), and **Import a save** brings a save from another install or from Xenia. On the M4 Pro all 21 packages imported and their 84 car rows loaded and could be driven in a scripted route, and the v4 build ran the 1000 Club challenges and reached the Horizon Rally entry.
 
-On an M1 the free-roam drive renders at about 52 fps at 1x (19 ms of GPU a frame) with the defaults, more with TEXTURE GAMMA FAST, shadows off and quarter-rate reflections; on macOS 26, [frame generation](playing.md#frame-generation) can add generated frames on top. It is opt-in and off by default.
+On an M1 the free-roam drive renders at about 52 fps at 1x (19 ms of GPU a frame) with the defaults, more with TEXTURE GAMMA FAST, shadows off and quarter-rate reflections (in play, with the frame rate limit at 60 and shadows, bloom, motion blur and depth of field all on, it holds 60 fps); on macOS 26, [frame generation](playing.md#frame-generation) can add generated frames on top. It is opt-in and off by default.
 
 More detail is in [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md).
 
