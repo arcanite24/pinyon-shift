@@ -113,6 +113,12 @@ public sealed class Capture
         if (Candidate != null) return;
         foreach (var d in devices.Devices)
         {
+            // A button or hat held when the step began (an H-shifter left in gear) counts again
+            // once it is let go, so moving the shifter out of the gate and back binds it.
+            for (int i = 0; i < d.Buttons.Length && i < d.BaseButtons.Length; i++)
+                if (!d.Buttons[i]) d.BaseButtons[i] = false;
+            for (int i = 0; i < d.Hats.Length && i < d.BaseHats.Length; i++)
+                d.BaseHats[i] &= d.Hats[i];
             for (int i = 0; i < d.Buttons.Length && i < d.BaseButtons.Length; i++)
             {
                 if (d.Buttons[i] && !d.BaseButtons[i])
