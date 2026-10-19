@@ -49,6 +49,7 @@
 
 #include "pinyon_shift_diagnostics.h"
 #include "head_tracking/head_tracking.h"
+#include "vr/vr_camera.h"
 #include "fh1_guest_address.h"
 #include "camera_tuning.h"
 #include "platform/host_platform.h"
@@ -6783,6 +6784,7 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   QueueRallyRaceTrace();
   QueueCarTelemetry();
   pinyon_shift::head_tracking::Update();
+  pinyon_shift::vr::Update();
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_FRAME_TICK)) {
@@ -8048,6 +8050,9 @@ void PinyonShiftSetViewportAspectScale(float scale) {
 void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
   const double scale = REXCVAR_GET(pinyon_shift_fov_scale);
   if (scale != 1.0) f1.f64 = double(float(f1.f64 * scale));
+  // VR stereo: the frame's tag in the field of view (vr_camera.h).
+  const double tagged = pinyon_shift::vr::TagFieldOfView(f1.f64);
+  if (tagged != f1.f64) f1.f64 = double(float(tagged));
 }
 
 // sub_82857B00 (v4 sub_82907F88) updates one camera physics layer at r31
@@ -8080,8 +8085,10 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
     if (!seen.exchange(true, std::memory_order_relaxed)) {
       pinyon_shift::diagnostics::RecordEvent("camera.head_tracking.layers", {});
     }
-    const auto pose = pinyon_shift::head_tracking::Current();
-    StoreGuestF32(r1.u32 + 96u, pose[axis] * kSigns[axis]);
+    // VR stereo adds this frame's eye (vr_camera.h).
+    const float value = pinyon_shift::head_tracking::Current()[axis] +
+                        pinyon_shift::vr::CameraOffset()[axis];
+    StoreGuestF32(r1.u32 + 96u, value * kSigns[axis]);
     return;
   }
   const size_t index = size_t(nearest) - 1;
