@@ -169,7 +169,28 @@ public sealed class BindingSet
         Button("DOWN", "D-pad down", null),
         Button("LEFT", "D-pad left", null),
         Button("RIGHT", "D-pad right", null),
+        // An H-pattern shifter, last so a wheel without one skips them all at 1st gear. The
+        // game reads the held gear in its wheel path (found by Ty Crowther, pinyon-shift PR #605).
+        Gear("GEAR1", "1st", "1",
+             "Put the H-shifter in 1st gear. No H-shifter? Click Skip to finish the setup."),
+        Gear("GEAR2", "2nd", "2"),
+        Gear("GEAR3", "3rd", "3"),
+        Gear("GEAR4", "4th", "4"),
+        Gear("GEAR5", "5th", "5"),
+        Gear("GEAR6", "6th", "6"),
+        Gear("GEAR7", "7th", "7", "Put the H-shifter in 7th gear, or click Skip if it has no 7th."),
+        Gear("REVERSE", "Reverse", "R"),
     ];
+
+    /// <summary>The first gear step: skipping it unbound ends the guided setup.</summary>
+    public const string FirstGear = "GEAR1";
+
+    private static BindingItem Gear(string key, string gear, string chip, string? prompt = null) => new()
+    {
+        Key = key, Label = $"Shifter {gear}", Kind = BindKind.Button, Chip = chip,
+        Prompt = prompt ?? $"Put the H-shifter in {gear.ToLowerInvariant()}" +
+                 (key == "REVERSE" ? "." : " gear."),
+    };
 
     private static BindingItem Button(string key, string xbox, string? role, string? note = null) => new()
     {

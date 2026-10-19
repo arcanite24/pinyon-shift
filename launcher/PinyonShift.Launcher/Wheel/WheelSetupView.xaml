@@ -114,7 +114,7 @@
 
         <!-- A button chip on the live view -->
         <DataTemplate x:Key="ButtonChip">
-            <Border x:Name="Chip" Width="62" Height="30" Margin="4" CornerRadius="15" BorderThickness="1"
+            <Border x:Name="Chip" Width="62" Height="26" Margin="4,3" CornerRadius="13" BorderThickness="1"
                     Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}">
                 <TextBlock x:Name="ChipText" Text="{Binding Short}" FontWeight="SemiBold" HorizontalAlignment="Center"
                            VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
