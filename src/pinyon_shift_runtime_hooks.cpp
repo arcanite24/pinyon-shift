@@ -711,8 +711,11 @@ static std::string PinyonShiftReadGuestAscii(uint32_t address,
 // A temporal upscaler keeps its own history; the game's motion blur and
 // depth of field smear what it accumulates, so both stay off while one runs
 // (UPSCALING_BACKLOG.md UP-1.6).
+// VR stereo's eyes take turns frame by frame, which the blur reads as camera
+// motion: both stay off while it runs too.
 bool PinyonShiftDisableMotionBlur() {
-  return REXCVAR_GET(disable_motion_blur) || rex::ui::IsTemporalUpscalerActive();
+  return REXCVAR_GET(disable_motion_blur) || rex::ui::IsTemporalUpscalerActive() ||
+         pinyon_shift::vr::InStereo();
 }
 
 // sub_82C7E0B0 borrows a decoded buffer and length for its memory stream.
@@ -886,7 +889,8 @@ void PinyonShiftBloomScale(PPCRegister& r1) {
 }
 
 bool PinyonShiftDisableDepthOfField(PPCRegister& r11) {
-  if (!REXCVAR_GET(disable_depth_of_field) && !rex::ui::IsTemporalUpscalerActive()) {
+  if (!REXCVAR_GET(disable_depth_of_field) && !rex::ui::IsTemporalUpscalerActive() &&
+      !pinyon_shift::vr::InStereo()) {
     return false;
   }
   r11.u64 = 0;
@@ -7746,6 +7750,11 @@ void PinyonShiftObserveSimulationDelta(PPCRegister& f31) {
   // The trainer's game speed (NP-8.1) scales the delta the title stores.
   if (const double scale = pinyon_shift::cheats::TimeScale(); scale != 1.0) {
     seconds *= scale;
+    f31.f64 = seconds;
+  }
+  // VR stereo's paired eyes (FB-12.15) see one moment of the game.
+  if (const double paired = pinyon_shift::vr::PairStep(seconds); paired != seconds) {
+    seconds = paired;
     f31.f64 = seconds;
   }
   g_simulation_step_ns.fetch_add(int64_t(std::llround(seconds * 1e9)), std::memory_order_release);
