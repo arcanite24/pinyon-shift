@@ -12,6 +12,10 @@ REXCVAR_DEFINE_DOUBLE(xr_fov_scale, 1.0, "Display",
                       "Quest 3; the headset shows whatever the game renders at its true size)")
     .range(0.5, 2.5)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
+                    "Hide the game's HUD in VR stereo: it is drawn at the same place for "
+                    "both eyes, so it floats at the wrong depth")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 namespace pinyon_shift::vr {
 
@@ -81,6 +85,12 @@ double TagFieldOfView(double fov_y) {
   std::lock_guard lock(l.mutex);
   if (!l.previous_active || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
   return rex::ui::vulkan::openxr::TagFov(fov_y * REXCVAR_GET(xr_fov_scale), l.previous_tag);
+}
+
+bool HidesHud() {
+  Latched& l = L();
+  std::lock_guard lock(l.mutex);
+  return l.active && REXCVAR_GET(xr_hide_hud);
 }
 
 }  // namespace pinyon_shift::vr
