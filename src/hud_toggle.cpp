@@ -6,6 +6,7 @@
 
 #include "fh1_guest_address.h"
 #include "pinyon_shift_diagnostics.h"
+#include "vr/vr_camera.h"
 
 // Not saved: a hidden HUD at the next start would look like a bug.
 REXCVAR_DEFINE_BOOL(hud_hidden, false, "Pinyon Shift",
@@ -40,7 +41,8 @@ void Toggle() {
 }
 
 void Update() {
-  const bool hidden = REXCVAR_GET(hud_hidden);
+  // VR stereo hides it as well (vr_camera.h).
+  const bool hidden = REXCVAR_GET(hud_hidden) || vr::HidesHud();
   if (hidden) {
     uint8_t* byte = HiddenByte();
     if (!g_applied) g_saved = *byte;

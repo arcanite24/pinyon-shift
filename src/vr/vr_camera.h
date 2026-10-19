@@ -27,4 +27,8 @@ head_tracking::Pose CameraOffset();
 // VR stereo runs; unchanged otherwise and for cube map cameras (90 degrees).
 double TagFieldOfView(double fov_y);
 
+// Whether the HUD is hidden for VR stereo (xr_hide_hud): drawn at the same
+// place for both eyes, it would float at the wrong depth.
+bool HidesHud();
+
 }  // namespace pinyon_shift::vr
