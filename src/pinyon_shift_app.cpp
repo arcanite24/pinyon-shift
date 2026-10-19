@@ -1259,6 +1259,9 @@ void PinyonShiftApp::OnPostSetup() {
     std::filesystem::create_directories(directory, error);
     rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
   });
+  rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
+                        "VR: make where your head is now the driver's seat",
+                        [] { rex::ui::vulkan::openxr::Recenter(); });
 #endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
                         "Your music: next track", [] { pinyon_shift::music::Next(); });
