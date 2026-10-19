@@ -50,6 +50,9 @@
 #include "pinyon_shift_diagnostics.h"
 #include "head_tracking/head_tracking.h"
 #include "vr/vr_camera.h"
+#if REX_HAS_VULKAN
+#include <rex/ui/vulkan/openxr.h>
+#endif
 #include "fh1_guest_address.h"
 #include "camera_tuning.h"
 #include "platform/host_platform.h"
@@ -194,6 +197,11 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_release_late_swaps, true, "Pinyon Shift",
                     "Show a frame that misses its vblank as soon as it is ready instead of at "
                     "the next guest vblank (4.17 ms later at the 120 limit); frames on time "
                     "keep their vblank alignment")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(xr_capture_request, 0, "Display",
+                     "Testing: save the next this many VR stereo frames, as the VR capture "
+                     "key does (logs/xr-capture-*); goes back to 0")
+    .range(0, 64)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(disable_motion_blur, true, "Pinyon Shift",
                     "Disable Forza Horizon motion blur");
@@ -6790,6 +6798,20 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   QueueCarTelemetry();
   pinyon_shift::head_tracking::Update();
   pinyon_shift::vr::Update();
+#if REX_HAS_VULKAN
+  // xr_capture_request: the VR capture key's capture, for scripted runs.
+  if (const int frames = REXCVAR_GET(xr_capture_request); frames > 0) {
+    rex::cvar::SetFlagByName("xr_capture_request", "0");
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+    const std::filesystem::path directory =
+        pinyon_shift::diagnostics::StateRoot() / "logs" /
+        ("xr-capture-" +
+         std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), frames);
+  }
+#endif
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_FRAME_TICK)) {
