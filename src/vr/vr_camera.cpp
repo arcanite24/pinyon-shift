@@ -41,6 +41,8 @@ struct Latched {
   uint32_t tag = 0;
   bool previous_active = false;
   uint32_t previous_tag = 0;
+  bool layers_applied = false;
+  bool previous_layers_applied = false;
   // The field of view getter serves every camera. The main camera is the
   // one whose output the presented frame's lens shows (PresentedFovY); its
   // input is remembered from the latest calls, and only it gets the
@@ -91,10 +93,19 @@ void Update() {
   std::lock_guard lock(l.mutex);
   l.previous_active = l.active;
   l.previous_tag = l.tag;
-  // Which recent call produced what the headset was last shown.
+  l.previous_layers_applied = l.layers_applied;
+  l.layers_applied = false;
+  // Which recent call produced what the headset was last shown, newest
+  // first. A frame already given the headset's field of view says nothing:
+  // every matched camera's output is the same, so the main camera is only
+  // learnt again from an unmatched one (after a camera change).
   const float presented = rex::ui::vulkan::openxr::PresentedFovY();
-  if (presented > 0.0f) {
-    for (const Latched::Call& call : l.calls) {
+  const double matched = rex::ui::vulkan::openxr::HeadsetFovY() * REXCVAR_GET(xr_fov_scale);
+  const bool was_matched = REXCVAR_GET(xr_fov_match) && l.main_input > 0.0 && matched > 0.0 &&
+                           std::abs(presented - matched) < 0.003;
+  if (presented > 0.0f && !was_matched) {
+    for (uint32_t i = 1; i <= std::size(l.calls); ++i) {
+      const Latched::Call& call = l.calls[(l.next_call - i) % std::size(l.calls)];
       if (call.output > 0.0f && std::abs(call.output - presented) < 2e-6f) {
         if (std::abs(call.input - l.main_input) > 1e-6) {
           REXLOG_INFO("VR: the main camera's field of view is {:.4f} rad (shown {:.4f})",
@@ -120,7 +131,9 @@ head_tracking::Pose CameraOffset() {
 double TagFieldOfView(double fov_y) {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  if (!l.previous_active || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
+  if (!l.previous_active || !l.previous_layers_applied || std::abs(fov_y - kCubeFov) < 0.01) {
+    return fov_y;
+  }
   double base = fov_y;
   const double headset = rex::ui::vulkan::openxr::HeadsetFovY();
   if (REXCVAR_GET(xr_fov_match) && headset > 0.0 && l.main_input > 0.0 &&
@@ -133,10 +146,16 @@ double TagFieldOfView(double fov_y) {
   return tagged;
 }
 
+void NoteLayersApplied() {
+  Latched& l = L();
+  std::lock_guard lock(l.mutex);
+  l.layers_applied = l.active;
+}
+
 bool HidesHud() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  return l.active && REXCVAR_GET(xr_hide_hud);
+  return l.active && l.previous_layers_applied && REXCVAR_GET(xr_hide_hud);
 }
 
 }  // namespace pinyon_shift::vr
