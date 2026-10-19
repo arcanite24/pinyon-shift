@@ -134,3 +134,24 @@ address mapping), write it down in the same change, before moving on:
   not to do, so the next investigation does not repeat it.
 - Write only our own analysis: no disassembly listings, decompiled code or
   game data (docs/LEGAL.md).
+
+## Forks and the SDK submodule
+
+The maintainer's fork is `jricks92/pinyon-shift` (remote `fork`), with
+`jricks92/shiftglue-sdk` as the matching fork of the SDK. `main` tracks
+`fork/main`; push feature branches to `fork`. Upstream (`origin`) is
+`arcanite24/pinyon-shift`.
+
+`.gitmodules` still points `thirdparty/shiftglue-sdk` at the upstream SDK, so
+on a feature branch whose SDK commits exist only on the fork,
+`git submodule update` fails. Recover inside `thirdparty/shiftglue-sdk`:
+
+```sh
+git remote add fork https://github.com/jricks92/shiftglue-sdk
+git fetch fork
+git checkout <the branch the superproject's commit expects>
+```
+
+Whenever a feature branch bumps the submodule, push the SDK branch to
+`fork` in the same step as the superproject branch, or the fork's commit
+points at an SDK commit nobody can fetch.
