@@ -374,6 +374,16 @@ how = """Frame capture."""
 confidence = """confirmed"""
 source = """docs/ANDROID_PORT_BACKLOG.md"""
 
+[[finding]]
+group = """Resolves"""
+name = """not the #444 overexposure cause (ruled out)"""
+what = """Ruled out for the morning overexposure at 2x: post effects (swap and present effects), MSAA (single sample), the GPU record thread, resolve-to-texture, EDRAM pass specialization, small copy views, texture band reloads. Guest CPU reads of resolved ranges (none), vertex fetches over scaled ranges (none), and unscaled textures over scaled ranges caught by the generic probe (none). For the macOS brightness pulse of the same texture, also ruled out by bisection (pulses per 600 drive frames, controls 3-7): hoisted uploads off 5, band reloads off 5, resolve-to-texture off 7, direct-resolve-outdated off 9, bounded image writes off 4, small copy views off 8, compute texture copy off 9, selective binding reset off 6, two-texture resolves off 5, a 30 fps cap 7, uncapped 7, fast shader math off 16."""
+how = """One cvar or probe at a time on the `i444` route (2x); an every-frame capture variant of `fh1-open-world-performance` on an Apple M1 for the pulse (2026-10-18). The pulse's CPU writer is at `lr 82FD6E18`, writing the guest page after the resolve (`fh1_trace_resolve_cpu_accesses`)."""
+confidence = """confirmed"""
+negative = true
+issue = """#444"""
+source = """docs/DEVELOPMENT.md guest-visible resolves"""
+
 # ---------------------------------------------------------------------------
 # Shadows
 # ---------------------------------------------------------------------------
@@ -920,3 +930,13 @@ what = """At night in free roam the game issues no viz queries (no `PM4_VIZ_QUER
 how = """Counters of viz query packets, probe draws, conditional draws and `REG_TO_MEM` registers over 600-frame windows, parked and driving at 23:00; guest CPU access traps on every resolved range (`fh1_trace_resolve_cpu_accesses`)."""
 confidence = """confirmed"""
 source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Shaders, textures and models"""
+base = """pixel shader ucode 90CAB86BE8159DA8"""
+name = """sun-flare composite shader"""
+what = """A free-roam pixel shader that reads two screen-space textures six times, raises the values through four power curves (`log` of the absolute value, scale, `exp`), combines them with adds and multiplies, normalizes by a `cndgt`-guarded reciprocal, takes three square roots and writes one colour through a final `max`: the sun glare or bloom composite behind foliage. Under `fh1_shader_float16` without the operand clamp its `exp2` results overflow the 16-bit range and the shader writes NaNs as white glints through the canopy; it is the only one of the route's 84 lowered pixel shaders that does."""
+how = """Bisecting `fh1_shader_float16_skip` on the fixed-clock `fh1-map` route (2026-10-17); ucode disassembly dumped with `dump_shaders`."""
+confidence = """probable"""
+note = """Confirmed for the overflow; the shader's purpose is probable from its instruction shape."""
+source = """docs/MACOS_RENDERER_OPTIMIZATION.md fp16 arithmetic"""
