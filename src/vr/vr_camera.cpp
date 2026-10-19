@@ -41,6 +41,10 @@ REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "both eyes, so it floats at the wrong depth")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DECLARE(bool, xr_enabled);
+REXCVAR_DECLARE(bool, xr_simulate);
+REXCVAR_DECLARE(bool, xr_stereo);
+
 namespace pinyon_shift::vr {
 
 namespace {
@@ -188,6 +192,10 @@ void NoteLayersApplied() {
   l.applied_tag = l.tag;
   l.applied_eye = l.eye;
   l.applied_tick = l.ticks;
+}
+
+bool StereoConfigured() {
+  return (REXCVAR_GET(xr_enabled) || REXCVAR_GET(xr_simulate)) && REXCVAR_GET(xr_stereo);
 }
 
 bool InStereo() {
