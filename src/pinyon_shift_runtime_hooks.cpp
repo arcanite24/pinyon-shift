@@ -8094,6 +8094,7 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
       pinyon_shift::diagnostics::RecordEvent("camera.head_tracking.layers", {});
     }
     // VR stereo adds this frame's eye (vr_camera.h).
+    pinyon_shift::vr::NoteLayersApplied();
     const float value = pinyon_shift::head_tracking::Current()[axis] +
                         pinyon_shift::vr::CameraOffset()[axis];
     StoreGuestF32(r1.u32 + 96u, value * kSigns[axis]);

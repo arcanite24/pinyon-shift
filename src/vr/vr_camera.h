@@ -23,6 +23,11 @@ void Update();
 // This frame's eye as a camera offset, zero while VR stereo is off.
 head_tracking::Pose CameraOffset();
 
+// The head tracking layers took the offset this frame. Only the cockpit and
+// hood cameras have them: other cameras' frames go untagged, and show on
+// the VR screen instead of in stereo.
+void NoteLayersApplied();
+
 // The vertical field of view with this frame's tag, and xr_fov_scale, while
 // VR stereo runs; unchanged otherwise and for cube map cameras (90 degrees).
 double TagFieldOfView(double fov_y);
