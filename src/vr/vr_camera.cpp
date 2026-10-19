@@ -11,6 +11,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ui/vulkan/openxr.h>
+#include <rex/ui/xr.h>
 
 REXCVAR_DEFINE_DOUBLE(xr_fov_scale, 1.0, "Display",
                       "In VR stereo, scale the game's field of view (1.6 roughly fills a "
@@ -35,6 +36,11 @@ REXCVAR_DEFINE_BOOL(xr_paired_steps, true, "Display",
                     "In VR stereo, show both eyes the same moment of the game: the step "
                     "rendered for the right eye takes almost no time and the next one makes "
                     "it up. Off, the world moves between the eyes' frames and shows false depth")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(xr_log_steps, 0, "Display",
+                     "Testing: log each simulation step's time in and out of the VR paired "
+                     "steps for this many steps from when it is set")
+    .range(0, 2000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
@@ -104,6 +110,8 @@ bool LayersCurrent(const Latched& l) {
 }
 
 }  // namespace
+
+static double PairStepImpl(double seconds);
 
 head_tracking::Pose PoseFromHeadset(const float position[3], const float orientation[4]) {
   const double x = orientation[0], y = orientation[1], z = orientation[2], w = orientation[3];
@@ -205,6 +213,20 @@ bool InStereo() {
 }
 
 double PairStep(double seconds) {
+  const double in = seconds;
+  const double out = PairStepImpl(seconds);
+  static int32_t last_setting = 0, remaining = 0;
+  const int32_t setting = REXCVAR_GET(xr_log_steps);
+  if (setting != last_setting) remaining = setting;
+  last_setting = setting;
+  if (remaining > 0) {
+    --remaining;
+    REXLOG_INFO("VR step: in {:.3f} ms, out {:.3f} ms", in * 1000.0, out * 1000.0);
+  }
+  return out;
+}
+
+static double PairStepImpl(double seconds) {
   // The title's own smallest step (it holds the delta to at least this).
   constexpr double kShortStep = 0.0001;
   // A long hitch is not replayed in one step.
@@ -217,14 +239,25 @@ double PairStep(double seconds) {
   // after it, so the right eye's step is the short one. (xr_simulate's pair
   // check, at a standstill: the camera moved 0.1 mm within pairs, against
   // 0.9 mm unpaired and 1.7 mm with the left eye's step shortened.)
-  if (REXCVAR_GET(xr_paired_steps) && LayersCurrent(l) && l.applied_eye == 1 &&
-      seconds > kShortStep) {
+  const bool paired = REXCVAR_GET(xr_paired_steps) && LayersCurrent(l);
+  if (paired && l.applied_eye == 1 && seconds > kShortStep) {
     l.banked = std::min(l.banked + seconds - kShortStep, kMaxBank);
     return kShortStep;
   }
-  seconds += l.banked;
+  const double elapsed = seconds + l.banked;
   l.banked = 0.0;
-  return seconds;
+  // The headset shows one pair per headset frame at an even rate, but the
+  // title's steps follow its millisecond clock and the frames' uneven
+  // timing (6 to 19 ms a step, 21 to 45 ms a pair at 90 fps on a Quest 3):
+  // the world jumped on the headset. A pair's step is a whole number of
+  // headset frames instead, and the rest of the time carries to the next.
+  const uint32_t headset_hz = rex::ui::xr::HeadsetFrameHz();
+  if (!paired || headset_hz == 0) return elapsed;
+  const double period = 1.0 / double(headset_hz);
+  const double frames = std::max(1.0, std::round(elapsed / period));
+  const double step = frames * period;
+  l.banked = std::clamp(elapsed - step, -period, kMaxBank);
+  return step;
 }
 
 float AspectScale() {
