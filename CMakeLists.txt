@@ -41,6 +41,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/hud_toggle.cpp
     src/auto_start.cpp
     src/head_tracking/head_tracking.cpp
+    src/vr/vr_camera.cpp
     src/guest_native/guest_native.cpp
     src/guest_native/crt_math.cpp
     src/guest_native/lzx_decoder.cpp
