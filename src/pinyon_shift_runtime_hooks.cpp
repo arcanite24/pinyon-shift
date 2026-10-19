@@ -712,10 +712,11 @@ static std::string PinyonShiftReadGuestAscii(uint32_t address,
 // depth of field smear what it accumulates, so both stay off while one runs
 // (UPSCALING_BACKLOG.md UP-1.6).
 // VR stereo's eyes take turns frame by frame, which the blur reads as camera
-// motion: both stay off while it runs too.
+// motion. The title reads this switch once, as it sets up post-processing
+// (sub_82D78810), so VR goes by its configuration, not the current frame.
 bool PinyonShiftDisableMotionBlur() {
   return REXCVAR_GET(disable_motion_blur) || rex::ui::IsTemporalUpscalerActive() ||
-         pinyon_shift::vr::InStereo();
+         pinyon_shift::vr::StereoConfigured();
 }
 
 // sub_82C7E0B0 borrows a decoded buffer and length for its memory stream.

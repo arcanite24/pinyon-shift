@@ -33,9 +33,15 @@ void NoteLayersApplied();
 double TagFieldOfView(double fov_y);
 
 // Whether this frame renders an eye in VR stereo: the cockpit and hood
-// cameras while the headset (or xr_simulate) runs. The game's motion blur and
-// depth of field stay off then, since the eyes' swap reads as camera motion.
+// cameras while the headset (or xr_simulate) runs. Depth of field stays off
+// then, since the eyes' swap reads as camera motion.
 bool InStereo();
+
+// Whether this run may render VR stereo (xr_enabled or xr_simulate, with
+// xr_stereo), known at start. The game reads its motion blur switch once,
+// when it sets up post-processing, so the blur goes by this instead of
+// InStereo: the right eye's short step made it a smear across the frame.
+bool StereoConfigured();
 
 // The simulation step (the title's delta, in seconds) for VR stereo's paired
 // eyes (xr_paired_steps): the step a right eye's frame is rendered from takes
