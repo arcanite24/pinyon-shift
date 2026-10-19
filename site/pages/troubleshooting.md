@@ -80,6 +80,10 @@ If the line never appears and the log ends after "Initializing shader storage", 
 
 Going fullscreen with the green button or <kbd>Ctrl</kbd>+<kbd>Cmd</kbd>+<kbd>F</kbd> showed black, and coming back showed a blue window, while the sound and the controller kept working. macOS animates the window into its fullscreen Space, and the game rebuilt its swapchain while the animation was still running, against a layer state the end of the transition replaces; the frames kept presenting and nothing reached the screen until something else rebuilt the connection (opening a menu that changed a display setting did). Fixed: the window now rebuilds the connection when SDL reports the transition finished. Apple's performance HUD grows when the window goes fullscreen on a Retina panel, since it scales with the layer's pixel size, and keeps that size when the window comes back. Apple exposes no setting for the size (only on, off and logging); pick a smaller size from the HUD's own menu-bar item.
 
+## The picture pulses brighter every second or so (macOS, builds before 2026-10-15)
+
+In free roam the whole image brightened by a few percent for two to four frames, every 0.3 to 1.5 seconds, with bloom on or off. The game's exposure read its scene-luminance texture from a stale copy for one frame, because on Apple silicon that 4 KB texture shares a 16 KB memory page with data the game writes every frame, and the page was refreshed whole. Fixed in ShiftGlue 6e3f434 (2026-10-15), which tracks that memory in 4 KB pages; the [lessons](lessons.md) page has the detail.
+
 ## The game runs on the wrong GPU
 
 On a PC with two GPUs, such as a laptop, the game asks for the high-performance one. To pick another with Vulkan, find the "Available Vulkan physical devices" list near the top of `.local/preview/logs/runtime.log` and add its number to `.local/preview/config/pinyon_shift.toml`, for example `vulkan_device = 1`. Direct3D 12 takes `d3d12_adapter`, numbered in Windows' adapter order. `-1` goes back to the automatic choice. Windows' **Settings → System → Display → Graphics** can also assign `pinyon_shift.exe` (not the launcher) to a GPU.
