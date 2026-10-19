@@ -2,15 +2,21 @@
 
 #include <atomic>
 #include <cmath>
+#include <iterator>
 #include <mutex>
 
 #include <rex/cvar.h>
+#include <rex/logging.h>
 #include <rex/ui/vulkan/openxr.h>
 
 REXCVAR_DEFINE_DOUBLE(xr_fov_scale, 1.0, "Display",
                       "In VR stereo, scale the game's field of view (1.6 roughly fills a "
                       "Quest 3; the headset shows whatever the game renders at its true size)")
     .range(0.5, 2.5)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(xr_fov_match, true, "Display",
+                    "In VR stereo, give the game's main camera the headset's vertical field of "
+                    "view (times xr_fov_scale), so the cockpit fills the headset")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
@@ -35,7 +41,24 @@ struct Latched {
   uint32_t tag = 0;
   bool previous_active = false;
   uint32_t previous_tag = 0;
+  // The field of view getter serves every camera. The main camera is the
+  // one whose output the presented frame's lens shows (PresentedFovY); its
+  // input is remembered from the latest calls, and only it gets the
+  // headset's field of view.
+  struct Call {
+    double input = 0.0;
+    float output = 0.0f;
+  };
+  // Several frames of calls: the presented frame is a few frames old, and
+  // every camera (shadows, reflections, mirrors) calls each frame.
+  Call calls[1024];
+  uint32_t next_call = 0;
+  double main_input = 0.0;
 };
+
+// How close a call's input must be to the main camera's to count as it:
+// mirrors and other views sit further away.
+constexpr double kMainTolerance = 0.01;
 
 Latched& L() {
   static Latched latched;
@@ -68,6 +91,20 @@ void Update() {
   std::lock_guard lock(l.mutex);
   l.previous_active = l.active;
   l.previous_tag = l.tag;
+  // Which recent call produced what the headset was last shown.
+  const float presented = rex::ui::vulkan::openxr::PresentedFovY();
+  if (presented > 0.0f) {
+    for (const Latched::Call& call : l.calls) {
+      if (call.output > 0.0f && std::abs(call.output - presented) < 2e-6f) {
+        if (std::abs(call.input - l.main_input) > 1e-6) {
+          REXLOG_INFO("VR: the main camera's field of view is {:.4f} rad (shown {:.4f})",
+                      call.input, presented);
+        }
+        l.main_input = call.input;
+        break;
+      }
+    }
+  }
   l.active = active;
   if (!active) return;
   l.pose = PoseFromHeadset(request.position, request.orientation);
@@ -84,7 +121,16 @@ double TagFieldOfView(double fov_y) {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   if (!l.previous_active || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
-  return rex::ui::vulkan::openxr::TagFov(fov_y * REXCVAR_GET(xr_fov_scale), l.previous_tag);
+  double base = fov_y;
+  const double headset = rex::ui::vulkan::openxr::HeadsetFovY();
+  if (REXCVAR_GET(xr_fov_match) && headset > 0.0 && l.main_input > 0.0 &&
+      std::abs(fov_y - l.main_input) < kMainTolerance) {
+    base = headset;
+  }
+  const double tagged =
+      rex::ui::vulkan::openxr::TagFov(base * REXCVAR_GET(xr_fov_scale), l.previous_tag);
+  l.calls[l.next_call++ % std::size(l.calls)] = {fov_y, float(tagged)};
+  return tagged;
 }
 
 bool HidesHud() {
