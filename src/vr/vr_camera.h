@@ -36,4 +36,11 @@ double TagFieldOfView(double fov_y);
 // place for both eyes, it would float at the wrong depth.
 bool HidesHud();
 
+// In VR stereo, the main view's aspect scale (the viewport aspect hook's) for
+// the headset eye's shape instead of 16:9, so no rendered pixel falls outside
+// the eye's view; 0 otherwise. The headset is told the true field of view, so
+// the picture is not distorted, and a taller render (draw_resolution_scale_y)
+// then sharpens it.
+float AspectScale();
+
 }  // namespace pinyon_shift::vr
