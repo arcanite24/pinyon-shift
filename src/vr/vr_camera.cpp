@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <iterator>
 #include <mutex>
+#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -24,6 +26,11 @@ REXCVAR_DEFINE_DOUBLE(xr_render_aspect, 0.0, "Display",
                       "the headset's eyes (about 1.2 on a Quest 3), 1.778 keeps 16:9")
     .range(0.0, 3.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(xr_simulate_hitch_ms, 0, "Display",
+                     "Testing: stall the game thread this long every 300 frames while VR "
+                     "stereo runs, to check the eyes survive a hitch")
+    .range(0, 1000)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
                     "both eyes, so it floats at the wrong depth")
@@ -36,19 +43,23 @@ namespace {
 constexpr double kDegrees = 57.29577951308232;
 constexpr double kCubeFov = 1.5707963267948966;
 
-// A frame's camera layers run before the frame tick that asks for the next
-// eye, and its field of view after it: the layers take the request the
-// previous tick made, so the field of view carries that request's tag
-// (xr_simulate's eye check showed every frame on the other eye otherwise).
+// The camera layers take the latest request, but the camera renders what its
+// layers were given one camera update earlier. So the layers record the tag
+// of each update's request, and the field of view takes the previous
+// update's: the camera and its tag come from one request however the ticks
+// fall. (xr_simulate's eye check found every frame on the other eye with
+// the latest update's tag, and with the tick's own.)
 struct Latched {
   std::mutex mutex;
   bool active = false;
   head_tracking::Pose pose{};
   uint32_t tag = 0;
-  bool previous_active = false;
-  uint32_t previous_tag = 0;
-  bool layers_applied = false;
-  bool previous_layers_applied = false;
+  uint64_t ticks = 0;
+  // The requests the layers applied in their last two updates, and at which
+  // ticks (an update's six layers share a tick).
+  bool applied = false;
+  uint32_t applied_tag = 0, previous_applied_tag = 0;
+  uint64_t applied_tick = 0, updates = 0;
   // The field of view getter serves every camera. The main camera is the
   // one whose output the presented frame's lens shows (PresentedFovY); its
   // input is remembered from the latest calls, and only it gets the
@@ -73,6 +84,12 @@ Latched& L() {
   return latched;
 }
 
+// The layers applied an eye in this frame (before its tick) or the last:
+// cockpit and hood cameras; other cameras' frames stay untagged.
+bool LayersCurrent(const Latched& l) {
+  return l.active && l.updates >= 2 && l.ticks - l.applied_tick <= 1;
+}
+
 }  // namespace
 
 head_tracking::Pose PoseFromHeadset(const float position[3], const float orientation[4]) {
@@ -93,14 +110,15 @@ head_tracking::Pose PoseFromHeadset(const float position[3], const float orienta
 }
 
 void Update() {
+  if (const int hitch = REXCVAR_GET(xr_simulate_hitch_ms); hitch > 0) {
+    static uint32_t frames = 0;
+    if (++frames % 300 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(hitch));
+  }
   rex::ui::vulkan::openxr::EyeRequest request;
   const bool active = rex::ui::vulkan::openxr::NextEye(request);
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  l.previous_active = l.active;
-  l.previous_tag = l.tag;
-  l.previous_layers_applied = l.layers_applied;
-  l.layers_applied = false;
+  ++l.ticks;
   // Which recent call produced what the headset was last shown, newest
   // first. A frame already given the headset's field of view says nothing:
   // every matched camera's output is the same, so the main camera is only
@@ -137,9 +155,7 @@ head_tracking::Pose CameraOffset() {
 double TagFieldOfView(double fov_y) {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  if (!l.previous_active || !l.previous_layers_applied || std::abs(fov_y - kCubeFov) < 0.01) {
-    return fov_y;
-  }
+  if (!LayersCurrent(l) || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
   double base = fov_y;
   const double headset = rex::ui::vulkan::openxr::HeadsetFovY();
   if (REXCVAR_GET(xr_fov_match) && headset > 0.0 && l.main_input > 0.0 &&
@@ -147,7 +163,7 @@ double TagFieldOfView(double fov_y) {
     base = headset;
   }
   const double tagged =
-      rex::ui::vulkan::openxr::TagFov(base * REXCVAR_GET(xr_fov_scale), l.previous_tag);
+      rex::ui::vulkan::openxr::TagFov(base * REXCVAR_GET(xr_fov_scale), l.previous_applied_tag);
   l.calls[l.next_call++ % std::size(l.calls)] = {fov_y, float(tagged)};
   return tagged;
 }
@@ -155,14 +171,19 @@ double TagFieldOfView(double fov_y) {
 void NoteLayersApplied() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  l.layers_applied = l.active;
+  if (!l.active || (l.applied && l.applied_tick == l.ticks)) return;
+  l.previous_applied_tag = l.applied_tag;
+  ++l.updates;
+  l.applied = true;
+  l.applied_tag = l.tag;
+  l.applied_tick = l.ticks;
 }
 
 float AspectScale() {
   {
     Latched& l = L();
     std::lock_guard lock(l.mutex);
-    if (!l.active || !l.previous_layers_applied) return 0.0f;
+    if (!l.active || !LayersCurrent(l)) return 0.0f;
   }
   double aspect = REXCVAR_GET(xr_render_aspect);
   if (aspect <= 0.0) {
@@ -178,7 +199,7 @@ float AspectScale() {
 bool HidesHud() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  return l.active && l.previous_layers_applied && REXCVAR_GET(xr_hide_hud);
+  return LayersCurrent(l) && REXCVAR_GET(xr_hide_hud);
 }
 
 }  // namespace pinyon_shift::vr
