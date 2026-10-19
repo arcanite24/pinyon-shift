@@ -32,6 +32,18 @@ void NoteLayersApplied();
 // VR stereo runs; unchanged otherwise and for cube map cameras (90 degrees).
 double TagFieldOfView(double fov_y);
 
+// Whether this frame renders an eye in VR stereo: the cockpit and hood
+// cameras while the headset (or xr_simulate) runs. The game's motion blur and
+// depth of field stay off then, since the eyes' swap reads as camera motion.
+bool InStereo();
+
+// The simulation step (the title's delta, in seconds) for VR stereo's paired
+// eyes (xr_paired_steps): the step a right eye's frame is rendered from takes
+// the title's smallest step, and the next one makes up the time, so each left
+// and right frame show the same moment of the game and the world's motion
+// does not read as depth. Unchanged outside stereo.
+double PairStep(double seconds);
+
 // Whether the HUD is hidden for VR stereo (xr_hide_hud): drawn at the same
 // place for both eyes, it would float at the wrong depth.
 bool HidesHud();
