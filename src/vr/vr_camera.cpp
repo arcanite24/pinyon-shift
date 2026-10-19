@@ -1,5 +1,6 @@
 #include "vr/vr_camera.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <iterator>
@@ -17,6 +18,11 @@ REXCVAR_DEFINE_DOUBLE(xr_fov_scale, 1.0, "Display",
 REXCVAR_DEFINE_BOOL(xr_fov_match, true, "Display",
                     "In VR stereo, give the game's main camera the headset's vertical field of "
                     "view (times xr_fov_scale), so the cockpit fills the headset")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_DOUBLE(xr_render_aspect, 0.0, "Display",
+                      "In VR stereo, the width / height the main view renders at: 0 follows "
+                      "the headset's eyes (about 1.2 on a Quest 3), 1.778 keeps 16:9")
+    .range(0.0, 3.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
@@ -150,6 +156,23 @@ void NoteLayersApplied() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   l.layers_applied = l.active;
+}
+
+float AspectScale() {
+  {
+    Latched& l = L();
+    std::lock_guard lock(l.mutex);
+    if (!l.active || !l.previous_layers_applied) return 0.0f;
+  }
+  double aspect = REXCVAR_GET(xr_render_aspect);
+  if (aspect <= 0.0) {
+    const double fov_x = rex::ui::vulkan::openxr::HeadsetFovX();
+    const double fov_y = rex::ui::vulkan::openxr::HeadsetFovY();
+    if (!(fov_x > 0.0 && fov_y > 0.0)) return 0.0f;
+    aspect = std::tan(fov_x * 0.5) / std::tan(fov_y * 0.5);
+  }
+  // The game's main view is 16:9; the hook scales its width / height.
+  return float(std::clamp(aspect / (16.0 / 9.0), 0.3, 1.5));
 }
 
 bool HidesHud() {

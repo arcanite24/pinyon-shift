@@ -9,6 +9,7 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -38,6 +39,7 @@
 #include <rex/ui/overlay/debug_overlay.h>
 #include <rex/ui/presenter.h>
 #if REX_HAS_VULKAN
+#include <rex/ui/vulkan/openxr.h>
 #include <rex/ui/vulkan/provider.h>
 #endif
 #include <rex/ui/windowed_app_context.h>
@@ -1271,6 +1273,18 @@ void PinyonShiftApp::OnPostSetup() {
   });
   rex::ui::RegisterBind("bind_hud", pinyon_shift::config::kHudKeys,
                         "Hide or show the HUD (for screenshots)", [] { pinyon_shift::hud::Toggle(); });
+#if REX_HAS_VULKAN
+  rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
+                        "VR: save what the next 8 frames sent to each eye, for checking", [] {
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+    const std::filesystem::path directory =
+        pinyon_shift::diagnostics::StateRoot() / "logs" /
+        ("xr-capture-" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
+  });
+#endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
                         "Your music: next track", [] { pinyon_shift::music::Next(); });
   rex::ui::RegisterBind("bind_music_previous", pinyon_shift::config::kMusicPreviousKeys,

@@ -8123,7 +8123,9 @@ void PinyonShiftViewportAspect(PPCContext& context, [[maybe_unused]] uint8_t* ba
   constexpr uint32_t kMapProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x826E30A8u : 0x8263AE18u;
   // The gameplay camera's view (sub_829A4860, v4 sub_82A58DA0).
   constexpr uint32_t kGameProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x82A58E34u : 0x829A48F4u;
-  const float scale = g_viewport_aspect_scale.load(std::memory_order_relaxed);
+  // VR stereo renders the headset eye's shape instead (vr_camera.h).
+  const float vr_scale = pinyon_shift::vr::AspectScale();
+  const float scale = vr_scale > 0.0f ? vr_scale : g_viewport_aspect_scale.load(std::memory_order_relaxed);
   if (uint32_t(context.lr) == kGameProjectionReturn) {
     g_game_view_frame.store(g_title_frames.load(std::memory_order_relaxed), std::memory_order_relaxed);
   }
