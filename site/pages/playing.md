@@ -143,6 +143,17 @@ Pinyon Shift applies the pose one to one: yaw, pitch and roll in degrees, and mo
 
 If OpenTrack stops sending, the view holds for a second, then eases back to centre. It works through the built-in immersive camera mod, so on the base game only (the v4 title update reads its own camera file). It was checked with fixed poses on the cockpit camera, not yet with a tracker.
 
+### VR headsets
+
+Experimental, and Vulkan only. With `xr_enabled`, the game shows in a VR headset through the PC's OpenXR runtime: Virtual Desktop, SteamVR or Meta Link, whichever is active. Start the headset's PC link first, then the game with `--xr_enabled=true`.
+
+- **In the cockpit and hood cameras** the game is in 3D. The eyes take turns: one frame is rendered for the left eye, the next for the right, each with the camera moved to that eye, and each eye keeps its latest frame (alternate-eye rendering). So each eye sees half the game's frame rate, and moving scenery is a frame apart between the eyes. Your head turns and moves the view through the head tracking layers, and the HUD is hidden, since it is drawn at the same place for both eyes. The field of view is the headset's (`xr_fov_match`; `xr_fov_scale` widens or narrows it).
+- **Other cameras and the menus** show on a large screen in front of you (`xr_screen_distance`, `xr_screen_width`). `xr_stereo=false` keeps the screen everywhere.
+
+The headset gets the game's own frames at their render size, so a high frame rate matters more than resolution: a lower draw resolution scale helps. Recentre with the headset's own recentre. Like head tracking, the 3D view needs the built-in immersive camera mod, so it is base game only.
+
+Each frame carries a tag in its field of view (a change of at most 0.001 radians) that tells the presenter which eye and head pose it was rendered for, so the eyes cannot swap. `xr_simulate` runs that bookkeeping without a headset and logs whether every frame reached the eye its camera was moved to.
+
 ### DualSense
 
 A Sony DualSense or DualSense Edge is driven directly through SDL's PlayStation 5 driver, so it can do things the Xbox 360 game never asked for. **F6 > CONTROLS > DUALSENSE** appears once a PlayStation controller is connected. Everything there is off until you turn it on, and applies at once:
