@@ -220,6 +220,9 @@ public sealed class BindingSet
     public int FfbDamper { get; set; } = 100;
     public int FfbFriction { get; set; } = 100;
     public int FfbInertia { get; set; } = 100;
+    /// <summary>Shares of the game's rumble per motor: FH1's right motor is the engine, the left the road.</summary>
+    public int FfbRumbleEngine { get; set; } = 100;
+    public int FfbRumbleRoad { get; set; } = 100;
     /// <summary>FH1's effect values are bytes (its spring sent coefficient 63, saturation 127).</summary>
     public int FfbMagnitudeMax { get; set; } = 127;
     public bool Wheel900 { get; set; } = true;
@@ -328,6 +331,8 @@ public sealed class BindingSet
         FfbDamper = Math.Clamp(Int("wheel_ffb_damper", 100), 0, 200);
         FfbFriction = Math.Clamp(Int("wheel_ffb_friction", 100), 0, 200);
         FfbInertia = Math.Clamp(Int("wheel_ffb_inertia", 100), 0, 200);
+        FfbRumbleEngine = Math.Clamp(Int("wheel_ffb_rumble_engine", 100), 0, 100);
+        FfbRumbleRoad = Math.Clamp(Int("wheel_ffb_rumble_road", 100), 0, 100);
         FfbMagnitudeMax = Math.Clamp(Int("wheel_ffb_magnitude_max", 127), 1, 1000000);
         Wheel900 = Bool("wheel_900_degree", true);
         SteeringScale = Math.Clamp(Int("wheel_steering_scale", 100), 10, 1000);
@@ -498,6 +503,8 @@ public sealed class BindingSet
             ("wheel_ffb_damper", FfbDamper.ToString(CultureInfo.InvariantCulture)),
             ("wheel_ffb_friction", FfbFriction.ToString(CultureInfo.InvariantCulture)),
             ("wheel_ffb_inertia", FfbInertia.ToString(CultureInfo.InvariantCulture)),
+            ("wheel_ffb_rumble_engine", FfbRumbleEngine.ToString(CultureInfo.InvariantCulture)),
+            ("wheel_ffb_rumble_road", FfbRumbleRoad.ToString(CultureInfo.InvariantCulture)),
             ("wheel_ffb_magnitude_max", FfbMagnitudeMax.ToString(CultureInfo.InvariantCulture)),
             ("wheel_900_degree", Wheel900 ? "true" : "false"),
             ("wheel_steering_scale", SteeringScale.ToString(CultureInfo.InvariantCulture)),

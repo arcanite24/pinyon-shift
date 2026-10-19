@@ -647,6 +647,8 @@ public partial class WheelSetupView : UserControl
         DamperSlider.Value = set.FfbDamper;
         FrictionSlider.Value = set.FfbFriction;
         InertiaSlider.Value = set.FfbInertia;
+        RumbleEngineSlider.Value = set.FfbRumbleEngine;
+        RumbleRoadSlider.Value = set.FfbRumbleRoad;
         Wheel900Box.IsChecked = set.Wheel900;
         FfbInvertBox.IsChecked = set.FfbInvert;
         FfbTraceBox.IsChecked = set.FfbTrace;
@@ -672,6 +674,8 @@ public partial class WheelSetupView : UserControl
         set.FfbDamper = (int)DamperSlider.Value;
         set.FfbFriction = (int)FrictionSlider.Value;
         set.FfbInertia = (int)InertiaSlider.Value;
+        set.FfbRumbleEngine = (int)RumbleEngineSlider.Value;
+        set.FfbRumbleRoad = (int)RumbleRoadSlider.Value;
         set.Wheel900 = Wheel900Box.IsChecked == true;
         set.FfbInvert = FfbInvertBox.IsChecked == true;
         set.FfbTrace = FfbTraceBox.IsChecked == true;
@@ -823,6 +827,8 @@ public partial class WheelSetupView : UserControl
         DamperValue.Text = $"{(int)DamperSlider.Value} %";
         FrictionValue.Text = $"{(int)FrictionSlider.Value} %";
         InertiaValue.Text = $"{(int)InertiaSlider.Value} %";
+        RumbleEngineValue.Text = $"{(int)RumbleEngineSlider.Value} %";
+        RumbleRoadValue.Text = $"{(int)RumbleRoadSlider.Value} %";
         ScaleValue.Text = $"{(int)ScaleSlider.Value} %";
         SteerDeadzoneValue.Text = $"{(int)SteerDeadzoneSlider.Value} %";
         foreach (var (slider, text) in new[] {
