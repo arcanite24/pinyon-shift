@@ -297,7 +297,10 @@ public sealed class DeviceManager : IDisposable
             Log.Write($"  haptic features 0x{features:X}");
             if ((features & Sdl.HapticConstant) == 0)
                 return $"\"{device.Name}\" has no constant force; the game would only rumble it.";
-            short left = (short)(reverse ? 4900 : -4900);  // 15 %
+            // SDL's (and DirectInput's) constant force names the side it comes from, so a
+            // positive level pulls left. The game's forces go out in that convention too,
+            // so Test and play agree and Reverse flips both. A T248 pulled right on -4900.
+            short left = (short)(reverse ? -4900 : 4900);  // 15 %
             foreach (short level in new short[] { left, (short)-left })
             {
                 int effect = Sdl.SDL_CreateHapticEffect(haptic, Sdl.ConstantForce(level, 500));
