@@ -280,6 +280,16 @@ cells = [
 ]
 
 [[platform]]
+feature = "VR headsets"
+link = "playing.md#vr-headsets"
+cells = [
+  "partly: experimental, OpenXR on Vulkan; the cockpit in alternate-eye 3D, other views on a screen; base game only",
+  "not yet",
+  "not yet",
+  "n/a",
+]
+
+[[platform]]
 feature = "Save backups and photos"
 link = "playing.md#saves"
 cells = ["yes", "yes", "yes", "yes"]
