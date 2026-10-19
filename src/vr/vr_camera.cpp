@@ -31,6 +31,11 @@ REXCVAR_DEFINE_INT32(xr_simulate_hitch_ms, 0, "Display",
                      "stereo runs, to check the eyes survive a hitch")
     .range(0, 1000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(xr_paired_steps, true, "Display",
+                    "In VR stereo, show both eyes the same moment of the game: the step "
+                    "rendered for the right eye takes almost no time and the next one makes "
+                    "it up. Off, the world moves between the eyes' frames and shows false depth")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
                     "both eyes, so it floats at the wrong depth")
@@ -54,12 +59,16 @@ struct Latched {
   bool active = false;
   head_tracking::Pose pose{};
   uint32_t tag = 0;
+  int eye = 0;
   uint64_t ticks = 0;
   // The requests the layers applied in their last two updates, and at which
   // ticks (an update's six layers share a tick).
   bool applied = false;
   uint32_t applied_tag = 0, previous_applied_tag = 0;
+  int applied_eye = 0;
   uint64_t applied_tick = 0, updates = 0;
+  // PairStep: game time the shortened steps left out, for the next step.
+  double banked = 0.0;
   // The field of view getter serves every camera. The main camera is the
   // one whose output the presented frame's lens shows (PresentedFovY); its
   // input is remembered from the latest calls, and only it gets the
@@ -144,6 +153,7 @@ void Update() {
   if (!active) return;
   l.pose = PoseFromHeadset(request.position, request.orientation);
   l.tag = request.tag;
+  l.eye = request.eye;
 }
 
 head_tracking::Pose CameraOffset() {
@@ -176,7 +186,37 @@ void NoteLayersApplied() {
   ++l.updates;
   l.applied = true;
   l.applied_tag = l.tag;
+  l.applied_eye = l.eye;
   l.applied_tick = l.ticks;
+}
+
+bool InStereo() {
+  Latched& l = L();
+  std::lock_guard lock(l.mutex);
+  return LayersCurrent(l);
+}
+
+double PairStep(double seconds) {
+  // The title's own smallest step (it holds the delta to at least this).
+  constexpr double kShortStep = 0.0001;
+  // A long hitch is not replayed in one step.
+  constexpr double kMaxBank = 0.1;
+  Latched& l = L();
+  std::lock_guard lock(l.mutex);
+  // The step's frame shows the request the layers took in the last update
+  // (this step's camera update makes it the previous one, TagFieldOfView),
+  // and the world this step leaves. A pair is a left frame and the right one
+  // after it, so the right eye's step is the short one. (xr_simulate's pair
+  // check, at a standstill: the camera moved 0.1 mm within pairs, against
+  // 0.9 mm unpaired and 1.7 mm with the left eye's step shortened.)
+  if (REXCVAR_GET(xr_paired_steps) && LayersCurrent(l) && l.applied_eye == 1 &&
+      seconds > kShortStep) {
+    l.banked = std::min(l.banked + seconds - kShortStep, kMaxBank);
+    return kShortStep;
+  }
+  seconds += l.banked;
+  l.banked = 0.0;
+  return seconds;
 }
 
 float AspectScale() {
