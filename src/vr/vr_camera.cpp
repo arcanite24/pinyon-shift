@@ -76,6 +76,10 @@ struct Latched {
   bool applied = false;
   uint32_t applied_tag = 0, previous_applied_tag = 0;
   int applied_eye = 0;
+  // The poses the layers took in the last update and the one before: the
+  // rotation layers take effect an update sooner than the position layers,
+  // so they get the earlier pose (CameraOffset).
+  head_tracking::Pose applied_pose{}, previous_applied_pose{};
   uint64_t applied_tick = 0, updates = 0;
   // PairStep: game time the shortened steps left out, for the next step.
   double banked = 0.0;
@@ -171,7 +175,18 @@ void Update() {
 head_tracking::Pose CameraOffset() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  return l.active ? l.pose : head_tracking::Pose{};
+  if (!l.active) return {};
+  // A frame shows its position layers' previous update and its rotation
+  // layers' latest one: with a simulated head turning +-20 degrees, the
+  // rendered rotation followed the next frame's request (0.04 degrees rms)
+  // and not its own (0.55 rms, 3.4 at most), so the headset corrected every
+  // frame by the wrong turn and the view shook. The rotation layers take the
+  // pose of the update before, so both come from the frame's request.
+  head_tracking::Pose pose = l.pose;
+  for (const auto axis : {head_tracking::kYaw, head_tracking::kPitch, head_tracking::kRoll}) {
+    pose[axis] = l.previous_applied_pose[axis];
+  }
+  return pose;
 }
 
 double TagFieldOfView(double fov_y) {
@@ -199,6 +214,8 @@ void NoteLayersApplied() {
   l.applied = true;
   l.applied_tag = l.tag;
   l.applied_eye = l.eye;
+  l.previous_applied_pose = l.applied_pose;
+  l.applied_pose = l.pose;
   l.applied_tick = l.ticks;
 }
 
