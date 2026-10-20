@@ -198,6 +198,15 @@ source = """docs/UPSCALING_BACKLOG.md UP-1.3"""
 
 [[finding]]
 group = """Frame structure and views"""
+base = """vertex c0-c3, c47, c60-c127, c128-c131, c158, c162, c208-c211, c213, c241-c245; pixel c24, c59, c158, c162, c168"""
+name = """camera-dependent constants between the eyes"""
+what = """Between the two frames of a VR stereo pair (the camera moved 6.4 cm sideways, the world 0.1 ms apart), the float constants that differ are almost all functions of that one offset. The scene's `c128`-`c131` in 1,846 of 1,863 draws change by a single clip-space matrix (x' = x + 0.455 (w - z), with the field of view tag's 0.1 % scale), as do the cars' `c0`-`c3`, the blocks at `c208`-`c211` and `c241`-`c245`, and the skinning matrices of the driver's arms at `c60`-`c127`. Camera positions move by one world offset (6.44 cm along the car's right) in vertex `c47` and `c158` and pixel `c24`, `c59`, `c158` and `c168` (the last negated: a vector to the camera), in about 900 draws; vertex `c162` and `c213` and pixel `c162` change only in w, as a plane's distance from the camera would. About two dozen draws a frame change in other ways (vertex `c140`-`c142` and `c148`, pixel `c6` and `c115`-`c125`: differences up to about 100 and of 4.7 and 0.5, likely screen-space effects computed on the CPU). Time-driven constants (vertex `c214`, `c215`, `c241`, `c242`, pixel `c196`, `c197`, `c221`, `c251`) change from one pair to the next but not between its eyes. Replaying one frame's commands for both eyes with transformed camera constants therefore looks possible apart from those few effects."""
+how = """Four consecutive stereo frames recorded in one run (`fh1_frame_dump_count`), parked in free roam with the simulated head still, replayed with every draw's used float constants logged (`fh1_debug_draw_constants_path`); draws of a left and a right frame lined up by shader pair (3,355 of 3,356 matched), each changed register tested as part of an invertible 4-register block whose transform, B times A inverse or A inverse times B, is shared by at least 8 draws, or as a vector whose change is the same across draws; frames of the same eye a pair apart as the control."""
+confidence = """probable"""
+source = """docs/FEATURE_BACKLOG.md FB-12.15"""
+
+[[finding]]
+group = """Frame structure and views"""
 name = """scene turned 180 degrees with reversed depth"""
 what = """The main scene is drawn turned 180 degrees: its clip x and y are the screen's negated, so a screen pixel's scene depth is at the opposite pixel of the 1280x720 surface, and a later pass turns the picture back. Its stored depth is reversed (1 near, 0 at the far plane), but the matrix's clip z is the usual D3D depth; the reversal is 1 minus it, so it comes from the depth range, not the projection. The scene depth is the 1280-pitch `D24FS8` area at EDRAM base `0x400`, one 256-row band per predicated tile."""
 how = """Copying each tile's depth band at its resolve and comparing it with the frame: it matches only turned 180 degrees. Motion vectors from the matrices are right only with the clip x and y negated and z = 1 - stored depth."""
