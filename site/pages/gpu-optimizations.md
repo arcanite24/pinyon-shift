@@ -202,6 +202,7 @@ pipeline waiting to address the remaining restart-dependent sky tint.
 | Change | Measured |
 | --- | --- |
 | Above 1x, the game's 4x MSAA surfaces had 36 host samples per guest pixel at 3x; one sample per pixel | 3x race 29.1 to 22.3 ms; transfers 10.3 to 4.4 ms |
+| The 640x360 4x views of the 1280x720 1x surfaces stored in the 1x images, their draws at twice the scale (`fh1_share_msaa_aliases`); four to seven 4x/1x depth transfers a frame gone | RTX 3090, free roam in VR stereo: 2x with 4x MSAA 8.34 to 6.51 ms, transfers 2.93 to 1.07 ms; 3x without MSAA 12.55 to 9.57 ms; replayed frame bit-identical |
 | MSAA off at any scale, the desktop default | 8 Elite race 25 to 17 ms; RTX 4080 only 0.2–0.35 ms, but surfaces 501 to 265 MB |
 | Two host samples for the game's 4x | Odin GPU 18.69 (4x), 16.19 (2x), 15.19 ms (off); 2x now holds 60 and is the SMOOTH 60 preset |
 | Surfaces allocated for the rows they use, not the whole EDRAM period (`fh1_surface_rows_on_demand`) | RTX 4080, 3x race: 34 surfaces 2,388 to 635 MB, device memory 4,479 to 2,747 MB; two surfaces grew during the route; captures unchanged |
