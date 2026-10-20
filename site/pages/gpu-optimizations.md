@@ -100,6 +100,7 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
+| A clear draw that overwrites color as well as depth claims the color targets' tiles without transfers (`fh1_color_overwrite_claims`) | Desktop 3x, 2x MSAA, VR stereo | transfer tile passes −80 % (13,531 to 2,667 and 14,947 to 2,867 in two replayed frames, images bit-identical at 1x and 3x, 2x and 4x MSAA); in-run A/B on a drive, two runs: −1.45 and −1.05 ms a frame (about 9.4-10.1 to 8.1-9.1 ms) |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
 

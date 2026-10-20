@@ -277,6 +277,14 @@ confidence = """confirmed"""
 note = """The CPU routine that emits these packets was not identified. The shader key is our translator's hash."""
 source = """docs/native-renderer/archive/OWNED_DEPTH_CHAIN_CONTRACT.md Boundary and identity; docs/native-renderer/SHADER_PACK_FORMAT.md Runtime gate"""
 
+[[finding]]
+group = """Render targets and EDRAM"""
+name = """color, depth and stencil rectangle clear"""
+what = """Besides the depth-only clear, the game clears color, depth and stencil together with one draw: a single rectangle (a three-vertex rectangle list) with depth test ALWAYS and depth write on, stencil ALWAYS with REPLACE, every channel of every bound color target written (`RB_COLOR_MASK` 0xFFFF) and no blending (`RB_BLENDCONTROL0` 0x00010001, ONE and ZERO). It runs where a target takes over EDRAM tiles another surface held, in the scene, post and shadow-mask passes, so the earlier contents of those tiles are never read. Six of the ten costliest EDRAM transfers in a free-roam frame end in such a clear."""
+how = """A per-transfer trace of the claiming draw's registers (`fh1_debug_trace_transfers`) and replays of two recorded free-roam frames with each transfer skipped (`fh1_debug_skip_transfers`): the skipped ones left the image bit-identical."""
+confidence = """confirmed"""
+source = """thirdparty/shiftglue-sdk/src/graphics/vulkan/fh1_native_executor.cpp fh1_color_overwrite_claims; site/pages/gpu-optimizations.md Renderings and clears"""
+
 # ---------------------------------------------------------------------------
 # Resolves
 # ---------------------------------------------------------------------------
