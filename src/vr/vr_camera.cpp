@@ -42,7 +42,7 @@ REXCVAR_DEFINE_INT32(xr_log_steps, 0, "Display",
                      "steps for this many steps from when it is set")
     .range(0, 2000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_INT32(xr_rotation_delay, 1, "Display",
+REXCVAR_DEFINE_INT32(xr_rotation_delay, 2, "Display",
                      "Testing: how many camera updates late the VR eye's rotation goes to the "
                      "rotation layers (0 the latest request)")
     .range(0, 3)
@@ -81,9 +81,8 @@ struct Latched {
   bool applied = false;
   uint32_t applied_tag = 0, previous_applied_tag = 0;
   int applied_eye = 0;
-  // The poses the layers took in the last update and the one before: the
-  // rotation layers take effect an update sooner than the position layers,
-  // so they get the earlier pose (CameraOffset).
+  // The poses the layers took in their last four updates: the rotation
+  // layers get an earlier one than the position layers (CameraOffset).
   head_tracking::Pose applied_pose{}, previous_applied_pose{}, older_applied_pose{},
       oldest_applied_pose{};
   uint64_t applied_tick = 0, updates = 0;
@@ -182,12 +181,16 @@ head_tracking::Pose CameraOffset() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   if (!l.active) return {};
-  // A frame shows its position layers' previous update and its rotation
-  // layers' latest one: with a simulated head turning +-20 degrees, the
-  // rendered rotation followed the next frame's request (0.04 degrees rms)
-  // and not its own (0.55 rms, 3.4 at most), so the headset corrected every
-  // frame by the wrong turn and the view shook. The rotation layers take the
-  // pose of the update before, so both come from the frame's request.
+  // A frame's image shows its rotation layers' factors from two updates
+  // after its own request: with a simulated head turning, the rotation layers
+  // given the latest request or the update before's drew the eye drawn
+  // second with the next pair's turn (the scenery, dashboard and pillar
+  // matched the next request to 1 px rms and its own to 15-20 px), and the
+  // headset corrected it by the wrong turn, so that eye shook while the
+  // other held still. Given the pose of two updates before, both eyes'
+  // images match their own request (1 px rms). The rendered heading read
+  // from the world's matrices is an update off from the image, so it is
+  // not used to time this.
   head_tracking::Pose pose = l.pose;
   const head_tracking::Pose* const sources[] = {&l.pose, &l.previous_applied_pose,
                                                 &l.older_applied_pose, &l.oldest_applied_pose};
