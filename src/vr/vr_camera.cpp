@@ -257,7 +257,7 @@ static double PairStepImpl(double seconds) {
   // check, at a standstill: the camera moved 0.1 mm within pairs, against
   // 0.9 mm unpaired and 1.7 mm with the left eye's step shortened.)
   const bool paired = REXCVAR_GET(xr_paired_steps) && LayersCurrent(l);
-  if (paired && l.applied_eye == 1 && seconds > kShortStep) {
+  if (paired && l.applied_eye != rex::ui::vulkan::openxr::FirstEye() && seconds > kShortStep) {
     l.banked = std::min(l.banked + seconds - kShortStep, kMaxBank);
     return kShortStep;
   }
