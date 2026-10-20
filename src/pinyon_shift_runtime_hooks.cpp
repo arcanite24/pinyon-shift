@@ -184,6 +184,12 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_step_backpressure_max_hold_ms, 50.0, "Pinyon 
                       "render thread before it runs anyway (ms)")
     .range(5.0, 250.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_step_count_drawn, true, "Pinyon Shift",
+                    "With pinyon_shift_step_backpressure, count the simulation's lead from the "
+                    "step the title's render thread last drew instead of its swaps, so the "
+                    "simulation computes the next step while the render thread draws one "
+                    "instead of the two taking turns (base game)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_step_pacing_log, false, "Pinyon Shift",
                     "Log each second how many simulation steps ran between the title's "
                     "frames and how far their game time strays from wall time (#381)")
@@ -7549,8 +7555,10 @@ std::atomic<uint64_t> g_simulation_steps{0};
 std::atomic<int64_t> g_simulation_step_ns{0};
 std::atomic<uint64_t> g_title_swaps{0};
 // The step gate holds a raise of the step event (the vblank thread sets it,
-// the render thread's swap or the next vblank clears it).
+// the render thread's swap or idle wait, or the next vblank clears it).
 std::atomic<bool> g_step_raise_held{false};
+// Held raises the render thread's idle wait released (PinyonShiftNoteRenderIdle).
+std::atomic<uint64_t> g_step_idle_raises{0};
 // Steps minus swaps when they last lined up (the vblank thread and the swap,
 // under g_step_gate_mutex).
 std::mutex g_step_gate_mutex;
@@ -7563,6 +7571,56 @@ constexpr uint32_t kStepVblankCount = FH1_ADDR(0x832E126Cu);
 int64_t StepLead() {
   return int64_t(g_simulation_steps.load(std::memory_order_acquire)) -
          int64_t(g_title_swaps.load(std::memory_order_acquire)) - g_step_gate_base;
+}
+
+// The render thread's frame object (sub_8259F3E8's r31: +2380 holds the index
+// of the step it last drew), and the title's step index minus our step count
+// (the index of the newest step started, r22 there, against
+// g_simulation_steps), both from its idle wait (PinyonShiftNoteRenderIdle).
+std::atomic<uint32_t> g_render_frame_object{0};
+std::atomic<int64_t> g_step_index_offset{0};
+int64_t g_step_index_offset_candidate = INT64_MIN;  // Render thread only.
+
+// Steps started past the one the render thread last drew. Counting swaps
+// instead drifts: the frame drawing a step swaps before it stores the step's
+// index, and a frame that skips a step still swaps once, and in free roam in VR
+// stereo the swap count stayed a step high, so the gate held each next step
+// until the swap of the frame before it and the threads took turns. False
+// until the render thread has waited once (and on v4, whose frame function is
+// not mapped).
+//
+// Only while the render thread is drawing steps: in loading and paused screens
+// its frame function draws none, so its index stands still while the
+// simulation steps (the lead climbed to 9 and every step waited out the
+// hold limit). An index that has not moved for 100 ms falls back to swaps.
+bool DrawnLead(int64_t& lead) {
+  const uint32_t object = g_render_frame_object.load(std::memory_order_acquire);
+  if (!object || !REXCVAR_GET(pinyon_shift_step_count_drawn) || rex::session_probe::Enabled()) {
+    return false;
+  }
+  // Read from the vblank, render and (tracing) simulation threads.
+  static std::mutex moved_mutex;
+  static uint32_t last_index = 0;
+  static std::chrono::steady_clock::time_point moved{};
+  const uint32_t index = LoadGuestU32(object + 2380);
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard moved_lock(moved_mutex);
+    if (index != last_index) {
+      last_index = index;
+      moved = now;
+    }
+    if (now - moved > std::chrono::milliseconds(100)) return false;
+  }
+  const int64_t drawn = int64_t(index) - g_step_index_offset.load(std::memory_order_acquire);
+  lead = int64_t(g_simulation_steps.load(std::memory_order_acquire)) - drawn;
+  return true;
+}
+
+// The gate's lead: against the step drawn where known, else against swaps.
+int64_t GateLead() {
+  int64_t lead;
+  return DrawnLead(lead) ? lead : StepLead();
 }
 
 // Raises the title's step event as its vblank callback does: restart the
@@ -7580,6 +7638,44 @@ void RaiseStepEvent() {
 }
 }  // namespace
 
+// The render thread's frame function waits: the newest step started (r22) is
+// no newer than the one it drew, or still being computed. It has just stored
+// the step it drew, so the gate's lead is current here: a raise held while
+// the simulation is less than two steps past that step (the trace showed it
+// held with only the awaited step in progress) is released.
+void PinyonShiftNoteRenderIdle(uint32_t frame_object, uint32_t newest_step) {
+  if (!REXCVAR_GET(pinyon_shift_step_backpressure) ||
+      !REXCVAR_GET(pinyon_shift_step_count_drawn) || rex::session_probe::Enabled()) {
+    return;
+  }
+  // The newest step's index against our count. A step starting between the
+  // two reads would put it one low, so a change is only taken when seen twice.
+  const int64_t offset =
+      int64_t(newest_step) - int64_t(g_simulation_steps.load(std::memory_order_acquire));
+  if (offset != g_step_index_offset.load(std::memory_order_relaxed)) {
+    if (offset != g_step_index_offset_candidate) {
+      g_step_index_offset_candidate = offset;
+      return;
+    }
+    g_step_index_offset.store(offset, std::memory_order_release);
+  }
+  g_render_frame_object.store(frame_object, std::memory_order_release);
+  if (!g_step_raise_held.load(std::memory_order_acquire)) return;
+  bool raise = false;
+  {
+    std::lock_guard lock(g_step_gate_mutex);
+    if (g_step_raise_held.load(std::memory_order_relaxed) && GateLead() < 2) {
+      g_step_raise_held.store(false, std::memory_order_release);
+      raise = true;
+    }
+  }
+  // Raise after unlocking, as PinyonShiftNoteTitleSwap does.
+  if (raise) {
+    g_step_idle_raises.fetch_add(1, std::memory_order_relaxed);
+    RaiseStepEvent();
+  }
+}
+
 // Pacing diagnostic (pinyon_shift_step_pacing_log): how many steps started
 // between consecutive title swaps (0 shows a frame again, 2 or more skip
 // steps) and how far the game time they cover strays from the wall time
@@ -7592,7 +7688,7 @@ void PinyonShiftNoteTitleSwap() {
     // vblank, so a frame that missed its vblank pair still gets its step.
     {
       std::lock_guard lock(g_step_gate_mutex);
-      if (g_step_raise_held.load(std::memory_order_relaxed) && StepLead() < 2) {
+      if (g_step_raise_held.load(std::memory_order_relaxed) && GateLead() < 2) {
         g_step_raise_held.store(false, std::memory_order_release);
         raise = true;
       }
@@ -7607,7 +7703,12 @@ void PinyonShiftNoteTitleSwap() {
     g_step_raise_held.store(bool(rex::session_probe::Scalar(rex::session_probe::Kind::kHostHook, UINT64_C(0x8247C6F100000002), g_step_raise_held.load(), true)));
     g_step_gate_base = int64_t(rex::session_probe::Scalar(rex::session_probe::Kind::kHostHook, UINT64_C(0x8247C6F100000003), uint64_t(g_step_gate_base), true));
   }
-  if (raise) RaiseStepEvent();
+  if (raise) {
+    if (rex::perf::CriticalPathTraceEnabled()) {
+      rex::perf::TraceCriticalPath("step_swap_raise", 0, GateLead());
+    }
+    RaiseStepEvent();
+  }
   if (!REXCVAR_GET(pinyon_shift_step_pacing_log)) {
     return;
   }
@@ -7663,8 +7764,10 @@ void PinyonShiftNoteTitleSwap() {
 // frame over two guest vblanks), it skips steps, and a frame that falls
 // between two raises gets none: frames show 0 or 2 steps of motion at a flat
 // frame rate (#381). With pinyon_shift_step_backpressure the raise (r11) is
-// held while the main loop is two steps ahead of the render thread's swaps;
-// the next swap raises the event itself (PinyonShiftNoteTitleSwap). Steps
+// held while the main loop is two steps past the step the render thread last
+// drew (DrawnLead; its swaps where that is not known); the next swap or the
+// render thread's wait raises the event itself (PinyonShiftNoteTitleSwap,
+// PinyonShiftNoteRenderIdle). Steps
 // that keep up stay on the vblank, so each step's time matches the vblank its
 // frame is shown on.
 void PinyonShiftGateSimulationStep(PPCRegister& r11) {
@@ -7695,8 +7798,10 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
     }
     bool hold = false;
     if (REXCVAR_GET(pinyon_shift_step_backpressure)) {
-      int64_t lead = StepLead();
-      if (lead < 0) {
+      int64_t lead = 0;
+      const bool drawn_known = DrawnLead(lead);
+      if (!drawn_known) lead = StepLead();
+      if (!drawn_known && lead < 0) {
         // Frames swapped without a step (loading, paused): start level.
         g_step_gate_base += lead;
         lead = 0;
@@ -7712,12 +7817,15 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
         } else {
           // The render thread is not taking steps: run this one and count
           // from the usual one step ahead.
-          g_step_gate_base += lead - 1;
+          if (!drawn_known) g_step_gate_base += lead - 1;
           ++timeouts;
         }
       }
     }
     g_step_raise_held.store(hold, std::memory_order_release);
+    if (rex::perf::CriticalPathTraceEnabled()) {
+      rex::perf::TraceCriticalPath(hold ? "step_hold" : "step_raise", 0, GateLead());
+    }
     if (hold) {
       r11.u64 = 0;
     } else {
@@ -7740,6 +7848,7 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
                                               {"holds", fmt::format("{}", holds)},
                                               {"swap_raises", fmt::format("{}", swap_raises)},
                                               {"timeouts", fmt::format("{}", timeouts)},
+                                              {"idle_raises", fmt::format("{}", g_step_idle_raises.exchange(0))},
                                               {"held_ms", fmt::format("{:.1f}", held_ms)}});
     }
     report = now;
@@ -7749,7 +7858,10 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
 }
 
 void PinyonShiftObserveSimulationDelta(PPCRegister& f31) {
-  g_simulation_steps.fetch_add(1, std::memory_order_release);
+  const uint64_t step = g_simulation_steps.fetch_add(1, std::memory_order_release) + 1;
+  if (rex::perf::CriticalPathTraceEnabled()) {
+    rex::perf::TraceCriticalPath("step_start", 0, int64_t(step), GateLead());
+  }
   double seconds = f31.f64;
   if (!std::isfinite(seconds) || seconds < 0.0 || seconds > 0.25) {
     PROFILE_SIMULATION_DELTA_INVALID();
