@@ -264,14 +264,19 @@ static double PairStepImpl(double seconds) {
   constexpr double kMaxBank = 0.1;
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  // The step's frame shows the request the layers took in the last update
-  // (this step's camera update makes it the previous one, TagFieldOfView),
-  // and the world this step leaves. A pair is a left frame and the right one
-  // after it, so the right eye's step is the short one. (xr_simulate's pair
-  // check, at a standstill: the camera moved 0.1 mm within pairs, against
-  // 0.9 mm unpaired and 1.7 mm with the left eye's step shortened.)
+  // A pair is the eye drawn first and the other one after it, and its two
+  // images must show the world at one moment. The image of the eye drawn
+  // second shows the world of the step after the one whose layers took the
+  // first eye's request, so the short step is the one after the first eye's
+  // update. With the other eye's step shortened, driving at 100-170 km/h while
+  // looking out the side window, the road moved 160-210 px between a pair's
+  // images and only by the eyes' own parallax (20 px, as at a standstill)
+  // from a pair to the next: the eyes were a whole step apart, the world
+  // looked small and the ground close. The world's matrices drawn with each
+  // frame say the opposite (6 cm within pairs, 40-67 cm between them); they
+  // are a frame off from the images, as for the rotation (CameraOffset).
   const bool paired = REXCVAR_GET(xr_paired_steps) && LayersCurrent(l);
-  if (paired && l.applied_eye != rex::ui::vulkan::openxr::FirstEye() && seconds > kShortStep) {
+  if (paired && l.applied_eye == rex::ui::vulkan::openxr::FirstEye() && seconds > kShortStep) {
     l.banked = std::min(l.banked + seconds - kShortStep, kMaxBank);
     return kShortStep;
   }
