@@ -42,6 +42,11 @@ REXCVAR_DEFINE_INT32(xr_log_steps, 0, "Display",
                      "steps for this many steps from when it is set")
     .range(0, 2000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(xr_rotation_delay, 1, "Display",
+                     "Testing: how many camera updates late the VR eye's rotation goes to the "
+                     "rotation layers (0 the latest request)")
+    .range(0, 3)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
                     "both eyes, so it floats at the wrong depth")
@@ -79,7 +84,8 @@ struct Latched {
   // The poses the layers took in the last update and the one before: the
   // rotation layers take effect an update sooner than the position layers,
   // so they get the earlier pose (CameraOffset).
-  head_tracking::Pose applied_pose{}, previous_applied_pose{};
+  head_tracking::Pose applied_pose{}, previous_applied_pose{}, older_applied_pose{},
+      oldest_applied_pose{};
   uint64_t applied_tick = 0, updates = 0;
   // PairStep: game time the shortened steps left out, for the next step.
   double banked = 0.0;
@@ -183,8 +189,11 @@ head_tracking::Pose CameraOffset() {
   // frame by the wrong turn and the view shook. The rotation layers take the
   // pose of the update before, so both come from the frame's request.
   head_tracking::Pose pose = l.pose;
+  const head_tracking::Pose* const sources[] = {&l.pose, &l.previous_applied_pose,
+                                                &l.older_applied_pose, &l.oldest_applied_pose};
+  const head_tracking::Pose& rotation = *sources[std::clamp(REXCVAR_GET(xr_rotation_delay), 0, 3)];
   for (const auto axis : {head_tracking::kYaw, head_tracking::kPitch, head_tracking::kRoll}) {
-    pose[axis] = l.previous_applied_pose[axis];
+    pose[axis] = rotation[axis];
   }
   return pose;
 }
@@ -214,6 +223,8 @@ void NoteLayersApplied() {
   l.applied = true;
   l.applied_tag = l.tag;
   l.applied_eye = l.eye;
+  l.oldest_applied_pose = l.older_applied_pose;
+  l.older_applied_pose = l.previous_applied_pose;
   l.previous_applied_pose = l.applied_pose;
   l.applied_pose = l.pose;
   l.applied_tick = l.ticks;
