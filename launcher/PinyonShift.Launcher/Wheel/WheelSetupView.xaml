@@ -195,54 +195,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Display (full screen, wider view, resolution across and down, field of view) is
-                     hidden: the game's own settings already do what is needed. Remove
-                     Visibility="Collapsed" to bring the card back; its code still runs. -->
-                <Border Style="{StaticResource Card}" Visibility="Collapsed">
-                    <StackPanel>
-                        <Button Style="{StaticResource CardToggle}" Tag="display" Click="CardToggle_Click"
-                                AutomationProperties.Name="Display">
-                            <DockPanel>
-                                <TextBlock x:Name="DisplayChevron" DockPanel.Dock="Right" Text="&#xE70D;" FontFamily="{StaticResource IconFont}"
-                                           FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                <TextBlock x:Name="DisplaySummary" DockPanel.Dock="Right" Style="{StaticResource SecondaryText}"
-                                           TextWrapping="NoWrap" VerticalAlignment="Center"/>
-                                <TextBlock Text="Display" Style="{StaticResource CardHeader}" Margin="0" VerticalAlignment="Center"/>
-                            </DockPanel>
-                        </Button>
-                        <StackPanel x:Name="DisplayBody" Margin="0,12,0,0" Visibility="Collapsed">
-                        <CheckBox x:Name="FullscreenBox" Content="Full screen" Margin="0,0,0,2" Click="Display_Changed"/>
-                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
-                                   Text="Full screen uses your display's own resolution. A window can be any size: the game fills it."/>
-                        <CheckBox x:Name="WiderBox" Content="Ultrawide: wider view" Margin="0,0,0,2" Click="Display_Changed"/>
-                        <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,10"
-                                   Text="On a display wider than 16:9 (21:9, 32:9, 64:9), the game shows more of the world to the sides and renders at the display's full width, with the HUD kept at 16:9."/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="128"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Text="Resolution (down)" VerticalAlignment="Center"/>
-                            <ComboBox x:Name="ScaleBox" Grid.Column="1" SelectionChanged="Display_Changed">
-                                <ComboBoxItem Content="1× (720 lines)"/>
-                                <ComboBoxItem Content="2× (1440 lines)"/>
-                                <ComboBoxItem Content="3× (2160 lines)"/>
-                                <ComboBoxItem Content="4× (2880 lines)"/>
-                            </ComboBox>
-                            <TextBlock Grid.Row="1" Text="Field of view" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                            <ComboBox x:Name="FovBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Display_Changed"/>
-                        </Grid>
-                        <TextBlock x:Name="RenderText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0"/>
-                        <TextBlock Style="{StaticResource SecondaryText}" Margin="0,6,0,0"
-                                   Text="Saved as soon as you change it; applies from the next game start. Changing RESOLUTION SCALE in F6 sets across and down the same again, so set it here."/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <Button Style="{StaticResource CardToggle}" Tag="telemetry" Click="CardToggle_Click"
@@ -278,7 +230,7 @@
                         </Grid>
                         <CheckBox x:Name="MovingOnlyBox" Content="Only while the car moves" Margin="0,12,0,2" Click="Telemetry_Changed"/>
                         <TextBlock Style="{StaticResource SecondaryText}" Margin="26,0,0,0"
-                                   Text="Silent while standing still too, not just in menus. Pick the same game in SimHub as above; Forza Horizon's port is 8000."/>
+                                   Text="Silent while standing still too, not just in menus. Pick the same game in SimHub as above, and the port SimHub listens on."/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

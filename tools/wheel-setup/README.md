@@ -18,7 +18,6 @@ This folder holds what builds and supports that screen.
 | `scripts/analyze_ffb_trace.py` | Summarises a force feedback trace (`wheel_ffb_trace`): the effects the game downloaded and how the forces moved. |
 | `scripts/ffb-tune.ps1` | Shows or changes the force feedback settings in the config (strength, direction, rumble, scale, trace). |
 | `scripts/set-ffb-scale.ps1` | Sets `wheel_ffb_magnitude_max`, the scale of the game's effect values. |
-| `scripts/extract-wheel-code.ps1` | Copies the game's wheel and force feedback functions out of a local generated tree for study. Its output is generated from the player's own disc: keep it local. |
 
 The scripts find the launcher's install folder on their own (`install-root.txt`, else
 `%LOCALAPPDATA%\PinyonShift`); `-Install <folder>` overrides it.

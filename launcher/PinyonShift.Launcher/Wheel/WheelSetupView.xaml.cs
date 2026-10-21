@@ -27,7 +27,6 @@ public partial class WheelSetupView : UserControl
     public event EventHandler? DoneRequested;
     private readonly DeviceManager devices = new();
     private readonly BindingSet set = new();
-    private readonly DisplaySettings display = new();
     private readonly TelemetrySettings telemetry = new();
     private readonly DispatcherTimer timer = new(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(15) };
     private readonly Storyboard pulse;
@@ -60,7 +59,6 @@ public partial class WheelSetupView : UserControl
         InitializeComponent();
         pulse = (Storyboard)FindResource("PulseStoryboard");
 
-        FovBox.ItemsSource = DisplaySettings.FovScales.Select(f => $"{f * 100:0} %").ToList();
         BindingList.ItemsSource = set.Items;
         ChipList.ItemsSource = set.Buttons.ToList();
         DeviceList.ItemsSource = devices.Devices;
@@ -143,16 +141,8 @@ public partial class WheelSetupView : UserControl
         foreach (var (key, value) in configValues.Where(kv => kv.Key.StartsWith("wheel_")))
             Log.Write($"config {key} = {value}");
         set.Load(configValues, devices.Devices);
-        display.Load(configValues);
-        DisplayFromModel();
         telemetry.Load(configValues);
         TelemetryFromModel();
-        // Saved before the game moved to Forza Horizon's port: follow it.
-        if (telemetry.MovedFromOldDefault && configPath != null && File.Exists(configPath) &&
-            System.Diagnostics.Process.GetProcessesByName("pinyon_shift").Length == 0)
-        {
-            SaveSettings(telemetry.ConfigLines(), "Telemetry", $"port moved to 8000, Forza Horizon's");
-        }
         dirty = false;
         UiFromSet();
         UpdateCardSummaries();
@@ -689,34 +679,6 @@ public partial class WheelSetupView : UserControl
         UpdateStatus();
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Display: saved on every change, independent of the wheel bindings.
-
-    private void DisplayFromModel()
-    {
-        loadingUi = true;
-        FullscreenBox.IsChecked = display.Fullscreen;
-        WiderBox.IsChecked = display.WiderView;
-        ScaleBox.SelectedIndex = display.Scale - 1;
-        int fov = Array.FindIndex(DisplaySettings.FovScales, f => Math.Abs(f - display.Fov) < 0.01);
-        FovBox.SelectedIndex = fov >= 0 ? fov : 1;
-        loadingUi = false;
-        RenderText.Text = display.RenderText();
-    }
-
-    private void Display_Changed(object sender, RoutedEventArgs e)
-    {
-        if (loadingUi || !IsLoaded) return;
-        display.Fullscreen = FullscreenBox.IsChecked == true;
-        display.WiderView = WiderBox.IsChecked == true;
-        display.Scale = Math.Clamp(ScaleBox.SelectedIndex + 1, 1, 4);
-        display.Fov = DisplaySettings.FovScales[Math.Clamp(FovBox.SelectedIndex, 0, DisplaySettings.FovScales.Length - 1)];
-        RenderText.Text = display.RenderText();
-        SaveSettings(display.ConfigLines(), "Display", display.Summary());
-        UpdateCardSummaries();
-        UpdateStatus();
-    }
-
     private void TelemetryFromModel()
     {
         loadingUi = true;
@@ -731,7 +693,7 @@ public partial class WheelSetupView : UserControl
     {
         if (loadingUi || !IsLoaded) return;
         string target = TelemetryTargetBox.Text.Trim();
-        if (target.Length > 0 && !target.Contains(':')) target += ":8000";
+        if (target.Length > 0 && !target.Contains(':')) target += TelemetrySettings.DefaultPort;
         telemetry.Enabled = TelemetryBox.IsChecked == true;
         telemetry.Horizon = TelemetryFormatBox.SelectedIndex != 1;
         telemetry.MovingOnly = MovingOnlyBox.IsChecked == true;
@@ -778,7 +740,6 @@ public partial class WheelSetupView : UserControl
     private Dictionary<string, (FrameworkElement Body, TextBlock Chevron)> Cards => new()
     {
         ["config"] = (ConfigBody, ConfigChevron),
-        ["display"] = (DisplayBody, DisplayChevron),
         ["telemetry"] = (TelemetryBody, TelemetryChevron),
         ["devices"] = (DevicesBody, DevicesChevron),
         ["ffb"] = (FfbBody, FfbChevron),
@@ -814,7 +775,6 @@ public partial class WheelSetupView : UserControl
             _ => $"On · {set.FfbStrength} %" + (set.FfbInvert ? " · reversed" : ""),
         };
         SteeringSummary.Text = set.Wheel900 ? "900°" : "speed-sensitive";
-        DisplaySummary.Text = display.Summary();
         TelemetrySummary.Text = telemetry.Summary();
     }
 
@@ -1020,28 +980,19 @@ public partial class WheelSetupView : UserControl
             log.Add("status: " + StatusText.Text);
             foreach (var item in set.Items) log.Add($"{item.Key}: {item.BindingText}");
 
-            // Display: on a 32:9 display the wider view at 2x renders 4x across; saved at once.
+            // Telemetry: saved at once.
             LeftScroll.ScrollToHome();
-            display.DisplaySize = (5120, 1440);
-            WiderBox.IsChecked = true;
-            Display_Changed(WiderBox, new RoutedEventArgs());
-            ScaleBox.SelectedIndex = 1;
-            await Task.Delay(300);
-            var saved = GameConfig.Read(configPath!);
-            string Get(string k) => saved.TryGetValue(k, out var v) ? v : "(missing)";
-            log.Add($"display: {DisplaySummary.Text}; {RenderText.Text}; fullscreen {Get("fullscreen")}, " +
-                    $"hor_plus {Get("pinyon_shift_hor_plus")}, letterbox {Get("present_letterbox")}, scale {Get("draw_resolution_scale_x")}/{Get("draw_resolution_scale_y")}, fov {Get("pinyon_shift_fov_scale")}");
-            log.Add("display status: " + StatusText.Text);
             TelemetryBox.IsChecked = true;
             Telemetry_Changed(TelemetryBox, new RoutedEventArgs());
             TelemetryFormatBox.SelectedIndex = 1;
             await Task.Delay(100);
             TelemetryFormatBox.SelectedIndex = 0;
             await Task.Delay(200);
-            saved = GameConfig.Read(configPath!);
+            var saved = GameConfig.Read(configPath!);
+            string Get(string k) => saved.TryGetValue(k, out var v) ? v : "(missing)";
             log.Add($"telemetry: {TelemetrySummary.Text}; udp {Get("telemetry_udp")}, format {Get("telemetry_udp_format")}, " +
                     $"moving only {Get("telemetry_udp_moving_only")}, target {Get("telemetry_udp_target")}");
-            Snap(outDir, "12-display");
+            Snap(outDir, "12-telemetry");
         }
         catch (Exception ex)
         {
