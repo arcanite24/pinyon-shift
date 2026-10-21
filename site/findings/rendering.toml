@@ -213,6 +213,15 @@ confidence = """confirmed"""
 note = """The register setting that reverses the depth range was not looked up; "comes from the depth range" is inferred from the matrix."""
 source = """docs/UPSCALING_BACKLOG.md UP-1.3; ShiftGlue src/graphics/vulkan/command_processor.cpp kSwapCameraSource"""
 
+[[finding]]
+group = """Frame structure and views"""
+name = """cockpit drawn at the near depth limit"""
+what = """In the cockpit camera the cockpit is stored at depth 1, the reversed depth's near limit, wherever it covers the screen, while the world-view-projection constants it is drawn with put it at its real distance in front of the camera. Its stored depth therefore never matches the depth its draw's matrix gives at that pixel, so motion vectors that pick a pixel's draw by matching depth find none for the cockpit, and it moves with the camera's reprojection instead."""
+how = """Dumping the DLSS inputs (`xr_upscale_inputs_dir`) on a simulated cockpit drive and comparing each pixel's stored depth with the depth its object slot's matrix gives: the world and other cars match, the cockpit reads 1 throughout. Trusting the cockpit's slots without the depth match made its motion worse in simulation."""
+confidence = """confirmed"""
+note = """Whether the depth range or the shader pins the cockpit's depth was not looked up."""
+source = """docs/UPSCALING_BACKLOG.md UP-2.2 in VR; docs/FEATURE_BACKLOG.md FB-12.15; ShiftGlue src/graphics/vulkan/fh1_camera.cpp"""
+
 # ---------------------------------------------------------------------------
 # Render targets and EDRAM
 # ---------------------------------------------------------------------------
