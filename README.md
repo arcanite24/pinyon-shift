@@ -40,7 +40,7 @@ It does **not** contain the game, its assets, generated translations or a
 prebuilt executable: you build the game from a disc you own.
 
 > **Playable preview.** Expect some rendering bugs and slowdowns. The
-> [0.6.0 release notes](docs/releases/0.6.0.md) list what the latest release
+> [0.6.1 release notes](docs/releases/0.6.1.md) list what the latest release
 > contains and its known limitations.
 
 ## Highlights

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.1 - 2026-10-21
+
+- Builds again on Linux and Steam Deck in folders with spaces (#727) and
+  with FidelityFX on SteamOS (#681); Android APKs build from the release
+  source (#716) and after a stopped build (#763).
+- Setup fetches AMD's FidelityFX and NVIDIA's DLSS runtimes on Windows;
+  the upscaler setting names FSR 1 when the chosen one can't run (#762,
+  #670).
+- Racing wheel force feedback and a launcher wheel screen (#337); fuller
+  telemetry with the Forza Horizon 4/5 layout as an option.
+- WINDOWS HDR switch, live chase camera tuning (#487) and the immersive
+  camera on v4, trainer road travel and GPS (#485), shader replacement
+  mods (#522), a frame inspector (#529), and an Android opt-in for Mali
+  GPUs.
+- Fixed: shadows-off garage photos (#700, #733), textures after livery
+  edits (#628), hidden cars for sale (#669), settings written by a mod
+  builder, older Apple clang (#775).
+- Faster: no double presents with overlays open and no per-frame GPU wait
+  for exposure.
+
 ## 0.6.0 - 2026-10-17
 
 - Temporal FSR 2 and FSR 3 in OUTPUT SCALING, fed with depth, camera and
