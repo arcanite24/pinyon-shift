@@ -32,6 +32,12 @@ The Vulkan shader-mod loader statically links the SDK's pinned
 [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) validator
 (Apache License 2.0, in `thirdparty/shiftglue-sdk/thirdparty/spirv-tools/LICENSE`).
 
+On Windows the VR output statically links the OpenXR loader, built from the
+[OpenXR SDK](https://github.com/KhronosGroup/OpenXR-SDK) 1.1.63 release
+source that setup downloads and checks by SHA-256 (Apache License 2.0, with
+its bundled jsoncpp under the MIT License; both in the downloaded source's
+`LICENSE` and `LICENSES/` folder).
+
 The launcher's racing wheel screen loads `SDL3.dll`, built from the SDK's
 pinned [SDL](https://github.com/libsdl-org/SDL) source (zlib License, in
 `thirdparty/shiftglue-sdk/thirdparty/sdl3/LICENSE.txt`).
