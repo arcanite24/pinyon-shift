@@ -9,6 +9,7 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -1272,6 +1273,20 @@ void PinyonShiftApp::OnPostSetup() {
     rex::cvar::SetFlagByName("present_window_interval", "8");
     pinyon_shift::diagnostics::RecordEvent("present.window_interval",
                                            {{"interval", "8"}, {"reason", "vr_default"}});
+  }
+  // VR's DLSS (xr_upscaler) samples textures for the headset's size, not the
+  // render size, as DLSS asks: a mip bias of log2(render / output). A value
+  // set in the config or on the command line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagByName("xr_upscaler") == "dlss" &&
+      rex::cvar::GetFlagSource("texture_mip_lod_bias") == rex::cvar::Source::kDefault) {
+    const double ratio =
+        std::clamp(std::atof(rex::cvar::GetFlagByName("xr_upscale_ratio").c_str()), 1.0, 3.0);
+    const std::string bias = fmt::format("{:.3f}", -std::log2(ratio));
+    rex::cvar::SetFlagByName("texture_mip_lod_bias", bias);
+    pinyon_shift::diagnostics::RecordEvent("texture.mip_lod_bias",
+                                           {{"bias", bias}, {"reason", "vr_dlss"}});
   }
   // For comparing in the headset: not saved, the config's value returns on
   // the next launch.
