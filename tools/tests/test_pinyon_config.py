@@ -60,13 +60,19 @@ SCENARIOS = [
      [("Reset", {}), ("Restore", {})]),
     ("preset_name", "pinyon_shift_config_schema = 29\n",
      [("Apply", {"Preset": "experimental_2x", "ResolutionScale": "4"})]),
+    # VR's render size replaces the resolution while on; off, the panel's
+    # square scale comes back.
+    ("vr_on_then_off", "pinyon_shift_config_schema = 29\n",
+     [("Apply", {"ResolutionScale": "2", "Vr": "true", "VrScale": "2x4"}), ("Get", {}),
+      ("Apply", {"ResolutionScale": "3", "Vr": "false"})]),
 ]
 
 PYTHON_OPTIONS = {"ResolutionScale": "--resolution-scale", "OutputScaling": "--output-scaling",
                   "GamePreset": "--game-preset", "RenderFps": "--render-fps",
                   "TreasureMap": "--treasure-map", "Anisotropy": "--anisotropy",
                   "PostEffect": "--post-effect", "DisableBloom": "--disable-bloom",
-                  "PresentationFps": "--presentation-fps", "Preset": "--preset"}
+                  "PresentationFps": "--presentation-fps", "Preset": "--preset",
+                  "Vr": "--vr", "VrScale": "--vr-scale"}
 
 
 def run_python(state: Path, action: str, options: dict) -> dict:
